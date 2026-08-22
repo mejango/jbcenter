@@ -312,7 +312,6 @@ describe("public IPFS gateway", () => {
       return new Response(new Uint8Array(10), {
         status: 206,
         headers: {
-          "accept-ranges": "bytes",
           "content-length": "10",
           "content-range": "bytes 10-19/100",
           "content-type": "video/mp4",

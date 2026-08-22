@@ -404,8 +404,8 @@ export function createApp(
         "Content-Type": download ? "application/octet-stream" : upstreamType,
         ...(download ? { "Content-Disposition": "attachment; filename=ipfs-asset" } : {}),
         ...(declaredLength > 0 ? { "Content-Length": String(declaredLength) } : {}),
-        ...(upstream.headers.get("accept-ranges")
-          ? { "Accept-Ranges": upstream.headers.get("accept-ranges")! }
+        ...(upstream.headers.get("accept-ranges") || upstream.status === 206
+          ? { "Accept-Ranges": upstream.headers.get("accept-ranges") ?? "bytes" }
           : {}),
         ...(upstream.headers.get("content-range")
           ? { "Content-Range": upstream.headers.get("content-range")! }
