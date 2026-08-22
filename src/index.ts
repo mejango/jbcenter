@@ -6,6 +6,7 @@ import { migrate } from "./db/migrate.js";
 import { createPool, PostgresStore } from "./db/postgres.js";
 import { parseChainRpcConfig, RpcDeploymentVerifier } from "./deploymentVerifier.js";
 import { FilebaseS3Storage, RedundantIpfsPinning } from "./ipfs.js";
+import { createRpcGateway, parseRpcUpstreams } from "./rpc.js";
 
 function positiveInteger(name: string, fallback: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -52,6 +53,7 @@ if (pinningValues.some(Boolean) && !pinningValues.every(Boolean)) {
 }
 const port = Number(process.env.PORT ?? 3000);
 if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("PORT is invalid");
+const rpcUpstreams = parseRpcUpstreams(process.env.JBCENTER_RPC_URLS);
 
 const pool = createPool(connectionString);
 await migrate(pool);
@@ -64,7 +66,10 @@ const server = serve({
     requestLimitPerMinute: positiveInteger("RATE_LIMIT_PER_MINUTE", 600),
     maxIntentsPerClient: positiveInteger("MAX_INTENTS_PER_CLIENT", 10_000),
     maxStorageBytesPerClient: positiveInteger("MAX_STORAGE_BYTES_PER_CLIENT", 1_073_741_824),
+    rpcRequestLimitPerMinute: positiveInteger("RPC_REQUEST_LIMIT_PER_MINUTE", 600),
+    rpcSiteLimitPerMinute: positiveInteger("RPC_SITE_LIMIT_PER_MINUTE", 20_000),
     metricsToken,
+    ...(rpcUpstreams.size ? { rpc: createRpcGateway(rpcUpstreams) } : {}),
     ...(filebaseAccessKey && filebaseSecretKey && filebaseBucket && pinataJwt
       ? {
           pinning: new RedundantIpfsPinning(
