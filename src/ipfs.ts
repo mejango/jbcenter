@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
+import { HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { CID } from "multiformats/cid";
 
-const FILEBASE_ADD_URL = "https://rpc.filebase.io/api/v0/add?pin=true&cid-version=0";
 const PINATA_PIN_URL = "https://api.pinata.cloud/v3/files/public/pin_by_cid";
 const PROVIDER_TIMEOUT_MS = 90_000;
 
@@ -21,6 +22,10 @@ export type PinResult = {
 
 export interface PinningService {
   pin(content: Blob, filename: string): Promise<PinResult>;
+}
+
+export interface IpfsStorage {
+  add(content: Blob, filename: string): Promise<string>;
 }
 
 export function isIpfsCid(value: string): boolean {
@@ -46,29 +51,56 @@ export function safeIpfsPath(rawPath: string): string | null {
   return path.length <= 512 ? path : null;
 }
 
+export class FilebaseS3Storage implements IpfsStorage {
+  private readonly client: S3Client;
+
+  constructor(
+    accessKeyId: string,
+    secretAccessKey: string,
+    private readonly bucket: string,
+    client?: S3Client,
+  ) {
+    this.client =
+      client ??
+      new S3Client({
+        region: "us-east-1",
+        endpoint: "https://s3.filebase.com",
+        forcePathStyle: true,
+        credentials: { accessKeyId, secretAccessKey },
+      });
+  }
+
+  async add(content: Blob, filename: string): Promise<string> {
+    const bytes = Buffer.from(await content.arrayBuffer());
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const key = `pins/${digest}/${filename}`;
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: bytes,
+        ContentLength: bytes.byteLength,
+        ContentType: content.type || "application/octet-stream",
+      }),
+    );
+    const head = await this.client.send(
+      new HeadObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    const cid = head.Metadata?.cid;
+    if (!cid || !isIpfsCid(cid)) throw new Error("Filebase returned an invalid CID");
+    return cid;
+  }
+}
+
 export class RedundantIpfsPinning implements PinningService {
   constructor(
-    private readonly filebaseToken: string,
+    private readonly filebase: IpfsStorage,
     private readonly pinataJwt: string,
     private readonly fetcher: typeof fetch = fetch,
   ) {}
 
   async pin(content: Blob, filename: string): Promise<PinResult> {
-    const form = new FormData();
-    form.append("file", content, filename);
-    const filebase = await this.fetcher(FILEBASE_ADD_URL, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${this.filebaseToken}` },
-      body: form,
-      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
-    });
-    if (!filebase.ok) throw new Error(`Filebase add failed (${filebase.status})`);
-    const filebaseBody = (await filebase.json()) as { Hash?: unknown };
-    if (typeof filebaseBody.Hash !== "string" || !isIpfsCid(filebaseBody.Hash)) {
-      throw new Error("Filebase returned an invalid CID");
-    }
-
-    const cid = filebaseBody.Hash;
+    const cid = await this.filebase.add(content, filename);
     const pinata = await this.fetcher(PINATA_PIN_URL, {
       method: "POST",
       headers: {

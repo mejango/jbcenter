@@ -5,7 +5,7 @@ import { createApp } from "./app.js";
 import { migrate } from "./db/migrate.js";
 import { createPool, PostgresStore } from "./db/postgres.js";
 import { parseChainRpcConfig, RpcDeploymentVerifier } from "./deploymentVerifier.js";
-import { RedundantIpfsPinning } from "./ipfs.js";
+import { FilebaseS3Storage, RedundantIpfsPinning } from "./ipfs.js";
 
 function positiveInteger(name: string, fallback: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -33,10 +33,15 @@ if (new Set(keys.map(({ secret }) => secret)).size !== keys.length) {
   throw new Error("API key secrets must be unique");
 }
 const metricsToken = requireStrongSecret("METRICS_TOKEN", process.env.METRICS_TOKEN);
-const filebaseToken = process.env.FILEBASE_IPFS_RPC_TOKEN;
+const filebaseAccessKey = process.env.FILEBASE_ACCESS_KEY_ID;
+const filebaseSecretKey = process.env.FILEBASE_SECRET_ACCESS_KEY;
+const filebaseBucket = process.env.FILEBASE_BUCKET;
 const pinataJwt = process.env.PINATA_JWT;
-if (!!filebaseToken !== !!pinataJwt) {
-  throw new Error("FILEBASE_IPFS_RPC_TOKEN and PINATA_JWT must be configured together");
+const pinningValues = [filebaseAccessKey, filebaseSecretKey, filebaseBucket, pinataJwt];
+if (pinningValues.some(Boolean) && !pinningValues.every(Boolean)) {
+  throw new Error(
+    "FILEBASE_ACCESS_KEY_ID, FILEBASE_SECRET_ACCESS_KEY, FILEBASE_BUCKET, and PINATA_JWT must be configured together",
+  );
 }
 const port = Number(process.env.PORT ?? 3000);
 if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("PORT is invalid");
@@ -53,8 +58,13 @@ const server = serve({
     maxIntentsPerClient: positiveInteger("MAX_INTENTS_PER_CLIENT", 10_000),
     maxStorageBytesPerClient: positiveInteger("MAX_STORAGE_BYTES_PER_CLIENT", 1_073_741_824),
     metricsToken,
-    ...(filebaseToken && pinataJwt
-      ? { pinning: new RedundantIpfsPinning(filebaseToken, pinataJwt) }
+    ...(filebaseAccessKey && filebaseSecretKey && filebaseBucket && pinataJwt
+      ? {
+          pinning: new RedundantIpfsPinning(
+            new FilebaseS3Storage(filebaseAccessKey, filebaseSecretKey, filebaseBucket),
+            pinataJwt,
+          ),
+        }
       : {}),
   }).fetch,
   port,

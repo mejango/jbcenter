@@ -197,7 +197,8 @@ The remaining controls are environment variables:
 - `MAX_INTENTS_PER_CLIENT` — lifetime intent count per client; default `10000`.
 - `MAX_STORAGE_BYTES_PER_CLIENT` — lifetime stored envelope bytes per client; default 1 GiB.
 - `METRICS_TOKEN` — required 32-character bearer token for `GET /metrics`.
-- `FILEBASE_IPFS_RPC_TOKEN` — bucket-specific Filebase RPC API key; never expose it to a browser.
+- `FILEBASE_ACCESS_KEY_ID`, `FILEBASE_SECRET_ACCESS_KEY`, and `FILEBASE_BUCKET` — credentials and
+  dedicated IPFS bucket for Filebase's S3-compatible API; never expose them to a browser.
 - `PINATA_JWT` — scoped Pinata token with `org:files:write`; never expose it to a browser.
 - `DATABASE_URL` — PostgreSQL connection string; require TLS in the production provider settings.
 

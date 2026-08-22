@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import {
+  FilebaseS3Storage,
   PIN_LIMITS,
   RedundantIpfsPinning,
   isIpfsCid,
@@ -163,19 +164,18 @@ describe("IPFS pinning", () => {
   });
 
   it("creates a CID with Filebase before asking Pinata to replicate that exact CID", async () => {
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ Hash: CID }), { status: 200 }))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ data: { cid: CID, status: "retrieving" } }), { status: 200 }),
-      );
-    const service = new RedundantIpfsPinning("filebase-token", "pinata-token", fetcher);
+    const filebase = { add: vi.fn(async () => CID) };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: { cid: CID, status: "retrieving" } }), { status: 200 }),
+    );
+    const service = new RedundantIpfsPinning(filebase, "pinata-token", fetcher);
     await expect(service.pin(new Blob(["hello"]), "hello.txt")).resolves.toEqual({
       cid: CID,
       status: "queued",
     });
-    expect(fetcher).toHaveBeenCalledTimes(2);
-    const pinataInit = fetcher.mock.calls[1]?.[1];
+    expect(filebase.add).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledOnce();
+    const pinataInit = fetcher.mock.calls[0]?.[1];
     expect(pinataInit?.body).toBe(JSON.stringify({ cid: CID, name: "hello.txt" }));
     expect((pinataInit?.headers as Record<string, string>).Authorization).toBe("Bearer pinata-token");
   });
@@ -183,10 +183,40 @@ describe("IPFS pinning", () => {
   it("fails closed when a provider returns a mismatched CID", async () => {
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ Hash: CID }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: { cid: `${CID}x` } }), { status: 200 }));
-    const service = new RedundantIpfsPinning("filebase-token", "pinata-token", fetcher);
+    const service = new RedundantIpfsPinning(
+      { add: vi.fn(async () => CID) },
+      "pinata-token",
+      fetcher,
+    );
     await expect(service.pin(new Blob(["hello"]), "hello.txt")).rejects.toThrow("mismatched");
+  });
+
+  it("uploads to a deterministic Filebase object key and validates its CID metadata", async () => {
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ Metadata: { cid: CID } });
+    const storage = new FilebaseS3Storage(
+      "access-key",
+      "secret-key",
+      "juice-central",
+      { send } as never,
+    );
+    await expect(
+      storage.add(new Blob(["hello"], { type: "text/plain" }), "hello.txt"),
+    ).resolves.toBe(CID);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[0]?.[0].input).toMatchObject({
+      Bucket: "juice-central",
+      Key: `pins/${"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}/hello.txt`,
+      ContentType: "text/plain",
+      ContentLength: 5,
+    });
+    expect(send.mock.calls[1]?.[0].input).toMatchObject({
+      Bucket: "juice-central",
+      Key: expect.stringContaining("/hello.txt"),
+    });
   });
 });
 
