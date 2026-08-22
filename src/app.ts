@@ -1,0 +1,526 @@
+import { bodyLimit } from "hono/body-limit";
+import { Hono, type Context } from "hono";
+import { cors } from "hono/cors";
+import { isHex, size, verifyMessage, type Hex } from "viem";
+import { apiKeyAuth, authenticate, type ApiKey } from "./auth.js";
+import {
+  DeploymentVerificationError,
+  type DeploymentVerifier,
+} from "./deploymentVerifier.js";
+import {
+  address,
+  contentHash,
+  normalizeEnvelope,
+  signingMessage,
+} from "./intent.js";
+import { extractMetadata } from "./metadata.js";
+import { Metrics } from "./observability.js";
+import {
+  PIN_LIMITS,
+  safeIpfsPath,
+  type PinResult,
+  type PinningService,
+} from "./ipfs.js";
+import { ConflictError, StorageLimitError, type Store } from "./store.js";
+import type { CentralEnv } from "./types.js";
+
+const MAX_BODY_BYTES = 2_100_000;
+export const ALLOWED_ORIGINS = ["https://juicebox.money", "https://revnet.money"] as const;
+const PIN_WINDOW_SECONDS = 10 * 60;
+const PIN_PER_CALLER = 10;
+const PIN_PER_SITE = 200;
+const IPFS_GATEWAYS = [
+  "https://gateway.pinata.cloud/ipfs",
+  "https://dweb.link/ipfs",
+  "https://ipfs.io/ipfs",
+] as const;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const TX_HASH = /^0x[0-9a-f]{64}$/iu;
+
+class BadRequest extends Error {}
+class PayloadTooLarge extends Error {}
+
+export type AppOptions = {
+  deploymentVerifier?: DeploymentVerifier;
+  requestLimitPerMinute?: number;
+  maxIntentsPerClient?: number;
+  maxStorageBytesPerClient?: number;
+  metricsToken?: string;
+  pinning?: PinningService;
+  gatewayFetch?: typeof fetch;
+};
+
+function record(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new BadRequest("Request body must be a JSON object");
+  }
+  return value as Record<string, unknown>;
+}
+
+async function json(c: Context): Promise<Record<string, unknown>> {
+  try {
+    return record(await c.req.json());
+  } catch (error) {
+    if (error instanceof BadRequest) throw error;
+    throw new BadRequest("Request body must be valid JSON");
+  }
+}
+
+function positiveInteger(value: unknown, name: string): number {
+  const parsed = typeof value === "string" && /^\d+$/u.test(value) ? Number(value) : value;
+  if (!Number.isSafeInteger(parsed) || Number(parsed) <= 0) {
+    throw new BadRequest(`${name} must be a positive safe integer`);
+  }
+  return Number(parsed);
+}
+
+function projectId(value: unknown): string {
+  const text = typeof value === "number" && Number.isSafeInteger(value) ? String(value) : value;
+  if (typeof text !== "string" || !/^[1-9]\d{0,77}$/u.test(text)) {
+    throw new BadRequest("projectId must be a positive decimal string");
+  }
+  return text;
+}
+
+function signature(value: unknown): Hex {
+  if (typeof value !== "string" || !isHex(value) || ![64, 65].includes(size(value))) {
+    throw new BadRequest("signature must be a 64- or 65-byte hex signature");
+  }
+  return value;
+}
+
+function cursor(value: string | undefined): number {
+  if (!value) return 0;
+  if (!/^\d+$/u.test(value)) throw new BadRequest("cursor is invalid");
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new BadRequest("cursor is invalid");
+  return parsed;
+}
+
+const pinPath = (path: string) => path.startsWith("/v1/pins/");
+
+function callerIp(c: Context): string {
+  return (
+    c.req.header("x-real-ip") ??
+    c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
+    "unknown"
+  ).slice(0, 128);
+}
+
+function pinPayload(result: PinResult) {
+  return {
+    ...result,
+    uri: `ipfs://${result.cid}`,
+    gatewayUrl: `/ipfs/${result.cid}`,
+  };
+}
+
+async function multipartFile(c: Context, maxBytes: number): Promise<File> {
+  let form: FormData;
+  try {
+    form = await c.req.raw.formData();
+  } catch {
+    throw new BadRequest("Request body must be multipart form data");
+  }
+  const file = form.get("file");
+  if (!(file instanceof File)) throw new BadRequest("A file field is required");
+  if (file.size < 1 || file.size > maxBytes) {
+    throw new PayloadTooLarge(`file must contain 1-${maxBytes} bytes`);
+  }
+  return file;
+}
+
+function mediaAllowed(file: File): boolean {
+  return (
+    file.type.startsWith("image/") ||
+    file.type.startsWith("video/") ||
+    file.type.startsWith("audio/") ||
+    file.type === "application/pdf" ||
+    file.type.startsWith("text/") ||
+    /\.(?:md|markdown|txt)$/iu.test(file.name)
+  );
+}
+
+const SAFE_GATEWAY_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Content-Security-Policy": "default-src 'none'; sandbox",
+  "Cross-Origin-Resource-Policy": "cross-origin",
+  "X-Content-Type-Options": "nosniff",
+} as const;
+
+function downloadable(type: string): boolean {
+  return /^(?:text\/(?:html|xml|css|javascript|ecmascript)|application\/(?:xhtml\+xml|xml|javascript|ecmascript|pdf|wasm))/iu.test(
+    type,
+  );
+}
+
+export function createApp(
+  store: Store,
+  keys: ApiKey[],
+  options: AppOptions = {},
+): Hono<CentralEnv> {
+  if (keys.length === 0) throw new Error("At least one JUICE_CENTRAL_API_KEYS entry is required");
+  const app = new Hono<CentralEnv>();
+  const metrics = new Metrics();
+
+  app.onError((error, c) => {
+    if (error instanceof BadRequest || error.message.startsWith("chainIds") || error.message.startsWith("format") || error.message.startsWith("deploymentVersion") || error.message.startsWith("jb") || error.message.startsWith("request") || error.message.startsWith("publisher")) {
+      return c.json({ error: { code: "bad_request", message: error.message } }, 400);
+    }
+    if (error instanceof PayloadTooLarge) {
+      return c.json({ error: { code: "body_too_large", message: error.message } }, 413);
+    }
+    if (error instanceof ConflictError) {
+      return c.json({ error: { code: "conflict", message: error.message } }, 409);
+    }
+    if (error instanceof DeploymentVerificationError) {
+      return c.json({ error: { code: "deployment_unverified", message: error.message } }, 422);
+    }
+    if (error instanceof StorageLimitError) {
+      return c.json({ error: { code: "storage_limit", message: error.message } }, 429);
+    }
+    console.error(JSON.stringify({ level: "error", message: "request_failed", error: error.message }));
+    return c.json({ error: { code: "internal_error", message: "Internal server error" } }, 500);
+  });
+
+  app.use("*", metrics.middleware());
+
+  app.get("/healthz", (c) => c.json({ ok: true }));
+
+  app.get("/readyz", async (c) => {
+    await store.health();
+    return c.json({ ok: true });
+  });
+
+  app.get("/metrics", (c) => {
+    if (
+      !options.metricsToken ||
+      !authenticate(
+        [{ name: "metrics", secret: options.metricsToken }],
+        c.req.header("authorization"),
+      )
+    ) {
+      return c.json({ error: { code: "not_found", message: "Not found" } }, 404);
+    }
+    return c.text(metrics.render(), 200, { "Content-Type": "text/plain; version=0.0.4" });
+  });
+
+  app.get("/ipfs/*", async (c) => {
+    const path = safeIpfsPath(c.req.path.slice("/ipfs/".length));
+    if (!path) {
+      return c.json(
+        { error: { code: "bad_request", message: "IPFS path is invalid" } },
+        400,
+        SAFE_GATEWAY_HEADERS,
+      );
+    }
+    const etag = `"ipfs:${path}"`;
+    const cache = "public, max-age=31536000, s-maxage=31536000, immutable";
+    const headers = { ...SAFE_GATEWAY_HEADERS, "Cache-Control": cache, ETag: etag };
+    if (c.req.header("if-none-match")?.split(",").map((value) => value.trim()).includes(etag)) {
+      return new Response(null, { status: 304, headers });
+    }
+
+    const gatewayFetch = options.gatewayFetch ?? fetch;
+    let upstream: Response | null = null;
+    let lastStatus = 502;
+    for (const gateway of IPFS_GATEWAYS) {
+      try {
+        const response = await gatewayFetch(`${gateway}/${path}`, {
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (response.ok) {
+          upstream = response;
+          break;
+        }
+        lastStatus = response.status;
+      } catch {
+        // Try the next independent public gateway.
+      }
+    }
+    if (!upstream) {
+      return new Response(
+        JSON.stringify({
+          error: { code: "gateway_unavailable", message: "IPFS gateways are unavailable" },
+        }),
+        {
+          status: lastStatus,
+          headers: { ...SAFE_GATEWAY_HEADERS, "Content-Type": "application/json" },
+        },
+      );
+    }
+    const declaredLength = Number(upstream.headers.get("content-length") ?? 0);
+    if (!Number.isFinite(declaredLength) || declaredLength < 0) {
+      return c.json(
+        { error: { code: "bad_gateway", message: "IPFS response is invalid" } },
+        502,
+        SAFE_GATEWAY_HEADERS,
+      );
+    }
+    if (declaredLength > PIN_LIMITS.gateway) {
+      return c.json(
+        { error: { code: "content_too_large", message: "IPFS asset is too large" } },
+        413,
+        SAFE_GATEWAY_HEADERS,
+      );
+    }
+
+    const upstreamType = upstream.headers.get("content-type") ?? "application/octet-stream";
+    const download = downloadable(upstreamType);
+    let streamed = 0;
+    const body = upstream.body?.pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          streamed += chunk.byteLength;
+          if (streamed > PIN_LIMITS.gateway) {
+            controller.error(new Error("IPFS asset exceeded the gateway limit"));
+            return;
+          }
+          controller.enqueue(chunk);
+        },
+      }),
+    );
+    return new Response(body, {
+      headers: {
+        ...headers,
+        "Content-Type": download ? "application/octet-stream" : upstreamType,
+        ...(download ? { "Content-Disposition": "attachment; filename=ipfs-asset" } : {}),
+        ...(declaredLength > 0 ? { "Content-Length": String(declaredLength) } : {}),
+      },
+    });
+  });
+
+  app.use("/v1/*", async (c, next) => {
+    const origin = c.req.header("origin");
+    if (origin && !ALLOWED_ORIGINS.includes(origin as typeof ALLOWED_ORIGINS[number])) {
+      return c.json(
+        { error: { code: "forbidden_origin", message: "Origin is not allowed" } },
+        403,
+      );
+    }
+    await next();
+  });
+  app.use(
+    "/v1/*",
+    cors({
+      origin: [...ALLOWED_ORIGINS],
+      allowHeaders: ["Authorization", "Content-Type"],
+      allowMethods: ["GET", "POST", "OPTIONS"],
+      maxAge: 86_400,
+    }),
+  );
+  const intentBodyLimit = bodyLimit({
+    maxSize: MAX_BODY_BYTES,
+    onError: (c) =>
+      c.json({ error: { code: "body_too_large", message: "Request body is too large" } }, 413),
+  });
+  app.use("/v1/intents", intentBodyLimit);
+  app.use("/v1/intents/*", intentBodyLimit);
+  app.use(
+    "/v1/pins/json",
+    bodyLimit({
+      maxSize: PIN_LIMITS.json,
+      onError: (c) =>
+        c.json({ error: { code: "body_too_large", message: "Request body is too large" } }, 413),
+    }),
+  );
+  app.use(
+    "/v1/pins/file",
+    bodyLimit({
+      maxSize: PIN_LIMITS.image + PIN_LIMITS.multipartOverhead,
+      onError: (c) =>
+        c.json({ error: { code: "body_too_large", message: "Request body is too large" } }, 413),
+    }),
+  );
+  app.use(
+    "/v1/pins/media",
+    bodyLimit({
+      maxSize: PIN_LIMITS.media + PIN_LIMITS.multipartOverhead,
+      onError: (c) =>
+        c.json({ error: { code: "body_too_large", message: "Request body is too large" } }, 413),
+    }),
+  );
+  const requireApiKey = apiKeyAuth(keys);
+  app.use("/v1/*", async (c, next) => {
+    const origin = c.req.header("origin");
+    if (pinPath(c.req.path) && origin && ALLOWED_ORIGINS.includes(origin as typeof ALLOWED_ORIGINS[number])) {
+      c.set("client", `browser:${new URL(origin).hostname}:${callerIp(c)}`);
+      c.set("role", "client");
+      await next();
+      return;
+    }
+    return requireApiKey(c, next);
+  });
+  app.use("/v1/*", async (c, next) => {
+    const pin = pinPath(c.req.path);
+    const limit = pin ? PIN_PER_CALLER : (options.requestLimitPerMinute ?? 600);
+    const result = await store.consumeRequest(c.get("client"), limit, pin ? PIN_WINDOW_SECONDS : 60);
+    c.header("X-RateLimit-Limit", String(limit));
+    c.header("X-RateLimit-Remaining", String(result.remaining));
+    if (!result.allowed) {
+      c.header("Retry-After", "60");
+      return c.json(
+        { error: { code: "rate_limit", message: "Request limit exceeded" } },
+        429,
+      );
+    }
+    if (pin) {
+      const site = await store.consumeRequest("pin:site", PIN_PER_SITE, PIN_WINDOW_SECONDS);
+      if (!site.allowed) {
+        c.header("Retry-After", String(PIN_WINDOW_SECONDS));
+        return c.json(
+          { error: { code: "pin_budget", message: "The shared pin budget is spent" } },
+          429,
+        );
+      }
+    }
+    await next();
+  });
+
+  app.post("/v1/pins/json", async (c) => {
+    if (!options.pinning) {
+      return c.json({ error: { code: "unavailable", message: "IPFS pinning is unavailable" } }, 503);
+    }
+    const bytes = new Uint8Array(await c.req.arrayBuffer());
+    let value: unknown;
+    try {
+      value = JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+      throw new BadRequest("Request body must be valid JSON");
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new BadRequest("Request body must be a JSON object");
+    }
+    try {
+      const result = await options.pinning.pin(
+        new Blob([bytes], { type: "application/json" }),
+        "metadata.json",
+      );
+      return c.json(pinPayload(result), 201);
+    } catch {
+      return c.json({ error: { code: "pin_failed", message: "Failed to pin JSON" } }, 502);
+    }
+  });
+
+  app.post("/v1/pins/file", async (c) => {
+    if (!options.pinning) {
+      return c.json({ error: { code: "unavailable", message: "IPFS pinning is unavailable" } }, 503);
+    }
+    const file = await multipartFile(c, PIN_LIMITS.image);
+    if (!file.type.startsWith("image/")) {
+      return c.json({ error: { code: "unsupported_media", message: "Only images are allowed" } }, 415);
+    }
+    try {
+      return c.json(pinPayload(await options.pinning.pin(file, "image")), 201);
+    } catch {
+      return c.json({ error: { code: "pin_failed", message: "Failed to pin image" } }, 502);
+    }
+  });
+
+  app.post("/v1/pins/media", async (c) => {
+    if (!options.pinning) {
+      return c.json({ error: { code: "unavailable", message: "IPFS pinning is unavailable" } }, 503);
+    }
+    const file = await multipartFile(c, PIN_LIMITS.media);
+    if (!mediaAllowed(file)) {
+      return c.json(
+        { error: { code: "unsupported_media", message: "Images, video, audio, PDF, or text only" } },
+        415,
+      );
+    }
+    try {
+      return c.json(pinPayload(await options.pinning.pin(file, "media")), 201);
+    } catch {
+      return c.json({ error: { code: "pin_failed", message: "Failed to pin media" } }, 502);
+    }
+  });
+
+  app.post("/v1/intents/message", async (c) => {
+    const envelope = normalizeEnvelope(await json(c));
+    const hash = contentHash(envelope);
+    return c.json({ contentHash: hash, message: signingMessage(hash), envelope });
+  });
+
+  app.post("/v1/intents", async (c) => {
+    const body = await json(c);
+    const envelope = normalizeEnvelope(body);
+    const hash = contentHash(envelope);
+    const publisher = address(body.publisher, "publisher");
+    const signed = signature(body.signature);
+    const valid = await verifyMessage({
+      address: publisher,
+      message: signingMessage(hash),
+      signature: signed,
+    });
+    if (!valid) throw new BadRequest("signature does not match publisher and project intent");
+    const result = await store.createIntent({
+      ...extractMetadata(envelope.jb),
+      contentHash: hash,
+      envelope,
+      publisher,
+      signature: signed,
+      submittedBy: c.get("client"),
+      jbBytes: Buffer.byteLength(JSON.stringify(envelope)),
+    }, {
+      maxIntents: options.maxIntentsPerClient ?? 10_000,
+      maxBytes: options.maxStorageBytesPerClient ?? 1_073_741_824,
+    });
+    return c.json(result.intent, result.created ? 201 : 200);
+  });
+
+  app.get("/v1/intents/:id", async (c) => {
+    const id = c.req.param("id");
+    if (!UUID.test(id)) throw new BadRequest("intent id is invalid");
+    const intent = await store.getIntent(id);
+    return intent
+      ? c.json(intent)
+      : c.json({ error: { code: "not_found", message: "Intent not found" } }, 404);
+  });
+
+  app.get("/v1/search", async (c) => {
+    const query = (c.req.query("q") ?? "").trim();
+    if (query.length > 200) throw new BadRequest("q must not exceed 200 characters");
+    const rawLimit = c.req.query("limit") ?? "20";
+    const limit = positiveInteger(rawLimit, "limit");
+    if (limit > 100) throw new BadRequest("limit must not exceed 100");
+    return c.json(await store.search(query, limit, cursor(c.req.query("cursor"))));
+  });
+
+  app.post("/v1/intents/:id/deployments", async (c) => {
+    if (c.get("role") !== "reconciler") {
+      return c.json(
+        { error: { code: "forbidden", message: "A reconciler API key is required" } },
+        403,
+      );
+    }
+    if (!options.deploymentVerifier) {
+      return c.json(
+        { error: { code: "unavailable", message: "Deployment verification is not configured" } },
+        503,
+      );
+    }
+    const id = c.req.param("id");
+    if (!UUID.test(id)) throw new BadRequest("intent id is invalid");
+    const intent = await store.getIntent(id);
+    if (!intent) return c.json({ error: { code: "not_found", message: "Intent not found" } }, 404);
+    const body = await json(c);
+    const chainId = positiveInteger(body.chainId, "chainId");
+    if (!intent.envelope.chainIds.includes(chainId)) {
+      throw new BadRequest("chainId is not part of this intent");
+    }
+    if (typeof body.transactionHash !== "string" || !TX_HASH.test(body.transactionHash)) {
+      throw new BadRequest("transactionHash must be a 32-byte hex value");
+    }
+    const claim = {
+      chainId,
+      projectId: projectId(body.projectId),
+      transactionHash: body.transactionHash as Hex,
+      deploymentVersion: intent.envelope.deploymentVersion,
+    };
+    await options.deploymentVerifier.verify(claim);
+    const deployment = await store.recordDeployment(id, claim);
+    return c.json(deployment, 201);
+  });
+
+  return app;
+}
