@@ -3,6 +3,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
 import { DeploymentVerificationError } from "../src/deploymentVerifier.js";
+import type { RpcGateway } from "../src/rpc.js";
 import {
   ConflictError,
   type NewDeployment,
@@ -256,6 +257,69 @@ describe("JB Center API", () => {
     const limited = await app.request("/v1/search", { headers: auth });
     expect(first.status).toBe(200);
     expect(limited.status).toBe(429);
+  });
+
+  it("exposes RPC reads directly to trusted browser origins only", async () => {
+    const rpc: RpcGateway = {
+      supports: (chainId: number) => chainId === 1,
+      request: async (chainId, request) => ({
+        jsonrpc: "2.0",
+        id: request.id,
+        result: `0x${chainId.toString(16)}`,
+      }),
+    };
+    const app = createApp(new MemoryStore(), keys, { rpc });
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 7, method: "eth_chainId", params: [] });
+
+    const anonymous = await app.request("/v1/rpc/1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    expect(anonymous.status).toBe(401);
+
+    const rejected = await app.request("/v1/rpc/1", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://example.com" },
+      body,
+    });
+    expect(rejected.status).toBe(403);
+
+    const accepted = await app.request("/v1/rpc/1", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://juicebox.money" },
+      body,
+    });
+    expect(accepted.status).toBe(200);
+    expect(accepted.headers.get("access-control-allow-origin")).toBe("https://juicebox.money");
+    await expect(accepted.json()).resolves.toEqual({ jsonrpc: "2.0", id: 7, result: "0x1" });
+  });
+
+  it("enforces independent caller and site RPC budgets", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, keys, {
+      rpc: {
+        supports: () => true,
+        request: async (_chainId, request) => ({ jsonrpc: "2.0", id: request.id, result: "0x1" }),
+      },
+      rpcRequestLimitPerMinute: 1,
+      rpcSiteLimitPerMinute: 2,
+    });
+    const request = (origin: string, ip: string) =>
+      app.request("/v1/rpc/1", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin,
+          "x-forwarded-for": ip,
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId" }),
+      });
+
+    expect((await request("https://juicebox.money", "1.1.1.1")).status).toBe(200);
+    expect((await request("https://juicebox.money", "1.1.1.1")).status).toBe(429);
+    expect((await request("https://revnet.money", "2.2.2.2")).status).toBe(200);
+    expect((await request("https://revnet.money", "3.3.3.3")).status).toBe(429);
   });
 
   it("fails closed when RPC cannot verify a deployment", async () => {

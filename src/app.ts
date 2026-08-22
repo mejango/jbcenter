@@ -18,6 +18,13 @@ import {
 import { extractMetadata } from "./metadata.js";
 import { Metrics } from "./observability.js";
 import {
+  parseRpcRequest,
+  RPC_BODY_LIMIT,
+  RpcBadRequest,
+  type RpcGateway,
+  RpcUnavailable,
+} from "./rpc.js";
+import {
   PIN_LIMITS,
   safeIpfsPath,
   type PinResult,
@@ -53,6 +60,9 @@ export type AppOptions = {
   pinning?: PinningService;
   gatewayFetch?: typeof fetch;
   maxMediaBytes?: number;
+  rpc?: RpcGateway;
+  rpcRequestLimitPerMinute?: number;
+  rpcSiteLimitPerMinute?: number;
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -103,6 +113,7 @@ function cursor(value: string | undefined): number {
 }
 
 const pinPath = (path: string) => path.startsWith("/v1/pins/");
+const rpcPath = (path: string) => path.startsWith("/v1/rpc/");
 
 function callerIp(c: Context): string {
   return (
@@ -272,6 +283,12 @@ export function createApp(
     }
     if (error instanceof PinFailed) {
       return c.json({ error: { code: "pin_failed", message: error.message } }, 502);
+    }
+    if (error instanceof RpcBadRequest) {
+      return c.json({ error: { code: "rpc_bad_request", message: error.message } }, 400);
+    }
+    if (error instanceof RpcUnavailable) {
+      return c.json({ error: { code: "rpc_unavailable", message: error.message } }, 502);
     }
     if (error instanceof ConflictError) {
       return c.json({ error: { code: "conflict", message: error.message } }, 409);
@@ -456,10 +473,22 @@ export function createApp(
         c.json({ error: { code: "body_too_large", message: "Request body is too large" } }, 413),
     }),
   );
+  app.use(
+    "/v1/rpc/*",
+    bodyLimit({
+      maxSize: RPC_BODY_LIMIT,
+      onError: (c) =>
+        c.json({ error: { code: "body_too_large", message: "Request body is too large" } }, 413),
+    }),
+  );
   const requireApiKey = apiKeyAuth(keys);
   app.use("/v1/*", async (c, next) => {
     const origin = c.req.header("origin");
-    if (pinPath(c.req.path) && origin && ALLOWED_ORIGINS.includes(origin as typeof ALLOWED_ORIGINS[number])) {
+    if (
+      (pinPath(c.req.path) || rpcPath(c.req.path)) &&
+      origin &&
+      ALLOWED_ORIGINS.includes(origin as (typeof ALLOWED_ORIGINS)[number])
+    ) {
       c.set("client", `browser:${new URL(origin).hostname}:${callerIp(c)}`);
       c.set("role", "client");
       await next();
@@ -469,7 +498,12 @@ export function createApp(
   });
   app.use("/v1/*", async (c, next) => {
     const pin = pinPath(c.req.path);
-    const limit = pin ? PIN_PER_CALLER : (options.requestLimitPerMinute ?? 600);
+    const rpc = rpcPath(c.req.path);
+    const limit = pin
+      ? PIN_PER_CALLER
+      : rpc
+        ? (options.rpcRequestLimitPerMinute ?? 600)
+        : (options.requestLimitPerMinute ?? 600);
     const result = await store.consumeRequest(c.get("client"), limit, pin ? PIN_WINDOW_SECONDS : 60);
     c.header("X-RateLimit-Limit", String(limit));
     c.header("X-RateLimit-Remaining", String(result.remaining));
@@ -490,7 +524,36 @@ export function createApp(
         );
       }
     }
+    if (rpc) {
+      const site = await store.consumeRequest(
+        "rpc:site",
+        options.rpcSiteLimitPerMinute ?? 20_000,
+        60,
+      );
+      if (!site.allowed) {
+        c.header("Retry-After", "60");
+        return c.json(
+          { error: { code: "rpc_budget", message: "The shared RPC budget is spent" } },
+          429,
+        );
+      }
+    }
     await next();
+  });
+
+  app.post("/v1/rpc/:chainId", async (c) => {
+    if (!options.rpc) {
+      return c.json({ error: { code: "unavailable", message: "RPC gateway is unavailable" } }, 503);
+    }
+    let value: unknown;
+    try {
+      value = await c.req.json();
+    } catch {
+      throw new RpcBadRequest("Request body must be valid JSON");
+    }
+    const request = parseRpcRequest(value);
+    const result = await options.rpc.request(positiveInteger(c.req.param("chainId"), "chainId"), request);
+    return c.body(JSON.stringify(result), 200, { "Content-Type": "application/json" });
   });
 
   app.post("/v1/pins/json", async (c) => {

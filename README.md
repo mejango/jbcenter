@@ -1,8 +1,8 @@
 # JB Center
 
 JB Center is the small shared offchain service beside Bendystraw. It stores signed, undeployed
-Juicebox project intents and provides the ecosystem's redundant IPFS pinning and public read
-gateway. Webclients can render an intent as a project page and include it beside deployed
+Juicebox project intents and provides the ecosystem's redundant IPFS pinning, public read gateway,
+and credential-hiding read-only Ethereum RPC. Webclients can render an intent as a project page and include it beside deployed
 Bendystraw projects in search. When a deployment is recorded, the intent leaves default search.
 
 There are no server-side drafts. A stored intent is immutable; changing a project means publishing a
@@ -30,7 +30,7 @@ is public for infrastructure health checks.
 
 Browser requests are accepted only from the two origins hardcoded in the service:
 `https://juicebox.money` and `https://revnet.money`. Those origins may call the pinning endpoints
-directly without exposing a shared API key. Authenticated server-to-server and CLI requests, which
+and read-only RPC directly without exposing a shared API key. Authenticated server-to-server and CLI requests, which
 do not carry an `Origin` header, remain available for trusted clients and local development.
 
 ## Pin and read IPFS content
@@ -71,6 +71,30 @@ It emits cross-origin and immutable-cache headers and forces executable or navig
 download. Pin writes use a PostgreSQL-backed ten-per-caller and 200-per-site budget per ten minutes.
 An Origin header is a browser boundary, not identity; production should put a WAF in front if
 provider spend becomes meaningful.
+
+## Read Ethereum RPC
+
+Trusted browsers and authenticated clients can use Center as a provider-neutral, credential-hiding
+JSON-RPC endpoint:
+
+```http
+POST /v1/rpc/:chainId
+Content-Type: application/json
+
+{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"0x...","data":"0x..."},"latest"]}
+```
+
+The endpoint accepts one JSON-RPC request at a time and permits only an explicit set of read
+methods used by ordinary viem public clients. Transaction submission, signing, wallet, debug,
+trace, admin, and txpool methods are rejected. Log queries require a block hash, `latest`-only
+poll, or a concrete range of at most 50,000 blocks. Requests are capped at 256 KiB, responses at
+5 MiB, and upstream calls at 12 seconds. Center fails over across up to three configured upstreams
+without returning their credential-bearing URLs to clients.
+
+Browser callers use the ordinary trusted `Origin` boundary plus per-caller and shared site budgets.
+An `Origin` header is not identity, so upstream provider quotas remain the final spend boundary.
+Wallets must continue submitting transactions through their own wallet transport; Center is only a
+public-client read transport.
 
 ## Publish an intent
 
@@ -193,9 +217,24 @@ routes.
 Each supported intent chain must be present with its canonical V6 `JBProjects` address. RPC URLs may
 contain provider credentials and must be stored as secrets.
 
+`JBCENTER_RPC_URLS` independently configures browser-facing read RPC. Each chain maps to one HTTPS
+URL or an ordered array of up to three HTTPS URLs:
+
+```json
+{
+  "1": ["https://primary.example/credential", "https://fallback.example"],
+  "11155111": "https://sepolia.example/credential"
+}
+```
+
+Keeping this separate from `JBCENTER_CHAINS` prevents browser traffic or a provider outage from
+changing the stricter deployment-verification contract.
+
 The remaining controls are environment variables:
 
 - `RATE_LIMIT_PER_MINUTE` — shared PostgreSQL-backed limit per named API client; default `600`.
+- `RPC_REQUEST_LIMIT_PER_MINUTE` — per browser/IP or named-client RPC requests; default `600`.
+- `RPC_SITE_LIMIT_PER_MINUTE` — shared RPC requests across all clients; default `20000`.
 - `MAX_INTENTS_PER_CLIENT` — lifetime intent count per client; default `10000`.
 - `MAX_STORAGE_BYTES_PER_CLIENT` — lifetime stored envelope bytes per client; default 1 GiB.
 - `METRICS_TOKEN` — required 32-character bearer token for `GET /metrics`.
