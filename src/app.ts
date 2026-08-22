@@ -1,6 +1,8 @@
 import { bodyLimit } from "hono/body-limit";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
+import Busboy from "busboy";
+import { Readable } from "node:stream";
 import { isHex, size, verifyMessage, type Hex } from "viem";
 import { apiKeyAuth, authenticate, type ApiKey } from "./auth.js";
 import {
@@ -39,6 +41,8 @@ const TX_HASH = /^0x[0-9a-f]{64}$/iu;
 
 class BadRequest extends Error {}
 class PayloadTooLarge extends Error {}
+class UnsupportedMedia extends Error {}
+class PinFailed extends Error {}
 
 export type AppOptions = {
   deploymentVerifier?: DeploymentVerifier;
@@ -48,6 +52,7 @@ export type AppOptions = {
   metricsToken?: string;
   pinning?: PinningService;
   gatewayFetch?: typeof fetch;
+  maxMediaBytes?: number;
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -130,19 +135,111 @@ async function multipartFile(c: Context, maxBytes: number): Promise<File> {
   return file;
 }
 
-function mediaAllowed(file: File): boolean {
+function mediaAllowed(type: string, name: string): boolean {
   return (
-    file.type.startsWith("image/") ||
-    file.type.startsWith("video/") ||
-    file.type.startsWith("audio/") ||
-    file.type === "application/pdf" ||
-    file.type.startsWith("text/") ||
-    /\.(?:md|markdown|txt)$/iu.test(file.name)
+    type.startsWith("image/") ||
+    type.startsWith("video/") ||
+    type.startsWith("audio/") ||
+    type === "application/pdf" ||
+    type.startsWith("text/") ||
+    /\.(?:md|markdown|txt)$/iu.test(name)
   );
+}
+
+async function streamMedia(
+  c: Context,
+  pinning: PinningService,
+  maxBytes: number,
+): Promise<PinResult> {
+  const body = c.req.raw.body;
+  if (!body) throw new BadRequest("A multipart request body is required");
+
+  let parser: ReturnType<typeof Busboy>;
+  try {
+    parser = Busboy({
+      headers: Object.fromEntries(c.req.raw.headers.entries()),
+      // Busboy emits `limit` when the configured byte count is reached. Give it
+      // one sentinel byte so an exactly-at-limit file remains valid.
+      // The count-limit events fire when the configured count is reached, so
+      // use one sentinel slot and enforce the single `file` part ourselves.
+      limits: { files: 2, fields: 1, parts: 2, fileSize: maxBytes + 1 },
+    });
+  } catch {
+    throw new BadRequest("Request body must be multipart form data");
+  }
+
+  const source = Readable.fromWeb(body as import("node:stream/web").ReadableStream<Uint8Array>);
+  return new Promise<PinResult>((resolve, reject) => {
+    let fileSeen = false;
+    let fileBytes = 0;
+    let settled = false;
+    let upload: Promise<PinResult> | null = null;
+
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      source.unpipe(parser);
+      source.destroy();
+      reject(error);
+    };
+
+    parser.on("file", (field, file, info) => {
+      if (field !== "file" || fileSeen) {
+        file.resume();
+        fail(new BadRequest("Exactly one file field is required"));
+        return;
+      }
+      fileSeen = true;
+      if (!mediaAllowed(info.mimeType, info.filename)) {
+        file.resume();
+        fail(new UnsupportedMedia("Images, video, audio, PDF, or text only"));
+        return;
+      }
+      file.on("data", (chunk: Buffer) => {
+        fileBytes += chunk.byteLength;
+      });
+      file.once("limit", () => {
+        const error = new PayloadTooLarge(`file must not exceed ${maxBytes} bytes`);
+        file.destroy(error);
+        fail(error);
+      });
+      upload = pinning.pinStream(file, "media", info.mimeType);
+      void upload.catch(() => fail(new PinFailed("Failed to pin media")));
+    });
+    parser.on("field", () => fail(new BadRequest("Only the file field is allowed")));
+    parser.once("filesLimit", () => fail(new BadRequest("Exactly one file is allowed")));
+    parser.once("fieldsLimit", () => fail(new BadRequest("Only the file field is allowed")));
+    parser.once("partsLimit", () => fail(new BadRequest("Exactly one file field is required")));
+    parser.once("error", (error) =>
+      fail(error instanceof Error ? error : new BadRequest("Invalid multipart body")),
+    );
+    source.once("error", (error) => fail(error));
+    parser.once("close", async () => {
+      if (settled) return;
+      if (!fileSeen || !upload) {
+        fail(new BadRequest("A file field is required"));
+        return;
+      }
+      if (fileBytes === 0) {
+        fail(new PayloadTooLarge(`file must contain 1-${maxBytes} bytes`));
+        return;
+      }
+      try {
+        const result = await upload;
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      } catch (error) {
+        fail(error instanceof PinFailed ? error : new PinFailed("Failed to pin media"));
+      }
+    });
+    source.pipe(parser);
+  });
 }
 
 const SAFE_GATEWAY_HEADERS = {
   "Access-Control-Allow-Origin": "*",
+  "Access-Control-Expose-Headers": "Accept-Ranges, Content-Length, Content-Range, ETag",
   "Content-Security-Policy": "default-src 'none'; sandbox",
   "Cross-Origin-Resource-Policy": "cross-origin",
   "X-Content-Type-Options": "nosniff",
@@ -169,6 +266,12 @@ export function createApp(
     }
     if (error instanceof PayloadTooLarge) {
       return c.json({ error: { code: "body_too_large", message: error.message } }, 413);
+    }
+    if (error instanceof UnsupportedMedia) {
+      return c.json({ error: { code: "unsupported_media", message: error.message } }, 415);
+    }
+    if (error instanceof PinFailed) {
+      return c.json({ error: { code: "pin_failed", message: error.message } }, 502);
     }
     if (error instanceof ConflictError) {
       return c.json({ error: { code: "conflict", message: error.message } }, 409);
@@ -217,7 +320,11 @@ export function createApp(
     const etag = `"ipfs:${path}"`;
     const cache = "public, max-age=31536000, s-maxage=31536000, immutable";
     const headers = { ...SAFE_GATEWAY_HEADERS, "Cache-Control": cache, ETag: etag };
-    if (c.req.header("if-none-match")?.split(",").map((value) => value.trim()).includes(etag)) {
+    const range = c.req.header("range");
+    if (
+      !range &&
+      c.req.header("if-none-match")?.split(",").map((value) => value.trim()).includes(etag)
+    ) {
       return new Response(null, { status: 304, headers });
     }
 
@@ -225,17 +332,27 @@ export function createApp(
     let upstream: Response | null = null;
     let lastStatus = 502;
     for (const gateway of IPFS_GATEWAYS) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
       try {
         const response = await gatewayFetch(`${gateway}/${path}`, {
-          signal: AbortSignal.timeout(10_000),
+          headers: {
+            ...(range ? { Range: range } : {}),
+            ...(c.req.header("if-range") ? { "If-Range": c.req.header("if-range")! } : {}),
+          },
+          signal: controller.signal,
         });
+        clearTimeout(timeout);
         if (response.ok) {
           upstream = response;
           break;
         }
         lastStatus = response.status;
+        await response.body?.cancel();
       } catch {
         // Try the next independent public gateway.
+      } finally {
+        clearTimeout(timeout);
       }
     }
     if (!upstream) {
@@ -281,11 +398,18 @@ export function createApp(
       }),
     );
     return new Response(body, {
+      status: upstream.status,
       headers: {
         ...headers,
         "Content-Type": download ? "application/octet-stream" : upstreamType,
         ...(download ? { "Content-Disposition": "attachment; filename=ipfs-asset" } : {}),
         ...(declaredLength > 0 ? { "Content-Length": String(declaredLength) } : {}),
+        ...(upstream.headers.get("accept-ranges")
+          ? { "Accept-Ranges": upstream.headers.get("accept-ranges")! }
+          : {}),
+        ...(upstream.headers.get("content-range")
+          ? { "Content-Range": upstream.headers.get("content-range")! }
+          : {}),
       },
     });
   });
@@ -328,14 +452,6 @@ export function createApp(
     "/v1/pins/file",
     bodyLimit({
       maxSize: PIN_LIMITS.image + PIN_LIMITS.multipartOverhead,
-      onError: (c) =>
-        c.json({ error: { code: "body_too_large", message: "Request body is too large" } }, 413),
-    }),
-  );
-  app.use(
-    "/v1/pins/media",
-    bodyLimit({
-      maxSize: PIN_LIMITS.media + PIN_LIMITS.multipartOverhead,
       onError: (c) =>
         c.json({ error: { code: "body_too_large", message: "Request body is too large" } }, 413),
     }),
@@ -421,18 +537,12 @@ export function createApp(
     if (!options.pinning) {
       return c.json({ error: { code: "unavailable", message: "IPFS pinning is unavailable" } }, 503);
     }
-    const file = await multipartFile(c, PIN_LIMITS.media);
-    if (!mediaAllowed(file)) {
-      return c.json(
-        { error: { code: "unsupported_media", message: "Images, video, audio, PDF, or text only" } },
-        415,
-      );
-    }
-    try {
-      return c.json(pinPayload(await options.pinning.pin(file, "media")), 201);
-    } catch {
-      return c.json({ error: { code: "pin_failed", message: "Failed to pin media" } }, 502);
-    }
+    return c.json(
+      pinPayload(
+        await streamMedia(c, options.pinning, options.maxMediaBytes ?? PIN_LIMITS.media),
+      ),
+      201,
+    );
   });
 
   app.post("/v1/intents/message", async (c) => {

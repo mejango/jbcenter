@@ -40,7 +40,15 @@ function app(pinning?: PinningService, store = new PinStore()) {
 }
 
 function pinningMock() {
-  return { pin: vi.fn(async () => ({ cid: CID, status: "queued" as const })) };
+  return {
+    pin: vi.fn(async () => ({ cid: CID, status: "queued" as const })),
+    pinStream: vi.fn(async (content: NodeJS.ReadableStream) => {
+      for await (const _chunk of content) {
+        // Consume the stream like the S3 multipart uploader does.
+      }
+      return { cid: CID, status: "queued" as const };
+    }),
+  };
 }
 
 function jsonRequest(value: string, origin = "https://juicebox.money") {
@@ -153,6 +161,36 @@ describe("IPFS pinning", () => {
     expect(rejected.status).toBe(413);
   });
 
+  it("streams video and enforces the media limit without buffering it as a File", async () => {
+    const pinning = pinningMock();
+    const service = createApp(new PinStore(), keys, {
+      pinning,
+      maxMediaBytes: 5,
+    });
+    const atLimit = new FormData();
+    atLimit.append("file", new File([new Uint8Array(5)], "clip.mp4", { type: "video/mp4" }));
+    const accepted = await service.request("/v1/pins/media", {
+      method: "POST",
+      headers: { origin: "https://juicebox.money", "x-real-ip": "203.0.113.6" },
+      body: atLimit,
+    });
+    expect(accepted.status).toBe(201);
+    expect(pinning.pinStream).toHaveBeenCalledOnce();
+    expect(pinning.pin).not.toHaveBeenCalled();
+
+    const aboveLimit = new FormData();
+    aboveLimit.append(
+      "file",
+      new File([new Uint8Array(6)], "large.mp4", { type: "video/mp4" }),
+    );
+    const rejected = await service.request("/v1/pins/media", {
+      method: "POST",
+      headers: { origin: "https://juicebox.money", "x-real-ip": "203.0.113.7" },
+      body: aboveLimit,
+    });
+    expect(rejected.status).toBe(413);
+  });
+
   it("enforces caller pin budgets in shared storage", async () => {
     const service = app(pinningMock());
     const responses = [];
@@ -164,7 +202,10 @@ describe("IPFS pinning", () => {
   });
 
   it("creates a CID with Filebase before asking Pinata to replicate that exact CID", async () => {
-    const filebase = { add: vi.fn(async () => CID) };
+    const filebase = {
+      add: vi.fn(async () => CID),
+      addStream: vi.fn(async () => CID),
+    };
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
       new Response(JSON.stringify({ data: { cid: CID, status: "retrieving" } }), { status: 200 }),
     );
@@ -180,12 +221,29 @@ describe("IPFS pinning", () => {
     expect((pinataInit?.headers as Record<string, string>).Authorization).toBe("Bearer pinata-token");
   });
 
+  it("replicates the exact Filebase CID for streamed media", async () => {
+    const filebase = {
+      add: vi.fn(async () => CID),
+      addStream: vi.fn(async () => CID),
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: { cid: CID } }), { status: 200 }),
+    );
+    const service = new RedundantIpfsPinning(filebase, "pinata-token", fetcher);
+    const { Readable } = await import("node:stream");
+    await expect(
+      service.pinStream(Readable.from([Buffer.from("video")]), "media", "video/mp4"),
+    ).resolves.toEqual({ cid: CID, status: "queued" });
+    expect(filebase.addStream).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("fails closed when a provider returns a mismatched CID", async () => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: { cid: `${CID}x` } }), { status: 200 }));
     const service = new RedundantIpfsPinning(
-      { add: vi.fn(async () => CID) },
+      { add: vi.fn(async () => CID), addStream: vi.fn(async () => CID) },
       "pinata-token",
       fetcher,
     );
@@ -246,5 +304,28 @@ describe("public IPFS gateway", () => {
     );
     expect(response.status).toBe(400);
     expect(gatewayFetch).not.toHaveBeenCalled();
+  });
+
+  it("forwards byte ranges for seekable video responses", async () => {
+    const gatewayFetch = vi.fn<typeof fetch>().mockImplementation(async (_url, init) => {
+      expect((init?.headers as Record<string, string>).Range).toBe("bytes=10-19");
+      return new Response(new Uint8Array(10), {
+        status: 206,
+        headers: {
+          "accept-ranges": "bytes",
+          "content-length": "10",
+          "content-range": "bytes 10-19/100",
+          "content-type": "video/mp4",
+        },
+      });
+    });
+    const response = await createApp(new PinStore(), keys, { gatewayFetch }).request(
+      `/ipfs/${CID}`,
+      { headers: { range: "bytes=10-19" } },
+    );
+    expect(response.status).toBe(206);
+    expect(response.headers.get("accept-ranges")).toBe("bytes");
+    expect(response.headers.get("content-range")).toBe("bytes 10-19/100");
+    expect(response.headers.get("access-control-expose-headers")).toContain("Content-Range");
   });
 });

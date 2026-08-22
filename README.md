@@ -40,14 +40,15 @@ asks Pinata to pin that exact CID. A successful response means Filebase has acce
 Pinata has queued the redundant pin:
 
 ```http
-POST /v1/pins/json   Content-Type: application/json       # 64 KiB
-POST /v1/pins/file   Content-Type: multipart/form-data     # image, 5 MiB
-POST /v1/pins/media  Content-Type: multipart/form-data     # common media, 50 MiB
+POST /v1/pins/json   Content-Type: application/json       # 2 MiB
+POST /v1/pins/file   Content-Type: multipart/form-data     # image, 25 MiB
+POST /v1/pins/media  Content-Type: multipart/form-data     # media/video, 500 MiB
 ```
 
-Multipart requests use a field named `file`. These ceilings are larger than Juicebox Money's
-original 16 KiB JSON, 1 MiB image, and 25 MiB media limits. Railway has no fixed request-body limit;
-its public edge requires an upload to complete within five minutes.
+Multipart requests use a field named `file`. Media uploads stream into Filebase's multipart S3 API
+instead of being retained in server memory. Railway has no fixed request-body limit, but its public
+edge requires the request body to finish within five minutes; the caller's uplink can therefore be
+the practical limit before the 500 MiB application ceiling.
 
 ```json
 {
@@ -65,10 +66,11 @@ GET /ipfs/:cid[/safe/path]
 ```
 
 The read gateway validates the CID and path, falls back across independent public gateways, caps
-responses at 50 MiB, emits cross-origin and immutable-cache headers, and forces executable or
-navigable content to download. Pin writes use a PostgreSQL-backed ten-per-caller and 200-per-site
-budget per ten minutes. An Origin header is a browser boundary, not identity; production should put
-a WAF in front if provider spend becomes meaningful.
+responses at 500 MiB, and forwards HTTP byte ranges so browsers can seek through video and audio.
+It emits cross-origin and immutable-cache headers and forces executable or navigable content to
+download. Pin writes use a PostgreSQL-backed ten-per-caller and 200-per-site budget per ten minutes.
+An Origin header is a browser boundary, not identity; production should put a WAF in front if
+provider spend becomes meaningful.
 
 ## Publish an intent
 

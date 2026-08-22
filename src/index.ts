@@ -70,7 +70,7 @@ const server = serve({
   port,
 }) as Server;
 server.headersTimeout = 10_000;
-server.requestTimeout = 180_000;
+server.requestTimeout = 300_000;
 server.keepAliveTimeout = 5_000;
 console.log(`Juice Central listening on :${port}`);
 
