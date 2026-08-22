@@ -1,6 +1,6 @@
-# Juice Central
+# JB Center
 
-Juice Central is the small shared offchain service beside Bendystraw. It stores signed, undeployed
+JB Center is the small shared offchain service beside Bendystraw. It stores signed, undeployed
 Juicebox project intents and provides the ecosystem's redundant IPFS pinning and public read
 gateway. Webclients can render an intent as a project page and include it beside deployed
 Bendystraw projects in search. When a deployment is recorded, the intent leaves default search.
@@ -35,7 +35,7 @@ do not carry an `Origin` header, remain available for trusted clients and local 
 
 ## Pin and read IPFS content
 
-Juice Central sends each upload to Filebase first to produce and retain a canonical CIDv0, then
+JB Center sends each upload to Filebase first to produce and retain a canonical CIDv0, then
 asks Pinata to pin that exact CID. A successful response means Filebase has accepted the bytes and
 Pinata has queued the redundant pin:
 
@@ -74,7 +74,7 @@ provider spend becomes meaningful.
 
 ## Publish an intent
 
-First ask Juice Central for the deterministic message to sign:
+First ask JB Center for the deterministic message to sign:
 
 ```sh
 curl -X POST http://localhost:3000/v1/intents/message \
@@ -105,7 +105,7 @@ const intent = await central("/v1/intents", {
 })
 ```
 
-Juice Central accepts any JSON object as `jb`, caps bodies at roughly 2 MB, and indexes common
+JB Center accepts any JSON object as `jb`, caps bodies at roughly 2 MB, and indexes common
 Juicebox Money and Revnet Money metadata fields. `chainIds` must match `chains` or `data.chainIds`
 when the `.jb` declares them.
 
@@ -121,7 +121,7 @@ Search returns a merge-friendly page:
 ```json
 {
   "items": [{
-    "source": "juice-central",
+    "source": "jbcenter",
     "status": "undeployed",
     "intentId": "...",
     "chainIds": [1],
@@ -132,7 +132,7 @@ Search returns a merge-friendly page:
 }
 ```
 
-Query this endpoint and Bendystraw concurrently. Juice Central ranks textual searches with
+Query this endpoint and Bendystraw concurrently. JB Center ranks textual searches with
 PostgreSQL full-text search and lists recent intents when `q` is empty.
 
 ## Record deployment
@@ -151,7 +151,7 @@ Content-Type: application/json
 }
 ```
 
-Before writing, Juice Central fetches the receipt from the configured chain RPC, requires a
+Before writing, JB Center fetches the receipt from the configured chain RPC, requires a
 successful transaction with the configured confirmation count, and decodes a matching
 `JBProjects.Create(projectId, owner, caller)` event from the configured canonical `JBProjects`
 address. Deployment records are write-once per intent and chain. Recording the first deployment
@@ -159,7 +159,7 @@ removes the intent from search while preserving the `.jb`, signature, and deploy
 its direct URL.
 
 This proves that the transaction created the claimed Juicebox project. The trusted reconciler still
-chooses which Juice Central intent maps to it because the `.jb` content hash is not emitted onchain.
+chooses which JB Center intent maps to it because the `.jb` content hash is not emitted onchain.
 
 ## API keys
 
@@ -167,8 +167,8 @@ Configure separate comma-delimited client and reconciler keys. Production startu
 shorter than 32 characters and duplicate names or secrets.
 
 ```env
-JUICE_CENTRAL_API_KEYS=juicebox-money:at-least-32-random-characters-here,revnet-money:another-32-character-random-secret
-JUICE_CENTRAL_RECONCILER_KEYS=bendystraw:a-separate-32-character-random-secret
+JBCENTER_API_KEYS=juicebox-money:at-least-32-random-characters-here,revnet-money:another-32-character-random-secret
+JBCENTER_RECONCILER_KEYS=bendystraw:a-separate-32-character-random-secret
 ```
 
 Client keys can prepare, publish, read, and search. Reconciler keys may also record verified
@@ -177,7 +177,7 @@ routes.
 
 ## Production configuration
 
-`JUICE_CENTRAL_CHAINS` configures fail-closed RPC verification:
+`JBCENTER_CHAINS` configures fail-closed RPC verification:
 
 ```json
 {
@@ -214,7 +214,7 @@ monitoring separately, and enable automated PostgreSQL backups and retention wit
 provider.
 
 The CI workflow runs the complete suite against PostgreSQL 16 and builds the production container on
-every pull request. Keep Juice Central as the workflow's repository root (or move the workflow to the
+every pull request. Keep JB Center as the workflow's repository root (or move the workflow to the
 monorepo root and set its working directory).
 
 ## Verification
@@ -230,7 +230,7 @@ The PostgreSQL suite exercises concurrent migrations, duplicate publications, sh
 storage quotas, search, and deployment retirement. A dependency-free load probe is also included:
 
 ```sh
-LOAD_TEST_URL=https://central.example \
+LOAD_TEST_URL=https://juicebox.center \
 LOAD_TEST_API_KEY=... \
 LOAD_TEST_REQUESTS=1000 \
 LOAD_TEST_CONCURRENCY=25 \

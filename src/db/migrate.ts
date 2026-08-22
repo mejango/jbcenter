@@ -8,7 +8,7 @@ const migrationsDirectory = join(dirname(fileURLToPath(import.meta.url)), "migra
 export async function migrate(pool: Pool): Promise<void> {
   const client = await pool.connect();
   try {
-    await client.query("SELECT pg_advisory_lock(hashtext('juice-central-migrations'))");
+    await client.query("SELECT pg_advisory_lock(hashtext('jbcenter-migrations'))");
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         filename text PRIMARY KEY,
@@ -36,7 +36,7 @@ export async function migrate(pool: Pool): Promise<void> {
     }
   } finally {
     try {
-      await client.query("SELECT pg_advisory_unlock(hashtext('juice-central-migrations'))");
+      await client.query("SELECT pg_advisory_unlock(hashtext('jbcenter-migrations'))");
     } finally {
       client.release();
     }

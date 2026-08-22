@@ -57,7 +57,7 @@ class MemoryStore implements Store {
     const page = values.slice(offset, offset + limit);
     return {
       items: page.map((intent) => ({
-        source: "juice-central",
+        source: "jbcenter",
         status: "undeployed",
         intentId: intent.id,
         contentHash: intent.contentHash,
@@ -141,7 +141,7 @@ async function publish(app: ReturnType<typeof createApp>) {
   });
 }
 
-describe("Juice Central API", () => {
+describe("JB Center API", () => {
   it("requires a trusted client key", async () => {
     const response = await createApp(new MemoryStore(), keys).request("/v1/search");
     expect(response.status).toBe(401);
@@ -156,7 +156,7 @@ describe("Juice Central API", () => {
       headers: { authorization: "Bearer metrics-secret" },
     });
     expect(metrics.status).toBe(200);
-    expect(await metrics.text()).toContain("juice_central_http_requests_total");
+    expect(await metrics.text()).toContain("jbcenter_http_requests_total");
   });
 
   it("accepts only Juicebox Money and Revnet Money browser origins", async () => {
@@ -189,7 +189,7 @@ describe("Juice Central API", () => {
     const search = await app.request("/v1/search?q=climate", { headers: auth });
     const results = (await search.json()) as SearchPage;
     expect(results.items).toHaveLength(1);
-    expect(results.items[0]?.source).toBe("juice-central");
+    expect(results.items[0]?.source).toBe("jbcenter");
 
     const deployment = await app.request(`/v1/intents/${intent.id}/deployments`, {
       method: "POST",

@@ -24,7 +24,7 @@ import {
   type PinningService,
 } from "./ipfs.js";
 import { ConflictError, StorageLimitError, type Store } from "./store.js";
-import type { CentralEnv } from "./types.js";
+import type { JbcenterEnv } from "./types.js";
 
 const MAX_BODY_BYTES = 2_100_000;
 export const ALLOWED_ORIGINS = ["https://juicebox.money", "https://revnet.money"] as const;
@@ -255,9 +255,9 @@ export function createApp(
   store: Store,
   keys: ApiKey[],
   options: AppOptions = {},
-): Hono<CentralEnv> {
-  if (keys.length === 0) throw new Error("At least one JUICE_CENTRAL_API_KEYS entry is required");
-  const app = new Hono<CentralEnv>();
+): Hono<JbcenterEnv> {
+  if (keys.length === 0) throw new Error("At least one JBCENTER_API_KEYS entry is required");
+  const app = new Hono<JbcenterEnv>();
   const metrics = new Metrics();
 
   app.onError((error, c) => {

@@ -235,7 +235,7 @@ export class PostgresStore implements Store {
     const items: SearchItem[] = rows.rows.map((row) => {
       const value = intent(row);
       return {
-        source: "juice-central",
+        source: "jbcenter",
         status: "undeployed",
         intentId: value.id,
         contentHash: value.contentHash,

@@ -79,6 +79,7 @@ export function contentHash(envelope: IntentEnvelope): Hex {
 }
 
 export function signingMessage(hash: Hex): string {
+  // Keep the original domain separator so already-issued signatures remain valid.
   return `Juice Central project intent\nVersion: 1\nContent hash: ${hash}`;
 }
 

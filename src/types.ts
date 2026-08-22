@@ -1,6 +1,6 @@
 import type { Address, Hex } from "viem";
 
-export type CentralEnv = {
+export type JbcenterEnv = {
   Variables: {
     client: string;
     role: "client" | "reconciler";
@@ -46,7 +46,7 @@ export type Intent = IntentMetadata & {
 };
 
 export type SearchItem = IntentMetadata & {
-  source: "juice-central";
+  source: "jbcenter";
   status: "undeployed";
   intentId: string;
   contentHash: Hex;

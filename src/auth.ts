@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { MiddlewareHandler } from "hono";
-import type { CentralEnv } from "./types.js";
+import type { JbcenterEnv } from "./types.js";
 
 export type ApiKey = { name: string; secret: string; role?: "client" | "reconciler" };
 
@@ -15,7 +15,7 @@ export function parseApiKeys(
     .map((entry) => {
       const separator = entry.indexOf(":");
       if (separator < 1 || separator === entry.length - 1) {
-        throw new Error("JUICE_CENTRAL_API_KEYS entries must use client-name:secret");
+        throw new Error("JBCENTER_API_KEYS entries must use client-name:secret");
       }
       return { name: entry.slice(0, separator), secret: entry.slice(separator + 1), role };
     });
@@ -29,7 +29,7 @@ export function authenticate(keys: ApiKey[], header: string | undefined): ApiKey
   return keys.find((key) => timingSafeEqual(candidate, digest(key.secret))) ?? null;
 }
 
-export function apiKeyAuth(keys: ApiKey[]): MiddlewareHandler<CentralEnv> {
+export function apiKeyAuth(keys: ApiKey[]): MiddlewareHandler<JbcenterEnv> {
   return async (c, next) => {
     const key = authenticate(keys, c.req.header("authorization"));
     if (!key) {

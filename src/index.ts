@@ -18,12 +18,19 @@ function requireStrongSecret(name: string, value: string | undefined): string {
   return value;
 }
 
+function renamedEnv(name: string, legacyName: string): string | undefined {
+  return process.env[name] ?? process.env[legacyName];
+}
+
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("DATABASE_URL is required");
-const clientKeys = parseApiKeys(process.env.JUICE_CENTRAL_API_KEYS, "client");
-const reconcilerKeys = parseApiKeys(process.env.JUICE_CENTRAL_RECONCILER_KEYS, "reconciler");
-if (!clientKeys.length) throw new Error("JUICE_CENTRAL_API_KEYS must configure a client");
-if (!reconcilerKeys.length) throw new Error("JUICE_CENTRAL_RECONCILER_KEYS must configure a reconciler");
+const clientKeys = parseApiKeys(renamedEnv("JBCENTER_API_KEYS", "JUICE_CENTRAL_API_KEYS"), "client");
+const reconcilerKeys = parseApiKeys(
+  renamedEnv("JBCENTER_RECONCILER_KEYS", "JUICE_CENTRAL_RECONCILER_KEYS"),
+  "reconciler",
+);
+if (!clientKeys.length) throw new Error("JBCENTER_API_KEYS must configure a client");
+if (!reconcilerKeys.length) throw new Error("JBCENTER_RECONCILER_KEYS must configure a reconciler");
 const keys = [...clientKeys, ...reconcilerKeys];
 for (const key of keys) requireStrongSecret(`${key.name} API key`, key.secret);
 if (new Set(keys.map(({ name }) => name)).size !== keys.length) {
@@ -49,7 +56,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("PORT 
 const pool = createPool(connectionString);
 await migrate(pool);
 const deploymentVerifier = new RpcDeploymentVerifier(
-  parseChainRpcConfig(process.env.JUICE_CENTRAL_CHAINS),
+  parseChainRpcConfig(renamedEnv("JBCENTER_CHAINS", "JUICE_CENTRAL_CHAINS")),
 );
 const server = serve({
   fetch: createApp(new PostgresStore(pool), keys, {
@@ -72,7 +79,7 @@ const server = serve({
 server.headersTimeout = 10_000;
 server.requestTimeout = 300_000;
 server.keepAliveTimeout = 5_000;
-console.log(`Juice Central listening on :${port}`);
+console.log(`JB Center listening on :${port}`);
 
 let shuttingDown = false;
 const shutdown = async () => {

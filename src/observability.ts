@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { MiddlewareHandler } from "hono";
-import type { CentralEnv } from "./types.js";
+import type { JbcenterEnv } from "./types.js";
 
 export class Metrics {
   private requests = new Map<string, number>();
   private durationMs = 0;
   private inFlight = 0;
 
-  middleware(): MiddlewareHandler<CentralEnv> {
+  middleware(): MiddlewareHandler<JbcenterEnv> {
     return async (c, next) => {
       const requestId = c.req.header("x-request-id")?.slice(0, 128) || randomUUID();
       const started = performance.now();
@@ -44,15 +44,15 @@ export class Metrics {
 
   render(): string {
     const lines = [
-      "# TYPE juice_central_http_requests_total counter",
+      "# TYPE jbcenter_http_requests_total counter",
       ...[...this.requests.entries()].map(([key, count]) => {
         const [method, status] = key.split(":");
-        return `juice_central_http_requests_total{method="${method}",status="${status}"} ${count}`;
+        return `jbcenter_http_requests_total{method="${method}",status="${status}"} ${count}`;
       }),
-      "# TYPE juice_central_http_request_duration_milliseconds_total counter",
-      `juice_central_http_request_duration_milliseconds_total ${this.durationMs}`,
-      "# TYPE juice_central_http_requests_in_flight gauge",
-      `juice_central_http_requests_in_flight ${this.inFlight}`,
+      "# TYPE jbcenter_http_request_duration_milliseconds_total counter",
+      `jbcenter_http_request_duration_milliseconds_total ${this.durationMs}`,
+      "# TYPE jbcenter_http_requests_in_flight gauge",
+      `jbcenter_http_requests_in_flight ${this.inFlight}`,
     ];
     return `${lines.join("\n")}\n`;
   }

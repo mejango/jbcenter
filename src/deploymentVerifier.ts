@@ -51,15 +51,15 @@ export interface DeploymentVerifier {
 }
 
 export function parseChainRpcConfig(value: string | undefined): Map<number, ChainRpcConfig> {
-  if (!value) throw new Error("JUICE_CENTRAL_CHAINS is required");
+  if (!value) throw new Error("JBCENTER_CHAINS is required");
   let raw: unknown;
   try {
     raw = JSON.parse(value);
   } catch {
-    throw new Error("JUICE_CENTRAL_CHAINS must be valid JSON");
+    throw new Error("JBCENTER_CHAINS must be valid JSON");
   }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error("JUICE_CENTRAL_CHAINS must be an object keyed by chain ID");
+    throw new Error("JBCENTER_CHAINS must be an object keyed by chain ID");
   }
   const result = new Map<number, ChainRpcConfig>();
   for (const [key, entry] of Object.entries(raw as Record<string, unknown>)) {
@@ -91,7 +91,7 @@ export function parseChainRpcConfig(value: string | undefined): Map<number, Chai
       throw new Error(`Chain ${key} has an invalid projectsAddress`);
     }
   }
-  if (result.size === 0) throw new Error("JUICE_CENTRAL_CHAINS must configure at least one chain");
+  if (result.size === 0) throw new Error("JBCENTER_CHAINS must configure at least one chain");
   return result;
 }
 

@@ -40,4 +40,4 @@ jobs:
       - run: npm test
       - run: npm run typecheck
       - run: npm run build
-      - run: docker build -t juice-central:${{ github.sha }} .
+      - run: docker build -t jbcenter:${{ github.sha }} .

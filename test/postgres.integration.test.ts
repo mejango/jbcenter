@@ -7,7 +7,7 @@ import { createPool, PostgresStore } from "../src/db/postgres.js";
 
 const connectionString = process.env.TEST_DATABASE_URL;
 const suite = connectionString ? describe : describe.skip;
-const schema = `juice_central_test_${randomUUID().replaceAll("-", "")}`;
+const schema = `jbcenter_test_${randomUUID().replaceAll("-", "")}`;
 const adminPool = connectionString ? createPool(connectionString) : null;
 let pool: Pool | null = null;
 let store: PostgresStore | null = null;
