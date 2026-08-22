@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { zeroAddress } from "viem";
 import { migrate } from "../src/db/migrate.js";
@@ -5,17 +7,23 @@ import { createPool, PostgresStore } from "../src/db/postgres.js";
 
 const connectionString = process.env.TEST_DATABASE_URL;
 const suite = connectionString ? describe : describe.skip;
-const pool = connectionString ? createPool(connectionString) : null;
-const store = pool ? new PostgresStore(pool) : null;
+const schema = `juice_central_test_${randomUUID().replaceAll("-", "")}`;
+const adminPool = connectionString ? createPool(connectionString) : null;
+let pool: Pool | null = null;
+let store: PostgresStore | null = null;
 
 suite("PostgreSQL store", () => {
   beforeAll(async () => {
+    await adminPool!.query(`CREATE SCHEMA "${schema}"`);
+    pool = new Pool({ connectionString, options: `-c search_path=${schema}` });
+    store = new PostgresStore(pool);
     await Promise.all([migrate(pool!), migrate(pool!)]);
-    await pool!.query("TRUNCATE deployments, intents, rate_limits CASCADE");
   });
 
   afterAll(async () => {
-    await pool!.end();
+    await pool?.end();
+    await adminPool!.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    await adminPool!.end();
   });
 
   it("persists, searches, and retires an intent", async () => {
