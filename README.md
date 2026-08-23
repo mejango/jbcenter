@@ -35,7 +35,7 @@ POST /v1/pins/file   Content-Type: multipart/form-data     # image, 25 MiB
 POST /v1/pins/media  Content-Type: multipart/form-data     # media/video, 500 MiB
 ```
 
-Multipart requests use a field named `file`. Media uploads stream into Filebase's multipart S3 API
+Multipart requests use a field named `file`. Media uploads stream into Filebase's bucket-scoped IPFS RPC API
 instead of being retained in server memory. Railway has no fixed request-body limit, but its public
 edge requires the request body to finish within five minutes; the caller's uplink can therefore be
 the practical limit before the 500 MiB application ceiling.
@@ -201,8 +201,8 @@ The remaining controls are environment variables:
 - `MAX_INTENTS_PER_CLIENT` — lifetime intent count per client; default `10000`.
 - `MAX_STORAGE_BYTES_PER_CLIENT` — lifetime stored envelope bytes per client; default 1 GiB.
 - `METRICS_TOKEN` — required 32-character bearer token for `GET /metrics`.
-- `FILEBASE_ACCESS_KEY_ID`, `FILEBASE_SECRET_ACCESS_KEY`, and `FILEBASE_BUCKET` — credentials and
-  dedicated IPFS bucket for Filebase's S3-compatible API; never expose them to a browser.
+- `FILEBASE_RPC_TOKEN` — bucket-scoped bearer token for Filebase's IPFS RPC API; never expose it to
+  a browser.
 - `PINATA_JWT` — scoped Pinata token with `org:files:write`; never expose it to a browser.
 - `DATABASE_URL` — PostgreSQL connection string; require TLS in the production provider settings.
 

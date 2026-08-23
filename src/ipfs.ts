@@ -1,11 +1,11 @@
-import { createHash, randomUUID } from "node:crypto";
-import type { Readable } from "node:stream";
-import { HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { Upload } from "@aws-sdk/lib-storage";
+import { randomBytes } from "node:crypto";
+import { Readable } from "node:stream";
 import { CID } from "multiformats/cid";
 
+const FILEBASE_ADD_URL = "https://rpc.filebase.io/api/v0/add?cid-version=0";
 const PINATA_PIN_URL = "https://api.pinata.cloud/v3/files/public/pin_by_cid";
 const PROVIDER_TIMEOUT_MS = 90_000;
+const FILEBASE_TIMEOUT_MS = 290_000;
 
 const CID_ENVELOPE = /^(?:Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{20,160})$/u;
 
@@ -55,63 +55,58 @@ export function safeIpfsPath(rawPath: string): string | null {
   return path.length <= 512 ? path : null;
 }
 
-export class FilebaseS3Storage implements IpfsStorage {
-  private readonly client: S3Client;
-
+export class FilebaseRpcStorage implements IpfsStorage {
   constructor(
-    accessKeyId: string,
-    secretAccessKey: string,
-    private readonly bucket: string,
-    client?: S3Client,
-  ) {
-    this.client =
-      client ??
-      new S3Client({
-        region: "us-east-1",
-        endpoint: "https://s3.filebase.com",
-        forcePathStyle: true,
-        credentials: { accessKeyId, secretAccessKey },
-      });
-  }
+    private readonly token: string,
+    private readonly fetcher: typeof fetch = fetch,
+  ) {}
 
   async add(content: Blob, filename: string): Promise<string> {
-    const bytes = Buffer.from(await content.arrayBuffer());
-    const digest = createHash("sha256").update(bytes).digest("hex");
-    const key = `pins/${digest}/${filename}`;
-    await this.client.send(
-      new PutObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-        Body: bytes,
-        ContentLength: bytes.byteLength,
-        ContentType: content.type || "application/octet-stream",
-      }),
+    return this.addStream(
+      Readable.from(Buffer.from(await content.arrayBuffer())),
+      filename,
+      content.type || "application/octet-stream",
     );
-    return this.cidFor(key);
   }
 
   async addStream(content: Readable, filename: string, contentType: string): Promise<string> {
-    const key = `pins/${randomUUID()}/${filename}`;
-    const upload = new Upload({
-      client: this.client,
-      params: {
-        Bucket: this.bucket,
-        Key: key,
-        Body: content,
-        ContentType: contentType || "application/octet-stream",
+    const boundary = `jbcenter-${randomBytes(18).toString("hex")}`;
+    const safeFilename = filename.replace(/[\r\n"]/gu, "_");
+    const safeContentType = /^[\w.+-]+\/[\w.+-]+$/u.test(contentType)
+      ? contentType
+      : "application/octet-stream";
+    const prefix = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${safeFilename}"\r\nContent-Type: ${safeContentType}\r\n\r\n`,
+    );
+    const suffix = Buffer.from(`\r\n--${boundary}--\r\n`);
+    const body = Readable.from(
+      (async function* () {
+        yield prefix;
+        for await (const chunk of content) yield chunk;
+        yield suffix;
+      })(),
+    );
+    const response = await this.fetcher(FILEBASE_ADD_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
       },
-      queueSize: 2,
-      partSize: 16 * 1024 * 1024,
-      leavePartsOnError: false,
-    });
-    await upload.done();
-    return this.cidFor(key);
-  }
-
-  private async cidFor(key: string): Promise<string> {
-    const head = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
-    const cid = head.Metadata?.cid;
-    if (!cid || !isIpfsCid(cid)) throw new Error("Filebase returned an invalid CID");
+      body: body as unknown as BodyInit,
+      duplex: "half",
+      signal: AbortSignal.timeout(FILEBASE_TIMEOUT_MS),
+    } as RequestInit & { duplex: "half" });
+    if (!response.ok) throw new Error(`Filebase upload failed (${response.status})`);
+    const lastLine = (await response.text()).trim().split("\n").at(-1);
+    let cid: unknown;
+    try {
+      cid = JSON.parse(lastLine ?? "").Hash;
+    } catch {
+      throw new Error("Filebase returned an invalid response");
+    }
+    if (typeof cid !== "string" || !isIpfsCid(cid)) {
+      throw new Error("Filebase returned an invalid CID");
+    }
     return cid;
   }
 }
