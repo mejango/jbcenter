@@ -3,6 +3,7 @@ import {
   createRpcGateway,
   dwellirRpcUpstreams,
   parseRpcRequest,
+  RPC_TIMEOUT_MS,
   RpcBadRequest,
   RpcUnavailable,
 } from "../src/rpc.js";
@@ -15,9 +16,11 @@ describe("RPC configuration", () => {
     expect(config.size).toBe(8);
     expect(config.get(1)).toEqual([
       "https://api-ethereum-mainnet.n.dwellir.com/test-key-1234567890",
+      "https://ethereum-rpc.publicnode.com",
     ]);
     expect(config.get(421614)).toEqual([
       "https://api-arbitrum-sepolia.n.dwellir.com/test-key-1234567890",
+      "https://arbitrum-sepolia-rpc.publicnode.com",
     ]);
   });
 
@@ -94,6 +97,31 @@ describe("RPC upstream boundary", () => {
       method: "POST",
       redirect: "error",
     });
+  });
+
+  it("fails over before a stalled primary consumes the client request budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockImplementationOnce((_url, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+          }),
+        )
+        .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", id: 1, result: "0x1" }));
+      const gateway = createRpcGateway(
+        new Map([[1, ["https://slow.example", "https://fallback.example"]]]),
+        fetcher,
+      );
+
+      const request = gateway.request(1, chainIdRequest);
+      await vi.advanceTimersByTimeAsync(RPC_TIMEOUT_MS);
+      await expect(request).resolves.toEqual({ jsonrpc: "2.0", id: 1, result: "0x1" });
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects a mismatched chain, malformed envelope, and oversized response", async () => {

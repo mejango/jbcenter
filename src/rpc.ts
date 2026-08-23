@@ -31,7 +31,9 @@ const BLOCK_QUANTITY = /^0x(?:0|[1-9a-f][0-9a-f]*)$/iu;
 const MAX_LOG_BLOCK_RANGE = 50_000n;
 export const RPC_BODY_LIMIT = 256 * 1024;
 export const RPC_RESPONSE_LIMIT = 5 * 1024 * 1024;
-export const RPC_TIMEOUT_MS = 12_000;
+// Two upstreams must fit inside the SDK's 15-second request budget. A slow
+// provider should trigger failover before one read disables an entire UI.
+export const RPC_TIMEOUT_MS = 4_000;
 
 type RpcId = number | string;
 
@@ -67,6 +69,17 @@ export const DWELLIR_RPC_HOSTS: Readonly<Record<number, string>> = {
   11155420: "api-optimism-sepolia.n.dwellir.com",
 };
 
+export const PUBLICNODE_RPC_URLS: Readonly<Record<number, string>> = {
+  1: "https://ethereum-rpc.publicnode.com",
+  10: "https://optimism-rpc.publicnode.com",
+  8453: "https://base-rpc.publicnode.com",
+  42161: "https://arbitrum-one-rpc.publicnode.com",
+  84532: "https://base-sepolia-rpc.publicnode.com",
+  421614: "https://arbitrum-sepolia-rpc.publicnode.com",
+  11155111: "https://ethereum-sepolia-rpc.publicnode.com",
+  11155420: "https://optimism-sepolia-rpc.publicnode.com",
+};
+
 export function dwellirRpcUpstreams(apiKey: string | undefined): RpcUpstreams {
   if (!apiKey || !/^[a-z0-9_-]{16,128}$/iu.test(apiKey)) {
     throw new Error("DWELLIR_API_KEY must be a 16-128 character URL-safe secret");
@@ -74,7 +87,7 @@ export function dwellirRpcUpstreams(apiKey: string | undefined): RpcUpstreams {
   return new Map(
     Object.entries(DWELLIR_RPC_HOSTS).map(([chainId, host]) => [
       Number(chainId),
-      [`https://${host}/${apiKey}`],
+      [`https://${host}/${apiKey}`, PUBLICNODE_RPC_URLS[Number(chainId)]!],
     ]),
   );
 }
