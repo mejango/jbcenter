@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import {
-  FilebaseS3Storage,
+  FilebaseRpcStorage,
   PIN_LIMITS,
   RedundantIpfsPinning,
   isIpfsCid,
@@ -246,31 +246,47 @@ describe("IPFS pinning", () => {
     await expect(service.pin(new Blob(["hello"]), "hello.txt")).rejects.toThrow("mismatched");
   });
 
-  it("uploads to a deterministic Filebase object key and validates its CID metadata", async () => {
-    const send = vi
-      .fn()
-      .mockResolvedValueOnce({})
-      .mockResolvedValueOnce({ Metadata: { cid: CID } });
-    const storage = new FilebaseS3Storage(
-      "access-key",
-      "secret-key",
-      "juice-central",
-      { send } as never,
+  it("streams multipart content to Filebase's bucket-scoped RPC API", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
+      expect(url).toBe("https://rpc.filebase.io/api/v0/add?cid-version=0");
+      expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer bucket-token");
+      expect((init as RequestInit & { duplex?: string }).duplex).toBe("half");
+      const chunks: Buffer[] = [];
+      for await (const chunk of init?.body as unknown as NodeJS.ReadableStream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const multipart = Buffer.concat(chunks).toString();
+      expect(multipart).toContain('name="file"; filename="hello.txt"');
+      expect(multipart).toContain("Content-Type: text/plain");
+      expect(multipart).toContain("hello");
+      return new Response(`${JSON.stringify({ Name: "hello.txt", Hash: CID, Size: "5" })}\n`, {
+        status: 200,
+      });
+    });
+    const storage = new FilebaseRpcStorage(
+      "bucket-token",
+      fetcher,
     );
     await expect(
       storage.add(new Blob(["hello"], { type: "text/plain" }), "hello.txt"),
     ).resolves.toBe(CID);
-    expect(send).toHaveBeenCalledTimes(2);
-    expect(send.mock.calls[0]?.[0].input).toMatchObject({
-      Bucket: "juice-central",
-      Key: `pins/${"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}/hello.txt`,
-      ContentType: "text/plain",
-      ContentLength: 5,
-    });
-    expect(send.mock.calls[1]?.[0].input).toMatchObject({
-      Bucket: "juice-central",
-      Key: expect.stringContaining("/hello.txt"),
-    });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("rejects failed uploads and malformed Filebase responses", async () => {
+    const unavailable = new FilebaseRpcStorage(
+      "bucket-token",
+      vi.fn<typeof fetch>().mockResolvedValue(new Response("no", { status: 503 })),
+    );
+    await expect(unavailable.add(new Blob(["hello"]), "hello.txt")).rejects.toThrow("(503)");
+
+    const malformed = new FilebaseRpcStorage(
+      "bucket-token",
+      vi.fn<typeof fetch>().mockResolvedValue(new Response("not json", { status: 200 })),
+    );
+    await expect(malformed.add(new Blob(["hello"]), "hello.txt")).rejects.toThrow(
+      "invalid response",
+    );
   });
 });
 

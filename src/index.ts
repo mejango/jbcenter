@@ -4,7 +4,7 @@ import { createApp } from "./app.js";
 import { migrate } from "./db/migrate.js";
 import { createPool, PostgresStore } from "./db/postgres.js";
 import { canonicalDeploymentChains, RpcDeploymentVerifier } from "./deploymentVerifier.js";
-import { FilebaseS3Storage, RedundantIpfsPinning } from "./ipfs.js";
+import { FilebaseRpcStorage, RedundantIpfsPinning } from "./ipfs.js";
 import { createRpcGateway, dwellirRpcUpstreams } from "./rpc.js";
 
 function positiveInteger(name: string, fallback: number): number {
@@ -21,15 +21,11 @@ function requireStrongSecret(name: string, value: string | undefined): string {
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("DATABASE_URL is required");
 const metricsToken = requireStrongSecret("METRICS_TOKEN", process.env.METRICS_TOKEN);
-const filebaseAccessKey = process.env.FILEBASE_ACCESS_KEY_ID;
-const filebaseSecretKey = process.env.FILEBASE_SECRET_ACCESS_KEY;
-const filebaseBucket = process.env.FILEBASE_BUCKET;
+const filebaseRpcToken = process.env.FILEBASE_RPC_TOKEN;
 const pinataJwt = process.env.PINATA_JWT;
-const pinningValues = [filebaseAccessKey, filebaseSecretKey, filebaseBucket, pinataJwt];
+const pinningValues = [filebaseRpcToken, pinataJwt];
 if (pinningValues.some(Boolean) && !pinningValues.every(Boolean)) {
-  throw new Error(
-    "FILEBASE_ACCESS_KEY_ID, FILEBASE_SECRET_ACCESS_KEY, FILEBASE_BUCKET, and PINATA_JWT must be configured together",
-  );
+  throw new Error("FILEBASE_RPC_TOKEN and PINATA_JWT must be configured together");
 }
 const port = Number(process.env.PORT ?? 3000);
 if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("PORT is invalid");
@@ -48,10 +44,10 @@ const server = serve({
     rpcSiteLimitPerMinute: positiveInteger("RPC_SITE_LIMIT_PER_MINUTE", 20_000),
     metricsToken,
     ...(rpcUpstreams.size ? { rpc: createRpcGateway(rpcUpstreams) } : {}),
-    ...(filebaseAccessKey && filebaseSecretKey && filebaseBucket && pinataJwt
+    ...(filebaseRpcToken && pinataJwt
       ? {
           pinning: new RedundantIpfsPinning(
-            new FilebaseS3Storage(filebaseAccessKey, filebaseSecretKey, filebaseBucket),
+            new FilebaseRpcStorage(filebaseRpcToken),
             pinataJwt,
           ),
         }
