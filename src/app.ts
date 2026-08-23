@@ -667,11 +667,6 @@ export function createApp(
     if (!intent.envelope.chainIds.includes(chainId)) {
       throw new BadRequest("chainId is not part of this intent");
     }
-    if (intent.envelope.version !== 2) {
-      throw new DeploymentVerificationError(
-        "Intent predates signed deployment calls and cannot be publicly reconciled",
-      );
-    }
     const call = intent.envelope.deploymentCalls.find((item) => item.chainId === chainId);
     if (!call) {
       throw new DeploymentVerificationError("Intent has no deployment call for this chain");

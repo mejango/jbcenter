@@ -15,24 +15,13 @@ export type DeploymentCall = {
   data: Hex;
 };
 
-export type LegacyIntentEnvelope = {
-  version: 1;
-  format: string;
-  deploymentVersion: string;
-  chainIds: number[];
-  jb: { [key: string]: Json };
-};
-
-export type CommittedIntentEnvelope = {
-  version: 2;
+export type IntentEnvelope = {
   format: string;
   deploymentVersion: string;
   chainIds: number[];
   deploymentCalls: DeploymentCall[];
   jb: { [key: string]: Json };
 };
-
-export type IntentEnvelope = LegacyIntentEnvelope | CommittedIntentEnvelope;
 
 export type IntentMetadata = {
   name: string;

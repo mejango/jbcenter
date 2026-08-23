@@ -1,5 +1,5 @@
 import { getAddress, keccak256, size, toBytes, type Address, type Hex } from "viem";
-import type { CommittedIntentEnvelope, DeploymentCall, IntentEnvelope, Json } from "./types.js";
+import type { DeploymentCall, IntentEnvelope, Json } from "./types.js";
 
 const MAX_DEPTH = 64;
 const MAX_CALL_DATA_BYTES = 4 * 1024 * 1024;
@@ -65,11 +65,8 @@ function deploymentCalls(value: unknown, chainIds: number[]): DeploymentCall[] {
   return calls.sort((a, b) => a.chainId - b.chainId);
 }
 
-export function normalizeEnvelope(value: unknown): CommittedIntentEnvelope {
+export function normalizeEnvelope(value: unknown): IntentEnvelope {
   const raw = object(value, "request");
-  if (raw.version !== undefined && raw.version !== 2) {
-    throw new Error("version must be 2");
-  }
   const format = typeof raw.format === "string" ? raw.format.trim() : "";
   const deploymentVersion =
     typeof raw.deploymentVersion === "string" ? raw.deploymentVersion.trim() : "";
@@ -93,7 +90,6 @@ export function normalizeEnvelope(value: unknown): CommittedIntentEnvelope {
     throw new Error("chainIds must match the chains declared by the .jb file");
   }
   return {
-    version: 2,
     format,
     deploymentVersion,
     chainIds,
