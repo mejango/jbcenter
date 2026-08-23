@@ -1,8 +1,8 @@
 import { encodeAbiParameters, encodeEventTopics, zeroAddress, type Hex } from "viem";
 import { describe, expect, it } from "vitest";
 import {
+  canonicalDeploymentChains,
   RpcDeploymentVerifier,
-  parseChainRpcConfig,
   type ReceiptReader,
 } from "../src/deploymentVerifier.js";
 
@@ -117,19 +117,17 @@ describe("RPC deployment verification", () => {
     ).rejects.toThrow("confirmations");
   });
 
-  it("validates chain configuration", () => {
-    expect(
-      parseChainRpcConfig(
-        JSON.stringify({
-          1: {
-            rpcUrl: "https://rpc.example",
-            projectsAddress: projects,
-            confirmations: 3,
-            deploymentVersion: "6",
-          },
-        }),
-      ).get(1)?.confirmations,
-    ).toBe(3);
-    expect(() => parseChainRpcConfig("{}")).toThrow("at least one chain");
+  it("uses reviewed canonical V6 chain metadata with configured RPCs", () => {
+    const chains = canonicalDeploymentChains(
+      new Map([1, 10, 8453, 42161].map((chainId) => [chainId, [`https://rpc-${chainId}.example`]])),
+    );
+    expect([...chains.keys()]).toEqual([1, 10, 8453, 42161]);
+    expect(chains.get(1)).toMatchObject({
+      rpcUrl: "https://rpc-1.example",
+      projectsAddress: "0x6017d1fba9dc279bfa0b03fd931c22e242ab3691",
+      confirmations: 2,
+      deploymentVersion: "6",
+    });
+    expect(() => canonicalDeploymentChains(new Map())).toThrow("needs an RPC upstream");
   });
 });

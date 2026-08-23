@@ -4,7 +4,7 @@ import { cors } from "hono/cors";
 import Busboy from "busboy";
 import { Readable } from "node:stream";
 import { isHex, size, verifyMessage, type Hex } from "viem";
-import { apiKeyAuth, authenticate, type ApiKey } from "./auth.js";
+import { authenticate } from "./auth.js";
 import {
   DeploymentVerificationError,
   type DeploymentVerifier,
@@ -53,6 +53,7 @@ class PinFailed extends Error {}
 
 export type AppOptions = {
   deploymentVerifier?: DeploymentVerifier;
+  reconcilerToken?: string;
   requestLimitPerMinute?: number;
   maxIntentsPerClient?: number;
   maxStorageBytesPerClient?: number;
@@ -114,6 +115,8 @@ function cursor(value: string | undefined): number {
 
 const pinPath = (path: string) => path.startsWith("/v1/pins/");
 const rpcPath = (path: string) => path.startsWith("/v1/rpc/");
+const deploymentPath = (path: string) =>
+  path.startsWith("/v1/intents/") && path.endsWith("/deployments");
 
 function callerIp(c: Context): string {
   return (
@@ -264,10 +267,8 @@ function downloadable(type: string): boolean {
 
 export function createApp(
   store: Store,
-  keys: ApiKey[],
   options: AppOptions = {},
 ): Hono<JbcenterEnv> {
-  if (keys.length === 0) throw new Error("At least one JBCENTER_API_KEYS entry is required");
   const app = new Hono<JbcenterEnv>();
   const metrics = new Metrics();
 
@@ -315,10 +316,7 @@ export function createApp(
   app.get("/metrics", (c) => {
     if (
       !options.metricsToken ||
-      !authenticate(
-        [{ name: "metrics", secret: options.metricsToken }],
-        c.req.header("authorization"),
-      )
+      !authenticate(options.metricsToken, c.req.header("authorization"))
     ) {
       return c.json({ error: { code: "not_found", message: "Not found" } }, 404);
     }
@@ -433,12 +431,20 @@ export function createApp(
 
   app.use("/v1/*", async (c, next) => {
     const origin = c.req.header("origin");
-    if (origin && !ALLOWED_ORIGINS.includes(origin as typeof ALLOWED_ORIGINS[number])) {
+    const trustedOrigin =
+      origin && ALLOWED_ORIGINS.includes(origin as (typeof ALLOWED_ORIGINS)[number]);
+    const reconciler =
+      deploymentPath(c.req.path) &&
+      options.reconcilerToken &&
+      authenticate(options.reconcilerToken, c.req.header("authorization"));
+    if (!trustedOrigin && !reconciler) {
       return c.json(
         { error: { code: "forbidden_origin", message: "Origin is not allowed" } },
         403,
       );
     }
+    c.set("client", reconciler ? "reconciler" : `browser:${new URL(origin!).hostname}:${callerIp(c)}`);
+    c.set("role", reconciler ? "reconciler" : "client");
     await next();
   });
   app.use(
@@ -481,21 +487,6 @@ export function createApp(
         c.json({ error: { code: "body_too_large", message: "Request body is too large" } }, 413),
     }),
   );
-  const requireApiKey = apiKeyAuth(keys);
-  app.use("/v1/*", async (c, next) => {
-    const origin = c.req.header("origin");
-    if (
-      (pinPath(c.req.path) || rpcPath(c.req.path)) &&
-      origin &&
-      ALLOWED_ORIGINS.includes(origin as (typeof ALLOWED_ORIGINS)[number])
-    ) {
-      c.set("client", `browser:${new URL(origin).hostname}:${callerIp(c)}`);
-      c.set("role", "client");
-      await next();
-      return;
-    }
-    return requireApiKey(c, next);
-  });
   app.use("/v1/*", async (c, next) => {
     const pin = pinPath(c.req.path);
     const rpc = rpcPath(c.req.path);
@@ -662,7 +653,7 @@ export function createApp(
   app.post("/v1/intents/:id/deployments", async (c) => {
     if (c.get("role") !== "reconciler") {
       return c.json(
-        { error: { code: "forbidden", message: "A reconciler API key is required" } },
+        { error: { code: "forbidden", message: "A reconciler bearer token is required" } },
         403,
       );
     }

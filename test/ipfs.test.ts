@@ -11,7 +11,6 @@ import {
 import type { NewDeployment, NewIntent, StorageLimits, Store } from "../src/store.js";
 
 const CID = "QmbWqxBEKC3P8tqsKc98xmWNzrzDtRLMiMPL8wBuTGsMnR";
-const keys = [{ name: "server", secret: "server-secret", role: "client" as const }];
 
 class PinStore implements Store {
   requests = new Map<string, number>();
@@ -36,7 +35,7 @@ class PinStore implements Store {
 }
 
 function app(pinning?: PinningService, store = new PinStore()) {
-  return createApp(store, keys, pinning ? { pinning } : {});
+  return createApp(store, pinning ? { pinning } : {});
 }
 
 function pinningMock() {
@@ -85,7 +84,7 @@ describe("IPFS pinning", () => {
     }
   });
 
-  it("rejects foreign browsers while allowing authenticated originless servers", async () => {
+  it("rejects foreign and originless callers", async () => {
     const pinning = pinningMock();
     const foreign = await app(pinning).request(
       "/v1/pins/json",
@@ -93,15 +92,12 @@ describe("IPFS pinning", () => {
     );
     expect(foreign.status).toBe(403);
 
-    const server = await app(pinning).request("/v1/pins/json", {
+    const originless = await app(pinning).request("/v1/pins/json", {
       method: "POST",
-      headers: {
-        authorization: "Bearer server-secret",
-        "content-type": "application/json",
-      },
+      headers: { "content-type": "application/json" },
       body: "{}",
     });
-    expect(server.status).toBe(201);
+    expect(originless.status).toBe(403);
   });
 
   it("rejects missing providers, malformed JSON, and oversized JSON", async () => {
@@ -163,7 +159,7 @@ describe("IPFS pinning", () => {
 
   it("streams video and enforces the media limit without buffering it as a File", async () => {
     const pinning = pinningMock();
-    const service = createApp(new PinStore(), keys, {
+    const service = createApp(new PinStore(), {
       pinning,
       maxMediaBytes: 5,
     });
@@ -288,7 +284,7 @@ describe("public IPFS gateway", () => {
           headers: { "content-type": "application/json", "content-length": "23" },
         }),
       );
-    const service = createApp(new PinStore(), keys, { gatewayFetch });
+    const service = createApp(new PinStore(), { gatewayFetch });
     const response = await service.request(`/ipfs/${CID}/metadata.json`);
     expect(response.status).toBe(200);
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
@@ -299,7 +295,7 @@ describe("public IPFS gateway", () => {
 
   it("rejects invalid paths before contacting a gateway", async () => {
     const gatewayFetch = vi.fn<typeof fetch>();
-    const response = await createApp(new PinStore(), keys, { gatewayFetch }).request(
+    const response = await createApp(new PinStore(), { gatewayFetch }).request(
       "/ipfs/not-a-cid/file",
     );
     expect(response.status).toBe(400);
@@ -318,7 +314,7 @@ describe("public IPFS gateway", () => {
         },
       });
     });
-    const response = await createApp(new PinStore(), keys, { gatewayFetch }).request(
+    const response = await createApp(new PinStore(), { gatewayFetch }).request(
       `/ipfs/${CID}`,
       { headers: { range: "bytes=10-19" } },
     );

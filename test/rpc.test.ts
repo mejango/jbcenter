@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createRpcGateway,
+  dwellirRpcUpstreams,
   parseRpcRequest,
-  parseRpcUpstreams,
   RpcBadRequest,
   RpcUnavailable,
 } from "../src/rpc.js";
@@ -10,30 +10,19 @@ import {
 const chainIdRequest = { jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] } as const;
 
 describe("RPC configuration", () => {
-  it("parses bounded HTTPS upstream lists", () => {
-    const config = parseRpcUpstreams(
-      JSON.stringify({
-        1: "https://primary.example/secret-path",
-        10: ["https://primary.optimism.example", "https://fallback.optimism.example"],
-      }),
-    );
-    expect(config.get(1)).toEqual(["https://primary.example/secret-path"]);
-    expect(config.get(10)).toEqual([
-      "https://primary.optimism.example/",
-      "https://fallback.optimism.example/",
+  it("builds every reviewed Dwellir URL from one key", () => {
+    const config = dwellirRpcUpstreams("test-key-1234567890");
+    expect(config.size).toBe(8);
+    expect(config.get(1)).toEqual([
+      "https://api-ethereum-mainnet.n.dwellir.com/test-key-1234567890",
+    ]);
+    expect(config.get(421614)).toEqual([
+      "https://api-arbitrum-sepolia.n.dwellir.com/test-key-1234567890",
     ]);
   });
 
-  it.each([
-    "not-json",
-    "[]",
-    '{"0":"https://rpc.example"}',
-    '{"1":"http://rpc.example"}',
-    '{"1":"https://user:secret@rpc.example"}',
-    '{"1":[]}',
-    '{"1":["https://a.example","https://b.example","https://c.example","https://d.example"]}',
-  ])("rejects unsafe RPC configuration %s", (raw) => {
-    expect(() => parseRpcUpstreams(raw)).toThrow(/JBCENTER_RPC_URLS/u);
+  it.each([undefined, "short", "unsafe/key/with/slashes"])("rejects unsafe RPC key %s", (key) => {
+    expect(() => dwellirRpcUpstreams(key)).toThrow(/DWELLIR_API_KEY/u);
   });
 });
 
@@ -91,9 +80,7 @@ describe("RPC upstream boundary", () => {
       .mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
       .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", id: 1, result: "0x1" }));
     const gateway = createRpcGateway(
-      parseRpcUpstreams(
-        JSON.stringify({ 1: ["https://primary.example/secret", "https://fallback.example/key"] }),
-      ),
+      new Map([[1, ["https://primary.example/secret", "https://fallback.example/key"]]]),
       fetcher,
     );
 
@@ -117,7 +104,7 @@ describe("RPC upstream boundary", () => {
     ];
     for (const response of cases) {
       const gateway = createRpcGateway(
-        parseRpcUpstreams('{"1":"https://rpc.example"}'),
+        new Map([[1, ["https://rpc.example"]]]),
         vi.fn<typeof fetch>().mockResolvedValue(response),
       );
       await expect(gateway.request(1, chainIdRequest)).rejects.toBeInstanceOf(RpcUnavailable);
@@ -126,7 +113,7 @@ describe("RPC upstream boundary", () => {
 
   it("sanitizes upstream errors while preserving bounded hex revert data", async () => {
     const gateway = createRpcGateway(
-      parseRpcUpstreams('{"1":"https://rpc.example/credential"}'),
+      new Map([[1, ["https://rpc.example/credential"]]]),
       vi.fn<typeof fetch>().mockResolvedValue(
         Response.json({
           jsonrpc: "2.0",

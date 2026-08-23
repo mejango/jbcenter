@@ -101,15 +101,14 @@ class MemoryStore implements Store {
 const account = privateKeyToAccount(
   "0x0123456789012345678901234567890123456789012345678901234567890123",
 );
-const auth = { authorization: "Bearer test-secret", "content-type": "application/json" };
+const trusted = {
+  origin: "https://juicebox.money",
+  "content-type": "application/json",
+};
 const reconcilerAuth = {
   authorization: "Bearer reconcile-secret",
   "content-type": "application/json",
 };
-const keys = [
-  { name: "test", secret: "test-secret", role: "client" as const },
-  { name: "reconciler", secret: "reconcile-secret", role: "reconciler" as const },
-];
 const verifier = { verify: async () => {} };
 const envelope = {
   format: "juicebox.money/v1",
@@ -130,26 +129,26 @@ const envelope = {
 async function publish(app: ReturnType<typeof createApp>) {
   const preparedResponse = await app.request("/v1/intents/message", {
     method: "POST",
-    headers: auth,
+    headers: trusted,
     body: JSON.stringify(envelope),
   });
   const prepared = (await preparedResponse.json()) as { message: string };
   const signature = await account.signMessage({ message: prepared.message });
   return app.request("/v1/intents", {
     method: "POST",
-    headers: auth,
+    headers: trusted,
     body: JSON.stringify({ ...envelope, publisher: account.address, signature }),
   });
 }
 
 describe("JB Center API", () => {
-  it("requires a trusted client key", async () => {
-    const response = await createApp(new MemoryStore(), keys).request("/v1/search");
-    expect(response.status).toBe(401);
+  it("requires a trusted browser origin", async () => {
+    const response = await createApp(new MemoryStore()).request("/v1/search");
+    expect(response.status).toBe(403);
   });
 
   it("separates liveness, readiness, and protected metrics", async () => {
-    const app = createApp(new MemoryStore(), keys, { metricsToken: "metrics-secret" });
+    const app = createApp(new MemoryStore(), { metricsToken: "metrics-secret" });
     expect((await app.request("/healthz")).status).toBe(200);
     expect((await app.request("/readyz")).status).toBe(200);
     expect((await app.request("/metrics")).status).toBe(404);
@@ -161,14 +160,14 @@ describe("JB Center API", () => {
   });
 
   it("accepts only Juicebox Money and Revnet Money browser origins", async () => {
-    const app = createApp(new MemoryStore(), keys);
+    const app = createApp(new MemoryStore());
     const rejected = await app.request("/v1/search", {
-      headers: { ...auth, origin: "https://example.com" },
+      headers: { ...trusted, origin: "https://example.com" },
     });
     expect(rejected.status).toBe(403);
 
     for (const origin of ["https://juicebox.money", "https://revnet.money"]) {
-      const accepted = await app.request("/v1/search", { headers: { ...auth, origin } });
+      const accepted = await app.request("/v1/search", { headers: { ...trusted, origin } });
       expect(accepted.status).toBe(200);
       expect(accepted.headers.get("access-control-allow-origin")).toBe(origin);
     }
@@ -176,7 +175,10 @@ describe("JB Center API", () => {
 
   it("publishes idempotently, searches, reads, and retires a deployed intent", async () => {
     const store = new MemoryStore();
-    const app = createApp(store, keys, { deploymentVerifier: verifier });
+    const app = createApp(store, {
+      deploymentVerifier: verifier,
+      reconcilerToken: "reconcile-secret",
+    });
     const created = await publish(app);
     expect(created.status).toBe(201);
     const intent = (await created.json()) as Intent;
@@ -187,21 +189,21 @@ describe("JB Center API", () => {
     expect(repeated.status).toBe(200);
     expect(((await repeated.json()) as Intent).id).toBe(intent.id);
 
-    const search = await app.request("/v1/search?q=climate", { headers: auth });
+    const search = await app.request("/v1/search?q=climate", { headers: trusted });
     const results = (await search.json()) as SearchPage;
     expect(results.items).toHaveLength(1);
     expect(results.items[0]?.source).toBe("jbcenter");
 
-    const deployment = await app.request(`/v1/intents/${intent.id}/deployments`, {
+    const clientAttempt = await app.request(`/v1/intents/${intent.id}/deployments`, {
       method: "POST",
-      headers: auth,
+      headers: trusted,
       body: JSON.stringify({
         chainId: 1,
         projectId: "42",
         transactionHash: `0x${"12".repeat(32)}`,
       }),
     });
-    expect(deployment.status).toBe(403);
+    expect(clientAttempt.status).toBe(403);
     const reconciled = await app.request(`/v1/intents/${intent.id}/deployments`, {
       method: "POST",
       headers: reconcilerAuth,
@@ -213,11 +215,11 @@ describe("JB Center API", () => {
     });
     expect(reconciled.status).toBe(201);
     const after = (await (
-      await app.request("/v1/search?q=climate", { headers: auth })
+      await app.request("/v1/search?q=climate", { headers: trusted })
     ).json()) as SearchPage;
     expect(after.items).toHaveLength(0);
 
-    const fetched = await app.request(`/v1/intents/${intent.id}`, { headers: auth });
+    const fetched = await app.request(`/v1/intents/${intent.id}`, { headers: trusted });
     const deployed = (await fetched.json()) as Intent;
     expect(deployed.status).toBe("deployed");
     expect(deployed.deployments[0]?.projectId).toBe("42");
@@ -225,18 +227,18 @@ describe("JB Center API", () => {
 
   it("rejects a signature after the signed content is changed", async () => {
     const store = new MemoryStore();
-    const app = createApp(store, keys);
+    const app = createApp(store);
     const prepared = (await (
       await app.request("/v1/intents/message", {
         method: "POST",
-        headers: auth,
+        headers: trusted,
         body: JSON.stringify(envelope),
       })
     ).json()) as { message: string };
     const signature = await account.signMessage({ message: prepared.message });
     const response = await app.request("/v1/intents", {
       method: "POST",
-      headers: auth,
+      headers: trusted,
       body: JSON.stringify({
         ...envelope,
         jb: { ...envelope.jb, name: "Tampered" },
@@ -247,14 +249,14 @@ describe("JB Center API", () => {
     expect(response.status).toBe(400);
   });
 
-  it("requires a reconciler key and enforces per-key request limits", async () => {
+  it("enforces per-origin caller request limits", async () => {
     const store = new MemoryStore();
-    const app = createApp(store, keys, {
+    const app = createApp(store, {
       deploymentVerifier: verifier,
       requestLimitPerMinute: 1,
     });
-    const first = await app.request("/v1/search", { headers: auth });
-    const limited = await app.request("/v1/search", { headers: auth });
+    const first = await app.request("/v1/search", { headers: trusted });
+    const limited = await app.request("/v1/search", { headers: trusted });
     expect(first.status).toBe(200);
     expect(limited.status).toBe(429);
   });
@@ -268,7 +270,7 @@ describe("JB Center API", () => {
         result: `0x${chainId.toString(16)}`,
       }),
     };
-    const app = createApp(new MemoryStore(), keys, { rpc });
+    const app = createApp(new MemoryStore(), { rpc });
     const body = JSON.stringify({ jsonrpc: "2.0", id: 7, method: "eth_chainId", params: [] });
 
     const anonymous = await app.request("/v1/rpc/1", {
@@ -276,7 +278,7 @@ describe("JB Center API", () => {
       headers: { "content-type": "application/json" },
       body,
     });
-    expect(anonymous.status).toBe(401);
+    expect(anonymous.status).toBe(403);
 
     const rejected = await app.request("/v1/rpc/1", {
       method: "POST",
@@ -297,7 +299,7 @@ describe("JB Center API", () => {
 
   it("enforces independent caller and site RPC budgets", async () => {
     const store = new MemoryStore();
-    const app = createApp(store, keys, {
+    const app = createApp(store, {
       rpc: {
         supports: () => true,
         request: async (_chainId, request) => ({ jsonrpc: "2.0", id: request.id, result: "0x1" }),
@@ -324,7 +326,8 @@ describe("JB Center API", () => {
 
   it("fails closed when RPC cannot verify a deployment", async () => {
     const store = new MemoryStore();
-    const app = createApp(store, keys, {
+    const app = createApp(store, {
+      reconcilerToken: "reconcile-secret",
       deploymentVerifier: {
         verify: async () => {
           throw new DeploymentVerificationError("receipt unavailable");
@@ -347,7 +350,7 @@ describe("JB Center API", () => {
 
   it("keeps concurrent duplicate publications idempotent", async () => {
     const store = new MemoryStore();
-    const app = createApp(store, keys);
+    const app = createApp(store);
     const responses = await Promise.all(Array.from({ length: 25 }, () => publish(app)));
     expect(responses.filter(({ status }) => status === 201)).toHaveLength(1);
     expect(responses.filter(({ status }) => status === 200)).toHaveLength(24);
