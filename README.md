@@ -18,20 +18,9 @@ npm install
 npm run dev
 ```
 
-The server runs concurrency-safe migrations at startup. Intent endpoints require a trusted client
-key:
-
-```http
-Authorization: Bearer replace-me
-```
-
-Keep keys on a webclient server or API proxy. Do not put them in browser JavaScript. `GET /healthz`
-is public for infrastructure health checks.
-
 Browser requests are accepted only from the two origins hardcoded in the service:
-`https://juicebox.money` and `https://revnet.money`. Those origins may call the pinning endpoints
-and read-only RPC directly without exposing a shared API key. Authenticated server-to-server and CLI requests, which
-do not carry an `Origin` header, remain available for trusted clients and local development.
+`https://juicebox.money` and `https://revnet.money`. `GET /healthz` is public for infrastructure
+health checks, and `/ipfs/*` is a public read gateway.
 
 ## Pin and read IPFS content
 
@@ -74,7 +63,7 @@ provider spend becomes meaningful.
 
 ## Read Ethereum RPC
 
-Trusted browsers and authenticated clients can use Center as a provider-neutral, credential-hiding
+Trusted browsers can use Center as a provider-neutral, credential-hiding
 JSON-RPC endpoint:
 
 ```http
@@ -102,7 +91,7 @@ First ask JB Center for the deterministic message to sign:
 
 ```sh
 curl -X POST http://localhost:3000/v1/intents/message \
-  -H 'authorization: Bearer replace-me' \
+  -H 'origin: https://juicebox.money' \
   -H 'content-type: application/json' \
   --data '{
     "format":"juicebox.money/v1",
@@ -161,11 +150,11 @@ PostgreSQL full-text search and lists recent intents when `q` is empty.
 
 ## Record deployment
 
-Only a dedicated reconciler key can associate an onchain project with an intent:
+Only the dedicated reconciler can associate an onchain project with an intent:
 
 ```http
 POST /v1/intents/:id/deployments
-Authorization: Bearer <reconciler-secret>
+Authorization: Bearer <JBCENTER_RECONCILER_KEY>
 Content-Type: application/json
 
 {
@@ -185,50 +174,18 @@ its direct URL.
 This proves that the transaction created the claimed Juicebox project. The trusted reconciler still
 chooses which JB Center intent maps to it because the `.jb` content hash is not emitted onchain.
 
-## API keys
+## Authentication boundaries
 
-Configure separate comma-delimited client and reconciler keys. Production startup rejects secrets
-shorter than 32 characters and duplicate names or secrets.
-
-```env
-JBCENTER_API_KEYS=juicebox-money:at-least-32-random-characters-here,revnet-money:another-32-character-random-secret
-JBCENTER_RECONCILER_KEYS=bendystraw:a-separate-32-character-random-secret
-```
-
-Client keys can prepare, publish, read, and search. Reconciler keys may also record verified
-deployments. Opening reads later only requires moving the auth middleware from `/v1/*` to the write
-routes.
+Client access uses the two reviewed browser origins; signed intents provide publisher authenticity.
+`JBCENTER_RECONCILER_KEY` is the only Center API credential. It remains necessary because an onchain
+`Create` event does not contain the offchain intent hash, so transaction verification alone cannot
+prove which stored intent should leave search.
 
 ## Production configuration
 
-`JBCENTER_CHAINS` configures fail-closed RPC verification:
-
-```json
-{
-  "1": {
-    "rpcUrl": "https://...",
-    "projectsAddress": "0x...",
-    "confirmations": 2,
-    "deploymentVersion": "6"
-  }
-}
-```
-
-Each supported intent chain must be present with its canonical V6 `JBProjects` address. RPC URLs may
-contain provider credentials and must be stored as secrets.
-
-`JBCENTER_RPC_URLS` independently configures browser-facing read RPC. Each chain maps to one HTTPS
-URL or an ordered array of up to three HTTPS URLs:
-
-```json
-{
-  "1": ["https://primary.example/credential", "https://fallback.example"],
-  "11155111": "https://sepolia.example/credential"
-}
-```
-
-Keeping this separate from `JBCENTER_CHAINS` prevents browser traffic or a provider outage from
-changing the stricter deployment-verification contract.
+Canonical V6 `JBProjects` metadata and reviewed Dwellir hosts are code constants. Configure only
+`DWELLIR_API_KEY`; Center constructs the eight supported RPC URLs and reuses the four mainnet
+upstreams for fail-closed deployment verification.
 
 The remaining controls are environment variables:
 
@@ -244,7 +201,7 @@ The remaining controls are environment variables:
 - `DATABASE_URL` — PostgreSQL connection string; require TLS in the production provider settings.
 
 `GET /healthz` is process liveness. `GET /readyz` checks PostgreSQL. `GET /metrics` returns protected
-Prometheus metrics. Requests are logged as one-line JSON with request ID, authenticated client,
+Prometheus metrics. Requests are logged as one-line JSON with request ID, caller,
 status, and duration; secrets and request bodies are never logged.
 
 The included `Dockerfile` runs as the unprivileged Node user, and `railway.json` uses `/readyz` for
@@ -270,11 +227,10 @@ storage quotas, search, and deployment retirement. A dependency-free load probe 
 
 ```sh
 LOAD_TEST_URL=https://juicebox.center \
-LOAD_TEST_API_KEY=... \
 LOAD_TEST_REQUESTS=1000 \
 LOAD_TEST_CONCURRENCY=25 \
 npm run load:test
 ```
 
-Raise `RATE_LIMIT_PER_MINUTE` above the load-test request count for the test client. Client/Para UI
+Raise `RATE_LIMIT_PER_MINUTE` above the load-test request count for the test caller. Client/Para UI
 integration is intentionally deferred until the service contract is final.

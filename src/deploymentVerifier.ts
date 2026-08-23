@@ -1,12 +1,12 @@
 import {
   createPublicClient,
   decodeEventLog,
-  getAddress,
   http,
   isAddressEqual,
   type Address,
   type Hex,
 } from "viem";
+import type { RpcUpstreams } from "./rpc.js";
 
 const createEvent = [
   {
@@ -50,49 +50,25 @@ export interface DeploymentVerifier {
   verify(claim: DeploymentClaim): Promise<void>;
 }
 
-export function parseChainRpcConfig(value: string | undefined): Map<number, ChainRpcConfig> {
-  if (!value) throw new Error("JBCENTER_CHAINS is required");
-  let raw: unknown;
-  try {
-    raw = JSON.parse(value);
-  } catch {
-    throw new Error("JBCENTER_CHAINS must be valid JSON");
-  }
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error("JBCENTER_CHAINS must be an object keyed by chain ID");
-  }
-  const result = new Map<number, ChainRpcConfig>();
-  for (const [key, entry] of Object.entries(raw as Record<string, unknown>)) {
-    const chainId = Number(key);
-    const config = entry as Record<string, unknown>;
-    const confirmations = config.confirmations === undefined ? 2 : Number(config.confirmations);
-    if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new Error(`Invalid chain ID: ${key}`);
-    if (typeof config.rpcUrl !== "string" || !/^https?:\/\//u.test(config.rpcUrl)) {
-      throw new Error(`Chain ${key} needs an HTTP(S) rpcUrl`);
-    }
-    if (!Number.isSafeInteger(confirmations) || confirmations < 1 || confirmations > 1_000) {
-      throw new Error(`Chain ${key} confirmations must be between 1 and 1000`);
-    }
-    if (
-      typeof config.deploymentVersion !== "string" ||
-      !config.deploymentVersion.trim() ||
-      config.deploymentVersion.length > 64
-    ) {
-      throw new Error(`Chain ${key} needs a deploymentVersion`);
-    }
-    try {
-      result.set(chainId, {
-        rpcUrl: config.rpcUrl,
-        projectsAddress: getAddress(String(config.projectsAddress)),
-        confirmations,
-        deploymentVersion: config.deploymentVersion,
-      });
-    } catch {
-      throw new Error(`Chain ${key} has an invalid projectsAddress`);
-    }
-  }
-  if (result.size === 0) throw new Error("JBCENTER_CHAINS must configure at least one chain");
-  return result;
+const PROJECTS = "0x6017d1fba9dc279bfa0b03fd931c22e242ab3691" as Address;
+const DEPLOYMENT_CHAIN_IDS = [1, 10, 8453, 42161] as const;
+
+export function canonicalDeploymentChains(upstreams: RpcUpstreams): Map<number, ChainRpcConfig> {
+  return new Map(
+    DEPLOYMENT_CHAIN_IDS.map((chainId) => {
+      const rpcUrl = upstreams.get(chainId)?.[0];
+      if (!rpcUrl) throw new Error(`Canonical deployment chain ${chainId} needs an RPC upstream`);
+      return [
+        chainId,
+        {
+          rpcUrl,
+          projectsAddress: PROJECTS,
+          confirmations: 2,
+          deploymentVersion: "6",
+        },
+      ];
+    }),
+  );
 }
 
 export class RpcDeploymentVerifier implements DeploymentVerifier {

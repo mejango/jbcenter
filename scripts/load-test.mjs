@@ -1,12 +1,10 @@
 import assert from "node:assert/strict";
 
 const origin = process.env.LOAD_TEST_URL;
-const apiKey = process.env.LOAD_TEST_API_KEY;
 const requests = Number(process.env.LOAD_TEST_REQUESTS ?? 1_000);
 const concurrency = Number(process.env.LOAD_TEST_CONCURRENCY ?? 25);
 
 assert(origin, "LOAD_TEST_URL is required");
-assert(apiKey, "LOAD_TEST_API_KEY is required");
 assert(Number.isSafeInteger(requests) && requests > 0, "LOAD_TEST_REQUESTS must be positive");
 assert(
   Number.isSafeInteger(concurrency) && concurrency > 0 && concurrency <= 1_000,
@@ -23,7 +21,7 @@ async function worker() {
     const started = performance.now();
     try {
       const response = await fetch(new URL("/v1/search?limit=20", origin), {
-        headers: { authorization: `Bearer ${apiKey}` },
+        headers: { origin: "https://juicebox.money" },
         signal: AbortSignal.timeout(10_000),
       });
       if (!response.ok) failures += 1;

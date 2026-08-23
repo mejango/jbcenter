@@ -56,46 +56,27 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function safeUrl(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && !url.username && !url.password && !url.hash
-      ? url.toString()
-      : null;
-  } catch {
-    return null;
-  }
-}
+export const DWELLIR_RPC_HOSTS: Readonly<Record<number, string>> = {
+  1: "api-ethereum-mainnet.n.dwellir.com",
+  10: "api-optimism-mainnet-archive.n.dwellir.com",
+  8453: "api-base-mainnet-archive.n.dwellir.com",
+  42161: "api-arbitrum-mainnet-archive.n.dwellir.com",
+  84532: "api-base-sepolia-archive.n.dwellir.com",
+  421614: "api-arbitrum-sepolia.n.dwellir.com",
+  11155111: "api-ethereum-sepolia.n.dwellir.com",
+  11155420: "api-optimism-sepolia.n.dwellir.com",
+};
 
-export function parseRpcUpstreams(raw: string | undefined): RpcUpstreams {
-  if (!raw) return new Map();
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch {
-    throw new Error("JBCENTER_RPC_URLS must be valid JSON");
+export function dwellirRpcUpstreams(apiKey: string | undefined): RpcUpstreams {
+  if (!apiKey || !/^[a-z0-9_-]{16,128}$/iu.test(apiKey)) {
+    throw new Error("DWELLIR_API_KEY must be a 16-128 character URL-safe secret");
   }
-  if (!record(value)) throw new Error("JBCENTER_RPC_URLS must be a chain-to-URL object");
-
-  const result = new Map<number, readonly string[]>();
-  for (const [key, configured] of Object.entries(value)) {
-    if (!/^[1-9]\d*$/u.test(key)) throw new Error(`JBCENTER_RPC_URLS chain ${key} is invalid`);
-    const chainId = Number(key);
-    if (!Number.isSafeInteger(chainId)) {
-      throw new Error(`JBCENTER_RPC_URLS chain ${key} is invalid`);
-    }
-    const values = Array.isArray(configured) ? configured : [configured];
-    if (values.length < 1 || values.length > 3) {
-      throw new Error(`JBCENTER_RPC_URLS chain ${key} needs 1-3 upstreams`);
-    }
-    const urls = values.map(safeUrl);
-    if (urls.some((url) => !url)) {
-      throw new Error(`JBCENTER_RPC_URLS chain ${key} contains an invalid HTTPS URL`);
-    }
-    result.set(chainId, [...new Set(urls as string[])]);
-  }
-  return result;
+  return new Map(
+    Object.entries(DWELLIR_RPC_HOSTS).map(([chainId, host]) => [
+      Number(chainId),
+      [`https://${host}/${apiKey}`],
+    ]),
+  );
 }
 
 function validId(value: unknown): value is RpcId {
