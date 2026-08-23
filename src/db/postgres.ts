@@ -183,7 +183,7 @@ export class PostgresStore implements Store {
           value.envelope.deploymentVersion,
           value.envelope.chainIds,
           value.envelope.version,
-          value.envelope.version === 2 ? value.envelope.deploymentCalls : [],
+          JSON.stringify(value.envelope.version === 2 ? value.envelope.deploymentCalls : []),
           value.envelope.jb,
           value.publisher,
           value.signature,
