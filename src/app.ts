@@ -33,7 +33,7 @@ import {
 import { ConflictError, StorageLimitError, type Store } from "./store.js";
 import type { JbcenterEnv } from "./types.js";
 
-const MAX_BODY_BYTES = 2_100_000;
+const MAX_BODY_BYTES = 16_800_000;
 export const ALLOWED_ORIGINS = ["https://juicebox.money", "https://revnet.money"] as const;
 const PIN_WINDOW_SECONDS = 10 * 60;
 const PIN_PER_CALLER = 10;
@@ -53,7 +53,6 @@ class PinFailed extends Error {}
 
 export type AppOptions = {
   deploymentVerifier?: DeploymentVerifier;
-  reconcilerToken?: string;
   requestLimitPerMinute?: number;
   maxIntentsPerClient?: number;
   maxStorageBytesPerClient?: number;
@@ -115,9 +114,6 @@ function cursor(value: string | undefined): number {
 
 const pinPath = (path: string) => path.startsWith("/v1/pins/");
 const rpcPath = (path: string) => path.startsWith("/v1/rpc/");
-const deploymentPath = (path: string) =>
-  path.startsWith("/v1/intents/") && path.endsWith("/deployments");
-
 function callerIp(c: Context): string {
   return (
     c.req.header("x-real-ip") ??
@@ -273,7 +269,17 @@ export function createApp(
   const metrics = new Metrics();
 
   app.onError((error, c) => {
-    if (error instanceof BadRequest || error.message.startsWith("chainIds") || error.message.startsWith("format") || error.message.startsWith("deploymentVersion") || error.message.startsWith("jb") || error.message.startsWith("request") || error.message.startsWith("publisher")) {
+    if (
+      error instanceof BadRequest ||
+      error.message.startsWith("chainIds") ||
+      error.message.startsWith("deploymentCalls") ||
+      error.message.startsWith("format") ||
+      error.message.startsWith("version") ||
+      error.message.startsWith("deploymentVersion") ||
+      error.message.startsWith("jb") ||
+      error.message.startsWith("request") ||
+      error.message.startsWith("publisher")
+    ) {
       return c.json({ error: { code: "bad_request", message: error.message } }, 400);
     }
     if (error instanceof PayloadTooLarge) {
@@ -433,18 +439,13 @@ export function createApp(
     const origin = c.req.header("origin");
     const trustedOrigin =
       origin && ALLOWED_ORIGINS.includes(origin as (typeof ALLOWED_ORIGINS)[number]);
-    const reconciler =
-      deploymentPath(c.req.path) &&
-      options.reconcilerToken &&
-      authenticate(options.reconcilerToken, c.req.header("authorization"));
-    if (!trustedOrigin && !reconciler) {
+    if (!trustedOrigin) {
       return c.json(
         { error: { code: "forbidden_origin", message: "Origin is not allowed" } },
         403,
       );
     }
-    c.set("client", reconciler ? "reconciler" : `browser:${new URL(origin!).hostname}:${callerIp(c)}`);
-    c.set("role", reconciler ? "reconciler" : "client");
+    c.set("client", `browser:${new URL(origin!).hostname}:${callerIp(c)}`);
     await next();
   });
   app.use(
@@ -651,12 +652,6 @@ export function createApp(
   });
 
   app.post("/v1/intents/:id/deployments", async (c) => {
-    if (c.get("role") !== "reconciler") {
-      return c.json(
-        { error: { code: "forbidden", message: "A reconciler bearer token is required" } },
-        403,
-      );
-    }
     if (!options.deploymentVerifier) {
       return c.json(
         { error: { code: "unavailable", message: "Deployment verification is not configured" } },
@@ -672,6 +667,15 @@ export function createApp(
     if (!intent.envelope.chainIds.includes(chainId)) {
       throw new BadRequest("chainId is not part of this intent");
     }
+    if (intent.envelope.version !== 2) {
+      throw new DeploymentVerificationError(
+        "Intent predates signed deployment calls and cannot be publicly reconciled",
+      );
+    }
+    const call = intent.envelope.deploymentCalls.find((item) => item.chainId === chainId);
+    if (!call) {
+      throw new DeploymentVerificationError("Intent has no deployment call for this chain");
+    }
     if (typeof body.transactionHash !== "string" || !TX_HASH.test(body.transactionHash)) {
       throw new BadRequest("transactionHash must be a 32-byte hex value");
     }
@@ -680,6 +684,7 @@ export function createApp(
       projectId: projectId(body.projectId),
       transactionHash: body.transactionHash as Hex,
       deploymentVersion: intent.envelope.deploymentVersion,
+      call,
     };
     await options.deploymentVerifier.verify(claim);
     const deployment = await store.recordDeployment(id, claim);

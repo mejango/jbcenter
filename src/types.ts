@@ -3,20 +3,36 @@ import type { Address, Hex } from "viem";
 export type JbcenterEnv = {
   Variables: {
     client: string;
-    role: "client" | "reconciler";
     requestId: string;
   };
 };
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
-export type IntentEnvelope = {
+export type DeploymentCall = {
+  chainId: number;
+  to: Address;
+  data: Hex;
+};
+
+export type LegacyIntentEnvelope = {
   version: 1;
   format: string;
   deploymentVersion: string;
   chainIds: number[];
   jb: { [key: string]: Json };
 };
+
+export type CommittedIntentEnvelope = {
+  version: 2;
+  format: string;
+  deploymentVersion: string;
+  chainIds: number[];
+  deploymentCalls: DeploymentCall[];
+  jb: { [key: string]: Json };
+};
+
+export type IntentEnvelope = LegacyIntentEnvelope | CommittedIntentEnvelope;
 
 export type IntentMetadata = {
   name: string;

@@ -1,7 +1,8 @@
-import { getAddress, keccak256, toBytes, type Address, type Hex } from "viem";
-import type { IntentEnvelope, Json } from "./types.js";
+import { getAddress, keccak256, size, toBytes, type Address, type Hex } from "viem";
+import type { CommittedIntentEnvelope, DeploymentCall, IntentEnvelope, Json } from "./types.js";
 
 const MAX_DEPTH = 64;
+const MAX_CALL_DATA_BYTES = 4 * 1024 * 1024;
 const FORMAT = /^[a-z0-9.-]{1,80}\/[a-zA-Z0-9._-]{1,32}$/u;
 
 function object(value: unknown, name: string): Record<string, unknown> {
@@ -38,8 +39,37 @@ function draftChainIds(jb: Record<string, Json>): number[] | null {
     .sort((a, b) => a - b);
 }
 
-export function normalizeEnvelope(value: unknown): IntentEnvelope {
+function deploymentCalls(value: unknown, chainIds: number[]): DeploymentCall[] {
+  if (!Array.isArray(value) || value.length !== chainIds.length) {
+    throw new Error("deploymentCalls must contain exactly one call for each chainId");
+  }
+  const calls = value.map((item, index) => {
+    const raw = object(item, `deploymentCalls[${index}]`);
+    const chainId = Number(raw.chainId);
+    if (!Number.isSafeInteger(chainId) || chainId <= 0) {
+      throw new Error(`deploymentCalls[${index}].chainId must be a positive safe integer`);
+    }
+    const to = address(raw.to, `deploymentCalls[${index}].to`);
+    if (typeof raw.data !== "string" || !/^0x(?:[0-9a-f]{2}){4,}$/iu.test(raw.data)) {
+      throw new Error(`deploymentCalls[${index}].data must be contract calldata`);
+    }
+    if (size(raw.data as Hex) > MAX_CALL_DATA_BYTES) {
+      throw new Error(`deploymentCalls[${index}].data exceeds ${MAX_CALL_DATA_BYTES} bytes`);
+    }
+    return { chainId, to, data: raw.data.toLowerCase() as Hex };
+  });
+  const callChainIds = calls.map(({ chainId }) => chainId).sort((a, b) => a - b);
+  if (JSON.stringify(callChainIds) !== JSON.stringify(chainIds)) {
+    throw new Error("deploymentCalls must contain exactly one call for each chainId");
+  }
+  return calls.sort((a, b) => a.chainId - b.chainId);
+}
+
+export function normalizeEnvelope(value: unknown): CommittedIntentEnvelope {
   const raw = object(value, "request");
+  if (raw.version !== undefined && raw.version !== 2) {
+    throw new Error("version must be 2");
+  }
   const format = typeof raw.format === "string" ? raw.format.trim() : "";
   const deploymentVersion =
     typeof raw.deploymentVersion === "string" ? raw.deploymentVersion.trim() : "";
@@ -62,7 +92,14 @@ export function normalizeEnvelope(value: unknown): IntentEnvelope {
   if (declared && JSON.stringify(declared) !== JSON.stringify(chainIds)) {
     throw new Error("chainIds must match the chains declared by the .jb file");
   }
-  return { version: 1, format, deploymentVersion, chainIds, jb };
+  return {
+    version: 2,
+    format,
+    deploymentVersion,
+    chainIds,
+    deploymentCalls: deploymentCalls(raw.deploymentCalls, chainIds),
+    jb,
+  };
 }
 
 export function canonicalJson(value: Json): string {

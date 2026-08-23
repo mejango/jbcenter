@@ -20,10 +20,6 @@ function requireStrongSecret(name: string, value: string | undefined): string {
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("DATABASE_URL is required");
-const reconcilerToken = requireStrongSecret(
-  "JBCENTER_RECONCILER_KEY",
-  process.env.JBCENTER_RECONCILER_KEY,
-);
 const metricsToken = requireStrongSecret("METRICS_TOKEN", process.env.METRICS_TOKEN);
 const filebaseAccessKey = process.env.FILEBASE_ACCESS_KEY_ID;
 const filebaseSecretKey = process.env.FILEBASE_SECRET_ACCESS_KEY;
@@ -45,7 +41,6 @@ const deploymentVerifier = new RpcDeploymentVerifier(canonicalDeploymentChains(r
 const server = serve({
   fetch: createApp(new PostgresStore(pool), {
     deploymentVerifier,
-    reconcilerToken,
     requestLimitPerMinute: positiveInteger("RATE_LIMIT_PER_MINUTE", 600),
     maxIntentsPerClient: positiveInteger("MAX_INTENTS_PER_CLIENT", 10_000),
     maxStorageBytesPerClient: positiveInteger("MAX_STORAGE_BYTES_PER_CLIENT", 1_073_741_824),

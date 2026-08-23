@@ -30,10 +30,17 @@ suite("PostgreSQL store", () => {
     const created = await store!.createIntent({
       contentHash: `0x${"11".repeat(32)}`,
       envelope: {
-        version: 1,
+        version: 2,
         format: "juicebox.money/v1",
         deploymentVersion: "6",
         chainIds: [1],
+        deploymentCalls: [
+          {
+            chainId: 1,
+            to: "0x3333333333333333333333333333333333333333",
+            data: "0x12345678",
+          },
+        ],
         jb: { name: "Climate garden", chains: [1] },
       },
       publisher: zeroAddress,
@@ -48,6 +55,8 @@ suite("PostgreSQL store", () => {
       owner: zeroAddress,
     }, { maxIntents: 100, maxBytes: 1_000_000 });
     expect(created.created).toBe(true);
+    expect(created.intent.envelope.version).toBe(2);
+    expect((await store!.getIntent(created.intent.id))?.envelope).toEqual(created.intent.envelope);
     expect((await store!.search("climate", 20, 0)).items).toHaveLength(1);
 
     await store!.recordDeployment(created.intent.id, {

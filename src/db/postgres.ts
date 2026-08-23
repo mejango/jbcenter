@@ -9,7 +9,7 @@ import {
   type StorageLimits,
   type Store,
 } from "../store.js";
-import type { Deployment, Intent, SearchItem, SearchPage } from "../types.js";
+import type { Deployment, DeploymentCall, Intent, SearchItem, SearchPage } from "../types.js";
 
 type IntentRow = QueryResultRow & {
   id: string;
@@ -17,6 +17,8 @@ type IntentRow = QueryResultRow & {
   format: string;
   deployment_version: string;
   chain_ids: string[];
+  envelope_version: 1 | 2;
+  deployment_calls: DeploymentCall[];
   jb: Intent["envelope"]["jb"];
   publisher: Address;
   signature: Hex;
@@ -49,13 +51,23 @@ function intent(row: IntentRow, deployments: Deployment[] = []): Intent {
     id: row.id,
     status: deployments.length ? "deployed" : "undeployed",
     contentHash: row.content_hash,
-    envelope: {
-      version: 1,
-      format: row.format,
-      deploymentVersion: row.deployment_version,
-      chainIds,
-      jb: row.jb,
-    },
+    envelope:
+      row.envelope_version === 2
+        ? {
+            version: 2,
+            format: row.format,
+            deploymentVersion: row.deployment_version,
+            chainIds,
+            deploymentCalls: row.deployment_calls,
+            jb: row.jb,
+          }
+        : {
+            version: 1,
+            format: row.format,
+            deploymentVersion: row.deployment_version,
+            chainIds,
+            jb: row.jb,
+          },
     publisher: row.publisher,
     signature: row.signature,
     name: row.name,
@@ -70,8 +82,9 @@ function intent(row: IntentRow, deployments: Deployment[] = []): Intent {
 }
 
 const selectIntent = `
-  SELECT id, content_hash, format, deployment_version, chain_ids, jb, publisher, signature,
-         name, description, tagline, tags, logo_uri, owner, created_at
+  SELECT id, content_hash, format, deployment_version, chain_ids, envelope_version,
+         deployment_calls, jb, publisher, signature, name, description, tagline, tags, logo_uri,
+         owner, created_at
   FROM intents
 `;
 
@@ -151,13 +164,15 @@ export class PostgresStore implements Store {
       }
       const result = await client.query<IntentRow>(
         `INSERT INTO intents (
-           id, content_hash, format, deployment_version, chain_ids, jb, publisher, signature,
-           name, description, tagline, tags, logo_uri, owner, submitted_by, jb_bytes, search_vector
+           id, content_hash, format, deployment_version, chain_ids, envelope_version,
+           deployment_calls, jb, publisher, signature, name, description, tagline, tags, logo_uri,
+           owner, submitted_by, jb_bytes, search_vector
          ) VALUES (
            $1, $2, $3, $4, $5::bigint[], $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+           $17, $18,
            to_tsvector(
              'simple',
-             concat_ws(' ', $9::text, $10::text, $11::text, array_to_string($12::text[], ' '))
+             concat_ws(' ', $11::text, $12::text, $13::text, array_to_string($14::text[], ' '))
            )
          )
          RETURNING *`,
@@ -167,6 +182,8 @@ export class PostgresStore implements Store {
           value.envelope.format,
           value.envelope.deploymentVersion,
           value.envelope.chainIds,
+          value.envelope.version,
+          JSON.stringify(value.envelope.version === 2 ? value.envelope.deploymentCalls : []),
           value.envelope.jb,
           value.publisher,
           value.signature,
