@@ -18,8 +18,9 @@ npm install
 npm run dev
 ```
 
-Browser requests are accepted only from the two origins hardcoded in the service:
-`https://juicebox.money` and `https://revnet.money`. `GET /healthz` is public for infrastructure
+Browser requests are accepted only from the origins hardcoded for the active Railway environment.
+Production accepts `https://juicebox.money` and `https://revnet.money`; `dev` accepts only
+`https://dev.juicebox.money`. `GET /healthz` is public for infrastructure
 health checks, and `/ipfs/*` is a public read gateway.
 
 ## Pin and read IPFS content

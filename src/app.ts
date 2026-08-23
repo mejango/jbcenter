@@ -34,7 +34,14 @@ import { ConflictError, StorageLimitError, type Store } from "./store.js";
 import type { JbcenterEnv } from "./types.js";
 
 const MAX_BODY_BYTES = 16_800_000;
-export const ALLOWED_ORIGINS = ["https://juicebox.money", "https://revnet.money"] as const;
+const PRODUCTION_ORIGINS = ["https://juicebox.money", "https://revnet.money"] as const;
+const DEV_ORIGINS = ["https://dev.juicebox.money"] as const;
+
+export function originsForEnvironment(environment = process.env.RAILWAY_ENVIRONMENT_NAME) {
+  return environment === "dev" ? DEV_ORIGINS : PRODUCTION_ORIGINS;
+}
+
+export const ALLOWED_ORIGINS = originsForEnvironment();
 const PIN_WINDOW_SECONDS = 10 * 60;
 const PIN_PER_CALLER = 10;
 const PIN_PER_SITE = 200;
@@ -52,6 +59,7 @@ class UnsupportedMedia extends Error {}
 class PinFailed extends Error {}
 
 export type AppOptions = {
+  allowedOrigins?: readonly string[];
   deploymentVerifier?: DeploymentVerifier;
   requestLimitPerMinute?: number;
   maxIntentsPerClient?: number;
@@ -267,6 +275,7 @@ export function createApp(
 ): Hono<JbcenterEnv> {
   const app = new Hono<JbcenterEnv>();
   const metrics = new Metrics();
+  const allowedOrigins = options.allowedOrigins ?? ALLOWED_ORIGINS;
 
   app.onError((error, c) => {
     if (
@@ -437,8 +446,7 @@ export function createApp(
 
   app.use("/v1/*", async (c, next) => {
     const origin = c.req.header("origin");
-    const trustedOrigin =
-      origin && ALLOWED_ORIGINS.includes(origin as (typeof ALLOWED_ORIGINS)[number]);
+    const trustedOrigin = origin && allowedOrigins.some((allowed) => allowed === origin);
     if (!trustedOrigin) {
       return c.json(
         { error: { code: "forbidden_origin", message: "Origin is not allowed" } },
@@ -451,7 +459,7 @@ export function createApp(
   app.use(
     "/v1/*",
     cors({
-      origin: [...ALLOWED_ORIGINS],
+      origin: [...allowedOrigins],
       allowHeaders: ["Authorization", "Content-Type"],
       allowMethods: ["GET", "POST", "OPTIONS"],
       maxAge: 86_400,

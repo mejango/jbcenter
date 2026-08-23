@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it, vi } from "vitest";
-import { createApp } from "../src/app.js";
+import { createApp, originsForEnvironment } from "../src/app.js";
 import { DeploymentVerificationError } from "../src/deploymentVerifier.js";
 import type { RpcGateway } from "../src/rpc.js";
 import {
@@ -173,6 +173,30 @@ describe("JB Center API", () => {
       const accepted = await app.request("/v1/search", { headers: { ...trusted, origin } });
       expect(accepted.status).toBe(200);
       expect(accepted.headers.get("access-control-allow-origin")).toBe(origin);
+    }
+  });
+
+  it("isolates the dev browser origin from production", async () => {
+    expect(originsForEnvironment("production")).toEqual([
+      "https://juicebox.money",
+      "https://revnet.money",
+    ]);
+    const devOrigins = originsForEnvironment("dev");
+    expect(devOrigins).toEqual(["https://dev.juicebox.money"]);
+
+    const app = createApp(new MemoryStore(), { allowedOrigins: devOrigins });
+    const accepted = await app.request("/v1/search", {
+      headers: { ...trusted, origin: "https://dev.juicebox.money" },
+    });
+    expect(accepted.status).toBe(200);
+    expect(accepted.headers.get("access-control-allow-origin")).toBe(
+      "https://dev.juicebox.money",
+    );
+    for (const origin of ["https://juicebox.money", "https://revnet.money"]) {
+      const rejected = await app.request("/v1/search", {
+        headers: { ...trusted, origin },
+      });
+      expect(rejected.status).toBe(403);
     }
   });
 
