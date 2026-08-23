@@ -1,12 +1,14 @@
 import {
   createPublicClient,
   decodeEventLog,
+  getAddress,
   http,
   isAddressEqual,
   type Address,
   type Hex,
 } from "viem";
 import type { RpcUpstreams } from "./rpc.js";
+import type { DeploymentCall } from "./types.js";
 
 const createEvent = [
   {
@@ -33,6 +35,7 @@ export type DeploymentClaim = {
   projectId: string;
   transactionHash: Hex;
   deploymentVersion: string;
+  call: DeploymentCall;
 };
 
 export type ReceiptReader = {
@@ -42,12 +45,82 @@ export type ReceiptReader = {
     logs: readonly { address: Address; data: Hex; topics: readonly Hex[] }[];
   }>;
   getBlockNumber(): Promise<bigint>;
+  traceTransaction(hash: Hex): Promise<unknown>;
 };
 
 export class DeploymentVerificationError extends Error {}
 
 export interface DeploymentVerifier {
   verify(claim: DeploymentClaim): Promise<void>;
+}
+
+type TraceCall = {
+  type: string;
+  to: Address;
+  input: Hex;
+  error?: string;
+  calls: TraceCall[];
+};
+
+const MAX_TRACE_DEPTH = 128;
+const MAX_TRACE_FRAMES = 100_000;
+
+function traceCall(value: unknown, depth: number, frames: { count: number }): TraceCall {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new DeploymentVerificationError("RPC returned a malformed transaction trace");
+  }
+  if (depth > MAX_TRACE_DEPTH || ++frames.count > MAX_TRACE_FRAMES) {
+    throw new DeploymentVerificationError("Transaction trace exceeds verification limits");
+  }
+  const raw = value as Record<string, unknown>;
+  if (
+    typeof raw.type !== "string" ||
+    typeof raw.to !== "string" ||
+    typeof raw.input !== "string" ||
+    !/^0x(?:[0-9a-f]{2})*$/iu.test(raw.input)
+  ) {
+    throw new DeploymentVerificationError("RPC returned a malformed transaction trace");
+  }
+  let to: Address;
+  try {
+    to = getAddress(raw.to);
+  } catch {
+    throw new DeploymentVerificationError("RPC returned a malformed transaction trace");
+  }
+  if (raw.error !== undefined && typeof raw.error !== "string") {
+    throw new DeploymentVerificationError("RPC returned a malformed transaction trace");
+  }
+  if (raw.calls !== undefined && !Array.isArray(raw.calls)) {
+    throw new DeploymentVerificationError("RPC returned a malformed transaction trace");
+  }
+  return {
+    type: raw.type,
+    to,
+    input: raw.input as Hex,
+    ...(raw.error ? { error: raw.error } : {}),
+    calls: (raw.calls ?? []).map((call) => traceCall(call, depth + 1, frames)),
+  };
+}
+
+function containsCommittedCall(trace: unknown, expected: DeploymentCall): boolean {
+  const root = traceCall(trace, 0, { count: 0 });
+  const stack: { call: TraceCall; ancestorFailed: boolean }[] = [
+    { call: root, ancestorFailed: false },
+  ];
+  while (stack.length) {
+    const { call, ancestorFailed } = stack.pop()!;
+    const failed = ancestorFailed || Boolean(call.error);
+    if (
+      !failed &&
+      call.type.toUpperCase() === "CALL" &&
+      isAddressEqual(call.to, expected.to) &&
+      call.input.toLowerCase() === expected.data.toLowerCase()
+    ) {
+      return true;
+    }
+    stack.push(...call.calls.map((child) => ({ call: child, ancestorFailed: failed })));
+  }
+  return false;
 }
 
 const PROJECTS = "0x6017d1fba9dc279bfa0b03fd931c22e242ab3691" as Address;
@@ -81,18 +154,28 @@ export class RpcDeploymentVerifier implements DeploymentVerifier {
     this.readers = readers ?? new Map<number, ReceiptReader>();
     if (readers) return;
     for (const [chainId, config] of chains) {
-      this.readers.set(
-        chainId,
-        createPublicClient({
-          chain: {
-            id: chainId,
-            name: `Chain ${chainId}`,
-            nativeCurrency: { name: "Native", symbol: "NATIVE", decimals: 18 },
-            rpcUrls: { default: { http: [config.rpcUrl] } },
-          },
-          transport: http(config.rpcUrl, { timeout: 10_000, retryCount: 2 }),
-        }),
-      );
+      const client = createPublicClient({
+        chain: {
+          id: chainId,
+          name: `Chain ${chainId}`,
+          nativeCurrency: { name: "Native", symbol: "NATIVE", decimals: 18 },
+          rpcUrls: { default: { http: [config.rpcUrl] } },
+        },
+        transport: http(config.rpcUrl, { timeout: 20_000, retryCount: 2 }),
+      });
+      const request = client.request as unknown as (args: {
+        method: string;
+        params: readonly unknown[];
+      }) => Promise<unknown>;
+      this.readers.set(chainId, {
+        getTransactionReceipt: (args) => client.getTransactionReceipt(args),
+        getBlockNumber: () => client.getBlockNumber(),
+        traceTransaction: (hash) =>
+          request({
+            method: "debug_traceTransaction",
+            params: [hash, { tracer: "callTracer", timeout: "15s" }],
+          }),
+      });
     }
   }
 
@@ -106,6 +189,9 @@ export class RpcDeploymentVerifier implements DeploymentVerifier {
       throw new DeploymentVerificationError(
         `Chain ${claim.chainId} is not configured for deployment version ${claim.deploymentVersion}`,
       );
+    }
+    if (claim.call.chainId !== claim.chainId) {
+      throw new DeploymentVerificationError("Deployment call chain does not match the claim");
     }
     let receipt: Awaited<ReturnType<ReceiptReader["getTransactionReceipt"]>>;
     try {
@@ -128,7 +214,7 @@ export class RpcDeploymentVerifier implements DeploymentVerifier {
         `Deployment has ${confirmations} confirmations; ${config.confirmations} required`,
       );
     }
-    const expectedProjectId = BigInt(claim.projectId);
+    const createdProjectIds: bigint[] = [];
     for (const log of receipt.logs) {
       if (!isAddressEqual(log.address, config.projectsAddress)) continue;
       try {
@@ -139,13 +225,27 @@ export class RpcDeploymentVerifier implements DeploymentVerifier {
           topics: log.topics as [Hex, ...Hex[]],
           strict: true,
         });
-        if (decoded.args.projectId === expectedProjectId) return;
+        createdProjectIds.push(decoded.args.projectId);
       } catch {
         // The canonical contract emits other events in the same transaction.
       }
     }
-    throw new DeploymentVerificationError(
-      "Transaction did not create the claimed project on canonical JBProjects",
-    );
+    if (createdProjectIds.length !== 1 || createdProjectIds[0] !== BigInt(claim.projectId)) {
+      throw new DeploymentVerificationError(
+        "Transaction must create exactly the claimed project on canonical JBProjects",
+      );
+    }
+    let trace: unknown;
+    try {
+      trace = await reader.traceTransaction(claim.transactionHash);
+    } catch (error) {
+      if (error instanceof DeploymentVerificationError) throw error;
+      throw new DeploymentVerificationError("Transaction trace is not available from RPC");
+    }
+    if (!containsCommittedCall(trace, claim.call)) {
+      throw new DeploymentVerificationError(
+        "Transaction did not execute the deployment call committed by the signed intent",
+      );
+    }
   }
 }

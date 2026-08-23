@@ -97,6 +97,11 @@ curl -X POST http://localhost:3000/v1/intents/message \
     "format":"juicebox.money/v1",
     "deploymentVersion":"6",
     "chainIds":[1],
+    "deploymentCalls":[{
+      "chainId":1,
+      "to":"0x3333333333333333333333333333333333333333",
+      "data":"0x12345678..."
+    }],
     "jb":{"v":1,"name":"Example","chains":[1],"stages":[{}]}
   }'
 ```
@@ -118,9 +123,12 @@ const intent = await central("/v1/intents", {
 })
 ```
 
-JB Center accepts any JSON object as `jb`, caps bodies at roughly 2 MB, and indexes common
+JB Center accepts any JSON object as `jb`, caps signed envelopes at 16.8 MB, and indexes common
 Juicebox Money and Revnet Money metadata fields. `chainIds` must match `chains` or `data.chainIds`
-when the `.jb` declares them.
+when the `.jb` declares them. `deploymentCalls` must contain exactly one ABI-encoded call per
+chain. The call target and complete calldata are part of the signed content, making the frozen
+deployment directly executable and independently verifiable without re-deriving time-sensitive
+arguments.
 
 ## Read and search
 
@@ -150,11 +158,10 @@ PostgreSQL full-text search and lists recent intents when `q` is empty.
 
 ## Record deployment
 
-Only the dedicated reconciler can associate an onchain project with an intent:
+Any trusted webclient can associate an onchain project with its signed intent:
 
 ```http
 POST /v1/intents/:id/deployments
-Authorization: Bearer <JBCENTER_RECONCILER_KEY>
 Content-Type: application/json
 
 {
@@ -164,22 +171,20 @@ Content-Type: application/json
 }
 ```
 
-Before writing, JB Center fetches the receipt from the configured chain RPC, requires a
-successful transaction with the configured confirmation count, and decodes a matching
-`JBProjects.Create(projectId, owner, caller)` event from the configured canonical `JBProjects`
-address. Deployment records are write-once per intent and chain. Recording the first deployment
-removes the intent from search while preserving the `.jb`, signature, and deployment provenance at
-its direct URL.
-
-This proves that the transaction created the claimed Juicebox project. The trusted reconciler still
-chooses which JB Center intent maps to it because the `.jb` content hash is not emitted onchain.
+Before writing, JB Center fetches the receipt and call trace from the configured chain RPC. It
+requires a successful transaction with the configured confirmation count, exactly one matching
+`JBProjects.Create(projectId, owner, caller)` event from canonical `JBProjects`, and a successful
+direct or nested `CALL` whose target and calldata exactly match the signed per-chain commitment.
+Nested matching supports Safe and Relayr execution. Deployment records are write-once per intent
+and chain. Recording the first deployment removes the intent from search while preserving the
+`.jb`, signature, exact launch call, and deployment provenance at its direct URL.
 
 ## Authentication boundaries
 
 Client access uses the two reviewed browser origins; signed intents provide publisher authenticity.
-`JBCENTER_RECONCILER_KEY` is the only Center API credential. It remains necessary because an onchain
-`Create` event does not contain the offchain intent hash, so transaction verification alone cannot
-prove which stored intent should leave search.
+Deployment recording needs no bearer credential: the publisher's signed call commitment and the
+onchain trace provide the intent-to-project binding. Center's server-side trace method is not
+exposed through the public browser RPC gateway.
 
 ## Production configuration
 

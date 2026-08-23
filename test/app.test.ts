@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { privateKeyToAccount } from "viem/accounts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import { DeploymentVerificationError } from "../src/deploymentVerifier.js";
 import type { RpcGateway } from "../src/rpc.js";
@@ -105,15 +105,18 @@ const trusted = {
   origin: "https://juicebox.money",
   "content-type": "application/json",
 };
-const reconcilerAuth = {
-  authorization: "Bearer reconcile-secret",
-  "content-type": "application/json",
-};
-const verifier = { verify: async () => {} };
+const verifier = { verify: vi.fn(async () => {}) };
 const envelope = {
   format: "juicebox.money/v1",
   deploymentVersion: "6",
   chainIds: [1],
+  deploymentCalls: [
+    {
+      chainId: 1,
+      to: "0x3333333333333333333333333333333333333333",
+      data: "0x12345678",
+    },
+  ],
   jb: {
     v: 1,
     name: "Public goods garden",
@@ -175,10 +178,7 @@ describe("JB Center API", () => {
 
   it("publishes idempotently, searches, reads, and retires a deployed intent", async () => {
     const store = new MemoryStore();
-    const app = createApp(store, {
-      deploymentVerifier: verifier,
-      reconcilerToken: "reconcile-secret",
-    });
+    const app = createApp(store, { deploymentVerifier: verifier });
     const created = await publish(app);
     expect(created.status).toBe(201);
     const intent = (await created.json()) as Intent;
@@ -194,7 +194,7 @@ describe("JB Center API", () => {
     expect(results.items).toHaveLength(1);
     expect(results.items[0]?.source).toBe("jbcenter");
 
-    const clientAttempt = await app.request(`/v1/intents/${intent.id}/deployments`, {
+    const reconciled = await app.request(`/v1/intents/${intent.id}/deployments`, {
       method: "POST",
       headers: trusted,
       body: JSON.stringify({
@@ -203,17 +203,10 @@ describe("JB Center API", () => {
         transactionHash: `0x${"12".repeat(32)}`,
       }),
     });
-    expect(clientAttempt.status).toBe(403);
-    const reconciled = await app.request(`/v1/intents/${intent.id}/deployments`, {
-      method: "POST",
-      headers: reconcilerAuth,
-      body: JSON.stringify({
-        chainId: 1,
-        projectId: "42",
-        transactionHash: `0x${"12".repeat(32)}`,
-      }),
-    });
     expect(reconciled.status).toBe(201);
+    expect(verifier.verify).toHaveBeenCalledWith(
+      expect.objectContaining({ call: envelope.deploymentCalls[0] }),
+    );
     const after = (await (
       await app.request("/v1/search?q=climate", { headers: trusted })
     ).json()) as SearchPage;
@@ -242,6 +235,29 @@ describe("JB Center API", () => {
       body: JSON.stringify({
         ...envelope,
         jb: { ...envelope.jb, name: "Tampered" },
+        publisher: account.address,
+        signature,
+      }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects a signature after committed deployment calldata is changed", async () => {
+    const app = createApp(new MemoryStore());
+    const prepared = (await (
+      await app.request("/v1/intents/message", {
+        method: "POST",
+        headers: trusted,
+        body: JSON.stringify(envelope),
+      })
+    ).json()) as { message: string };
+    const signature = await account.signMessage({ message: prepared.message });
+    const response = await app.request("/v1/intents", {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({
+        ...envelope,
+        deploymentCalls: [{ ...envelope.deploymentCalls[0], data: "0x87654321" }],
         publisher: account.address,
         signature,
       }),
@@ -327,7 +343,6 @@ describe("JB Center API", () => {
   it("fails closed when RPC cannot verify a deployment", async () => {
     const store = new MemoryStore();
     const app = createApp(store, {
-      reconcilerToken: "reconcile-secret",
       deploymentVerifier: {
         verify: async () => {
           throw new DeploymentVerificationError("receipt unavailable");
@@ -337,7 +352,7 @@ describe("JB Center API", () => {
     const created = (await (await publish(app)).json()) as Intent;
     const response = await app.request(`/v1/intents/${created.id}/deployments`, {
       method: "POST",
-      headers: reconcilerAuth,
+      headers: trusted,
       body: JSON.stringify({
         chainId: 1,
         projectId: "42",
