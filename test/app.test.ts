@@ -180,6 +180,7 @@ describe("JB Center API", () => {
     expect(originsForEnvironment("production")).toEqual([
       "https://juicebox.money",
       "https://revnet.money",
+      "https://eth.shop",
     ]);
     const devOrigins = originsForEnvironment("dev");
     expect(devOrigins).toEqual([
@@ -187,6 +188,8 @@ describe("JB Center API", () => {
       "https://dev.revnet.money",
       "http://localhost:3001",
       "http://localhost:3002",
+      "https://dev.eth.shop",
+      "http://localhost:3003",
     ]);
 
     const app = createApp(new MemoryStore(), { allowedOrigins: devOrigins });
