@@ -182,16 +182,31 @@ describe("JB Center API", () => {
       "https://revnet.money",
     ]);
     const devOrigins = originsForEnvironment("dev");
-    expect(devOrigins).toEqual(["https://dev.juicebox.money", "https://dev.revnet.money"]);
+    expect(devOrigins).toEqual([
+      "https://dev.juicebox.money",
+      "https://dev.revnet.money",
+      "http://localhost:3001",
+      "http://localhost:3002",
+    ]);
 
     const app = createApp(new MemoryStore(), { allowedOrigins: devOrigins });
-    for (const origin of ["https://dev.juicebox.money", "https://dev.revnet.money"]) {
+    for (const origin of devOrigins) {
       const accepted = await app.request("/v1/search", { headers: { ...trusted, origin } });
       expect(accepted.status).toBe(200);
       expect(accepted.headers.get("access-control-allow-origin")).toBe(origin);
     }
     for (const origin of ["https://juicebox.money", "https://revnet.money"]) {
       const rejected = await app.request("/v1/search", {
+        headers: { ...trusted, origin },
+      });
+      expect(rejected.status).toBe(403);
+    }
+
+    const productionApp = createApp(new MemoryStore(), {
+      allowedOrigins: originsForEnvironment("production"),
+    });
+    for (const origin of devOrigins) {
+      const rejected = await productionApp.request("/v1/search", {
         headers: { ...trusted, origin },
       });
       expect(rejected.status).toBe(403);

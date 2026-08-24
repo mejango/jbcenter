@@ -19,9 +19,10 @@ npm run dev
 ```
 
 Browser requests are accepted only from the origins hardcoded for the active Railway environment.
-Production accepts `https://juicebox.money` and `https://revnet.money`; `dev` accepts only
-`https://dev.juicebox.money` and `https://dev.revnet.money`. `GET /healthz` is public for infrastructure
-health checks, and `/ipfs/*` is a public read gateway.
+Production accepts `https://juicebox.money` and `https://revnet.money`. `dev` accepts only
+`https://dev.juicebox.money`, `https://dev.revnet.money`, `http://localhost:3001`, and
+`http://localhost:3002`. `GET /healthz` is public for infrastructure health checks, and
+`/ipfs/*` is a public read gateway.
 
 ## Pin and read IPFS content
 

@@ -35,7 +35,12 @@ import type { JbcenterEnv } from "./types.js";
 
 const MAX_BODY_BYTES = 16_800_000;
 const PRODUCTION_ORIGINS = ["https://juicebox.money", "https://revnet.money"] as const;
-const DEV_ORIGINS = ["https://dev.juicebox.money", "https://dev.revnet.money"] as const;
+const DEV_ORIGINS = [
+  "https://dev.juicebox.money",
+  "https://dev.revnet.money",
+  "http://localhost:3001",
+  "http://localhost:3002",
+] as const;
 
 export function originsForEnvironment(environment = process.env.RAILWAY_ENVIRONMENT_NAME) {
   return environment === "dev" ? DEV_ORIGINS : PRODUCTION_ORIGINS;
