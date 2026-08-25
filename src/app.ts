@@ -2,7 +2,7 @@ import { bodyLimit } from "hono/body-limit";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import Busboy from "busboy";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { isHex, size, verifyMessage, type Hex } from "viem";
 import { authenticate } from "./auth.js";
 import {
@@ -34,12 +34,14 @@ import { ConflictError, StorageLimitError, type Store } from "./store.js";
 import type { JbcenterEnv } from "./types.js";
 
 const MAX_BODY_BYTES = 16_800_000;
-const PRODUCTION_ORIGINS = ["https://juicebox.money", "https://revnet.money"] as const;
+const PRODUCTION_ORIGINS = ["https://juicebox.money", "https://revnet.money", "https://eth.shop"] as const;
 const DEV_ORIGINS = [
   "https://dev.juicebox.money",
   "https://dev.revnet.money",
   "http://localhost:3001",
   "http://localhost:3002",
+  "https://dev.eth.shop",
+  "http://localhost:3003",
 ] as const;
 
 export function originsForEnvironment(environment = process.env.RAILWAY_ENVIRONMENT_NAME) {
@@ -218,15 +220,24 @@ async function streamMedia(
         fail(new UnsupportedMedia("Images, video, audio, PDF, or text only"));
         return;
       }
-      file.on("data", (chunk: Buffer) => {
-        fileBytes += chunk.byteLength;
+      // Count bytes inside the pipeline rather than with a `data` listener: a
+      // listener would put the part into flowing mode and drain it before the
+      // uploader starts pulling, so Filebase would receive an empty body.
+      const counted = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          fileBytes += chunk.byteLength;
+          callback(null, chunk);
+        },
       });
       file.once("limit", () => {
         const error = new PayloadTooLarge(`file must not exceed ${maxBytes} bytes`);
         file.destroy(error);
+        counted.destroy(error);
         fail(error);
       });
-      upload = pinning.pinStream(file, "media", info.mimeType);
+      file.once("error", (error) => counted.destroy(error));
+      file.pipe(counted);
+      upload = pinning.pinStream(counted, "media", info.mimeType);
       void upload.catch(() => fail(new PinFailed("Failed to pin media")));
     });
     parser.on("field", () => fail(new BadRequest("Only the file field is allowed")));
