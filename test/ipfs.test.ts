@@ -190,7 +190,7 @@ describe("IPFS pinning", () => {
   it("delivers every media byte to a consumer that starts reading later", async () => {
     const received: Buffer[] = [];
     const pinning = pinningMock();
-    pinning.pinStream.mockImplementation(async (content: import("node:stream").Readable) => {
+    pinning.pinStream.mockImplementation(async (content: NodeJS.ReadableStream) => {
       // Real uploads pull from the part only once fetch starts sending; a
       // listener-driven byte count used to drain the part before that.
       await new Promise((resolve) => setTimeout(resolve, 20));
