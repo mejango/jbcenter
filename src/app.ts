@@ -2,7 +2,7 @@ import { bodyLimit } from "hono/body-limit";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import Busboy from "busboy";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { isHex, size, verifyMessage, type Hex } from "viem";
 import { authenticate } from "./auth.js";
 import {
@@ -220,15 +220,24 @@ async function streamMedia(
         fail(new UnsupportedMedia("Images, video, audio, PDF, or text only"));
         return;
       }
-      file.on("data", (chunk: Buffer) => {
-        fileBytes += chunk.byteLength;
+      // Count bytes inside the pipeline rather than with a `data` listener: a
+      // listener would put the part into flowing mode and drain it before the
+      // uploader starts pulling, so Filebase would receive an empty body.
+      const counted = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          fileBytes += chunk.byteLength;
+          callback(null, chunk);
+        },
       });
       file.once("limit", () => {
         const error = new PayloadTooLarge(`file must not exceed ${maxBytes} bytes`);
         file.destroy(error);
+        counted.destroy(error);
         fail(error);
       });
-      upload = pinning.pinStream(file, "media", info.mimeType);
+      file.once("error", (error) => counted.destroy(error));
+      file.pipe(counted);
+      upload = pinning.pinStream(counted, "media", info.mimeType);
       void upload.catch(() => fail(new PinFailed("Failed to pin media")));
     });
     parser.on("field", () => fail(new BadRequest("Only the file field is allowed")));

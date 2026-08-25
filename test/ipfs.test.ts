@@ -187,6 +187,29 @@ describe("IPFS pinning", () => {
     expect(rejected.status).toBe(413);
   });
 
+  it("delivers every media byte to a consumer that starts reading later", async () => {
+    const received: Buffer[] = [];
+    const pinning = pinningMock();
+    pinning.pinStream.mockImplementation(async (content: import("node:stream").Readable) => {
+      // Real uploads pull from the part only once fetch starts sending; a
+      // listener-driven byte count used to drain the part before that.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      for await (const chunk of content) received.push(Buffer.from(chunk));
+      return { cid: "QmTiqRc4Mi8jzs7cfNWAXfSAGcf1JY2yZ5joF8j8VYLETY", status: "queued" };
+    });
+    const service = app(pinning);
+    const payload = new Uint8Array(70_000).map((_, index) => index % 251);
+    const form = new FormData();
+    form.append("file", new File([payload], "photo.jpg", { type: "image/jpeg" }));
+    const response = await service.request("/v1/pins/media", {
+      method: "POST",
+      headers: { origin: "https://juicebox.money", "x-real-ip": "203.0.113.8" },
+      body: form,
+    });
+    expect(response.status).toBe(201);
+    expect(Buffer.concat(received)).toEqual(Buffer.from(payload));
+  });
+
   it("enforces caller pin budgets in shared storage", async () => {
     const service = app(pinningMock());
     const responses = [];
