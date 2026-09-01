@@ -34,7 +34,12 @@ import { ConflictError, StorageLimitError, type Store } from "./store.js";
 import type { JbcenterEnv } from "./types.js";
 
 const MAX_BODY_BYTES = 16_800_000;
-const PRODUCTION_ORIGINS = ["https://juicebox.money", "https://revnet.money", "https://eth.shop"] as const;
+const PRODUCTION_ORIGINS = [
+  "https://juicebox.money",
+  "https://revnet.money",
+  "https://eth.shop",
+  "https://succulent.money",
+] as const;
 const DEV_ORIGINS = [
   "https://dev.juicebox.money",
   "https://dev.revnet.money",
@@ -42,6 +47,8 @@ const DEV_ORIGINS = [
   "http://localhost:3002",
   "https://dev.eth.shop",
   "http://localhost:3003",
+  "https://dev.succulent.money",
+  "http://localhost:3004",
 ] as const;
 
 export function originsForEnvironment(environment = process.env.RAILWAY_ENVIRONMENT_NAME) {
