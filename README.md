@@ -65,7 +65,7 @@ provider spend becomes meaningful.
 
 ## Read Ethereum RPC
 
-Trusted browsers can use Center as a provider-neutral, credential-hiding
+Any browser can use Center as a provider-neutral, credential-hiding
 JSON-RPC endpoint:
 
 ```http
@@ -82,8 +82,11 @@ poll, or a concrete range of at most 50,000 blocks. Requests are capped at 256 K
 5 MiB, and upstream calls at 12 seconds. Center fails over across up to three configured upstreams
 without returning their credential-bearing URLs to clients.
 
-Browser callers use the ordinary trusted `Origin` boundary plus per-caller and shared site budgets.
-An `Origin` header is not identity, so upstream provider quotas remain the final spend boundary.
+Trusted origins get the site's per-caller and shared budgets. Every other caller — sites served
+from IPFS such as juicescan have no stable origin to allowlist — is served keyless with `*` CORS
+under a tighter per-IP budget and a separate shared public budget, so public traffic can never
+starve the trusted sites. An `Origin` header is not identity, so upstream provider quotas remain
+the final spend boundary.
 Wallets must continue submitting transactions through their own wallet transport; Center is only a
 public-client read transport.
 
@@ -199,6 +202,8 @@ The remaining controls are environment variables:
 - `RATE_LIMIT_PER_MINUTE` — shared PostgreSQL-backed limit per named API client; default `600`.
 - `RPC_REQUEST_LIMIT_PER_MINUTE` — per browser/IP or named-client RPC requests; default `600`.
 - `RPC_SITE_LIMIT_PER_MINUTE` — shared RPC requests across all clients; default `20000`.
+- `RPC_PUBLIC_REQUEST_LIMIT_PER_MINUTE` — keyless RPC requests per IP from untrusted origins; default `120`.
+- `RPC_PUBLIC_SITE_LIMIT_PER_MINUTE` — shared keyless RPC budget across untrusted origins; default `5000`.
 - `MAX_INTENTS_PER_CLIENT` — lifetime intent count per client; default `10000`.
 - `MAX_STORAGE_BYTES_PER_CLIENT` — lifetime stored envelope bytes per client; default 1 GiB.
 - `METRICS_TOKEN` — required 32-character bearer token for `GET /metrics`.

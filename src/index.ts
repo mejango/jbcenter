@@ -42,6 +42,8 @@ const server = serve({
     maxStorageBytesPerClient: positiveInteger("MAX_STORAGE_BYTES_PER_CLIENT", 1_073_741_824),
     rpcRequestLimitPerMinute: positiveInteger("RPC_REQUEST_LIMIT_PER_MINUTE", 600),
     rpcSiteLimitPerMinute: positiveInteger("RPC_SITE_LIMIT_PER_MINUTE", 20_000),
+    rpcPublicRequestLimitPerMinute: positiveInteger("RPC_PUBLIC_REQUEST_LIMIT_PER_MINUTE", 120),
+    rpcPublicSiteLimitPerMinute: positiveInteger("RPC_PUBLIC_SITE_LIMIT_PER_MINUTE", 5_000),
     metricsToken,
     ...(rpcUpstreams.size ? { rpc: createRpcGateway(rpcUpstreams) } : {}),
     ...(filebaseRpcToken && pinataJwt
