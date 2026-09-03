@@ -85,6 +85,9 @@ export type AppOptions = {
   rpc?: RpcGateway;
   rpcRequestLimitPerMinute?: number;
   rpcSiteLimitPerMinute?: number;
+  /** Keyless RPC from any origin (IPFS-hosted sites like juicescan): per-IP and shared budgets. */
+  rpcPublicRequestLimitPerMinute?: number;
+  rpcPublicSiteLimitPerMinute?: number;
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -471,6 +474,13 @@ export function createApp(
     const origin = c.req.header("origin");
     const trustedOrigin = origin && allowedOrigins.some((allowed) => allowed === origin);
     if (!trustedOrigin) {
+      // The read-only RPC gateway is open to any origin — sites served from IPFS have no stable
+      // origin to allowlist — under its own tighter budgets, keyed by IP.
+      if (rpcPath(c.req.path)) {
+        c.set("client", `public:${callerIp(c)}`);
+        await next();
+        return;
+      }
       return c.json(
         { error: { code: "forbidden_origin", message: "Origin is not allowed" } },
         403,
@@ -482,7 +492,12 @@ export function createApp(
   app.use(
     "/v1/*",
     cors({
-      origin: [...allowedOrigins],
+      origin: (origin, c) =>
+        allowedOrigins.some((allowed) => allowed === origin)
+          ? origin
+          : rpcPath(c.req.path)
+            ? "*"
+            : null,
       allowHeaders: ["Authorization", "Content-Type"],
       allowMethods: ["GET", "POST", "OPTIONS"],
       maxAge: 86_400,
@@ -522,11 +537,14 @@ export function createApp(
   app.use("/v1/*", async (c, next) => {
     const pin = pinPath(c.req.path);
     const rpc = rpcPath(c.req.path);
+    const publicRpc = rpc && c.get("client").startsWith("public:");
     const limit = pin
       ? PIN_PER_CALLER
-      : rpc
-        ? (options.rpcRequestLimitPerMinute ?? 600)
-        : (options.requestLimitPerMinute ?? 600);
+      : publicRpc
+        ? (options.rpcPublicRequestLimitPerMinute ?? 120)
+        : rpc
+          ? (options.rpcRequestLimitPerMinute ?? 600)
+          : (options.requestLimitPerMinute ?? 600);
     const result = await store.consumeRequest(c.get("client"), limit, pin ? PIN_WINDOW_SECONDS : 60);
     c.header("X-RateLimit-Limit", String(limit));
     c.header("X-RateLimit-Remaining", String(result.remaining));
@@ -548,9 +566,12 @@ export function createApp(
       }
     }
     if (rpc) {
+      // Public traffic spends its own shared budget so it can never starve the trusted sites.
       const site = await store.consumeRequest(
-        "rpc:site",
-        options.rpcSiteLimitPerMinute ?? 20_000,
+        publicRpc ? "rpc:public" : "rpc:site",
+        publicRpc
+          ? (options.rpcPublicSiteLimitPerMinute ?? 5_000)
+          : (options.rpcSiteLimitPerMinute ?? 20_000),
         60,
       );
       if (!site.allowed) {
