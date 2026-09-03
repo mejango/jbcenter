@@ -23,6 +23,7 @@ const RPC_METHODS: ReadonlySet<string> = new Set([
   "eth_getTransactionCount",
   "eth_getTransactionReceipt",
   "eth_maxPriorityFeePerGas",
+  "eth_simulateV1",
   "eth_syncing",
   "net_version",
 ] as const);
@@ -34,6 +35,12 @@ export const RPC_RESPONSE_LIMIT = 5 * 1024 * 1024;
 // Two upstreams must fit inside the SDK's 15-second request budget. A slow
 // provider should trigger failover before one read disables an entire UI.
 export const RPC_TIMEOUT_MS = 4_000;
+// One block of a handful of dependent calls (approve, then spend) is what a
+// wallet flow needs; anything wider is a tracing workload, not a read.
+export const MAX_SIMULATE_CALLS = 16;
+// Codes a node returns for a method it does not implement; the next upstream
+// may. Any other error is the answer.
+const UNSUPPORTED_METHOD_CODES = new Set([-32601, -32004]);
 
 type RpcId = number | string;
 
@@ -99,6 +106,23 @@ function validId(value: unknown): value is RpcId {
   );
 }
 
+function validateSimulate(params: readonly unknown[]): void {
+  const [payload] = params;
+  if (!record(payload) || !Array.isArray(payload.blockStateCalls)) {
+    throw new RpcBadRequest("eth_simulateV1 requires one blockStateCalls object");
+  }
+  if (payload.blockStateCalls.length !== 1) {
+    throw new RpcBadRequest("eth_simulateV1 simulates exactly one block");
+  }
+  const block: unknown = payload.blockStateCalls[0];
+  if (!record(block) || !Array.isArray(block.calls) || block.calls.length === 0) {
+    throw new RpcBadRequest("eth_simulateV1 block requires a calls array");
+  }
+  if (block.calls.length > MAX_SIMULATE_CALLS) {
+    throw new RpcBadRequest(`eth_simulateV1 block must not exceed ${MAX_SIMULATE_CALLS} calls`);
+  }
+}
+
 function validateLogs(params: readonly unknown[]): void {
   const filter = params[0];
   if (!record(filter)) throw new RpcBadRequest("eth_getLogs requires one filter object");
@@ -146,6 +170,7 @@ export function parseRpcRequest(value: unknown): RpcRequest {
     ...(value.params === undefined ? {} : { params: value.params }),
   };
   if (request.method === "eth_getLogs") validateLogs(request.params ?? []);
+  if (request.method === "eth_simulateV1") validateSimulate(request.params ?? []);
   return request;
 }
 
@@ -227,6 +252,10 @@ export function createRpcGateway(
             value.result !== `0x${chainId.toString(16)}`
           ) {
             lastError = new Error("upstream chain mismatch");
+            continue;
+          }
+          if (record(value.error) && UNSUPPORTED_METHOD_CODES.has(Number(value.error.code))) {
+            lastError = new Error("upstream does not implement the method");
             continue;
           }
           return value;

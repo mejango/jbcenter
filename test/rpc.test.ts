@@ -53,6 +53,28 @@ describe("read-only JSON-RPC policy", () => {
     expect(() => parseRpcRequest(request)).toThrow(message as RegExp);
   });
 
+  it("bounds simulations to one block of a few calls", () => {
+    const call = { to: `0x${"12".repeat(20)}`, data: "0x" };
+    const simulate = (blockStateCalls: unknown) => ({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_simulateV1",
+      params: [{ blockStateCalls }, "latest"],
+    });
+    expect(parseRpcRequest(simulate([{ calls: [call, call] }])).method).toBe("eth_simulateV1");
+    expect(() => parseRpcRequest(simulate([]))).toThrow(/exactly one block/u);
+    expect(() => parseRpcRequest(simulate([{ calls: [call] }, { calls: [call] }]))).toThrow(
+      /exactly one block/u,
+    );
+    expect(() => parseRpcRequest(simulate([{ calls: [] }]))).toThrow(/calls array/u);
+    expect(() => parseRpcRequest(simulate([{ calls: Array(17).fill(call) }]))).toThrow(
+      /must not exceed/u,
+    );
+    expect(() =>
+      parseRpcRequest({ jsonrpc: "2.0", id: 1, method: "eth_simulateV1", params: [] }),
+    ).toThrow(/blockStateCalls/u);
+  });
+
   it("requires bounded log queries", () => {
     expect(() =>
       parseRpcRequest({ jsonrpc: "2.0", id: 1, method: "eth_getLogs", params: [{}] }),
@@ -97,6 +119,32 @@ describe("RPC upstream boundary", () => {
       method: "POST",
       redirect: "error",
     });
+  });
+
+  it("fails over when the primary does not implement the method, and returns any other error", async () => {
+    const simulate = { jsonrpc: "2.0", id: 7, method: "eth_simulateV1", params: [] } as const;
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          jsonrpc: "2.0",
+          id: 7,
+          error: { code: -32601, message: "the method eth_simulateV1 does not exist" },
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", id: 7, result: [] }))
+      .mockResolvedValueOnce(
+        Response.json({ jsonrpc: "2.0", id: 7, error: { code: 3, message: "execution reverted" } }),
+      );
+    const gateway = createRpcGateway(
+      new Map([[1, ["https://primary.example/secret", "https://fallback.example/key"]]]),
+      fetcher,
+    );
+
+    await expect(gateway.request(1, simulate)).resolves.toEqual({ jsonrpc: "2.0", id: 7, result: [] });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    await expect(gateway.request(1, simulate)).resolves.toMatchObject({ error: { code: 3 } });
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
   it("fails over before a stalled primary consumes the client request budget", async () => {
