@@ -320,7 +320,7 @@ describe("JB Center API", () => {
     expect(limited.status).toBe(429);
   });
 
-  it("exposes RPC reads directly to trusted browser origins only", async () => {
+  it("serves RPC reads to any origin keyless, and everything else to trusted origins only", async () => {
     const rpc: RpcGateway = {
       supports: (chainId: number) => chainId === 1,
       request: async (chainId, request) => ({
@@ -337,14 +337,33 @@ describe("JB Center API", () => {
       headers: { "content-type": "application/json" },
       body,
     });
-    expect(anonymous.status).toBe(403);
+    expect(anonymous.status).toBe(200);
+    expect(anonymous.headers.get("access-control-allow-origin")).toBe("*");
 
-    const rejected = await app.request("/v1/rpc/1", {
+    const ipfs = await app.request("/v1/rpc/1", {
       method: "POST",
-      headers: { "content-type": "application/json", origin: "https://example.com" },
+      headers: { "content-type": "application/json", origin: "https://bafy.ipfs.inbrowser.link" },
       body,
     });
-    expect(rejected.status).toBe(403);
+    expect(ipfs.status).toBe(200);
+    expect(ipfs.headers.get("access-control-allow-origin")).toBe("*");
+    await expect(ipfs.json()).resolves.toEqual({ jsonrpc: "2.0", id: 7, result: "0x1" });
+
+    const preflight = await app.request("/v1/rpc/1", {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://bafy.ipfs.inbrowser.link",
+        "access-control-request-method": "POST",
+      },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe("*");
+
+    const search = await app.request("/v1/search", {
+      headers: { origin: "https://bafy.ipfs.inbrowser.link" },
+    });
+    expect(search.status).toBe(403);
+    expect(search.headers.get("access-control-allow-origin")).toBeNull();
 
     const accepted = await app.request("/v1/rpc/1", {
       method: "POST",
@@ -381,6 +400,39 @@ describe("JB Center API", () => {
     expect((await request("https://juicebox.money", "1.1.1.1")).status).toBe(429);
     expect((await request("https://revnet.money", "2.2.2.2")).status).toBe(200);
     expect((await request("https://revnet.money", "3.3.3.3")).status).toBe(429);
+  });
+
+  it("budgets keyless RPC per IP and apart from the trusted sites", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, {
+      rpc: {
+        supports: () => true,
+        request: async (_chainId, request) => ({ jsonrpc: "2.0", id: request.id, result: "0x1" }),
+      },
+      rpcRequestLimitPerMinute: 5,
+      rpcSiteLimitPerMinute: 5,
+      rpcPublicRequestLimitPerMinute: 1,
+      rpcPublicSiteLimitPerMinute: 2,
+    });
+    const request = (origin: string | undefined, ip: string) =>
+      app.request("/v1/rpc/1", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(origin ? { origin } : {}),
+          "x-forwarded-for": ip,
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId" }),
+      });
+
+    const first = await request("https://bafy.ipfs.inbrowser.link", "1.1.1.1");
+    expect(first.status).toBe(200);
+    expect(first.headers.get("x-ratelimit-limit")).toBe("1");
+    expect((await request(undefined, "1.1.1.1")).status).toBe(429);
+    expect((await request("https://example.com", "2.2.2.2")).status).toBe(200);
+    expect((await request("https://example.com", "3.3.3.3")).status).toBe(429);
+    // The public budget being spent leaves the trusted sites untouched.
+    expect((await request("https://juicebox.money", "4.4.4.4")).status).toBe(200);
   });
 
   it("fails closed when RPC cannot verify a deployment", async () => {
