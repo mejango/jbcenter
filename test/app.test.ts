@@ -145,6 +145,34 @@ async function publish(app: ReturnType<typeof createApp>) {
 }
 
 describe("JB Center API", () => {
+  it("serves the public directory without a database or browser-origin dependency", async () => {
+    const store = new Proxy({} as Store, {
+      get() { throw new Error("The directory must not access storage"); },
+    });
+    const app = createApp(store);
+    const response = await app.request("/", { headers: { origin: "https://example.com" } });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(response.headers.get("content-security-policy")).toContain("style-src 'self'");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    const html = await response.text();
+    expect(html).toContain('href="https://github.com/Bananapus/version-6"');
+    expect(html).toContain("https://juicebox.center/mcp");
+    const stylesheet = html.match(/<link rel="stylesheet" href="([^"]+)"/);
+    expect(stylesheet).not.toBeNull();
+    const css = await app.request(stylesheet![1]!);
+    expect(css.status).toBe(200);
+    expect(css.headers.get("content-type")).toContain("text/css");
+    expect((await css.text()).length).toBeGreaterThan(0);
+    const head = await app.request("/", { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(head.headers.get("content-type")).toContain("text/html");
+    expect(await head.text()).toBe("");
+    expect((await app.request("/", { method: "POST" })).status).toBe(404);
+    expect((await app.request("/missing-page")).status).toBe(404);
+    expect((await app.request("/v1/search")).status).toBe(403);
+  });
+
   it("requires a trusted browser origin", async () => {
     const response = await createApp(new MemoryStore()).request("/v1/search");
     expect(response.status).toBe(403);

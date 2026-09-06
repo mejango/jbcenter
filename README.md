@@ -9,6 +9,18 @@ Bendystraw projects in search. When a deployment is recorded, the intent leaves 
 There are no server-side drafts. A stored intent is immutable; changing a project means publishing a
 new intent.
 
+## Ecosystem directory
+
+`https://juicebox.center/` is a public, V6-focused directory organized around participants, project
+owners, developers, auditors, and AI agents, followed by a grouped repository index. It is static
+HTML and CSS, works without JavaScript, and does not query storage or upstream services.
+
+Edit the links and descriptions in [`src/directory.ts`](src/directory.ts); layout and styling live
+in [`src/homepage.ts`](src/homepage.ts). Verify public destinations, protocol versions, and feature
+availability before adding or changing a link. Distinguish source repositories from live apps.
+Both `/` and `/directory.css` are public and cached for five minutes. These exact routes do not
+change the API, IPFS, or MCP access rules.
+
 ## Run it
 
 Requires Node 22 and PostgreSQL 14 or newer.

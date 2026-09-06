@@ -16,6 +16,7 @@ import {
   signingMessage,
 } from "./intent.js";
 import { extractMetadata } from "./metadata.js";
+import { HOMEPAGE_CSS, HOMEPAGE_CSS_PATH, HOMEPAGE_HEADERS, HOMEPAGE_HTML } from "./homepage.js";
 import { Metrics } from "./observability.js";
 import {
   parseRpcRequest,
@@ -346,6 +347,12 @@ export function createApp(
   });
 
   app.use("*", metrics.middleware());
+
+  app.get("/", (c) => c.html(HOMEPAGE_HTML, 200, HOMEPAGE_HEADERS));
+  app.get(HOMEPAGE_CSS_PATH, (c) => c.body(HOMEPAGE_CSS, 200, {
+    ...HOMEPAGE_HEADERS,
+    "Content-Type": "text/css; charset=UTF-8",
+  }));
 
   app.get("/healthz", (c) => c.json({ ok: true }));
 
