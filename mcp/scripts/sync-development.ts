@@ -889,7 +889,7 @@ function syncDevelopment(options: { workspace?: string; output?: string; check?:
   const workspace = realpathSync(
     options.workspace ??
       process.env.JUICEBOX_SOURCE_ROOT ??
-      fileURLToPath(new URL('../../../', import.meta.url)),
+      fileURLToPath(new URL('../../../../', import.meta.url)),
   );
   const output = resolve(
     options.output ?? fileURLToPath(new URL('../data/development.json', import.meta.url)),

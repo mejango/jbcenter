@@ -1,13 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { request } from 'node:http';
+import { createServer, request, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { loadConfig, type Config } from '../../src/config.js';
-import { createHttpServer, type HttpOptions, type HttpRuntime } from '../../src/transport/http.js';
+import {
+  createHttpHandler,
+  createHttpServer,
+  type HttpHandler,
+  type HttpOptions,
+  type HttpRuntime,
+} from '../../src/transport/http.js';
 
 const runtimes: HttpRuntime[] = [];
+const mountedServers: Array<{ server: Server; runtime: HttpHandler }> = [];
 const clients: Client[] = [];
 const mcpHeaders = {
   'content-type': 'application/json',
@@ -98,6 +106,15 @@ async function post(url: URL, body: unknown = toolsList, headers: Record<string,
 afterEach(async () => {
   await Promise.all(clients.splice(0).map((client) => client.close()));
   await Promise.all(runtimes.splice(0).map((runtime) => runtime.close()));
+  await Promise.all(
+    mountedServers.splice(0).map(async ({ server, runtime }) => {
+      await runtime.close();
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }),
+  );
 });
 
 describe('stateless Streamable HTTP transport', () => {
@@ -467,5 +484,213 @@ describe('stateless Streamable HTTP transport', () => {
     await closing;
     expect(runtime.activeRequests()).toBe(0);
     await expect(runtime.listen()).rejects.toThrow('cannot be restarted');
+  });
+});
+
+async function startMounted(factory = fixtureServer, options: HttpOptions = {}) {
+  const runtime = createHttpHandler(loadConfig({ PORT: '0' }), factory, {
+    ...options,
+    healthPath: '/mcp/healthz',
+    readinessPath: '/mcp/readyz',
+    indexPath: false,
+  });
+  const server = createServer({ requestTimeout: 300_000 }, (req, res) => {
+    const path = req.url?.split('?')[0];
+    if (path === '/mcp' || path?.startsWith('/mcp/')) {
+      runtime.handler(req, res);
+      return;
+    }
+    let bytes = 0;
+    req.on('data', (chunk: Buffer) => {
+      bytes += chunk.length;
+    });
+    req.once('end', () => {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ owner: 'parent', path, bytes }));
+    });
+  });
+  mountedServers.push({ server, runtime });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  return { runtime, server, base, url: new URL(`${base}/mcp`) };
+}
+
+describe('MCP handler embedded in a shared Node listener', () => {
+  it('preserves sibling routes, request streams, and security policies', async () => {
+    const { base, url } = await startMounted();
+    const client = new Client({ name: 'mounted-client', version: '1.0.0' });
+    clients.push(client);
+    await client.connect(new StreamableHTTPClientTransport(url));
+    expect((await client.listTools()).tools[0]?.name).toBe('echo');
+    expect(await (await fetch(`${base}/mcp/healthz`)).json()).toEqual({ status: 'alive' });
+    expect(await (await fetch(`${base}/mcp/readyz`)).json()).toMatchObject({ status: 'ready' });
+    expect(await (await fetch(`${base}/readyz`)).json()).toMatchObject({ owner: 'parent' });
+    expect(await (await fetch(`${base}/`)).json()).toMatchObject({ owner: 'parent' });
+    const largeBody = JSON.stringify({ payload: 'x'.repeat(300_000) });
+    const sibling = await fetch(`${base}/v1/intents`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://parent.example' },
+      body: largeBody,
+    });
+    expect(await sibling.json()).toEqual({
+      owner: 'parent',
+      path: '/v1/intents',
+      bytes: largeBody.length,
+    });
+    expect((await post(url, { payload: 'x'.repeat(300_000) })).status).toBe(413);
+    expect((await post(url, toolsList, { origin: 'https://parent.example' })).status).toBe(403);
+    expect((await post(url, toolsList, { host: 'parent.example' })).status).toBe(403);
+    expect(
+      (await post(new URL(`${base}/v1/intents`), toolsList, { host: 'parent.example' })).status,
+    ).toBe(200);
+    expect((await post(new URL(`${base}/mcp?client=test`))).status).toBe(200);
+  });
+
+  it.each([
+    {
+      name: 'body',
+      options: { bodyTimeoutMs: 40 },
+      status: 408,
+      message: 'Request body deadline exceeded.',
+    },
+    {
+      name: 'operation',
+      options: { bodyTimeoutMs: 1000, requestTimeoutMs: 40 },
+      status: 504,
+      message: 'Request deadline exceeded.',
+    },
+  ])(
+    'enforces the MCP $name deadline even when the parent allows long uploads',
+    async ({ options, status, message }) => {
+      const factory = vi.fn(fixtureServer);
+      const { url, runtime, server } = await startMounted(factory, options);
+      expect(server.requestTimeout).toBe(300_000);
+      const response = await new Promise<{ status?: number; text: string; connection?: string }>(
+        (resolve, reject) => {
+          const req = request(
+            url,
+            {
+              method: 'POST',
+              headers: { ...mcpHeaders, 'content-length': '1000' },
+            },
+            (res) => {
+              const chunks: Buffer[] = [];
+              res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+              res.once('end', () => {
+                resolve({
+                  status: res.statusCode,
+                  text: Buffer.concat(chunks).toString(),
+                  connection: res.headers.connection,
+                });
+                req.destroy();
+              });
+            },
+          );
+          req.once('error', reject);
+          // Deliberately leave this request incomplete; the owning listener permits 300 seconds.
+          req.write('{"jsonrpc":');
+        },
+      );
+      expect(response.status).toBe(status);
+      expect(response.connection).toBe('close');
+      expect(JSON.parse(response.text)).toMatchObject({
+        error: { message },
+      });
+      expect(factory).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(runtime.activeRequests()).toBe(0));
+      expect((await post(url)).status).toBe(200);
+    },
+  );
+
+  it('clears the body timer while a completed request performs longer tool work', async () => {
+    const { url } = await startMounted(
+      () => {
+        const server = fixtureServer();
+        server.registerTool('slow', {}, async () => {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          return { content: [{ type: 'text', text: 'finished' }] };
+        });
+        return server;
+      },
+      { bodyTimeoutMs: 40, requestTimeoutMs: 1000 },
+    );
+    const response = await post(url, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'slow', arguments: {} },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { content: [{ text: 'finished' }] } });
+  });
+
+  it('drains only MCP admission and allows existing work to finish before disposal', async () => {
+    let finishTool: (() => void) | undefined;
+    const { base, url, runtime } = await startMounted(() => {
+      const server = fixtureServer();
+      server.registerTool('wait', {}, async () => {
+        await new Promise<void>((resolve) => {
+          finishTool = resolve;
+        });
+        return { content: [{ type: 'text', text: 'finished' }] };
+      });
+      return server;
+    });
+    const pending = post(url, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'wait', arguments: {} },
+    });
+    await vi.waitFor(() => expect(finishTool).toBeTypeOf('function'));
+    runtime.beginDrain();
+    expect(runtime.isDraining()).toBe(true);
+    expect((await post(url)).status).toBe(503);
+    expect((await fetch(`${base}/mcp/readyz`)).status).toBe(503);
+    expect((await fetch(`${base}/mcp/healthz`)).status).toBe(200);
+    expect((await fetch(`${base}/readyz`)).status).toBe(200);
+    finishTool!();
+    expect((await pending).status).toBe(200);
+    await Promise.all([runtime.close(), runtime.close()]);
+    expect(runtime.activeRequests()).toBe(0);
+    expect((await fetch(`${base}/readyz`)).status).toBe(200);
+  });
+
+  it('disposes active protocols without closing the shared listener', async () => {
+    let started = false;
+    let cancelled = false;
+    const { base, url, runtime } = await startMounted(() => {
+      const server = fixtureServer();
+      server.registerTool('wait', {}, async (extra) => {
+        started = true;
+        await new Promise<void>((resolve) => {
+          extra.signal.addEventListener(
+            'abort',
+            () => {
+              cancelled = true;
+              resolve();
+            },
+            { once: true },
+          );
+        });
+        return { content: [] };
+      });
+      return server;
+    });
+    const pending = post(url, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'wait', arguments: {} },
+    }).catch((error: unknown) => error);
+    await vi.waitFor(() => expect(started).toBe(true));
+    await Promise.all([runtime.close(), runtime.close()]);
+    await pending;
+    expect(cancelled).toBe(true);
+    expect(runtime.activeRequests()).toBe(0);
+    expect((await fetch(`${base}/readyz`)).status).toBe(200);
   });
 });

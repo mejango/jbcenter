@@ -8,7 +8,12 @@ import {
   safeIpfsPath,
   type PinningService,
 } from "../src/ipfs.js";
-import type { NewDeployment, NewIntent, StorageLimits, Store } from "../src/store.js";
+import type {
+  NewDeployment,
+  NewIntent,
+  StorageLimits,
+  Store,
+} from "../src/store.js";
 
 const CID = "QmbWqxBEKC3P8tqsKc98xmWNzrzDtRLMiMPL8wBuTGsMnR";
 
@@ -20,7 +25,10 @@ class PinStore implements Store {
     this.requests.set(client, count);
     return { allowed: count <= limit, remaining: Math.max(0, limit - count) };
   }
-  async createIntent(_value: NewIntent, _limits: StorageLimits): Promise<never> {
+  async createIntent(
+    _value: NewIntent,
+    _limits: StorageLimits,
+  ): Promise<never> {
     throw new Error("not used");
   }
   async getIntent(): Promise<null> {
@@ -29,7 +37,10 @@ class PinStore implements Store {
   async search() {
     return { items: [], totalCount: 0, nextCursor: null };
   }
-  async recordDeployment(_intentId: string, _value: NewDeployment): Promise<never> {
+  async recordDeployment(
+    _intentId: string,
+    _value: NewDeployment,
+  ): Promise<never> {
     throw new Error("not used");
   }
 }
@@ -53,7 +64,11 @@ function pinningMock() {
 function jsonRequest(value: string, origin = "https://juicebox.money") {
   return {
     method: "POST",
-    headers: { origin, "content-type": "application/json", "x-real-ip": "203.0.113.1" },
+    headers: {
+      origin,
+      "content-type": "application/json",
+      "x-real-ip": "203.0.113.1",
+    },
     body: value,
   };
 }
@@ -101,11 +116,21 @@ describe("IPFS pinning", () => {
   });
 
   it("rejects missing providers, malformed JSON, and oversized JSON", async () => {
-    expect((await app().request("/v1/pins/json", jsonRequest("{}"))).status).toBe(503);
-    expect((await app(pinningMock()).request("/v1/pins/json", jsonRequest("{"))).status).toBe(400);
+    expect(
+      (await app().request("/v1/pins/json", jsonRequest("{}"))).status,
+    ).toBe(503);
+    expect(
+      (await app(pinningMock()).request("/v1/pins/json", jsonRequest("{")))
+        .status,
+    ).toBe(400);
     const oversized = JSON.stringify({ value: "x".repeat(PIN_LIMITS.json) });
     expect(
-      (await app(pinningMock()).request("/v1/pins/json", jsonRequest(oversized))).status,
+      (
+        await app(pinningMock()).request(
+          "/v1/pins/json",
+          jsonRequest(oversized),
+        )
+      ).status,
     ).toBe(413);
   });
 
@@ -121,7 +146,10 @@ describe("IPFS pinning", () => {
     expect(accepted.status).toBe(201);
 
     const executable = new FormData();
-    executable.append("file", new File(["alert(1)"], "x.js", { type: "text/javascript" }));
+    executable.append(
+      "file",
+      new File(["alert(1)"], "x.js", { type: "text/javascript" }),
+    );
     const rejected = await app(pinning).request("/v1/pins/file", {
       method: "POST",
       headers: { origin: "https://revnet.money", "x-real-ip": "203.0.113.3" },
@@ -135,7 +163,9 @@ describe("IPFS pinning", () => {
     const atLimit = new FormData();
     atLimit.append(
       "file",
-      new File([new Uint8Array(PIN_LIMITS.image)], "limit.png", { type: "image/png" }),
+      new File([new Uint8Array(PIN_LIMITS.image)], "limit.png", {
+        type: "image/png",
+      }),
     );
     const accepted = await app(pinning).request("/v1/pins/file", {
       method: "POST",
@@ -147,7 +177,9 @@ describe("IPFS pinning", () => {
     const aboveLimit = new FormData();
     aboveLimit.append(
       "file",
-      new File([new Uint8Array(PIN_LIMITS.image + 1)], "large.png", { type: "image/png" }),
+      new File([new Uint8Array(PIN_LIMITS.image + 1)], "large.png", {
+        type: "image/png",
+      }),
     );
     const rejected = await app(pinning).request("/v1/pins/file", {
       method: "POST",
@@ -164,7 +196,10 @@ describe("IPFS pinning", () => {
       maxMediaBytes: 5,
     });
     const atLimit = new FormData();
-    atLimit.append("file", new File([new Uint8Array(5)], "clip.mp4", { type: "video/mp4" }));
+    atLimit.append(
+      "file",
+      new File([new Uint8Array(5)], "clip.mp4", { type: "video/mp4" }),
+    );
     const accepted = await service.request("/v1/pins/media", {
       method: "POST",
       headers: { origin: "https://juicebox.money", "x-real-ip": "203.0.113.6" },
@@ -190,17 +225,25 @@ describe("IPFS pinning", () => {
   it("delivers every media byte to a consumer that starts reading later", async () => {
     const received: Buffer[] = [];
     const pinning = pinningMock();
-    pinning.pinStream.mockImplementation(async (content: NodeJS.ReadableStream) => {
-      // Real uploads pull from the part only once fetch starts sending; a
-      // listener-driven byte count used to drain the part before that.
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      for await (const chunk of content) received.push(Buffer.from(chunk));
-      return { cid: "QmTiqRc4Mi8jzs7cfNWAXfSAGcf1JY2yZ5joF8j8VYLETY", status: "queued" };
-    });
+    pinning.pinStream.mockImplementation(
+      async (content: NodeJS.ReadableStream) => {
+        // Real uploads pull from the part only once fetch starts sending; a
+        // listener-driven byte count used to drain the part before that.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        for await (const chunk of content) received.push(Buffer.from(chunk));
+        return {
+          cid: "QmTiqRc4Mi8jzs7cfNWAXfSAGcf1JY2yZ5joF8j8VYLETY",
+          status: "queued",
+        };
+      },
+    );
     const service = app(pinning);
     const payload = new Uint8Array(70_000).map((_, index) => index % 251);
     const form = new FormData();
-    form.append("file", new File([payload], "photo.jpg", { type: "image/jpeg" }));
+    form.append(
+      "file",
+      new File([payload], "photo.jpg", { type: "image/jpeg" }),
+    );
     const response = await service.request("/v1/pins/media", {
       method: "POST",
       headers: { origin: "https://juicebox.money", "x-real-ip": "203.0.113.8" },
@@ -216,7 +259,9 @@ describe("IPFS pinning", () => {
     for (let index = 0; index < 11; index += 1) {
       responses.push(await service.request("/v1/pins/json", jsonRequest("{}")));
     }
-    expect(responses.slice(0, 10).every(({ status }) => status === 201)).toBe(true);
+    expect(responses.slice(0, 10).every(({ status }) => status === 201)).toBe(
+      true,
+    );
     expect(responses[10]?.status).toBe(429);
   });
 
@@ -225,19 +270,30 @@ describe("IPFS pinning", () => {
       add: vi.fn(async () => CID),
       addStream: vi.fn(async () => CID),
     };
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
-      new Response(JSON.stringify({ data: { cid: CID, status: "retrieving" } }), { status: 200 }),
-    );
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ data: { cid: CID, status: "retrieving" } }),
+          { status: 200 },
+        ),
+      );
     const service = new RedundantIpfsPinning(filebase, "pinata-token", fetcher);
-    await expect(service.pin(new Blob(["hello"]), "hello.txt")).resolves.toEqual({
+    await expect(
+      service.pin(new Blob(["hello"]), "hello.txt"),
+    ).resolves.toEqual({
       cid: CID,
       status: "queued",
     });
     expect(filebase.add).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenCalledOnce();
     const pinataInit = fetcher.mock.calls[0]?.[1];
-    expect(pinataInit?.body).toBe(JSON.stringify({ cid: CID, name: "hello.txt" }));
-    expect((pinataInit?.headers as Record<string, string>).Authorization).toBe("Bearer pinata-token");
+    expect(pinataInit?.body).toBe(
+      JSON.stringify({ cid: CID, name: "hello.txt" }),
+    );
+    expect((pinataInit?.headers as Record<string, string>).Authorization).toBe(
+      "Bearer pinata-token",
+    );
   });
 
   it("replicates the exact Filebase CID for streamed media", async () => {
@@ -245,51 +301,65 @@ describe("IPFS pinning", () => {
       add: vi.fn(async () => CID),
       addStream: vi.fn(async () => CID),
     };
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
-      new Response(JSON.stringify({ data: { cid: CID } }), { status: 200 }),
-    );
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { cid: CID } }), { status: 200 }),
+      );
     const service = new RedundantIpfsPinning(filebase, "pinata-token", fetcher);
     const { Readable } = await import("node:stream");
     await expect(
-      service.pinStream(Readable.from([Buffer.from("video")]), "media", "video/mp4"),
+      service.pinStream(
+        Readable.from([Buffer.from("video")]),
+        "media",
+        "video/mp4",
+      ),
     ).resolves.toEqual({ cid: CID, status: "queued" });
     expect(filebase.addStream).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenCalledOnce();
   });
 
   it("fails closed when a provider returns a mismatched CID", async () => {
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { cid: `${CID}x` } }), { status: 200 }));
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: { cid: `${CID}x` } }), {
+        status: 200,
+      }),
+    );
     const service = new RedundantIpfsPinning(
       { add: vi.fn(async () => CID), addStream: vi.fn(async () => CID) },
       "pinata-token",
       fetcher,
     );
-    await expect(service.pin(new Blob(["hello"]), "hello.txt")).rejects.toThrow("mismatched");
+    await expect(service.pin(new Blob(["hello"]), "hello.txt")).rejects.toThrow(
+      "mismatched",
+    );
   });
 
   it("streams multipart content to Filebase's bucket-scoped RPC API", async () => {
-    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
-      expect(url).toBe("https://rpc.filebase.io/api/v0/add?cid-version=0");
-      expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer bucket-token");
-      expect((init as RequestInit & { duplex?: string }).duplex).toBe("half");
-      const chunks: Buffer[] = [];
-      for await (const chunk of init?.body as unknown as NodeJS.ReadableStream) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      }
-      const multipart = Buffer.concat(chunks).toString();
-      expect(multipart).toContain('name="file"; filename="hello.txt"');
-      expect(multipart).toContain("Content-Type: text/plain");
-      expect(multipart).toContain("hello");
-      return new Response(`${JSON.stringify({ Name: "hello.txt", Hash: CID, Size: "5" })}\n`, {
-        status: 200,
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (url, init) => {
+        expect(url).toBe("https://rpc.filebase.io/api/v0/add?cid-version=0");
+        expect((init?.headers as Record<string, string>).Authorization).toBe(
+          "Bearer bucket-token",
+        );
+        expect((init as RequestInit & { duplex?: string }).duplex).toBe("half");
+        const chunks: Buffer[] = [];
+        for await (const chunk of init?.body as unknown as NodeJS.ReadableStream) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+        const multipart = Buffer.concat(chunks).toString();
+        expect(multipart).toContain('name="file"; filename="hello.txt"');
+        expect(multipart).toContain("Content-Type: text/plain");
+        expect(multipart).toContain("hello");
+        return new Response(
+          `${JSON.stringify({ Name: "hello.txt", Hash: CID, Size: "5" })}\n`,
+          {
+            status: 200,
+          },
+        );
       });
-    });
-    const storage = new FilebaseRpcStorage(
-      "bucket-token",
-      fetcher,
-    );
+    const storage = new FilebaseRpcStorage("bucket-token", fetcher);
     await expect(
       storage.add(new Blob(["hello"], { type: "text/plain" }), "hello.txt"),
     ).resolves.toBe(CID);
@@ -299,17 +369,204 @@ describe("IPFS pinning", () => {
   it("rejects failed uploads and malformed Filebase responses", async () => {
     const unavailable = new FilebaseRpcStorage(
       "bucket-token",
-      vi.fn<typeof fetch>().mockResolvedValue(new Response("no", { status: 503 })),
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response("no", { status: 503 })),
     );
-    await expect(unavailable.add(new Blob(["hello"]), "hello.txt")).rejects.toThrow("(503)");
+    await expect(
+      unavailable.add(new Blob(["hello"]), "hello.txt"),
+    ).rejects.toThrow("(503)");
 
     const malformed = new FilebaseRpcStorage(
       "bucket-token",
-      vi.fn<typeof fetch>().mockResolvedValue(new Response("not json", { status: 200 })),
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response("not json", { status: 200 })),
     );
-    await expect(malformed.add(new Blob(["hello"]), "hello.txt")).rejects.toThrow(
-      "invalid response",
+    await expect(
+      malformed.add(new Blob(["hello"]), "hello.txt"),
+    ).rejects.toThrow("invalid response");
+  });
+
+  it("does not start either pin provider after the caller has cancelled", async () => {
+    const controller = new AbortController();
+    controller.abort(new Error("cancelled by client"));
+    const filebase = {
+      add: vi.fn(async () => CID),
+      addStream: vi.fn(async () => CID),
+    };
+    const fetcher = vi.fn<typeof fetch>();
+    const service = new RedundantIpfsPinning(filebase, "pinata-token", fetcher);
+    await expect(
+      service.pin(new Blob(["hello"]), "metadata.json", controller.signal),
+    ).rejects.toThrow("cancelled by client");
+    expect(filebase.add).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("cancels non-OK provider responses and releases early-failed upload streams", async () => {
+    const { Readable } = await import("node:stream");
+    const source = new Readable({ read() {} });
+    const cancel = vi.fn();
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(new ReadableStream({ cancel }), { status: 503 }),
+      );
+    const storage = new FilebaseRpcStorage("bucket-token", fetcher);
+    await expect(
+      storage.addStream(source, "metadata.json", "application/json"),
+    ).rejects.toThrow("(503)");
+    expect(source.destroyed).toBe(true);
+    expect(
+      (
+        fetcher.mock.calls[0]?.[1]
+          ?.body as unknown as import("node:stream").Readable
+      ).destroyed,
+    ).toBe(true);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls[0]?.[1]?.redirect).toBe("error");
+  });
+
+  it.each(["filebase", "pinata"])(
+    "bounds chunked %s responses and cancels oversized streams promptly",
+    async (provider) => {
+      const cancel = vi.fn(() => new Promise<void>(() => {}));
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array(64 * 1024));
+              controller.enqueue(new Uint8Array(1));
+            },
+            cancel,
+          }),
+        ),
+      );
+      const service =
+        provider === "filebase"
+          ? new FilebaseRpcStorage("bucket-token", fetcher).add(
+              new Blob(["{}"]),
+              "metadata.json",
+            )
+          : new RedundantIpfsPinning(
+              {
+                add: vi.fn(async () => CID),
+                addStream: vi.fn(async () => CID),
+              },
+              "pinata-token",
+              fetcher,
+            ).pin(new Blob(["{}"]), "metadata.json");
+      await expect(service).rejects.toThrow("response is too large");
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(fetcher.mock.calls[0]?.[1]?.redirect).toBe("error");
+    },
+  );
+
+  it.each(["filebase", "pinata"])(
+    "cancels an unreadable %s response body even if fetch ignores its signal",
+    async (provider) => {
+      const cancel = vi.fn(() => new Promise<void>(() => {}));
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(new ReadableStream({ cancel })));
+      const controller = new AbortController();
+      const service =
+        provider === "filebase"
+          ? new FilebaseRpcStorage("bucket-token", fetcher).add(
+              new Blob(["{}"]),
+              "metadata.json",
+              controller.signal,
+            )
+          : new RedundantIpfsPinning(
+              {
+                add: vi.fn(async () => CID),
+                addStream: vi.fn(async () => CID),
+              },
+              "pinata-token",
+              fetcher,
+            ).pin(new Blob(["{}"]), "metadata.json", controller.signal);
+      await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+      controller.abort(new Error("cancelled by client"));
+      await expect(service).rejects.toThrow("cancelled by client");
+      expect(cancel).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("stops a Filebase upload and its source stream when the caller cancels", async () => {
+    const { Readable } = await import("node:stream");
+    const source = new Readable({ read() {} });
+    const controller = new AbortController();
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(
+      async (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason),
+            { once: true },
+          );
+        }),
     );
+    const storage = new FilebaseRpcStorage("bucket-token", fetcher);
+    const work = storage.addStream(
+      source,
+      "metadata.json",
+      "application/json",
+      controller.signal,
+    );
+    expect(fetcher).toHaveBeenCalledOnce();
+    controller.abort(new Error("cancelled by client"));
+    await expect(work).rejects.toThrow("cancelled by client");
+    expect(source.destroyed).toBe(true);
+    expect(fetcher.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+  });
+
+  it("does not start replication if cancellation arrived while Filebase completed", async () => {
+    const controller = new AbortController();
+    const filebase = {
+      add: vi.fn(
+        async (_content: Blob, _filename: string, signal?: AbortSignal) => {
+          expect(signal).toBe(controller.signal);
+          controller.abort(new Error("cancelled by client"));
+          return CID;
+        },
+      ),
+      addStream: vi.fn(async () => CID),
+    };
+    const fetcher = vi.fn<typeof fetch>();
+    const service = new RedundantIpfsPinning(filebase, "pinata-token", fetcher);
+    await expect(
+      service.pin(new Blob(["hello"]), "metadata.json", controller.signal),
+    ).rejects.toThrow("cancelled by client");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("propagates caller cancellation to the Pinata replication request", async () => {
+    const controller = new AbortController();
+    const filebase = {
+      add: vi.fn(async () => CID),
+      addStream: vi.fn(async () => CID),
+    };
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(
+      async (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason),
+            { once: true },
+          );
+        }),
+    );
+    const service = new RedundantIpfsPinning(filebase, "pinata-token", fetcher);
+    const work = service.pin(
+      new Blob(["hello"]),
+      "metadata.json",
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+    controller.abort(new Error("cancelled by client"));
+    await expect(work).rejects.toThrow("cancelled by client");
+    expect(fetcher.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
   });
 });
 
@@ -320,7 +577,10 @@ describe("public IPFS gateway", () => {
       .mockResolvedValueOnce(new Response("missing", { status: 404 }))
       .mockResolvedValueOnce(
         new Response('{"name":"Public goods"}', {
-          headers: { "content-type": "application/json", "content-length": "23" },
+          headers: {
+            "content-type": "application/json",
+            "content-length": "23",
+          },
         }),
       );
     const service = createApp(new PinStore(), { gatewayFetch });
@@ -342,17 +602,21 @@ describe("public IPFS gateway", () => {
   });
 
   it("forwards byte ranges for seekable video responses", async () => {
-    const gatewayFetch = vi.fn<typeof fetch>().mockImplementation(async (_url, init) => {
-      expect((init?.headers as Record<string, string>).Range).toBe("bytes=10-19");
-      return new Response(new Uint8Array(10), {
-        status: 206,
-        headers: {
-          "content-length": "10",
-          "content-range": "bytes 10-19/100",
-          "content-type": "video/mp4",
-        },
+    const gatewayFetch = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (_url, init) => {
+        expect((init?.headers as Record<string, string>).Range).toBe(
+          "bytes=10-19",
+        );
+        return new Response(new Uint8Array(10), {
+          status: 206,
+          headers: {
+            "content-length": "10",
+            "content-range": "bytes 10-19/100",
+            "content-type": "video/mp4",
+          },
+        });
       });
-    });
     const response = await createApp(new PinStore(), { gatewayFetch }).request(
       `/ipfs/${CID}`,
       { headers: { range: "bytes=10-19" } },
@@ -360,6 +624,8 @@ describe("public IPFS gateway", () => {
     expect(response.status).toBe(206);
     expect(response.headers.get("accept-ranges")).toBe("bytes");
     expect(response.headers.get("content-range")).toBe("bytes 10-19/100");
-    expect(response.headers.get("access-control-expose-headers")).toContain("Content-Range");
+    expect(response.headers.get("access-control-expose-headers")).toContain(
+      "Content-Range",
+    );
   });
 });

@@ -9,7 +9,7 @@ import { capabilityCatalog } from '../src/mcp/capabilities.js';
 
 const services = createServices(
   loadConfig({
-    PUBLIC_ORIGIN: 'https://juicebox.diy',
+    PUBLIC_ORIGIN: 'https://juicebox.center',
     PLAN_SECRET: 'catalog-generation-only-never-an-execution-secret',
   }),
 );
@@ -33,7 +33,9 @@ try {
     '',
     'For user goals, tool sequences, external handoffs and completion evidence, see the [user journeys](USER_JOURNEYS.md).',
     '',
-    `${tools.length} tools are registered. All are public reads, pure computations, unsigned plan preparation or receipt verification. No tool signs or broadcasts transactions.`,
+    `${tools.length} V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of reviewed project metadata through the integrated Center backend. No tool signs or broadcasts transactions.`,
+    '',
+    '`jb_prepare_project_metadata` returns the exact canonical JSON, SHA256 and an expiring review token. `jb_pin_project_metadata` uploads only that reviewed document after explicit public-upload authorization. This is a public mutation; a review token is not user approval. The workflow creates new standard project metadata and does not upload images, merge existing documents, or update project URIs on-chain.',
     '',
     'Every tool returns a structured envelope `{schemaVersion, observedAt, ok, data|error}`. Exact amounts use integer strings. Per-tool source coverage and execution limits remain in the returned domain data.',
     '',

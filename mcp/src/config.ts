@@ -44,7 +44,7 @@ function integer(value: string | undefined, fallback: number, min: number, max: 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const production = env.NODE_ENV === 'production';
   const publicUrl = new URL(
-    env.PUBLIC_ORIGIN ?? (production ? 'https://juicebox.diy' : 'http://localhost:3000'),
+    env.PUBLIC_ORIGIN ?? (production ? 'https://juicebox.center' : 'http://localhost:3000'),
   );
   if (
     publicUrl.pathname !== '/' ||

@@ -2,7 +2,8 @@
 
 JB Center is the small shared offchain service beside Bendystraw. It stores signed, undeployed
 Juicebox project intents and provides the ecosystem's redundant IPFS pinning, public read gateway,
-and credential-hiding read-only Ethereum RPC. Webclients can render an intent as a project page and include it beside deployed
+credential-hiding read-only Ethereum RPC, and the Juicebox V6 MCP at
+`https://juicebox.center/mcp`. Webclients can render an intent as a project page and include it beside deployed
 Bendystraw projects in search. When a deployment is recorded, the intent leaves default search.
 
 There are no server-side drafts. A stored intent is immutable; changing a project means publishing a
@@ -15,6 +16,7 @@ Requires Node 22 and PostgreSQL 14 or newer.
 ```sh
 cp .env.example .env
 npm install
+npm --prefix mcp ci --ignore-scripts
 npm run dev
 ```
 
@@ -23,6 +25,45 @@ Production accepts `https://juicebox.money` and `https://revnet.money`. `dev` ac
 `https://dev.juicebox.money`, `https://dev.revnet.money`, `http://localhost:3001`, and
 `http://localhost:3002`. `GET /healthz` is public for infrastructure health checks, and
 `/ipfs/*` is a public read gateway.
+
+## Connect an assistant through MCP
+
+The `mcp/` package provides **56 V6-only tools across ten capability families**: project and
+account intelligence, payments and cash-outs, launches and ruleset changes, buyback hooks, router
+terminals, 721 shops, revnets and loans, omnichain operations, source and webclient development,
+and reviewed project metadata publication. Read the [26 user journeys](mcp/docs/USER_JOURNEYS.md)
+and [tool catalog](mcp/docs/TOOLS.md) for exact coverage and limitations.
+
+Point a Streamable HTTP MCP client at:
+
+```json
+{
+  "mcpServers": {
+    "juicebox": { "url": "https://juicebox.center/mcp" }
+  }
+}
+```
+
+The server routes `/mcp` directly to the MCP transport before Center's browser API middleware.
+MCP uses Center's store, read-only RPC gateway, and pinning service through bounded internal
+callbacks. It does not send HTTP requests back to itself or impersonate an approved browser Origin.
+Its Host and browser Origin checks remain active; non-browser clients do not need to invent an Origin.
+Search removes non-V6 intent listings while preserving the upstream cursor; a mixed-version source
+count is not reported as a V6 total. Direct intent reads also reject other deployment versions.
+
+An assistant can prepare new project metadata using `jb_prepare_project_metadata`, show the exact
+JSON and public visibility and potential permanence, then call `jb_pin_project_metadata` only after the user
+explicitly approves that document. The expiring review token commits to the exact UTF-8 bytes.
+Pinning returns a CID and `ipfs://` URI for a separately reviewed V6 launch. It does not upload a
+logo, merge existing metadata, update an existing project, sign, or broadcast a transaction. A logo
+must already have a real HTTPS URL or IPFS CID and can be omitted until available.
+
+`/mcp/healthz` reports MCP liveness and `/mcp/readyz` reports local MCP readiness with upstream
+health explicitly unchecked. Center's `/readyz` continues checking PostgreSQL. The integrated
+service uses PostgreSQL-backed shared backend quotas: 600 Center reads per minute; 5,000 MCP RPC
+requests per minute, also subject to `RPC_SITE_LIMIT_PER_MINUTE`; and ten MCP pins per ten minutes,
+also subject to the existing 200-per-site pin budget. These are service-wide budgets across
+replicas, in addition to MCP transport limits. See [MCP deployment](mcp/docs/DEPLOYMENT.md).
 
 ## Pin and read IPFS content
 
@@ -116,16 +157,16 @@ submit the same fields plus `publisher` and `signature` to `POST /v1/intents`. R
 publisher and content is idempotent.
 
 ```ts
-const prepared = await central("/v1/intents/message", envelope)
+const prepared = await central("/v1/intents/message", envelope);
 const signature = await walletClient.signMessage({
   account,
   message: prepared.message,
-})
+});
 const intent = await central("/v1/intents", {
   ...envelope,
   publisher: account.address,
   signature,
-})
+});
 ```
 
 JB Center accepts any JSON object as `jb`, caps signed envelopes at 16.8 MB, and indexes common
@@ -146,13 +187,15 @@ Search returns a merge-friendly page:
 
 ```json
 {
-  "items": [{
-    "source": "jbcenter",
-    "status": "undeployed",
-    "intentId": "...",
-    "chainIds": [1],
-    "name": "Example"
-  }],
+  "items": [
+    {
+      "source": "jbcenter",
+      "status": "undeployed",
+      "intentId": "...",
+      "chainIds": [1],
+      "name": "Example"
+    }
+  ],
   "totalCount": 1,
   "nextCursor": null
 }
@@ -211,6 +254,17 @@ The remaining controls are environment variables:
   a browser.
 - `PINATA_JWT` — scoped Pinata token with `org:files:write`; never expose it to a browser.
 - `DATABASE_URL` — PostgreSQL connection string; require TLS in the production provider settings.
+- `MCP_PLAN_SECRET` — required in production; a cryptographically random secret with at least
+  32 bytes, stable across replicas. It authenticates unsigned transaction plans and separately
+  scoped metadata review tokens; it is never a wallet key.
+- `MCP_PUBLIC_ORIGIN` — default `https://juicebox.center`, without `/mcp` or another path.
+- `MCP_BENDYSTRAW_MAINNET_URL`, `MCP_BENDYSTRAW_TESTNET_URL` — independently configured complete
+  GraphQL endpoints. An absent network reports `NOT_CONFIGURED` and cannot fall back to another.
+- `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS` — optional comma-separated additions to the MCP
+  transport allowlists. Center's active environment browser origins are included automatically.
+- `MCP_PLAN_TTL_SECONDS` — transaction-plan lifetime; default `300`, range `30`–`1800` seconds.
+- `MCP_MAX_CONCURRENT_REQUESTS` — MCP HTTP operations per process; default `16`, range `1`–`128`.
+- `MCP_KNOWLEDGE_PATH` — optional reviewed source-bundle override; packaged references are the default.
 
 `GET /healthz` is process liveness. `GET /readyz` checks PostgreSQL. `GET /metrics` returns protected
 Prometheus metrics. Requests are logged as one-line JSON with request ID, caller,
@@ -231,6 +285,7 @@ monorepo root and set its working directory).
 npm test
 npm run typecheck
 npm run build
+npm run check
 TEST_DATABASE_URL=postgresql://... npm test
 ```
 

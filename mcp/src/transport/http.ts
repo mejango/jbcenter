@@ -1,4 +1,4 @@
-import { createServer, type Server, type ServerResponse } from 'node:http';
+import { createServer, type RequestListener, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import express, { type ErrorRequestHandler, type Request, type Response } from 'express';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -15,12 +15,29 @@ const ALLOWED_CORS_HEADERS = new Set([
 ]);
 
 export interface HttpOptions {
+  /** Absolute deadline for receiving the MCP JSON body, independent of the owning server. */
+  bodyTimeoutMs?: number;
   requestTimeoutMs?: number;
+  healthPath?: string;
+  readinessPath?: string;
+  /** Set false when the parent application owns its index route. */
+  indexPath?: string | false;
   shutdownGraceMs?: number;
   /** Requests per minute, with a burst of the same size. Keys are socket IPs, never forwarded headers. */
   rateLimitPerMinute?: number;
   maxRateLimitEntries?: number;
   logger?: (message: string) => void;
+}
+
+export interface HttpHandler {
+  /** Receives the original Node streams; never pass an already-consumed request body. */
+  handler: RequestListener;
+  /** Stop admitting work while existing requests finish during the owner's grace period. */
+  beginDrain(): void;
+  isDraining(): boolean;
+  /** Immediately cancel remaining requests and dispose protocol state, without closing a listener. */
+  close(): Promise<void>;
+  activeRequests(): number;
 }
 
 export interface HttpRuntime {
@@ -94,25 +111,29 @@ class RateLimiter {
  * factory, but protocol state and request cancellation must never cross clients.
  * TLS and distributed quotas belong at the ingress; forwarded headers are untrusted.
  */
-export function createHttpServer(
+export function createHttpHandler(
   config: Config,
   factory: () => McpServer,
   options: HttpOptions = {},
-): HttpRuntime {
+): HttpHandler {
   const log = options.logger ?? (() => {});
+  const bodyTimeoutMs = options.bodyTimeoutMs ?? 15_000;
   const requestTimeoutMs = options.requestTimeoutMs ?? 60_000;
-  const shutdownGraceMs = options.shutdownGraceMs ?? 10_000;
   const rateLimitPerMinute = options.rateLimitPerMinute ?? 120;
   const maxRateLimitEntries = options.maxRateLimitEntries ?? 10_000;
-  for (const value of [
-    requestTimeoutMs,
-    shutdownGraceMs,
-    rateLimitPerMinute,
-    maxRateLimitEntries,
-  ]) {
+  for (const value of [bodyTimeoutMs, requestTimeoutMs, rateLimitPerMinute, maxRateLimitEntries]) {
     if (!Number.isSafeInteger(value) || value < 1)
       throw new Error('HTTP limits must be positive safe integers.');
   }
+  const healthPath = options.healthPath ?? '/healthz';
+  const readinessPath = options.readinessPath ?? '/readyz';
+  const indexPath = options.indexPath ?? '/';
+  const paths = [healthPath, readinessPath, ...(indexPath === false ? [] : [indexPath])];
+  if (
+    paths.some((path) => !/^(?:\/|(?:\/[a-zA-Z0-9_-]+)+)$/.test(path) || path === '/mcp') ||
+    new Set(paths).size !== paths.length
+  )
+    throw new Error('HTTP health and index paths must be distinct literal routes other than /mcp.');
   const hosts = config.allowedHosts.map((value) => {
     const parsed = authority(value);
     if (!parsed) throw new Error('ALLOWED_HOSTS contains an invalid host authority.');
@@ -158,24 +179,26 @@ export function createHttpServer(
     next();
   });
 
-  app.get('/healthz', (_req, res) => {
+  app.get(healthPath, (_req, res) => {
     res.json({ status: 'alive' });
   });
-  app.get('/readyz', (_req, res) => {
+  app.get(readinessPath, (_req, res) => {
     res.status(draining ? 503 : 200).json({
       status: draining ? 'draining' : 'ready',
       scope: 'local_configuration_and_services',
       upstreamHealth: 'not_checked',
     });
   });
-  app.get('/', (_req, res) => {
-    res.json({
-      name: 'Juicebox MCP',
-      transport: 'streamable-http',
-      endpoint: '/mcp',
-      stateful: false,
+  if (indexPath !== false) {
+    app.get(indexPath, (_req, res) => {
+      res.json({
+        name: 'Juicebox MCP',
+        transport: 'streamable-http',
+        endpoint: '/mcp',
+        stateful: false,
+      });
     });
-  });
+  }
 
   app.options('/mcp', (req, res) => {
     const method = req.headers['access-control-request-method'];
@@ -224,6 +247,8 @@ export function createHttpServer(
         finish: async () => {
           if (!active.delete(res)) return;
           clearTimeout(timeout);
+          clearTimeout(bodyTimeout);
+          req.off('end', onBodyEnd);
           req.off('aborted', onClose);
           res.off('close', onClose);
           res.off('finish', onClose);
@@ -240,10 +265,25 @@ export function createHttpServer(
         void scope.finish();
       };
       const timeout = setTimeout(() => {
+        if (!req.complete) {
+          res.shouldKeepAlive = false;
+          res.setHeader('Connection', 'close');
+        }
         rpcError(res, 504, 'Request deadline exceeded.');
         void scope.finish();
       }, requestTimeoutMs);
       timeout.unref();
+      const onBodyEnd = () => clearTimeout(bodyTimeout);
+      const bodyTimeout = setTimeout(() => {
+        // A late body must never be interpreted as another request on a reused socket.
+        // Node closes this connection after flushing the error response.
+        res.shouldKeepAlive = false;
+        res.setHeader('Connection', 'close');
+        rpcError(res, 408, 'Request body deadline exceeded.');
+        void scope.finish();
+      }, bodyTimeoutMs);
+      bodyTimeout.unref();
+      req.once('end', onBodyEnd);
       active.set(res, scope);
       req.once('aborted', onClose);
       res.once('close', onClose);
@@ -312,22 +352,56 @@ export function createHttpServer(
   };
   app.use(errors);
 
+  return {
+    handler: app,
+    beginDrain: () => {
+      draining = true;
+    },
+    isDraining: () => draining,
+    activeRequests: () => active.size,
+    close: () => {
+      if (closing) return closing;
+      draining = true;
+      // Defer disposal one microtask so reentrant close calls share the same promise.
+      closing = Promise.resolve().then(async () => {
+        const pending = [...active.entries()].map(([res, scope]) => {
+          res.destroy();
+          return scope.finish();
+        });
+        await Promise.all([...pending, ...cleanups]);
+      });
+      return closing;
+    },
+  };
+}
+
+/** Standalone listener; embedded deployments own their listener and call createHttpHandler. */
+export function createHttpServer(
+  config: Config,
+  factory: () => McpServer,
+  options: HttpOptions = {},
+): HttpRuntime {
+  const shutdownGraceMs = options.shutdownGraceMs ?? 10_000;
+  if (!Number.isSafeInteger(shutdownGraceMs) || shutdownGraceMs < 1)
+    throw new Error('HTTP shutdown grace must be a positive safe integer.');
+  const runtime = createHttpHandler(config, factory, options);
+  let closing: Promise<void> | undefined;
   const server = createServer(
     {
       maxHeaderSize: 16 * 1024,
-      requestTimeout: 15_000,
-      headersTimeout: 10_000,
+      requestTimeout: options.bodyTimeoutMs ?? 15_000,
+      headersTimeout: Math.min(10_000, options.bodyTimeoutMs ?? 15_000),
       keepAliveTimeout: 5_000,
     },
-    app,
+    runtime.handler,
   );
   server.maxHeadersCount = 100;
   return {
     server,
-    activeRequests: () => active.size,
+    activeRequests: runtime.activeRequests,
     listen: () =>
       new Promise((resolve, reject) => {
-        if (draining) {
+        if (runtime.isDraining()) {
           reject(new Error('A closed HTTP runtime cannot be restarted.'));
           return;
         }
@@ -342,21 +416,16 @@ export function createHttpServer(
       }),
     close: () => {
       if (closing) return closing;
-      draining = true;
+      runtime.beginDrain();
       closing = new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
-          for (const [res, scope] of active) {
-            res.destroy();
-            void scope.finish();
-          }
+          void runtime.close();
           server.closeAllConnections();
         }, shutdownGraceMs);
         timeout.unref();
         server.close((error) => {
           clearTimeout(timeout);
-          Promise.all(
-            [...active.values()].map((scope) => scope.finish()).concat([...cleanups]),
-          ).then(() => {
+          runtime.close().then(() => {
             if (error && 'code' in error && error.code !== 'ERR_SERVER_NOT_RUNNING') reject(error);
             else resolve();
           }, reject);

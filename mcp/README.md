@@ -2,7 +2,7 @@
 
 Juicebox V6 project intelligence, development references, economic modeling, and verifiable unsigned transaction plans over the Model Context Protocol.
 
-The intended hosted origin is **https://juicebox.diy**. `PUBLIC_ORIGIN` makes the service equally deployable at `juicebox.tools` or another origin. This repository is a standalone service; it does not require sibling repositories at runtime.
+The deployment endpoint is **https://juicebox.center/mcp**. This package lives in JB Center's `mcp/` directory and is embedded in Center's HTTP server. It also supports standalone HTTP and stdio execution with its checked-in references; source repositories are not runtime dependencies. The origin remains configurable for alternate deployments, including `juicebox.diy` or `juicebox.tools`.
 
 ## What it provides
 
@@ -10,13 +10,20 @@ The intended hosted origin is **https://juicebox.diy**. `PUBLIC_ORIGIN` makes th
 - Payment, cash-out, payout, buyback/router, NFT, revnet, loan and bridge workflows built against the pinned SDK and checked against V6 source.
 - Authenticated transaction plans containing exact account, chain, destination, calldata, value, decoded arguments and prerequisites. Fresh simulation and receipt verification are separate operations.
 - Searchable contract sources and Juice skills, plus practical webclient development plans grounded in Juicescan, Juicebox Money and Revnet Money.
+- Exact project metadata review and explicitly approved public JSON pinning through the integrated Center backend, returning a CID and URI for a separate V6 launch.
 - Local stdio and stateless Streamable HTTP transports, bounded requests, cancellation, Docker packaging and CI.
 
-Read the [user journeys](docs/USER_JOURNEYS.md) for contributor, creator, operator, revnet, omnichain, and developer workflows, including tool sequences and what establishes completion.
+The **56 tools across ten capability families** compose into [26 user journeys](docs/USER_JOURNEYS.md) for contributors, creators, operators, revnet participants, omnichain users, and developers, including tool sequences and what establishes completion.
 
 Start with `jb_list_capabilities` in an MCP client. It groups the tools and reports their coverage limits. The generated [tool catalog](docs/TOOLS.md), [architecture](docs/ARCHITECTURE.md), [source provenance](docs/SOURCES.md), and [webclient guide](docs/WEBCLIENTS.md) describe the implementation in more detail.
 
-## Run locally
+## Run with JB Center
+
+Run the [parent service](../README.md#run-it) from the JB Center repository root. Its build compiles this package and its HTTP server mounts the raw MCP transport at `/mcp`. Configure production with `MCP_PLAN_SECRET` and the other `MCP_` settings in the [parent example environment](../.env.example).
+
+In the integrated server, `/mcp/healthz` reports MCP liveness and `/mcp/readyz` reports local readiness with upstream health unchecked. Center's `/readyz` still checks PostgreSQL. See [deployment](docs/DEPLOYMENT.md) for the shared backend quotas and exact configuration boundaries.
+
+## Run the package separately
 
 Node **22.16 or newer** is required; CI and the container use Node 22.23.1.
 
@@ -42,33 +49,33 @@ Example local client configuration, after building:
   "mcpServers": {
     "juicebox": {
       "command": "node",
-      "args": ["/absolute/path/to/juicebox-mcp/dist/stdio.js"]
+      "args": ["/absolute/path/to/jbcenter/mcp/dist/stdio.js"]
     }
   }
 }
 ```
 
-Pass required environment variables through the client's `env` configuration when launching the binary directly. `npm start` and the development scripts load only this repository's `.env` if present. The binary itself uses its process environment.
+Pass required environment variables through the client's `env` configuration when launching the binary directly. The package's `npm start` and development scripts load only `mcp/.env` if present, using the standalone variable names below. The binary itself uses its process environment. Standalone execution has no pinning backend; prepare and approve publication through the integrated Center service when pinning is needed.
 
 For a hosted MCP client that supports Streamable HTTP:
 
 ```json
 {
   "mcpServers": {
-    "juicebox": { "url": "https://juicebox.diy/mcp" }
+    "juicebox": { "url": "https://juicebox.center/mcp" }
   }
 }
 ```
 
-This is the intended deployment URL, not a claim that a hosted instance is already live.
+This configuration identifies the deployment endpoint; building the package does not deploy it or establish upstream availability.
 
 ## Configure upstreams
 
-**RPC:** defaults to JB Center's public read-only RPC, with per-chain `RPC_URL_<chainId>` overrides. Providers must support EIP-1898 canonical block-hash reads. Unsupported providers fail explicitly rather than silently weakening snapshot consistency.
+**RPC:** the integrated service calls Center's configured read-only RPC gateway directly, retaining provider failover and shared quotas. Standalone execution defaults to Center's public RPC, with per-chain `RPC_URL_<chainId>` overrides. Providers must support EIP-1898 canonical block-hash reads. Unsupported providers fail explicitly rather than silently weakening snapshot consistency.
 
-**Bendystraw:** configure `BENDYSTRAW_MAINNET_URL` and/or `BENDYSTRAW_TESTNET_URL` as complete GraphQL endpoints. There is no guessed keyless endpoint or hidden embedded API key. An absent network reports `NOT_CONFIGURED`; indexed operations never fall back to another network.
+**Bendystraw:** the parent service uses `MCP_BENDYSTRAW_MAINNET_URL` and `MCP_BENDYSTRAW_TESTNET_URL`; standalone execution uses `BENDYSTRAW_MAINNET_URL` and `BENDYSTRAW_TESTNET_URL`. Configure complete authorized GraphQL endpoints independently. There is no guessed keyless endpoint or hidden embedded API key. An absent network reports `NOT_CONFIGURED`; indexed operations never fall back to another network. Mainnet access does not establish testnet access.
 
-**JB Center:** RPC is public, but its current non-RPC `/v1/*` API requires an approved Origin. Search and intent reads report actual access failures until the operator approves this integration and `JBCENTER_ORIGIN` is configured. Intent signing-message preparation runs locally and needs no Center access. The server does not impersonate another approved client.
+**JB Center:** the integrated service uses bounded callbacks into Center's store, RPC gateway and pinning service, without self-HTTP or an invented Origin. Standalone search and intent reads need approved access to Center's non-RPC API and a corresponding `JBCENTER_ORIGIN`; access failures remain explicit. Intent signing-message preparation runs locally in either mode. Search removes non-V6 listings while preserving the upstream cursor and reporting an unknown V6 total when the source count spans versions. Direct intent reads reject other deployment versions.
 
 **References:** checked-in bundles run offline. Sources include file hashes, Git revisions and dirty-source flags. See [SOURCES.md](docs/SOURCES.md) for refresh commands and authority rules. App development has a separate [reference bundle](docs/WEBCLIENTS.md).
 
@@ -80,9 +87,18 @@ This is the intended deployment URL, not a claim that a hosted instance is alrea
 4. Use `jb_simulate_plan` immediately before signing each step in an external wallet. Prerequisites need matching confirmed transactions; simulated allowance overrides are never substituted for them.
 5. Use `jb_verify_plan` with step indices and transaction hashes. Pending, reverted, mismatched, confirmed and unverified outcomes remain distinct. A confirmed outer Safe/Relayr transaction is not proof of the intended inner action.
 
-The MCP has no wallet key and does not sign, broadcast, pin metadata or publish Center intents. Client applications carry out explicitly approved writes using their existing wallet and off-chain integrations. MCP development tools include the relevant reference implementations.
+The MCP has no wallet key and does not sign, broadcast, or publish Center intents. The integrated metadata tools can publish an explicitly approved new metadata document to IPFS; that separate workflow does not execute a transaction. Client applications handle wallet execution and signed-intent publication. MCP development tools include the relevant reference implementations.
 
 Plan expiry is enforced by this service, not universally by the destination contract. A wallet integration must reject expired plans and re-prepare when account, chain, terms or quote assumptions change. Plans are authenticated, not encrypted; treat them as transaction details, not secret storage.
+
+## Publish new project metadata
+
+1. Call `jb_prepare_project_metadata` with `version: 6` and a complete `metadata` object containing `name`, `description`, and optional `logoUri`/`infoUri`. Omit unavailable URLs; an `ipfs://<IMAGE_CID>` placeholder is invalid.
+2. Review the returned exact canonical JSON, SHA256, UTF-8 size and expiry with the user. Explain that the upload is public and removal cannot be guaranteed. Preparation produces no upload, and the review token is not user approval.
+3. Only after explicit approval of that document, call `jb_pin_project_metadata` with its token and `confirmPublicUpload: true`. The token is bound to the server and expires after ten minutes by default; changes require a new review.
+4. Use the returned `metadataUri` in `jb_prepare_launch.projectUri`, `jb_prepare_721_launch.projectUri`, or `jb_prepare_revnet_deploy.config.description.uri`, then follow the separate transaction workflow.
+
+The 64 KiB JSON limit applies to the complete canonical UTF-8 document. This workflow creates new standard metadata; it does not merge or preserve an existing document's fields, update an existing project's URI, fetch linked content, or upload/pin a logo image. A logo must already have a real canonical IPFS CID or HTTPS URL. The receipt acknowledges the primary upload and queued redundancy; it does not claim retrieval or linked-content availability was verified. If publication returns `METADATA_PUBLICATION_UNVERIFIED`, content may already be public: inspect backend status before deliberately retrying. See the [metadata journey](docs/USER_JOURNEYS.md#review-and-pin-new-project-metadata).
 
 ## Correctness boundaries
 

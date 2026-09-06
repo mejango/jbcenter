@@ -39,7 +39,7 @@ describe('public boundaries', () => {
       }),
     ).toThrow('HTTPS');
     expect(loadConfig({ NODE_ENV: 'production', PLAN_SECRET: 'x'.repeat(32) }).publicOrigin).toBe(
-      'https://juicebox.diy',
+      'https://juicebox.center',
     );
   });
   it('does not inherit prototype objects as contract registry entries', () => {

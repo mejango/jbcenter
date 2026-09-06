@@ -36,8 +36,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run typecheck
-      - run: npm run build
+          cache-dependency-path: |
+            package-lock.json
+            mcp/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm --prefix mcp ci --ignore-scripts
+      - run: npm run check
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm --prefix mcp audit --omit=dev --audit-level=high
       - run: docker build -t jbcenter:${{ github.sha }} .

@@ -1,31 +1,31 @@
 # User journeys
 
-The Juicebox MCP helps people understand projects, contribute, operate treasuries and shops, manage revnet positions, reconcile cross-chain activity, and build applications. Its 54 tools can be combined into the journeys below. The [tool catalog](TOOLS.md) supplies exact API descriptions and schemas; this guide explains the user goals, sequence of work, and expected outcomes.
+The Juicebox MCP helps people understand projects, contribute, publish reviewed project metadata, operate treasuries and shops, manage revnet positions, reconcile cross-chain activity, and build applications. Its 56 V6-only tools across ten capability families combine into the 26 journeys below. The [tool catalog](TOOLS.md) supplies exact API descriptions and schemas; this guide explains the user goals, sequence of work, and expected outcomes.
 
 These journeys describe the implemented V6 service. A natural-language request is a starting point for an assistant, not a complete transaction instruction: the assistant still needs the user's intended project, chain, account, asset, amount, beneficiary, and terms where relevant.
 
 ## Choose a journey
 
-| Person                            | Goals                                                                                                 |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Explorer or analyst               | [Understand a project, reconcile holdings, and investigate activity](#explore-projects-and-accounts)  |
-| Contributor or collector          | [Contribute, purchase NFT tiers, and cash out](#contribute-collect-and-cash-out)                      |
-| Creator                           | [Model economics and launch a core project or NFT project](#design-and-launch-projects)               |
-| Project operator                  | [Queue rulesets, distribute payouts, manage routing, and maintain tiers](#operate-a-project)          |
-| Revnet founder or participant     | [Understand stages, deploy a revnet, claim auto-issuance, borrow, and repay](#use-and-create-revnets) |
-| Omnichain participant             | [Discover peer projects, claim bridged balances, and synchronize accounting](#follow-omnichain-state) |
-| Anyone reviewing execution        | [Inspect deployment intents and reconcile transaction plans](#review-intents-and-transactions)        |
-| Application or protocol developer | [Build webclients and investigate contracts using cited source](#build-with-the-protocol)             |
+| Person                            | Goals                                                                                                   |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Explorer or analyst               | [Understand a project, reconcile holdings, and investigate activity](#explore-projects-and-accounts)    |
+| Contributor or collector          | [Contribute, purchase NFT tiers, and cash out](#contribute-collect-and-cash-out)                        |
+| Creator                           | [Model economics, pin reviewed metadata, and launch a core or NFT project](#design-and-launch-projects) |
+| Project operator                  | [Queue rulesets, distribute payouts, manage routing, and maintain tiers](#operate-a-project)            |
+| Revnet founder or participant     | [Understand stages, deploy a revnet, claim auto-issuance, borrow, and repay](#use-and-create-revnets)   |
+| Omnichain participant             | [Discover peer projects, claim bridged balances, and synchronize accounting](#follow-omnichain-state)   |
+| Anyone reviewing execution        | [Inspect deployment intents and reconcile transaction plans](#review-intents-and-transactions)          |
+| Application or protocol developer | [Build webclients and investigate contracts using cited source](#build-with-the-protocol)               |
 
 Start with `jb_list_capabilities` when the assistant needs to discover supported operations. An MCP client can also request the `inspect-project`, `review-contribution`, `design-project`, or `build-webclient` prompt, supplying a `request` string. Prompts guide the assistant's work; they do not execute a journey automatically.
 
 ## What carries across every journey
 
-**Identity and evidence.** Projects are identified by version, chain, and project ID. Names return candidates for selection; parsing an identifier does not prove the project exists. Consequential reads carry block evidence. Indexed records, project-authored descriptions, source references, and live contract state retain their different authority and coverage.
+**Identity and evidence.** Every operational journey is V6-only. Projects are identified by version, chain, and project ID. Use explicit V6 identifiers or the resolver; a versionless SDK identifier defaults to V4 and must not be used as a fallback. Names return V6 candidates for selection; parsing an identifier does not prove the project exists. Consequential reads carry block evidence. Indexed records, project-authored descriptions, source references, and live contract state retain their different authority and coverage.
 
 **Amounts and rights.** Tool arguments use exact integer strings for asset amounts and uint256 identifiers. The assistant translates human amounts using the correct asset decimals and keeps accounting currency separate from token address. An operator permission is scoped to its account, project, and operation. An unavailable read cannot establish either a zero balance or permission to act.
 
-**Transaction handoff.** Transaction-preparation tools return an authenticated unsigned plan and the first step's preflight result. Review the actual result: returning a plan alone does not establish that its preflight succeeded. `jb_prepare_intent` has a different purpose and returns a Center commitment/signing message, not a transaction plan.
+**Transaction handoff.** Transaction-preparation tools return an authenticated unsigned plan and the first step's preflight result. Review the actual result: returning a plan alone does not establish that its preflight succeeded. `jb_prepare_intent` returns a Center commitment/signing message. `jb_prepare_project_metadata` returns an exact JSON review and publication token. Neither is a transaction plan or user approval.
 
 ```mermaid
 flowchart LR
@@ -38,19 +38,20 @@ flowchart LR
   G -->|Confirmed prerequisite; more steps| D
 ```
 
-The shared [transaction review journey](#reconcile-a-prepared-transaction) applies to every transaction below. The MCP does not hold wallet keys, sign, broadcast, pin content, or publish Center intents. A client or external wallet performs those actions after the user approves the exact operation. A supported semantic outcome, such as NFT delivery, requires more evidence than a successful outer transaction receipt.
+The shared [transaction review journey](#reconcile-a-prepared-transaction) applies to every transaction below. The MCP does not hold wallet keys, sign, broadcast, or publish Center intents. A client or external wallet performs those actions after the user approves the exact operation. The integrated service can publish new project metadata through the separate [explicit public-upload review](#review-and-pin-new-project-metadata); pinning does not execute a transaction. A supported semantic outcome, such as NFT delivery, requires more evidence than a successful outer transaction receipt.
 
 **Availability.** The following prerequisites determine which parts can run:
 
-| Work                                                                                                                           | Required access                                                            |
-| ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| Capability discovery, source/ABI lookup, webclient integration plans, hypothetical economics, local intent-message preparation | Installed service and its bundled references; no upstream request needed   |
-| Live project, permission, hook, position, loan, quote, transaction preparation, and receipt checks                             | Configured RPC supporting the adapter's canonical block-hash reads         |
-| Named-project and account discovery, indexed activity, indexer status, indexed omnichain groups                                | Configured Bendystraw endpoint for the selected network                    |
-| Center intent listings and signature-verified intent reads                                                                     | Operator-approved JB Center integration access                             |
-| Signing, submission, metadata/media publication, proof acquisition, and application implementation                             | External wallet, client, developer environment, or appropriate integration |
+| Work                                                                                                                                               | Required access                                                                           |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Capability discovery, source/ABI lookup, webclient integration plans, hypothetical economics, local intent-message and metadata review preparation | Installed service and its bundled references; no upstream request needed                  |
+| Live project, permission, hook, position, loan, quote, transaction preparation, and receipt checks                                                 | Configured RPC supporting the adapter's canonical block-hash reads                        |
+| Named-project and account discovery, indexed activity, indexer status, indexed omnichain groups                                                    | Configured Bendystraw endpoint for the selected network                                   |
+| Center intent listings and signature-verified intent reads                                                                                         | Integrated Center store callbacks, or approved standalone API access                      |
+| Publication of exact reviewed new standard project metadata                                                                                        | Integrated Center pinning backend, available quotas/providers, and explicit user approval |
+| Signing, submission, image/media publication, proof acquisition, and application implementation                                                    | External wallet, client, developer environment, or appropriate integration                |
 
-Search reports each upstream separately. A Center outage need not erase available deployed-project results, and unavailable indexed metadata need not erase a successful on-chain project read. See [deployment configuration](DEPLOYMENT.md) for setup.
+Search reports each upstream separately. A Center outage need not erase available deployed-project results, and unavailable indexed metadata need not erase a successful on-chain project read. Center search filters out other deployment versions and preserves the upstream cursor; an empty filtered page can still have a next page. When the upstream count includes other versions, the V6 total remains unknown. Mainnet and testnet indexers require separate configuration. See [deployment configuration](DEPLOYMENT.md) for setup.
 
 ## Explore projects and accounts
 
@@ -60,7 +61,7 @@ Search reports each upstream separately. A Center outage need not erase availabl
 
 Use `jb_resolve_project` for an explicit identifier or supported project URL, or `jb_search_projects` for discovery. Select a candidate before calling `jb_get_project`, `jb_get_rulesets`, and `jb_get_routing`. For a specific proposed operator action, use `jb_get_permissions` with the relevant account and permission IDs.
 
-The result is an explanation of ownership, current and queued economic rules, issuance and reserved tokens, payout access, surplus, and the actual hook/terminal composition. It should identify unknown accounting or custom behavior. Upcoming terms and approval status do not promise when a future configuration will execute. Center listings require separate version/chain inspection and signature verification through the intent journey below.
+The result is an explanation of ownership, current and queued economic rules, issuance and reserved tokens, payout access, surplus, and the actual hook/terminal composition. It should identify unknown accounting or custom behavior. Upcoming terms and approval status do not promise when a future configuration will execute. Center listings are restricted to V6 but still require chain selection and signature verification through the intent journey below.
 
 ### Reconcile an account's holdings
 
@@ -114,13 +115,35 @@ Use source references to establish the intended configuration, then call `jb_mod
 
 The output is a reproducible comparison using exact integer arithmetic and contract rounding. Successor weight `1` needs an explicit inherited weight; duration zero has no automatic cycles. The core model rejects enabled data hooks whose economics it cannot represent. It does not forecast demand, convert arbitrary assets, or establish an executable quote. The assistant still needs the user's choice before preparing a launch.
 
+### Review and pin new project metadata
+
+> “I have the project's name and description. Help me publish the metadata and use its IPFS URI in my V6 launch.”
+
+Call `jb_prepare_project_metadata` with `version: 6` and the complete new metadata document. `name` and `description` are required; `logoUri` and `infoUri` are optional. Start without a logo if it is not already hosted. A real canonical IPFS CID or absolute HTTPS URL is required for a supplied URI; `ipfs://<IMAGE_CID>` and local file paths are rejected.
+
+```json
+{
+  "version": 6,
+  "metadata": {
+    "name": "Example project",
+    "description": "What the project is raising funds to do."
+  }
+}
+```
+
+Show the user the returned `review.metadata` and exact canonical `review.jsonText`, its SHA256, UTF-8 size, and review expiry. Explain that publication is public and may be permanent. Preparation performs no upload. Only after the user explicitly approves that exact public document, call `jb_pin_project_metadata` with the unmodified review token and `confirmPublicUpload: true`. The token authenticates the review and expires after ten minutes by default; it does not establish approval. Edited content or an expired token requires a new review.
+
+The integrated Center backend pins the exact canonical JSON bytes and returns `metadataUri`, the CID, content SHA256, and primary-upload/queued-redundancy status. Use the URI as `projectUri` in `jb_prepare_launch` or `jb_prepare_721_launch`, or as `config.description.uri` in `jb_prepare_revnet_deploy`. Finish the selected launch's complete typed inputs and separate transaction review. Pinning needs no wallet and has not launched or changed a project.
+
+This journey handles a new standard document of at most 64 KiB of canonical UTF-8 JSON. It does not fetch or upload images, check linked-content availability, preserve custom fields from existing metadata, merge an existing document, or prepare an existing-project URI update. In a standalone server without the pinning callback, preparation explains the missing backend; prepare the same document through `https://juicebox.center/mcp` before seeking approval there. Tokens are not assumed portable between servers. A `METADATA_PUBLICATION_UNVERIFIED` result means content may already be public; inspect backend status before deliberately retrying. A queued redundancy receipt does not prove content was fetched back or that every replica is available.
+
 ### Launch a core project
 
 > “Prepare a project with these economic terms, recipients, and accepted assets.”
 
 Establish the owner, chain, complete rulesets, split groups, fund-access limits, terminal accounting contexts, and metadata URI. Use `jb_prepare_launch` with the explicit `core` composition. The tool checks the live per-chain creation fee and constructs the reviewed launch call.
 
-The wallet executes the plan; verification derives the deployed project identity from matching launch evidence. Publishing metadata is an external step. This journey creates a core project; use the separate NFT or revnet launch journey for those compositions. There is no generic atomic multi-chain core launch tool.
+The wallet executes the plan; verification derives the deployed project identity from matching launch evidence. Obtain a metadata URI through the [reviewed metadata journey](#review-and-pin-new-project-metadata) or an existing publication integration before preparation. This journey creates a core project; use the separate NFT or revnet launch journey for those compositions. There is no generic atomic multi-chain core launch tool.
 
 ### Launch a project with an NFT shop
 
@@ -128,7 +151,7 @@ The wallet executes the plan; verification derives the deployed project identity
 
 Use `jb_prepare_721_launch` with complete rulesets, tiers, pricing, and accepted terminal contexts. The supported factory wires the canonical 721 hook and metadata fields. Review creation fees, pricing-feed availability, reserves, tier categories, and immutable or restrictive flags before signing.
 
-After launch verification, use `jb_get_project` and `jb_get_721_shop` on the returned identity to inspect the result. Collection content creation and publication happen outside the MCP. Attaching an NFT configuration to an ordinary core-launch argument is not an equivalent supported path.
+After launch verification, use `jb_get_project` and `jb_get_721_shop` on the returned identity to inspect the result. Collection media and tier-specific content creation/publication happen outside the MCP; the project-level metadata URI can come from the reviewed metadata journey. Attaching an NFT configuration to an ordinary core-launch argument is not an equivalent supported path.
 
 ## Operate a project
 

@@ -131,7 +131,7 @@ export function writeBundleAtomically(output: string, serialized: string): void 
 
 function sync(values: { workspace?: string; skills?: string; output?: string; check?: boolean }) {
   const workspace = resolve(
-    values.workspace ?? fileURLToPath(new URL('../../../', import.meta.url)),
+    values.workspace ?? fileURLToPath(new URL('../../../../', import.meta.url)),
   );
   const skills = resolve(values.skills ?? resolve(workspace, '..', '..', 'juicebox-skills'));
   const output = resolve(

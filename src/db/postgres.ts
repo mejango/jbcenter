@@ -77,7 +77,14 @@ const selectIntent = `
 `;
 
 export function createPool(connectionString: string): Pool {
-  return new Pool({ connectionString, max: 10 });
+  return new Pool({
+    connectionString,
+    max: 10,
+    connectionTimeoutMillis: 5_000,
+    statement_timeout: 10_000,
+    query_timeout: 12_000,
+    idle_in_transaction_session_timeout: 10_000,
+  });
 }
 
 export class PostgresStore implements Store {

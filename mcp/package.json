@@ -4,6 +4,12 @@
   "private": true,
   "description": "Juicebox V6 project intelligence and verifiable transaction planning over MCP",
   "type": "module",
+  "exports": {
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "import": "./dist/host.js"
+    }
+  },
   "engines": {
     "node": ">=22.16.0"
   },
@@ -34,6 +40,7 @@
     "@bananapus/nana-sdk-core": "2.4.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "express": "5.1.0",
+    "multiformats": "13.4.2",
     "viem": "2.56.3",
     "zod": "4.5.4"
   },

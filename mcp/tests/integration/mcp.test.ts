@@ -47,7 +47,7 @@ describe('real MCP application protocol', () => {
     for (const tool of tools) {
       expect(tool.inputSchema.type).toBe('object');
       expect(tool.outputSchema?.type).toBe('object');
-      expect(tool.annotations?.readOnlyHint).toBe(true);
+      expect(tool.annotations?.readOnlyHint).toBe(tool.name !== 'jb_pin_project_metadata');
     }
     const result = await client.callTool({ name: 'jb_list_capabilities', arguments: {} });
     expect(result.isError).not.toBe(true);

@@ -35,7 +35,7 @@ describe('DevelopmentService', () => {
     expect(new Set(catalog.references.map((reference) => reference.source.repository))).toEqual(
       new Set(['juicescan', 'juicebox-money', 'revnet-money', 'juice-sdk-v4']),
     );
-    expect(catalog.publicOrigin).toBe('https://juicebox.diy');
+    expect(catalog.publicOrigin).toBe('https://juicebox.center');
     expect(catalog.referenceOnly).toBe(true);
     for (const reference of catalog.references) {
       expect(reference.source.commit).toMatch(/^[a-f0-9]{40}$/);

@@ -2,7 +2,7 @@
 
 The MCP ships its reference corpus in [`data/knowledge.json`](../data/knowledge.json). Serving, searching, and reading references require no sibling repositories, Git executable, embeddings service, or outbound request. The same bundle works over stdio and HTTP, regardless of the configured public hostname.
 
-The initial corpus contains 425 files from 24 repositories, approximately 5.6 MB of JSON: 333 first-party Solidity source files, 30 SDK files, 53 Juicebox V6 skills, four Bendystraw references, and five JB Center references. It covers contract implementation, framework-independent SDK helpers, indexing semantics, signed intents and RPC, and every currently available V6 skill. It does not import whole repositories or copy generated ABI trees. Runtime contract ABI/address lookup belongs to the pinned SDK adapter, separate from reference text.
+The corpus contains 427 files from 24 repositories: 333 first-party Solidity source files, 30 SDK files, 55 Juicebox V6 skills, four Bendystraw references, and five JB Center references. It covers contract implementation, framework-independent SDK helpers, indexing semantics, signed intents and RPC, and the selected V6 skills, including explicit V6 identity and project metadata publication guidance. It does not import whole repositories or copy generated ABI trees. Runtime contract ABI/address lookup belongs to the pinned SDK adapter, separate from reference text. The [initial verification record](VERIFICATION.md) preserves the earlier corpus counts and hashes as historical evidence.
 
 ## Which source answers which question
 
@@ -63,7 +63,7 @@ npm run knowledge:sync
 npm run knowledge:sync -- --check
 ```
 
-The default workspace is inferred from the sync script's location (`extensions/juicebox-mcp` inside the EVM workspace). The current skills checkout defaults to `../../juicebox-skills` relative to that workspace. Configure both explicitly when necessary:
+The source workspace is the EVM workspace containing `extensions/jbcenter/mcp`. The current skills checkout defaults to `../../juicebox-skills` relative to that workspace. Configure both explicitly when the checkout layout differs:
 
 ```sh
 npm run knowledge:sync -- --workspace /path/to/evm --skills /path/to/juicebox-skills

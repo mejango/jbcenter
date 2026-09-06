@@ -283,7 +283,7 @@ export class DevelopmentService {
     this.#bundle = developmentBundleSchema.parse(JSON.parse(text));
     this.#refs = new Map(this.#bundle.references.map((reference) => [reference.id, reference]));
     this.#features = new Map(this.#bundle.features.map((feature) => [feature.id, feature]));
-    const origin = new URL(options.publicOrigin ?? 'https://juicebox.diy');
+    const origin = new URL(options.publicOrigin ?? 'https://juicebox.center');
     if (
       !['https:', 'http:'].includes(origin.protocol) ||
       origin.username ||

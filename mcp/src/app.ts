@@ -12,9 +12,17 @@ import { ContractService } from './services/contracts.js';
 import { ProductService } from './services/products.js';
 import { RoutingService } from './services/routing.js';
 import { DevelopmentService } from './services/development.js';
+import type { fetchJson } from './adapters/http.js';
+import { ProjectMetadataService, type PinProjectMetadataJson } from './services/metadata.js';
 
-export function createServices(config: Config) {
-  const rpc = new RpcPool(config.rpcUrls);
+export interface ServiceDependencies {
+  rpcFetchJson?: typeof fetchJson;
+  center?: CenterClient;
+  pinJson?: PinProjectMetadataJson;
+}
+
+export function createServices(config: Config, dependencies: ServiceDependencies = {}) {
+  const rpc = new RpcPool(config.rpcUrls, dependencies.rpcFetchJson);
   return {
     publicOrigin: config.publicOrigin,
     rpc,
@@ -22,10 +30,12 @@ export function createServices(config: Config) {
       mainnetUrl: config.bendystrawMainnetUrl,
       testnetUrl: config.bendystrawTestnetUrl,
     }),
-    center: new CenterClient({
-      baseUrl: config.centerUrl,
-      ...(config.centerOrigin ? { headers: { origin: config.centerOrigin } } : {}),
-    }),
+    center:
+      dependencies.center ??
+      new CenterClient({
+        baseUrl: config.centerUrl,
+        ...(config.centerOrigin ? { headers: { origin: config.centerOrigin } } : {}),
+      }),
     projects: new ProjectService(rpc),
     payments: new PaymentService(rpc),
     configuration: new ConfigurationService(rpc),
@@ -36,6 +46,11 @@ export function createServices(config: Config) {
     products: new ProductService(rpc),
     routing: new RoutingService(rpc),
     development: new DevelopmentService({ publicOrigin: config.publicOrigin }),
+    metadata: new ProjectMetadataService({
+      secret: config.planSecret,
+      audience: `${config.publicOrigin}/mcp`,
+      ...(dependencies.pinJson ? { pinJson: dependencies.pinJson } : {}),
+    }),
   };
 }
 export type Services = ReturnType<typeof createServices>;
