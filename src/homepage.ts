@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import { HOMEPAGE_JS } from "./directoryClient.js";
 import {
+  journeyNodes,
+  journeyViews,
+  type JourneyNode,
+  type JourneyView,
+} from "./journeyGraph.js";
+import {
   directoryTree,
   repositoryGroups,
   type DirectoryNode,
@@ -150,10 +156,91 @@ function renderNode(node: DirectoryNode, group: string, index: number): string {
       ${node.note ? `<p class="note">${escapeHtml(node.note)}</p>` : ""}
     </li>`;
   }
-  return `<li class="branch"><details${node.id ? ` id="${escapeHtml(node.id)}"` : ""} name="${group}">
+  return `<li class="branch"><details${node.id ? ` id="directory-${escapeHtml(node.id)}"` : ""} name="${group}">
     <summary data-flow-node><span>${title}</span><span class="marker" aria-hidden="true"></span></summary>
     <div class="branch-content">${renderContents(node, `${group}-${index}`)}</div>
   </details></li>`;
+}
+
+const graphNodes = new Map(journeyNodes.map((node) => [node.id, node]));
+
+function targetView(target: string, current: JourneyView): JourneyView {
+  if (current.layout.some((placement) => placement.node === target))
+    return current;
+  const found =
+    journeyViews.find((view) => view.entry === target) ??
+    journeyViews.find((view) =>
+      view.layout.some((placement) => placement.node === target),
+    );
+  if (!found) throw new Error(`Missing journey view for ${target}`);
+  return found;
+}
+
+function referenceContent(
+  content: NonNullable<JourneyNode["content"]>,
+  key: string,
+): string {
+  if (content === "repositories")
+    return renderContents({ title: "Repositories", content }, key);
+  if (content === "wip") {
+    return renderContents(
+      directoryTree.find((node) => node.id === "wip")!,
+      key,
+    );
+  }
+  if (content === "webclients") {
+    const clients = directoryTree
+      .find((node) => node.id === "developers")!
+      .children!.find((node) => node.children)!;
+    return renderContents(clients, key);
+  }
+  return API_CONTENT[content];
+}
+
+const referenceLabels: Record<NonNullable<JourneyNode["content"]>, string> = {
+  rpc: "RPC endpoint and examples",
+  ipfs: "IPFS gateway details",
+  pinning: "Upload routes and examples",
+  mcp: "MCP endpoint",
+  repositories: "All source repositories",
+  webclients: "Webclient sources",
+  wip: "WIP projects and status",
+};
+
+function renderJourney(view: JourneyView): string {
+  return `<section class="journey-map" id="map-${view.id}" data-view="${view.id}" data-entry="${view.entry}" aria-labelledby="map-title-${view.id}">
+    <h2 class="map-title" id="map-title-${view.id}">${escapeHtml(view.title)}</h2>
+    <svg class="journey-lines" aria-hidden="true" focusable="false"></svg>
+    <div class="journey-grid">${[...view.layout]
+      .sort((a, b) => a.row - b.row || a.column - b.column)
+      .map((placement) => {
+        const node = graphNodes.get(placement.node)!;
+        return `<article class="journey-node ${node.kind} column-${placement.column} row-${placement.row}" id="${view.id}/${node.id}" data-node="${node.id}" data-content="${node.content ?? ""}" tabindex="-1" aria-labelledby="heading-${view.id}-${node.id}">
+        <h3 id="heading-${view.id}-${node.id}">${escapeHtml(node.title)}</h3>
+        ${node.note ? `<p class="note">${escapeHtml(node.note)}</p>` : ""}
+        ${node.links?.length ? `<ul class="resource-links">${node.links.map((link) => `<li><a href="${escapeHtml(link.url)}">${escapeHtml(link.title)} <span aria-hidden="true">↗</span></a></li>`).join("")}</ul>` : ""}
+        ${node.content ? `<details class="node-reference"><summary>${referenceLabels[node.content]}</summary>${referenceContent(node.content, `graph-${view.id}-${node.id}`)}</details>` : ""}
+        ${
+          node.edges.length
+            ? `<ul class="edge-choices">${node.edges
+                .map((edge) => {
+                  const destination = targetView(edge.to, view);
+                  const kind = edge.kind ?? "next";
+                  const symbol =
+                    kind === "return"
+                      ? "↶"
+                      : destination.id !== view.id
+                        ? "↗"
+                        : "→";
+                  return `<li><a class="journey-edge ${kind}" href="#${destination.id}/${edge.to}" data-from="${node.id}" data-to="${edge.to}" data-target-view="${destination.id}" data-kind="${kind}"><span>${escapeHtml(edge.label)}</span><span aria-hidden="true">${symbol}</span></a></li>`;
+                })
+                .join("")}</ul>`
+            : ""
+        }
+      </article>`;
+      })
+      .join("")}</div>
+  </section>`;
 }
 
 export const HOMEPAGE_CSS = `
@@ -166,6 +253,7 @@ export const HOMEPAGE_CSS = `
   --line: #c8ccc1;
   --accent: #245638;
   --selected: #e7eddf;
+  --return: #815a30;
   font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   color: var(--ink);
   background: var(--paper);
@@ -178,121 +266,129 @@ export const HOMEPAGE_CSS = `
 body { margin: 0; font-size: 14px; line-height: 1.65; }
 a { color: inherit; text-underline-offset: 4px; text-decoration-thickness: 1px; }
 a:hover, summary:hover { color: var(--accent); }
-a:focus-visible, summary:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
-p, h1, h2 { margin: 0; }
+a:focus-visible, summary:focus-visible, button:focus-visible, article:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+p, h1, h2, h3 { margin: 0; }
 ul { list-style: none; margin: 0; padding: 0; }
 button { font: inherit; color: inherit; cursor: pointer; }
 code { font: inherit; overflow-wrap: anywhere; }
-.page { max-width: 1240px; margin: 0 auto; padding: 0 40px; }
+.page { max-width: 1320px; margin: 0 auto; padding: 0 40px; }
 header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 24px 0; border-bottom: 1px solid var(--ink); }
 .wordmark { font-size: 18px; font-weight: 600; text-decoration: none; letter-spacing: -0.5px; }
 .edition { color: var(--muted); font-size: 12px; }
 .tagline { margin: 32px 0 14px; color: var(--muted); font-size: 14px; }
-h1 { font-size: clamp(26px, 4.5vw, 38px); line-height: 1.2; letter-spacing: -0.045em; font-weight: 500; margin-bottom: 28px; }
-h2 { font-size: 16px; line-height: 1.5; font-weight: 500; }
-.flow { position: relative; margin: 20px 0 28px; padding: 24px 0; }
-.flow-start { position: relative; z-index: 1; background: var(--ink); color: var(--paper); padding: 22px 18px; border: 1px solid var(--ink); }
-.flow-tasks, .flow-lines, .back-button { display: none; }
-.flow-results { min-width: 0; }
-.task-panel { min-width: 0; margin-top: 24px; }
-.panel-title { margin-bottom: 16px; }
-.flow.is-enhanced { display: grid; grid-template-columns: minmax(135px, .7fr) minmax(200px, 1fr) minmax(310px, 1.5fr); align-items: center; gap: 48px; }
-.is-enhanced .flow-tasks { display: block; min-width: 0; }
-.is-enhanced .flow-lines { display: block; position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
-.flow-lines path { fill: none; stroke: var(--line); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
-.flow-lines path.active { stroke: var(--accent); stroke-width: 1.5; }
-.flow-lines marker path { fill: var(--accent); stroke: none; }
-.task-button { position: relative; z-index: 1; display: flex; justify-content: space-between; align-items: center; gap: 14px; width: 100%; min-height: 58px; padding: 14px 16px; border: 1px solid var(--line); background: var(--node); text-align: left; font-size: 13px; line-height: 1.5; }
-.flow-tasks li + li { margin-top: 12px; }
-.task-button:hover { border-color: var(--accent); }
-.task-button.selected { border-color: var(--accent); background: var(--selected); color: var(--accent); }
-.task-button.selected .task-arrow { font-weight: 700; }
-.task-arrow { color: var(--accent); flex-shrink: 0; }
-.is-enhanced .task-panel { margin: 0; }
-.is-enhanced .panel-title { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); }
-.branch { min-width: 0; }
-.choices > li + li { margin-top: 14px; }
-summary { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 16px; list-style: none; cursor: pointer; padding: 16px; min-height: 56px; border: 1px solid var(--line); background: var(--node); font-size: 13px; }
+h1 { font-size: clamp(26px, 4.5vw, 38px); line-height: 1.2; letter-spacing: -0.045em; font-weight: 500; margin-bottom: 18px; }
+.introduction { max-width: 940px; font-size: 14px; margin-bottom: 32px; }
+h2 { font-size: 18px; line-height: 1.5; font-weight: 500; }
+h3 { font-size: 15px; line-height: 1.5; font-weight: 500; }
+.journey-tabs, .journey-map, .map-key { display: none; }
+.is-enhanced .journey-tabs { display: block; margin: 24px 0; }
+.journey-tabs h2 { margin-bottom: 14px; }
+.journey-tabs ul { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.journey-tabs button { width: 100%; height: 100%; min-height: 48px; padding: 12px 14px; border: 1px solid var(--line); background: var(--node); text-align: left; font-size: 12px; }
+.journey-tabs button:hover { border-color: var(--accent); }
+.journey-tabs button.selected, .journey-tabs button[aria-expanded="true"] { border-color: var(--accent); background: var(--selected); color: var(--accent); }
+.is-enhanced .map-key { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 22px 0 8px; font-size: 11px; color: var(--muted); }
+.map-key .return-key { color: var(--return); }
+.is-enhanced .journey-map { display: block; position: relative; padding: 24px; margin: 0 0 28px; }
+.map-title { margin-bottom: 28px; }
+.journey-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: auto; align-items: start; gap: 64px; }
+.column-1 { grid-column: 1; }.column-2 { grid-column: 2; }.column-3 { grid-column: 3; }
+${Array.from({ length: Math.max(...journeyViews.flatMap((view) => view.layout.map((placement) => placement.row))) }, (_, index) => `.row-${index + 1} { grid-row: ${index + 1}; }`).join("\n")}
+.journey-node { position: relative; z-index: 1; min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--node); scroll-margin-top: 24px; }
+.journey-node.question { background: var(--paper); border-color: #a5afa0; }
+.journey-node.resource { border-top: 3px solid var(--accent); }
+.journey-node.current { border-color: var(--accent); background: var(--selected); }
+.journey-node > .note { margin-top: 10px; }
+.resource-links { margin-top: 12px; }
+.resource-links a { display: inline-block; font-size: 12px; padding: 7px 0; }
+.edge-choices { margin-top: 16px; border-top: 1px solid var(--line); }
+.edge-choices li + li { border-top: 1px solid var(--line); }
+.journey-edge { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; padding: 10px 0; font-size: 12px; text-decoration: none; }
+.journey-edge:hover > span:first-child { text-decoration: underline; }
+.journey-edge > span:last-child { flex-shrink: 0; color: var(--accent); }
+.journey-edge.return { color: var(--return); }
+.journey-edge.return > span:last-child { color: inherit; }
+.journey-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.journey-lines path { fill: none; stroke: #a5afa0; stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+.journey-lines path.return { stroke: var(--return); stroke-dasharray: 5 4; }
+.journey-lines path.cross { stroke-dasharray: 2 3; }
+.journey-lines path.active { stroke: var(--accent); stroke-width: 2; }
+.journey-lines path.return.active { stroke: var(--return); }
+.node-reference { margin-top: 14px; }
+summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; list-style: none; cursor: pointer; padding: 12px; min-height: 44px; border: 1px solid var(--line); background: var(--node); font-size: 12px; }
 summary::-webkit-details-marker { display: none; }
 summary:hover { border-color: var(--accent); }
-.marker { width: 1ch; color: var(--accent); flex-shrink: 0; }
-.marker::before { content: "+"; }
-details[open] > summary { background: var(--selected); border-color: var(--accent); }
+summary::after { content: "+"; color: var(--accent); flex-shrink: 0; }
+details[open] > summary::after { content: "−"; }
+summary:has(.marker)::after { display: none; }
+.marker::before { content: "+"; color: var(--accent); }
 details[open] > summary .marker::before { content: "−"; }
-.branch-content { margin: 20px 0 8px 4px; padding-left: 24px; border-left: 1px solid var(--line); }
-.is-enhanced .branch-content { border-left-color: transparent; }
-.destination { position: relative; z-index: 1; min-width: 0; border: 1px solid var(--line); background: var(--node); padding: 14px 16px; }
-.destination:hover { border-color: var(--accent); }
-.destination-link { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 30px; text-decoration: none; overflow-wrap: anywhere; }
+.node-reference > .resource-panel { margin: 14px 0 0; padding: 0; border: 0; }
+.node-reference .choices { margin-top: 14px; }
+.resource-panel { padding: 16px; font-size: 12px; border: 1px solid var(--line); background: var(--node); margin-bottom: 16px; }
+.resource-panel p { margin-bottom: 14px; }
+.resource-panel .access { font-size: 12px; color: var(--accent); }
+.endpoint { display: block; font-size: 11px; margin: 10px 0 20px; }
+table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 11px; }
+caption { text-align: left; color: var(--muted); margin-bottom: 8px; }
+th, td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); padding: 8px 4px 8px 0; overflow-wrap: anywhere; }
+th { font-weight: 500; }
+thead { color: var(--muted); }
+.pin-routes th:first-child { width: 40%; }
+.example { margin: 12px 0; }
+.example > summary { padding: 10px; font-size: 12px; }
+.example > p { margin-top: 14px; }
+pre { margin: 12px 0 16px; padding: 12px; border: 1px solid var(--line); font: inherit; font-size: 11px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.directory-reference { margin: 32px 0; }
+.directory-reference > summary { font-size: 14px; background: var(--paper); padding: 16px; }
+.directory-reference > .choices { margin: 20px 0; }
+.choices > li + li { margin-top: 14px; }
+.branch-content { margin: 20px 0 8px 4px; padding-left: 20px; border-left: 1px solid var(--line); }
+.destination { min-width: 0; border: 1px solid var(--line); background: var(--node); padding: 14px; }
+.destination-link { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; text-decoration: none; overflow-wrap: anywhere; }
 .destination-link:hover .node-resource { text-decoration: underline; }
 .node-label { display: grid; gap: 3px; }
 .node-action { font-size: 11px; color: var(--muted); }
-.node-resource { font-size: 14px; line-height: 1.5; }
+.node-resource { font-size: 13px; line-height: 1.5; }
 .external-arrow { color: var(--accent); flex-shrink: 0; }
 .source-link { font-size: 11px; min-height: 28px; display: inline-flex; align-items: center; margin-top: 4px; }
-.note { color: var(--muted); font-size: 12px; }
+.note { color: var(--muted); font-size: 11px; }
 .destination .note { margin-top: 8px; }
-.reference { position: relative; z-index: 1; display: inline-block; background: var(--paper); margin: 4px 16px 12px 0; font-size: 12px; padding: 4px 0; }
-.resource-panel { position: relative; z-index: 1; padding: 16px; font-size: 13px; border: 1px solid var(--line); background: var(--node); margin-bottom: 16px; }
-.resource-panel p { margin-bottom: 14px; }
-.resource-panel .access { font-size: 12px; color: var(--accent); }
-.endpoint { display: block; font-size: 12px; margin: 10px 0 20px; }
-table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 12px; }
-caption { text-align: left; color: var(--muted); margin-bottom: 8px; }
-th, td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); padding: 8px 8px 8px 0; }
-th { font-weight: 500; }
-thead { color: var(--muted); }
-.pin-routes th:first-child { width: 42%; }
-.pin-routes td:last-child { white-space: nowrap; }
-.example { margin: 12px 0; }
-.example > summary { min-height: 44px; padding: 10px; font-size: 12px; }
-.example > summary::after { content: "+"; color: var(--accent); }
-.example[open] > summary::after { content: "−"; }
-.example > p { margin-top: 14px; }
-pre { margin: 12px 0 16px; padding: 12px; border: 1px solid var(--line); font: inherit; font-size: 12px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.reference { display: inline-block; margin: 4px 16px 12px 0; font-size: 11px; padding: 4px 0; }
 footer { display: flex; flex-wrap: wrap; gap: 8px 28px; padding: 24px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 footer a { display: inline-flex; align-items: center; min-height: 32px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .skip-link { position: absolute; left: 20px; top: -100px; padding: 10px; background: var(--paper); z-index: 3; }
 .skip-link:focus { top: 8px; }
 @media (max-width: 1000px) and (min-width: 761px) {
-  .page { padding: 0 28px; }
-  .flow.is-enhanced { grid-template-columns: 130px minmax(165px, .8fr) minmax(260px, 1.3fr); gap: 32px; }
-  .flow-start { padding: 18px 12px; }
-  .flow-start h2 { font-size: 14px; }
-  .task-button { padding: 12px; font-size: 12px; }
+  .page { padding: 0 24px; }
+  .journey-grid { gap: 48px; }
+  .journey-node { padding: 12px; }
+  .journey-node h3 { font-size: 13px; }
 }
 @media (max-width: 760px) {
   .page { padding: 0 20px; }
   header { padding: 20px 0; }
   .wordmark { font-size: 16px; }
   .tagline { font-size: 12px; margin: 24px 0 14px; }
-  h1 { margin-bottom: 20px; }
-  .flow.is-enhanced { display: block; padding: 16px; }
-  .flow-start { max-width: 260px; margin: 0 auto 32px; padding: 16px; text-align: center; }
-  .flow-start h2 { font-size: 15px; }
-  .task-button { min-height: 48px; padding: 12px; }
-  .flow-tasks li + li { margin-top: 10px; }
-  .flow-results { margin-top: 42px; }
-  .is-enhanced .panel-title { position: static; width: auto; height: auto; margin: 0 0 14px; overflow: visible; clip-path: none; font-size: 17px; }
-  .is-enhanced .back-button { display: inline-block; position: relative; z-index: 1; padding: 8px 0; margin: 0 0 12px; border: 0; background: var(--paper); font-size: 11px; text-align: left; }
-  .branch-content { padding-left: 20px; margin-left: 0; }
-  .destination, .resource-panel { padding: 12px; }
-  .node-resource { font-size: 13px; }
-  summary { padding: 12px; }
-  table, .endpoint, pre { font-size: 11px; }
-  .pin-routes th:first-child { width: 38%; }
-  .pin-routes th, .pin-routes td { overflow-wrap: anywhere; padding-right: 4px; }
-  .pin-routes td:last-child { white-space: normal; }
+  h1 { margin-bottom: 16px; }
+  .introduction { font-size: 13px; margin-bottom: 24px; }
+  .journey-tabs ul { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .journey-tabs button { font-size: 11px; }
+  .is-enhanced .journey-map { padding: 16px; }
+  .journey-grid { display: flex; flex-direction: column; gap: 40px; }
+  .journey-node { width: 100%; padding: 14px; }
+  .branch-content { padding-left: 14px; margin-left: 0; }
+  .destination, .resource-panel { padding: 10px; }
+  table, .endpoint, pre { font-size: 10px; }
 }
 @media print {
   :root { background: white; color: black; }
   .page { max-width: none; padding: 0; }
-  .skip-link, .flow-lines, .flow-tasks, .back-button { display: none !important; }
-  .flow.is-enhanced { display: block; }
-  .task-panel[hidden] { display: block !important; }
-  .is-enhanced .panel-title { position: static; width: auto; height: auto; clip-path: none; margin: 20px 0; }
-  .branch, .destination { break-inside: avoid; }
+  .skip-link, .journey-tabs, .journey-lines, .map-key { display: none !important; }
+  .is-enhanced .journey-map[hidden] { display: block !important; }
+  .journey-grid { display: block; }
+  .journey-node { break-inside: avoid; margin: 16px 0; }
 }
 `;
 
@@ -318,26 +414,18 @@ export const HOMEPAGE_HTML = `<!doctype html>
     <main id="main">
       <p class="tagline">The &quot;pay&quot; and &quot;cash out&quot; functions of the open internet.</p>
       <h1>Everything Juicebox in one place</h1>
-      <section class="flow" aria-label="Juicebox resource map">
-        <svg class="flow-lines" aria-hidden="true" focusable="false"></svg>
-        <div class="flow-start"><h2>What do you want to do?</h2></div>
-        <nav class="flow-tasks" aria-label="Choose a task">
-          <ul>${directoryTree.map((node) => `<li><button type="button" class="task-button" id="task-${node.id}" data-task="${node.id}" aria-controls="panel-${node.id}" aria-expanded="false"><span>${escapeHtml(node.title)}</span><span class="task-arrow" aria-hidden="true">→</span></button></li>`).join("")}</ul>
+      <p class="introduction">Juicebox is a decentralized protocol that runs on public blockchains - the 'pay' and 'cash out' functions of the open web. Juicebox Center is a directory that makes it easier to find your way across the wide ecosystem of products and platforms that use the protocol.</p>
+      <section class="journey-explorer" aria-label="Juicebox journeys">
+        <nav class="journey-tabs" aria-labelledby="choose-journey">
+          <h2 id="choose-journey">What do you want to do?</h2>
+          <ul>${journeyViews.map((view) => `<li><button type="button" id="journey-${view.id}" data-view="${view.id}" aria-controls="map-${view.id}" aria-expanded="false">${escapeHtml(view.title)}</button></li>`).join("")}</ul>
         </nav>
-        <div class="flow-results">
-          ${directoryTree
-            .map(
-              (
-                node,
-                index,
-              ) => `<section class="task-panel" id="panel-${node.id}" data-task="${node.id}" aria-labelledby="title-${node.id}">
-            <button type="button" class="back-button" data-back>← Choose another task</button>
-            <h2 class="panel-title" id="title-${node.id}" tabindex="-1">${escapeHtml(node.title)}</h2>
-            ${renderContents(node, `group-${index}`)}
-          </section>`,
-            )
-            .join("")}
-        </div>
+        <p class="map-key"><span>→ Next step</span><span class="return-key">↶ Revisit a decision</span><span>↗ Related path</span></p>
+        ${journeyViews.map(renderJourney).join("")}
+        <details class="directory-reference" id="directory" open>
+          <summary>Already know what you need? Browse the directory</summary>
+          <ul class="choices">${directoryTree.map((node, index) => renderNode(node, "directory", index)).join("")}</ul>
+        </details>
       </section>
     </main>
     <footer>

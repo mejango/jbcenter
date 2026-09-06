@@ -11,18 +11,25 @@ new intent.
 
 ## Ecosystem directory
 
-`https://juicebox.center/` is a public V6 directory. A connected decision diagram leads from tasks
-to apps, owner workflows, development tools, APIs, agent setup, audits, and a complete repository
-index. It shows levels side by side on desktop and vertically on phones. A small browser script
-selects branches, draws decorative connectors, and supports direct links and browser history.
-All content is server-rendered and remains navigable without JavaScript; directory navigation
+`https://juicebox.center/` is a public V6 directory. Eight connected question maps lead to apps,
+owner workflows, development tools, APIs, agent setup, audits, repositories, and WIP extensions.
+Routes share destinations and include labeled return paths: revisit launch settings, revise an
+integration after transaction review, or publish replacement metadata after retrieving a CID.
+Crossovers connect related tasks. The maps use three columns on desktop and stack on phones.
+A small browser script draws decorative connectors, highlights the chosen route, and supports
+direct links (`#api/rpc`, for example), keyboard navigation, and browser history. It renders a
+finite set of nodes and edges; cycles never recursively expand the page.
+All content is server-rendered. The complete directory stays available as a collapsible reference
+and opens by default without JavaScript. Directory navigation
 does not query storage or upstream services. The API branch includes public RPC and IPFS reads,
 supported networks, and upload examples with their approved-origin requirements.
 The WIP branch holds extensions with unfinished production functionality, with a specific status
 note for each. A deployed frontend alone does not imply its contracts or payment flow are ready.
 
-Edit the decision tree and repository links in [`src/directory.ts`](src/directory.ts); layout and styling live
-in [`src/homepage.ts`](src/homepage.ts), with browser behavior in
+Edit shared questions, transitions, and map placements in [`src/journeyGraph.ts`](src/journeyGraph.ts).
+Maintain the complete directory and repository links in [`src/directory.ts`](src/directory.ts).
+Graph validation rejects broken destinations and placements; tests verify reachable routes,
+merges, and return cycles. Layout and styling live in [`src/homepage.ts`](src/homepage.ts), with browser behavior in
 [`src/directoryClient.ts`](src/directoryClient.ts). Keep monospace type, square corners, and minimal
 copy. Do not use middot separators. Verify public destinations, protocol versions, and feature
 availability before adding or changing a link. Distinguish source repositories from live apps.
