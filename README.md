@@ -27,6 +27,9 @@ The WIP branch holds extensions with unfinished production functionality, with a
 note for each. A deployed frontend alone does not imply its contracts or payment flow are ready.
 
 Edit shared questions, transitions, and map placements in [`src/journeyGraph.ts`](src/journeyGraph.ts).
+Each node's title is also the label of every option pointing to it. Keep that title concise;
+use its separate prompt for the question inside the card. Edges only identify destinations,
+so option labels and destination headings stay in sync.
 Maintain the complete directory and repository links in [`src/directory.ts`](src/directory.ts).
 Graph validation rejects broken destinations and placements; tests verify reachable routes,
 merges, and return cycles. Layout and styling live in [`src/homepage.ts`](src/homepage.ts), with browser behavior in

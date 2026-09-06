@@ -217,6 +217,7 @@ function renderJourney(view: JourneyView): string {
         const node = graphNodes.get(placement.node)!;
         return `<article class="journey-node ${node.kind} column-${placement.column} row-${placement.row}" id="${view.id}/${node.id}" data-node="${node.id}" data-content="${node.content ?? ""}" tabindex="-1" aria-labelledby="heading-${view.id}-${node.id}">
         <h3 id="heading-${view.id}-${node.id}">${escapeHtml(node.title)}</h3>
+        ${node.prompt ? `<p class="node-prompt">${escapeHtml(node.prompt)}</p>` : ""}
         ${node.note ? `<p class="note">${escapeHtml(node.note)}</p>` : ""}
         ${node.links?.length ? `<ul class="resource-links">${node.links.map((link) => `<li><a href="${escapeHtml(link.url)}">${escapeHtml(link.title)} <span aria-hidden="true">↗</span></a></li>`).join("")}</ul>` : ""}
         ${node.content ? `<details class="node-reference"><summary>${referenceLabels[node.content]}</summary>${referenceContent(node.content, `graph-${view.id}-${node.id}`)}</details>` : ""}
@@ -232,7 +233,7 @@ function renderJourney(view: JourneyView): string {
                       : destination.id !== view.id
                         ? "↗"
                         : "→";
-                  return `<li><a class="journey-edge ${kind}" href="#${destination.id}/${edge.to}" data-from="${node.id}" data-to="${edge.to}" data-target-view="${destination.id}" data-kind="${kind}"><span>${escapeHtml(edge.label)}</span><span aria-hidden="true">${symbol}</span></a></li>`;
+                  return `<li><a class="journey-edge ${kind}" href="#${destination.id}/${edge.to}" data-from="${node.id}" data-to="${edge.to}" data-target-view="${destination.id}" data-kind="${kind}"><span>${escapeHtml(graphNodes.get(edge.to)!.title)}</span><span aria-hidden="true">${symbol}</span></a></li>`;
                 })
                 .join("")}</ul>`
             : ""
@@ -275,9 +276,8 @@ code { font: inherit; overflow-wrap: anywhere; }
 header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 24px 0; border-bottom: 1px solid var(--ink); }
 .wordmark { font-size: 18px; font-weight: 600; text-decoration: none; letter-spacing: -0.5px; }
 .edition { color: var(--muted); font-size: 12px; }
-.tagline { margin: 32px 0 14px; color: var(--muted); font-size: 14px; }
-h1 { font-size: clamp(26px, 4.5vw, 38px); line-height: 1.2; letter-spacing: -0.045em; font-weight: 500; margin-bottom: 18px; }
-.introduction { max-width: 940px; font-size: 14px; margin-bottom: 32px; }
+h1 { font-size: clamp(26px, 4.5vw, 38px); line-height: 1.2; letter-spacing: -0.045em; font-weight: 500; margin: 32px 0 18px; }
+.introduction { max-width: 940px; font-size: 14px; color: var(--muted); margin-bottom: 32px; }
 h2 { font-size: 18px; line-height: 1.5; font-weight: 500; }
 h3 { font-size: 15px; line-height: 1.5; font-weight: 500; }
 .journey-tabs, .journey-map, .map-key { display: none; }
@@ -298,6 +298,7 @@ ${Array.from({ length: Math.max(...journeyViews.flatMap((view) => view.layout.ma
 .journey-node.question { background: var(--paper); border-color: #a5afa0; }
 .journey-node.resource { border-top: 3px solid var(--accent); }
 .journey-node.current { border-color: var(--accent); background: var(--selected); }
+.node-prompt { margin-top: 8px; font-size: 12px; color: var(--muted); }
 .journey-node > .note { margin-top: 10px; }
 .resource-links { margin-top: 12px; }
 .resource-links a { display: inline-block; font-size: 12px; padding: 7px 0; }
@@ -370,8 +371,7 @@ footer a { display: inline-flex; align-items: center; min-height: 32px; }
   .page { padding: 0 20px; }
   header { padding: 20px 0; }
   .wordmark { font-size: 16px; }
-  .tagline { font-size: 12px; margin: 24px 0 14px; }
-  h1 { margin-bottom: 16px; }
+  h1 { margin: 24px 0 16px; }
   .introduction { font-size: 13px; margin-bottom: 24px; }
   .journey-tabs ul { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .journey-tabs button { font-size: 11px; }
@@ -412,7 +412,6 @@ export const HOMEPAGE_HTML = `<!doctype html>
       <span class="edition">V6</span>
     </header>
     <main id="main">
-      <p class="tagline">The &quot;pay&quot; and &quot;cash out&quot; functions of the open internet.</p>
       <h1>Everything Juicebox in one place</h1>
       <p class="introduction">Juicebox is a decentralized protocol that runs on public blockchains - the 'pay' and 'cash out' functions of the open web. Juicebox Center is a directory that makes it easier to find your way across the wide ecosystem of products and platforms that use the protocol.</p>
       <section class="journey-explorer" aria-label="Juicebox journeys">

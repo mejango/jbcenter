@@ -136,9 +136,10 @@ describe("journey graph navigation", () => {
 
   it("gives decisions distinct choices and resources a usable destination", () => {
     for (const node of journeyNodes) {
-      expect(new Set(node.edges.map((edge) => edge.label)).size, node.id).toBe(
-        node.edges.length,
-      );
+      expect(
+        new Set(node.edges.map((edge) => nodesById.get(edge.to)!.title)).size,
+        node.id,
+      ).toBe(node.edges.length);
       if (node.kind === "question") {
         expect(
           new Set(node.edges.map((edge) => edge.to)).size,
@@ -211,10 +212,7 @@ describe("directory edit validation", () => {
       id: "start",
       title: "Choose a resource",
       kind: "question",
-      edges: [
-        { label: "First", to: "first" },
-        { label: "Second", to: "second" },
-      ],
+      edges: [{ to: "first" }, { to: "second" }],
     },
     {
       id: "first",
@@ -247,9 +245,7 @@ describe("directory edit validation", () => {
       validateJourneyGraph(fixtureNodes, [fixtureView]),
     ).not.toThrow();
     const broken = fixtureNodes.map((node) =>
-      node.id === "start"
-        ? { ...node, edges: [{ label: "Missing resource", to: "missing" }] }
-        : node,
+      node.id === "start" ? { ...node, edges: [{ to: "missing" }] } : node,
     );
     expect(() => validateJourneyGraph(broken, [fixtureView])).toThrow();
   });

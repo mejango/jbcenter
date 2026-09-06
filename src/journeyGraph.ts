@@ -1,6 +1,5 @@
 /** Shared decisions and resources. A view shows one route through this graph. */
 export interface JourneyEdge {
-  label: string;
   to: string;
   kind?: "return" | "cross";
 }
@@ -8,6 +7,7 @@ export interface JourneyEdge {
 export interface JourneyNode {
   id: string;
   title: string;
+  prompt?: string;
   kind: "question" | "resource";
   links?: readonly { title: string; url: string }[];
   note?: string;
@@ -40,60 +40,58 @@ const JUICESCAN =
 export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "apps",
-    title: "What brings you here?",
+    title: "Use Juicebox",
+    prompt: "What brings you here?",
     kind: "question",
     edges: [
-      { label: "Use a project", to: "find-project" },
-      { label: "Explore", to: "observe" },
-      { label: "Learn first", to: "learn" },
-      { label: "Launch a project", to: "projects", kind: "cross" },
+      { to: "find-project" },
+      { to: "observe" },
+      { to: "learn" },
+      { to: "projects", kind: "cross" },
     ],
   },
   {
     id: "find-project",
-    title: "Know the project?",
+    title: "Use a project",
+    prompt: "Find one, or choose an action?",
     kind: "question",
-    edges: [
-      { label: "Yes", to: "project-action" },
-      { label: "Help me find one", to: "project-kind" },
-    ],
+    edges: [{ to: "project-action" }, { to: "project-kind" }],
   },
   {
     id: "project-action",
-    title: "What do you want to do?",
+    title: "Choose a project action",
+    prompt: "Pay, cash out, review a transaction, or manage a project?",
     kind: "question",
     edges: [
-      { label: "Pay or cash out", to: "project-kind" },
-      { label: "Check a transaction", to: "transaction-review" },
-      { label: "Manage the project", to: "projects", kind: "cross" },
+      { to: "project-kind" },
+      { to: "transaction-review" },
+      { to: "projects", kind: "cross" },
     ],
   },
   {
     id: "project-kind",
-    title: "Project or revnet?",
+    title: "Find a project or revnet",
+    prompt: "Which app do you need?",
     kind: "question",
     edges: [
-      { label: "Project", to: "juicebox-money" },
-      { label: "Revnet", to: "revnet-money" },
-      { label: "Explain the basics", to: "learn", kind: "return" },
+      { to: "juicebox-money" },
+      { to: "revnet-money" },
+      { to: "learn", kind: "return" },
     ],
   },
   {
     id: "observe",
-    title: "What do you want to follow?",
+    title: "Explore",
+    prompt: "Follow activity, inspect contracts, or find a project?",
     kind: "question",
-    edges: [
-      { label: "Activity and posts", to: "succulent" },
-      { label: "Projects and contracts", to: "juicescan" },
-      { label: "Find something to fund", to: "project-kind" },
-    ],
+    edges: [{ to: "succulent" }, { to: "juicescan" }, { to: "project-kind" }],
   },
   {
     id: "learn",
     title: "Learn Juicebox",
     kind: "resource",
     links: [{ title: "Open the guide", url: "https://juicebox.money/learn" }],
-    edges: [{ label: "Put it into practice", to: "apps", kind: "return" }],
+    edges: [{ to: "apps", kind: "return" }],
   },
   {
     id: "juicebox-money",
@@ -103,10 +101,7 @@ export const journeyNodes: readonly JourneyNode[] = [
       { title: "Open app", url: "https://juicebox.money" },
       { title: "Source", url: "https://github.com/mejango/juicebox-money" },
     ],
-    edges: [
-      { label: "Review before signing", to: "transaction-review" },
-      { label: "Build an interface", to: "developers", kind: "cross" },
-    ],
+    edges: [{ to: "transaction-review" }, { to: "developers", kind: "cross" }],
   },
   {
     id: "revnet-money",
@@ -116,26 +111,21 @@ export const journeyNodes: readonly JourneyNode[] = [
       { title: "Open app", url: "https://revnet.money" },
       { title: "Source", url: "https://github.com/mejango/revnet-money" },
     ],
-    edges: [
-      { label: "Review before signing", to: "transaction-review" },
-      { label: "Launch your own", to: "projects", kind: "cross" },
-    ],
+    edges: [{ to: "transaction-review" }, { to: "projects", kind: "cross" }],
   },
   {
     id: "succulent",
-    title: "Succulent",
+    title: "Succulent activity feed",
     kind: "resource",
     links: [
       { title: "Open activity feed", url: "https://succulent.money" },
       { title: "Source", url: "https://github.com/mejango/succulent" },
     ],
-    edges: [
-      { label: "Act on a project", to: "project-action", kind: "return" },
-    ],
+    edges: [{ to: "project-action", kind: "return" }],
   },
   {
     id: "juicescan",
-    title: "Juicescan",
+    title: "Juicescan explorer",
     kind: "resource",
     links: [
       { title: "Open explorer", url: JUICESCAN },
@@ -143,50 +133,49 @@ export const journeyNodes: readonly JourneyNode[] = [
     ],
     edges: [
       {
-        label: "Choose a project action",
         to: "project-action",
         kind: "return",
       },
-      { label: "Review its controls", to: "control-review", kind: "cross" },
+      { to: "control-review", kind: "cross" },
     ],
   },
   {
     id: "projects",
-    title: "New or existing project?",
+    title: "Launch or run a project",
+    prompt: "New or existing project?",
     kind: "question",
-    edges: [
-      { label: "Start something new", to: "control-model" },
-      { label: "Run an existing project", to: "manage-project" },
-    ],
+    edges: [{ to: "control-model" }, { to: "manage-project" }],
   },
   {
     id: "control-model",
-    title: "How should rules change?",
+    title: "Choose project rules",
+    prompt: "Owner-managed projects or precommitted revnet economics?",
     kind: "question",
     edges: [
-      { label: "Ongoing owner control", to: "launch-project" },
-      { label: "Precommitted revnet economics", to: "launch-revnet" },
-      { label: "Understand the options", to: "owner-journeys" },
+      { to: "launch-project" },
+      { to: "launch-revnet" },
+      { to: "owner-journeys" },
     ],
   },
   {
     id: "manage-project",
-    title: "What needs attention?",
+    title: "Manage a project",
+    prompt: "Configuration, permissions, or a custom integration?",
     kind: "question",
     edges: [
-      { label: "Project configuration", to: "juicescan" },
-      { label: "Permissions and control", to: "control-review" },
-      { label: "A custom integration", to: "developers", kind: "cross" },
+      { to: "juicescan" },
+      { to: "control-review" },
+      { to: "developers", kind: "cross" },
     ],
   },
   {
     id: "launch-project",
-    title: "Create a Juicebox project",
+    title: "Create an owner-managed project",
     kind: "resource",
     links: [
       { title: "Open project builder", url: "https://juicebox.money/create" },
     ],
-    edges: [{ label: "Check the setup", to: "launch-checks" }],
+    edges: [{ to: "launch-checks" }],
   },
   {
     id: "launch-revnet",
@@ -195,18 +184,19 @@ export const journeyNodes: readonly JourneyNode[] = [
     links: [
       { title: "Open revnet builder", url: "https://revnet.money/create" },
     ],
-    edges: [{ label: "Check the setup", to: "launch-checks" }],
+    edges: [{ to: "launch-checks" }],
   },
   {
     id: "launch-checks",
-    title: "What should you check?",
+    title: "Check project setup",
+    prompt: "Rules, permissions, transactions, or deployments?",
     kind: "question",
     edges: [
-      { label: "Rules and owner workflows", to: "owner-journeys" },
-      { label: "Permissions", to: "control-review" },
-      { label: "The transaction", to: "transaction-review" },
-      { label: "Contract deployments", to: "deployments" },
-      { label: "Change the setup", to: "control-model", kind: "return" },
+      { to: "owner-journeys" },
+      { to: "control-review" },
+      { to: "transaction-review" },
+      { to: "deployments" },
+      { to: "control-model", kind: "return" },
     ],
   },
   {
@@ -216,7 +206,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     links: [
       { title: "Read V6 workflows", url: `${V6}/blob/main/USER_JOURNEYS.md` },
     ],
-    edges: [{ label: "Choose the setup", to: "control-model", kind: "return" }],
+    edges: [{ to: "control-model", kind: "return" }],
   },
   {
     id: "control-review",
@@ -229,39 +219,42 @@ export const journeyNodes: readonly JourneyNode[] = [
       },
     ],
     edges: [
-      { label: "Recheck the transaction", to: "transaction-review" },
-      { label: "Revisit the setup", to: "launch-checks", kind: "return" },
+      { to: "transaction-review" },
+      { to: "launch-checks", kind: "return" },
     ],
   },
   {
     id: "developers",
-    title: "What are you building?",
+    title: "Build an app",
+    prompt: "Interface, integration, or agent workflow?",
     kind: "question",
     edges: [
-      { label: "A webclient", to: "webclient-start" },
-      { label: "An integration", to: "integration-layer" },
-      { label: "An agent workflow", to: "agents", kind: "cross" },
+      { to: "webclient-start" },
+      { to: "integration-layer" },
+      { to: "agents", kind: "cross" },
     ],
   },
   {
     id: "webclient-start",
-    title: "Where do you want to start?",
+    title: "Build a webclient",
+    prompt: "Start from an app, the design, or contract calls?",
     kind: "question",
     edges: [
-      { label: "An existing interface", to: "webclients" },
-      { label: "The protocol design", to: "architecture" },
-      { label: "Contract calls", to: "integration-layer" },
+      { to: "webclients" },
+      { to: "architecture" },
+      { to: "integration-layer" },
     ],
   },
   {
     id: "integration-layer",
-    title: "What does the integration need?",
+    title: "Build an integration",
+    prompt: "Contract calls, indexed data, custom behavior, or shared APIs?",
     kind: "question",
     edges: [
-      { label: "Reads and transactions", to: "sdk" },
-      { label: "Indexed projects and activity", to: "bendystraw" },
-      { label: "Hooks or protocol extensions", to: "architecture" },
-      { label: "RPC or IPFS", to: "api", kind: "cross" },
+      { to: "sdk" },
+      { to: "bendystraw" },
+      { to: "architecture" },
+      { to: "api", kind: "cross" },
     ],
   },
   {
@@ -270,9 +263,9 @@ export const journeyNodes: readonly JourneyNode[] = [
     kind: "resource",
     content: "webclients",
     edges: [
-      { label: "Add contract calls", to: "sdk" },
-      { label: "Use shared services", to: "api", kind: "cross" },
-      { label: "Change the approach", to: "webclient-start", kind: "return" },
+      { to: "sdk" },
+      { to: "api", kind: "cross" },
+      { to: "webclient-start", kind: "return" },
     ],
   },
   {
@@ -285,24 +278,18 @@ export const journeyNodes: readonly JourneyNode[] = [
         url: "https://github.com/Bananapus/juice-sdk-v4#v6-actions-bananapusnana-sdk-corev6",
       },
     ],
-    edges: [
-      { label: "Review prepared calldata", to: "transaction-review" },
-      { label: "Connect a read RPC", to: "rpc", kind: "cross" },
-    ],
+    edges: [{ to: "transaction-review" }, { to: "rpc", kind: "cross" }],
   },
   {
     id: "bendystraw",
-    title: "Bendystraw",
+    title: "Bendystraw project data",
     kind: "resource",
     links: [
       { title: "Explore GraphQL schema", url: "https://bendystraw.xyz/schema" },
       { title: "Source", url: "https://github.com/peripheralist/bendystraw" },
     ],
     note: "API key required. Scope queries to V6.",
-    edges: [
-      { label: "Need current chain state", to: "rpc", kind: "cross" },
-      { label: "Add transactions", to: "sdk" },
-    ],
+    edges: [{ to: "rpc", kind: "cross" }, { to: "sdk" }],
   },
   {
     id: "architecture",
@@ -313,10 +300,9 @@ export const journeyNodes: readonly JourneyNode[] = [
       { title: "Build guide", url: "https://juicebox.money/build" },
     ],
     edges: [
-      { label: "Find the implementation", to: "repository-index" },
-      { label: "Check assumptions", to: "risks-invariants" },
+      { to: "repository-index" },
+      { to: "risks-invariants" },
       {
-        label: "Choose an integration",
         to: "integration-layer",
         kind: "return",
       },
@@ -324,40 +310,38 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "api",
-    title: "What do you need from an API?",
+    title: "Use an API",
+    prompt: "Read a chain, handle files, or connect an agent?",
     kind: "question",
     edges: [
-      { label: "Chain data", to: "chain-data" },
-      { label: "Files and metadata", to: "files" },
-      { label: "Tools for an agent", to: "agents", kind: "cross" },
+      { to: "chain-data" },
+      { to: "files" },
+      { to: "agents", kind: "cross" },
     ],
   },
   {
     id: "chain-data",
-    title: "Live state or indexed history?",
+    title: "Read chain data",
+    prompt: "Live state or indexed history?",
     kind: "question",
-    edges: [
-      { label: "Read the chain", to: "rpc" },
-      { label: "Query projects and activity", to: "bendystraw" },
-    ],
+    edges: [{ to: "rpc" }, { to: "bendystraw" }],
   },
   {
     id: "files",
-    title: "Have a CID already?",
+    title: "Files and metadata",
+    prompt: "Retrieve an existing CID or publish something new?",
     kind: "question",
-    edges: [
-      { label: "Yes, retrieve it", to: "ipfs" },
-      { label: "No, publish content", to: "publishing" },
-    ],
+    edges: [{ to: "ipfs" }, { to: "publishing" }],
   },
   {
     id: "publishing",
-    title: "Where are you publishing?",
+    title: "Publish content",
+    prompt: "Approved app, agent, or another integration?",
     kind: "question",
     edges: [
-      { label: "An approved browser app", to: "pinning" },
-      { label: "An agent workflow", to: "agent-metadata" },
-      { label: "Another integration", to: "upload-requirements" },
+      { to: "pinning" },
+      { to: "agent-metadata" },
+      { to: "upload-requirements" },
     ],
   },
   {
@@ -365,10 +349,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     title: "Center read RPC",
     kind: "resource",
     content: "rpc",
-    edges: [
-      { label: "Prefer typed contract calls", to: "sdk", kind: "cross" },
-      { label: "Need indexed history", to: "bendystraw" },
-    ],
+    edges: [{ to: "sdk", kind: "cross" }, { to: "bendystraw" }],
   },
   {
     id: "ipfs",
@@ -377,7 +358,6 @@ export const journeyNodes: readonly JourneyNode[] = [
     content: "ipfs",
     edges: [
       {
-        label: "Publish replacement content",
         to: "publishing",
         kind: "return",
       },
@@ -389,7 +369,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     kind: "resource",
     content: "pinning",
     note: "Approved browser origins required.",
-    edges: [{ label: "Retrieve the published CID", to: "ipfs" }],
+    edges: [{ to: "ipfs" }],
   },
   {
     id: "upload-requirements",
@@ -397,18 +377,14 @@ export const journeyNodes: readonly JourneyNode[] = [
     kind: "resource",
     links: [{ title: "Center API documentation", url: CENTER }],
     note: "Review allowed origins and upload limits.",
-    edges: [
-      { label: "Choose a publishing route", to: "publishing", kind: "return" },
-    ],
+    edges: [{ to: "publishing", kind: "return" }],
   },
   {
     id: "agents",
-    title: "Is your agent connected?",
+    title: "Connect an AI agent",
+    prompt: "Need setup, or ready to choose a task?",
     kind: "question",
-    edges: [
-      { label: "Connect it first", to: "agent-setup" },
-      { label: "Already connected", to: "agent-work" },
-    ],
+    edges: [{ to: "agent-setup" }, { to: "agent-work" }],
   },
   {
     id: "agent-setup",
@@ -421,24 +397,25 @@ export const journeyNodes: readonly JourneyNode[] = [
         url: `${SKILLS}#connect-the-hosted-mcp`,
       },
     ],
-    edges: [{ label: "Add V6 guidance", to: "agent-instructions" }],
+    edges: [{ to: "agent-instructions" }],
   },
   {
     id: "agent-instructions",
     title: "Juicebox V6 skills",
     kind: "resource",
     links: [{ title: "Get portable instructions", url: SKILLS }],
-    edges: [{ label: "Choose a task", to: "agent-work" }],
+    edges: [{ to: "agent-work" }],
   },
   {
     id: "agent-work",
-    title: "What should the agent help with?",
+    title: "Choose an agent task",
+    prompt: "Research, transactions, metadata, or code?",
     kind: "question",
     edges: [
-      { label: "Read and research", to: "agent-read" },
-      { label: "Prepare a transaction", to: "agent-prepare" },
-      { label: "Publish metadata", to: "agent-metadata" },
-      { label: "Build an integration", to: "sdk", kind: "cross" },
+      { to: "agent-read" },
+      { to: "agent-prepare" },
+      { to: "agent-metadata" },
+      { to: "sdk", kind: "cross" },
     ],
   },
   {
@@ -450,8 +427,8 @@ export const journeyNodes: readonly JourneyNode[] = [
       { title: "Follow a user journey", url: MCP_JOURNEYS },
     ],
     edges: [
-      { label: "Inspect in an explorer", to: "juicescan", kind: "cross" },
-      { label: "Choose another task", to: "agent-work", kind: "return" },
+      { to: "juicescan", kind: "cross" },
+      { to: "agent-work", kind: "return" },
     ],
   },
   {
@@ -460,10 +437,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     kind: "resource",
     links: [{ title: "Follow the MCP workflow", url: MCP_JOURNEYS }],
     note: "Signing and submission stay with your wallet.",
-    edges: [
-      { label: "Inspect the result", to: "transaction-review" },
-      { label: "Change the task", to: "agent-work", kind: "return" },
-    ],
+    edges: [{ to: "transaction-review" }, { to: "agent-work", kind: "return" }],
   },
   {
     id: "agent-metadata",
@@ -471,28 +445,27 @@ export const journeyNodes: readonly JourneyNode[] = [
     kind: "resource",
     links: [{ title: "Follow the MCP workflow", url: MCP_JOURNEYS }],
     edges: [
-      { label: "Retrieve the published CID", to: "ipfs" },
-      { label: "Connect an agent", to: "agents", kind: "cross" },
-      { label: "Choose another task", to: "agent-work", kind: "return" },
+      { to: "ipfs" },
+      { to: "agents", kind: "cross" },
+      { to: "agent-work", kind: "return" },
     ],
   },
   {
     id: "auditors",
-    title: "What are you reviewing?",
+    title: "Audit or research",
+    prompt: "A transaction or the protocol?",
     kind: "question",
-    edges: [
-      { label: "A transaction", to: "transaction-scope" },
-      { label: "The protocol", to: "protocol-scope" },
-    ],
+    edges: [{ to: "transaction-scope" }, { to: "protocol-scope" }],
   },
   {
     id: "transaction-scope",
-    title: "What context do you need?",
+    title: "Review a transaction",
+    prompt: "Inspect state, permissions, or calldata?",
     kind: "question",
     edges: [
-      { label: "Project and chain state", to: "juicescan" },
-      { label: "Permissions", to: "control-review" },
-      { label: "Calldata and effects", to: "transaction-review" },
+      { to: "juicescan" },
+      { to: "control-review" },
+      { to: "transaction-review" },
     ],
   },
   {
@@ -504,14 +477,12 @@ export const journeyNodes: readonly JourneyNode[] = [
       { title: "Agent review workflow", url: MCP_JOURNEYS },
     ],
     edges: [
-      { label: "Check permissions", to: "control-review" },
+      { to: "control-review" },
       {
-        label: "Revise the integration",
         to: "integration-layer",
         kind: "return",
       },
       {
-        label: "Change the project action",
         to: "project-action",
         kind: "return",
       },
@@ -519,12 +490,13 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "protocol-scope",
-    title: "Where should the review start?",
+    title: "Review the protocol",
+    prompt: "Set the scope, trace dependencies, or inspect deployments?",
     kind: "question",
     edges: [
-      { label: "Define the review", to: "audit-plan" },
-      { label: "Trace the system", to: "architecture" },
-      { label: "Identify deployed code", to: "deployments" },
+      { to: "audit-plan" },
+      { to: "architecture" },
+      { to: "deployments" },
     ],
   },
   {
@@ -537,10 +509,7 @@ export const journeyNodes: readonly JourneyNode[] = [
         url: `${V6}/blob/main/AUDIT_INSTRUCTIONS.md`,
       },
     ],
-    edges: [
-      { label: "Map the components", to: "architecture" },
-      { label: "Check assumptions", to: "risks-invariants" },
-    ],
+    edges: [{ to: "architecture" }, { to: "risks-invariants" }],
   },
   {
     id: "risks-invariants",
@@ -551,10 +520,9 @@ export const journeyNodes: readonly JourneyNode[] = [
       { title: "Read Invariants", url: `${V6}/blob/main/INVARIANTS.md` },
     ],
     edges: [
-      { label: "Inspect the implementation", to: "repository-index" },
-      { label: "Recheck dependencies", to: "architecture", kind: "return" },
+      { to: "repository-index" },
+      { to: "architecture", kind: "return" },
       {
-        label: "Inspect privileged control",
         to: "control-review",
         kind: "cross",
       },
@@ -570,28 +538,24 @@ export const journeyNodes: readonly JourneyNode[] = [
         url: "https://github.com/Bananapus/deploy-all-v6/tree/main/deployments",
       },
     ],
-    edges: [
-      { label: "Inspect the source", to: "repository-index" },
-      { label: "Inspect a project", to: "juicescan", kind: "cross" },
-    ],
+    edges: [{ to: "repository-index" }, { to: "juicescan", kind: "cross" }],
   },
   {
     id: "repositories",
-    title: "Source or deployed contracts?",
+    title: "Browse repositories",
+    prompt: "Source or deployed contracts?",
     kind: "question",
-    edges: [
-      { label: "Source code", to: "repository-purpose" },
-      { label: "Addresses and ABIs", to: "deployments" },
-    ],
+    edges: [{ to: "repository-purpose" }, { to: "deployments" }],
   },
   {
     id: "repository-purpose",
-    title: "What do you want from the source?",
+    title: "Explore the source",
+    prompt: "Find a package, trace the system, or start from an app?",
     kind: "question",
     edges: [
-      { label: "Find a package", to: "repository-index" },
-      { label: "Understand the system", to: "architecture" },
-      { label: "Start from a webclient", to: "webclients" },
+      { to: "repository-index" },
+      { to: "architecture" },
+      { to: "webclients" },
     ],
   },
   {
@@ -601,44 +565,39 @@ export const journeyNodes: readonly JourneyNode[] = [
     content: "repositories",
     links: [{ title: "Open the top-level repo", url: V6 }],
     edges: [
-      { label: "Trace dependencies", to: "architecture", kind: "return" },
+      { to: "architecture", kind: "return" },
       {
-        label: "Build with these contracts",
         to: "integration-layer",
         kind: "cross",
       },
-      { label: "Plan a review", to: "auditors", kind: "cross" },
+      { to: "auditors", kind: "cross" },
     ],
   },
   {
     id: "wip",
-    title: "What would you like to explore?",
+    title: "Explore WIP extensions",
+    prompt: "User features or payment infrastructure?",
     kind: "question",
     note: "Work in progress. Not production recommendations.",
     edges: [
-      { label: "User features", to: "wip-features" },
-      { label: "Payment infrastructure", to: "wip-infrastructure" },
-      { label: "Browse all WIP", to: "wip-index" },
+      { to: "wip-features" },
+      { to: "wip-infrastructure" },
+      { to: "wip-index" },
     ],
   },
   {
     id: "wip-features",
-    title: "Shops, locks, or messaging?",
+    title: "User features (WIP)",
+    prompt: "Shops, locks, or messaging?",
     kind: "question",
-    edges: [
-      { label: "Shops and NFTs", to: "eth-shop" },
-      { label: "Token locks and rewards", to: "sticky" },
-      { label: "Project messaging", to: "jbchat" },
-    ],
+    edges: [{ to: "eth-shop" }, { to: "sticky" }, { to: "jbchat" }],
   },
   {
     id: "wip-infrastructure",
-    title: "Payment rails or funded machines?",
+    title: "Payment infrastructure (WIP)",
+    prompt: "Payment rails or funded machines?",
     kind: "question",
-    edges: [
-      { label: "Card and bank payments", to: "jbprocessor" },
-      { label: "Funded machines", to: "plugin" },
-    ],
+    edges: [{ to: "jbprocessor" }, { to: "plugin" }],
   },
   {
     id: "eth-shop",
@@ -648,7 +607,7 @@ export const journeyNodes: readonly JourneyNode[] = [
       { title: "Open prototype", url: "https://eth.shop" },
       { title: "Source", url: "https://github.com/mejango/eth-shop" },
     ],
-    edges: [{ label: "Take it further", to: "wip-next" }],
+    edges: [{ to: "wip-next" }],
   },
   {
     id: "sticky",
@@ -657,7 +616,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     links: [
       { title: "Explore source", url: "https://github.com/mejango/jbsticky" },
     ],
-    edges: [{ label: "Take it further", to: "wip-next" }],
+    edges: [{ to: "wip-next" }],
   },
   {
     id: "jbchat",
@@ -667,7 +626,7 @@ export const journeyNodes: readonly JourneyNode[] = [
       { title: "Explore source", url: "https://github.com/mejango/jbchat" },
     ],
     note: "Production messaging is not enabled.",
-    edges: [{ label: "Take it further", to: "wip-next" }],
+    edges: [{ to: "wip-next" }],
   },
   {
     id: "jbprocessor",
@@ -680,7 +639,7 @@ export const journeyNodes: readonly JourneyNode[] = [
       },
     ],
     note: "Live settlement and end-to-end onboarding remain unfinished.",
-    edges: [{ label: "Take it further", to: "wip-next" }],
+    edges: [{ to: "wip-next" }],
   },
   {
     id: "plugin",
@@ -690,24 +649,25 @@ export const journeyNodes: readonly JourneyNode[] = [
       { title: "Explore source", url: "https://github.com/mejango/plugin" },
     ],
     note: "Machine-launcher contracts are not configured.",
-    edges: [{ label: "Take it further", to: "wip-next" }],
+    edges: [{ to: "wip-next" }],
   },
   {
     id: "wip-index",
     title: "All WIP extensions",
     kind: "resource",
     content: "wip",
-    edges: [{ label: "Take one further", to: "wip-next" }],
+    edges: [{ to: "wip-next" }],
   },
   {
     id: "wip-next",
-    title: "What next?",
+    title: "Develop or review an extension",
+    prompt: "Build, review, compare, or use a production app?",
     kind: "question",
     edges: [
-      { label: "Build on it", to: "developers", kind: "cross" },
-      { label: "Review its contracts", to: "auditors", kind: "cross" },
-      { label: "Compare another idea", to: "wip", kind: "return" },
-      { label: "Find a production app", to: "apps", kind: "cross" },
+      { to: "developers", kind: "cross" },
+      { to: "auditors", kind: "cross" },
+      { to: "wip", kind: "return" },
+      { to: "apps", kind: "cross" },
     ],
   },
 ];
@@ -868,6 +828,9 @@ export function validateJourneyGraph(
     ids.add(node.id);
     if (!node.title.trim())
       throw new Error(`Untitled journey node: ${node.id}`);
+    if (node.prompt !== undefined && !node.prompt.trim()) {
+      throw new Error(`Empty journey prompt: ${node.id}`);
+    }
     for (const link of node.links ?? []) {
       if (!link.title.trim() || new URL(link.url).protocol !== "https:") {
         throw new Error(`Invalid resource link: ${node.id}`);
@@ -876,7 +839,7 @@ export function validateJourneyGraph(
   }
   for (const node of nodes) {
     for (const edge of node.edges) {
-      if (!edge.label.trim() || !ids.has(edge.to)) {
+      if (!ids.has(edge.to)) {
         throw new Error(`Invalid journey edge: ${node.id} -> ${edge.to}`);
       }
     }
