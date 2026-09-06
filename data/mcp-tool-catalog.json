@@ -5683,7 +5683,7 @@
     },
     {
       "name": "jb_prepare_borrow",
-      "description": "Prepare a revnet borrow with exact minimum proceeds and any explicitly reviewed BURN_TOKENS permission prerequisite, preserving existing permissions.",
+      "description": "Prepare a revnet borrow with a protected gross-debt minimum and any explicitly reviewed BURN_TOKENS permission prerequisite, preserving existing permissions. Liquid proceeds remain conditional on fees.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -13669,7 +13669,7 @@
           },
           {
             "name": "jb_prepare_borrow",
-            "description": "Prepare a revnet borrow with exact minimum proceeds and any explicitly reviewed BURN_TOKENS permission prerequisite, preserving existing permissions."
+            "description": "Prepare a revnet borrow with a protected gross-debt minimum and any explicitly reviewed BURN_TOKENS permission prerequisite, preserving existing permissions. Liquid proceeds remain conditional on fees."
           },
           {
             "name": "jb_get_loan",

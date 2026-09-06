@@ -331,7 +331,7 @@ export function createTools(s: Services): ToolDefinition[] {
     ),
     toolWithSchema(
       'jb_prepare_borrow',
-      'Prepare a revnet borrow with exact minimum proceeds and any explicitly reviewed BURN_TOKENS permission prerequisite, preserving existing permissions.',
+      'Prepare a revnet borrow with a protected gross-debt minimum and any explicitly reviewed BURN_TOKENS permission prerequisite, preserving existing permissions. Liquid proceeds remain conditional on fees.',
       prepareBorrowInputSchema,
       async (input) => preparePlan(s, await s.extensions.prepareBorrow(input)),
     ),

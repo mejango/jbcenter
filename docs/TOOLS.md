@@ -2,6 +2,8 @@
 
 Generated from the real MCP server with the official MCP client. Regenerate with `npm run catalog:generate`; `--check` detects drift. Input and output JSON schemas are in [`data/mcp-tool-catalog.json`](../data/mcp-tool-catalog.json).
 
+For user goals, tool sequences, external handoffs and completion evidence, see the [user journeys](USER_JOURNEYS.md).
+
 54 tools are registered. All are public reads, pure computations, unsigned plan preparation or receipt verification. No tool signs or broadcasts transactions.
 
 Every tool returns a structured envelope `{schemaVersion, observedAt, ok, data|error}`. Exact amounts use integer strings. Per-tool source coverage and execution limits remain in the returned domain data.
@@ -94,7 +96,7 @@ Source areas: JB721TiersHook, JB721TiersHookStore, jb-721-tier-content.
 | `jb_prepare_revnet_deploy` | Prepare a complete typed revnet deployment: stages, issuance, splits, accounting contexts, sucker configuration and optional 721/Croptop settings, with a live per-chain creation fee. |
 | `jb_prepare_auto_issue` | Prepare an eligible revnet stage auto-issuance for a beneficiary after verifying live deployment and claim state. |
 | `jb_quote_loan` | Quote a verified revnet loan’s gross debt, available capacity, fees and liquid-proceeds bounds from current source contracts. Distinguishes conditional fee fallback from promised proceeds. |
-| `jb_prepare_borrow` | Prepare a revnet borrow with exact minimum proceeds and any explicitly reviewed BURN_TOKENS permission prerequisite, preserving existing permissions. |
+| `jb_prepare_borrow` | Prepare a revnet borrow with a protected gross-debt minimum and any explicitly reviewed BURN_TOKENS permission prerequisite, preserving existing permissions. Liquid proceeds remain conditional on fees. |
 | `jb_get_loan` | Read a REVLoans position, NFT ownership, collateral, source asset, repayment fees and deadline at a pinned block. |
 | `jb_prepare_repay` | Prepare a loan repayment with bounded spend, correct native/ERC-20 funding and explicit approval prerequisites. |
 

@@ -12,7 +12,9 @@ The intended hosted origin is **https://juicebox.diy**. `PUBLIC_ORIGIN` makes th
 - Searchable contract sources and Juice skills, plus practical webclient development plans grounded in Juicescan, Juicebox Money and Revnet Money.
 - Local stdio and stateless Streamable HTTP transports, bounded requests, cancellation, Docker packaging and CI.
 
-Start with `jb_list_capabilities`. It groups the tools and reports their coverage limits. The generated [tool catalog](docs/TOOLS.md), [architecture](docs/ARCHITECTURE.md), [source provenance](docs/SOURCES.md), and [webclient guide](docs/WEBCLIENTS.md) describe the implementation in more detail.
+Read the [user journeys](docs/USER_JOURNEYS.md) for contributor, creator, operator, revnet, omnichain, and developer workflows, including tool sequences and what establishes completion.
+
+Start with `jb_list_capabilities` in an MCP client. It groups the tools and reports their coverage limits. The generated [tool catalog](docs/TOOLS.md), [architecture](docs/ARCHITECTURE.md), [source provenance](docs/SOURCES.md), and [webclient guide](docs/WEBCLIENTS.md) describe the implementation in more detail.
 
 ## Run locally
 

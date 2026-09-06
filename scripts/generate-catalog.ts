@@ -31,6 +31,8 @@ try {
     '',
     'Generated from the real MCP server with the official MCP client. Regenerate with `npm run catalog:generate`; `--check` detects drift. Input and output JSON schemas are in [`data/mcp-tool-catalog.json`](../data/mcp-tool-catalog.json).',
     '',
+    'For user goals, tool sequences, external handoffs and completion evidence, see the [user journeys](USER_JOURNEYS.md).',
+    '',
     `${tools.length} tools are registered. All are public reads, pure computations, unsigned plan preparation or receipt verification. No tool signs or broadcasts transactions.`,
     '',
     'Every tool returns a structured envelope `{schemaVersion, observedAt, ok, data|error}`. Exact amounts use integer strings. Per-tool source coverage and execution limits remain in the returned domain data.',
