@@ -11,15 +11,22 @@ new intent.
 
 ## Ecosystem directory
 
-`https://juicebox.center/` is a public, V6-focused directory organized around participants, project
-owners, developers, auditors, and AI agents, followed by a grouped repository index. It is static
-HTML and CSS, works without JavaScript, and does not query storage or upstream services.
+`https://juicebox.center/` is a public V6 directory. A compact decision tree leads from tasks to
+apps, owner workflows, development tools, APIs, agent setup, audits, and a complete repository
+index. Native HTML disclosure controls reveal one branch at a time without JavaScript, storage,
+or upstream queries. The API branch includes public RPC and IPFS reads, supported networks, and
+upload examples with their approved-origin requirements.
+The WIP branch holds extensions with unfinished production functionality, with a specific status
+note for each. A deployed frontend alone does not imply its contracts or payment flow are ready.
 
-Edit the links and descriptions in [`src/directory.ts`](src/directory.ts); layout and styling live
+Edit the decision tree and repository links in [`src/directory.ts`](src/directory.ts); layout and styling live
 in [`src/homepage.ts`](src/homepage.ts). Verify public destinations, protocol versions, and feature
 availability before adding or changing a link. Distinguish source repositories from live apps.
 Both `/` and `/directory.css` are public and cached for five minutes. These exact routes do not
 change the API, IPFS, or MCP access rules.
+The stylesheet URL includes a content hash so layout updates bypass an older cached stylesheet.
+Juicescan links to its published CID on `eth.sucks`, with a separate source link. Update the CID
+from successful publisher or pin-provider records, not an unverified local build hash.
 
 ## Run it
 
@@ -32,11 +39,11 @@ npm --prefix mcp ci --ignore-scripts
 npm run dev
 ```
 
-Browser requests are accepted only from the origins hardcoded for the active Railway environment.
-Production accepts `https://juicebox.money` and `https://revnet.money`. `dev` accepts only
-`https://dev.juicebox.money`, `https://dev.revnet.money`, `http://localhost:3001`, and
-`http://localhost:3002`. `GET /healthz` is public for infrastructure health checks, and
-`/ipfs/*` is a public read gateway.
+Pinning and intent API requests require an origin hardcoded for the active Railway environment.
+Production accepts `https://juicebox.money`, `https://revnet.money`, `https://eth.shop`, and
+`https://succulent.money`. `dev` accepts their `dev.` subdomains and `http://localhost:3001`
+through `http://localhost:3004`. The homepage, `/ipfs/*` read gateway, and `/v1/rpc/:chainId`
+RPC are public; RPC accepts any or no Origin. `GET /healthz` is public for infrastructure checks.
 
 ## Connect an assistant through MCP
 
@@ -132,8 +139,8 @@ The endpoint accepts one JSON-RPC request at a time and permits only an explicit
 methods used by ordinary viem public clients. Transaction submission, signing, wallet, debug,
 trace, admin, and txpool methods are rejected. Log queries require a block hash, `latest`-only
 poll, or a concrete range of at most 50,000 blocks. Requests are capped at 256 KiB, responses at
-5 MiB, and upstream calls at 12 seconds. Center fails over across up to three configured upstreams
-without returning their credential-bearing URLs to clients.
+5 MiB, and each upstream attempt at four seconds. Production tries Dwellir then PublicNode
+without returning credential-bearing URLs to clients.
 
 Trusted origins get the site's per-caller and shared budgets. Every other caller — sites served
 from IPFS such as juicescan have no stable origin to allowlist — is served keyless with `*` CORS

@@ -1,4 +1,4 @@
-/** Curated public V6 entry points. Verify destinations and descriptions when updating. */
+/** Curated public V6 entry points. Verify destinations when updating. */
 export interface DirectoryLink {
   title: string;
   url: string;
@@ -7,13 +7,14 @@ export interface DirectoryLink {
   label?: string;
 }
 
-export interface Journey {
-  id: string;
-  number: string;
+export interface DirectoryNode {
   title: string;
-  audience: string;
-  description: string;
-  links: readonly DirectoryLink[];
+  id?: string;
+  url?: string;
+  sourceUrl?: string;
+  note?: string;
+  children?: readonly DirectoryNode[];
+  content?: "rpc" | "ipfs" | "pinning" | "mcp" | "repositories";
 }
 
 export interface RepositoryGroup {
@@ -21,208 +22,247 @@ export interface RepositoryGroup {
   links: readonly DirectoryLink[];
 }
 
-export const journeys: readonly Journey[] = [
+// Published September 3, 2026; latest jb-directory record in Pinata, pinned by
+// Filebase. HTML and app.js verified through eth.sucks on September 6.
+// Update only after confirming a newer published CID, not a local build hash.
+const JUICESCAN_URL =
+  "https://bafybeidt2dd3bsiyyk6rfkjuuglcpjvojxeztxd2g4esamopeybpcj25di.eth.sucks/";
+
+// WIP scope includes maintainer-designated projects; deployment alone is not readiness.
+const workInProgress: readonly (DirectoryNode & {
+  url: string;
+  note: string;
+})[] = [
   {
+    title: "Shops and NFTs → eth.shop",
+    url: "https://eth.shop",
+    sourceUrl: "https://github.com/mejango/eth-shop",
+    note: "WIP shop and NFT interface.",
+  },
+  {
+    title: "Token locks and rewards → Sticky",
+    url: "https://github.com/mejango/jbsticky",
+    note: "WIP project token locks and rewards.",
+  },
+  {
+    title: "Project messaging and support → JBChat",
+    url: "https://github.com/mejango/jbchat",
+    note: "Development prototype; production messaging is not enabled.",
+  },
+  {
+    title: "Card and bank payments → JBProcessor",
+    url: "https://github.com/mejango/jbprocessor",
+    note: "Live Stripe settlement and end-to-end onboarding remain unfinished.",
+  },
+  {
+    title: "Revnets for funded machines → Plugin",
+    url: "https://github.com/mejango/plugin",
+    note: "Frontend deployed; machine-launcher contracts are not configured.",
+  },
+];
+
+export const directoryTree: readonly DirectoryNode[] = [
+  {
+    title: "Use Juicebox",
     id: "apps",
-    number: "01",
-    title: "Explore & participate",
-    audience: "For everyone",
-    description:
-      "Find a project, follow its activity, and choose an app that fits.",
-    links: [
+    children: [
       {
-        title: "Juicebox Money",
+        title: "Find or fund a project → Juicebox Money",
         url: "https://juicebox.money",
-        description:
-          "Discover and fund projects, manage a treasury, or launch your own.",
         sourceUrl: "https://github.com/mejango/juicebox-money",
       },
       {
-        title: "Revnet Money",
+        title: "Cash out project tokens → Juicebox Money",
+        url: "https://juicebox.money",
+      },
+      {
+        title: "Explore revnets → Revnet Money",
         url: "https://revnet.money",
-        description:
-          "Explore and launch networks with scheduled, precommitted economics.",
         sourceUrl: "https://github.com/mejango/revnet-money",
       },
       {
-        title: "Succulent",
+        title: "Follow activity or post → Succulent",
         url: "https://succulent.money",
-        description:
-          "Follow V6 activity, post to a project, and create a page.",
         sourceUrl: "https://github.com/mejango/succulent",
       },
       {
-        title: "eth.shop",
-        url: "https://eth.shop",
-        description:
-          "Browse V6 shops and tiered NFT collections. Shop pages are currently read-only.",
-        sourceUrl: "https://github.com/mejango/eth-shop",
+        title: "Explore projects and contracts → Juicescan",
+        url: JUICESCAN_URL,
+        sourceUrl: "https://github.com/mejango/juicescan",
       },
       {
-        title: "Juicescan",
-        url: "https://github.com/mejango/juicescan",
-        description:
-          "Explore the source of a V6 explorer and transaction interface.",
-        label: "Source",
-      },
-      {
-        title: "Learn Juicebox",
+        title: "Learn how it works → Juicebox guide",
         url: "https://juicebox.money/learn",
-        description:
-          "Understand payments, tokens, cash outs, rulesets, and multichain projects.",
       },
     ],
   },
   {
+    title: "Launch or run a project",
     id: "projects",
-    number: "02",
-    title: "Run a project",
-    audience: "For project owners",
-    description:
-      "Launch a treasury or a revnet. Understand the controls before you configure them.",
-    links: [
+    children: [
       {
-        title: "Start a project",
+        title: "Launch a project → Juicebox Money",
         url: "https://juicebox.money/create",
-        description: "Configure your project, treasury, shop, and launch.",
       },
       {
-        title: "Launch a revnet",
+        title: "Launch a revnet → Revnet Money",
         url: "https://revnet.money/create",
-        description: "Choose the stages and economics of a revnet.",
       },
       {
-        title: "Project owner journeys",
+        title: "Manage an existing project → Juicescan",
+        url: JUICESCAN_URL,
+        sourceUrl: "https://github.com/mejango/juicescan",
+      },
+      {
+        title: "Follow owner workflows → User journeys",
         url: "https://github.com/Bananapus/version-6/blob/main/USER_JOURNEYS.md",
-        description:
-          "Follow project launches, operations, payments, and cross-chain flows.",
       },
       {
-        title: "Ownership and administration",
+        title: "Understand permissions and control → Administration",
         url: "https://github.com/Bananapus/version-6/blob/main/ADMINISTRATION.md",
-        description: "See which roles control which parts of the V6 ecosystem.",
       },
     ],
   },
   {
+    title: "Build an app",
     id: "developers",
-    number: "03",
-    title: "Build on Juicebox",
-    audience: "For developers",
-    description:
-      "Start with V6, connect to its data, or build your own webclient.",
-    links: [
+    children: [
       {
-        title: "V6 ecosystem",
-        url: "https://github.com/Bananapus/version-6",
-        description:
-          "The top-level map of contracts, applications, and documentation.",
-      },
-      {
-        title: "Build on Juicebox",
+        title: "Choose your building blocks → Build guide",
         url: "https://juicebox.money/build",
-        description: "Choose building blocks for your own app or integration.",
       },
       {
-        title: "Juice SDK — V6 actions",
+        title: "Find the right component → V6 ecosystem",
+        url: "https://github.com/Bananapus/version-6",
+      },
+      {
+        title: "Read contracts and prepare transactions → Juice SDK V6",
         url: "https://github.com/Bananapus/juice-sdk-v4#v6-actions-bananapusnana-sdk-corev6",
-        description:
-          "TypeScript reads and transaction builders for V6. The repository retains its v4 name.",
       },
       {
-        title: "Bendystraw schema",
+        title: "Query projects and activity → Bendystraw",
         url: "https://bendystraw.xyz/schema",
-        description:
-          "Inspect the GraphQL schema. Filter queries to V6; API requests need a key.",
         sourceUrl: "https://github.com/peripheralist/bendystraw",
+        note: "Filter queries to V6. API queries require a key.",
       },
       {
-        title: "Juicebox Center",
+        title: "Integrate project listings and shared services → Center",
         url: "https://github.com/mejango/jbcenter",
-        description:
-          "Integrate project listings, read-only RPC, IPFS pinning, and the public gateway.",
       },
       {
-        title: "Architecture",
+        title: "Understand how components fit → Architecture",
         url: "https://github.com/Bananapus/version-6/blob/main/ARCHITECTURE.md",
-        description:
-          "Follow component responsibilities, accounting, and integration boundaries.",
+      },
+      {
+        title: "Start from a webclient",
+        children: [
+          {
+            title: "General-purpose projects → Juicebox Money source",
+            url: "https://github.com/mejango/juicebox-money",
+          },
+          {
+            title: "Revnets → Revnet Money source",
+            url: "https://github.com/mejango/revnet-money",
+          },
+          {
+            title: "Static explorer → Juicescan source",
+            url: "https://github.com/mejango/juicescan",
+          },
+          {
+            title: "Shop prototype → eth.shop source (WIP)",
+            url: "https://github.com/mejango/eth-shop",
+          },
+          {
+            title: "Activity feed → Succulent source",
+            url: "https://github.com/mejango/succulent",
+          },
+        ],
       },
     ],
   },
   {
-    id: "auditors",
-    number: "04",
-    title: "Inspect & verify",
-    audience: "For auditors & researchers",
-    description:
-      "Trace the system from its design and assumptions to contracts and deployments.",
-    links: [
+    title: "Use an API",
+    id: "api",
+    children: [
       {
-        title: "Audit Juicebox",
-        url: "https://juicebox.money/audit",
-        description: "Start a protocol review or inspect a transaction.",
+        title: "Read a chain → RPC",
+        id: "rpc",
+        content: "rpc",
       },
       {
-        title: "Audit instructions",
-        url: "https://github.com/Bananapus/version-6/blob/main/AUDIT_INSTRUCTIONS.md",
-        description:
-          "Review scope, reading order, and cross-repository audit guidance.",
+        title: "Retrieve a file → IPFS gateway",
+        id: "ipfs",
+        content: "ipfs",
       },
       {
-        title: "Risks",
-        url: "https://github.com/Bananapus/version-6/blob/main/RISKS.md",
-        description: "Read ecosystem risks and trust assumptions.",
-      },
-      {
-        title: "Invariants",
-        url: "https://github.com/Bananapus/version-6/blob/main/INVARIANTS.md",
-        description:
-          "Trace the properties the V6 ecosystem is expected to preserve.",
-      },
-      {
-        title: "Deployment artifacts",
-        url: "https://github.com/Bananapus/deploy-all-v6/tree/main/deployments",
-        description:
-          "Inspect chain-specific contract addresses, ABIs, and deployment records.",
-      },
-      {
-        title: "Ownership and administration",
-        url: "https://github.com/Bananapus/version-6/blob/main/ADMINISTRATION.md",
-        description: "See which roles control which parts of the V6 ecosystem.",
+        title: "Publish a file → IPFS pinning",
+        id: "pinning",
+        content: "pinning",
       },
     ],
   },
   {
+    title: "Connect an AI agent",
     id: "agents",
-    number: "05",
-    title: "Work with an agent",
-    audience: "For any compatible AI agent",
-    description:
-      "Bring V6 context, live reads, and transaction preparation into your workflow.",
-    links: [
+    content: "mcp",
+    children: [
       {
-        title: "Connect the MCP",
+        title: "Connect your agent → MCP setup",
         url: "https://github.com/mejango/juicebox-skills#connect-the-hosted-mcp",
-        description: "Set up a client that supports Streamable HTTP MCP.",
       },
       {
-        title: "Juicebox V6 skills",
+        title: "Add V6 instructions → Juicebox skills",
         url: "https://github.com/mejango/juicebox-skills",
-        description: "Portable V6 instructions and resources for AI agents.",
       },
       {
-        title: "MCP reference",
+        title: "Find a tool → MCP reference",
         url: "https://github.com/mejango/jbcenter/tree/main/mcp",
-        description: "V6 tools, resources, prompts, and client setup.",
       },
       {
-        title: "MCP user journeys",
+        title: "Choose a workflow → MCP user journeys",
         url: "https://github.com/mejango/jbcenter/blob/main/mcp/docs/USER_JOURNEYS.md",
-        description:
-          "Explore supported research, launch, operation, and webclient workflows.",
       },
     ],
+  },
+  {
+    title: "Audit or research",
+    id: "auditors",
+    children: [
+      {
+        title: "Review a transaction → Audit guide",
+        url: "https://juicebox.money/audit",
+      },
+      {
+        title: "Plan a protocol review → Audit instructions",
+        url: "https://github.com/Bananapus/version-6/blob/main/AUDIT_INSTRUCTIONS.md",
+      },
+      {
+        title: "Check assumptions → Risks",
+        url: "https://github.com/Bananapus/version-6/blob/main/RISKS.md",
+      },
+      {
+        title: "Check guarantees → Invariants",
+        url: "https://github.com/Bananapus/version-6/blob/main/INVARIANTS.md",
+      },
+      {
+        title: "Find addresses and ABIs → Deployment artifacts",
+        url: "https://github.com/Bananapus/deploy-all-v6/tree/main/deployments",
+      },
+      {
+        title: "Inspect control and permissions → Administration",
+        url: "https://github.com/Bananapus/version-6/blob/main/ADMINISTRATION.md",
+      },
+    ],
+  },
+  {
+    title: "Browse all repositories",
+    id: "repositories",
+    content: "repositories",
+  },
+  {
+    title: "Explore WIP extensions",
+    id: "wip",
+    children: workInProgress,
   },
 ];
 
@@ -363,17 +403,6 @@ export const repositoryGroups: readonly RepositoryGroup[] = [
         url: "https://github.com/Bananapus/nana-jbx-distributor-v6",
         description: "Route split-funded rewards to JBX staking snapshots.",
       },
-      {
-        title: "JBSticky",
-        url: "https://github.com/mejango/jbsticky",
-        description:
-          "Time-locked project tokens and rewards for long-term holders.",
-      },
-      {
-        title: "JBChat",
-        url: "https://github.com/mejango/jbchat",
-        description: "Project messaging and support integration source.",
-      },
     ],
   },
   {
@@ -393,11 +422,6 @@ export const repositoryGroups: readonly RepositoryGroup[] = [
         title: "Juicescan",
         url: "https://github.com/mejango/juicescan",
         description: "Static V6 explorer and transaction interface.",
-      },
-      {
-        title: "eth.shop",
-        url: "https://github.com/mejango/eth-shop",
-        description: "V6 shop and tiered NFT interface.",
       },
       {
         title: "Succulent",
@@ -437,5 +461,13 @@ export const repositoryGroups: readonly RepositoryGroup[] = [
         description: "V6 tools, resources, prompts, and client setup.",
       },
     ],
+  },
+  {
+    title: "WIP extensions",
+    links: workInProgress.map(({ title, url, sourceUrl, note }) => ({
+      title,
+      url: sourceUrl ?? url,
+      description: note,
+    })),
   },
 ];
