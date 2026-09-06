@@ -164,6 +164,12 @@ describe("JB Center API", () => {
     expect(css.status).toBe(200);
     expect(css.headers.get("content-type")).toContain("text/css");
     expect((await css.text()).length).toBeGreaterThan(0);
+    const script = html.match(/<script defer src="([^"]+)"/);
+    expect(script).not.toBeNull();
+    const js = await app.request(script![1]!);
+    expect(js.status).toBe(200);
+    expect(js.headers.get("content-type")).toContain("application/javascript");
+    expect((await js.text()).length).toBeGreaterThan(0);
     const head = await app.request("/", { method: "HEAD" });
     expect(head.status).toBe(200);
     expect(head.headers.get("content-type")).toContain("text/html");

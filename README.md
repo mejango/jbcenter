@@ -11,20 +11,24 @@ new intent.
 
 ## Ecosystem directory
 
-`https://juicebox.center/` is a public V6 directory. A compact decision tree leads from tasks to
-apps, owner workflows, development tools, APIs, agent setup, audits, and a complete repository
-index. Native HTML disclosure controls reveal one branch at a time without JavaScript, storage,
-or upstream queries. The API branch includes public RPC and IPFS reads, supported networks, and
-upload examples with their approved-origin requirements.
+`https://juicebox.center/` is a public V6 directory. A connected decision diagram leads from tasks
+to apps, owner workflows, development tools, APIs, agent setup, audits, and a complete repository
+index. It shows levels side by side on desktop and vertically on phones. A small browser script
+selects branches, draws decorative connectors, and supports direct links and browser history.
+All content is server-rendered and remains navigable without JavaScript; directory navigation
+does not query storage or upstream services. The API branch includes public RPC and IPFS reads,
+supported networks, and upload examples with their approved-origin requirements.
 The WIP branch holds extensions with unfinished production functionality, with a specific status
 note for each. A deployed frontend alone does not imply its contracts or payment flow are ready.
 
 Edit the decision tree and repository links in [`src/directory.ts`](src/directory.ts); layout and styling live
-in [`src/homepage.ts`](src/homepage.ts). Verify public destinations, protocol versions, and feature
+in [`src/homepage.ts`](src/homepage.ts), with browser behavior in
+[`src/directoryClient.ts`](src/directoryClient.ts). Keep monospace type, square corners, and minimal
+copy. Do not use middot separators. Verify public destinations, protocol versions, and feature
 availability before adding or changing a link. Distinguish source repositories from live apps.
-Both `/` and `/directory.css` are public and cached for five minutes. These exact routes do not
+`/`, `/directory.css`, and `/directory.js` are public and cached for five minutes. These exact routes do not
 change the API, IPFS, or MCP access rules.
-The stylesheet URL includes a content hash so layout updates bypass an older cached stylesheet.
+Stylesheet and script URLs include content hashes so updates bypass older cached assets.
 Juicescan links to its published CID on `eth.sucks`, with a separate source link. Update the CID
 from successful publisher or pin-provider records, not an unverified local build hash.
 
