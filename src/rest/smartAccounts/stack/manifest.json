@@ -1,0 +1,486 @@
+{
+  "schemaVersion": 1,
+  "stack": "SafeL2-1.4.1-Safe7579-f22a194-SmartSession-f24dddf-EntryPoint-0.7",
+  "chainIds": [
+    1,
+    10,
+    8453,
+    42161,
+    84532,
+    421614,
+    11155111,
+    11155420
+  ],
+  "executionEnabled": false,
+  "activationNote": "Artifacts and historical deployment evidence do not verify a user's live account. CenterSessionGuard requires a verified deployment and a reviewed gas-only paymaster before activation.",
+  "components": {
+    "EntryPoint": {
+      "path": "artifacts/EntryPoint.json",
+      "fileSha256": "6d02c52c1b0046b3121a35c387953b574dbe449a84e2b0d2798b08432a09666d",
+      "address": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+      "runtimeCodeHash": "0x8db5ff695839d655407cc8490bb7a5d82337a86a6b39c3f0258aa6c3b582fc58",
+      "source": {
+        "repo": "https://github.com/eth-infinitism/account-abstraction",
+        "commit": "59edfbc5e9862d58ebda3429c9890c3497a1d433",
+        "artifactSha256": "952e7ce1e69354b9e80d0e68e0cbcc64f9304dd25c17170c3732114ea5421b04",
+        "artifactPath": "package/artifacts/EntryPoint.json",
+        "artifactUrl": "https://registry.npmjs.org/@account-abstraction/contracts/-/contracts-0.7.0.tgz",
+        "packageName": "@account-abstraction/contracts",
+        "packageVersion": "0.7.0"
+      },
+      "role": "sharedDeployment",
+      "deploymentStatus": "historically-observed",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "evidence": "evidence/artifact-catalog.json"
+    },
+    "OwnableValidator": {
+      "path": "artifacts/OwnableValidator.json",
+      "fileSha256": "d76658783394e6df87bcf13167d0fbdcd35e03caaeccb879b6a30312f9f95b91",
+      "address": "0x2483DA3A338895199E5e538530213157e931Bf06",
+      "runtimeCodeHash": "0xd9ad90a204447aec1a1528d764e1d80212c8011dc0125b3995875e58ec9a43bf",
+      "source": {
+        "repo": "https://github.com/rhinestonewtf/core-modules",
+        "commit": "ff742c54eb6afead7e944352cc86973090462598",
+        "artifactSha256": "f2496152194ccc7ca7db935a9896670f7008e455c1069fbbe8b677bbcaf88bcf",
+        "artifactType": "locallyReproducedCompilerOutput",
+        "verificationInputSha256": "5353dc3b8b2caedb29bcc68246b237607b0fdb57bb3004a5da908b12d5f86c47",
+        "verifiedSourceUrl": "https://eth.blockscout.com/api/v2/smart-contracts/0x2483DA3A338895199E5e538530213157e931Bf06"
+      },
+      "role": "sharedDeployment",
+      "deploymentStatus": "historically-observed",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "evidence": "evidence/artifact-catalog.json"
+    },
+    "Safe7579": {
+      "path": "artifacts/Safe7579.json",
+      "fileSha256": "e224349ba4c4020ef30d9c5c5c3b897634479daaf2d67deec476392e91d8c271",
+      "address": "0x7579f2AD53b01c3D8779Fe17928e0D48885B0003",
+      "runtimeCodeHash": "0xc9c3866bdfbdb586211254dbe457aa3d1c9fd1acf1bbaa36e4c86c3ebc156b69",
+      "source": {
+        "repo": "https://github.com/rhinestonewtf/safe7579",
+        "commit": "f22a194148ff087f0c16125e530512e59794e188",
+        "artifactSha256": "5e40d3584872cd8bc0cea680f720a69c1cc49656e3f69e796deed718bb7cd37c",
+        "artifactUrl": "https://github.com/rhinestonewtf/safe7579/blob/f22a194148ff087f0c16125e530512e59794e188/artifacts/Safe7579/Safe7579.json",
+        "artifactType": "officialCommittedCompilerArtifact"
+      },
+      "role": "sharedDeployment",
+      "deploymentStatus": "historically-observed",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "evidence": "evidence/artifact-catalog.json"
+    },
+    "Safe7579DCUtil": {
+      "path": "artifacts/Safe7579DCUtil.json",
+      "fileSha256": "3844a9e83a803ff3ebffe83c5b4f4a6b620a297f58be48dbdb340aca7696d5bf",
+      "address": "0x3fb7a8bee59d8c5b2f1cf6ce93e5e694cb233b57",
+      "runtimeCodeHash": "0x82fdfe9fa24df2d8444d9b7b10151a89bb4625f88206d1b20aa0796f68577237",
+      "source": {
+        "repo": "https://github.com/rhinestonewtf/safe7579",
+        "commit": "f22a194148ff087f0c16125e530512e59794e188",
+        "artifactSha256": "7c7806ff503c11c709d652ab36397423df0c05566c4e432abe70de3113861008",
+        "artifactType": "locallyReproducedCompilerOutput",
+        "verificationInputUrl": "https://github.com/rhinestonewtf/safe7579/blob/f22a194148ff087f0c16125e530512e59794e188/artifacts/Safe7579/verify.json",
+        "verificationInputSha256": "955d410efa0870df00bfddc9c2ea25bccf37451403da245af5e90a82ac45ffdb"
+      },
+      "role": "sharedDeployment",
+      "deploymentStatus": "historically-observed",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "evidence": "evidence/artifact-catalog.json"
+    },
+    "Safe7579Launchpad": {
+      "path": "artifacts/Safe7579Launchpad.json",
+      "fileSha256": "5805be93f630c584f8c741010ca5c3cc461e1559235fab876c29c1715cff59ce",
+      "address": "0x75798463024Bda64D83c94A64Bc7D7eaB41300eF",
+      "runtimeCodeHash": "0x044b5e0086072ca4cb8e39c4d7fe5ae78def953b347eacd8d3abbba56946fb6e",
+      "source": {
+        "repo": "https://github.com/rhinestonewtf/safe7579",
+        "commit": "f22a194148ff087f0c16125e530512e59794e188",
+        "artifactSha256": "f897d0454ff6728a836b3e81b34afbc47900d6b40c5477d25d6c9ef5bc0ec186",
+        "artifactUrl": "https://github.com/rhinestonewtf/safe7579/blob/f22a194148ff087f0c16125e530512e59794e188/artifacts/Safe7579Launchpad/Safe7579Launchpad.json",
+        "artifactType": "officialCommittedCompilerArtifact"
+      },
+      "role": "sharedDeployment",
+      "deploymentStatus": "historically-observed",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "evidence": "evidence/artifact-catalog.json"
+    },
+    "SafeL2": {
+      "path": "artifacts/SafeL2.json",
+      "fileSha256": "854b18bbc87cd12ec90ff59171a720c4072fc1ac2de03ab3f739bfaebcce0fa9",
+      "address": "0x29fcb43b46531bca003ddc8fcb67ffe91900c762",
+      "runtimeCodeHash": "0xb1f926978a0f44a2c0ec8fe822418ae969bd8c3f18d61e5103100339894f81ff",
+      "source": {
+        "repo": "https://github.com/safe-global/safe-contracts",
+        "commit": "bf943f80fec5ac647159d26161446ac5d716a294",
+        "artifactSha256": "a57d54c0d757ca7fb86693480797de69c880878690b67061f6f9624e11def8bd",
+        "artifactUrl": "https://registry.npmjs.org/@safe-global/safe-contracts/-/safe-contracts-1.4.1.tgz",
+        "artifactPath": "package/build/artifacts/contracts/SafeL2.sol/SafeL2.json",
+        "artifactType": "officialNpmCompilerArtifact",
+        "version": "1.4.1"
+      },
+      "role": "sharedDeployment",
+      "deploymentStatus": "historically-observed",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "evidence": "evidence/artifact-catalog.json"
+    },
+    "SafeProxy": {
+      "path": "artifacts/SafeProxy.json",
+      "fileSha256": "c3c28ee12e041dac1ec75439159fc206d01896e5f7472df2c5331c747ff6e879",
+      "address": null,
+      "runtimeCodeHash": "0xd7d408ebcd99b2b70be43e20253d6d92a8ea8fab29bd3be7f55b10032331fb4c",
+      "source": {
+        "repo": "https://github.com/safe-global/safe-contracts",
+        "commit": "bf943f80fec5ac647159d26161446ac5d716a294",
+        "artifactSha256": "b05eaeaf7278097e52a9e9b38410de2a812c23fa3622373473e73eaa19646ecd",
+        "artifactUrl": "https://registry.npmjs.org/@safe-global/safe-contracts/-/safe-contracts-1.4.1.tgz",
+        "artifactPath": "package/build/artifacts/contracts/proxies/SafeProxy.sol/SafeProxy.json",
+        "artifactType": "officialNpmCompilerArtifact",
+        "version": "1.4.1"
+      },
+      "role": "accountRuntimeTemplate",
+      "deploymentStatus": "factory-runtime-template",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "evidence": "evidence/artifact-catalog.json"
+    },
+    "SafeProxyFactory": {
+      "path": "artifacts/SafeProxyFactory.json",
+      "fileSha256": "977f2648cba212934d999fe9026876f1bcd43ce5d1d7ca61b673ad39a4e35739",
+      "address": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+      "runtimeCodeHash": "0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317",
+      "source": {
+        "repo": "https://github.com/safe-global/safe-contracts",
+        "commit": "bf943f80fec5ac647159d26161446ac5d716a294",
+        "artifactSha256": "f77ccb60e95345e6583216e82feb5430098679d62aa4aeda7388df3831476997",
+        "artifactUrl": "https://registry.npmjs.org/@safe-global/safe-contracts/-/safe-contracts-1.4.1.tgz",
+        "artifactPath": "package/build/artifacts/contracts/proxies/SafeProxyFactory.sol/SafeProxyFactory.json",
+        "artifactType": "officialNpmCompilerArtifact",
+        "version": "1.4.1"
+      },
+      "role": "sharedDeployment",
+      "deploymentStatus": "historically-observed",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "evidence": "evidence/artifact-catalog.json"
+    },
+    "SenderCreator": {
+      "path": "artifacts/SenderCreator.json",
+      "fileSha256": "1365910c8f2a22b4d2c51447c087d94dc264cf867dfe8aca1e2aa4d723d80bec",
+      "address": "0xEFC2c1444eBCC4Db75e7613d20C6a62fF67A167C",
+      "runtimeCodeHash": "0x283c9d14378f5f4c4e24045b87d621d48443fa5b4af7dd7180a599b3756a7689",
+      "source": {
+        "repo": "https://github.com/eth-infinitism/account-abstraction",
+        "commit": "59edfbc5e9862d58ebda3429c9890c3497a1d433",
+        "artifactSha256": "952e7ce1e69354b9e80d0e68e0cbcc64f9304dd25c17170c3732114ea5421b04",
+        "artifactPath": "package/artifacts/EntryPoint.json (embedded SenderCreator creation code)",
+        "artifactUrl": "https://registry.npmjs.org/@account-abstraction/contracts/-/contracts-0.7.0.tgz",
+        "packageName": "@account-abstraction/contracts",
+        "packageVersion": "0.7.0",
+        "verifiedCompilerOutputUrl": "https://sourcify.dev/server/v2/contract/1/0xEFC2c1444eBCC4Db75e7613d20C6a62fF67A167C?fields=all",
+        "verifiedCompilerOutputSha256": "06e98c6f3ebf9cec9aedb8e53ba627c7031763c66fc569655c7bbbb64dfee515",
+        "sourcePath": "contracts/core/SenderCreator.sol",
+        "sourceSha256": "84b46309bf6d890c13362c9c449ff927fa72465741517fc405c8c24baae2d1a3",
+        "creationBytecodeOffset": 16171,
+        "runtimeBytecodeOffset": 16199
+      },
+      "role": "sharedDeployment",
+      "deploymentStatus": "historically-observed",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "evidence": "evidence/artifact-catalog.json"
+    },
+    "SmartSession": {
+      "path": "artifacts/SmartSession.json",
+      "fileSha256": "b964873cdb09e1b8dad37e0dcf644622974f5e2e56851c55b5a0df89aa5798a7",
+      "address": "0x00000000002B0eCfbD0496EE71e01257dA0E37DE",
+      "runtimeCodeHash": "0xf2817b8943b9fc813ad3602de2f0b973dc6b7e190f1b77dc9eb02b8d3022ab0c",
+      "source": {
+        "repo": "https://github.com/rhinestonewtf/smartsessions",
+        "commit": "f24dddfcbf7269e10dcd4da90dae0a6ae6ccf188",
+        "artifactSha256": "0627bf4d72f954aa0168de4773e95571c782308cf0cb03935e4c19c417cff6ea",
+        "artifactUrl": "https://github.com/rhinestonewtf/smartsessions/blob/f24dddfcbf7269e10dcd4da90dae0a6ae6ccf188/artifacts/SmartSession/SmartSession.json",
+        "artifactType": "officialCommittedCompilerArtifact"
+      },
+      "role": "sharedDeployment",
+      "deploymentStatus": "historically-observed",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "evidence": "evidence/artifact-catalog.json"
+    },
+    "TimeFramePolicy": {
+      "path": "artifacts/TimeFramePolicy.json",
+      "fileSha256": "bb92db6767ff2fdab4288b50f6c22749bac517914b9097663acf0c49c64760a6",
+      "address": "0x0000000000D30f611fA3bf652ac6879428586930",
+      "runtimeCodeHash": "0xa8c18f7a974673552d03d7325bbc33a102a5aaab5bc5a3c11ecae1648ca4e026",
+      "source": {
+        "repo": "https://github.com/rhinestonewtf/smartsessions",
+        "commit": "75279a6c80ad50ea623d06954e9d71ab753e8a52",
+        "artifactSha256": "5d7d5afdef80e808ed1ebd9078a8f2512457245c8f49ad6641f8ecfae3d9ccc2",
+        "artifactUrl": "https://github.com/rhinestonewtf/smartsessions/blob/75279a6c80ad50ea623d06954e9d71ab753e8a52/artifacts/TimeFramePolicy/TimeFramePolicy.json",
+        "artifactType": "officialCommittedCompilerArtifact"
+      },
+      "role": "sharedDeployment",
+      "deploymentStatus": "historically-observed",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "evidence": "evidence/artifact-catalog.json"
+    },
+    "UniActionPolicy": {
+      "path": "artifacts/UniActionPolicy.json",
+      "fileSha256": "756c843ebde20e8e1316a696c2adc20dd4dd44a9bbc2e4c615a9d79c1c292549",
+      "address": "0x0000000000714Cf48FcF88A0bFBa70d313415032",
+      "runtimeCodeHash": "0xc58f13d259c69d0db90f611347535e2d5642f3352740b7d58fbf6e6b939670dd",
+      "source": {
+        "repo": "https://github.com/rhinestonewtf/smartsessions",
+        "commit": "75279a6c80ad50ea623d06954e9d71ab753e8a52",
+        "artifactSha256": "52599049835dedaf13699c350b8d5cba482635597ad2416f815fdf920f5f4466",
+        "artifactUrl": "https://github.com/rhinestonewtf/smartsessions/blob/75279a6c80ad50ea623d06954e9d71ab753e8a52/artifacts/UniActionPolicy/UniActionPolicy.json",
+        "artifactType": "officialCommittedCompilerArtifact"
+      },
+      "role": "sharedDeployment",
+      "deploymentStatus": "historically-observed",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "evidence": "evidence/artifact-catalog.json"
+    },
+    "ValueLimitPolicy": {
+      "path": "artifacts/ValueLimitPolicy.json",
+      "fileSha256": "9084a9c20d9b1cc09e5abfeac0117cf37b07f4ee2ad77a32d04e16b61c076f95",
+      "address": "0x000000000021dC45451291BCDfc9f0B46d6f0278",
+      "runtimeCodeHash": "0x086e8421c6c9daab4a93e63366c83e8f20cc3f736b7be5a97e0e81633581e4ed",
+      "source": {
+        "repo": "https://github.com/rhinestonewtf/smartsessions",
+        "commit": "75279a6c80ad50ea623d06954e9d71ab753e8a52",
+        "artifactSha256": "c3f7692e6921646b3bb6bb9d0424a43e2aaed5b25937a5b4f28df84d1ec52d90",
+        "artifactUrl": "https://github.com/rhinestonewtf/smartsessions/blob/75279a6c80ad50ea623d06954e9d71ab753e8a52/artifacts/ValueLimitPolicy/ValueLimitPolicy.json",
+        "artifactType": "officialCommittedCompilerArtifact"
+      },
+      "role": "sharedDeployment",
+      "deploymentStatus": "historically-observed",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "evidence": "evidence/artifact-catalog.json"
+    },
+    "SimpleGasPolicy": {
+      "path": "artifacts/SimpleGasPolicy.json",
+      "fileSha256": "94a8b0cbd7a4ea5c74abc87c635f73095f4f3ee859e06ce771959889caa054aa",
+      "address": "0x0000000000d14A6F771494592218d8F9c2ddEbB6",
+      "runtimeCodeHash": "0xfe3fcc7cc101836366707dedfbb3964d7bae59c40c274ecf9328ad4492bee852",
+      "source": {
+        "repository": "https://github.com/rhinestonewtf/smartsessions",
+        "commit": "75279a6c80ad50ea623d06954e9d71ab753e8a52",
+        "path": "contracts/external/policies/SimpleGasPolicy.sol",
+        "url": "https://github.com/rhinestonewtf/smartsessions/blob/75279a6c80ad50ea623d06954e9d71ab753e8a52/contracts/external/policies/SimpleGasPolicy.sol",
+        "sha256": "0854c3fa4e1c68d90e8e31270e88b4b2cb612fcf8932fce0425e91a33e10debf",
+        "artifactUrl": "https://github.com/rhinestonewtf/smartsessions/blob/75279a6c80ad50ea623d06954e9d71ab753e8a52/artifacts/SimpleGasPolicy/SimpleGasPolicy.json",
+        "artifactSha256": "9f7063115f88187a18a6d1e7f857e55e19a9549b5dcf06c36271d3a3c74a46ba"
+      },
+      "role": "optional-policy-evidence",
+      "deploymentStatus": "historically-observed",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "evidence": "evidence/gas-and-usage-policy.json"
+    },
+    "UsageLimitPolicy": {
+      "path": "artifacts/UsageLimitPolicy.json",
+      "fileSha256": "3f9fca1489b461883634f8c5ea242baf9841d309ad18857c745f5a2dc99d277a",
+      "address": "0x00000000001d4479FA2A947026204d0283ceDe4B",
+      "runtimeCodeHash": "0xa85499ae68f4ac7819fa0c9a06dfb89538a820879ed356913915ea5daac62cdd",
+      "source": {
+        "repository": "https://github.com/rhinestonewtf/smartsessions",
+        "commit": "75279a6c80ad50ea623d06954e9d71ab753e8a52",
+        "path": "contracts/external/policies/UsageLimitPolicy.sol",
+        "url": "https://github.com/rhinestonewtf/smartsessions/blob/75279a6c80ad50ea623d06954e9d71ab753e8a52/contracts/external/policies/UsageLimitPolicy.sol",
+        "sha256": "38a15ba4addd23a49a81231340d7bfad8427489611e8566cd5cdba9f2c21af04",
+        "artifactUrl": "https://github.com/rhinestonewtf/smartsessions/blob/75279a6c80ad50ea623d06954e9d71ab753e8a52/artifacts/UsageLimitPolicy/UsageLimitPolicy.json",
+        "artifactSha256": "c06398b0762696fa6215b548ecbd6ec905dfaf5b683cb1eb28ff4304f9157417"
+      },
+      "role": "optional-policy-evidence",
+      "deploymentStatus": "historically-observed",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "evidence": "evidence/gas-and-usage-policy.json"
+    },
+    "PimlicoSingletonPaymasterV7": {
+      "path": "artifacts/PimlicoSingletonPaymasterV7.json",
+      "fileSha256": "f607c262834e3f53687961c26515d72b8358be62747265f66d08b9e0c21181de",
+      "address": "0x0000000000000039cd5e8aE05257CE51C473ddd1",
+      "runtimeCodeHash": "0x1cd962f550282d1e4eadd0db10a956db2338c40f69c8b07cb434486275e1c11a",
+      "source": {
+        "repo": "https://github.com/pimlicolabs/singleton-paymaster",
+        "commit": "114e6ef7aa3abf56c1f5890137deff53eb0e3f49",
+        "artifactSha256": "7bc70f8426988ad979df9f93ced11f05b17b2f033ed16128eb7e6a06fa339982",
+        "artifactType": "locallyReproducedCompilerOutput",
+        "verificationInputSha256": "87083f962b707ad939b3ec28a02453a383599a8c8dbc57c4a97bcf9093111697",
+        "verifiedSourceUrl": "https://sourcify.dev/server/v2/contract/1/0x0000000000000039cd5e8aE05257CE51C473ddd1?fields=all"
+      },
+      "role": "reviewed-gas-only-paymaster-profile",
+      "deploymentStatus": "historically-observed",
+      "chainIds": [
+        1,
+        10,
+        8453,
+        42161,
+        84532,
+        421614,
+        11155111,
+        11155420
+      ],
+      "gasOnlyProfile": {
+        "id": "pimlico-singleton-v7-legacy-verifying",
+        "paymasterAndDataBytes": 130,
+        "paymasterDataBytes": 78,
+        "modeOffset": 52,
+        "modeValue": 0,
+        "validUntilOffset": 53,
+        "validAfterOffset": 59,
+        "signatureOffset": 65,
+        "signatureBytes": 65,
+        "validationContext": "empty",
+        "tokenCharge": "none"
+      },
+      "evidence": "evidence/pimlico-paymaster.json"
+    },
+    "CenterSessionGuard": {
+      "path": "artifacts/CenterSessionGuard.json",
+      "fileSha256": "ddd1f0cd886b02e8c8ea23438783cefa7fea3ec127d348fcaf4a9e9fb6c8be54",
+      "address": null,
+      "runtimeCodeHash": "0x996eea0614de4cd5549d17464e0352745411666d42650b20b7a9252dfd1c328c",
+      "source": {
+        "repository": "juicebox-center",
+        "path": "src/rest/smartAccounts/stack/contracts/CenterSessionGuard.sol",
+        "sha256": "d81bd6a77688044afb1c514b28b278048f4bd3b534c04ae2c8cf934caecb76de",
+        "compilerArtifactSha256": "bdca0ed02ec4290e438833fba16fdf1ca73c31362f8fb6c3873ceceb30b1aec9"
+      },
+      "role": "required-sponsor-policy",
+      "deploymentStatus": "undeployed",
+      "chainIds": [],
+      "evidence": "contracts/CenterSessionGuard.sol"
+    }
+  }
+}

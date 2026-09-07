@@ -27,7 +27,7 @@ const ajv = new Ajv2020({ strict: false, validateFormats: false });
 ajv.addSchema(JSON.parse(JSON.stringify({ $id: "urn:juicebox:smart-account-schemas", $defs: schemas }).replaceAll("#/components/schemas/", "#/$defs/")));
 const validator = (name: string) => ajv.compile({ $ref: `urn:juicebox:smart-account-schemas#/$defs/${name}` });
 
-describe("smart-account documentation reflects review-only capabilities", () => {
+describe("smart-account documentation reflects actual runtime capabilities", () => {
   it("validates actual unconfigured capability, list and unlink responses without calling a chain", async () => {
     const registry = new MemorySmartAccountRegistry();
     await registry.bind(binding);
@@ -37,14 +37,15 @@ describe("smart-account documentation reflects review-only capabilities", () => 
     const validate = validator("SmartAccountCapabilities");
     expect(validate(capabilities), JSON.stringify(validate.errors)).toBe(true);
     expect(capabilities.deployments).toEqual([]);
-    expect(capabilities.userOperationRelay).toBe(false);
+    expect(capabilities.userOperations).toBe("/api/v1/capabilities");
+    expect(capabilities.walletCreation).toBe(false);
     const checkedService = createSmartAccountService({ audience: "https://juicebox.center", manifests: CHECKED_SMART_ACCOUNT_BINDING_MANIFESTS, registry,
       rpc: { request: async () => { throw new Error("Capability discovery must not contact RPC"); } } });
     const checked = await checkedService.capabilities();
     expect(validate(checked), JSON.stringify(validate.errors)).toBe(true);
     expect(checked.deployments.length).toBeGreaterThan(0);
-    expect(checked.deployments.every((entry) => entry.mode === "ownership-only")).toBe(true);
-    expect(checked.userOperationRelay).toBe(false);
+    expect(checked.deployments.every((entry) => ["ownership-only", "execution-candidate"].includes(entry.mode))).toBe(true);
+    expect(checked.userOperations).toBe("/api/v1/capabilities");
     expect(validator("SmartBindingList")(await service.list(principal))).toBe(true);
     const unlinked = await service.revoke(principal, hash);
     expect(validator("SmartBindingUnlinked")(unlinked)).toBe(true);

@@ -96,9 +96,11 @@ installed onchain authority, and paymaster eligibility are separate checks. The 
 verifies the current Safe owner threshold and deployment state; a policy review commits to its
 generation, expiry, exact actions, and budget allocations. Neither operation installs a session.
 
-Weekly/monthly execution and prepaid spending are unavailable until a coherent deployment stack,
-policy compiler, installed-policy verifier, and UserOperation transport are implemented and
-configured. Runtime capability responses expose those requirements. Removing an API grant or
+Seven/thirty-day sessions now have a pinned stack, policy compiler, installed-policy verifier,
+durable lifecycle store and UserOperation transport. Live recurring execution requires a verified
+deployed session guard, configured hosted bundler/paymaster, funded sponsorship and owner activation;
+the checked guard artifact has no deployment address. Runtime capabilities expose configuration,
+and each operation verifies current account and chain evidence. Removing an API grant or
 unlinking an account cannot revoke signatures or permissions already accepted by an onchain
 module. Contract-enforced revocation is a separate owner action. See [sessions](SESSIONS.md).
 
@@ -123,5 +125,7 @@ or financial outcomes receive an independent review before release.
 - [HTTP message signature considerations](https://www.rfc-editor.org/rfc/rfc9421.html)
 - [HTTP problem details](https://www.rfc-editor.org/rfc/rfc9457.html)
 
-Derive supplies useful account/delegation concepts. Its documented timestamp authentication is
-not copied: Center signatures must also bind request content and replay-prevention fields.
+Derive supplies useful account/delegation concepts. Its private-endpoint authentication signs a
+timestamp; financial actions separately sign their action payload, nonce and expiry. Center's
+HTTP authentication signs request content and a single-use nonce as well. This documentation
+comparison does not independently verify Derive's deployed implementation.

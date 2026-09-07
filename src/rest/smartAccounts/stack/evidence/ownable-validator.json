@@ -1,0 +1,221 @@
+{
+  "schemaVersion": 1,
+  "binding": {
+    "address": "0x2483DA3A338895199E5e538530213157e931Bf06",
+    "runtimeHash": "0xd9ad90a204447aec1a1528d764e1d80212c8011dc0125b3995875e58ec9a43bf",
+    "runtimeBytes": 6633,
+    "sourceRepository": "https://github.com/rhinestonewtf/core-modules",
+    "sourceCommit": "ff742c54eb6afead7e944352cc86973090462598",
+    "sourcePath": "src/OwnableValidator/OwnableValidator.sol",
+    "sourceSHA256": "5772d97887e85c5dd8ab7dc6b1b67d650db59a18fe4c096632ccfd0d84e7df72",
+    "compiler": "0.8.25+commit.b61c2a91",
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "evmVersion": "cancun",
+    "viaIR": false,
+    "binding": "Official main source byte-for-byte matches pinned core-modules commit. Independently rebuilt all verified compiler input sources with official Solidity 0.8.25 release binary verified against pinned solc-bin manifest SHA256 and keccak256. Full creation and runtime bytecode exactly match fully verified Blockscout artifact; runtime also independently matches observed eth_getCode.",
+    "signatureABI": [
+      {
+        "inputs": [
+          {
+            "internalType": "bytes32",
+            "name": "hash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes",
+            "name": "signature",
+            "type": "bytes"
+          },
+          {
+            "internalType": "bytes",
+            "name": "data",
+            "type": "bytes"
+          }
+        ],
+        "name": "validateSignatureWithData",
+        "outputs": [
+          {
+            "internalType": "bool",
+            "name": "",
+            "type": "bool"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      }
+    ],
+    "signatureSelector": "0x940d3840",
+    "sessionInitData": "abi.encode(uint256(1), address[]([sessionKeyEOA]))",
+    "signing": "EIP-191/personal-sign 32-byte raw userOpHash with ordinary v27/28 signature. Ownable prefixes exactly once; v>30 signature format causes the linked CheckSignatures library to add a second prefix.",
+    "callerSemantics": "Stateless validateSignatureWithData uses only hash,signature,data. It does not read msg.sender/account owner configuration and needs no Ownable onInstall. SmartSession at f24dddfcbf7269e10dcd4da90dae0a6ae6ccf188 stores config under permissionId/account and passes it via SignerLib. ConfigLib checks isModuleType(7), optionally registry attestation, then stores bytes without initializing Ownable.",
+    "files": {
+      "/private/tmp/center-ownable-verified-artifact.json": {
+        "sha256": "7e84625e81033bcf6014707beb23719ec1b75ddc71f262b9421d2f914ddbfc62",
+        "bytes": 38259
+      },
+      "/private/tmp/center-ownable-verified-input.json": {
+        "sha256": "5353dc3b8b2caedb29bcc68246b237607b0fdb57bb3004a5da908b12d5f86c47",
+        "bytes": 473639
+      },
+      "/private/tmp/center-ownable-explorer-4.json": {
+        "sha256": "9072818406d8175da37ec54fd258cd947cb70b1d566ab53a63e02515e65c2895",
+        "bytes": 498997
+      },
+      "/private/tmp/center-ownable-readonly-checks.json": {
+        "sha256": "3aa499a8746772fb89ceb46b5be5a48be13f630ac41096ebf7a8dd05a072a81e",
+        "bytes": 771
+      },
+      "/private/tmp/center-ownable-ff742c54eb6afead7e944352cc86973090462598-source.sol": {
+        "sha256": "5772d97887e85c5dd8ab7dc6b1b67d650db59a18fe4c096632ccfd0d84e7df72",
+        "bytes": 13612
+      },
+      "/private/tmp/center-ownable-ISessionValidator.sol": {
+        "sha256": "766bab39526f66b52029fe1e6f7b113195749e24c982c569fb25d5ac9d8150a4",
+        "bytes": 1009
+      },
+      "/private/tmp/center-ownable-SignerLib.sol": {
+        "sha256": "ff7b1ad9830c9b916e323165818b97bca3e004815a4b325cdd6189819b15cbdb",
+        "bytes": 1195
+      },
+      "/private/tmp/center-ownable-ConfigLib.sol": {
+        "sha256": "9dd0f21ad148bf1a9b6367ce02abf4a03649050cb1bc0a0b3ba9a0eba2c823b2",
+        "bytes": 13700
+      },
+      "/private/tmp/center-ownable-CheckNSignatures.sol": {
+        "sha256": "685871ceb43cdba38af979dceb690c57c0452bd31532745d28d26a8113ab18e1",
+        "bytes": 6395
+      },
+      "/private/tmp/center-ownable-rebuilt-artifact.json": {
+        "sha256": "f2496152194ccc7ca7db935a9896670f7008e455c1069fbbe8b677bbcaf88bcf",
+        "bytes": 566526
+      },
+      "/private/tmp/center-ownable-build-comparison.json": {
+        "sha256": "c21ae96250579c30c10045ac7ee196aa3e4aa0a6f05ab509f0c0c719f86d6941",
+        "bytes": 1075
+      },
+      "/private/tmp/center-ownable-compiler-record.json": {
+        "sha256": "ae052502996fad612cefda27cb6a5cdf313009bfdaa082fe655e88bc67f55a88",
+        "bytes": 560
+      }
+    },
+    "readonlyVerification": {
+      "chainId": 1,
+      "address": "0x2483DA3A338895199E5e538530213157e931Bf06",
+      "blockNumber": 25923519,
+      "blockHash": "0x12dab34716144b309a70e0948e0854d45687741581592c81821c64919d146e40",
+      "runtimeHash": "0xd9ad90a204447aec1a1528d764e1d80212c8011dc0125b3995875e58ec9a43bf",
+      "runtimeBytes": 6633,
+      "caller": "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A",
+      "results": [
+        {
+          "name": "valid EIP-191 signature",
+          "result": true
+        },
+        {
+          "name": "raw digest signature rejected",
+          "result": false
+        },
+        {
+          "name": "wrong hash rejected",
+          "result": false
+        },
+        {
+          "name": "stateless validator module type",
+          "result": true
+        },
+        {
+          "name": "uninstalled arbitrary caller",
+          "result": false
+        }
+      ]
+    },
+    "independentBuild": {
+      "compilerSHA256": "cc3f94a70ac681b0304084acc1980aabe2a1bb3240d44ce76a8df0e1e77a2110",
+      "compilerKeccak256": "0xb530bf56ed297e663f77cb03e3c34f50edb38bc670f31eede8fcfb6217c52226",
+      "standardInputSHA256": "5353dc3b8b2caedb29bcc68246b237607b0fdb57bb3004a5da908b12d5f86c47",
+      "runtime": {
+        "bytes": 6633,
+        "keccak256": "0xd9ad90a204447aec1a1528d764e1d80212c8011dc0125b3995875e58ec9a43bf",
+        "exactMatch": true
+      },
+      "creation": {
+        "bytes": 6661,
+        "keccak256": "0x9795fa9c92bf9558c2cb59e8239e95d4343977f2ae285ed58dfdb1d1d66dd91b",
+        "exactMatch": true
+      },
+      "errors": 0,
+      "warnings": [
+        {
+          "errorCode": "2072",
+          "message": "Unused local variable."
+        },
+        {
+          "errorCode": "5667",
+          "message": "Unused function parameter. Remove or comment out the variable name to silence this warning."
+        }
+      ],
+      "artifactSHA256": "f2496152194ccc7ca7db935a9896670f7008e455c1069fbbe8b677bbcaf88bcf"
+    }
+  },
+  "reproduction": {
+    "compilerSHA256": "cc3f94a70ac681b0304084acc1980aabe2a1bb3240d44ce76a8df0e1e77a2110",
+    "compilerKeccak256": "0xb530bf56ed297e663f77cb03e3c34f50edb38bc670f31eede8fcfb6217c52226",
+    "standardInputSHA256": "5353dc3b8b2caedb29bcc68246b237607b0fdb57bb3004a5da908b12d5f86c47",
+    "runtime": {
+      "bytes": 6633,
+      "keccak256": "0xd9ad90a204447aec1a1528d764e1d80212c8011dc0125b3995875e58ec9a43bf",
+      "exactMatch": true
+    },
+    "creation": {
+      "bytes": 6661,
+      "keccak256": "0x9795fa9c92bf9558c2cb59e8239e95d4343977f2ae285ed58dfdb1d1d66dd91b",
+      "exactMatch": true
+    },
+    "errors": 0,
+    "warnings": [
+      {
+        "errorCode": "2072",
+        "message": "Unused local variable."
+      },
+      {
+        "errorCode": "5667",
+        "message": "Unused function parameter. Remove or comment out the variable name to silence this warning."
+      }
+    ],
+    "artifactSHA256": "f2496152194ccc7ca7db935a9896670f7008e455c1069fbbe8b677bbcaf88bcf"
+  },
+  "readOnlyChecks": {
+    "chainId": 1,
+    "address": "0x2483DA3A338895199E5e538530213157e931Bf06",
+    "blockNumber": 25923519,
+    "blockHash": "0x12dab34716144b309a70e0948e0854d45687741581592c81821c64919d146e40",
+    "runtimeHash": "0xd9ad90a204447aec1a1528d764e1d80212c8011dc0125b3995875e58ec9a43bf",
+    "runtimeBytes": 6633,
+    "caller": "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A",
+    "results": [
+      {
+        "name": "valid EIP-191 signature",
+        "result": true
+      },
+      {
+        "name": "raw digest signature rejected",
+        "result": false
+      },
+      {
+        "name": "wrong hash rejected",
+        "result": false
+      },
+      {
+        "name": "stateless validator module type",
+        "result": true
+      },
+      {
+        "name": "uninstalled arbitrary caller",
+        "result": false
+      }
+    ]
+  }
+}

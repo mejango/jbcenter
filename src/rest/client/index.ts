@@ -13,6 +13,7 @@ export {
   type SponsorshipApproval, type SponsorshipApprovalBinding, type SponsorshipApprovalClaims,
 } from "../approvals.js";
 export type TypedDocument = ReturnType<typeof buildRequestTypedData> | ReturnType<typeof buildBotProofTypedData>;
+export * from "./smartAccounts.js";
 export type RestSigner = {
   address: Address;
   signTypedData: {
@@ -148,6 +149,22 @@ async function boundedJson(response: Response, maximum: number): Promise<unknown
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
   try { return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
   catch { throw new RestClientError("INVALID_RESPONSE", "The response is not valid JSON", response.status); }
+}
+/** Reads public discovery endpoints without asking the wallet for an authentication signature. */
+export async function readPublicRestJson<T>(audience: string, requestTarget: string, transport: typeof fetch = fetch): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await transport(exactRequestUrl(clientAudience(audience), requestTarget), {
+      headers: { accept: "application/json" }, redirect: "error", credentials: "omit", cache: "no-store", signal: controller.signal,
+    });
+    const result = await boundedJson(response, 2 * 1024 * 1024);
+    if (!response.ok) throw new RestClientError("DISCOVERY_UNAVAILABLE", "This host has not enabled the requested wallet capability.", response.status);
+    return result as T;
+  } catch (error) {
+    if (error instanceof RestClientError) throw error;
+    throw new RestClientError("DISCOVERY_UNAVAILABLE", "Wallet discovery could not be loaded.");
+  } finally { clearTimeout(timer); }
 }
 export class SignedRestClient {
   private readonly config: ClientOptions;

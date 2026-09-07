@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "d81bd6a77688044afb1c514b28b278048f4bd3b534c04ae2c8cf934caecb76de",
+  "compilerVersion": "0.8.28+commit.7893614a",
+  "compilerBinarySha256": "81515b0e53deaa266d549545ccaac0a5a96e6d4e8201c77f673b2c710976d9ea",
+  "compilerInputSha256": "1a929c1f4fef1f513300ee68e53668af66a5e4274a9105d89d03cbee007f23bd",
+  "runtimeCodeHash": "0x996eea0614de4cd5549d17464e0352745411666d42650b20b7a9252dfd1c328c",
+  "storageLayout": {
+    "storage": [
+      {
+        "astId": 74,
+        "contract": "contracts/CenterSessionGuard.sol:CenterSessionGuard",
+        "label": "_states",
+        "offset": 0,
+        "slot": "0",
+        "type": "t_mapping(t_bytes32,t_mapping(t_address,t_mapping(t_address,t_struct(State)51_storage)))"
+      }
+    ],
+    "types": {
+      "t_address": {
+        "encoding": "inplace",
+        "label": "address",
+        "numberOfBytes": "20"
+      },
+      "t_bytes32": {
+        "encoding": "inplace",
+        "label": "bytes32",
+        "numberOfBytes": "32"
+      },
+      "t_mapping(t_address,t_mapping(t_address,t_struct(State)51_storage))": {
+        "encoding": "mapping",
+        "key": "t_address",
+        "label": "mapping(address => mapping(address => struct CenterSessionGuard.State))",
+        "numberOfBytes": "32",
+        "value": "t_mapping(t_address,t_struct(State)51_storage)"
+      },
+      "t_mapping(t_address,t_struct(State)51_storage)": {
+        "encoding": "mapping",
+        "key": "t_address",
+        "label": "mapping(address => struct CenterSessionGuard.State)",
+        "numberOfBytes": "32",
+        "value": "t_struct(State)51_storage"
+      },
+      "t_mapping(t_bytes32,t_mapping(t_address,t_mapping(t_address,t_struct(State)51_storage)))": {
+        "encoding": "mapping",
+        "key": "t_bytes32",
+        "label": "mapping(bytes32 => mapping(address => mapping(address => struct CenterSessionGuard.State)))",
+        "numberOfBytes": "32",
+        "value": "t_mapping(t_address,t_mapping(t_address,t_struct(State)51_storage))"
+      },
+      "t_struct(Config)41_storage": {
+        "encoding": "inplace",
+        "label": "struct CenterSessionGuard.Config",
+        "members": [
+          {
+            "astId": 24,
+            "contract": "contracts/CenterSessionGuard.sol:CenterSessionGuard",
+            "label": "paymaster",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_address"
+          },
+          {
+            "astId": 26,
+            "contract": "contracts/CenterSessionGuard.sol:CenterSessionGuard",
+            "label": "paymasterCodeHash",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_bytes32"
+          },
+          {
+            "astId": 28,
+            "contract": "contracts/CenterSessionGuard.sol:CenterSessionGuard",
+            "label": "maxGasPerOperation",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_uint256"
+          },
+          {
+            "astId": 30,
+            "contract": "contracts/CenterSessionGuard.sol:CenterSessionGuard",
+            "label": "maxFeePerGas",
+            "offset": 0,
+            "slot": "3",
+            "type": "t_uint256"
+          },
+          {
+            "astId": 32,
+            "contract": "contracts/CenterSessionGuard.sol:CenterSessionGuard",
+            "label": "maxPriorityFeePerGas",
+            "offset": 0,
+            "slot": "4",
+            "type": "t_uint256"
+          },
+          {
+            "astId": 34,
+            "contract": "contracts/CenterSessionGuard.sol:CenterSessionGuard",
+            "label": "totalGasLimit",
+            "offset": 0,
+            "slot": "5",
+            "type": "t_uint256"
+          },
+          {
+            "astId": 36,
+            "contract": "contracts/CenterSessionGuard.sol:CenterSessionGuard",
+            "label": "totalSponsoredCostLimit",
+            "offset": 0,
+            "slot": "6",
+            "type": "t_uint256"
+          },
+          {
+            "astId": 38,
+            "contract": "contracts/CenterSessionGuard.sol:CenterSessionGuard",
+            "label": "maximumCalls",
+            "offset": 0,
+            "slot": "7",
+            "type": "t_uint128"
+          },
+          {
+            "astId": 40,
+            "contract": "contracts/CenterSessionGuard.sol:CenterSessionGuard",
+            "label": "maxPaymasterDataLength",
+            "offset": 16,
+            "slot": "7",
+            "type": "t_uint32"
+          }
+        ],
+        "numberOfBytes": "256"
+      },
+      "t_struct(State)51_storage": {
+        "encoding": "inplace",
+        "label": "struct CenterSessionGuard.State",
+        "members": [
+          {
+            "astId": 44,
+            "contract": "contracts/CenterSessionGuard.sol:CenterSessionGuard",
+            "label": "config",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_struct(Config)41_storage"
+          },
+          {
+            "astId": 46,
+            "contract": "contracts/CenterSessionGuard.sol:CenterSessionGuard",
+            "label": "gasUsed",
+            "offset": 0,
+            "slot": "8",
+            "type": "t_uint256"
+          },
+          {
+            "astId": 48,
+            "contract": "contracts/CenterSessionGuard.sol:CenterSessionGuard",
+            "label": "costUsed",
+            "offset": 0,
+            "slot": "9",
+            "type": "t_uint256"
+          },
+          {
+            "astId": 50,
+            "contract": "contracts/CenterSessionGuard.sol:CenterSessionGuard",
+            "label": "callsUsed",
+            "offset": 0,
+            "slot": "10",
+            "type": "t_uint128"
+          }
+        ],
+        "numberOfBytes": "352"
+      },
+      "t_uint128": {
+        "encoding": "inplace",
+        "label": "uint128",
+        "numberOfBytes": "16"
+      },
+      "t_uint256": {
+        "encoding": "inplace",
+        "label": "uint256",
+        "numberOfBytes": "32"
+      },
+      "t_uint32": {
+        "encoding": "inplace",
+        "label": "uint32",
+        "numberOfBytes": "4"
+      }
+    }
+  }
+}

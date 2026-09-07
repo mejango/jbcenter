@@ -2,7 +2,7 @@ import type { PoolClient } from 'pg';
 import { RestError } from '../core.js';
 import { TRANSACTION_STORAGE_LIMITS, assertText, invalid } from './store.js';
 
-export type ReservedTransport = 'direct' | 'relayr';
+export type ReservedTransport = 'direct' | 'relayr' | 'erc4337';
 type Reservation = { transport: ReservedTransport; bindingId: string };
 export interface TransportReservation extends Reservation {
   stepIndex: number;
@@ -16,7 +16,7 @@ function parameters(
 ): number[] {
   assertText(planId);
   assertText(bindingId);
-  if (!['direct', 'relayr'].includes(transport)) invalid('Invalid transaction transport.');
+  if (!['direct', 'relayr', 'erc4337'].includes(transport)) invalid('Invalid transaction transport.');
   if (transport === 'direct' && !/^0x[0-9a-f]{64}$/.test(bindingId))
     invalid('Direct transaction transport requires the normalized transaction hash.');
   if (

@@ -8,6 +8,7 @@ import { INDEXER_LIMITS, type IndexerReadService } from "../indexer/index.js";
 import { array, decimalString, nullable, object, ref, sharedSchemas, type Schema } from "./schemas.js";
 import { sponsorshipSchemas } from "./sponsorship.js";
 import { smartAccountSchemas } from "./smartAccounts.js";
+import { sessionSchemas } from "./sessions.js";
 
 export type OpenApiOperation = Record<string, unknown> & {
   operationId: string; summary: string; tags: string[];
@@ -71,7 +72,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
   const origin = parsed.origin;
   const catalog = indexer.catalog();
   const descriptors = operationDescriptors(operations);
-  const schemas = { ...sharedSchemas(contracts.data.chains.map((chain) => chain.id)), ...sponsorshipSchemas(), ...smartAccountSchemas() };
+  const schemas = { ...sharedSchemas(contracts.data.chains.map((chain) => chain.id)), ...sponsorshipSchemas(), ...smartAccountSchemas(), ...sessionSchemas() };
   const parameters: Record<string, Schema> = {};
   const header = (key: keyof typeof REST_AUTH_HEADERS, schema: Schema, description: string, required: boolean) => {
     parameters[key] = { name: REST_AUTH_HEADERS[key], in: "header", required, schema, description };
@@ -109,7 +110,9 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
       { name: "Operations", description: "Semantic reads and preparations generated from the shared operation descriptors." },
       { name: "Transactions", description: "Durable reviewed plans, simulation, exact signed transaction relay and reconciliation." },
       { name: "Sponsorship", description: "Prepaid Relayr waves, explicit owner forwarding consent, reviewed funding plans and exact destination execution evidence." },
-      { name: "Wallets", description: "Reviewed smart-account binding and session-policy review. No wallet creation, session activation or UserOperation relay is implied." },
+      { name: "Wallets", description: "Reviewed Safe creation calldata, owner-threshold binding and smart-account transaction plans. Availability depends on current verified manifests." },
+      { name: "Sessions", description: "Immutable seven- or thirty-day policies, owner activation/revocation plans and canonical onchain quota observations." },
+      { name: "UserOperations", description: "Reviewed EntryPoint v0.7 preparation, external owner or session-key signatures, one-time provider publication and reconciliation." },
     ],
     paths: {}, components: { schemas, parameters, responses: { Problem: problemResponse } },
     "x-auth": {
@@ -128,7 +131,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
     },
     "x-juicebox": {
       protocolVersion: 6, chains: contracts.data.chains, deploymentManifest: contracts.data.deploymentManifest,
-      discovery: { capabilities: `${REST_PREFIX}/capabilities`, contracts: `${REST_PREFIX}/catalog/contracts`, indexer: `${REST_PREFIX}/catalog/indexer`, operations: `${REST_PREFIX}/catalog/operations`, aiGuide: "/api/docs/ai-guide", smartAccounts: "/api/docs/smart-accounts", sessionDesignProposal: "/api/docs/sessions" },
+      discovery: { capabilities: `${REST_PREFIX}/capabilities`, contracts: `${REST_PREFIX}/catalog/contracts`, indexer: `${REST_PREFIX}/catalog/indexer`, operations: `${REST_PREFIX}/catalog/operations`, aiGuide: "/api/docs/ai-guide", smartAccounts: "/api/docs/smart-accounts", sessions: "/api/docs/sessions" },
       contractMethodSchemas: { endpoint: `${REST_PREFIX}/catalog/method`, parameters: ["contractId", "signature", "abiHash"],
         inputPointer: "/inputJsonSchema", outputPointer: "/outputJsonSchema", abiSelection: "Resolve first, then use that deployment's abiHash. Current source builds can have different methods." },
       limits: REST_LIMITS, indexerLimits: INDEXER_LIMITS,
@@ -147,7 +150,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
       ...(options.description ? { description: options.description } : {}),
       parameters: [...authParameters, ...(options.parameters ?? [])],
       ...(options.body ? { requestBody: { required: true, content: { "application/json": { schema: options.body } } } } : {}),
-      responses: { [status]: { description: status === 201 ? "Durable resource created, or the original idempotent result returned."
+      responses: { [status]: { description: status === 201 ? "Resource or preparation created, or the original idempotent result returned."
         : status === 202 ? "Submission processed. Admission, broadcast, confirmation and bridge settlement remain separate."
           : "Successful route-specific JSON response.", headers: responseHeaders,
       content: { "application/json": { schema: options.result ?? ref("JsonValue") } } },
@@ -169,7 +172,11 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
     description: "Read before planning. Per-chain relay, confirmation and sponsorship availability is runtime configuration. Unsupported smart-account or session mechanisms are not implied by a bot grant.",
     result: object({ version: { const: "1" }, protocolVersion: ref("ProtocolVersion"), audience: { type: "string", format: "uri" },
       authentication: { type: "object", additionalProperties: true }, chains: array({ type: "object", additionalProperties: true }), limits: { type: "object", additionalProperties: true },
-      transactions: { type: "object", additionalProperties: true }, sponsorship: { type: "object", additionalProperties: true }, smartAccounts: { anyOf: [ref("SmartAccountCapabilities"), object({ state: { type: "string", const: "unavailable" } })] }, omnichain: { type: "object", additionalProperties: true }, sources: { type: "object", additionalProperties: true }, catalogs: { type: "object", additionalProperties: true } }),
+      transactions: { type: "object", additionalProperties: true }, sponsorship: { type: "object", additionalProperties: true },
+      userOperations: { anyOf: [ref("UserOperationCapabilities"), object({ state: { type: "string", const: "unavailable" } })] },
+      sessions: { anyOf: [ref("SessionCapabilities"), object({ state: { type: "string", const: "unavailable" } })] },
+      smartAccounts: { anyOf: [ref("SmartAccountCapabilities"), object({ state: { type: "string", const: "unavailable" } })] }, omnichain: { type: "object", additionalProperties: true }, sources: { type: "object", additionalProperties: true }, catalogs: { type: "object", additionalProperties: true } },
+    ["version", "protocolVersion", "audience", "authentication", "chains", "limits", "transactions", "sponsorship", "userOperations", "sessions", "smartAccounts", "omnichain", "sources", "catalogs"]),
   });
   add("/catalog/contracts", "GET", "listContracts", "Browse the complete pinned V6 contract inventory", "Discovery", "public", {
     parameters: [queryParameter("packageId", { ...text, enum: contracts.data.packages.map((item) => item.id) }),
@@ -322,7 +329,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
   });
 
   add("/smart-accounts/capabilities", "GET", "getSmartAccountCapabilities", "Discover reviewed wallet manifests and remaining execution requirements", "Wallets", "public", {
-    result: ref("SmartAccountCapabilities"), description: "Runtime manifests and inspectors are operator-owned. Current service supports binding and policy review; walletCreation and UserOperation preparation, simulation and relay are false. An empty deployment list does not establish any supported deployed wallet.",
+    result: ref("SmartAccountCapabilities"), description: "Runtime manifests and inspectors are operator-owned. Check top-level capabilities.userOperations for current provider availability and capabilities.sessions for activation readiness. Implemented routes or historical research do not prove deployed guard or account execution support; an empty deployment list supplies no usable manifest.",
   });
   add("/smart-accounts/binding-challenges", "POST", "createSmartBindingChallenge", "Inspect an existing reviewed Safe and prepare owner-threshold binding data", "Wallets", "owner", {
     body: ref("SmartBindingChallengeInput"), result: ref("SmartBindingChallenge"),
@@ -347,6 +354,50 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
     body: ref("SessionReviewInput"), result: ref("SessionReview"),
     description: "Requires a verified existing binding, an active cumulative relay grant and configured reviewed action targets. Returns reviewable-not-activated, exact policy hashes and remaining activation requirements. There is no encoded installation transaction, UserOperation, live session or standing fund-moving authorization in this result. Seven- or thirty-day durations must fit the selected grant.",
     extra: { "x-activation": "review-only", "x-execution-available": false },
+  });
+  add("/smart-accounts/creation-plans", "POST", "prepareSmartAccountCreation", "Prepare deterministic Safe creation calldata with canonical dependency evidence", "Wallets", "owner", {
+    body: ref("SmartCreationInput"), result: object({ creation: ref("SmartCreation") }), status: 201, idempotent: true,
+    description: "Returns stateless exact factory calldata, predicted address and initializer. The API owner must appear in the owner set. A wallet signs and funds the factory transaction separately; this response is not a durable transaction plan or deployed account. Bind only after confirmed canonical creation and verified configuration.",
+  });
+  add("/smart-accounts/bindings/{id}/plans", "POST", "createSmartAccountTransactionPlan", "Create a durable plan for a currently verified smart-account binding", "Wallets", "plan", {
+    parameters: [pathParameter("id", ref("Hash"))], body: ref("CreatePlan"), result: ref("Plan"), status: 201, idempotent: true,
+    description: "The draft account must equal the exact bound Safe. Use contract_calls or a catalog operation and preserve the creating principal. Prepare its execution through /user-operations; an API grant or binding cannot supply a Safe-owner signature or session authority.",
+  });
+  const sessionAvailability = { "x-runtime-capability": "sessions.activationReady", "x-onchain-authority": "Exact installed policy and current canonical evidence, never the database record alone." };
+  add("/smart-accounts/sessions", "POST", "prepareSmartAccountSession", "Compile and persist an immutable bounded session generation", "Sessions", "plan", {
+    body: ref("SessionPreparationInput"), result: ref("StoredSession"), status: 201, idempotent: true, extra: sessionAvailability,
+    description: "Requires a complete verified binding, active read+plan+relay grant, reviewed compiler, asset/action targets and mandatory gas-only sponsorship budget. URI-only sessions may use allocations:[]. Preparation returns prepared and no standing authority. Generation, salt, policy nonce and permission identities cannot be reused.",
+  });
+  add("/smart-accounts/sessions", "GET", "listSmartAccountSessions", "List immutable sessions visible to the owner or exact bound bot", "Sessions", "read", {
+    parameters: [queryParameter("limit", { type: "integer", minimum: 1, maximum: 100, default: 25 }), queryParameter("cursor", ref("ResourceId"))],
+    result: ref("SessionPage"), description: "Ordered by session UUID. Follow optional nextCursor unchanged. The owner can inspect account sessions; a bot sees only the session's exact grant. Listing does not refresh chain evidence.",
+  });
+  add("/smart-accounts/sessions/{id}", "GET", "getSmartAccountSession", "Read or refresh exact installed-policy and counter evidence", "Sessions", "read", {
+    parameters: [pathParameter("id", ref("ResourceId")), queryParameter("refresh", { type: "boolean", default: true })], result: ref("StoredSession"),
+    description: "Refreshes sessions with an activation claim by default. refresh=false returns stored history. Reorgs, counter resets and configuration changes suspend execution; stale proofs do not restore a generation. A failed verifier can return a problem while recording stale state.",
+  });
+  add("/smart-accounts/sessions/{id}/quota", "GET", "getSmartAccountSessionQuota", "Read approved allocations and freshly observed onchain counters", "Sessions", "read", {
+    parameters: [pathParameter("id", ref("ResourceId"))], result: ref("SessionQuota"),
+    description: "Refreshes available installed evidence. Preserve chain and asset units. Database limits do not establish token balances or reusable cross-chain budget; policy validation can consume limits even when execution fails.",
+  });
+  for (const kind of ["activation", "revocation"] as const) add(`/smart-accounts/sessions/{id}/${kind}-plans`, "POST",
+    kind === "activation" ? "createSessionActivationPlan" : "createSessionRevocationPlan", `Prepare the owner's exact session ${kind} plan`, "Sessions", "owner", {
+      parameters: [pathParameter("id", ref("ResourceId"))], body: ref("SessionPlanInput"), result: ref("SessionPlanResult"), status: 201, idempotent: true, extra: sessionAvailability,
+      description: "Only the API owner can request this plan, acknowledging the exact compiledHash. Separately prepare a UserOperation from the returned plan, obtain the current Safe-owner threshold signatures, submit and refresh the session. Only the currently admitted lifecycle plan may execute. An expired plan with no admitted transport or attempt can be replaced with fresh owner consent and a new idempotency key, preserving up to 32 superseded approvals. Replacement cannot reinitialize an observed active generation. Only one generation per physical wallet may remain admitted, across keys, grants, assets and time windows. Release requires finalized disabled state with an advanced enable nonce; API revocation, unlinking or expiry alone cannot release it.",
+    });
+  add("/user-operations", "POST", "prepareUserOperation", "Prepare exact EntryPoint v0.7 bytes and the appropriate signing payload", "UserOperations", "plan", {
+    body: ref("PrepareUserOperation"), result: ref("UserOperation"), status: 201, idempotent: true,
+    description: "Requires configured provider/runtime policies and the source smart-account plan's creating principal. Select increasing step indices. Owner mode permits 1–16 calls on one chain and returns SafeOp typed data. Session mode requires the exact active bound bot, selects one call and returns an EIP-191 payload. Provider estimation and sponsorship are checked before signing; no execution occurs during preparation.",
+    extra: { "x-runtime-capability": "userOperations.preparation" },
+  });
+  add("/user-operations/{id}/submissions", "POST", "submitUserOperation", "Verify and publish one externally signed UserOperation", "UserOperations", "relay", {
+    parameters: [pathParameter("id", ref("ResourceId"))], body: ref("SubmitUserOperation"), result: ref("UserOperation"), status: 202, idempotent: true,
+    description: "Submit only the complete account signature envelope for the returned operation; all other fields remain immutable. Outside a session, current Safe-owner threshold signatures bind a fresh finite validity window. Inside a session, the installed bot key signs the exact operation and admission rechecks grant, generation and canonical counters. The API request signature is separate in both modes. Nonce and plan transport are reserved before publication. A timeout becomes submission_unknown and never permits an automatic second provider POST.",
+    extra: { "x-runtime-capability": "userOperations.relay", "x-signature-schemas": [ref("SafeOwnerUserOperationSigning"), ref("SessionUserOperationSigning")] },
+  });
+  add("/user-operations/{id}", "GET", "getUserOperation", "Reconcile a stored UserOperation using canonical execution evidence", "UserOperations", "read", {
+    parameters: [pathParameter("id", ref("ResourceId"))], result: ref("UserOperation"),
+    description: "Refreshes submitted operations. A provider receipt is a location hint; confirmed requires the exact EntryPoint operation and its scoped account-call evidence. Submitted signature bytes remain omitted. Reconcile the source plan for dependency status and distinguish bridge settlement from execution.",
   });
 
   // Concrete indexer routes have input/output schemas derived from the pinned SDL.

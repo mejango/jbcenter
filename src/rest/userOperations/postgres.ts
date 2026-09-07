@@ -1,0 +1,269 @@
+import type { Pool, PoolClient } from 'pg';
+import type { Hex } from 'viem';
+import type { RestActor } from '../core.js';
+import { assertRestActorActive } from '../auth/postgres.js';
+import { assertActor, assertText } from '../transactions/store.js';
+import { claimPostgresTransport } from '../transactions/transport-reservations.js';
+import type { StoredPlan } from '../transactions/types.js';
+import type { SmartAccountBinding } from '../smartAccounts/types.js';
+import {
+  assertUserOperationLifecyclePlan,
+  assertUserOperationSession,
+} from '../sessions/postgres.js';
+import type { UserOperationObservation } from './types.js';
+import {
+  USER_OPERATION_LIMITS,
+  assertClaim,
+  assertLimit,
+  assertNew,
+  assertPlan,
+  claimed,
+  clone,
+  conflict,
+  defaultCodec,
+  dispatchRecord,
+  fail,
+  key,
+  missing,
+  observed,
+  readCursor,
+  same,
+  settled,
+  type UserOperationClaim,
+  type UserOperationRecord,
+  type UserOperationStore,
+} from './store.js';
+
+async function databaseNow(client: PoolClient): Promise<number> {
+  const result = await client.query<{ now: string }>(
+    'SELECT floor(extract(epoch FROM clock_timestamp())*1000)::text AS now',
+  );
+  return Number(result.rows[0]!.now);
+}
+/** Account -> operation -> current session/plan -> global nonce, all inside one transaction. */
+export class PostgresUserOperationStore implements UserOperationStore {
+  constructor(private readonly pool: Pool) {}
+  private async transaction<T>(operation: (client: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await operation(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+  private async required(client: PoolClient, id: string): Promise<UserOperationRecord> {
+    assertText(id);
+    const result = await client.query<{ document: UserOperationRecord }>(
+      'SELECT document FROM rest_user_operations WHERE id=$1 FOR UPDATE',
+      [id],
+    );
+    return result.rows[0] ? clone(result.rows[0].document) : missing();
+  }
+  private async save(
+    client: PoolClient,
+    record: UserOperationRecord,
+  ): Promise<UserOperationRecord> {
+    const copy = clone(record);
+    await client.query(
+      'UPDATE rest_user_operations SET document=$2::jsonb,revision=$3,submission_key=$4 WHERE id=$1',
+      [copy.id, JSON.stringify(copy), copy.revision, copy.submission?.key ?? null],
+    );
+    return copy;
+  }
+  private async currentAuthority(
+    client: PoolClient,
+    record: UserOperationRecord,
+    now: number,
+  ): Promise<void> {
+    const binding = await client.query<{ document: SmartAccountBinding }>(
+      'SELECT document FROM rest_smart_account_bindings WHERE account_id=$1 AND id=$2 AND revoked_at IS NULL',
+      [record.actor.accountId, record.accountBindingId],
+    );
+    const current = binding.rows[0]?.document;
+    if (
+      !current ||
+      current.wallet.chainId !== record.chainId ||
+      !same(current.wallet.address, record.sender) ||
+      !same(current.state.stateHash, record.accountStateHash) ||
+      // Account binding certifies the exact owner/module configuration. Execution
+      // verification belongs to this signed operation's canonical preflight.
+      !current.state.moduleConfigurationVerified
+    ) {
+      fail(
+        'USER_OPERATION_BINDING_STALE',
+        'The current verified smart account binding changed or was revoked.',
+        403,
+      );
+    }
+    if (record.session)
+      await assertUserOperationSession(
+        client,
+        record.actor,
+        record.session,
+        record.accountBindingId,
+        record.chainId,
+        record.sender,
+        Math.floor(now / 1000),
+      );
+    const result = await client.query<{ document: StoredPlan }>(
+      'SELECT document FROM rest_transaction_plans WHERE id=$1 AND account_id=$2 AND principal_id=$3 FOR UPDATE',
+      [record.planId, record.actor.accountId, record.actor.principalId],
+    );
+    if (!result.rows[0]) missing();
+    const plan = result.rows[0]!.document;
+    assertPlan(record, plan, await databaseNow(client));
+    await assertUserOperationLifecyclePlan(
+      client,
+      record.actor,
+      plan,
+      Math.floor((await databaseNow(client)) / 1000),
+    );
+  }
+  async find(actor: RestActor, preparation: string, inputHash: Hex) {
+    assertActor(actor);
+    key(preparation);
+    const result = await this.pool.query<{ document: UserOperationRecord }>(
+      'SELECT document FROM rest_user_operations WHERE account_id=$1 AND principal_id=$2 AND preparation_key=$3',
+      [actor.accountId, actor.principalId, preparation],
+    );
+    const record = result.rows[0]?.document;
+    if (record && !same(record.inputHash, inputHash)) conflict();
+    return record ? clone(record) : undefined;
+  }
+  async create(input: UserOperationRecord, now: number) {
+    assertNew(input, now, defaultCodec);
+    const record = clone(input);
+    return this.transaction(async (client) => {
+      await assertRestActorActive(client, record.actor, ['plan'], Math.floor(now / 1000));
+      const previous = await client.query<{ document: UserOperationRecord }>(
+        'SELECT document FROM rest_user_operations WHERE account_id=$1 AND principal_id=$2 AND preparation_key=$3',
+        [record.actor.accountId, record.actor.principalId, record.preparationKey],
+      );
+      if (previous.rows[0]) {
+        if (!same(previous.rows[0].document.inputHash, record.inputHash)) conflict();
+        return clone(previous.rows[0].document);
+      }
+      const clock = await databaseNow(client);
+      assertNew(record, clock, defaultCodec);
+      await this.currentAuthority(client, record, clock);
+      const count = await client.query<{ count: string }>(
+        'SELECT count(*)::text AS count FROM rest_user_operations WHERE account_id=$1',
+        [record.actor.accountId],
+      );
+      if (Number(count.rows[0]!.count) >= USER_OPERATION_LIMITS.recordsPerAccount)
+        fail('USER_OPERATION_STORAGE_LIMIT', 'Account UserOperation record capacity reached.', 429);
+      assertNew(record, await databaseNow(client), defaultCodec);
+      await client.query(
+        'INSERT INTO rest_user_operations(id,account_id,principal_id,plan_id,preparation_key,created_at,revision,document) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)',
+        [
+          record.id,
+          record.actor.accountId,
+          record.actor.principalId,
+          record.planId,
+          record.preparationKey,
+          record.createdAt,
+          record.revision,
+          JSON.stringify(record),
+        ],
+      );
+      return clone(record);
+    });
+  }
+  async get(actor: RestActor, id: string) {
+    assertActor(actor);
+    assertText(id);
+    const result = await this.pool.query<{ document: UserOperationRecord }>(
+      'SELECT document FROM rest_user_operations WHERE id=$1 AND account_id=$2 AND (principal_id=$3 OR $4::boolean)',
+      [id, actor.accountId, actor.principalId, actor.principalId === `owner:${actor.accountId}`],
+    );
+    return result.rows[0] ? clone(result.rows[0].document) : undefined;
+  }
+  async claim(input: UserOperationClaim) {
+    assertClaim(input);
+    input = clone(input);
+    return this.transaction(async (client) => {
+      await assertRestActorActive(client, input.actor, ['relay'], Math.floor(input.now / 1000));
+      const record = await this.required(client, input.id);
+      const duplicate = await client.query(
+        'SELECT 1 FROM rest_user_operations WHERE account_id=$1 AND principal_id=$2 AND submission_key=$3 AND id<>$4',
+        [input.actor.accountId, input.actor.principalId, input.key, input.id],
+      );
+      if (duplicate.rowCount) conflict();
+      input.now = await databaseNow(client);
+      const initial = claimed(record, input, defaultCodec);
+      if (!initial.dispatch) return initial;
+      await this.currentAuthority(client, dispatchRecord(record, input), input.now);
+      await claimPostgresTransport(client, record.planId, record.stepIndexes, 'erc4337', record.id);
+      const nonce = BigInt(record.operation.nonce).toString();
+      await client.query(
+        'INSERT INTO rest_user_operation_nonces(chain_id,sender,nonce,entry_point,operation_hash,signed_commitment,user_operation_id) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(chain_id,sender,nonce) DO NOTHING',
+        [
+          record.chainId,
+          record.sender.toLowerCase(),
+          nonce,
+          record.entryPoint.toLowerCase(),
+          record.operationHash.toLowerCase(),
+          input.signedCommitment.toLowerCase(),
+          record.id,
+        ],
+      );
+      const reserved = await client.query<{
+        user_operation_id: string;
+        signed_commitment: string;
+        operation_hash: string;
+        entry_point: string;
+      }>(
+        'SELECT user_operation_id,signed_commitment,operation_hash,entry_point FROM rest_user_operation_nonces WHERE chain_id=$1 AND sender=$2 AND nonce=$3 FOR UPDATE',
+        [record.chainId, record.sender.toLowerCase(), nonce],
+      );
+      const row = reserved.rows[0];
+      if (
+        !row ||
+        row.user_operation_id !== record.id ||
+        !same(row.signed_commitment, input.signedCommitment) ||
+        !same(row.operation_hash, record.operationHash) ||
+        !same(row.entry_point, record.entryPoint)
+      )
+        fail(
+          'USER_OPERATION_NONCE_CONFLICT',
+          'The full sender nonce is permanently reserved by another UserOperation.',
+        );
+      // Recheck the database clock, current grant, binding and session AFTER every possible wait.
+      await assertRestActorActive(client, input.actor, ['relay'], Math.floor(input.now / 1000));
+      await this.currentAuthority(client, dispatchRecord(record, input), await databaseNow(client));
+      input.now = await databaseNow(client);
+      const result = claimed(record, input, defaultCodec);
+      result.record = await this.save(client, result.record);
+      return result;
+    });
+  }
+  async settle(id: string, commitment: Hex, state: 'pending' | 'submission_unknown') {
+    return this.transaction(async (client) =>
+      this.save(client, settled(await this.required(client, id), commitment, state)),
+    );
+  }
+  async observe(id: string, revision: number, observation: UserOperationObservation) {
+    observation = clone(observation);
+    return this.transaction(async (client) =>
+      this.save(client, observed(await this.required(client, id), revision, observation)),
+    );
+  }
+  async recoverable(limit: number, cursor?: string) {
+    assertLimit(limit);
+    const after = readCursor(cursor);
+    const result = await this.pool.query<{ document: UserOperationRecord }>(
+      `SELECT document FROM rest_user_operations WHERE document ? 'submission'
+       AND document->>'state' IN ('submitting','submission_unknown','pending','unknown','confirming')
+       AND ($1::bigint IS NULL OR created_at>$1 OR (created_at=$1 AND id COLLATE "C">$2 COLLATE "C"))
+       ORDER BY created_at,id COLLATE "C" LIMIT $3`,
+      [after?.createdAt ?? null, after?.id ?? null, limit],
+    );
+    return result.rows.map((row) => clone(row.document));
+  }
+}

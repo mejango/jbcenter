@@ -1,0 +1,247 @@
+{
+  "name": "UniActionPolicy",
+  "address": "0x0000000000714Cf48FcF88A0bFBa70d313415032",
+  "source": {
+    "repository": "https://github.com/rhinestonewtf/smartsessions",
+    "commit": "75279a6c80ad50ea623d06954e9d71ab753e8a52",
+    "artifactPath": "artifacts/UniActionPolicy/UniActionPolicy.json",
+    "artifactSha256": "52599049835dedaf13699c350b8d5cba482635597ad2416f815fdf920f5f4466"
+  },
+  "runtimeCodeHash": "0xc58f13d259c69d0db90f611347535e2d5642f3352740b7d58fbf6e6b939670dd",
+  "runtime": "0x608060405234801561000f575f5ffd5b506004361061004a575f3560e01c806301ffc9a71461004e57806305c0089514610076578063989c9e4614610097578063cc39a985146100ac575b5f5ffd5b61006161005c36600461074f565b6100cd565b60405190151581526020015b60405180910390f35b6100896100843660046107d6565b61011e565b60405190815260200161006d565b6100aa6100a5366004610849565b610229565b005b6100bf6100ba36600461089f565b610283565b60405161006d9291906108ec565b5f6001600160e01b031982166301ffc9a760e01b14806100fd57506001600160e01b03198216634c4e4f2360e11b145b8061011857506001600160e01b031982166305c0089560e01b145b92915050565b5f86815260208181526040808320338085529083528184206001600160a01b038a1685529092528220600181015490918991899061018e5760405163369d19e760e11b815260048101939093526001600160a01b0391821660248401521660448201526064015b60405180910390fd5b505081548991508690808211156101c957604051638a8a722d60e01b8152600481019390935260248301919091526044820152606401610185565b50505060018101545f5b818110156102185761020086866002860184601081106101f5576101f5610993565b600402019190610393565b610210576001935050505061021f565b6001016101d3565b505f925050505b9695505050505050565b6102368333868585610604565b604080518481523360208201526001600160a01b0386168183015290517f5d14f8bf6f75758495bb0b0768b81cdebc7869d1f19edacc2f483ca0c89a17159181900360600190a150505050565b5f602081815293815260408082208552928152828120845290815281812080548351808501855260018301805482528551610200810190965291959294909391928401916002860190601090835b82821015610386576040805160a081019091526004830285018054829060ff166006811115610302576103026108d8565b6006811115610313576103136108d8565b81528154610100810467ffffffffffffffff16602080840191909152690100000000000000000090910460ff1615156040808401919091526001808501546060850152815180830190925260028501548252600390940154818301526080909201919091529183529290920191016102d1565b5050505081525050905082565b82545f908190849084906103b790610100900467ffffffffffffffff1660046109bb565b875467ffffffffffffffff91821692916103d89161010090041660046109bb565b6103e39060206109bb565b67ffffffffffffffff16926103fa939291906109db565b61040391610a02565b90505f855460ff16600681111561041c5761041c6108d8565b14801561042d575084600101548114155b1561043b575f9150506105fd565b6001855460ff166006811115610453576104536108d8565b148015610464575084600101548111155b15610472575f9150506105fd565b6002855460ff16600681111561048a5761048a6108d8565b14801561049b575084600101548110155b156104a9575f9150506105fd565b6003855460ff1660068111156104c1576104c16108d8565b1480156104d15750846001015481105b156104df575f9150506105fd565b6004855460ff1660068111156104f7576104f76108d8565b1480156105075750846001015481115b15610515575f9150506105fd565b6005855460ff16600681111561052d5761052d6108d8565b14801561053d5750846001015481145b1561054b575f9150506105fd565b6006855460ff166006811115610563576105636108d8565b036105a057600185015460801c811080610592575060018501546fffffffffffffffffffffffffffffffff1681115b156105a0575f9150506105fd565b84546901000000000000000000900460ff16156105f757600285015460038601546105cc908390610a1f565b11156105db575f9150506105fd565b6003850180548291905f906105f1908490610a1f565b90915550505b60019150505b9392505050565b5f61061182840184610ae5565b5f878152602081815260408083206001600160a01b03808b168552908352818420908916845290915290209091506106499082610651565b505050505050565b8051825560208101515160018301555f5b60208201515181101561074a57816020015160200151816010811061068957610689610993565b60200201516002840182601081106106a3576106a3610993565b600402015f820151815f015f6101000a81548160ff021916908360068111156106ce576106ce6108d8565b021790555060208281015182546040850151151569010000000000000000000269ff0000000000000000001967ffffffffffffffff909316610100029290921669ffffffffffffffffff001990911617178255606083015160018084019190915560809093015180516002840155015160039091015501610662565b505050565b5f6020828403121561075f575f5ffd5b81356001600160e01b0319811681146105fd575f5ffd5b80356001600160a01b038116811461078c575f5ffd5b919050565b5f5f83601f8401126107a1575f5ffd5b50813567ffffffffffffffff8111156107b8575f5ffd5b6020830191508360208285010111156107cf575f5ffd5b9250929050565b5f5f5f5f5f5f60a087890312156107eb575f5ffd5b863595506107fb60208801610776565b945061080960408801610776565b935060608701359250608087013567ffffffffffffffff81111561082b575f5ffd5b61083789828a01610791565b979a9699509497509295939492505050565b5f5f5f5f6060858703121561085c575f5ffd5b61086585610776565b935060208501359250604085013567ffffffffffffffff811115610887575f5ffd5b61089387828801610791565b95989497509550505050565b5f5f5f606084860312156108b1575f5ffd5b833592506108c160208501610776565b91506108cf60408501610776565b90509250925092565b634e487b7160e01b5f52602160045260245ffd5b5f610c4082019050838252825160208301526020830151604083015f5b601081101561098957825180516007811061093257634e487b7160e01b5f52602160045260245ffd5b835260208181015167ffffffffffffffff1681850152604080830151151590850152606080830151908501526080918201518051928501929092529081015160a0840152929092019160c090910190600101610909565b5050509392505050565b634e487b7160e01b5f52603260045260245ffd5b634e487b7160e01b5f52601160045260245ffd5b67ffffffffffffffff8181168382160190811115610118576101186109a7565b5f5f858511156109e9575f5ffd5b838611156109f5575f5ffd5b5050820193919092039150565b80356020831015610118575f19602084900360031b1b1692915050565b80820180821115610118576101186109a7565b634e487b7160e01b5f52604160045260245ffd5b6040805190810167ffffffffffffffff81118282101715610a6957610a69610a32565b60405290565b604051610200810167ffffffffffffffff81118282101715610a6957610a69610a32565b60405160a0810167ffffffffffffffff81118282101715610a6957610a69610a32565b5f60408284031215610ac6575f5ffd5b610ace610a46565b823581526020928301359281019290925250919050565b5f818303610c4081128015610af8575f5ffd5b50610b01610a46565b83358152610c20601f1983011215610b17575f5ffd5b610b1f610a46565b602085013581529150605f84018513610b36575f5ffd5b610b3e610a6f565b80610c40860187811115610b50575f5ffd5b604087015b81811015610be65760c0818a031215610b6c575f5ffd5b610b74610a93565b813560078110610b82575f5ffd5b8152602082013567ffffffffffffffff81168114610b9e575f5ffd5b602082015260408201358015158114610bb5575f5ffd5b604082015260608281013590820152610bd18a60808401610ab6565b6080820152845260209093019260c001610b55565b505060208481019190915282019290925294935050505056fea164736f6c634300081c000a",
+  "abi": [
+    {
+      "type": "function",
+      "name": "actionConfigs",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "ConfigId"
+        },
+        {
+          "name": "multiplexer",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "userOpSender",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "valueLimitPerUse",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "paramRules",
+          "type": "tuple",
+          "internalType": "struct ParamRules",
+          "components": [
+            {
+              "name": "length",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "rules",
+              "type": "tuple[16]",
+              "internalType": "struct ParamRule[16]",
+              "components": [
+                {
+                  "name": "condition",
+                  "type": "uint8",
+                  "internalType": "enum ParamCondition"
+                },
+                {
+                  "name": "offset",
+                  "type": "uint64",
+                  "internalType": "uint64"
+                },
+                {
+                  "name": "isLimited",
+                  "type": "bool",
+                  "internalType": "bool"
+                },
+                {
+                  "name": "ref",
+                  "type": "bytes32",
+                  "internalType": "bytes32"
+                },
+                {
+                  "name": "usage",
+                  "type": "tuple",
+                  "internalType": "struct LimitUsage",
+                  "components": [
+                    {
+                      "name": "limit",
+                      "type": "uint256",
+                      "internalType": "uint256"
+                    },
+                    {
+                      "name": "used",
+                      "type": "uint256",
+                      "internalType": "uint256"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "checkAction",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "ConfigId"
+        },
+        {
+          "name": "account",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "value",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "data",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "initializeWithMultiplexer",
+      "inputs": [
+        {
+          "name": "account",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "configId",
+          "type": "bytes32",
+          "internalType": "ConfigId"
+        },
+        {
+          "name": "initData",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "supportsInterface",
+      "inputs": [
+        {
+          "name": "interfaceID",
+          "type": "bytes4",
+          "internalType": "bytes4"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "pure"
+    },
+    {
+      "type": "event",
+      "name": "PolicySet",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "ConfigId"
+        },
+        {
+          "name": "multiplexer",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        },
+        {
+          "name": "account",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "error",
+      "name": "PolicyNotInitialized",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "ConfigId"
+        },
+        {
+          "name": "multiplexer",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "account",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "ValueLimitExceeded",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "ConfigId"
+        },
+        {
+          "name": "value",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "limit",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    }
+  ]
+}

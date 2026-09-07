@@ -9,7 +9,12 @@ import {
   RpcUnavailable,
 } from "../src/rpc.js";
 
-const chainIdRequest = { jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] } as const;
+const chainIdRequest = {
+  jsonrpc: "2.0",
+  id: 1,
+  method: "eth_chainId",
+  params: [],
+} as const;
 
 describe("RPC configuration", () => {
   it("builds every reviewed Dwellir URL from one key", () => {
@@ -48,6 +53,8 @@ describe("read-only JSON-RPC policy", () => {
     [{ ...chainIdRequest, method: "eth_sendRawTransaction" }, /not allowed/u],
     [{ ...chainIdRequest, method: "wallet_signTransaction" }, /not allowed/u],
     [{ ...chainIdRequest, method: "debug_traceCall" }, /not allowed/u],
+    [{ ...chainIdRequest, method: "debug_traceBlockByNumber" }, /not allowed/u],
+    [{ ...chainIdRequest, method: "debug_traceTransaction" }, /not allowed/u],
     [{ ...chainIdRequest, id: null }, /version or id/u],
     [{ ...chainIdRequest, params: {} }, /params/u],
   ])("rejects unsafe or malformed request %#", (request, message) => {
@@ -72,13 +79,23 @@ describe("read-only JSON-RPC policy", () => {
       /must not exceed/u,
     );
     expect(() =>
-      parseRpcRequest({ jsonrpc: "2.0", id: 1, method: "eth_simulateV1", params: [] }),
+      parseRpcRequest({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_simulateV1",
+        params: [],
+      }),
     ).toThrow(/blockStateCalls/u);
   });
 
   it("requires bounded log queries", () => {
     expect(() =>
-      parseRpcRequest({ jsonrpc: "2.0", id: 1, method: "eth_getLogs", params: [{}] }),
+      parseRpcRequest({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_getLogs",
+        params: [{}],
+      }),
     ).toThrow(/bounded block range/u);
     expect(() =>
       parseRpcRequest({
@@ -100,6 +117,38 @@ describe("read-only JSON-RPC policy", () => {
 });
 
 describe("RPC upstream boundary", () => {
+  it.each([
+    { timeoutMs: 0 },
+    { timeoutMs: 30_001 },
+    { timeoutMs: NaN },
+    { timeoutMs: 1.5 },
+    { responseLimitBytes: 0 },
+    { responseLimitBytes: 20 * 1024 * 1024 + 1 },
+    { responseLimitBytes: Infinity },
+    { responseLimitBytes: 1.5 },
+  ])("rejects invalid trusted gateway limits %#", (limits) => {
+    expect(() => createRpcGateway(new Map(), fetch, limits)).toThrow("bounded");
+  });
+  it("applies custom byte bounds to chunked responses and cancels a body that exceeds them", async () => {
+    let cancelled = false;
+    const fetcher: typeof fetch = async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(65));
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+      );
+    const gateway = createRpcGateway(new Map([[1, ["https://archive.example"]]]), fetcher, {
+      timeoutMs: 15_000,
+      responseLimitBytes: 64,
+    });
+    await expect(gateway.request(1, chainIdRequest)).rejects.toBeInstanceOf(RpcUnavailable);
+    expect(cancelled).toBe(true);
+  });
   it("fails over without exposing upstream details", async () => {
     const fetcher = vi
       .fn<typeof fetch>()
@@ -123,28 +172,46 @@ describe("RPC upstream boundary", () => {
   });
 
   it("fails over when the primary does not implement the method, and returns any other error", async () => {
-    const simulate = { jsonrpc: "2.0", id: 7, method: "eth_simulateV1", params: [] } as const;
+    const simulate = {
+      jsonrpc: "2.0",
+      id: 7,
+      method: "eth_simulateV1",
+      params: [],
+    } as const;
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
         Response.json({
           jsonrpc: "2.0",
           id: 7,
-          error: { code: -32601, message: "the method eth_simulateV1 does not exist" },
+          error: {
+            code: -32601,
+            message: "the method eth_simulateV1 does not exist",
+          },
         }),
       )
       .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", id: 7, result: [] }))
       .mockResolvedValueOnce(
-        Response.json({ jsonrpc: "2.0", id: 7, error: { code: 3, message: "execution reverted" } }),
+        Response.json({
+          jsonrpc: "2.0",
+          id: 7,
+          error: { code: 3, message: "execution reverted" },
+        }),
       );
     const gateway = createRpcGateway(
       new Map([[1, ["https://primary.example/secret", "https://fallback.example/key"]]]),
       fetcher,
     );
 
-    await expect(gateway.request(1, simulate)).resolves.toEqual({ jsonrpc: "2.0", id: 7, result: [] });
+    await expect(gateway.request(1, simulate)).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: 7,
+      result: [],
+    });
     expect(fetcher).toHaveBeenCalledTimes(2);
-    await expect(gateway.request(1, simulate)).resolves.toMatchObject({ error: { code: 3 } });
+    await expect(gateway.request(1, simulate)).resolves.toMatchObject({
+      error: { code: 3 },
+    });
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
@@ -153,10 +220,11 @@ describe("RPC upstream boundary", () => {
     try {
       const fetcher = vi
         .fn<typeof fetch>()
-        .mockImplementationOnce((_url, init) =>
-          new Promise<Response>((_resolve, reject) => {
-            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
-          }),
+        .mockImplementationOnce(
+          (_url, init) =>
+            new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+            }),
         )
         .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", id: 1, result: "0x1" }));
       const gateway = createRpcGateway(
@@ -166,7 +234,11 @@ describe("RPC upstream boundary", () => {
 
       const request = gateway.request(1, chainIdRequest);
       await vi.advanceTimersByTimeAsync(RPC_TIMEOUT_MS);
-      await expect(request).resolves.toEqual({ jsonrpc: "2.0", id: 1, result: "0x1" });
+      await expect(request).resolves.toEqual({
+        jsonrpc: "2.0",
+        id: 1,
+        result: "0x1",
+      });
       expect(fetcher).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
@@ -192,10 +264,11 @@ describe("RPC upstream boundary", () => {
     const reason = new DOMException("Caller disconnected", "AbortError");
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockImplementationOnce((_url, init) =>
-        new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
-        }),
+      .mockImplementationOnce(
+        (_url, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+          }),
       )
       .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", id: 1, result: "0x1" }));
     const gateway = createRpcGateway(
@@ -264,7 +337,11 @@ describe("RPC upstream boundary", () => {
 
       const request = gateway.request(1, chainIdRequest);
       await vi.advanceTimersByTimeAsync(RPC_TIMEOUT_MS);
-      await expect(request).resolves.toEqual({ jsonrpc: "2.0", id: 1, result: "0x1" });
+      await expect(request).resolves.toEqual({
+        jsonrpc: "2.0",
+        id: 1,
+        result: "0x1",
+      });
       expect(cancel).toHaveBeenCalledTimes(1);
       expect(stream.locked).toBe(false);
       expect(fetcher).toHaveBeenCalledTimes(2);
@@ -313,7 +390,10 @@ describe("RPC upstream boundary", () => {
       vi.fn<typeof fetch>().mockResolvedValue(new Response(stream)),
     );
 
-    const result = await gateway.request(1, { ...chainIdRequest, method: "eth_call" });
+    const result = await gateway.request(1, {
+      ...chainIdRequest,
+      method: "eth_call",
+    });
     expect(result).toMatchObject({ jsonrpc: "2.0", id: 1 });
     expect((result as { result: string }).result).toHaveLength(payloadSize);
     expect(stream.locked).toBe(false);
@@ -323,7 +403,9 @@ describe("RPC upstream boundary", () => {
     const cases = [
       Response.json({ jsonrpc: "2.0", id: 1, result: "0xa" }),
       Response.json({ jsonrpc: "2.0", id: 2, result: "0x1" }),
-      new Response("{}", { headers: { "content-length": String(6 * 1024 * 1024) } }),
+      new Response("{}", {
+        headers: { "content-length": String(6 * 1024 * 1024) },
+      }),
     ];
     for (const response of cases) {
       const gateway = createRpcGateway(

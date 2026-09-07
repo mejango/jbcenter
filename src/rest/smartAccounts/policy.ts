@@ -35,7 +35,7 @@ export interface ReviewedSessionTarget {
   chainId: number;
   address: Address;
   runtimeCodeHash: Hex;
-  kind: "erc20-exact-transfer" | "v6-core-terminal";
+  kind: "erc20-exact-transfer" | "v6-core-terminal" | "v6-controller-uri";
   reviewId: string;
 }
 export interface SessionReviewDependencies {
@@ -47,8 +47,21 @@ export interface SessionReviewDependencies {
   getGrant(ownerAccountId: string, grantId: string): Promise<BotGrant | null>;
   /** Pinned host configuration, never supplied by policy callers. */
   targets: readonly ReviewedSessionTarget[];
+  /** Resolve deployed targets against this exact verified account snapshot. */
+  resolveTargets?(
+    binding: SmartAccountBinding,
+    input: SessionPolicyInput,
+    signal?: AbortSignal,
+  ): Promise<readonly ReviewedSessionTarget[]>;
   assets?: readonly ReviewedSessionAsset[];
+  paymasters?: readonly ReviewedSessionPaymaster[];
   now?: () => number;
+}
+export interface ReviewedSessionPaymaster {
+  chainId: number;
+  address: Address;
+  runtimeCodeHash: Hex;
+  reviewId: string;
 }
 export interface ReviewedSessionAsset {
   chainId: number;
@@ -78,6 +91,7 @@ export function createSessionPolicyReviewer(
           "validAfter",
           "durationDays",
           "maximumCalls",
+          "gasBudget",
           "allocations",
           "actions",
         ],
@@ -142,15 +156,89 @@ export function createSessionPolicyReviewer(
           "SMART_BINDING_OWNER_MISMATCH",
           "The wallet belongs to another API account.",
         );
+      const targets = options.resolveTargets
+        ? await options.resolveTargets(binding, input, signal)
+        : options.targets;
+      let gasBudget;
+      if (input.gasBudget !== undefined) {
+        exactObject(
+          input.gasBudget,
+          [
+            "paymaster",
+            "maxGasPerOperation",
+            "maxFeePerGas",
+            "maxPriorityFeePerGas",
+            "totalGasLimit",
+            "totalSponsoredCostLimit",
+            "maxPaymasterDataLength",
+          ],
+          "gasBudget",
+        );
+        const paymaster = address(input.gasBudget.paymaster, "paymaster", true);
+        const reviewed = options.paymasters?.find(
+          (p) =>
+            p.chainId === binding.wallet.chainId && same(p.address, paymaster),
+        );
+        if (!reviewed || !hash(reviewed.runtimeCodeHash) || !reviewed.reviewId)
+          throw new RestError(
+            422,
+            "SMART_PAYMASTER_REVIEW_REQUIRED",
+            "The hosted paymaster must match a server-reviewed chain, address and runtime.",
+          );
+        const gas = integer(
+          input.gasBudget.maxGasPerOperation,
+          "maxGasPerOperation",
+        );
+        const fee = integer(input.gasBudget.maxFeePerGas, "maxFeePerGas");
+        const priority = integer(
+          input.gasBudget.maxPriorityFeePerGas,
+          "maxPriorityFeePerGas",
+        );
+        const totalGas = integer(
+          input.gasBudget.totalGasLimit,
+          "totalGasLimit",
+        );
+        const totalCost = integer(
+          input.gasBudget.totalSponsoredCostLimit,
+          "totalSponsoredCostLimit",
+        );
+        if (
+          gas === 0n ||
+          fee === 0n ||
+          priority > fee ||
+          gas > totalGas ||
+          gas * fee > totalCost ||
+          totalGas >= 1n << 128n ||
+          fee >= 1n << 128n ||
+          gas * fee >= 1n << 256n ||
+          !Number.isInteger(input.gasBudget.maxPaymasterDataLength) ||
+          input.gasBudget.maxPaymasterDataLength !== 130
+        )
+          fail(
+            "The mandatory sponsored gas budget must have positive ordered limits, bounded fees and the exact 130-byte gas-only paymaster profile.",
+          );
+        gasBudget = {
+          paymaster,
+          paymasterCodeHash: reviewed.runtimeCodeHash,
+          paymasterReviewId: reviewed.reviewId,
+          maxGasPerOperation: String(gas),
+          maxFeePerGas: String(fee),
+          maxPriorityFeePerGas: String(priority),
+          totalGasLimit: String(totalGas),
+          totalSponsoredCostLimit: String(totalCost),
+          maxPaymasterDataLength: input.gasBudget.maxPaymasterDataLength,
+        };
+      }
       if (
         !Array.isArray(input.allocations) ||
-        input.allocations.length < 1 ||
         input.allocations.length > 16 ||
         !Array.isArray(input.actions) ||
         input.actions.length < 1 ||
         input.actions.length > 16
       )
-        fail("Use 1–16 allocation groups and explicit actions.");
+        fail(
+          "Use at most sixteen allocation groups and 1–16 explicit actions.",
+        );
       const allocationIds = new Set<string>(),
         groupIds = new Set<string>(),
         coordinates = new Set<string>();
@@ -239,9 +327,57 @@ export function createSessionPolicyReviewer(
       const spentCaps = new Map<string, bigint>(),
         actionIds = new Set<string>();
       const actions = input.actions.map((action, index) => {
+        if (action?.kind === "v6-project-uri") {
+          exactObject(
+            action,
+            ["kind", "controller", "projectId"],
+            `actions[${index}]`,
+          );
+          const target = address(action.controller, "controller", true);
+          const projectId = integer(action.projectId, "projectId");
+          if (projectId === 0n || same(target, binding.wallet.address))
+            fail(
+              "Project URI authority needs a positive project and an external controller.",
+            );
+          const targetReview = targets.find(
+            (item) =>
+              item.chainId === binding.wallet.chainId &&
+              same(item.address, target) &&
+              item.kind === "v6-controller-uri",
+          );
+          if (!targetReview || !hash(targetReview.runtimeCodeHash))
+            throw new RestError(
+              422,
+              "SMART_TARGET_REVIEW_REQUIRED",
+              "A source-reviewed V6 controller URI adapter is required.",
+            );
+          const selector = toFunctionSelector("setUriOf(uint256,string)");
+          const key = `${target.toLowerCase()}:${selector}`;
+          if (actionIds.has(key))
+            fail(
+              "Duplicate target/selector policies cannot express independent project constraints.",
+            );
+          actionIds.add(key);
+          return {
+            kind: action.kind,
+            chainId: binding.wallet.chainId,
+            target,
+            targetReviewId: targetReview.reviewId,
+            runtimeCodeHash: targetReview.runtimeCodeHash,
+            selector,
+            projectId: String(projectId),
+            requiredEnforcement: [
+              "exact-project-id",
+              "zero-native-value",
+              "non-delegatecall",
+              "no-arbitrary-signature",
+              "owner-or-project-permission-held-by-smart-account",
+            ],
+          };
+        }
         if (!action || !["erc20-transfer", "v6-pay"].includes(action.kind))
           fail(
-            "Only typed ERC20 transfers and closed V6 payments can be modeled; arbitrary selectors, nested calls, approvals and administration are excluded.",
+            "Only typed project URI updates, ERC20 transfers and closed V6 payments can be modeled; arbitrary selectors, nested calls, approvals and administration are excluded.",
           );
         exactObject(
           action,
@@ -298,7 +434,7 @@ export function createSessionPolicyReviewer(
           fail("Account self-calls are forbidden.");
         if (action.kind === "erc20-transfer" && same(allocation.asset, NATIVE))
           fail("Native transfers cannot use an ERC20 policy.");
-        const targetReview = options.targets.find(
+        const targetReview = targets.find(
           (item) =>
             item.chainId === binding.wallet.chainId &&
             same(item.address, target) &&
@@ -340,6 +476,7 @@ export function createSessionPolicyReviewer(
         if (action.kind === "erc20-transfer")
           return {
             ...common,
+            kind: "erc20-transfer" as const,
             requiredEnforcement: [
               "exact-recipient-word",
               "uint256-amount-per-call-and-cumulative",
@@ -357,6 +494,7 @@ export function createSessionPolicyReviewer(
           fail("V6 payments need an exact positive project identity.");
         return {
           ...common,
+          kind: "v6-pay" as const,
           projectId: String(projectId),
           minReturnedTokens: String(minimum),
           memo: "",
@@ -398,6 +536,7 @@ export function createSessionPolicyReviewer(
         validAfter: input.validAfter,
         validUntil,
         maximumCalls: String(maximumCalls),
+        ...(gasBudget ? { gasBudget } : {}),
         salt,
         restrictToActions: true,
         signing: { mode: "disabled" },

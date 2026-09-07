@@ -305,8 +305,9 @@ The owner-to-session-key relationship, scoped access, expiry, and key-management
 UX follow useful concepts from Derive's
 [session keys](https://docs.derive.xyz/reference/session-keys) and
 [scoped registration](https://docs.derive.xyz/reference/private-register_scoped_session_key).
-Derive documents timestamp-only API authentication and a separate action signature
-for self-custodial operations. Center signs the full HTTP request and consumes a
+Derive documents a timestamp signature for private-endpoint authentication and a
+separate action-payload signature for self-custodial operations, including nonce
+and expiry. Center signs the full HTTP request and consumes a
 single-use nonce. API authority remains separate from onchain authority.
 See [Derive authentication](https://docs.derive.xyz/reference/authentication) and
 [action signing](https://docs.derive.xyz/reference/submit-order).

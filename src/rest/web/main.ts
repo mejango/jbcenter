@@ -4,8 +4,10 @@ import { verifyBotProof } from "../auth/signatures.js";
 import type { Account, BotGrant, BotScope } from "../auth/store.js";
 import {
   SignedRestClient, accountIdFor, createBotRegistration, newRequestNonce, parseBotRegistration,
+  signWalletTypedData,
   type BotRegistration, type RestSigner, type TypedDocument,
 } from "../client/index.js";
+import { installSmartWalletUI } from "./smartSessions.js";
 
 type Provider = {
   request(input: { method: string; params?: unknown[] }): Promise<unknown>;
@@ -22,6 +24,7 @@ let current: { provider: Provider; owner: Address; chainId: number; accountId: s
 let pending: BotRegistration | undefined;
 let reviewed: BotRegistration | undefined;
 let busy = false;
+let smartUi: ReturnType<typeof installSmartWalletUI> | undefined;
 
 function status(message: string, error = false) {
   const node = element("status"); node.textContent = message; node.dataset.error = String(error);
@@ -32,6 +35,7 @@ function accountReady(ready: boolean) {
   element<HTMLFieldSetElement>("profile-fields").disabled = !ready;
   element<HTMLFieldSetElement>("bot-fields").disabled = !ready;
   button("refresh-bots").disabled = !ready;
+  smartUi?.accountReady(ready);
 }
 function reset() {
   if (current) {
@@ -40,6 +44,7 @@ function reset() {
     current.provider.removeListener?.("disconnect", reset);
   }
   current = undefined; pending = undefined; reviewed = undefined; accountReady(false);
+  smartUi?.reset();
   button("enroll").disabled = true; button("refresh").disabled = true;
   button("disconnect").hidden = true; button("register-generated").disabled = true;
   button("register-proof").hidden = true; element("proof-preview").hidden = true;
@@ -73,21 +78,8 @@ if (legacy && typeof legacy.request === "function") discover({ id: "injected", n
 if (!wallets.length) element<HTMLSelectElement>("wallets").options[0]!.textContent = "Install or unlock a wallet";
 
 async function walletTypedSignature(provider: Provider, owner: Address, chainId: number, typedData: TypedDocument): Promise<Hex> {
-  const accounts = await provider.request({ method: "eth_accounts" });
-  const chain = await provider.request({ method: "eth_chainId" });
-  if (!Array.isArray(accounts) || !accounts.some((address) => typeof address === "string" && address.toLowerCase() === owner.toLowerCase()) || Number(chain) !== chainId) {
-    reset(); throw new Error("Wallet account or chain changed.");
-  }
-  const domainTypes = [
-    { name: "name", type: "string" }, { name: "version", type: "string" },
-    { name: "chainId", type: "uint256" }, { name: "salt", type: "bytes32" },
-  ];
-  const wireDocument = { ...typedData, types: { EIP712Domain: domainTypes, ...typedData.types } };
-  const signature = await provider.request({ method: "eth_signTypedData_v4", params: [owner, JSON.stringify(wireDocument, (_key, value: unknown) => typeof value === "bigint" ? value.toString() : value)] });
-  if (typeof signature !== "string" || !/^0x(?:[0-9a-fA-F]{2}){1,8192}$/.test(signature)) throw new Error("Wallet returned an invalid signature.");
-  // Never use an in-flight signature after a wallet identity change.
-  if (current?.provider !== provider || current.owner !== owner || current.chainId !== chainId) throw new Error("Wallet connection changed.");
-  return signature as Hex;
+  return signWalletTypedData({ provider, address: owner, chainId, document: typedData, signatureFormat: "wallet",
+    stillCurrent: () => current?.provider === provider && current.owner === owner && current.chainId === chainId });
 }
 button("connect").addEventListener("click", () => void run(async () => {
   const wallet = wallets.find((item) => item.id === element<HTMLSelectElement>("wallets").value);
@@ -208,3 +200,4 @@ function renderBots(bots: BotGrant[]) {
 button("refresh-bots").addEventListener("click", () => void run(async () => {
   const { bots } = await active().client.request<{ bots: BotGrant[] }>({ requestTarget: "/api/v1/accounts/me/bots" }); renderBots(bots); status("Bot list refreshed.");
 }));
+smartUi = installSmartWalletUI({ audience, connection: () => current, run, status });

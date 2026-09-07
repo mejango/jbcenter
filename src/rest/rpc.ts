@@ -25,24 +25,61 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+// Archive inspection traces one exact transaction or explicit block at a time. These
+// limits are server-owned and leave headroom for the node's ten-second tracer.
+export const PRIVATE_TRACE_TIMEOUT_MS = 15_000;
+export const PRIVATE_TRACE_RESPONSE_LIMIT = 20 * 1024 * 1024;
+function traceParams(method: string, params: readonly unknown[]): readonly unknown[] {
+  if (!Array.isArray(params))
+    throw new RestError(400, "RPC_METHOD_NOT_ALLOWED", "Trace parameters must be an exact array");
+  const [selector, config] = params;
+  if (
+    params.length !== 2 ||
+    typeof selector !== "string" ||
+    !(method === "debug_traceTransaction"
+      ? /^0x[0-9a-fA-F]{64}$/.test(selector)
+      : /^0x(?:0|[1-9a-f][0-9a-f]{0,15})$/.test(selector)) ||
+    !record(config) ||
+    Object.keys(config).length !== 3 ||
+    !Object.hasOwn(config, "tracer") ||
+    config.tracer !== "callTracer" ||
+    !Object.hasOwn(config, "timeout") ||
+    config.timeout !== "10s" ||
+    !Object.hasOwn(config, "tracerConfig") ||
+    !record(config.tracerConfig) ||
+    Object.keys(config.tracerConfig).length !== 1 ||
+    !Object.hasOwn(config.tracerConfig, "onlyTopCall") ||
+    config.tracerConfig.onlyTopCall !== false
+  ) {
+    throw new RestError(
+      400,
+      "RPC_METHOD_NOT_ALLOWED",
+      "Only a bounded complete call trace of one exact transaction or explicit block is supported",
+    );
+  }
+  // Keep the validated shape immutable across quota and chain-verification awaits.
+  return [
+    selector.toLowerCase(),
+    {
+      tracer: "callTracer",
+      timeout: "10s",
+      tracerConfig: { onlyTopCall: false },
+    },
+  ];
+}
+
 function result(envelope: unknown): unknown {
-  if (!record(envelope))
-    throw new RestRpcError("RPC_INVALID_RESPONSE", "RPC response is invalid");
+  if (!record(envelope)) throw new RestRpcError("RPC_INVALID_RESPONSE", "RPC response is invalid");
   if (record(envelope.error)) {
     throw new RestRpcError(
       "RPC_REJECTED",
       "The configured RPC rejected the request",
       Number(envelope.error.code),
-      typeof envelope.error.data === "string"
-        ? (envelope.error.data as `0x${string}`)
-        : undefined,
+      typeof envelope.error.data === "string" ? (envelope.error.data as `0x${string}`) : undefined,
     );
   }
   if (!Object.hasOwn(envelope, "result"))
-    throw new RestRpcError(
-      "RPC_INVALID_RESPONSE",
-      "RPC response has no result",
-    );
+    throw new RestRpcError("RPC_INVALID_RESPONSE", "RPC response has no result");
   return envelope.result;
 }
 
@@ -53,7 +90,7 @@ export function createRestRpc(options: {
   /** Shared durable site quota, charged for each upstream request including chain verification. */
   consume?: () => Promise<void>;
 }): RestRpc {
-  const gateways = new Map<number, RpcGateway[]>();
+  const gateways = new Map<number, { reads: RpcGateway; traces: RpcGateway }[]>();
   for (const [chain, urls] of options.upstreams) {
     if (!Number.isSafeInteger(chain) || chain <= 0 || !urls.length)
       throw new Error("Invalid REST RPC configuration");
@@ -61,17 +98,17 @@ export function createRestRpc(options: {
       chain,
       urls.map((url) => {
         const parsed = new URL(url);
-        if (
-          parsed.protocol !== "https:" ||
-          parsed.username ||
-          parsed.password ||
-          parsed.hash
-        ) {
-          throw new Error(
-            "REST RPC upstreams must use HTTPS without credentials in userinfo",
-          );
+        if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.hash) {
+          throw new Error("REST RPC upstreams must use HTTPS without credentials in userinfo");
         }
-        return createRpcGateway(new Map([[chain, [url]]]), options.fetcher);
+        const upstream = new Map([[chain, [url]]]);
+        return {
+          reads: createRpcGateway(upstream, options.fetcher),
+          traces: createRpcGateway(upstream, options.fetcher, {
+            timeoutMs: PRIVATE_TRACE_TIMEOUT_MS,
+            responseLimitBytes: PRIVATE_TRACE_RESPONSE_LIMIT,
+          }),
+        };
       }),
     );
   }
@@ -82,13 +119,15 @@ export function createRestRpc(options: {
       signal?.throwIfAborted();
       const candidates = gateways.get(chainId);
       if (!candidates)
-        throw new RestError(
-          400,
-          "UNSUPPORTED_CHAIN",
-          "The requested chain is not configured",
-        );
+        throw new RestError(400, "UNSUPPORTED_CHAIN", "The requested chain is not configured");
       const broadcast = method === "eth_sendRawTransaction";
-      const request = { jsonrpc: "2.0" as const, id: nextId(), method, params };
+      const trace = method === "debug_traceBlockByNumber" || method === "debug_traceTransaction";
+      const request = {
+        jsonrpc: "2.0" as const,
+        id: nextId(),
+        method,
+        params: trace ? traceParams(method, params) : params,
+      };
       if (broadcast) {
         if (
           params.length !== 1 ||
@@ -101,7 +140,7 @@ export function createRestRpc(options: {
             "Expected bounded serialized signed transaction bytes",
           );
         }
-      } else {
+      } else if (!trace) {
         try {
           parseRpcRequest(request);
         } catch {
@@ -113,20 +152,16 @@ export function createRestRpc(options: {
         }
       }
       if (Buffer.byteLength(JSON.stringify(request)) > RPC_BODY_LIMIT) {
-        throw new RestError(
-          413,
-          "RPC_REQUEST_TOO_LARGE",
-          "The RPC request exceeds its size limit",
-        );
+        throw new RestError(413, "RPC_REQUEST_TOO_LARGE", "The RPC request exceeds its size limit");
       }
-      for (const gateway of candidates) {
+      for (const candidate of candidates) {
         signal?.throwIfAborted();
         // Check the same configured endpoint that will receive the actual call.
         // A verified chain ID on a different failover endpoint is insufficient.
         try {
           await options.consume?.();
           const observed = result(
-            await gateway.request(
+            await candidate.reads.request(
               chainId,
               {
                 jsonrpc: "2.0",
@@ -145,7 +180,9 @@ export function createRestRpc(options: {
         }
         await options.consume?.();
         try {
-          return result(await gateway.request(chainId, request, signal));
+          return result(
+            await (trace ? candidate.traces : candidate.reads).request(chainId, request, signal),
+          );
         } catch (error) {
           signal?.throwIfAborted();
           if (error instanceof RestRpcError) throw error;

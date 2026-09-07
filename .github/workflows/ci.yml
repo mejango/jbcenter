@@ -30,6 +30,8 @@ jobs:
           --health-retries 10
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      ANVIL_BINARY: anvil
+      FORGE_BINARY: forge
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,9 +41,15 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             mcp/package-lock.json
+      - name: Install pinned Forge and Anvil
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+        with:
+          version: v1.7.0
+          cache: false
       - run: npm ci --ignore-scripts
       - run: npm --prefix mcp ci --ignore-scripts
-      - run: npm run check
+      - name: Verify artifacts, run Foundry and Anvil tests, and check application
+        run: npm run check
       - run: npm audit --omit=dev --audit-level=high
       - run: npm --prefix mcp audit --omit=dev --audit-level=high
       - run: docker build -t jbcenter:${{ github.sha }} .

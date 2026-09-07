@@ -53,6 +53,12 @@ export type RpcRequest = {
 
 export type RpcUpstreams = ReadonlyMap<number, readonly string[]>;
 
+/** Trusted adapter settings; public routes use the unchanged defaults. */
+export interface RpcGatewayLimits {
+  timeoutMs?: number;
+  responseLimitBytes?: number;
+}
+
 export type RpcGateway = {
   request(chainId: number, request: RpcRequest, signal?: AbortSignal): Promise<unknown>;
   supports(chainId: number): boolean;
@@ -174,7 +180,11 @@ export function parseRpcRequest(value: unknown): RpcRequest {
   return request;
 }
 
-async function boundedJson(response: Response, signal: AbortSignal): Promise<unknown> {
+async function boundedJson(
+  response: Response,
+  signal: AbortSignal,
+  responseLimit: number,
+): Promise<unknown> {
   const reader = response.body?.getReader();
   const cancel = (reason: unknown) => {
     // Cancellation must not wait for an upstream's cancellation hook to settle.
@@ -185,7 +195,7 @@ async function boundedJson(response: Response, signal: AbortSignal): Promise<unk
   try {
     signal.throwIfAborted();
     const declared = Number(response.headers.get("content-length") ?? 0);
-    if (!Number.isFinite(declared) || declared < 0 || declared > RPC_RESPONSE_LIMIT) {
+    if (!Number.isFinite(declared) || declared < 0 || declared > responseLimit) {
       throw new RpcUnavailable("RPC upstream response is too large");
     }
     const chunks: Uint8Array[] = [];
@@ -195,7 +205,7 @@ async function boundedJson(response: Response, signal: AbortSignal): Promise<unk
       signal.throwIfAborted();
       if (done) break;
       size += value.byteLength;
-      if (size > RPC_RESPONSE_LIMIT) {
+      if (size > responseLimit) {
         throw new RpcUnavailable("RPC upstream response is too large");
       }
       chunks.push(value);
@@ -246,7 +256,20 @@ function normalizeResponse(value: unknown, id: RpcId): Record<string, unknown> |
 export function createRpcGateway(
   upstreams: RpcUpstreams,
   fetcher: typeof fetch = fetch,
+  limits: RpcGatewayLimits = {},
 ): RpcGateway {
+  const timeoutMs = limits.timeoutMs ?? RPC_TIMEOUT_MS;
+  const responseLimit = limits.responseLimitBytes ?? RPC_RESPONSE_LIMIT;
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > 30_000 ||
+    !Number.isSafeInteger(responseLimit) ||
+    responseLimit < 1 ||
+    responseLimit > 20 * 1024 * 1024
+  ) {
+    throw new Error("RPC gateway limits must use a bounded timeout and response size");
+  }
   return {
     supports(chainId) {
       return upstreams.has(chainId);
@@ -262,7 +285,7 @@ export function createRpcGateway(
         const controller = new AbortController();
         const onAbort = () => controller.abort(signal?.reason);
         signal?.addEventListener("abort", onAbort, { once: true });
-        const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
         try {
           const response = await fetcher(url, {
             method: "POST",
@@ -280,16 +303,16 @@ export function createRpcGateway(
             lastError = new Error(`upstream status ${response.status}`);
             continue;
           }
-          const value = normalizeResponse(await boundedJson(response, controller.signal), request.id);
+          const value = normalizeResponse(
+            await boundedJson(response, controller.signal, responseLimit),
+            request.id,
+          );
           controller.signal.throwIfAborted();
           if (!value) {
             lastError = new Error("invalid upstream envelope");
             continue;
           }
-          if (
-            request.method === "eth_chainId" &&
-            value.result !== `0x${chainId.toString(16)}`
-          ) {
+          if (request.method === "eth_chainId" && value.result !== `0x${chainId.toString(16)}`) {
             lastError = new Error("upstream chain mismatch");
             continue;
           }

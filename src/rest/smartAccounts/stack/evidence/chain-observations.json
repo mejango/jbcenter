@@ -1,0 +1,669 @@
+{
+  "schemaVersion": 1,
+  "readOnly": true,
+  "chainIds": [
+    1,
+    10,
+    8453,
+    42161,
+    11155111,
+    11155420,
+    84532,
+    421614
+  ],
+  "observedAt": "2026-09-07T05:15:49.658Z",
+  "observations": [
+    {
+      "chainId": 1,
+      "publicRpcUrl": "https://ethereum-rpc.publicnode.com",
+      "blockNumber": 25923286,
+      "blockHash": "0xab3664a40a7ee6dbda65f7a447cfeb0de961ca6f9cb15b9dc45772fce6f9da07",
+      "chainIdVerified": true,
+      "blockHashRechecked": true,
+      "method": "eth_getCode at fixed block number",
+      "contracts": [
+        {
+          "artifact": "../artifacts/EntryPoint.json",
+          "address": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+          "runtimeCodeHash": "0x8db5ff695839d655407cc8490bb7a5d82337a86a6b39c3f0258aa6c3b582fc58",
+          "runtimeBytes": 16035,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/OwnableValidator.json",
+          "address": "0x2483DA3A338895199E5e538530213157e931Bf06",
+          "runtimeCodeHash": "0xd9ad90a204447aec1a1528d764e1d80212c8011dc0125b3995875e58ec9a43bf",
+          "runtimeBytes": 6633,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SmartSession.json",
+          "address": "0x00000000002B0eCfbD0496EE71e01257dA0E37DE",
+          "runtimeCodeHash": "0xf2817b8943b9fc813ad3602de2f0b973dc6b7e190f1b77dc9eb02b8d3022ab0c",
+          "runtimeBytes": 23940,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/TimeFramePolicy.json",
+          "address": "0x0000000000D30f611fA3bf652ac6879428586930",
+          "runtimeCodeHash": "0xa8c18f7a974673552d03d7325bbc33a102a5aaab5bc5a3c11ecae1648ca4e026",
+          "runtimeBytes": 1911,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/UniActionPolicy.json",
+          "address": "0x0000000000714Cf48FcF88A0bFBa70d313415032",
+          "runtimeCodeHash": "0xc58f13d259c69d0db90f611347535e2d5642f3352740b7d58fbf6e6b939670dd",
+          "runtimeBytes": 3084,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/ValueLimitPolicy.json",
+          "address": "0x000000000021dC45451291BCDfc9f0B46d6f0278",
+          "runtimeCodeHash": "0x086e8421c6c9daab4a93e63366c83e8f20cc3f736b7be5a97e0e81633581e4ed",
+          "runtimeBytes": 2511,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579.json",
+          "address": "0x7579f2AD53b01c3D8779Fe17928e0D48885B0003",
+          "runtimeCodeHash": "0xc9c3866bdfbdb586211254dbe457aa3d1c9fd1acf1bbaa36e4c86c3ebc156b69",
+          "runtimeBytes": 23929,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579Launchpad.json",
+          "address": "0x75798463024Bda64D83c94A64Bc7D7eaB41300eF",
+          "runtimeCodeHash": "0x044b5e0086072ca4cb8e39c4d7fe5ae78def953b347eacd8d3abbba56946fb6e",
+          "runtimeBytes": 11726,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeL2.json",
+          "address": "0x29fcb43b46531bca003ddc8fcb67ffe91900c762",
+          "runtimeCodeHash": "0xb1f926978a0f44a2c0ec8fe822418ae969bd8c3f18d61e5103100339894f81ff",
+          "runtimeBytes": 24421,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeProxyFactory.json",
+          "address": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+          "runtimeCodeHash": "0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317",
+          "runtimeBytes": 3054,
+          "artifactRuntimeHashMatches": true
+        }
+      ]
+    },
+    {
+      "chainId": 10,
+      "publicRpcUrl": "https://mainnet.optimism.io",
+      "blockNumber": 156579447,
+      "blockHash": "0xab737fcfb47a12b7f6cc76ce82ea43f89b8350bf5cf1046931173151f6f340fe",
+      "chainIdVerified": true,
+      "blockHashRechecked": true,
+      "method": "eth_getCode at fixed block number",
+      "contracts": [
+        {
+          "artifact": "../artifacts/EntryPoint.json",
+          "address": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+          "runtimeCodeHash": "0x8db5ff695839d655407cc8490bb7a5d82337a86a6b39c3f0258aa6c3b582fc58",
+          "runtimeBytes": 16035,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/OwnableValidator.json",
+          "address": "0x2483DA3A338895199E5e538530213157e931Bf06",
+          "runtimeCodeHash": "0xd9ad90a204447aec1a1528d764e1d80212c8011dc0125b3995875e58ec9a43bf",
+          "runtimeBytes": 6633,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SmartSession.json",
+          "address": "0x00000000002B0eCfbD0496EE71e01257dA0E37DE",
+          "runtimeCodeHash": "0xf2817b8943b9fc813ad3602de2f0b973dc6b7e190f1b77dc9eb02b8d3022ab0c",
+          "runtimeBytes": 23940,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/TimeFramePolicy.json",
+          "address": "0x0000000000D30f611fA3bf652ac6879428586930",
+          "runtimeCodeHash": "0xa8c18f7a974673552d03d7325bbc33a102a5aaab5bc5a3c11ecae1648ca4e026",
+          "runtimeBytes": 1911,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/UniActionPolicy.json",
+          "address": "0x0000000000714Cf48FcF88A0bFBa70d313415032",
+          "runtimeCodeHash": "0xc58f13d259c69d0db90f611347535e2d5642f3352740b7d58fbf6e6b939670dd",
+          "runtimeBytes": 3084,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/ValueLimitPolicy.json",
+          "address": "0x000000000021dC45451291BCDfc9f0B46d6f0278",
+          "runtimeCodeHash": "0x086e8421c6c9daab4a93e63366c83e8f20cc3f736b7be5a97e0e81633581e4ed",
+          "runtimeBytes": 2511,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579.json",
+          "address": "0x7579f2AD53b01c3D8779Fe17928e0D48885B0003",
+          "runtimeCodeHash": "0xc9c3866bdfbdb586211254dbe457aa3d1c9fd1acf1bbaa36e4c86c3ebc156b69",
+          "runtimeBytes": 23929,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579Launchpad.json",
+          "address": "0x75798463024Bda64D83c94A64Bc7D7eaB41300eF",
+          "runtimeCodeHash": "0x044b5e0086072ca4cb8e39c4d7fe5ae78def953b347eacd8d3abbba56946fb6e",
+          "runtimeBytes": 11726,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeL2.json",
+          "address": "0x29fcb43b46531bca003ddc8fcb67ffe91900c762",
+          "runtimeCodeHash": "0xb1f926978a0f44a2c0ec8fe822418ae969bd8c3f18d61e5103100339894f81ff",
+          "runtimeBytes": 24421,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeProxyFactory.json",
+          "address": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+          "runtimeCodeHash": "0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317",
+          "runtimeBytes": 3054,
+          "artifactRuntimeHashMatches": true
+        }
+      ]
+    },
+    {
+      "chainId": 8453,
+      "publicRpcUrl": "https://mainnet.base.org",
+      "blockNumber": 50984162,
+      "blockHash": "0x815e5df82f7fc315301812d724531c676b2cd12494fe48522ad18e05bbac6dfa",
+      "chainIdVerified": true,
+      "blockHashRechecked": true,
+      "method": "eth_getCode at fixed block number",
+      "contracts": [
+        {
+          "artifact": "../artifacts/EntryPoint.json",
+          "address": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+          "runtimeCodeHash": "0x8db5ff695839d655407cc8490bb7a5d82337a86a6b39c3f0258aa6c3b582fc58",
+          "runtimeBytes": 16035,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/OwnableValidator.json",
+          "address": "0x2483DA3A338895199E5e538530213157e931Bf06",
+          "runtimeCodeHash": "0xd9ad90a204447aec1a1528d764e1d80212c8011dc0125b3995875e58ec9a43bf",
+          "runtimeBytes": 6633,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SmartSession.json",
+          "address": "0x00000000002B0eCfbD0496EE71e01257dA0E37DE",
+          "runtimeCodeHash": "0xf2817b8943b9fc813ad3602de2f0b973dc6b7e190f1b77dc9eb02b8d3022ab0c",
+          "runtimeBytes": 23940,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/TimeFramePolicy.json",
+          "address": "0x0000000000D30f611fA3bf652ac6879428586930",
+          "runtimeCodeHash": "0xa8c18f7a974673552d03d7325bbc33a102a5aaab5bc5a3c11ecae1648ca4e026",
+          "runtimeBytes": 1911,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/UniActionPolicy.json",
+          "address": "0x0000000000714Cf48FcF88A0bFBa70d313415032",
+          "runtimeCodeHash": "0xc58f13d259c69d0db90f611347535e2d5642f3352740b7d58fbf6e6b939670dd",
+          "runtimeBytes": 3084,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/ValueLimitPolicy.json",
+          "address": "0x000000000021dC45451291BCDfc9f0B46d6f0278",
+          "runtimeCodeHash": "0x086e8421c6c9daab4a93e63366c83e8f20cc3f736b7be5a97e0e81633581e4ed",
+          "runtimeBytes": 2511,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579.json",
+          "address": "0x7579f2AD53b01c3D8779Fe17928e0D48885B0003",
+          "runtimeCodeHash": "0xc9c3866bdfbdb586211254dbe457aa3d1c9fd1acf1bbaa36e4c86c3ebc156b69",
+          "runtimeBytes": 23929,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579Launchpad.json",
+          "address": "0x75798463024Bda64D83c94A64Bc7D7eaB41300eF",
+          "runtimeCodeHash": "0x044b5e0086072ca4cb8e39c4d7fe5ae78def953b347eacd8d3abbba56946fb6e",
+          "runtimeBytes": 11726,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeL2.json",
+          "address": "0x29fcb43b46531bca003ddc8fcb67ffe91900c762",
+          "runtimeCodeHash": "0xb1f926978a0f44a2c0ec8fe822418ae969bd8c3f18d61e5103100339894f81ff",
+          "runtimeBytes": 24421,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeProxyFactory.json",
+          "address": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+          "runtimeCodeHash": "0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317",
+          "runtimeBytes": 3054,
+          "artifactRuntimeHashMatches": true
+        }
+      ]
+    },
+    {
+      "chainId": 42161,
+      "publicRpcUrl": "https://arb1.arbitrum.io/rpc",
+      "blockNumber": 502573441,
+      "blockHash": "0x22a32106b4b6d0b2817ab37d7c8643263d0c680f8b25a52dfa20e22ffdcca3ef",
+      "chainIdVerified": true,
+      "blockHashRechecked": true,
+      "method": "eth_getCode at fixed block number",
+      "contracts": [
+        {
+          "artifact": "../artifacts/EntryPoint.json",
+          "address": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+          "runtimeCodeHash": "0x8db5ff695839d655407cc8490bb7a5d82337a86a6b39c3f0258aa6c3b582fc58",
+          "runtimeBytes": 16035,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/OwnableValidator.json",
+          "address": "0x2483DA3A338895199E5e538530213157e931Bf06",
+          "runtimeCodeHash": "0xd9ad90a204447aec1a1528d764e1d80212c8011dc0125b3995875e58ec9a43bf",
+          "runtimeBytes": 6633,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SmartSession.json",
+          "address": "0x00000000002B0eCfbD0496EE71e01257dA0E37DE",
+          "runtimeCodeHash": "0xf2817b8943b9fc813ad3602de2f0b973dc6b7e190f1b77dc9eb02b8d3022ab0c",
+          "runtimeBytes": 23940,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/TimeFramePolicy.json",
+          "address": "0x0000000000D30f611fA3bf652ac6879428586930",
+          "runtimeCodeHash": "0xa8c18f7a974673552d03d7325bbc33a102a5aaab5bc5a3c11ecae1648ca4e026",
+          "runtimeBytes": 1911,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/UniActionPolicy.json",
+          "address": "0x0000000000714Cf48FcF88A0bFBa70d313415032",
+          "runtimeCodeHash": "0xc58f13d259c69d0db90f611347535e2d5642f3352740b7d58fbf6e6b939670dd",
+          "runtimeBytes": 3084,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/ValueLimitPolicy.json",
+          "address": "0x000000000021dC45451291BCDfc9f0B46d6f0278",
+          "runtimeCodeHash": "0x086e8421c6c9daab4a93e63366c83e8f20cc3f736b7be5a97e0e81633581e4ed",
+          "runtimeBytes": 2511,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579.json",
+          "address": "0x7579f2AD53b01c3D8779Fe17928e0D48885B0003",
+          "runtimeCodeHash": "0xc9c3866bdfbdb586211254dbe457aa3d1c9fd1acf1bbaa36e4c86c3ebc156b69",
+          "runtimeBytes": 23929,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579Launchpad.json",
+          "address": "0x75798463024Bda64D83c94A64Bc7D7eaB41300eF",
+          "runtimeCodeHash": "0x044b5e0086072ca4cb8e39c4d7fe5ae78def953b347eacd8d3abbba56946fb6e",
+          "runtimeBytes": 11726,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeL2.json",
+          "address": "0x29fcb43b46531bca003ddc8fcb67ffe91900c762",
+          "runtimeCodeHash": "0xb1f926978a0f44a2c0ec8fe822418ae969bd8c3f18d61e5103100339894f81ff",
+          "runtimeBytes": 24421,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeProxyFactory.json",
+          "address": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+          "runtimeCodeHash": "0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317",
+          "runtimeBytes": 3054,
+          "artifactRuntimeHashMatches": true
+        }
+      ]
+    },
+    {
+      "chainId": 11155111,
+      "publicRpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+      "blockNumber": 11652036,
+      "blockHash": "0xb89c6621df87dd2ccf1c9eaa39abcac5f0ad94ce207163d8a4e6100421c987ca",
+      "chainIdVerified": true,
+      "blockHashRechecked": true,
+      "method": "eth_getCode at fixed block number",
+      "contracts": [
+        {
+          "artifact": "../artifacts/EntryPoint.json",
+          "address": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+          "runtimeCodeHash": "0x8db5ff695839d655407cc8490bb7a5d82337a86a6b39c3f0258aa6c3b582fc58",
+          "runtimeBytes": 16035,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/OwnableValidator.json",
+          "address": "0x2483DA3A338895199E5e538530213157e931Bf06",
+          "runtimeCodeHash": "0xd9ad90a204447aec1a1528d764e1d80212c8011dc0125b3995875e58ec9a43bf",
+          "runtimeBytes": 6633,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SmartSession.json",
+          "address": "0x00000000002B0eCfbD0496EE71e01257dA0E37DE",
+          "runtimeCodeHash": "0xf2817b8943b9fc813ad3602de2f0b973dc6b7e190f1b77dc9eb02b8d3022ab0c",
+          "runtimeBytes": 23940,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/TimeFramePolicy.json",
+          "address": "0x0000000000D30f611fA3bf652ac6879428586930",
+          "runtimeCodeHash": "0xa8c18f7a974673552d03d7325bbc33a102a5aaab5bc5a3c11ecae1648ca4e026",
+          "runtimeBytes": 1911,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/UniActionPolicy.json",
+          "address": "0x0000000000714Cf48FcF88A0bFBa70d313415032",
+          "runtimeCodeHash": "0xc58f13d259c69d0db90f611347535e2d5642f3352740b7d58fbf6e6b939670dd",
+          "runtimeBytes": 3084,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/ValueLimitPolicy.json",
+          "address": "0x000000000021dC45451291BCDfc9f0B46d6f0278",
+          "runtimeCodeHash": "0x086e8421c6c9daab4a93e63366c83e8f20cc3f736b7be5a97e0e81633581e4ed",
+          "runtimeBytes": 2511,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579.json",
+          "address": "0x7579f2AD53b01c3D8779Fe17928e0D48885B0003",
+          "runtimeCodeHash": "0xc9c3866bdfbdb586211254dbe457aa3d1c9fd1acf1bbaa36e4c86c3ebc156b69",
+          "runtimeBytes": 23929,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579Launchpad.json",
+          "address": "0x75798463024Bda64D83c94A64Bc7D7eaB41300eF",
+          "runtimeCodeHash": "0x044b5e0086072ca4cb8e39c4d7fe5ae78def953b347eacd8d3abbba56946fb6e",
+          "runtimeBytes": 11726,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeL2.json",
+          "address": "0x29fcb43b46531bca003ddc8fcb67ffe91900c762",
+          "runtimeCodeHash": "0xb1f926978a0f44a2c0ec8fe822418ae969bd8c3f18d61e5103100339894f81ff",
+          "runtimeBytes": 24421,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeProxyFactory.json",
+          "address": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+          "runtimeCodeHash": "0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317",
+          "runtimeBytes": 3054,
+          "artifactRuntimeHashMatches": true
+        }
+      ]
+    },
+    {
+      "chainId": 11155420,
+      "publicRpcUrl": "https://sepolia.optimism.io",
+      "blockNumber": 48477566,
+      "blockHash": "0x68a1c7449262878d677749b63cc524183e55eb9759ded063482700d877d0af85",
+      "chainIdVerified": true,
+      "blockHashRechecked": true,
+      "method": "eth_getCode at fixed block number",
+      "contracts": [
+        {
+          "artifact": "../artifacts/EntryPoint.json",
+          "address": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+          "runtimeCodeHash": "0x8db5ff695839d655407cc8490bb7a5d82337a86a6b39c3f0258aa6c3b582fc58",
+          "runtimeBytes": 16035,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/OwnableValidator.json",
+          "address": "0x2483DA3A338895199E5e538530213157e931Bf06",
+          "runtimeCodeHash": "0xd9ad90a204447aec1a1528d764e1d80212c8011dc0125b3995875e58ec9a43bf",
+          "runtimeBytes": 6633,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SmartSession.json",
+          "address": "0x00000000002B0eCfbD0496EE71e01257dA0E37DE",
+          "runtimeCodeHash": "0xf2817b8943b9fc813ad3602de2f0b973dc6b7e190f1b77dc9eb02b8d3022ab0c",
+          "runtimeBytes": 23940,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/TimeFramePolicy.json",
+          "address": "0x0000000000D30f611fA3bf652ac6879428586930",
+          "runtimeCodeHash": "0xa8c18f7a974673552d03d7325bbc33a102a5aaab5bc5a3c11ecae1648ca4e026",
+          "runtimeBytes": 1911,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/UniActionPolicy.json",
+          "address": "0x0000000000714Cf48FcF88A0bFBa70d313415032",
+          "runtimeCodeHash": "0xc58f13d259c69d0db90f611347535e2d5642f3352740b7d58fbf6e6b939670dd",
+          "runtimeBytes": 3084,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/ValueLimitPolicy.json",
+          "address": "0x000000000021dC45451291BCDfc9f0B46d6f0278",
+          "runtimeCodeHash": "0x086e8421c6c9daab4a93e63366c83e8f20cc3f736b7be5a97e0e81633581e4ed",
+          "runtimeBytes": 2511,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579.json",
+          "address": "0x7579f2AD53b01c3D8779Fe17928e0D48885B0003",
+          "runtimeCodeHash": "0xc9c3866bdfbdb586211254dbe457aa3d1c9fd1acf1bbaa36e4c86c3ebc156b69",
+          "runtimeBytes": 23929,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579Launchpad.json",
+          "address": "0x75798463024Bda64D83c94A64Bc7D7eaB41300eF",
+          "runtimeCodeHash": "0x044b5e0086072ca4cb8e39c4d7fe5ae78def953b347eacd8d3abbba56946fb6e",
+          "runtimeBytes": 11726,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeL2.json",
+          "address": "0x29fcb43b46531bca003ddc8fcb67ffe91900c762",
+          "runtimeCodeHash": "0xb1f926978a0f44a2c0ec8fe822418ae969bd8c3f18d61e5103100339894f81ff",
+          "runtimeBytes": 24421,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeProxyFactory.json",
+          "address": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+          "runtimeCodeHash": "0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317",
+          "runtimeBytes": 3054,
+          "artifactRuntimeHashMatches": true
+        }
+      ]
+    },
+    {
+      "chainId": 84532,
+      "publicRpcUrl": "https://sepolia.base.org",
+      "blockNumber": 46494692,
+      "blockHash": "0xdbd170a4abf2de2c4dc02f9e611e0548e0f838d01fbe8dca1339e35923a8732b",
+      "chainIdVerified": true,
+      "blockHashRechecked": true,
+      "method": "eth_getCode at fixed block number",
+      "contracts": [
+        {
+          "artifact": "../artifacts/EntryPoint.json",
+          "address": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+          "runtimeCodeHash": "0x8db5ff695839d655407cc8490bb7a5d82337a86a6b39c3f0258aa6c3b582fc58",
+          "runtimeBytes": 16035,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/OwnableValidator.json",
+          "address": "0x2483DA3A338895199E5e538530213157e931Bf06",
+          "runtimeCodeHash": "0xd9ad90a204447aec1a1528d764e1d80212c8011dc0125b3995875e58ec9a43bf",
+          "runtimeBytes": 6633,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SmartSession.json",
+          "address": "0x00000000002B0eCfbD0496EE71e01257dA0E37DE",
+          "runtimeCodeHash": "0xf2817b8943b9fc813ad3602de2f0b973dc6b7e190f1b77dc9eb02b8d3022ab0c",
+          "runtimeBytes": 23940,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/TimeFramePolicy.json",
+          "address": "0x0000000000D30f611fA3bf652ac6879428586930",
+          "runtimeCodeHash": "0xa8c18f7a974673552d03d7325bbc33a102a5aaab5bc5a3c11ecae1648ca4e026",
+          "runtimeBytes": 1911,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/UniActionPolicy.json",
+          "address": "0x0000000000714Cf48FcF88A0bFBa70d313415032",
+          "runtimeCodeHash": "0xc58f13d259c69d0db90f611347535e2d5642f3352740b7d58fbf6e6b939670dd",
+          "runtimeBytes": 3084,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/ValueLimitPolicy.json",
+          "address": "0x000000000021dC45451291BCDfc9f0B46d6f0278",
+          "runtimeCodeHash": "0x086e8421c6c9daab4a93e63366c83e8f20cc3f736b7be5a97e0e81633581e4ed",
+          "runtimeBytes": 2511,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579.json",
+          "address": "0x7579f2AD53b01c3D8779Fe17928e0D48885B0003",
+          "runtimeCodeHash": "0xc9c3866bdfbdb586211254dbe457aa3d1c9fd1acf1bbaa36e4c86c3ebc156b69",
+          "runtimeBytes": 23929,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579Launchpad.json",
+          "address": "0x75798463024Bda64D83c94A64Bc7D7eaB41300eF",
+          "runtimeCodeHash": "0x044b5e0086072ca4cb8e39c4d7fe5ae78def953b347eacd8d3abbba56946fb6e",
+          "runtimeBytes": 11726,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeL2.json",
+          "address": "0x29fcb43b46531bca003ddc8fcb67ffe91900c762",
+          "runtimeCodeHash": "0xb1f926978a0f44a2c0ec8fe822418ae969bd8c3f18d61e5103100339894f81ff",
+          "runtimeBytes": 24421,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeProxyFactory.json",
+          "address": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+          "runtimeCodeHash": "0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317",
+          "runtimeBytes": 3054,
+          "artifactRuntimeHashMatches": true
+        }
+      ]
+    },
+    {
+      "chainId": 421614,
+      "publicRpcUrl": "https://sepolia-rollup.arbitrum.io/rpc",
+      "blockNumber": 306272332,
+      "blockHash": "0x9810773939c9bda0851c9366577572df347faae8da87e47d75482ca81112fd35",
+      "chainIdVerified": true,
+      "blockHashRechecked": true,
+      "method": "eth_getCode at fixed block number",
+      "contracts": [
+        {
+          "artifact": "../artifacts/EntryPoint.json",
+          "address": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+          "runtimeCodeHash": "0x8db5ff695839d655407cc8490bb7a5d82337a86a6b39c3f0258aa6c3b582fc58",
+          "runtimeBytes": 16035,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/OwnableValidator.json",
+          "address": "0x2483DA3A338895199E5e538530213157e931Bf06",
+          "runtimeCodeHash": "0xd9ad90a204447aec1a1528d764e1d80212c8011dc0125b3995875e58ec9a43bf",
+          "runtimeBytes": 6633,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SmartSession.json",
+          "address": "0x00000000002B0eCfbD0496EE71e01257dA0E37DE",
+          "runtimeCodeHash": "0xf2817b8943b9fc813ad3602de2f0b973dc6b7e190f1b77dc9eb02b8d3022ab0c",
+          "runtimeBytes": 23940,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/TimeFramePolicy.json",
+          "address": "0x0000000000D30f611fA3bf652ac6879428586930",
+          "runtimeCodeHash": "0xa8c18f7a974673552d03d7325bbc33a102a5aaab5bc5a3c11ecae1648ca4e026",
+          "runtimeBytes": 1911,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/UniActionPolicy.json",
+          "address": "0x0000000000714Cf48FcF88A0bFBa70d313415032",
+          "runtimeCodeHash": "0xc58f13d259c69d0db90f611347535e2d5642f3352740b7d58fbf6e6b939670dd",
+          "runtimeBytes": 3084,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/ValueLimitPolicy.json",
+          "address": "0x000000000021dC45451291BCDfc9f0B46d6f0278",
+          "runtimeCodeHash": "0x086e8421c6c9daab4a93e63366c83e8f20cc3f736b7be5a97e0e81633581e4ed",
+          "runtimeBytes": 2511,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579.json",
+          "address": "0x7579f2AD53b01c3D8779Fe17928e0D48885B0003",
+          "runtimeCodeHash": "0xc9c3866bdfbdb586211254dbe457aa3d1c9fd1acf1bbaa36e4c86c3ebc156b69",
+          "runtimeBytes": 23929,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/Safe7579Launchpad.json",
+          "address": "0x75798463024Bda64D83c94A64Bc7D7eaB41300eF",
+          "runtimeCodeHash": "0x044b5e0086072ca4cb8e39c4d7fe5ae78def953b347eacd8d3abbba56946fb6e",
+          "runtimeBytes": 11726,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeL2.json",
+          "address": "0x29fcb43b46531bca003ddc8fcb67ffe91900c762",
+          "runtimeCodeHash": "0xb1f926978a0f44a2c0ec8fe822418ae969bd8c3f18d61e5103100339894f81ff",
+          "runtimeBytes": 24421,
+          "artifactRuntimeHashMatches": true
+        },
+        {
+          "artifact": "../artifacts/SafeProxyFactory.json",
+          "address": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+          "runtimeCodeHash": "0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317",
+          "runtimeBytes": 3054,
+          "artifactRuntimeHashMatches": true
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Public RPC observations identify bytecode at recorded blocks; they do not establish current account configuration or transaction approval.",
+    "The listed chain scope was observed independently; it is not inferred from shared addresses."
+  ]
+}

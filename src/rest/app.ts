@@ -35,6 +35,11 @@ import type {
 } from "./protocol/index.js";
 import type { TransactionService } from "./transactions/service.js";
 import type { RelayrSponsorshipService } from "./sponsorship/index.js";
+import type { SessionService } from "./sessions/service.js";
+import type {
+  UserOperationService,
+  UserOperationPreparationInput,
+} from "./userOperations/service.js";
 import type {
   createSmartAccountService,
   createSessionPolicyReviewer,
@@ -68,6 +73,8 @@ export interface RestDependencies {
   sponsorship?: RelayrSponsorshipService;
   smartAccounts?: ReturnType<typeof createSmartAccountService>;
   sessionReviewer?: ReturnType<typeof createSessionPolicyReviewer>;
+  sessions?: SessionService;
+  userOperations?: UserOperationService;
   omnichain?: {
     getProjectGroup(
       project: { chainId: number; projectId: string; version: 6 },
@@ -366,6 +373,10 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
       limits: REST_LIMITS,
       transactions: deps.transactions.capabilities(),
       sponsorship: deps.sponsorship?.capabilities() ?? { state: "unavailable" },
+      userOperations: deps.userOperations?.capabilities() ?? {
+        state: "unavailable",
+      },
+      sessions: deps.sessions?.capabilities() ?? { state: "unavailable" },
       smartAccounts: deps.smartAccounts
         ? await deps.smartAccounts.capabilities()
         : { state: "unavailable" },
@@ -1088,6 +1099,196 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
       await deps.sessionReviewer.review(
         principal,
         jsonBody(input) as unknown as SessionPolicyInput,
+        context.get("restSignal"),
+      ),
+    );
+  });
+  app.post("/smart-accounts/creation-plans", async (context) => {
+    query(context, []);
+    const { input, principal } = await authenticate(context, ["plan"]);
+    idempotency(principal);
+    const creation = await smartAccounts().prepareCreation(
+      principal,
+      jsonBody(input) as unknown as Parameters<
+        ReturnType<typeof createSmartAccountService>["prepareCreation"]
+      >[1],
+      context.get("restSignal"),
+    );
+    return response(context, { creation }, 201);
+  });
+  app.post("/smart-accounts/bindings/:id/plans", async (context) => {
+    query(context, []);
+    const { input, principal } = await authenticate(context, ["plan"]);
+    const key = idempotency(principal),
+      hash = requestHash(input);
+    const existing = await deps.transactions.findPlanByIdempotency(
+      actor(principal),
+      key,
+      hash,
+    );
+    if (existing) return response(context, existing, 201);
+    const body = object(jsonBody(input), ["operation", "input"]);
+    if (typeof body.operation !== "string")
+      throw new RestError(
+        400,
+        "OPERATION_REQUIRED",
+        "Choose a transaction operation or contract_calls.",
+      );
+    const draft =
+      body.operation === "contract_calls"
+        ? await deps.protocol.prepare(
+            object(body.input) as unknown as PrepareInput,
+            context.get("restSignal"),
+          )
+        : await draftFor(body.operation, body.input, context.get("restSignal"));
+    return response(
+      context,
+      await deps.transactions.createSmartAccountPlan(
+        actor(principal),
+        context.req.param("id") as Hex,
+        draft,
+        key,
+        hash,
+      ),
+      201,
+    );
+  });
+  const sessions = () => {
+    if (!deps.sessions)
+      throw new RestError(
+        503,
+        "SESSIONS_UNAVAILABLE",
+        "The reviewed onchain session execution stack is not configured.",
+      );
+    return deps.sessions;
+  };
+  app.post("/smart-accounts/sessions", async (context) => {
+    query(context, []);
+    const { input, principal } = await authenticate(context, ["plan"]);
+    return response(
+      context,
+      await sessions().prepare(
+        principal,
+        jsonBody(input) as unknown as SessionPolicyInput,
+        idempotency(principal),
+        requestHash(input),
+        context.get("restSignal"),
+      ),
+      201,
+    );
+  });
+  app.get("/smart-accounts/sessions", async (context) => {
+    const params = query(context, ["limit", "cursor"]);
+    const { principal } = await authenticate(context, ["read"]);
+    return response(
+      context,
+      await sessions().list(principal, {
+        limit: integer(params.get("limit") ?? "25", "limit", 100),
+        ...(params.has("cursor") ? { cursor: required(params, "cursor") } : {}),
+      }),
+    );
+  });
+  app.get("/smart-accounts/sessions/:id", async (context) => {
+    const params = query(context, ["refresh"]);
+    if (
+      params.has("refresh") &&
+      !["true", "false"].includes(params.get("refresh")!)
+    )
+      throw new RestError(
+        400,
+        "INVALID_REFRESH",
+        "Choose refresh=true or refresh=false.",
+      );
+    const { principal } = await authenticate(context, ["read"]);
+    return response(
+      context,
+      await sessions().get(
+        principal,
+        context.req.param("id"),
+        params.get("refresh") !== "false",
+        context.get("restSignal"),
+      ),
+    );
+  });
+  app.get("/smart-accounts/sessions/:id/quota", async (context) => {
+    query(context, []);
+    const { principal } = await authenticate(context, ["read"]);
+    return response(
+      context,
+      await sessions().quota(
+        principal,
+        context.req.param("id"),
+        context.get("restSignal"),
+      ),
+    );
+  });
+  for (const kind of ["activation", "revocation"] as const) {
+    app.post(`/smart-accounts/sessions/:id/${kind}-plans`, async (context) => {
+      query(context, []);
+      const { input, principal } = await authenticate(context, ["plan"]);
+      return response(
+        context,
+        await sessions().prepareOwnerPlan(
+          principal,
+          context.req.param("id"),
+          kind,
+          object(jsonBody(input), ["compiledHash"]) as { compiledHash: Hex },
+          idempotency(principal),
+          requestHash(input),
+          context.get("restSignal"),
+        ),
+        201,
+      );
+    });
+  }
+  const userOperations = () => {
+    if (!deps.userOperations)
+      throw new RestError(
+        503,
+        "USER_OPERATIONS_UNAVAILABLE",
+        "The reviewed ERC-4337 execution transport is not configured.",
+      );
+    return deps.userOperations;
+  };
+  app.post("/user-operations", async (context) => {
+    query(context, []);
+    const { input, principal } = await authenticate(context, ["plan"]);
+    return response(
+      context,
+      await userOperations().prepare(
+        principal,
+        jsonBody(input) as unknown as UserOperationPreparationInput,
+        idempotency(principal),
+        `0x${requestHash(input).replace(/^0x/, "")}` as Hex,
+        context.get("restSignal"),
+      ),
+      201,
+    );
+  });
+  app.post("/user-operations/:id/submissions", async (context) => {
+    query(context, []);
+    const { input, principal } = await authenticate(context, ["relay"]);
+    const body = object(jsonBody(input), ["signature"]);
+    return response(
+      context,
+      await userOperations().submit(
+        principal,
+        context.req.param("id"),
+        body.signature as Hex,
+        idempotency(principal),
+        context.get("restSignal"),
+      ),
+      202,
+    );
+  });
+  app.get("/user-operations/:id", async (context) => {
+    query(context, []);
+    const { principal } = await authenticate(context, ["read"]);
+    return response(
+      context,
+      await userOperations().get(
+        principal,
+        context.req.param("id"),
         context.get("restSignal"),
       ),
     );

@@ -216,6 +216,42 @@ function fixture(
   return { service, registry, request, state, bind };
 }
 describe("smart account ownership and module boundaries", () => {
+  it("retains exact older manifest bindings when new creation defaults are introduced", async () => {
+    const original = fixture();
+    const { record } = await original.bind();
+    const next = {
+      ...manifest,
+      id: "new-default",
+      revision: keccak256(stringToHex("new-default")),
+    };
+    const upgraded = createSmartAccountService({
+      rpc: { request: original.request },
+      registry: original.registry,
+      manifests: [next],
+      retainedManifests: [manifest],
+      audience: "https://center.example",
+      now: () => time * 1000,
+    });
+    expect(
+      (await upgraded.capabilities()).deployments.map((d) => d.manifestId),
+    ).toEqual([next.id]);
+    expect(
+      await upgraded.current(principal.account.id, record.id),
+    ).toMatchObject({
+      id: record.id,
+      manifestId: manifest.id,
+      state: { stateHash: record.state.stateHash },
+    });
+    await expect(
+      createSmartAccountService({
+        rpc: { request: original.request },
+        registry: original.registry,
+        manifests: [next],
+        audience: "https://center.example",
+        now: () => time * 1000,
+      }).current(principal.account.id, record.id),
+    ).rejects.toMatchObject({ code: "SMART_MANIFEST_UNAVAILABLE" });
+  });
   it("provides a checked Sepolia ownership-only manifest without inventing EntryPoint readiness", async () => {
     const request = vi.fn(async () => {
       throw new Error("No RPC expected");
@@ -345,8 +381,7 @@ describe("smart account ownership and module boundaries", () => {
   it("does not imply bundler configuration or verified account state creates an execution adapter", async () => {
     const service = fixture({ inspector: true }).service;
     expect(await service.capabilities()).toMatchObject({
-      userOperationPreparation: false,
-      userOperationRelay: false,
+      userOperations: "/api/v1/capabilities",
       requirements: expect.arrayContaining(["configured-erc4337-bundler"]),
     });
     expect(await service.bundlerReadiness(manifest.id)).toMatchObject({
@@ -384,6 +419,13 @@ describe("explicit smart session policy reviews", () => {
       targets: [
         {
           chainId: 1,
+          address: pin(22).address,
+          runtimeCodeHash: codeHash,
+          kind: "v6-controller-uri",
+          reviewId: "fixture-controller",
+        },
+        {
+          chainId: 1,
           address: asset,
           runtimeCodeHash: codeHash,
           kind: "erc20-exact-transfer",
@@ -395,6 +437,14 @@ describe("explicit smart session policy reviews", () => {
           runtimeCodeHash: codeHash,
           kind: "v6-core-terminal",
           reviewId: "fixture-terminal",
+        },
+      ],
+      paymasters: [
+        {
+          chainId: 1,
+          address: pin(23).address,
+          runtimeCodeHash: codeHash,
+          reviewId: "fixture-paymaster",
         },
       ],
       now: () => time * 1000,
@@ -435,6 +485,66 @@ describe("explicit smart session policy reviews", () => {
       },
     };
   }
+  it("reviews closed metadata-only authority without inventing a financial allocation", async () => {
+    const { reviewer, input } = await setup();
+    const metadata = {
+      ...input,
+      allocations: [],
+      actions: [
+        {
+          kind: "v6-project-uri" as const,
+          controller: pin(22).address,
+          projectId: "123",
+        },
+      ],
+    };
+    expect(
+      (await reviewer.review(principal, metadata)).policy.actions,
+    ).toMatchObject([
+      {
+        kind: "v6-project-uri",
+        projectId: "123",
+        requiredEnforcement: expect.arrayContaining(["zero-native-value"]),
+      },
+    ]);
+    await expect(
+      reviewer.review(principal, {
+        ...metadata,
+        actions: [{ ...metadata.actions[0]!, selector: "0xdeadbeef" }],
+      } as never),
+    ).rejects.toBeInstanceOf(Error);
+  });
+  it("binds gas budgets to reviewed paymaster identity and rejects unsupported wire lengths", async () => {
+    const { reviewer, input } = await setup();
+    const gasBudget = {
+      paymaster: pin(23).address,
+      maxGasPerOperation: "1000",
+      maxFeePerGas: "2",
+      maxPriorityFeePerGas: "1",
+      totalGasLimit: "2000",
+      totalSponsoredCostLimit: "4000",
+      maxPaymasterDataLength: 130,
+    };
+    expect(
+      (await reviewer.review(principal, { ...input, gasBudget })).policy
+        .gasBudget,
+    ).toMatchObject({
+      paymasterCodeHash: codeHash,
+      paymasterReviewId: "fixture-paymaster",
+    });
+    await expect(
+      reviewer.review(principal, {
+        ...input,
+        gasBudget: { ...gasBudget, maxPaymasterDataLength: 129 },
+      }),
+    ).rejects.toMatchObject({ code: "SMART_SESSION_POLICY_INVALID" });
+    await expect(
+      reviewer.review(principal, {
+        ...input,
+        gasBudget: { ...gasBudget, paymaster: recipient },
+      }),
+    ).rejects.toMatchObject({ code: "SMART_PAYMASTER_REVIEW_REQUIRED" });
+  });
   it("binds account, wallet, grant key, exact expiry, distinct generation salt and whole-policy hash", async () => {
     const { reviewer, input } = await setup();
     const first = await reviewer.review(principal, input);

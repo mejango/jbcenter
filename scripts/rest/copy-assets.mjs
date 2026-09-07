@@ -6,9 +6,22 @@ const root = fileURLToPath(new URL("../../", import.meta.url));
 for (const [from, to] of [
   ["src/db/migrations", "dist/src/db/migrations"],
   ["src/rest/contracts/data", "dist/src/rest/contracts/data"],
+  [
+    "src/rest/smartAccounts/stack/artifacts",
+    "dist/src/rest/smartAccounts/stack/artifacts",
+  ],
+  [
+    "src/rest/smartAccounts/targets-evidence",
+    "dist/src/rest/smartAccounts/targets-evidence",
+  ],
+  ["src/rest/userOperations/evidence", "dist/src/rest/userOperations/evidence"],
   [".generated/rest", "dist/.generated/rest"],
   ["docs/rest", "dist/docs/rest"],
 ]) {
   await mkdir(join(root, to), { recursive: true });
   await cp(join(root, from), join(root, to), { recursive: true });
 }
+await cp(
+  join(root, "src/rest/smartAccounts/stack/manifest.json"),
+  join(root, "dist/src/rest/smartAccounts/stack/manifest.json"),
+);

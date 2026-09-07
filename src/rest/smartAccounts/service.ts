@@ -13,12 +13,13 @@ import {
   type Abi,
   type Hex,
 } from "viem";
-import { RestError } from "../core.js";
+import { RestError, type RestBlockEvidence } from "../core.js";
 import { parseAccountId } from "../auth/signatures.js";
 import type { RestPrincipal } from "../auth/store.js";
 import { exactObject } from "../protocol/abi.js";
 import { rpcHex } from "../protocol/code.js";
 import { SMART_ACCOUNT_RESEARCH } from "./observations.js";
+import { prepareSafe7579Creation } from "./creation.js";
 import type {
   SmartAccountBinding,
   SmartAccountDependencies,
@@ -101,7 +102,13 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
       "Use a configured HTTPS service audience.",
       500,
     );
-  const manifests = structuredClone(options.manifests);
+  const activeManifestIds = new Set(
+    options.manifests.map((manifest) => manifest.id),
+  );
+  const manifests = structuredClone([
+    ...options.manifests,
+    ...(options.retainedManifests ?? []),
+  ]);
   if (new Set(manifests.map((item) => item.id)).size !== manifests.length)
     fail(
       "SMART_ACCOUNT_CONFIG_INVALID",
@@ -142,8 +149,13 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
         !isAddress(pin.address) ||
         same(pin.address, zeroAddress) ||
         !bytes32(pin.runtimeCodeHash) ||
-        !/^https:\/\/github\.com\//.test(pin.source.repository) ||
-        !/^[a-f0-9]{40}$/.test(pin.source.commit) ||
+        !(
+          (/^https:\/\/github\.com\//.test(pin.source.repository) &&
+            /^[a-f0-9]{40}$/.test(pin.source.commit ?? "")) ||
+          (pin.source.repository === "juicebox-center" &&
+            pin.source.commit === undefined &&
+            /^[a-f0-9]{64}$/.test(pin.source.contentSha256 ?? ""))
+        ) ||
         !/^[a-f0-9]{64}$/.test(pin.source.artifactSha256)
       )
         fail(
@@ -179,9 +191,10 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
   async function snapshot(
     chainId: number,
     signal?: AbortSignal,
+    at?: RestBlockEvidence,
   ): Promise<SmartSnapshot> {
     const deadline = AbortSignal.any([
-      AbortSignal.timeout(10000),
+      AbortSignal.timeout(45_000),
       ...(signal ? [signal] : []),
     ]);
     if (
@@ -196,7 +209,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
     const block = (await options.rpc.request(
       chainId,
       "eth_getBlockByNumber",
-      ["latest", false],
+      [at ? `0x${BigInt(at.blockNumber).toString(16)}` : "latest", false],
       deadline,
     )) as Record<string, unknown>;
     if (!block || !bytes32(block.hash))
@@ -208,6 +221,18 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
       timestamp: String(quantity(block.timestamp)),
       source: "onchain" as const,
     };
+    if (
+      at &&
+      (at.chainId !== chainId ||
+        !same(at.blockHash, evidence.blockHash) ||
+        at.blockNumber !== evidence.blockNumber ||
+        at.timestamp !== evidence.timestamp)
+    )
+      fail(
+        "SMART_EVIDENCE_REORGED",
+        "The requested account evidence is not canonical.",
+        409,
+      );
     const tag = { blockHash: block.hash, requireCanonical: true as const };
     return {
       evidence,
@@ -219,6 +244,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
   async function inspect(
     input: { manifestId: string; address: Address },
     signal?: AbortSignal,
+    at?: RestBlockEvidence,
   ): Promise<SmartAccountState> {
     exactObject(input, ["manifestId", "address"], "account");
     const m = manifest(input.manifestId);
@@ -229,7 +255,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
         400,
       );
     const account = getAddress(input.address),
-      snap = await snapshot(m.chainId, signal);
+      snap = await snapshot(m.chainId, signal, at);
     const codeHashes: SmartAccountState["codeHashes"] = [];
     async function requireCode(address: Address, expected: Hex) {
       const code = rpcHex(
@@ -446,6 +472,75 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
     };
     return { state, typedData, digest: hashTypedData(typedData) };
   }
+  async function prepareCreation(
+    principal: RestPrincipal,
+    input: {
+      manifestId: string;
+      owners: Address[];
+      threshold: number;
+      saltNonce: string;
+    },
+    signal?: AbortSignal,
+  ) {
+    owner(principal);
+    exactObject(
+      input,
+      ["manifestId", "owners", "threshold", "saltNonce"],
+      "creation",
+    );
+    if (
+      !Array.isArray(input.owners) ||
+      !input.owners.every(
+        (address) => typeof address === "string" && isAddress(address),
+      ) ||
+      !input.owners.some((address) =>
+        same(address, principal.account.ownerAddress),
+      )
+    )
+      fail(
+        "SMART_OWNER_NOT_MEMBER",
+        "The API owner must be an owner of the new Safe.",
+        403,
+      );
+    const m = manifest(input.manifestId);
+    const creation = prepareSafe7579Creation({
+      manifest: m,
+      owners: input.owners,
+      threshold: input.threshold,
+      saltNonce: input.saltNonce,
+    });
+    const snap = await snapshot(m.chainId, signal);
+    for (const pin of pins(m)) {
+      const code = rpcHex(
+        await snap.request("eth_getCode", [pin.address]),
+        "creation dependency",
+      );
+      if (
+        code === "0x" ||
+        keccak256(code) !== pin.runtimeCodeHash.toLowerCase()
+      )
+        fail(
+          "SMART_RUNTIME_MISMATCH",
+          "A wallet creation dependency differs from its reviewed runtime.",
+        );
+    }
+    const code = rpcHex(
+      await snap.request("eth_getCode", [creation.address]),
+      "predicted account",
+    );
+    if (code !== "0x")
+      fail(
+        "SMART_ACCOUNT_ALREADY_DEPLOYED",
+        "The predicted wallet already exists. Verify and bind it, or select a fresh salt.",
+        409,
+      );
+    return {
+      ...creation,
+      manifest: m,
+      evidence: snap.evidence,
+      deploymentConfirmed: false,
+    };
+  }
   async function bind(
     principal: RestPrincipal,
     input: BindingChallengeInput & { stateHash: Hex; signature: Hex },
@@ -541,6 +636,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
     ownerAccountId: string,
     id: Hex,
     signal?: AbortSignal,
+    at?: RestBlockEvidence,
   ) {
     const record = await options.registry.get(ownerAccountId, id);
     if (!record)
@@ -552,6 +648,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
     const state = await inspect(
       { manifestId: record.manifestId, address: record.wallet.address },
       signal,
+      at,
     );
     if (state.stateHash !== record.state.stateHash)
       fail(
@@ -566,21 +663,27 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
       deploymentResearch: SMART_ACCOUNT_RESEARCH,
       accountOwnershipVerification: "safe-current-eoa-owner-threshold",
       sessionDurationsDays: [7, 30],
-      walletCreation: false,
-      userOperationPreparation: false,
-      userOperationSimulation: false,
-      userOperationRelay: false,
-      deployments: manifests.map((m) => ({
-        manifestId: m.id,
-        mode: m.mode,
-        chainId: m.chainId,
-        revision: m.revision,
-        moduleGeneration: m.smartSessions.generation,
-        entryPointSourceVerified: m.entryPoint !== undefined,
-        moduleInspectionConfigured:
-          options.moduleInspectors?.some((i) => i.id === m.moduleInspectorId) ??
-          false,
-      })),
+      walletCreation: manifests.some(
+        (m) =>
+          m.safe7579.source.commit ===
+          "f22a194148ff087f0c16125e530512e59794e188",
+      ),
+      userOperations: "/api/v1/capabilities",
+      deployments: manifests
+        .filter((m) => activeManifestIds.has(m.id))
+        .map((m) => ({
+          manifestId: m.id,
+          mode: m.mode,
+          chainId: m.chainId,
+          revision: m.revision,
+          manifest: m,
+          moduleGeneration: m.smartSessions.generation,
+          entryPointSourceVerified: m.entryPoint !== undefined,
+          moduleInspectionConfigured:
+            options.moduleInspectors?.some(
+              (i) => i.id === m.moduleInspectorId,
+            ) ?? false,
+        })),
       requirements: [
         ...(manifests.length
           ? []
@@ -671,9 +774,16 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
   }
   return {
     inspect,
+    prepareCreation,
     challenge,
     bind,
     current,
+    currentAt: (
+      ownerAccountId: string,
+      id: Hex,
+      evidence: RestBlockEvidence,
+      signal?: AbortSignal,
+    ) => current(ownerAccountId, id, signal, evidence),
     capabilities,
     bundlerReadiness,
     list,

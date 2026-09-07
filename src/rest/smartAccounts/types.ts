@@ -4,7 +4,12 @@ import type { RestBlockEvidence, RestRpc } from "../core.js";
 export interface ContractPin {
   address: Address;
   runtimeCodeHash: Hex;
-  source: { repository: string; commit: string; artifactSha256: string };
+  source: {
+    repository: string;
+    commit?: string;
+    contentSha256?: string;
+    artifactSha256: string;
+  };
 }
 /** Server-owned reviewed deployment configuration. Never accepted from HTTP request bodies. */
 export interface SmartAccountManifest {
@@ -101,6 +106,8 @@ export interface SmartBundler {
 export interface SmartAccountDependencies {
   rpc: RestRpc;
   manifests: readonly SmartAccountManifest[];
+  /** Source-pinned older manifests retained for existing bindings and receipt reconciliation. */
+  retainedManifests?: readonly SmartAccountManifest[];
   registry: VerifiedSmartAccountRegistry;
   audience: string;
   moduleInspectors?: readonly SmartModuleInspector[];
@@ -120,6 +127,11 @@ export interface AllocationGroup {
   allocations: Allocation[];
 }
 export type SessionAction =
+  | {
+      kind: "v6-project-uri";
+      controller: Address;
+      projectId: string;
+    }
   | {
       kind: "erc20-transfer";
       allocationId: string;
@@ -146,6 +158,15 @@ export interface SessionPolicyInput {
   validAfter: number;
   durationDays: 7 | 30;
   maximumCalls: string;
+  gasBudget?: {
+    paymaster: Address;
+    maxGasPerOperation: string;
+    maxFeePerGas: string;
+    maxPriorityFeePerGas: string;
+    totalGasLimit: string;
+    totalSponsoredCostLimit: string;
+    maxPaymasterDataLength: number;
+  };
   allocations: AllocationGroup[];
   actions: SessionAction[];
 }

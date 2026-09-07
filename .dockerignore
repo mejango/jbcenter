@@ -12,3 +12,5 @@ coverage
 **/.env
 **/.env.*
 **/coverage
+src/rest/smartAccounts/stack/out
+src/rest/smartAccounts/stack/cache

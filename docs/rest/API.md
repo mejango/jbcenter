@@ -49,6 +49,16 @@ three scopes. Bot grants use one of three cumulative profiles in canonical order
 | `GET /smart-accounts/bindings`, `/smart-accounts/bindings/{id}` | Read stored association snapshots or recheck an individual binding against current chain state. |
 | `DELETE /smart-accounts/bindings/{id}` | Owner unlinks an API wallet association; it does not revoke onchain authority. |
 | `POST /smart-accounts/session-reviews` | With `plan` scope, review a bounded policy; returns no installation transaction or activated session. |
+| `POST /smart-accounts/creation-plans` | Owner requests deterministic factory calldata and evidence; wallet deployment remains separate. |
+| `POST /smart-accounts/bindings/{id}/plans` | Create a durable plan for the verified bound Safe with `plan` scope and an idempotency key. |
+| `POST /smart-accounts/sessions` | Compile and persist a seven- or thirty-day policy with `plan` scope, an exact grant, gas budget and idempotency key. |
+| `GET /smart-accounts/sessions` | List owner-visible or exact bound-bot sessions using `limit` and optional UUID `cursor`. |
+| `GET /smart-accounts/sessions/{id}` | Refresh installed-policy evidence by default; `refresh=false` returns stored history. |
+| `GET /smart-accounts/sessions/{id}/quota` | Read approved allocations and observed onchain counters. |
+| `POST /smart-accounts/sessions/{id}/activation-plans`, `/revocation-plans` | Owner acknowledges `{compiledHash}` and creates an exact lifecycle plan; requires an idempotency key. |
+| `POST /user-operations` | Prepare EntryPoint v0.7 bytes from `{planId,stepIndexes,sessionId?}` with `plan` scope and an idempotency key. |
+| `POST /user-operations/{id}/submissions` | Submit `{signature}` for the exact prepared operation with `relay` scope and an idempotency key. |
+| `GET /user-operations/{id}` | Read and reconcile a submitted operation using canonical execution evidence. |
 
 ## Contracts, schemas, and sources
 
@@ -140,9 +150,9 @@ Bundles are non-atomic and may report partial processing. Poll
 checks, and reorgs. Confirmation does not establish bridge settlement. See
 [transactions](/api/docs/transactions).
 
-Reusable onchain sessions and recurring payment budgets are described in the
-[session design proposal](/api/docs/sessions). Its proposed resources are not
-implemented API routes or deployed spending authority.
+The [session guide](/api/docs/sessions) describes the separate smart-account
+workflow below. Runtime capabilities determine whether its required deployed
+guard, hosted provider and verified account stack are available.
 
 ## Prepaid Relayr execution
 
@@ -167,27 +177,89 @@ reconcile. Funding, destination execution, modeled economic completion and
 bridge settlement are separate observations. This transport creates no reusable
 session or recurring spending budget.
 
-## Smart-account association and policy review
+## Smart accounts, durable sessions, and UserOperations
 
-Read [smart-account capabilities](/api/v1/smart-accounts/capabilities) before
-choosing a manifest. Only listed reviewed manifests support binding; an empty
-deployment list means none is configured. Module inspectors, asset identities
-and action targets require separate host verification. A binding flow checks the
-existing Safe's exact runtime and current EOA-owner threshold. It uses a
-separate `BindSmartAccount` signature, with a challenge expiry of at most
-15 minutes. Binding a wallet creates no transaction execution authority.
-The checked Sepolia manifest uses `mode=ownership-only`; even an
-`execution-candidate` manifest must satisfy the remaining execution requirements.
+Discover `/smart-accounts/capabilities` and the top-level `userOperations` and
+`sessions` capabilities before selecting a chain. Implemented routes and
+historical deployment research do not establish activation readiness. Hosted
+owner execution requires a reviewed manifest, complete account-history/module
+verification, configured bundler/paymaster and funded sponsorship policy.
+Recurring sessions additionally require the reviewed deployed session guard;
+the checked guard artifact has no deployment address in the repository. Owner
+execution can be configured without that guard. See
+[execution operations](/api/docs/execution-operations) for the live setup.
 
-The policy reviewer accepts explicit seven- or thirty-day limits, an active bot
-grant and typed asset actions. Its result is `reviewable-not-activated`, with
-host-reviewed asset identities and decimals; one allocation group cannot combine
-incompatible asset units. The result lists remaining installation and
-verification requirements. It creates no wallet,
-UserOperation, installation transaction or live spending budget. API unlinking
-and API grant revocation do not revoke any separately installed onchain session.
-See [smart accounts](/api/docs/smart-accounts) for exact requirements and the
-separate [session proposal](/api/docs/sessions) for future executor designs.
+The owner can request `/smart-accounts/creation-plans` with
+`{manifestId,owners,threshold,saltNonce}`. Its `{creation}` result contains the
+predicted address, exact initializer and factory calldata; it is stateless and
+has `deploymentConfirmed:false`. The wallet separately signs and funds deployment.
+For an existing confirmed Safe, obtain a binding challenge and its current
+EOA-owner threshold signatures over `BindSmartAccount`. Submit packed signatures
+in ascending owner-address order. Binding a wallet creates no spending authority.
+
+Create action plans through `/smart-accounts/bindings/{id}/plans` using the
+ordinary `{operation,input}` shape with the Safe as the draft account. Then
+prepare `/user-operations` from the returned plan. Without `sessionId`, the
+response contains `eip712-safe7579-owner` signing data for the current Safe-owner
+threshold. Sign the returned `SafeOp` exactly and encode the bounded owner
+signature envelope using the client helper. Submit only `{signature}`; the API
+request signature remains a separate proof. Up to sixteen selected ordered calls
+can share one owner operation on one chain.
+
+For recurring bot execution, first review `/smart-accounts/session-reviews` or
+persist `/smart-accounts/sessions`. The latter requires an explicit seven- or
+thirty-day policy, immutable generation/nonce, the exact bot grant, approved
+allocation groups and a mandatory gas-only sponsorship budget. Typed actions
+are ERC20 transfers, V6 payments, and V6 project URI updates. URI-only policies
+may have no asset groups, but still need call and gas limits. Asset groups use
+reviewed identities and equal decimal units; the smart account must itself hold
+any project permission. Preparation returns `prepared`, without live authority.
+Allocation records do not transfer or escrow assets, prove a token balance, or
+create allowances. Explicitly fund the smart account and approve any finite
+allowance through separate owner-authorized transactions. A dedicated account
+can isolate the allocated funds. Deposits do not increase the installed lifetime
+cap; seven/thirty-day policies have no automatic reset or replenishment.
+It also records the verified administration epoch and hash. Enabled observations
+must prove exactly one subsequent initialization containing only the compiled
+permission. Complete canonical history detects removal and reinstallation even
+if no intermediate reset was observed.
+
+The API owner acknowledges the returned `compiledHash` at the activation-plan
+route. Review the resulting durable plan, prepare its owner UserOperation,
+collect the Safe-owner threshold signatures, submit, and refresh the session.
+Only `active` with fresh canonical installed-policy and counter evidence permits
+its exact bound bot to prepare an operation with `sessionId`. Session operations
+contain one approved action and return `eip191-legacy-ownable-user-operation`
+signing data. The client key signs the exact raw operation hash and encodes the
+returned permission prefix. Center never receives private keys or signs for a
+wallet. An API bot grant alone remains insufficient.
+Broader financial or administrative actions retain fresh owner authorization
+through direct transactions or SafeOp signing. They cannot inherit authority
+from a session merely because the same account holds sufficient funds.
+
+Only the currently admitted activation or revocation plan may execute. If that
+plan expires before any transport reservation or execution attempt, the owner
+can request a replacement with fresh consent and a new idempotency key. The
+record preserves up to 32 superseded approvals; their plans cannot execute.
+A replacement cannot reinitialize a generation already observed active.
+
+One admitted session generation reserves the physical wallet across API-account
+aliases, keys, grants, assets and time windows. Expiry and API unlink/revocation
+stop applicable admission but do not release that reservation. The owner creates
+and submits a revocation plan; release requires finalized disabled onchain state
+with an advanced enable nonce. Counter resets, reorgs and configuration changes
+make the old generation stale. Quota responses describe approved allocations
+and observed onchain counters, never database balances or atomic cross-chain
+funds. Validation can consume policy counters even when execution fails.
+Safe owner rotation, API unlinking and grant revocation do not remove the
+legacy onchain permission. New owners should explicitly remove old sessions
+and revoke their enable signatures; the API path checks current ownership.
+
+UserOperation submissions return `202`; poll the operation and source plan for
+canonical confirmation and scoped inner-call evidence. `submission_unknown`
+keeps nonce and transport reservations and never authorizes another provider
+publication. Bridge settlement remains a separate observation. See
+[smart accounts](/api/docs/smart-accounts) and [sessions](/api/docs/sessions).
 
 ## Limits, retries, and errors
 

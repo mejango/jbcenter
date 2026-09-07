@@ -1,0 +1,44 @@
+{
+  "abi": [
+    {
+      "name": "createSender",
+      "type": "function",
+      "inputs": [
+        {
+          "name": "initCode",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "sender",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    }
+  ],
+  "bytecode": "0x60808060405234610016576101c3908161001c8239f35b600080fdfe6080600436101561000f57600080fd5b6000803560e01c63570e1a361461002557600080fd5b3461018a5760207ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc36011261018a576004359167ffffffffffffffff9081841161018657366023850112156101865783600401358281116101825736602482870101116101825780601411610182577fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffec810192808411610155577fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe0603f81600b8501160116830190838210908211176101555792846024819482600c60209a968b9960405286845289840196603889018837830101525193013560601c5af1908051911561014d575b5073ffffffffffffffffffffffffffffffffffffffff60405191168152f35b90503861012e565b6024857f4e487b710000000000000000000000000000000000000000000000000000000081526041600452fd5b8380fd5b8280fd5b80fdfea26469706673582212207adef8895ad3393b02fab10a111d85ea80ff35366aa43995f4ea20e67f29200664736f6c63430008170033",
+  "deployedBytecode": "0x6080600436101561000f57600080fd5b6000803560e01c63570e1a361461002557600080fd5b3461018a5760207ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc36011261018a576004359167ffffffffffffffff9081841161018657366023850112156101865783600401358281116101825736602482870101116101825780601411610182577fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffec810192808411610155577fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe0603f81600b8501160116830190838210908211176101555792846024819482600c60209a968b9960405286845289840196603889018837830101525193013560601c5af1908051911561014d575b5073ffffffffffffffffffffffffffffffffffffffff60405191168152f35b90503861012e565b6024857f4e487b710000000000000000000000000000000000000000000000000000000081526041600452fd5b8380fd5b8280fd5b80fdfea26469706673582212207adef8895ad3393b02fab10a111d85ea80ff35366aa43995f4ea20e67f29200664736f6c63430008170033",
+  "source": {
+    "repo": "https://github.com/eth-infinitism/account-abstraction",
+    "commit": "59edfbc5e9862d58ebda3429c9890c3497a1d433",
+    "artifactSha256": "952e7ce1e69354b9e80d0e68e0cbcc64f9304dd25c17170c3732114ea5421b04",
+    "artifactPath": "package/artifacts/EntryPoint.json (embedded SenderCreator creation code)",
+    "artifactUrl": "https://registry.npmjs.org/@account-abstraction/contracts/-/contracts-0.7.0.tgz",
+    "packageName": "@account-abstraction/contracts",
+    "packageVersion": "0.7.0",
+    "verifiedCompilerOutputUrl": "https://sourcify.dev/server/v2/contract/1/0xEFC2c1444eBCC4Db75e7613d20C6a62fF67A167C?fields=all",
+    "verifiedCompilerOutputSha256": "06e98c6f3ebf9cec9aedb8e53ba627c7031763c66fc569655c7bbbb64dfee515",
+    "sourcePath": "contracts/core/SenderCreator.sol",
+    "sourceSha256": "84b46309bf6d890c13362c9c449ff927fa72465741517fc405c8c24baae2d1a3",
+    "creationBytecodeOffset": 16171,
+    "runtimeBytecodeOffset": 16199
+  },
+  "address": "0xEFC2c1444eBCC4Db75e7613d20C6a62fF67A167C",
+  "runtimeCodeHash": "0x283c9d14378f5f4c4e24045b87d621d48443fa5b4af7dd7180a599b3756a7689",
+  "immutables": {},
+  "contractName": "SenderCreator"
+}

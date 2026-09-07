@@ -14,6 +14,7 @@ import {
   type RestRpc,
 } from "../core.js";
 import { encodeCursor, type TransactionStore } from "./store.js";
+import type { SmartAccountBinding } from "../smartAccounts/types.js";
 import type {
   ExternalExecutionObserver,
   ExternalStepObservation,
@@ -111,7 +112,7 @@ export class TransactionService {
   private readonly store: TransactionStore;
   private readonly rpc: RestRpc;
   private readonly verifier: SemanticVerifier | undefined;
-  private readonly externalObserver: ExternalExecutionObserver | undefined;
+  private readonly externalObservers: readonly ExternalExecutionObserver[];
   private readonly authorizeDispatch:
     | ((
         plan: StoredPlan,
@@ -120,6 +121,13 @@ export class TransactionService {
       ) => Promise<{ issuedAt: number; expiresAt: number }>)
     | undefined;
   private readonly now: () => number;
+  private readonly resolveSmartAccount:
+    | ((actor: RestActor, bindingId: Hex) => Promise<SmartAccountBinding>)
+    | undefined;
+  private readonly smartAccountExecution: {
+    chainIds: readonly number[];
+    sessionChainIds: readonly number[];
+  };
   private recoveryCursor: string | undefined;
   readonly policy: RelayPolicy;
 
@@ -128,6 +136,7 @@ export class TransactionService {
     rpc: RestRpc;
     semanticVerifier?: SemanticVerifier;
     externalObserver?: ExternalExecutionObserver;
+    externalObservers?: readonly ExternalExecutionObserver[];
     authorizeDispatch?: (
       plan: StoredPlan,
       stepIndex: number,
@@ -135,13 +144,38 @@ export class TransactionService {
     ) => Promise<{ issuedAt: number; expiresAt: number }>;
     now?: () => number;
     policy?: Partial<RelayPolicy>;
+    resolveSmartAccount?: (
+      actor: RestActor,
+      bindingId: Hex,
+    ) => Promise<SmartAccountBinding>;
+    smartAccountExecution?: {
+      chainIds: readonly number[];
+      sessionChainIds: readonly number[];
+    };
   }) {
+    this.smartAccountExecution = options.smartAccountExecution ?? {
+      chainIds: [],
+      sessionChainIds: [],
+    };
     this.store = options.store;
     this.rpc = options.rpc;
     this.verifier = options.semanticVerifier;
-    this.externalObserver = options.externalObserver;
+    this.externalObservers = [
+      ...(options.externalObserver ? [options.externalObserver] : []),
+      ...(options.externalObservers ?? []),
+    ];
+    if (
+      new Set(this.externalObservers.map((o) => o.kind)).size !==
+      this.externalObservers.length
+    )
+      throw new RestError(
+        500,
+        "INVALID_RELAY_POLICY",
+        "Each external execution transport needs one verifier.",
+      );
     this.authorizeDispatch = options.authorizeDispatch;
     this.now = options.now ?? Date.now;
+    this.resolveSmartAccount = options.resolveSmartAccount;
     this.policy = { ...DEFAULT_RELAY_POLICY, ...options.policy };
     if (
       [
@@ -183,22 +217,30 @@ export class TransactionService {
         },
         {
           kind: "eip4337-user-operation",
-          supported: false,
-          reason: "No validated smart-account transport is installed.",
+          supported: this.smartAccountExecution.chainIds.length > 0,
+          chainIds: [...this.smartAccountExecution.chainIds],
+          preparationEndpoint: "/api/v1/user-operations",
+          reason:
+            this.smartAccountExecution.chainIds.length > 0
+              ? "Use the configured UserOperation transport for verified smart-account plans."
+              : "A hosted bundler and paymaster must be configured before execution.",
         },
       ],
       chains: this.policy.allowedChainIds.map((chainId) => ({
         chainId,
         confirmations: this.confirmations(chainId),
         sponsor: {
-          available: false,
-          reason:
-            "Gas sponsorship requires a separately validated smart-account/paymaster adapter.",
+          available: this.smartAccountExecution.chainIds.includes(chainId),
+          reason: this.smartAccountExecution.chainIds.includes(chainId)
+            ? "Sponsored UserOperations require exact paymaster approval and gas limits."
+            : "No hosted smart-account paymaster is configured for this chain.",
         },
       })),
       authorization: {
         apiSessionGrantsDoNotAuthorizeOnchainSigning: true,
-        onchainSessionKeysSupported: false,
+        onchainSessionKeysSupported:
+          this.smartAccountExecution.sessionChainIds.length > 0,
+        sessionChainIds: [...this.smartAccountExecution.sessionChainIds],
         freshOwnerApprovalRequired: Boolean(this.authorizeDispatch),
         mode: this.authorizeDispatch
           ? "fresh-owner-approval-before-dispatch"
@@ -227,13 +269,65 @@ export class TransactionService {
     idempotencyKey: string,
     requestHash: string,
   ) {
+    return this.createBoundPlan(actor, draft, idempotencyKey, requestHash);
+  }
+
+  /** Only this independently verified binding path can prepare a contract-wallet plan. */
+  async createSmartAccountPlan(
+    actor: RestActor,
+    bindingId: Hex,
+    draft: RestPlanDraft,
+    idempotencyKey: string,
+    requestHash: string,
+  ) {
+    if (!this.resolveSmartAccount)
+      throw new RestError(
+        503,
+        "SMART_ACCOUNTS_UNAVAILABLE",
+        "A verified account binding adapter is required.",
+      );
+    const ownedDraft = JSON.parse(canonical(draft)) as RestPlanDraft;
+    const binding = await this.resolveSmartAccount(actor, bindingId);
+    if (
+      binding.ownerAccountId !== actor.accountId ||
+      binding.id !== bindingId ||
+      !same(binding.wallet.address, ownedDraft.account) ||
+      ownedDraft.calls.some((call) => call.chainId !== binding.wallet.chainId)
+    )
+      throw new RestError(
+        403,
+        "PLAN_ACCOUNT_MISMATCH",
+        "Every call must use the exact bound smart wallet and its chain.",
+      );
+    return this.createBoundPlan(
+      actor,
+      ownedDraft,
+      idempotencyKey,
+      requestHash,
+      {
+        bindingId: binding.id,
+        stateHash: binding.state.stateHash,
+        chainId: binding.wallet.chainId,
+        address: binding.wallet.address,
+        manifestRevision: binding.state.manifestRevision,
+      },
+    );
+  }
+
+  private async createBoundPlan(
+    actor: RestActor,
+    draft: RestPlanDraft,
+    idempotencyKey: string,
+    requestHash: string,
+    smartAccount?: StoredPlan["smartAccount"],
+  ) {
     const idem = idempotency(idempotencyKey, requestHash, "create-plan");
     const existing = await this.store.findIdempotentPlan(actor, idem);
     if (existing) return this.view(existing);
     // Own the bytes before any asynchronous evidence lookup. The caller may
     // retain its draft reference, but cannot change the already validated plan.
     draft = JSON.parse(canonical(draft)) as RestPlanDraft;
-    this.validateDraft(actor, draft);
+    this.validateDraft(actor, draft, smartAccount);
     const now = this.now();
     const evidenceTime = Math.min(
       ...draft.evidence.map((e) => Number(e.timestamp) * 1000),
@@ -253,10 +347,16 @@ export class TransactionService {
       id: randomUUID(),
       actor: { ...actor },
       draft,
-      commitment: digest({ actor, draft, expiresAt }),
+      commitment: digest({
+        actor,
+        draft,
+        expiresAt,
+        ...(smartAccount ? { smartAccount } : {}),
+      }),
       createdAt: now,
       expiresAt,
       revision: 0,
+      ...(smartAccount ? { smartAccount } : {}),
       steps: draft.calls.map((_, index) => ({ index, state: "waiting" })),
     };
     return this.view(await this.store.create(stored, idem, now));
@@ -574,13 +674,17 @@ export class TransactionService {
     };
   }
 
-  private validateDraft(actor: RestActor, draft: RestPlanDraft) {
+  private validateDraft(
+    actor: RestActor,
+    draft: RestPlanDraft,
+    smartAccount?: StoredPlan["smartAccount"],
+  ) {
     const owner = actor.accountId.split(":");
     if (
       owner.length !== 3 ||
       owner[0] !== "eip155" ||
       !isAddress(owner[2]!) ||
-      !same(owner[2]!, draft.account)
+      !same(smartAccount?.address ?? owner[2]!, draft.account)
     )
       throw new RestError(
         403,
@@ -1134,10 +1238,10 @@ export class TransactionService {
       state: "unknown",
       semantic: { status: "unknown", details },
     });
-    if (
-      !this.externalObserver ||
-      this.externalObserver.kind !== external.transport
-    )
+    const observer = this.externalObservers.find(
+      (candidate) => candidate.kind === external.transport,
+    );
+    if (!observer)
       return unknown("The bound external execution verifier is unavailable.");
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1152,12 +1256,9 @@ export class TransactionService {
         );
       });
       const observation = await Promise.race([
-        this.externalObserver.observePlanStep(
-          plan,
-          step.index,
-          external.bindingId,
-          { signal: controller.signal },
-        ),
+        observer.observePlanStep(plan, step.index, external.bindingId, {
+          signal: controller.signal,
+        }),
         deadline,
       ]);
       if (
@@ -1186,9 +1287,12 @@ export class TransactionService {
         ) {
           // The previously verified inner execution still occupies the exact
           // canonical block. A later provider retry must not replace its result.
-          const semantic = this.verifier
-            ? await this.verifySemantics(plan, step.index, prior)
-            : (step.semantic ?? { status: "unknown" as const });
+          const semantic =
+            external.transport === "erc4337"
+              ? (step.semantic ?? { status: "unknown" as const })
+              : this.verifier
+                ? await this.verifySemantics(plan, step.index, prior)
+                : (step.semantic ?? { status: "unknown" as const });
           if (Buffer.byteLength(canonical(semantic)) > 8192)
             throw new Error(
               "External semantic evidence exceeds persistence bound",
@@ -1321,12 +1425,17 @@ export class TransactionService {
           },
         };
       const semantic =
-        observation.semantic?.status === "failed" ||
-        observation.semantic?.status === "unknown"
-          ? observation.semantic
-          : this.verifier
-            ? await this.verifySemantics(plan, step.index, receipt)
-            : (observation.semantic ?? { status: "unmodeled" as const });
+        external.transport === "erc4337"
+          ? (observation.semantic ?? {
+              status: "unknown" as const,
+              details: "Operation-scoped semantic evidence is required.",
+            })
+          : observation.semantic?.status === "failed" ||
+              observation.semantic?.status === "unknown"
+            ? observation.semantic
+            : this.verifier
+              ? await this.verifySemantics(plan, step.index, receipt)
+              : (observation.semantic ?? { status: "unmodeled" as const });
       if (Buffer.byteLength(canonical(semantic)) > 8192)
         throw new Error("External semantic evidence exceeds persistence bound");
       return { ...base, state: "confirmed", receipt: compact, semantic };
@@ -1346,7 +1455,10 @@ export class TransactionService {
       ...(step.externalExecution
         ? {
             execution: {
-              transport: "relayr-prepaid-erc2771",
+              transport:
+                step.externalExecution.transport === "erc4337"
+                  ? "eip4337-user-operation"
+                  : "relayr-prepaid-erc2771",
               bindingId: step.externalExecution.bindingId,
               chainId: step.externalExecution.chainId,
               ...(step.externalExecution.transactionHash
@@ -1415,6 +1527,7 @@ export class TransactionService {
       createdAt: plan.createdAt,
       expiresAt: plan.expiresAt,
       revision: plan.revision,
+      ...(plan.smartAccount ? { smartAccount: plan.smartAccount } : {}),
       status,
       steps,
       confirmationScope:

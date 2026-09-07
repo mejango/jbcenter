@@ -58,6 +58,12 @@ describe("REST OpenAPI contract", () => {
         expect(spec.paths[path]?.[match[1]!], `${match[1]} ${path}`).toBeDefined();
       }
     }
+    for (const kind of ["activation", "revocation"]) {
+      const operation = spec.paths[`/api/v1/smart-accounts/sessions/{id}/${kind}-plans`]?.post;
+      expect(operation, `${kind} lifecycle route`).toBeDefined();
+      expect(operation?.["x-auth"]).toMatchObject({ ownerOnly: true, idempotencyRequired: true });
+      expect(operation?.responses).toHaveProperty("201");
+    }
     const ids = new Set<string>();
     for (const [path, methods] of Object.entries(spec.paths)) {
       for (const operation of Object.values(methods)) {

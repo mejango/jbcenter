@@ -16,6 +16,8 @@ import { apiDocsCss, apiDocsPage, buildRestOpenApi } from "./docs/index.js";
 import {
   createTransactionDispatchAuthorizer,
   createSponsorshipDispatchAuthorizer,
+  createSessionPlanAuthorizer,
+  createUserOperationRequestAuthorizer,
 } from "./dispatchAuthority.js";
 import { createIndexerReadService } from "./indexer/index.js";
 import { createOmnichainService } from "./omnichain/index.js";
@@ -36,7 +38,21 @@ import {
   type SmartModuleInspector,
   type ReviewedSessionTarget,
   type ReviewedSessionAsset,
+  type ReviewedSessionPaymaster,
+  createInstalledSessionVerifier,
 } from "./smartAccounts/index.js";
+import { createSessionTargetResolver } from "./smartAccounts/targets.js";
+import { createSafe7579Inspector } from "./smartAccounts/inspector.js";
+import { PostgresSafe7579CheckpointStore } from "./smartAccounts/checkpoints.js";
+import {
+  readRestExecutionConfiguration,
+  type RestExecutionConfiguration,
+} from "./executionConfig.js";
+import { PostgresSessionStore } from "./sessions/postgres.js";
+import { SessionService } from "./sessions/service.js";
+import { UserOperationProvider } from "./userOperations/provider.js";
+import { UserOperationService } from "./userOperations/service.js";
+import { PostgresUserOperationStore } from "./userOperations/postgres.js";
 import { PostgresTransactionStore } from "./transactions/postgres.js";
 import { TransactionService } from "./transactions/service.js";
 
@@ -52,6 +68,8 @@ export async function createRestRuntime(options: {
   smartAccountModuleInspectors?: readonly SmartModuleInspector[];
   smartAccountSessionTargets?: readonly ReviewedSessionTarget[];
   smartAccountAssets?: readonly ReviewedSessionAsset[];
+  smartAccountPaymasters?: readonly ReviewedSessionPaymaster[];
+  executionConfiguration?: RestExecutionConfiguration;
   rpc?: RestRpc;
   startMaintenance?: boolean;
 }): Promise<{
@@ -60,6 +78,9 @@ export async function createRestRuntime(options: {
   stop(): Promise<void>;
 }> {
   const contracts = await getContractCatalog();
+  const execution =
+    options.executionConfiguration ??
+    (await readRestExecutionConfiguration({}));
   const shutdownSignal = new AbortController();
   const backendRpc =
     options.rpc ??
@@ -138,24 +159,109 @@ export async function createRestRuntime(options: {
     authorizeDispatch: createSponsorshipDispatchAuthorizer(authority),
     policy: { enabled: true },
   });
+  let userOperations: UserOperationService | undefined;
   const transactions = new TransactionService({
     store: transactionStore,
     rpc,
     semanticVerifier,
     authorizeDispatch: createTransactionDispatchAuthorizer(authority),
-    externalObserver: {
-      kind: "relayr",
-      observePlanStep: (plan, index, bindingId, request) =>
-        sponsorship.observePlanStep(plan, index, bindingId, request),
+    resolveSmartAccount: (actor, id) =>
+      smartAccounts.current(actor.accountId, id),
+    smartAccountExecution: {
+      chainIds: execution.providers.map((provider) => provider.chainId),
+      sessionChainIds: execution.stacks
+        .filter(
+          (stack) =>
+            stack.compilerStack &&
+            execution.providers.some(
+              (provider) => provider.chainId === stack.manifest.chainId,
+            ),
+        )
+        .map((stack) => stack.manifest.chainId),
     },
+    externalObservers: [
+      {
+        kind: "relayr",
+        observePlanStep: (plan, index, bindingId, request) =>
+          sponsorship.observePlanStep(plan, index, bindingId, request),
+      },
+      {
+        kind: "erc4337",
+        observePlanStep: (plan, index, bindingId, request) => {
+          if (!userOperations)
+            throw new RestError(
+              503,
+              "USER_OPERATIONS_UNAVAILABLE",
+              "The operation verifier is unavailable.",
+            );
+          return userOperations.observePlanStep(
+            plan,
+            index,
+            bindingId,
+            request,
+          );
+        },
+      },
+    ],
   });
+  const sessionStore = new PostgresSessionStore(options.pool);
+  const installedVerifier = createInstalledSessionVerifier({
+    rpc,
+    findCompiled: (chainId, wallet, permissionId) =>
+      sessionStore.findCompiled(chainId, wallet, permissionId),
+  });
+  const activeManifests =
+    options.smartAccountManifests ??
+    execution.stacks.map((stack) => stack.manifest);
+  // Adding a guard must not invalidate an existing owner-only binding or hide an
+  // already-submitted operation. Retain exact source pins without advertising
+  // older manifests as the default wallet-creation choices.
+  const retainedManifests = options.smartAccountManifests
+    ? []
+    : [
+        ...(await readRestExecutionConfiguration({})).stacks.map(
+          (stack) => stack.manifest,
+        ),
+        ...CHECKED_SMART_ACCOUNT_BINDING_MANIFESTS,
+      ].filter(
+        (manifest) =>
+          !activeManifests.some((active) => active.id === manifest.id),
+      );
+  const manifests = [...activeManifests, ...retainedManifests];
+  const moduleInspectors =
+    options.smartAccountModuleInspectors ??
+    (options.smartAccountManifests
+      ? []
+      : execution.stacks.length
+        ? [
+            createSafe7579Inspector({
+              rpc,
+              utility: execution.stacks[0]!.utility,
+              inspectSessions: installedVerifier.inspectAllAt,
+              checkpointStore: new PostgresSafe7579CheckpointStore(
+                options.pool,
+              ),
+            }),
+          ]
+        : []);
   const smartAccounts = createSmartAccountService({
     rpc,
     audience: auth.audience,
     registry: new PostgresSmartAccountRegistry(options.pool),
-    manifests:
-      options.smartAccountManifests ?? CHECKED_SMART_ACCOUNT_BINDING_MANIFESTS,
-    moduleInspectors: options.smartAccountModuleInspectors ?? [],
+    manifests: activeManifests,
+    retainedManifests,
+    moduleInspectors,
+  });
+  const sessionTargets = createSessionTargetResolver({
+    catalog: contracts,
+    protocol,
+    rpc,
+    ...(options.smartAccountSessionTargets
+      ? { targets: options.smartAccountSessionTargets }
+      : {}),
+    ...(options.smartAccountAssets
+      ? { assets: options.smartAccountAssets }
+      : {}),
   });
   const sessionReviewer = createSessionPolicyReviewer({
     currentBinding: (accountId, id, signal) =>
@@ -164,8 +270,113 @@ export async function createRestRuntime(options: {
       (await accountStore.listBots(accountId)).find(
         (grant) => grant.id === grantId,
       ) ?? null,
-    targets: options.smartAccountSessionTargets ?? [],
-    assets: options.smartAccountAssets ?? [],
+    targets: [],
+    resolveTargets: (binding, input, signal) =>
+      sessionTargets.resolve(binding, input, signal),
+    assets: sessionTargets.assets,
+    paymasters: options.smartAccountPaymasters ?? execution.paymasters,
+  });
+  const sessions = new SessionService({
+    store: sessionStore,
+    rpc,
+    reviewer: sessionReviewer,
+    verifier: installedVerifier,
+    transactions,
+    currentBinding: (accountId, id, signal) =>
+      smartAccounts.current(accountId, id, signal),
+    currentBindingAt: (accountId, id, evidence, signal) =>
+      smartAccounts.currentAt(accountId, id, evidence, signal),
+    compilerFor: (binding) => {
+      const stack = execution.stacks.find(
+        (s) =>
+          s.manifest.id === binding.manifestId &&
+          s.manifest.revision === binding.state.manifestRevision,
+      );
+      if (!stack)
+        throw new RestError(
+          503,
+          "SESSION_STACK_UNAVAILABLE",
+          "The binding has no configured source-verified session compiler.",
+        );
+      return stack.createCompiler();
+    },
+    authorizeOwnerPlan: createSessionPlanAuthorizer(authority),
+    configuredChainIds: execution.stacks
+      .filter(
+        (stack) =>
+          stack.compilerStack &&
+          execution.providers.some(
+            (provider) => provider.chainId === stack.manifest.chainId,
+          ),
+      )
+      .map((stack) => stack.manifest.chainId),
+  });
+  const manifestFor = (id: string, revision: string) => {
+    const manifest = manifests.find(
+      (m) => m.id === id && m.revision === revision,
+    );
+    if (!manifest)
+      throw new RestError(
+        503,
+        "SMART_MANIFEST_UNAVAILABLE",
+        "The exact reviewed deployment manifest is unavailable.",
+      );
+    return manifest;
+  };
+  userOperations = new UserOperationService({
+    rpc,
+    provider: new UserOperationProvider(execution.providers),
+    policies: execution.policies,
+    store: new PostgresUserOperationStore(options.pool),
+    transactionStore,
+    transactions,
+    sessions,
+    currentBinding: (accountId, id, signal) =>
+      smartAccounts.current(accountId, id, signal),
+    currentBindingAt: (accountId, id, evidence, signal) =>
+      smartAccounts.currentAt(accountId, id, evidence, signal),
+    manifestFor: (binding) =>
+      manifestFor(binding.manifestId, binding.state.manifestRevision),
+    manifestForPlan: (plan) => {
+      const manifest = manifests.find(
+        (m) =>
+          m.chainId === plan.smartAccount?.chainId &&
+          m.revision === plan.smartAccount.manifestRevision,
+      );
+      if (!manifest)
+        throw new RestError(
+          503,
+          "SMART_MANIFEST_UNAVAILABLE",
+          "The plan's exact reviewed account manifest is unavailable.",
+        );
+      return manifest;
+    },
+    verifyHistoricalAccount: async (plan, evidence, signal) => {
+      const manifest = manifests.find(
+        (m) =>
+          m.chainId === plan.smartAccount?.chainId &&
+          m.revision === plan.smartAccount.manifestRevision,
+      );
+      if (!manifest)
+        throw new RestError(
+          503,
+          "SMART_MANIFEST_UNAVAILABLE",
+          "The historical account manifest is unavailable.",
+        );
+      const state = await smartAccounts.inspect(
+        { manifestId: manifest.id, address: plan.draft.account },
+        signal,
+        evidence,
+      );
+      if (state.stateHash !== plan.smartAccount!.stateHash)
+        throw new RestError(
+          409,
+          "SMART_ACCOUNT_CHANGED",
+          "The historical owner/module layout differs from the approved plan.",
+        );
+    },
+    authorizeRequest: createUserOperationRequestAuthorizer(authority),
+    semanticVerifier,
   });
   const openapi = buildRestOpenApi({
     contracts,
@@ -184,6 +395,8 @@ export async function createRestRuntime(options: {
     sponsorship,
     smartAccounts,
     sessionReviewer,
+    sessions,
+    userOperations,
     omnichain,
     openapi,
   });
@@ -198,6 +411,7 @@ export async function createRestRuntime(options: {
         1000,
       );
       if (!stopped) await transactions.recoverPending({ limit: 5 });
+      if (!stopped) await userOperations?.recoverPending(5);
     })()
       .catch(() => {
         // Do not log signed bytes, profile contents, or provider credentials.

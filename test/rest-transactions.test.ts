@@ -920,6 +920,40 @@ function externalFixture() {
 }
 
 describe("sponsored execution observations on original plans", () => {
+  it("keeps operation-scoped semantic evidence when an ERC-4337 provider changes its hint", async () => {
+    const fixture = externalFixture();
+    const verify = vi.fn(async () => ({ status: "failed" as const }));
+    const observer = { ...fixture.observer, kind: "erc4337" as const };
+    const h = harness({ externalObserver: observer, verifier: { verify } });
+    const plan = await h.service.createPlan(
+      actor,
+      h.draft(true),
+      "uo-retry-hint",
+      requestHash,
+    );
+    h.transports.claim(plan.id, [0], "erc4337", "uo-binding");
+    h.confirm(fixture.rawOuter);
+    const first = await h.service.getPlan(actor, plan.id);
+    expect(first.steps[0]).toMatchObject({
+      state: "confirmed",
+      semantic: { status: "verified" },
+    });
+    fixture.observer.observePlanStep.mockResolvedValue({
+      stepIndex: 0,
+      chainId: 8453,
+      providerState: "retry",
+      state: "reverted",
+      hash: hHash(),
+    });
+    const refreshed = await h.service.getPlan(actor, plan.id);
+    expect(refreshed.steps[0]).toMatchObject({
+      state: "confirmed",
+      semantic: { status: "verified" },
+      execution: { hash: fixture.outerHash },
+    });
+    expect(refreshed.steps[1]?.blockedBy).toEqual([]);
+    expect(verify).not.toHaveBeenCalled();
+  });
   it("retains a freshly reverified canonical inner success when a provider advertises a later retry", async () => {
     const fixture = externalFixture();
     const h = harness({ externalObserver: fixture.observer });

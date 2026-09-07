@@ -29,17 +29,23 @@ POST endpoints prepare transaction plans and relay externally signed transaction
 wallet, chains, destinations, calldata, values, dependencies, evidence, and expiry. Durable nonce,
 idempotency, and transport reservations prevent conflicting submissions. A receipt confirms one
 transaction; operation effects and cross-chain settlement have separate evidence.
-Dispatch requires fresh owner consent: either the signed owner request itself or an additional
-owner approval attached to a bot submission. An old wallet transaction signature is insufficient.
+Fund movement requires fresh owner consent unless an installed smart-account session already
+authorizes that exact action within an explicit spending allocation. Direct EOA and Relayr dispatch
+require a fresh signed owner request or an additional owner approval attached to the bot submission.
+An old wallet transaction signature is insufficient.
 
 Read [authentication](docs/rest/AUTHENTICATION.md), [contracts](docs/rest/CONTRACTS.md),
 [indexed reads](docs/rest/INDEXER.md), [transactions](docs/rest/TRANSACTIONS.md),
 [omnichain projects](docs/rest/OMNICHAIN.md), [sponsorship](docs/rest/SPONSORSHIP.md), and
 [AI integration](docs/rest/AI_GUIDE.md). Relayr supports externally funded gas for eligible exact
-owner-signed calls, with independent destination verification. Broader smart-account sessions and
-prepaid user spending budgets remain gated on verified onchain policy enforcement and a complete
-UserOperation transport. [Session design](docs/rest/SESSIONS.md) records the selected architecture
-and remaining requirements. Gas sponsorship is separate from permission to spend funds.
+owner-signed calls, with independent destination verification. Hosted ERC-4337 execution supports
+reviewed Safe accounts, exact owner-signed bundles, and seven- or thirty-day bot sessions with
+onchain spending and gas limits. The browser facilitates account creation, binding, activation,
+local signing, quotas and revocation. Read the [session lifecycle](docs/rest/SESSIONS.md) and
+[execution runbook](docs/rest/EXECUTION_OPERATIONS.md) before enabling it: providers require operator
+configuration, and the checked session guard still requires a verified deployment on each enabled
+chain. Live capabilities report configured availability. Gas sponsorship is separate from permission
+to spend funds.
 
 ## Ecosystem directory
 

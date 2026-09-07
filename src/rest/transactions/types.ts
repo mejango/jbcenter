@@ -57,7 +57,7 @@ export interface StoredStep {
   semantic?: SemanticResult;
 }
 export interface ExternalExecution {
-  transport: "relayr";
+  transport: "relayr" | "erc4337";
   bindingId: string;
   chainId: number;
   transactionHash?: Hex;
@@ -88,7 +88,7 @@ export interface ExternalExecutionObservation {
 }
 /** Installed transport verifier; implementations must prove exact bound inner execution. */
 export interface ExternalExecutionObserver {
-  readonly kind: "relayr";
+  readonly kind: "relayr" | "erc4337";
   observePlanStep(
     plan: StoredPlan,
     index: number,
@@ -104,6 +104,14 @@ export interface StoredPlan {
   createdAt: number;
   expiresAt: number;
   revision: number;
+  /** Verified owner binding for a contract wallet. It never grants EOA relay authority. */
+  smartAccount?: {
+    bindingId: Hex;
+    stateHash: Hex;
+    chainId: number;
+    address: Address;
+    manifestRevision: Hex;
+  };
   steps: StoredStep[];
 }
 export interface IdempotencyClaim {

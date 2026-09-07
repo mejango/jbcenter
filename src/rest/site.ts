@@ -40,6 +40,7 @@ export async function readRestAssets() {
     "SPONSORSHIP",
     "SMART_ACCOUNTS",
     "SESSIONS",
+    "EXECUTION_OPERATIONS",
   ]) {
     const content = await readFile(
       new URL(`../../docs/rest/${name}.md`, import.meta.url),
@@ -82,7 +83,7 @@ export function mountRestSite(app: Hono<JbcenterEnv>, site: RestSite): void {
     }),
   );
   app.get("/api/docs/:name", (context) => {
-    const name = context.req.param("name").replace(/\.md$/, "");
+    const name = context.req.param("name").replace(/\.md$/i, "").toLowerCase();
     const document = site.documents.get(name);
     if (!document)
       return context.json(

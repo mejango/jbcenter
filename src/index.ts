@@ -8,6 +8,7 @@ import { createRpcGateway, dwellirRpcUpstreams } from "./rpc.js";
 import { createCenterMcp } from "./mcp.js";
 import { createCenterServer } from "./server.js";
 import { createRestRuntime } from "./rest/runtime.js";
+import { readRestExecutionConfiguration } from "./rest/executionConfig.js";
 
 function positiveInteger(name: string, fallback: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -46,6 +47,7 @@ const mcp = createCenterMcp(store, { rpc, rpcSiteLimitPerMinute, ...(pinning ? {
 const rest = await createRestRuntime({
   pool, store, services: mcp.services, config: mcp.config, upstreams: rpcUpstreams, rpcSiteLimitPerMinute,
   ...(process.env.REST_PUBLIC_ORIGIN ? { audience: process.env.REST_PUBLIC_ORIGIN } : {}),
+  executionConfiguration: await readRestExecutionConfiguration(process.env),
 });
 const handler = createHttpHandler(mcp.config, () => createMcpServer(mcp.services), {
   healthPath: "/mcp/healthz",

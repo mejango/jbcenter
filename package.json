@@ -11,7 +11,9 @@
     "test": "vitest run",
     "load:test": "node scripts/load-test.mjs",
     "typecheck": "npm run build:mcp && tsc --noEmit",
-    "check": "npm --prefix mcp run check && npm run typecheck && npm test && npm run build",
+    "check": "npm run check:execution && npm --prefix mcp run check && npm run typecheck && npm test && npm run build",
+    "check:execution": "node scripts/rest/check-execution.mjs",
+    "verify:execution-artifacts": "node src/rest/smartAccounts/stack/verify-artifacts.mjs",
     "migrate": "node --env-file-if-exists=.env --import tsx src/db/migrate-cli.ts",
     "build:web": "node scripts/rest/build-web.mjs",
     "rest": "node scripts/rest/center.mjs"
