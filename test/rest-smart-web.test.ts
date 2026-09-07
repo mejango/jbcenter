@@ -62,7 +62,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
-async function harness() {
+async function harness(options: {
+  sessions?: { activationReady: boolean; configuredChainIds: number[] } | null;
+} = {}) {
+  let sessionCapabilities = options.sessions === undefined
+    ? { activationReady: true, configuredChainIds: [1] }
+    : options.sessions;
   const nodes = new Map(
     [...accountsPage().matchAll(/\bid="([^"]+)"/g)].map((x) => [
       x[1]!,
@@ -116,9 +121,13 @@ async function harness() {
     if (path === "/api/v1/capabilities")
       return Response.json({
         smartAccounts: {
-          deployments: [{ manifestId: b.manifestId, chainId: 1, manifest }],
+          deployments: [
+            { manifestId: "other-chain", chainId: 10 },
+            { manifestId: b.manifestId, chainId: 1, manifest },
+          ],
           requirements: [],
         },
+        ...(sessionCapabilities ? { sessions: sessionCapabilities } : {}),
         userOperations: {
           preparation: true,
           relay: true,
@@ -222,8 +231,10 @@ async function harness() {
     throw new Error(`Unexpected path ${path}`);
   };
   vi.stubGlobal("fetch", transport);
+  const walletRequests: string[] = [];
   const provider = {
     async request({ method, params }: { method: string; params?: unknown[] }) {
+      walletRequests.push(method);
       if (method === "eth_accounts") return [ownerKey.address];
       if (method === "eth_chainId") return "0x1";
       if (method === "eth_signTypedData_v4")
@@ -263,13 +274,15 @@ async function harness() {
     field(id).dispatchEvent(new Event("change"));
     await running;
   };
-  ui.accountReady(true);
-  await click("smart-discover");
-  field("smart-manifest").value = b.manifestId;
+  await ui.accountReady(true);
+  expect(field("smart-manifest").value).toBe(b.manifestId);
+  expect(walletRequests).toEqual([]);
   field("smart-binding-id").value = b.id;
   await click("smart-bind-load");
-  field("session-id").value = s.id;
-  await click("session-refresh");
+  if (sessionCapabilities?.activationReady && sessionCapabilities.configuredChainIds.includes(1)) {
+    field("session-id").value = s.id;
+    await click("session-refresh");
+  }
   expect(errors).toEqual([]);
   return {
     ui,
@@ -279,6 +292,7 @@ async function harness() {
     errors,
     requests,
     signatures,
+    walletRequests,
     botPrivateKey,
     bot,
     nodes,
@@ -290,11 +304,19 @@ async function harness() {
       holdPreparation = promise;
     },
     idle: () => running,
+    setCapabilities: (next: typeof sessionCapabilities) => { sessionCapabilities = next; },
   };
 }
 
 it("drives owner plan, local SafeOp approval, submission and canonical status through the browser controller", async () => {
-  const f = await harness();
+  const f = await harness({ sessions: { activationReady: false, configuredChainIds: [] } });
+  expect(f.field("session-section").hidden).toBe(true);
+  expect(f.field("session-nav").hidden).toBe(true);
+  expect(f.field("session-fields").disabled).toBe(true);
+  expect(f.field("operation-authority-label").hidden).toBe(true);
+  expect(f.field("operation-authority").disabled).toBe(true);
+  expect(f.field("operation-owner-signatures-label").hidden).toBe(true);
+  expect(f.field("operation-fields").disabled).toBe(false);
   await f.click("operation-plan");
   await f.click("operation-prepare");
   await f.click("operation-sign");
@@ -308,6 +330,50 @@ it("drives owner plan, local SafeOp approval, submission and canonical status th
   expect(
     f.requests.filter((x) => x.path.endsWith("/submissions")),
   ).toHaveLength(1);
+  expect(f.requests.some((x) => x.path.includes("/sessions/"))).toBe(false);
+  expect(f.walletRequests.filter((method) => method === "eth_signTypedData_v4")).toHaveLength(1);
+});
+
+it.each([null, { activationReady: true, configuredChainIds: [10] }])(
+  "does not offer delegated wallet authority without readiness on the connected chain: %j",
+  async (sessions) => {
+    const f = await harness({ sessions });
+    expect(f.field("session-section").hidden).toBe(true);
+    f.field("operation-authority").value = "session";
+    await f.change("operation-authority");
+    expect(f.field("operation-authority").value).toBe("owner");
+    expect(f.field("session-key-fields").hidden).toBe(true);
+    const before = f.requests.length;
+    await f.click("session-prepare");
+    expect(f.errors).toHaveLength(1);
+    expect(f.requests).toHaveLength(before);
+  },
+);
+
+it("clears delegated signatures when hosted activation is withdrawn", async () => {
+  const f = await harness();
+  f.field("operation-authority").value = "session";
+  await f.change("operation-authority");
+  f.field("session-key-file").files = [{
+    size: 256,
+    text: async () => JSON.stringify({
+      format: "juicebox-center-bot-key-v1",
+      botAddress: f.bot.address,
+      privateKey: f.botPrivateKey,
+    }),
+  }];
+  await f.change("session-key-file");
+  await f.click("operation-plan");
+  await f.click("operation-prepare");
+  await f.click("operation-sign");
+  expect(f.field("operation-submit").disabled).toBe(false);
+  f.setCapabilities({ activationReady: false, configuredChainIds: [] });
+  await f.click("smart-discover");
+  expect(f.field("operation-submit").disabled).toBe(true);
+  expect(f.field("operation-authority").value).toBe("owner");
+  expect(f.field("operation-session-template").hidden).toBe(true);
+  await f.click("operation-submit");
+  expect(f.signatures).toHaveLength(0);
 });
 
 it("keeps the imported key local, authenticates with its bot grant, and clears stale signatures when switching sessions", async () => {

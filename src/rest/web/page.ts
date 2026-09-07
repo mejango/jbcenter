@@ -10,20 +10,21 @@ export function accountsPage(options: { scriptPath?: string; stylePath?: string;
 <body data-audience="${escapeHtml(options.audience ?? "")}"><main>
 <header><a href="/">JUICEBOX CENTER</a><span>V6 / ACCOUNTS</span></header>
 <h1>Your account.<br>Your bots.</h1>
-<p class="lede">A wallet owns your account. Give each bot its own key, permissions, and expiration. Use a smart wallet for exact, expiring sessions.</p>
-<nav class="section-nav" aria-label="Account sections"><a href="#wallet-heading">Wallet</a><a href="#profile-heading">Profile</a><a href="#bots-heading">Bots</a><a href="#smart-heading">Smart wallet</a><a href="#session-heading">Sessions</a><a href="#operation-heading">Execute</a></nav>
+<p class="lede">Connect your wallet to manage API access or approve sponsored V6 transactions. Add a bot when you want an agent to read data and prepare plans.</p>
+<nav class="section-nav" aria-label="Account sections"><a href="#wallet-heading">Wallet</a><a href="#profile-heading">Profile</a><a href="#bots-heading">Bots</a><a href="#smart-heading">Smart wallet</a><a href="#operation-heading">Execute</a><a id="session-nav" href="#session-heading" hidden>Bot permissions</a></nav>
 <p id="status" role="status" aria-live="polite">Ready.</p>
 <section aria-labelledby="wallet-heading"><h2 id="wallet-heading">01 / Wallet</h2>
 <div class="row"><label>Wallet<select id="wallets"><option value="">Looking for wallets…</option></select></label><button id="connect" type="button">Connect wallet</button><button id="disconnect" type="button" hidden>Disconnect</button></div>
 <p id="identity">Connect a wallet to enroll or manage your account.</p>
 <div class="row"><button id="enroll" type="button" disabled>Enroll account</button><button id="refresh" type="button" disabled>Load account</button></div>
 </section>
-<section aria-labelledby="profile-heading"><h2 id="profile-heading">02 / Profile</h2>
+<section aria-labelledby="profile-heading"><h2 id="profile-heading">02 / Profile (optional)</h2>
+<details><summary>Edit your profile</summary>
 <form id="profile-form"><fieldset id="profile-fields" disabled>
 <label>Display name<input id="display-name" name="displayName" maxlength="120" autocomplete="nickname"></label>
 <label>Bio<textarea id="bio" name="bio" maxlength="2000" rows="3"></textarea></label>
 <label>Avatar URI<input id="avatar-uri" name="avatarUri" maxlength="2048" placeholder="https:// or ipfs://"></label>
-<button type="submit">Save profile</button></fieldset></form></section>
+<button type="submit">Save profile</button></fieldset></form></details></section>
 <section aria-labelledby="bots-heading"><h2 id="bots-heading">03 / Bots</h2>
 <p>Read retrieves data. Planning includes reads. Relay includes reads and planning, and requires fresh owner approval to submit wallet-signed transactions. A bot grant does not let a bot spend the owner’s funds.</p>
 <fieldset id="bot-fields" disabled><div class="row">

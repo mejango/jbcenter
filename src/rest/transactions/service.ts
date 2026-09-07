@@ -13,7 +13,7 @@ import {
   type RestPlanDraft,
   type RestRpc,
 } from "../core.js";
-import { encodeCursor, type TransactionStore } from "./store.js";
+import { encodeCursor, recoverableStates, type TransactionStore } from "./store.js";
 import type { SmartAccountBinding } from "../smartAccounts/types.js";
 import type {
   ExternalExecutionObserver,
@@ -655,11 +655,19 @@ export class TransactionService {
       input.cursor ?? this.recoveryCursor,
     );
     const results: unknown[] = [];
+    let oldestPendingAt: number | null = null;
     for (const plan of plans) {
+      let current = plan;
       try {
-        results.push(this.view(await this.refreshStored(plan)));
+        current = await this.refreshStored(plan);
+        results.push(this.view(current));
       } catch {
         results.push({ planId: plan.id, status: "reconciliation-unavailable" });
+      }
+      for (const step of current.steps) {
+        if (step.attempt && recoverableStates.includes(step.state)) {
+          oldestPendingAt = Math.min(oldestPendingAt ?? Infinity, step.attempt.reservedAt);
+        }
       }
     }
     const nextCursor =
@@ -670,6 +678,7 @@ export class TransactionService {
     return {
       reconciled: results,
       broadcastAttempted: false,
+      oldestPendingAt,
       ...(nextCursor ? { nextCursor } : {}),
     };
   }

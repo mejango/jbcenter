@@ -43,6 +43,7 @@ export interface SmartWalletConnection {
 }
 interface HostCapabilities {
   smartAccounts: SmartAccountCapabilities;
+  sessions?: { activationReady?: boolean; configuredChainIds?: number[] };
   userOperations?: {
     preparation?: boolean;
     relay?: boolean;
@@ -188,6 +189,10 @@ export function installSmartWalletUI(options: {
     return binding;
   }
   function requireSession() {
+    if (!sessionsAvailable())
+      return fail(
+        "Bot wallet permissions are unavailable on this chain. Use fresh owner approval.",
+      );
     if (!session || session.compiled.bindingId !== bound().id)
       return fail("Prepare or load a session for this wallet first.");
     return session;
@@ -239,14 +244,49 @@ export function installSmartWalletUI(options: {
       host?.userOperations?.preparation === true &&
       provider !== undefined &&
       (field("operation-authority").value !== "session" ||
-        provider.paymasterConfigured)
+        (sessionsAvailable() && provider.paymasterConfigured))
+    );
+  }
+  function sessionsAvailable() {
+    const chainId = options.connection()?.chainId;
+    return (
+      host?.sessions?.activationReady === true &&
+      chainId !== undefined &&
+      Array.isArray(host.sessions.configuredChainIds) &&
+      host.sessions.configuredChainIds.includes(chainId)
     );
   }
   function refreshReadiness() {
+    const available = sessionsAvailable();
+    if (!available) {
+      key = undefined;
+      element("session-key-status").textContent = "No local key loaded.";
+    }
+    if (!available && field("operation-authority").value !== "owner") {
+      epoch++;
+      field("operation-authority").value = "owner";
+      plan = undefined;
+      clearOperation();
+      element("operation-plan-review").hidden = true;
+      button("operation-prepare").disabled = true;
+    }
+    element("session-section").hidden = !available;
+    element("session-nav").hidden = !available;
+    element<HTMLFieldSetElement>("session-fields").disabled =
+      !available || !binding;
+    element("operation-authority-label").hidden = !available;
+    field("operation-authority").disabled = !available;
+    element("operation-session-template").hidden = !available || !session;
+    element("session-key-fields").hidden =
+      !available || field("operation-authority").value !== "session";
+    element("operation-owner-signatures-label").hidden =
+      !binding ||
+      binding.state.threshold <= 1 ||
+      field("operation-authority").value === "session";
     if (!host) return;
     element("smart-readiness").textContent = executionAvailable()
-      ? "A provider is configured for the connected chain. Each wallet, session and gas policy still needs current verification."
-      : "Hosted execution is unavailable for this connection. Wallet and policy reviews remain available; operation preparation needs a configured provider and session sponsorship.";
+      ? "Execution is configured for this chain. Review and sign each transaction with your owner wallet."
+      : "Hosted execution is unavailable on the connected chain. Choose a configured chain to continue.";
   }
   function setBinding(next: SmartAccountBinding) {
     if (
@@ -263,7 +303,9 @@ export function installSmartWalletUI(options: {
     field("smart-binding-id").value = next.id;
     field("smart-address").value = next.wallet.address;
     show("smart-bindings", next);
-    element<HTMLFieldSetElement>("session-fields").disabled = false;
+    field("smart-manifest").value = next.manifestId;
+    field("operation-authority").value = "owner";
+    refreshReadiness();
     element<HTMLFieldSetElement>("operation-fields").disabled = false;
     button("session-activate").disabled = true;
     button("session-revoke").disabled = true;
@@ -292,6 +334,7 @@ export function installSmartWalletUI(options: {
       element("operation-plan-review").hidden = true;
     }
     session = next;
+    refreshReadiness();
     field("session-id").value = next.id;
     field("session-grant").value = next.compiled.grantId;
     show("session-review", next);
@@ -308,18 +351,18 @@ export function installSmartWalletUI(options: {
   function event(id: string, action: () => Promise<void>) {
     button(id).addEventListener("click", () => void options.run(action));
   }
-  event("smart-discover", async () => {
+  async function discoverHosted() {
+    const generation = epoch;
     const result = await readPublicRestJson<HostCapabilities>(
       options.audience,
       "/api/v1/capabilities",
     );
+    if (generation !== epoch) return;
     if (!Array.isArray(result.smartAccounts?.deployments))
       fail("This host has not configured smart wallets.");
     host = result;
-    refreshReadiness();
-    if (plan && !operation)
-      button("operation-prepare").disabled = !executionAvailable();
     const select = element<HTMLSelectElement>("smart-manifest");
+    const previous = select.value;
     select.replaceChildren();
     for (const d of result.smartAccounts.deployments) {
       const option = document.createElement("option");
@@ -327,19 +370,26 @@ export function installSmartWalletUI(options: {
       option.textContent = `Chain ${d.chainId} / ${d.manifestId}`;
       select.append(option);
     }
+    select.value = binding?.manifestId ??
+      result.smartAccounts.deployments.find(
+        (d) => d.chainId === options.connection()?.chainId && d.manifestId === previous,
+      )?.manifestId ??
+      result.smartAccounts.deployments.find(
+        (d) => d.chainId === options.connection()?.chainId,
+      )?.manifestId ?? select.value;
+    refreshReadiness();
+    if (plan && !operation)
+      button("operation-prepare").disabled = !executionAvailable();
     show("smart-capabilities", {
       deployments: result.smartAccounts.deployments.map(
         ({ manifest: _m, ...d }) => d,
       ),
       requirements: result.smartAccounts.requirements,
       execution: result.userOperations ?? { state: "unavailable" },
+      botPermissions: result.sessions ?? { activationReady: false },
     });
-    options.status(
-      result.userOperations?.relay
-        ? "Hosted providers are configured. Each wallet and session still requires current onchain verification."
-        : "Discovery loaded. Hosted execution is unavailable until this host configures its reviewed execution stack.",
-    );
-  });
+  }
+  event("smart-discover", discoverHosted);
   event("smart-switch", async () => {
     const c = connection(),
       d = host?.smartAccounts.deployments.find(
@@ -472,6 +522,7 @@ export function installSmartWalletUI(options: {
       challenge: result,
     });
     challenge = { request, result, document, signatures: [] };
+    element("smart-binding-multisig").hidden = result.state.threshold <= 1;
     field("smart-binding-signatures").value = "";
     show("smart-binding-review", {
       state: result.state,
@@ -499,7 +550,9 @@ export function installSmartWalletUI(options: {
     reviewed!.signatures = [signature];
     button("smart-bind-sign").disabled = true;
     options.status(
-      "Owner binding signature collected. Add any other threshold signatures, then bind.",
+      reviewed!.result.state.threshold > 1
+        ? "Owner signature collected. Add the remaining owner signatures, then bind."
+        : "Owner signature collected. Verify and bind the wallet to continue.",
     );
   });
   event("smart-bind-submit", async () => {
@@ -525,7 +578,7 @@ export function installSmartWalletUI(options: {
     setBinding(result);
     button("smart-bind-submit").disabled = true;
     options.status(
-      "Smart wallet bound. Session authority still requires a separate owner activation.",
+      "Smart wallet connected. Prepare a V6 action below, then review and sign with your owner wallet.",
     );
   });
   event("smart-bind-list", async () => {
@@ -549,6 +602,10 @@ export function installSmartWalletUI(options: {
     element<HTMLInputElement>("session-budget-consent").checked = false;
   });
   event("session-prepare", async () => {
+    if (!sessionsAvailable())
+      fail(
+        "Bot wallet permissions are unavailable on this chain. Use fresh owner approval.",
+      );
     const { check } = checkpoint(),
       b = bound(),
       kind = field("session-action").value;
@@ -677,7 +734,6 @@ export function installSmartWalletUI(options: {
     refreshReadiness();
     const local = field("operation-authority").value === "session";
     element("session-key-fields").hidden = !local;
-    element("operation-owner-signatures-label").hidden = local;
     plan = undefined;
     clearOperation();
     element("operation-plan-review").hidden = true;
@@ -769,7 +825,7 @@ export function installSmartWalletUI(options: {
   event("operation-prepare", async () => {
     if (!executionAvailable())
       fail(
-        "Check hosted capabilities. A provider for this chain and session sponsorship must be configured before preparing an operation.",
+        "Execution is unavailable for this chain or signing authority. Check the hosted configuration.",
       );
     const { check } = checkpoint(),
       reviewed = plan;
@@ -790,6 +846,7 @@ export function installSmartWalletUI(options: {
     )
       fail("The wallet binding changed.");
     binding = freshBinding;
+    refreshReadiness();
     const client = executionClient(),
       result = await client.prepareUserOperation({
         planId: reviewed!.id,
@@ -856,7 +913,9 @@ export function installSmartWalletUI(options: {
     button("operation-sign").disabled = true;
     button("operation-submit").disabled = false;
     options.status(
-      "Signature collected. Add any other owner threshold signatures, then explicitly submit.",
+      !reviewed!.session && bound().state.threshold > 1
+        ? "Signature collected. Add the remaining owner signatures, then submit."
+        : "Signature collected. Submit the reviewed transaction when ready.",
     );
   });
   event("operation-submit", async () => {
@@ -906,16 +965,24 @@ export function installSmartWalletUI(options: {
     show("operation-review", result);
     element("operation-result").textContent =
       `Operation ${result.id}: ${result.state}.`;
-    options.status(
-      `Operation state: ${result.state}. Refresh the session to observe activation, revocation or counters.`,
-    );
+    options.status(`Operation state: ${result.state}.`);
   });
   return {
-    accountReady(ready: boolean) {
+    async accountReady(ready: boolean) {
       refreshReadiness();
       element<HTMLFieldSetElement>("smart-fields").disabled = !ready;
       if (ready && !field("smart-owners").value)
         field("smart-owners").value = connection().owner;
+      if (ready) {
+        const generation = epoch;
+        try {
+          await discoverHosted();
+        } catch {
+          if (generation === epoch)
+            element("smart-readiness").textContent =
+              "Could not load supported chains. Open hosted configuration to retry.";
+        }
+      }
     },
     reset() {
       epoch++;
@@ -925,6 +992,10 @@ export function installSmartWalletUI(options: {
       session = undefined;
       plan = undefined;
       key = undefined;
+      host = undefined;
+      field("operation-authority").value = "owner";
+      field("smart-threshold").value = "1";
+      refreshReadiness();
       clearOperation();
       for (const id of ["smart-fields", "session-fields", "operation-fields"])
         element<HTMLFieldSetElement>(id).disabled = true;
@@ -955,6 +1026,7 @@ export function installSmartWalletUI(options: {
         "session-review",
         "session-quota",
         "operation-plan-review",
+        "smart-binding-multisig",
       ])
         element(id).hidden = true;
       element("session-key-status").textContent = "No local key loaded.";

@@ -5,6 +5,13 @@ sources, prepare reviewable plans, and relay separately signed wallet
 transactions. Keep discovery, API authentication, wallet approval, and receipt
 verification as distinct steps.
 
+Use only the interface the task needs. Public discovery and hosted MCP tools
+do not require REST account enrollment. For protected REST automation, register
+one bot with the narrowest sufficient cumulative scope and let that client-held
+key sign reads and plans. Do not ask the owner to approve routine bot reads.
+Fresh wallet approval remains the default for execution; weekly/monthly
+permissions are optional. See the [journey map](./USER_JOURNEYS.md).
+
 ## Discover the available interface
 
 Start with the public [OpenAPI document](/api/v1/openapi.json) and
@@ -211,7 +218,7 @@ must never be published again. If no authenticated provider bundle ID was
 obtained, the adapter cannot independently recover it. Surface that uncertainty
 and preserve the reserved source steps.
 
-## Smart-account and session execution
+## Sponsored execution with fresh owner approval
 
 Read `/smart-accounts/capabilities` and top-level `userOperations`/`sessions`
 capabilities before preparing execution. Server-owned manifests, deployment
@@ -242,23 +249,43 @@ from those wallet signatures.
    Safe-owner threshold and use the client helper to encode the validity-bound
    signature envelope. Submit `{signature}` to its submissions route with a
    separately signed API request. Select at most sixteen increasing indices.
-3. For recurring authority, prepare `/smart-accounts/sessions` with the exact
+   This path needs no `CenterTransactionApproval` or active session.
+3. Reconcile the UserOperation and original plan. Provider status is a hint;
+   canonical EntryPoint and scoped account execution evidence establish the
+   result. `submission_unknown` must never cause another provider publication.
+
+Prefer one modeled journey step per operation when later work needs verified
+economic completion. Multi-call operations can prove atomic invocation, but the
+current verifier reports modeled per-call economic results as `unknown` because
+shared receipt events cannot safely be assigned to each call. Batching up to
+sixteen calls is useful for unmodeled calls; it does not establish every payment,
+mint, or payout outcome. Prerequisites outside the selected batch still need
+confirmed and verified results.
+
+## Optional recurring bot permissions
+
+Skip this setup for owner-approved execution. A seven- or thirty-day session is
+optional onchain delegation, separate from API bot authentication. Production
+does not currently have the required deployed guard, so do not lead a user into
+this flow while `sessions.activationReady` is false.
+
+1. For recurring authority, prepare `/smart-accounts/sessions` with the exact
    binding, relay-capable bot grant, immutable generation/nonce, seven- or
    thirty-day duration, call limits, typed actions and mandatory gas budget.
    The review-only endpoint `/smart-accounts/session-reviews` remains available
    for inspection without installation. Neither `prepared` nor a policy hash
    is live authority.
-4. Ask the API owner to acknowledge `{compiledHash}` at the session's
+2. Ask the API owner to acknowledge `{compiledHash}` at the session's
    `activation-plans` route. Inspect and execute that returned plan through an
    owner UserOperation. Refresh the session and require `active` with current
    canonical installed-policy, administration-history and counter evidence.
-5. The exact bound bot can then create its own Safe action plan and prepare
+3. The exact bound bot can then create its own Safe action plan and prepare
    `{planId,stepIndexes:[index],sessionId}`. This permits one approved action
    per operation. Sign the returned `message.raw` bytes with the session key
    using EIP-191, then encode the legacy USE envelope with its exact permission
    prefix. Submit only the envelope as `{signature}`; never submit a private
    key, an unsigned operation replacement, or an invented owner approval.
-6. Reconcile the UserOperation and original plan. Provider status is a hint;
+4. Reconcile the UserOperation and original plan. Provider status is a hint;
    canonical EntryPoint and scoped account execution evidence establish the
    result. `submission_unknown` must never cause another provider publication.
 

@@ -9,6 +9,7 @@ import { createCenterMcp } from "./mcp.js";
 import { createCenterServer } from "./server.js";
 import { createRestRuntime } from "./rest/runtime.js";
 import { readRestExecutionConfiguration } from "./rest/executionConfig.js";
+import { Metrics } from "./observability.js";
 
 function positiveInteger(name: string, fallback: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -44,8 +45,9 @@ const pinning = filebaseRpcToken && pinataJwt
   ? new RedundantIpfsPinning(new FilebaseRpcStorage(filebaseRpcToken), pinataJwt)
   : undefined;
 const mcp = createCenterMcp(store, { rpc, rpcSiteLimitPerMinute, ...(pinning ? { pinning } : {}) });
+const metrics = new Metrics();
 const rest = await createRestRuntime({
-  pool, store, services: mcp.services, config: mcp.config, upstreams: rpcUpstreams, rpcSiteLimitPerMinute,
+  pool, store, services: mcp.services, config: mcp.config, upstreams: rpcUpstreams, rpcSiteLimitPerMinute, metrics,
   ...(process.env.REST_PUBLIC_ORIGIN ? { audience: process.env.REST_PUBLIC_ORIGIN } : {}),
   executionConfiguration: await readRestExecutionConfiguration(process.env),
 });
@@ -66,6 +68,7 @@ const app = createApp(store, {
     rpcPublicRequestLimitPerMinute: positiveInteger("RPC_PUBLIC_REQUEST_LIMIT_PER_MINUTE", 120),
     rpcPublicSiteLimitPerMinute: positiveInteger("RPC_PUBLIC_SITE_LIMIT_PER_MINUTE", 5_000),
     metricsToken,
+    metrics,
     rpc,
     ...(pinning ? { pinning } : {}),
   });

@@ -9,13 +9,16 @@ Read `/api/v1/capabilities` using `readPublicRestJson` before presenting executi
 as available. Each configured smart-account deployment publishes its reviewed
 manifest. A public manifest is configuration supplied by this host; it is not
 independent proof of current deployment. The server verifies current runtime and
-account authority before accepting the dependent action. Provider configuration,
-the deployed session guard, account inspection and sponsorship remain execution
-prerequisites.
+account authority before accepting the dependent action. Owner execution requires
+a configured provider and supported account inspection. Sponsored gas requires a
+configured paymaster. Neither requires a bot grant or a deployed session guard.
 
 The page follows this sequence:
 
-1. Select a hosted chain, connect its owner wallet and load the API account.
+1. Connect the owner wallet and load the API account. The page automatically reads
+   public capabilities and selects a deployment on the connected chain. This
+   discovery does not request a signature. Hosted configuration can be refreshed
+   explicitly if it fails or the operator changes it.
 2. Prepare creation or enter an existing Safe. `verifyWalletCreation` reconstructs
    the exact factory call and predicted address from the published manifest,
    reviewed owners, threshold and salt. Creation uses an explicit wallet
@@ -24,24 +27,50 @@ The page follows this sequence:
    `smartBindingDocument`. Collect exactly the current EOA owner threshold with
    `packOwnerSignatures`; each owner signs the same document. Additional owners
    can sign the displayed public typed-data document externally.
-4. Prepare a seven- or thirty-day policy for an active bot grant with relay scope.
-   Its grant expiry must outlast the policy period. The UI starts a policy five
-   minutes ahead and defaults new grants to 31 days. Only an explicitly selected
-   isolated repeat-payment budget permits recurring fund movement.
-5. Review the compiled policy and prepare its activation plan. Each new generation
-   uses a fresh random nonce and distinct generation. Preparing a policy or plan
-   does not activate it.
-6. Prepare and review the operation. `assertReviewedOperation` compares its calls,
+4. Prepare a V6 action and review the operation. `assertReviewedOperation` compares its calls,
    values, order, chain, wallet and operation hash with the displayed plan.
    `ownerOperationSigning` reconstructs SafeOp using the manifest's adapter and
    EntryPoint and the preparation's exact validity window. Collect EIP712 owner
    signatures, then use `ownerOperationSignature` to create the threshold envelope.
-7. For session execution, authenticate with a separate `SignedRestClient` using
+5. Submit once and refresh operation observations. Unknown submission outcomes
+   are not automatically retried. If a client deliberately retries, retain the
+   original idempotency key and exact signature.
+
+Fresh owner approval is the default. The page keeps multisig fields, hosted
+configuration and step selection in native disclosure controls. It selects all
+plan calls by default. Review, signing and submission remain explicit actions.
+For modeled payments and cash outs, choose one plan step at a time to verify its
+financial outcome. A multi-call batch can confirm invocation while leaving those
+outcomes unverified. Keep the complete reviewed lifecycle plan selected for
+activation and revocation.
+Creating a wallet still costs owner-paid gas; sponsored execution is a separate
+step after the wallet is deployed and bound.
+
+Optional bot wallet permissions appear only when `sessions.activationReady` is
+true and `sessions.configuredChainIds` contains the connected chain. Missing or
+unavailable capability information hides the session setup, action templates and
+signing-authority selector and keeps fresh owner approval selected. If capability
+refresh withdraws delegation, the page clears the local bot key and pending
+operation signatures. API bot authentication alone does not authorize spending.
+
+When delegation is available:
+
+1. Prepare a seven- or thirty-day policy for an active bot grant with relay scope.
+   Its grant expiry must outlast the policy period. The UI starts a policy five
+   minutes ahead. Only an explicitly selected isolated repeat-payment budget
+   permits recurring fund movement. The current policy implementation supports
+   exactly these two durations; they are optional delegation choices, not API
+   account or owner-execution requirements.
+2. Review the compiled policy and prepare its activation plan. Each new generation
+   uses a fresh random nonce and distinct generation. Preparing a policy or plan
+   does not activate it. Review, sign and submit activation as an owner operation,
+   then refresh the session to verify onchain activation.
+3. Authenticate with a separate `SignedRestClient` using
    the registered bot signer and `grantId`. `signSessionUserOperation` checks the
    active session identity and signs the raw 32-byte operation hash using EIP191.
    It wraps that signature in the legacy SmartSession USE envelope. Signing the
    unprefixed digest or the printable hex text is incompatible with this validator.
-8. Submit once and refresh operation, session and quota observations. Unknown
+4. Submit once and refresh operation, session and quota observations. Unknown
    submission outcomes are not automatically retried. If a client deliberately
    retries, retain the original idempotency key and exact signature. Revocation
    requires another fresh owner plan and confirmation, including after expiry.

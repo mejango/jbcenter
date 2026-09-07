@@ -30,6 +30,7 @@ export async function readRestAssets() {
   for (const name of [
     "ARCHITECTURE",
     "QUICKSTART",
+    "USER_JOURNEYS",
     "AUTHENTICATION",
     "API",
     "AI_GUIDE",
@@ -41,6 +42,8 @@ export async function readRestAssets() {
     "SMART_ACCOUNTS",
     "SESSIONS",
     "EXECUTION_OPERATIONS",
+    "PRODUCTION_CHECK",
+    "PRODUCTION_OPERATIONS",
   ]) {
     const content = await readFile(
       new URL(`../../docs/rest/${name}.md`, import.meta.url),

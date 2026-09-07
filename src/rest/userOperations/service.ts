@@ -53,6 +53,7 @@ import { createSessionGasEstimation } from "./estimation.js";
 import { finalizeUserOperationSponsorship } from "./sponsorship.js";
 import {
   digest,
+  isRecoverable,
   recoveryCursor,
   type UserOperationRecord,
   type UserOperationStore,
@@ -858,21 +859,27 @@ export class UserOperationService {
       this.recoveryCursor,
     );
     const results = [];
+    let oldestPendingAt: number | null = null;
     for (const record of records) {
+      let current = record;
       try {
+        current = await this.refresh(record);
         results.push({
           id: record.id,
-          state: (await this.refresh(record)).state,
+          state: current.state,
         });
       } catch {
         results.push({ id: record.id, state: "verification-unavailable" });
+      }
+      if (isRecoverable(current)) {
+        oldestPendingAt = Math.min(oldestPendingAt ?? Infinity, current.submission!.startedAt);
       }
     }
     this.recoveryCursor =
       records.length === limit
         ? recoveryCursor(records[records.length - 1]!)
         : undefined;
-    return { items: results, broadcastAttempted: false };
+    return { items: results, broadcastAttempted: false, oldestPendingAt };
   }
 
   private async view(record: UserOperationRecord) {

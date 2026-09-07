@@ -12,6 +12,11 @@ All endpoints below are relative to `/api/v1`. This API exposes protocol V6.
 Chain IDs and project IDs remain explicit, including in omnichain workflows.
 Do not assume a project has the same ID or configuration on another chain.
 
+Start with the [quickstart](./QUICKSTART.md) or [journey map](./USER_JOURNEYS.md).
+Public discovery needs no setup. A bot grant removes wallet prompts from
+protected reads and planning. Fresh owner-approved execution is the default;
+recurring bot permissions are optional and currently unavailable in production.
+
 ## Route reference
 
 Public discovery needs no signature. Protected reads require `read` scope;
@@ -150,9 +155,9 @@ Bundles are non-atomic and may report partial processing. Poll
 checks, and reorgs. Confirmation does not establish bridge settlement. See
 [transactions](/api/docs/transactions).
 
-The [session guide](/api/docs/sessions) describes the separate smart-account
-workflow below. Runtime capabilities determine whether its required deployed
-guard, hosted provider and verified account stack are available.
+For sponsored gas, use the smart-account owner workflow below. It does not
+require a session guard or recurring bot permissions. Runtime capabilities
+determine the available chains and transports.
 
 ## Prepaid Relayr execution
 
@@ -177,7 +182,7 @@ reconcile. Funding, destination execution, modeled economic completion and
 bridge settlement are separate observations. This transport creates no reusable
 session or recurring spending budget.
 
-## Smart accounts, durable sessions, and UserOperations
+## Smart accounts and sponsored owner execution
 
 Discover `/smart-accounts/capabilities` and the top-level `userOperations` and
 `sessions` capabilities before selecting a chain. Implemented routes and
@@ -204,7 +209,27 @@ response contains `eip712-safe7579-owner` signing data for the current Safe-owne
 threshold. Sign the returned `SafeOp` exactly and encode the bounded owner
 signature envelope using the client helper. Submit only `{signature}`; the API
 request signature remains a separate proof. Up to sixteen selected ordered calls
-can share one owner operation on one chain.
+can share one owner operation on one chain. No additional
+`CenterTransactionApproval` is required for this validity-bound owner operation.
+
+Use one operation per modeled journey step when the application needs a verified
+economic outcome before continuing. For a multi-call operation the service can
+verify atomic invocation, but currently reports modeled per-call economic
+results as `unknown`; it cannot safely assign shared receipt events to every
+step. Calls without modeled economic predicates can still use batching. Required
+prerequisites outside the batch must already have confirmed and verified results.
+
+Submit once, then poll the operation and source plan. `202` means accepted for
+processing, and `submission_unknown` means reconcile the existing operation
+without another provider publication. Canonical execution evidence and modeled
+economic outcomes remain distinct. Cross-chain settlement is a separate result.
+
+## Optional recurring bot permissions
+
+Skip this section for fresh owner-approved transactions. Recurring authority
+requires a verified deployed guard and explicit owner activation; it is not
+enabled in the current production configuration. Seven and thirty days are the
+implemented duration choices, not requirements for API access or sponsorship.
 
 For recurring bot execution, first review `/smart-accounts/session-reviews` or
 persist `/smart-accounts/sessions`. The latter requires an explicit seven- or

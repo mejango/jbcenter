@@ -224,6 +224,28 @@ function harness(
 }
 
 describe("durable signed transaction relay", () => {
+  it("samples submission age through uncertain recovery and clears it after canonical completion", async () => {
+    const f = harness();
+    const plan = await f.service.createPlan(actor, f.draft(), "age-plan", requestHash);
+    expect((await f.service.recoverPending()).oldestPendingAt).toBeNull();
+    f.setNow(now + 10_000);
+    const raw = await f.signed();
+    await f.service.submitStep(actor, plan.id, 0, raw, "age-submit", requestHash);
+    f.setNow(now + 31 * 60_000);
+    const rpc = f.rpc.getMockImplementation()!;
+    f.rpc.mockRejectedValue(new Error("Receipt RPC unavailable"));
+    const uncertain = await f.service.recoverPending();
+    expect(uncertain.oldestPendingAt).toBe(now + 10_000);
+    expect(uncertain.reconciled).toMatchObject([{ steps: [{ state: "unknown" }] }]);
+    f.rpc.mockImplementation(rpc);
+    f.confirm(raw);
+    const confirmed = await f.service.recoverPending();
+    expect(confirmed.oldestPendingAt).toBeNull();
+    expect(confirmed.reconciled).toMatchObject([{ status: "transactions_confirmed" }]);
+    expect((await f.service.recoverPending()).oldestPendingAt).toBeNull();
+    expect(f.rpc.mock.calls.filter(([, method]) => method === "eth_sendRawTransaction")).toHaveLength(1);
+  });
+
   it("requires configured fresh owner authorization after preflight and skips it for an active dispatch replay", async () => {
     const authorizeDispatch = vi.fn(
       async (_plan: StoredPlan, _index: number, _hash: Hex) => {

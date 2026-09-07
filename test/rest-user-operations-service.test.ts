@@ -665,6 +665,40 @@ async function fixture(useSession = false, currentProfile = false) {
 }
 
 describe("UserOperationService integration", () => {
+  it("retains sampled submission age during silent provider outages and uncertain receipts, then clears confirmed work", async () => {
+    const f = await fixture();
+    const prepared = await f.prepare();
+    expect((await f.service.recoverPending()).oldestPendingAt).toBeNull();
+    f.tick(10_000);
+    const submittedAt = f.now();
+    await f.service.submit(f.principal, prepared.id, await f.sign(prepared), "age-submit");
+    f.tick(31 * 60_000);
+    f.fetcher.mockRejectedValueOnce(new Error("Provider receipt outage"));
+    expect(await f.service.recoverPending()).toMatchObject({
+      oldestPendingAt: submittedAt, items: [{ state: "pending" }], broadcastAttempted: false,
+    });
+    const rpc = f.rpc.getMockImplementation()!;
+    f.rpc.mockImplementation(async (chain, method, params, signal) => {
+      const result = await rpc(chain, method, params, signal);
+      // The head advances while the fixture's historical receipt block stays fixed.
+      if (method === "eth_getBlockByNumber" && params[0] === "latest") {
+        return { ...(result as object), number: "0x800", hash: h("later-head"), timestamp: toHex(f.now() / 1000) };
+      }
+      return result;
+    });
+    f.state.mined = true;
+    f.state.providerHint = h("wrong-transaction-hint");
+    expect(await f.service.recoverPending()).toMatchObject({
+      oldestPendingAt: submittedAt, items: [{ state: "unknown" }],
+    });
+    f.state.providerHint = txHash;
+    expect(await f.service.recoverPending()).toMatchObject({
+      oldestPendingAt: null, items: [{ state: "confirmed" }],
+    });
+    expect(await f.service.recoverPending()).toMatchObject({ oldestPendingAt: null, items: [] });
+    expect(f.state.sends).toBe(1);
+  });
+
   it.each([null, false, 0, "", "not-a-session"])(
     "rejects a supplied invalid session selector %j before reading a plan",
     async (sessionId) => {

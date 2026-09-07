@@ -1,10 +1,25 @@
-# Wallet accounts and bots
+# Get started
+
+Choose the smallest setup for your task:
+
+| Task | Start here |
+| --- | --- |
+| Browse apps, documentation, contract schemas, or API capabilities | [Directory](https://juicebox.center), [API explorer](https://juicebox.center/api), or [capabilities](https://juicebox.center/api/v1/capabilities). No wallet or account needed. |
+| Ask an agent to inspect V6 projects or prepare a transaction | Connect an MCP client to `https://juicebox.center/mcp`. No REST enrollment or bot grant needed for MCP tools; wallet execution remains separate. |
+| Automate protected REST reads, plans, or relay | Enroll once and register a client-held bot key below. The bot signs subsequent API requests without wallet prompts. |
+| Execute with sponsored gas | Connect a supported smart wallet on `/accounts`, prepare an action, and sign the exact owner operation. No bot or weekly/monthly permission is required. |
+
+See the [journey map](./USER_JOURNEYS.md) for source choices, approvals, and
+current execution limits. Smart-wallet creation currently requires an
+owner-funded transaction; sponsored execution is a separate step.
+
+## Enroll an API account
 
 Open `/accounts` on the Center service. Connect an EIP-1193 browser wallet, choose its account and authority chain, and select **Enroll account**. Enrollment signs an API request with an empty JSON body; it does not send an onchain transaction. Existing owners can select **Load account**.
 
 The account identity is `eip155:<authority-chain-id>:<lowercase-owner-address>`. The authority chain is part of the account identity, so switching wallet chains selects another account. The page clears its connection when the wallet account or chain changes. Use the profile form to update the display name, bio, and optional HTTPS/IPFS avatar URI.
 
-Every account read or change asks the wallet to sign a typed request. The browser keeps no private key in localStorage or sessionStorage. It renders user-supplied profile and bot text as text, and does not fetch avatar URLs.
+The account page signs protected requests with the connected owner wallet, so its reads and changes can prompt the wallet. For ongoing automation, register a bot instead of repeatedly asking the owner to sign reads. The browser keeps no private key in localStorage or sessionStorage. It renders user-supplied profile and bot text as text, and does not fetch avatar URLs.
 
 ## Create a bot in the browser
 
@@ -88,6 +103,13 @@ node scripts/rest/center.mjs sign \
 That file includes `url`, `method`, `headers`, and `bodyBase64`. A custom transport must decode `bodyBase64` and send those exact bytes without changing the URL, query order, escape casing, method, content type, or signed headers. Treat the file as a short-lived credential until consumed or expired. The CLI never prints its signature headers or private key.
 
 ## Approve bot relay with the owner wallet
+
+This section is for direct EOA transactions and prepaid Relayr publication.
+For sponsored Safe execution, use the separate [smart-account
+workflow](./API.md#smart-accounts-and-sponsored-owner-execution): the owner signs
+the returned, time-limited `SafeOp`; no additional `CenterTransactionApproval`
+is required. Keep the bot that created the plan as its API principal through
+preparation and submission.
 
 The bot creates and reviews its own plan. After the transaction wallet signs the exact transaction, the account owner signs a separate `CenterTransactionApproval`. Bind the approval to the account, bot principal, immutable plan commitment, step index, and hash of the exact serialized signed transaction. Use a fresh random approval nonce and a validity window no longer than five minutes:
 

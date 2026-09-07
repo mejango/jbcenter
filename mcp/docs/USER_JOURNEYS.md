@@ -4,6 +4,21 @@ The Juicebox MCP helps people understand projects, contribute, publish reviewed 
 
 These journeys describe the implemented V6 service. A natural-language request is a starting point for an assistant, not a complete transaction instruction: the assistant still needs the user's intended project, chain, account, asset, amount, beneficiary, and terms where relevant.
 
+Connect any compatible Streamable HTTP MCP client to
+`https://juicebox.center/mcp`. MCP tools do not require a Center REST account,
+bot grant, smart wallet, or weekly/monthly session. Start with the user's actual
+task and collect only its missing inputs; do not run the entire discovery
+catalog before every request. For a known V6 project, go directly to the relevant
+read or quote. Resolve names or ambiguous versions first.
+
+The [Center journey map](../../docs/rest/USER_JOURNEYS.md) covers the directory,
+REST, sponsored execution, and shared IPFS/RPC services. REST plans and MCP plan
+tokens are separate; passing an MCP token to a REST submission route is not a
+supported handoff. Prepare a REST plan through its own API when using Center's
+relay. Hosted sponsored owner execution is configured on four mainnets, but
+live wallet-signed execution still requires its own validation; this MCP guide
+does not certify that journey.
+
 ## Choose a journey
 
 | Person                            | Goals                                                                                                   |

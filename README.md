@@ -351,6 +351,17 @@ deployment health checks. Set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30`, configur
 monitoring separately, and enable automated PostgreSQL backups and retention with the database
 provider.
 
+The [production monitor](.github/workflows/production.yml) checks the public service and protected
+receipt-recovery metrics every five minutes using GitHub Actions. Set its
+`PRODUCTION_METRICS_TOKEN` repository secret to the server's `METRICS_TOKEN`; the script needs no
+installed dependencies. See [production operations](docs/rest/PRODUCTION_OPERATIONS.md) for backup,
+restore and monitoring evidence, and the [real-wallet check](docs/rest/PRODUCTION_CHECK.md) for
+the remaining owner-approved four-chain verification. Scheduled Actions can be delayed, and failed-run
+notifications follow the operator's GitHub settings.
+
+Start from the [user journey map](docs/rest/USER_JOURNEYS.md) for the shortest supported path and
+the approvals each journey needs.
+
 The CI workflow runs the complete suite against PostgreSQL 16 and builds the production container on
 every pull request. Keep JB Center as the workflow's repository root (or move the workflow to the
 monorepo root and set its working directory).

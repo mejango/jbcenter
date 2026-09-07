@@ -89,6 +89,7 @@ export type AppOptions = {
   maxIntentsPerClient?: number;
   maxStorageBytesPerClient?: number;
   metricsToken?: string;
+  metrics?: Metrics;
   pinning?: PinningService;
   gatewayFetch?: typeof fetch;
   maxMediaBytes?: number;
@@ -310,7 +311,7 @@ export function createApp(
   options: AppOptions = {},
 ): Hono<JbcenterEnv> {
   const app = new Hono<JbcenterEnv>();
-  const metrics = new Metrics();
+  const metrics = options.metrics ?? new Metrics();
   const allowedOrigins = options.allowedOrigins ?? ALLOWED_ORIGINS;
 
   app.onError((error, c) => {

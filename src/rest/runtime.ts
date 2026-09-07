@@ -6,6 +6,7 @@ import {
 } from "@juicebox/mcp/host";
 import type { Store } from "../store.js";
 import type { RpcUpstreams } from "../rpc.js";
+import { Metrics } from "../observability.js";
 import { createRestApp } from "./app.js";
 import { createRestAuth, PostgresAccountStore } from "./auth/index.js";
 import { createContractOwnerVerifier } from "./contractOwner.js";
@@ -72,6 +73,7 @@ export async function createRestRuntime(options: {
   executionConfiguration?: RestExecutionConfiguration;
   rpc?: RestRpc;
   startMaintenance?: boolean;
+  metrics?: Metrics;
 }): Promise<{
   site: RestSite;
   transactions: TransactionService;
@@ -401,17 +403,28 @@ export async function createRestRuntime(options: {
     openapi,
   });
   const assets = await readRestAssets();
+  const metrics = options.metrics ?? new Metrics();
+  if (options.startMaintenance !== false) metrics.startRestRecovery();
   let stopped = false;
   let maintenance: Promise<void> | undefined;
   const run = () => {
     if (stopped || maintenance) return;
     maintenance = (async () => {
-      await accountStore.cleanupExpiredNonces(
-        Math.floor(Date.now() / 1000),
-        1000,
-      );
-      if (!stopped) await transactions.recoverPending({ limit: 5 });
-      if (!stopped) await userOperations?.recoverPending(5);
+      await metrics.observeRestRecovery("nonce_cleanup", async () => {
+        await accountStore.cleanupExpiredNonces(Math.floor(Date.now() / 1000), 1000);
+        return { failures: 0 };
+      });
+      if (!stopped) await metrics.observeRestRecovery("transactions", async () => {
+        const result = await transactions.recoverPending({ limit: 5 });
+        return { oldestPendingAt: result.oldestPendingAt, failures: result.reconciled.filter((item) =>
+          item !== null && typeof item === "object" && "status" in item &&
+          item.status === "reconciliation-unavailable").length };
+      });
+      if (!stopped) await metrics.observeRestRecovery("user_operations", async () => {
+        const result = await userOperations!.recoverPending(5);
+        return { oldestPendingAt: result.oldestPendingAt,
+          failures: result.items.filter((item) => item.state === "verification-unavailable").length };
+      });
     })()
       .catch(() => {
         // Do not log signed bytes, profile contents, or provider credentials.
