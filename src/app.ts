@@ -40,6 +40,7 @@ import {
 } from "./ipfs.js";
 import { ConflictError, StorageLimitError, type Store } from "./store.js";
 import type { JbcenterEnv } from "./types.js";
+import { mountRestSite, type RestSite } from "./rest/site.js";
 
 const MAX_BODY_BYTES = 16_800_000;
 const PRODUCTION_ORIGINS = [
@@ -81,6 +82,7 @@ class UnsupportedMedia extends Error {}
 class PinFailed extends Error {}
 
 export type AppOptions = {
+  rest?: RestSite;
   allowedOrigins?: readonly string[];
   deploymentVerifier?: DeploymentVerifier;
   requestLimitPerMinute?: number;
@@ -354,6 +356,8 @@ export function createApp(
   });
 
   app.use("*", metrics.middleware());
+
+  if (options.rest) mountRestSite(app, options.rest);
 
   app.get("/", (c) => c.html(HOMEPAGE_HTML, 200, HOMEPAGE_HEADERS));
   app.get(HOMEPAGE_CSS_PATH, (c) => c.body(HOMEPAGE_CSS, 200, {

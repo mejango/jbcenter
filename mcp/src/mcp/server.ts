@@ -2,7 +2,6 @@ import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mc
 import { z } from 'zod';
 import type { Services } from '../app.js';
 import { createTools } from './tools.js';
-import { defineTool } from './tool.js';
 import { capabilityCatalog } from './capabilities.js';
 import { withRequestBudget } from '../domain/context.js';
 import { DomainError, publicError } from '../domain/errors.js';
@@ -48,38 +47,6 @@ function toolError(error: unknown) {
 
 export function createMcpServer(services: Services): McpServer {
   const tools = createTools(services);
-  tools.push(
-    defineTool(
-      'jb_list_references',
-      'List a bounded page of bundled source reference metadata, optionally by category. Fetch content separately by reference ID.',
-      {
-        category: z.enum(KNOWLEDGE_CATEGORIES).optional(),
-        offset: z.number().int().nonnegative().default(0),
-        limit: z.number().int().min(1).max(50).default(20),
-      },
-      async ({ category, offset, limit }) => {
-        const catalog = services.knowledge.catalog();
-        const documents = catalog.documents.filter(
-          (document) => category === undefined || document.category === category,
-        );
-        return {
-          bundleId: catalog.bundleId,
-          referenceOnly: true,
-          documents: documents.slice(offset, offset + limit),
-          nextOffset: offset + limit < documents.length ? offset + limit : null,
-          total: documents.length,
-        };
-      },
-    ),
-  );
-  tools.push(
-    defineTool(
-      'jb_list_capabilities',
-      'Discover organized Juicebox capability families, supported operations, source areas and explicit coverage limitations. Start here when choosing a workflow.',
-      {},
-      async () => capabilityCatalog(tools, services.publicOrigin),
-    ),
-  );
   const server = new McpServer(
     { name: 'juicebox-mcp', version: '0.1.0', websiteUrl: services.publicOrigin },
     {

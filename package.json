@@ -4,15 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npm run build:mcp && node --env-file-if-exists=.env --import tsx --watch src/index.ts",
+    "dev": "npm run build:mcp && npm run build:web && node --env-file-if-exists=.env --import tsx --watch src/index.ts",
     "start": "node dist/src/index.js",
     "build:mcp": "npm --prefix mcp run build",
-    "build": "npm run build:mcp && tsc && node -e \"require('node:fs').cpSync('src/db/migrations','dist/src/db/migrations',{recursive:true})\"",
+    "build": "npm run build:mcp && npm run build:web && tsc && node scripts/rest/copy-assets.mjs",
     "test": "vitest run",
     "load:test": "node scripts/load-test.mjs",
     "typecheck": "npm run build:mcp && tsc --noEmit",
     "check": "npm --prefix mcp run check && npm run typecheck && npm test && npm run build",
-    "migrate": "node --env-file-if-exists=.env --import tsx src/db/migrate-cli.ts"
+    "migrate": "node --env-file-if-exists=.env --import tsx src/db/migrate-cli.ts",
+    "build:web": "node scripts/rest/build-web.mjs",
+    "rest": "node scripts/rest/center.mjs"
   },
   "engines": {
     "node": ">=22"
@@ -31,6 +33,8 @@
     "@types/busboy": "^1.5.4",
     "@types/node": "^22.18.6",
     "@types/pg": "^8.15.5",
+    "ajv": "8.20.0",
+    "esbuild": "0.28.2",
     "tsx": "^4.20.6",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4",

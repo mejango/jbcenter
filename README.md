@@ -2,12 +2,44 @@
 
 JB Center is the small shared offchain service beside Bendystraw. It stores signed, undeployed
 Juicebox project intents and provides the ecosystem's redundant IPFS pinning, public read gateway,
-credential-hiding read-only Ethereum RPC, and the Juicebox V6 MCP at
-`https://juicebox.center/mcp`. Webclients can render an intent as a project page and include it beside deployed
+credential-hiding read-only Ethereum RPC, the Juicebox V6 MCP at
+`https://juicebox.center/mcp`, and authenticated REST at `https://juicebox.center/api/v1`.
+Webclients can render an intent as a project page and include it beside deployed
 Bendystraw projects in search. When a deployment is recorded, the intent leaves default search.
 
-There are no server-side drafts. A stored intent is immutable; changing a project means publishing a
-new intent.
+Stored project intents are immutable; changing one means publishing a new intent. REST transaction
+plans are separate immutable records with durable execution progress.
+
+## V6 REST API
+
+Start at [the API directory](https://juicebox.center/api), [OpenAPI](https://juicebox.center/api/v1/openapi.json),
+or the [signed-request quickstart](docs/rest/QUICKSTART.md). Wallet owners enroll at
+[Accounts](https://juicebox.center/accounts), then register client-generated bot keys with explicit
+read, plan, and relay scopes. Every live API request carries a short-lived EIP-712 signature binding
+its audience, account, signer, method, exact path/query, raw body, nonce, and idempotency key.
+Private keys stay with the client. API grants never substitute for onchain signing authority.
+
+GET endpoints cover canonical contract reads and the V6-compatible Bendystraw schema. Project reads
+require an explicit `source=onchain` or `source=bendystraw`; an unavailable source never silently falls
+back to the other. The pinned catalog includes official core, buyback, 721, router, revnet, sucker,
+and other V6 repositories, with exact deployed ABI variants and per-chain availability. Experimental
+apps/extensions remain outside this protocol surface.
+
+POST endpoints prepare transaction plans and relay externally signed transactions. Plans bind the
+wallet, chains, destinations, calldata, values, dependencies, evidence, and expiry. Durable nonce,
+idempotency, and transport reservations prevent conflicting submissions. A receipt confirms one
+transaction; operation effects and cross-chain settlement have separate evidence.
+Dispatch requires fresh owner consent: either the signed owner request itself or an additional
+owner approval attached to a bot submission. An old wallet transaction signature is insufficient.
+
+Read [authentication](docs/rest/AUTHENTICATION.md), [contracts](docs/rest/CONTRACTS.md),
+[indexed reads](docs/rest/INDEXER.md), [transactions](docs/rest/TRANSACTIONS.md),
+[omnichain projects](docs/rest/OMNICHAIN.md), [sponsorship](docs/rest/SPONSORSHIP.md), and
+[AI integration](docs/rest/AI_GUIDE.md). Relayr supports externally funded gas for eligible exact
+owner-signed calls, with independent destination verification. Broader smart-account sessions and
+prepaid user spending budgets remain gated on verified onchain policy enforcement and a complete
+UserOperation transport. [Session design](docs/rest/SESSIONS.md) records the selected architecture
+and remaining requirements. Gas sponsorship is separate from permission to spend funds.
 
 ## Ecosystem directory
 
@@ -166,8 +198,8 @@ from IPFS such as juicescan have no stable origin to allowlist — is served key
 under a tighter per-IP budget and a separate shared public budget, so public traffic can never
 starve the trusted sites. An `Origin` header is not identity, so upstream provider quotas remain
 the final spend boundary.
-Wallets must continue submitting transactions through their own wallet transport; Center is only a
-public-client read transport.
+This public RPC route remains a read transport. Externally wallet-signed transaction submission
+uses the separately authenticated REST plan/submission API.
 
 ## Publish an intent
 

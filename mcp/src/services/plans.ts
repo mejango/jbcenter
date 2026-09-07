@@ -186,6 +186,15 @@ export interface OutcomeEvidence {
   logIndex: number | null;
   args: unknown;
 }
+export type OperationReceipt = Pick<
+  TransactionReceipt,
+  'status' | 'transactionHash' | 'blockHash' | 'blockNumber' | 'logs'
+>;
+export interface OperationEvidence {
+  verified: boolean;
+  events: OutcomeEvidence[];
+  reason?: string;
+}
 export interface StepVerification {
   step: number;
   hash?: Hex;
@@ -261,6 +270,15 @@ function missing(error: unknown): boolean {
   return false;
 }
 
+/** Shared validation for immutable unsigned plans, independent of any transport or token issuer. */
+export function normalizePlanDraft(draft: PlanDraft): PlanDraft {
+  boundedJson(draft);
+  const normalized = parse(draftSchema, jsonSafe(draft));
+  if (Buffer.byteLength(canonicalJson(normalized)) > MAX_PAYLOAD_BYTES)
+    throw new DomainError('INVALID_PLAN', 'Plan exceeds the maximum payload size.');
+  return freeze(normalized);
+}
+
 /** Stateless, authenticated transaction plans. This service never signs or broadcasts transactions. */
 export class PlanService {
   private readonly rpc: RpcProvider;
@@ -293,8 +311,7 @@ export class PlanService {
   }
 
   seal(draft: PlanDraft) {
-    boundedJson(draft);
-    const normalized = parse(draftSchema, jsonSafe(draft));
+    const normalized = normalizePlanDraft(draft);
     const issuedAt = new Date(this.now()).toISOString();
     const envelope: PlanEnvelope = {
       version: 1,
@@ -740,10 +757,31 @@ export class PlanService {
     }
   }
 
+  /** Semantic evidence only. The host must independently verify exact execution and canonicality. */
+  verifyOperationEvidence(
+    draft: PlanDraft,
+    step: number,
+    receipt: OperationReceipt,
+  ): OperationEvidence {
+    const normalized = normalizePlanDraft(draft);
+    if (!Number.isSafeInteger(step) || step < 0 || step >= normalized.calls.length)
+      throw new DomainError(
+        'INVALID_PLAN',
+        'The semantic verification step is outside the validated plan.',
+      );
+    if (receipt.status !== 'success')
+      return {
+        verified: false,
+        events: [],
+        reason: 'A reverted or unrecognized receipt cannot establish the planned outcome.',
+      };
+    return this.operationEvidence({ draft: normalized }, normalized.calls[step]!, receipt);
+  }
+
   private operationEvidence(
-    plan: PlanEnvelope,
+    plan: Pick<PlanEnvelope, 'draft'>,
     call: PreparedCall,
-    receipt: TransactionReceipt,
+    receipt: OperationReceipt,
   ): { verified: boolean; events: OutcomeEvidence[]; reason?: string } {
     const events: OutcomeEvidence[] = [];
     const sourceLogs = receipt.logs.filter(
@@ -1019,7 +1057,7 @@ export class PlanService {
   }
 
   private extensionEvidence(
-    plan: PlanEnvelope,
+    plan: Pick<PlanEnvelope, 'draft'>,
     call: PreparedCall,
     logs: TransactionReceipt['logs'],
   ): { verified: boolean; events: OutcomeEvidence[]; reason?: string } | undefined {
@@ -1493,7 +1531,7 @@ export class PlanService {
   }
 
   private nftPaymentEvidence(
-    plan: PlanEnvelope,
+    plan: Pick<PlanEnvelope, 'draft'>,
     logs: TransactionReceipt['logs'],
     terminal: Address,
   ) {

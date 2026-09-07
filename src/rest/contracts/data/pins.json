@@ -1,0 +1,159 @@
+{
+  "schemaVersion": 1,
+  "repositories": [
+    {
+      "repository": "nana-core-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "898f08b96194391d545df31a62f9d89ef6759f9a",
+      "id": "@bananapus/core-v6",
+      "version": "1.2.0"
+    },
+    {
+      "repository": "nana-721-hook-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-721-hook-v6",
+      "commit": "1ec28e68a550cc0c09428416fb9d7698959591f8",
+      "id": "@bananapus/721-hook-v6",
+      "version": "1.1.0"
+    },
+    {
+      "repository": "nana-address-registry-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-address-registry-v6",
+      "commit": "bcafa672489a5281ca36950f5d23aa0d1575c422",
+      "id": "@bananapus/address-registry-v6",
+      "version": "1.1.0"
+    },
+    {
+      "repository": "nana-buyback-hook-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-buyback-hook-v6",
+      "commit": "9cdd10d8902bd68df5335f807f0afd3b83498d9e",
+      "id": "@bananapus/buyback-hook-v6",
+      "version": "1.4.0"
+    },
+    {
+      "repository": "nana-fee-project-deployer-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-fee-project-deployer-v6",
+      "commit": "88d4fc1946c1c2c8317fa7f385d2db3a259f157a",
+      "id": "@bananapus/fee-project-deployer-v6",
+      "version": "1.0.0"
+    },
+    {
+      "repository": "nana-omnichain-deployers-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-omnichain-deployers-v6",
+      "commit": "d8dcd3b8c05ad9ef5a35001d84a89e48fa763312",
+      "id": "@bananapus/omnichain-deployers-v6",
+      "version": "1.1.0"
+    },
+    {
+      "repository": "nana-ownable-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-ownable-v6",
+      "commit": "99f953c823ecfa96a3f2b5b699044094540cdb60",
+      "id": "@bananapus/ownable-v6",
+      "version": "1.0.0"
+    },
+    {
+      "repository": "nana-permission-ids-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-permission-ids-v6",
+      "commit": "e75d962ebcade48c0e19d849fe27a7e200b3ed74",
+      "id": "@bananapus/permission-ids-v6",
+      "version": "1.0.0"
+    },
+    {
+      "repository": "nana-router-terminal-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-router-terminal-v6",
+      "commit": "e3a128d8a389b6a9b046234f813014a98d5a8b01",
+      "id": "@bananapus/router-terminal-v6",
+      "version": "1.3.0"
+    },
+    {
+      "repository": "nana-suckers-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-suckers-v6",
+      "commit": "80dce063e7219e49405094d941b1a13ef9eeb699",
+      "id": "@bananapus/suckers-v6",
+      "version": "1.1.2"
+    },
+    {
+      "repository": "revnet-core-v6",
+      "repositoryUrl": "https://github.com/rev-net/revnet-core-v6",
+      "commit": "5093359f561c0546c29b85147a9cc0de2f608ddf",
+      "id": "@rev-net/core-v6",
+      "version": "1.1.0"
+    },
+    {
+      "repository": "croptop-core-v6",
+      "repositoryUrl": "https://github.com/mejango/croptop-core-v6",
+      "commit": "98f4a025c8131a8e7ceb28f9cafb491a17f8e1a4",
+      "id": "@croptop/core-v6",
+      "version": "1.1.0"
+    },
+    {
+      "repository": "banny-retail-v6",
+      "repositoryUrl": "https://github.com/mejango/banny-retail-v6",
+      "commit": "357b58092445067a9c8a58059d5eec0b586bf1c1",
+      "id": "@bannynet/core-v6",
+      "version": "1.1.0"
+    },
+    {
+      "repository": "univ4-lp-split-hook-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-univ4-lp-split-hook-v6",
+      "commit": "29ab934706eeede73effa92bb699a4b33f394ab4",
+      "id": "@bananapus/univ4-lp-split-hook-v6",
+      "version": "1.4.0"
+    },
+    {
+      "repository": "univ4-router-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-univ4-router-v6",
+      "commit": "c1b7602c8e046786a75e09b6a1d648cd66dd3878",
+      "id": "@bananapus/univ4-router-v6",
+      "version": "1.2.0"
+    },
+    {
+      "repository": "deploy-all-v6",
+      "repositoryUrl": "https://github.com/Bananapus/deploy-all-v6",
+      "commit": "20883a7c7fcd58b6264f8375b6156a59ab9a2597",
+      "id": "@bananapus/deploy-all-v6",
+      "version": "1.3.2"
+    },
+    {
+      "repository": "defifa",
+      "repositoryUrl": "https://github.com/BallKidz/defifa",
+      "commit": "d3c46dd4fe9a093cc46ed5eb2106395d2a19b860",
+      "id": "@ballkidz/defifa",
+      "version": "1.1.0"
+    },
+    {
+      "repository": "nana-distributor-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-distributor-v6",
+      "commit": "79af754e642b648347aba0c7df8a3398215e74a5",
+      "id": "@bananapus/distributor-v6",
+      "version": "1.0.0"
+    },
+    {
+      "repository": "nana-project-handles-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-project-handles-v6",
+      "commit": "3e3bd6f54fda3462b9d14c68bd3400179fbbbd4e",
+      "id": "@bananapus/project-handles-v6",
+      "version": "1.1.0"
+    },
+    {
+      "repository": "nana-project-payer-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-project-payer-v6",
+      "commit": "b9f99aa27f17aedd0488c370f2720ab090a2b24e",
+      "id": "@bananapus/project-payer-v6",
+      "version": "1.1.0"
+    },
+    {
+      "repository": "nana-jbx-distributor-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-jbx-distributor-v6",
+      "commit": "09dd1b564fd9ceb2cb6e25bc253c0fefd4f7ea19",
+      "id": "@bananapus/jbx-distributor-v6",
+      "version": "1.0.0"
+    },
+    {
+      "repository": "nana-swap-split-hook-v6",
+      "repositoryUrl": "https://github.com/Bananapus/nana-swap-split-hook-v6",
+      "commit": "18ad5969a50676201d24cdaa7f148c3ea5871683",
+      "id": "@bananapus/swap-split-hook-v6",
+      "version": "0.1.0"
+    }
+  ]
+}

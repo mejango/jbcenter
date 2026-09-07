@@ -323,14 +323,28 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "api",
     title: "Use an API",
-    prompt: "Read a chain, handle files, or connect an agent?",
+    prompt: "Protocol access, chain data, files, or an agent?",
     homeView: "api",
     kind: "question",
     edges: [
+      { to: "rest-api" },
       { to: "chain-data" },
       { to: "files" },
       { to: "agents", kind: "cross" },
     ],
+  },
+  {
+    id: "rest-api",
+    title: "Center REST API",
+    homeView: "api",
+    kind: "resource",
+    links: [
+      { title: "Read the API", url: "https://juicebox.center/api" },
+      { title: "Create a bot", url: "https://juicebox.center/accounts" },
+      { title: "OpenAPI specification", url: "https://juicebox.center/api/v1/openapi.json" },
+    ],
+    note: "V6 reads, transaction plans, and wallet-signed relay.",
+    edges: [{ to: "transaction-review", kind: "cross" }],
   },
   {
     id: "chain-data",
@@ -758,6 +772,7 @@ export const journeyViews: readonly JourneyView[] = [
     layout: [
       { node: "api", column: 2, row: 1 },
       { node: "chain-data", column: 1, row: 2 },
+      { node: "rest-api", column: 2, row: 2 },
       { node: "files", column: 3, row: 2 },
       { node: "rpc", column: 1, row: 3 },
       { node: "bendystraw", column: 2, row: 3 },

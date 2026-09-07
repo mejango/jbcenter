@@ -7,6 +7,7 @@ import { FilebaseRpcStorage, RedundantIpfsPinning } from "./ipfs.js";
 import { createRpcGateway, dwellirRpcUpstreams } from "./rpc.js";
 import { createCenterMcp } from "./mcp.js";
 import { createCenterServer } from "./server.js";
+import { createRestRuntime } from "./rest/runtime.js";
 
 function positiveInteger(name: string, fallback: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -42,6 +43,10 @@ const pinning = filebaseRpcToken && pinataJwt
   ? new RedundantIpfsPinning(new FilebaseRpcStorage(filebaseRpcToken), pinataJwt)
   : undefined;
 const mcp = createCenterMcp(store, { rpc, rpcSiteLimitPerMinute, ...(pinning ? { pinning } : {}) });
+const rest = await createRestRuntime({
+  pool, store, services: mcp.services, config: mcp.config, upstreams: rpcUpstreams, rpcSiteLimitPerMinute,
+  ...(process.env.REST_PUBLIC_ORIGIN ? { audience: process.env.REST_PUBLIC_ORIGIN } : {}),
+});
 const handler = createHttpHandler(mcp.config, () => createMcpServer(mcp.services), {
   healthPath: "/mcp/healthz",
   readinessPath: "/mcp/readyz",
@@ -49,6 +54,7 @@ const handler = createHttpHandler(mcp.config, () => createMcpServer(mcp.services
   logger: (message) => console.error(JSON.stringify({ level: "error", service: "mcp", message })),
 });
 const app = createApp(store, {
+    rest: rest.site,
     deploymentVerifier,
     requestLimitPerMinute: positiveInteger("RATE_LIMIT_PER_MINUTE", 600),
     maxIntentsPerClient: positiveInteger("MAX_INTENTS_PER_CLIENT", 10_000),
@@ -66,13 +72,14 @@ const runtime = createCenterServer(app.fetch, handler, {
   shutdownGraceMs: positiveInteger("SHUTDOWN_GRACE_MS", 25_000),
 });
 await runtime.listen();
-console.log(`JB Center listening on :${port}, including /mcp`);
+console.log(`JB Center listening on :${port}, including /mcp and /api/v1`);
 
 let shuttingDown = false;
 const shutdown = async () => {
   if (shuttingDown) return;
   shuttingDown = true;
   await runtime.close();
+  await rest.stop();
   await pool.end();
 };
 const stop = () => void shutdown().catch(() => {
