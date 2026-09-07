@@ -11,6 +11,8 @@ import {
 } from "../src/rest/userOperations/codec.js";
 import {
   createPimlicoV7PaymasterPolicy,
+  createPimlicoCurrentV7PaymasterPolicy,
+  PIMLICO_CURRENT_V7_PAYMASTER,
   PIMLICO_LEGACY_V7_PAYMASTER,
   UserOperationProvider,
 } from "../src/rest/userOperations/provider.js";
@@ -324,6 +326,97 @@ describe("bounded bundler and EIP-7677 transport", () => {
     ).toThrow();
   });
 });
+describe("current Pimlico flags stay bound to the current deployed runtime", () => {
+  const policy = createPimlicoCurrentV7PaymasterPolicy({
+    chainId: 8453,
+    policyId: "reviewed-current-sponsor",
+    context: { sponsorshipPolicyId: "server-owned" },
+  });
+  function sponsored(flags = "01"): UserOperationV07 {
+    return {
+      ...operation(),
+      signature: "0x",
+      paymaster: PIMLICO_CURRENT_V7_PAYMASTER.address,
+      paymasterVerificationGasLimit: "0x10000",
+      paymasterPostOpGasLimit: "0x1",
+      paymasterData: `0x${flags}${toHex(2_000_000_000n, { size: 6 }).slice(2)}${"00".repeat(6)}${"11".repeat(65)}`,
+    };
+  }
+  it("accepts both verifying flags and rejects every token/unknown mode", () => {
+    for (let flags = 0; flags < 256; flags++) {
+      const op = sponsored(flags.toString(16).padStart(2, "0"));
+      if (flags <= 1)
+        expect(policy.inspect(op, "final")).toMatchObject({
+          gasOnly: true, validAfter: 0, validUntil: 2_000_000_000,
+        });
+      else expect(() => policy.inspect(op, "final")).toThrow();
+    }
+    expect(policy.inspect(sponsored("00"), "final").commitment).not.toBe(
+      policy.inspect(sponsored("01"), "final").commitment,
+    );
+  });
+  it("never treats the legacy token flag as current verifying mode", () => {
+    const legacy = createPimlicoV7PaymasterPolicy({ chainId: 8453, policyId: "legacy" });
+    const op = sponsored();
+    expect(() => legacy.inspect(op, "final")).toThrow();
+    expect(() => legacy.inspect({ ...op, paymaster: PIMLICO_LEGACY_V7_PAYMASTER.address }, "final")).toThrow();
+    expect(() => policy.inspect({ ...op, paymaster: PIMLICO_LEGACY_V7_PAYMASTER.address }, "final")).toThrow();
+  });
+  it("rejects compact signatures, trailing bytes and truncated validity headers", () => {
+    const op = sponsored();
+    for (const paymasterData of [op.paymasterData!.slice(0, -2), `${op.paymasterData}00`, "0x01"])
+      expect(() => policy.inspect({ ...op, paymasterData: paymasterData as Hex }, "final")).toThrow();
+  });
+  it("accepts the observed EIP-7677 stub shape without claiming final signature validation", async () => {
+    const op = sponsored();
+    const unsigned = { ...operation(), signature: "0x" as Hex };
+    const provider = new UserOperationProvider([{ ...config(), chainId: 8453, paymasterPolicy: policy }], async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      expect(request.method).toBe("pm_getPaymasterStubData");
+      expect(request.params[0]).not.toHaveProperty("signature");
+      expect(request.params[3]).toEqual({ sponsorshipPolicyId: "server-owned" });
+      return Response.json({ jsonrpc: "2.0", id: request.id, result: {
+        paymaster: op.paymaster,
+        paymasterData: op.paymasterData,
+        paymasterPostOpGasLimit: "0x1",
+      } });
+    }, 20_000, () => 1_800_000_000_000);
+    const stub = await provider.stub(8453, unsigned);
+    expect(stub).toMatchObject({ isFinal: false, proof: { gasOnly: true }, operation: {
+      paymaster: op.paymaster, paymasterVerificationGasLimit: "0x0", paymasterPostOpGasLimit: "0x1",
+    } });
+  });
+  it("allows current signed validity/flag bytes to differ before mandatory final gas estimation", async () => {
+    const op = sponsored("01");
+    const finalData = `0x00${toHex(2_000_000_000n, { size: 6 }).slice(2)}${toHex(1_799_999_990n, { size: 6 }).slice(2)}${"11".repeat(65)}`;
+    const provider = new UserOperationProvider([{ ...config(), chainId: 8453, paymasterPolicy: policy }], async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      return Response.json({ jsonrpc: "2.0", id: request.id, result: {
+        paymaster: op.paymaster, paymasterData: finalData,
+      } });
+    }, 20_000, () => 1_800_000_000_000);
+    const final = await provider.sponsor(8453, op);
+    expect(final.operation.paymasterData).toBe(finalData);
+    expect(final.operation.preVerificationGas).toBe(op.preVerificationGas);
+    expect(final.operation.paymasterVerificationGasLimit).toBe(op.paymasterVerificationGasLimit);
+    expect(final.isFinal).toBe(true);
+  });
+  it.each(["0x0000000000000000000000000000000000000000", "invalid"])(
+    "rejects an invalid operator simulation origin %s",
+    (simulationBundlerAddress) => {
+      expect(() => new UserOperationProvider([{ ...config(), paymasterPolicy: policy,
+        simulationBundlerAddress: simulationBundlerAddress as Address,
+      }])).toThrow();
+    },
+  );
+  it("allows operator simulation origins only for the current source profile", () => {
+    expect(() => new UserOperationProvider([{ ...config(), simulationBundlerAddress: sender }])).toThrow();
+    expect(() => new UserOperationProvider([{ ...config(), paymasterPolicy: policy,
+      simulationBundlerAddress: sender,
+    }])).not.toThrow();
+  });
+});
+
 describe("runtime-pinned deployed Pimlico gas-only profile", () => {
   const policy = createPimlicoV7PaymasterPolicy({
     chainId: 1,

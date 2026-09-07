@@ -94,3 +94,29 @@ for (const [suite, output] of Object.entries(suites)) {
   }
 }
 console.log(`Foundry: ${passed} tests passed, including the actual EntryPoint/Safe/SmartSession/Pimlico stack; zero skips`);
+
+// Current hosted Pimlico is a separately versioned package. Never rewrite the
+// original stack manifest: existing account bindings depend on its exact hash.
+const currentPimlico = resolve(stack, "current-pimlico");
+run(forge, ["build", "--root", resolve(currentPimlico, "paymaster-compiler")]);
+run(process.execPath, [resolve(currentPimlico, "verify-paymaster.mjs")]);
+run(process.execPath, [resolve(currentPimlico, "verify-guard.mjs")]);
+const currentSuites = JSON.parse(run(forge, ["test", "--root", currentPimlico, "--json"], true));
+const currentRequiredSuites = {
+  "test/CenterSessionGuardV2.t.sol:CenterSessionGuardV2Test": 20,
+  "test/FullStackV2.t.sol:FullStackV2Test": 15,
+};
+for (const [name, minimum] of Object.entries(currentRequiredSuites)) {
+  if (!currentSuites[name]?.test_results || Object.keys(currentSuites[name].test_results).length < minimum) {
+    throw new Error(`Required current Pimlico suite ${name} is missing or has fewer than ${minimum} tests.`);
+  }
+}
+let currentPassed = 0;
+for (const [suite, output] of Object.entries(currentSuites)) {
+  for (const [name, result] of Object.entries(output.test_results)) {
+    if (result.status !== "Success") throw new Error(`Current Pimlico test ${suite}/${name} failed or was skipped.`);
+    if (result.kind?.Fuzz && result.kind.Fuzz.runs < 256) throw new Error(`Current Pimlico fuzz test ${name} requires at least 256 runs.`);
+    currentPassed++;
+  }
+}
+console.log(`Current Pimlico: ${currentPassed} Foundry tests passed with independently reproduced paymaster and guard; zero skips`);

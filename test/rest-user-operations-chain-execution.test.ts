@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
+import { privateKeyToAccount } from "viem/accounts";
 import {
   decodeFunctionData,
   encodeAbiParameters,
@@ -26,6 +27,8 @@ import {
 import { observeUserOperation } from "../src/rest/userOperations/execution.js";
 import {
   createPimlicoV7PaymasterPolicy,
+  createPimlicoCurrentV7PaymasterPolicy,
+  PIMLICO_CURRENT_V7_PAYMASTER,
   PIMLICO_LEGACY_V7_PAYMASTER,
   UserOperationProvider,
 } from "../src/rest/userOperations/provider.js";
@@ -324,11 +327,139 @@ describe("independent signed user operation preflight", () => {
     });
   });
 });
-describe("independent runtime-pinned sponsorship signature preflight", () => {
+describe("current sponsorship restricted to a verified bundler origin", () => {
+  const signer = privateKeyToAccount(`0x${"42".repeat(32)}`);
+  const bundler = "0x4444444444444444444444444444444444444444" as Address;
+  const artifact = JSON.parse(readFileSync(new URL(
+    "../src/rest/smartAccounts/stack/current-pimlico/artifacts/PimlicoSingletonPaymasterV7.json", import.meta.url,
+  ), "utf8"));
+  // Independent transcription of the checked current source's _getHash fields.
+  function sourceHash(op: UserOperationV07) {
+    const packed = packUserOperation(op);
+    const inner = keccak256(encodeAbiParameters([
+      { type: "address" }, { type: "uint256" }, { type: "bytes32" }, { type: "uint256" },
+      { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" },
+    ], [packed.sender, packed.nonce, packed.accountGasLimits, packed.preVerificationGas,
+      packed.gasFees, keccak256(packed.initCode), keccak256(packed.callData),
+      keccak256(packed.paymasterAndData.slice(0, 132) as Hex)]));
+    return keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [inner, 1n]));
+  }
+  async function restricted(options: { omitOrigin?: boolean; until?: number; after?: number } = {}) {
+    const f = fixture();
+    const until = options.until ?? now / 1000 + 600, after = options.after ?? 0;
+    Object.assign(f.operation, { paymaster: PIMLICO_CURRENT_V7_PAYMASTER.address,
+      paymasterVerificationGasLimit: "0x493e0", paymasterPostOpGasLimit: "0x0",
+      paymasterData: `0x00${toHex(until, { size: 6 }).slice(2)}${toHex(after, { size: 6 }).slice(2)}${"00".repeat(65)}` });
+    const signature = await signer.signMessage({ message: { raw: sourceHash(f.operation) } });
+    f.operation.paymasterData = `${f.operation.paymasterData!.slice(0, 28)}${signature.slice(2)}` as Hex;
+    const refresh = () => { f.binding.operationHash = getUserOperationHash(f.operation, entryPoint, 1); };
+    refresh();
+    const status = { allowed: true, originCode: "0x" as Hex, signerActive: true, wrongHash: false, fullCalls: 0 };
+    const original = f.rpc.getMockImplementation()!;
+    f.rpc.mockImplementation(async (chain, method, params, signal) => {
+      if (method === "eth_getCode" || method === "eth_call") {
+        expect(params).toHaveLength(2);
+        expect(params[1]).toEqual({ blockHash, requireCanonical: true });
+      }
+      if (method === "eth_getCode") {
+        if (String(params[0]).toLowerCase() === bundler) return status.originCode;
+        if (params[0] === PIMLICO_CURRENT_V7_PAYMASTER.address) return artifact.deployedRuntimeBytecode;
+      }
+      if (method === "eth_call") {
+        const call = params[0] as { to: Address; from?: Address; data: Hex };
+        if (call.to === PIMLICO_CURRENT_V7_PAYMASTER.address) {
+          const decoded = decodeFunctionData({ abi: ENTRY_POINT_V07_ABI, data: call.data });
+          if (decoded.functionName === "entryPoint")
+            return encodeFunctionResult({ abi: ENTRY_POINT_V07_ABI, functionName: "entryPoint", result: entryPoint });
+          if (decoded.functionName === "isBundlerAllowed") {
+            expect(decoded.args).toEqual([bundler]);
+            return encodeFunctionResult({ abi: ENTRY_POINT_V07_ABI, functionName: "isBundlerAllowed", result: status.allowed });
+          }
+          if (decoded.functionName === "getHash") {
+            expect(decoded.args).toEqual([0, packUserOperation(f.operation)]);
+            return encodeFunctionResult({ abi: ENTRY_POINT_V07_ABI, functionName: "getHash",
+              result: status.wrongHash ? txHash : sourceHash(f.operation) });
+          }
+          if (decoded.functionName === "signers")
+            return encodeFunctionResult({ abi: ENTRY_POINT_V07_ABI, functionName: "signers",
+              result: status.signerActive && decoded.args[0].toLowerCase() === signer.address.toLowerCase() });
+          throw new Error("Restricted paymaster must be validated inside actual handleOps, never by a forged direct origin.");
+        }
+        if (call.to === entryPoint) {
+          const decoded = decodeFunctionData({ abi: ENTRY_POINT_V07_ABI, data: call.data });
+          if (decoded.functionName === "handleOps") {
+            expect(call.from).toBe(bundler);
+            expect(decoded.args[0]).toEqual([packUserOperation(f.operation)]);
+            status.fullCalls++;
+          }
+        }
+      }
+      return original(chain, method, params, signal);
+    });
+    const provider = new UserOperationProvider([{
+      chainId: 1, providerId: "current-restricted", entryPoint: f.binding.entryPoint,
+      bundlerUrl: "https://bundler.example", paymasterUrl: "https://paymaster.example",
+      paymasterPolicy: createPimlicoCurrentV7PaymasterPolicy({ chainId: 1, policyId: "reviewed" }),
+      ...(options.omitOrigin ? {} : { simulationBundlerAddress: bundler }),
+    }], fetch, 20000, () => now);
+    return { ...f, status, provider, refresh };
+  }
+  it("authenticates the exact EIP191 sponsor signature and simulates real handleOps from a currently allowed EOA", async () => {
+    const f = await restricted();
+    expect(await f.chain().preflight(f.binding, gas, f.provider)).toMatchObject({ paymasterProof: { gasOnly: true } });
+    expect(f.status.fullCalls).toBe(1);
+    expect(f.operation.paymasterData!.slice(2, 4)).toBe("00");
+    f.status.signerActive = false;
+    await expect(f.chain().preflight(f.binding, gas, f.provider)).rejects.toMatchObject({ code: "USER_OPERATION_PAYMASTER_SIGNATURE" });
+    expect(f.status.fullCalls).toBe(1);
+  });
+  it("requires an explicit simulation origin for final flags00 data", async () => {
+    const f = await restricted({ omitOrigin: true });
+    await expect(f.chain().preflight(f.binding, gas, f.provider)).rejects.toMatchObject({ code: "USER_OPERATION_BUNDLER_ORIGIN_REQUIRED" });
+    expect(f.status.fullCalls).toBe(0);
+  });
+  it.each(["allowlist", "originCode", "signer", "hash", "fee", "paymasterGas", "highS", "zeroR", "zeroS", "v"] as const)(
+    "rejects invalid %s proof before full EntryPoint simulation", async mutation => {
+      const f = await restricted();
+      if (mutation === "allowlist") f.status.allowed = false;
+      if (mutation === "originCode") f.status.originCode = "0x6000";
+      if (mutation === "signer") f.status.signerActive = false;
+      if (mutation === "hash") f.status.wrongHash = true;
+      if (mutation === "fee") f.operation.maxFeePerGas = "0x11";
+      if (mutation === "paymasterGas") f.operation.paymasterVerificationGasLimit = "0x493e1";
+      let data = f.operation.paymasterData!;
+      if (mutation === "highS") data = `${data.slice(0, 92)}${"ff".repeat(32)}${data.slice(156)}` as Hex;
+      if (mutation === "zeroR") data = `${data.slice(0, 28)}${"00".repeat(32)}${data.slice(92)}` as Hex;
+      if (mutation === "zeroS") data = `${data.slice(0, 92)}${"00".repeat(32)}${data.slice(156)}` as Hex;
+      if (mutation === "v") data = `${data.slice(0, 156)}00` as Hex;
+      f.operation.paymasterData = data;
+      f.refresh();
+      await expect(f.chain().preflight(f.binding, gas, f.provider)).rejects.toThrow();
+      expect(f.status.fullCalls).toBe(0);
+    });
+  it.each([{ until: now / 1000 + 30 }, { after: now / 1000 + 60 }])("rejects signed invalid validity windows %#", async options => {
+    const f = await restricted(options);
+    await expect(f.chain().preflight(f.binding, gas, f.provider)).rejects.toThrow();
+    expect(f.status.fullCalls).toBe(0);
+  });
+  it("retains the actual full EntryPoint failure and canonical reorg gates", async () => {
+    const f = await restricted();
+    f.state.validationFailure = true;
+    await expect(f.chain().preflight(f.binding, gas, f.provider)).rejects.toMatchObject({ code: "USER_OPERATION_RPC_UNAVAILABLE" });
+    expect(f.status.fullCalls).toBe(1);
+    f.state.validationFailure = false;
+    f.state.reorged = true;
+    await expect(f.chain().preflight(f.binding, gas, f.provider)).rejects.toThrow();
+  });
+});
+describe.each([
+  { name: "legacy", pin: PIMLICO_LEGACY_V7_PAYMASTER, createPolicy: createPimlicoV7PaymasterPolicy, flags: "00", artifactPath: "../src/rest/smartAccounts/stack/artifacts/PimlicoSingletonPaymasterV7.json" },
+  { name: "current", pin: PIMLICO_CURRENT_V7_PAYMASTER, createPolicy: createPimlicoCurrentV7PaymasterPolicy, flags: "01", artifactPath: "../src/rest/smartAccounts/stack/current-pimlico/artifacts/PimlicoSingletonPaymasterV7.json" },
+])("independent $name sponsorship signature preflight", ({ pin, createPolicy, flags, artifactPath }) => {
   const artifact = JSON.parse(
     readFileSync(
       new URL(
-        "../src/rest/smartAccounts/stack/artifacts/PimlicoSingletonPaymasterV7.json",
+        artifactPath,
         import.meta.url,
       ),
       "utf8",
@@ -340,17 +471,17 @@ describe("independent runtime-pinned sponsorship signature preflight", () => {
     const f = fixture();
     const until = BigInt(now / 1000 + 600);
     Object.assign(f.operation, {
-      paymaster: PIMLICO_LEGACY_V7_PAYMASTER.address,
+      paymaster: pin.address,
       paymasterVerificationGasLimit: "0x493e0",
       paymasterPostOpGasLimit: "0x0",
-      paymasterData: `0x00${toHex(until, { size: 6 }).slice(2)}${"00".repeat(6)}${"11".repeat(65)}`,
+      paymasterData: `0x${flags}${toHex(until, { size: 6 }).slice(2)}${"00".repeat(6)}${"11".repeat(65)}`,
     });
     f.binding.operationHash = getUserOperationHash(f.operation, entryPoint, 1);
     const original = f.rpc.getMockImplementation()!;
     f.rpc.mockImplementation(async (chain, method, params, signal) => {
       if (
         method === "eth_getCode" &&
-        params[0] === PIMLICO_LEGACY_V7_PAYMASTER.address
+        params[0] === pin.address
       )
         return mutation === "runtime" ? code : artifact.deployedRuntimeBytecode;
       if (method === "eth_call") {
@@ -360,7 +491,7 @@ describe("independent runtime-pinned sponsorship signature preflight", () => {
           data: Hex;
           gas: Hex;
         };
-        if (call.to === PIMLICO_LEGACY_V7_PAYMASTER.address) {
+        if (call.to === pin.address) {
           const decoded = decodeFunctionData({
             abi: ENTRY_POINT_V07_ABI,
             data: call.data,
@@ -399,7 +530,7 @@ describe("independent runtime-pinned sponsorship signature preflight", () => {
           entryPoint: f.binding.entryPoint,
           bundlerUrl: "https://bundler.example",
           paymasterUrl: "https://paymaster.example",
-          paymasterPolicy: createPimlicoV7PaymasterPolicy({
+          paymasterPolicy: createPolicy({
             chainId: 1,
             policyId: "reviewed",
           }),

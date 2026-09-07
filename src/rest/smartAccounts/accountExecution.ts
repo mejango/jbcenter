@@ -188,7 +188,8 @@ export function decodeSafe7579Execution(callData: Hex): Safe7579Call[] {
         {
           target: getAddress(sliceHex(execution, 0, 20)),
           value: BigInt(sliceHex(execution, 20, 52)).toString(),
-          callData: sliceHex(execution, 52),
+          // viem rejects a slice starting at the end of an exact target/value body.
+          callData: size(execution) === 52 ? "0x" : sliceHex(execution, 52),
         },
       ];
     } else if (mode === SAFE7579_BATCH_MODE) {

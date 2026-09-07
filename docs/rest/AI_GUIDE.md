@@ -218,10 +218,10 @@ capabilities before preparing execution. Server-owned manifests, deployment
 pins, complete authority-history/module inspectors, action targets and hosted
 provider policies must all be configured. `activationReady:false` blocks a
 session workflow even when the code and HTTP routes are present.
-The checked guard artifact has no deployment address in the repository.
+Both checked guard artifacts, legacy and current, are undeployed.
 Configured hosted Safe-owner execution can run without that guard, while bot
-sessions require its verified deployment and exact owner activation. Operator
-setup, sponsorship funding and trace requirements are documented in
+sessions require the verified guard matching the selected paymaster profile and
+exact owner activation. Operator setup, provider billing, policy caps and trace requirements are documented in
 [execution operations](/api/docs/execution-operations).
 
 The API owner may request deterministic factory calldata at

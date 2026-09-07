@@ -280,6 +280,57 @@ describe("canonical account execution admission", () => {
     expect(assertSafe7579Execution(encoded, [calls[0]!])).toEqual([calls[0]]);
   });
 
+  it.each(["0", "12"])(
+    "admits a single call with empty calldata and native value %s",
+    (value) => {
+      const call: Safe7579Call = {
+        target: beneficiary,
+        value,
+        callData: "0x",
+      };
+      // Build the exact 52-byte execution independently from the account encoder.
+      const encoded = encodeFunctionData({
+        abi: accountAbi,
+        functionName: "execute",
+        args: [
+          SAFE7579_SINGLE_MODE,
+          concatHex([beneficiary, toHex(BigInt(value), { size: 32 })]),
+        ],
+      });
+      expect(decodeSafe7579Execution(encoded)).toEqual([call]);
+      expect(assertSafe7579Execution(encoded, [call])).toEqual([call]);
+      expect(encodeSafe7579Execution([call])).toBe(encoded);
+      for (const changed of [
+        { ...call, target: token },
+        { ...call, value: (BigInt(value) + 1n).toString() },
+        { ...call, callData: "0x00" as Hex },
+      ])
+        expect(() => assertSafe7579Execution(encoded, [changed])).toThrow(
+          /differs/,
+        );
+    },
+  );
+
+  it("rejects truncated target/value bodies and noncanonical empty-calldata envelopes", () => {
+    const body = concatHex([beneficiary, toHex(12n, { size: 32 })]);
+    const encode = (execution: Hex) =>
+      encodeFunctionData({
+        abi: accountAbi,
+        functionName: "execute",
+        args: [SAFE7579_SINGLE_MODE, execution],
+      });
+    for (const truncated of ["0x" as Hex, sliceHex(body, 0, 51)])
+      expect(() => decodeSafe7579Execution(encode(truncated))).toThrow(
+        /requires target and value/,
+      );
+    const encoded = encode(body);
+    expect(() => decodeSafe7579Execution(`${encoded}00`)).toThrow(/canonical/);
+    // The 52-byte body has 12 bytes of ABI padding; nonzero padding is an alias.
+    expect(() =>
+      decodeSafe7579Execution(`${encoded.slice(0, -2)}01` as Hex),
+    ).toThrow(/canonical/);
+  });
+
   it("independently decodes batches and preserves exact order, amounts, and bytes", () => {
     const encoded = encodeSafe7579Execution(calls);
     const outer = decodeFunctionData({ abi: accountAbi, data: encoded });

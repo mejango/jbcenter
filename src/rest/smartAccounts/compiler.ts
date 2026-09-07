@@ -13,6 +13,11 @@ import {
 import { RestError } from "../core.js";
 import { createSessionPolicyReviewer } from "./policy.js";
 import { fingerprint } from "./service.js";
+import {
+  CURRENT_PIMLICO_GUARD_RUNTIME_HASH,
+  CURRENT_PIMLICO_PAYMASTER,
+  type SessionGuardVersion,
+} from "./stack/current-pimlico/pins.js";
 import type { ContractPin } from "./types.js";
 import type {
   CompiledPolicyConfiguration,
@@ -59,6 +64,16 @@ export const LEGACY_COMPILER_RUNTIME_HASHES = {
   sessionGuard:
     "0x996eea0614de4cd5549d17464e0352745411666d42650b20b7a9252dfd1c328c",
 } as const;
+/** Each reviewed guard version has one exact runtime and separately verified storage proof. */
+export const SESSION_GUARD_PROFILES = {
+  "legacy-v1": { runtimeCodeHash: LEGACY_COMPILER_RUNTIME_HASHES.sessionGuard },
+  "current-v2": { runtimeCodeHash: CURRENT_PIMLICO_GUARD_RUNTIME_HASH },
+} as const;
+export function sessionGuardVersionForRuntime(runtimeCodeHash: string): SessionGuardVersion | undefined {
+  return (Object.keys(SESSION_GUARD_PROFILES) as SessionGuardVersion[]).find(
+    (version) => SESSION_GUARD_PROFILES[version].runtimeCodeHash === runtimeCodeHash.toLowerCase(),
+  );
+}
 export const SESSION_GUARD_INIT_ABI = [
   { name: "paymaster", type: "address" },
   { name: "paymasterCodeHash", type: "bytes32" },
@@ -90,7 +105,12 @@ export function compiledSessionHash(
 /** Pure compiler for server-reviewed policies. Deployment/state verification is a separate mandatory step. */
 export function createLegacySessionCompiler(options: {
   stack: SessionCompilerStack;
+  guardVersion?: SessionGuardVersion;
 }) {
+  const guardVersion = options.guardVersion ?? "legacy-v1";
+  const guardProfile = SESSION_GUARD_PROFILES[guardVersion];
+  if (!guardProfile) invalid("The session guard version is not reviewed.");
+  const runtimeHashes = { ...LEGACY_COMPILER_RUNTIME_HASHES, sessionGuard: guardProfile.runtimeCodeHash };
   return {
     compile({
       review,
@@ -134,7 +154,7 @@ export function createLegacySessionCompiler(options: {
           );
         if (
           pin.runtimeCodeHash.toLowerCase() !==
-          LEGACY_COMPILER_RUNTIME_HASHES[role as keyof SessionCompilerStack]
+          runtimeHashes[role as keyof SessionCompilerStack]
         )
           invalid(
             "The configured module generation does not match this compiler's exact runtime and storage semantics.",
@@ -192,6 +212,11 @@ export function createLegacySessionCompiler(options: {
         ),
       );
       const gas = p.gasBudget;
+      if (guardVersion === "current-v2" &&
+          (!same(gas.paymaster, CURRENT_PIMLICO_PAYMASTER.address) ||
+           gas.paymasterCodeHash !== CURRENT_PIMLICO_PAYMASTER.runtimeCodeHash ||
+           gas.paymasterReviewId !== "pimlico-v7-current-flags" || gas.maxPaymasterDataLength !== 130))
+        invalid("The current guard requires its exact reviewed current gas-only paymaster profile.");
       const guardDecoded = {
         paymaster: gas.paymaster,
         paymasterCodeHash: gas.paymasterCodeHash,

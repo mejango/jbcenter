@@ -33,6 +33,72 @@ export const PIMLICO_LEGACY_V7_PAYMASTER = Object.freeze({
   runtimeCodeHash:
     "0x1cd962f550282d1e4eadd0db10a956db2338c40f69c8b07cb434486275e1c11a" as const,
 });
+/** Independently reproduced solc 0.8.26 deployment; see stack/current-pimlico. */
+export const PIMLICO_CURRENT_V7_PAYMASTER = Object.freeze({
+  address: "0x777777777777aec03fd955926dbf81597e66834c" as const,
+  runtimeCodeHash:
+    "0x337b6e1b6c2167c0528c5240c028ead407c673595b2820029b69741b76d98fbc" as const,
+});
+
+export function createPimlicoCurrentV7PaymasterPolicy(options: {
+  policyId: string;
+  chainId: number;
+  context?: Record<string, unknown>;
+}): UserOperationPaymasterPolicy {
+  if (
+    !/^[a-zA-Z0-9._-]{1,128}$/.test(options.policyId) ||
+    !Number.isSafeInteger(options.chainId) ||
+    options.chainId <= 0
+  )
+    uoError(
+      "INVALID_USER_OPERATION_PROVIDER",
+      "The Pimlico policy identity or chain is invalid.",
+      500,
+    );
+  return {
+    id: options.policyId,
+    profile: "pimlico-v7-current-flags",
+    contract: { ...PIMLICO_CURRENT_V7_PAYMASTER },
+    context: options.context ?? {},
+    maximumPaymasterDataLength: 130,
+    inspect(operation) {
+      const op = normalizeUserOperation(operation);
+      const data = op.paymasterData;
+      // Exact deployed source: mode = flags >> 1; low bit is allowAllBundlers.
+      // Only verifying mode zero has empty context and cannot charge account tokens.
+      // Its OpenZeppelin ECDSA.recover(bytes) accepts a 65-byte signature only.
+      if (
+        op.paymaster !== PIMLICO_CURRENT_V7_PAYMASTER.address ||
+        !data ||
+        data.length !== 158 ||
+        !["00", "01"].includes(data.slice(2, 4))
+      )
+        uoError(
+          "PIMLICO_SPONSOR_MODE_REQUIRED",
+          "Only the runtime-pinned current Pimlico verifying mode is supported. Token charging and unknown formats are rejected.",
+        );
+      const validUntil = Number(BigInt(`0x${data.slice(4, 16)}`));
+      const validAfter = Number(BigInt(`0x${data.slice(16, 28)}`));
+      return {
+        policyId: options.policyId,
+        gasOnly: true,
+        validAfter,
+        validUntil: validUntil === 0 ? Number((1n << 48n) - 1n) : validUntil,
+        commitment: keccak256(
+          stringToHex(
+            uoCanonical({
+              profile: "pimlico-v7-current-flags",
+              chainId: options.chainId,
+              contract: PIMLICO_CURRENT_V7_PAYMASTER,
+              operation: withoutUserOperationSignature(op),
+            }),
+          ),
+        ),
+      };
+    },
+  };
+}
+
 export function createPimlicoV7PaymasterPolicy(options: {
   policyId: string;
   chainId: number;
@@ -175,6 +241,18 @@ export class UserOperationProvider {
         );
       uoAddress(config.entryPoint.address, "EntryPoint");
       uoHash(config.entryPoint.runtimeCodeHash, "EntryPoint code hash");
+      if (config.simulationBundlerAddress !== undefined) {
+        uoAddress(config.simulationBundlerAddress, "simulation bundler");
+        if (
+          config.paymasterPolicy?.profile !== "pimlico-v7-current-flags" ||
+          BigInt(config.simulationBundlerAddress) === 0n
+        )
+          uoError(
+            "INVALID_USER_OPERATION_PROVIDER",
+            "A simulation bundler must be a nonzero operator-configured address for the current Pimlico profile.",
+            500,
+          );
+      }
       headers(config.bundlerHeaders);
       headers(config.paymasterHeaders);
       if (Boolean(config.paymasterPolicy) !== Boolean(config.paymasterUrl))
@@ -547,8 +625,9 @@ export class UserOperationProvider {
         ?.filter((byte) => byte === "00").length ?? 0;
     if (
       final.operation.paymasterData!.length !== op.paymasterData!.length ||
-      countZeroBytes(op.paymasterData!) >
-        countZeroBytes(final.operation.paymasterData!)
+      (config.paymasterPolicy?.profile !== "pimlico-v7-current-flags" &&
+        countZeroBytes(op.paymasterData!) >
+          countZeroBytes(final.operation.paymasterData!))
     )
       uoError(
         "USER_OPERATION_PAYMASTER_STUB_CHANGED",

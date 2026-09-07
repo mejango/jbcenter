@@ -1,14 +1,17 @@
 import {
   decodeFunctionResult,
   encodeFunctionData,
+  isAddress,
   keccak256,
   parseAbi,
+  recoverMessageAddress,
   toHex,
   type Address,
   type Hex,
 } from "viem";
 import type { RestBlockEvidence, RestRpc } from "../core.js";
 import { assertSafe7579Execution } from "../smartAccounts/accountExecution.js";
+import { CURRENT_PIMLICO_PAYMASTER } from "../smartAccounts/stack/current-pimlico/pins.js";
 import {
   assertUserOperationGasPolicy,
   getUserOperationHash,
@@ -35,6 +38,9 @@ export const ENTRY_POINT_V07_ABI = parseAbi([
   "function getNonce(address sender,uint192 key) view returns(uint256)",
   "function balanceOf(address account) view returns(uint256)",
   "function entryPoint() view returns(address)",
+  "function isBundlerAllowed(address bundler) view returns(bool)",
+  "function signers(address signer) view returns(bool)",
+  "function getHash(uint8 mode,(address sender,uint256 nonce,bytes initCode,bytes callData,bytes32 accountGasLimits,uint256 preVerificationGas,bytes32 gasFees,bytes paymasterAndData,bytes signature) userOp) view returns(bytes32)",
   "function validatePaymasterUserOp((address sender,uint256 nonce,bytes initCode,bytes callData,bytes32 accountGasLimits,uint256 preVerificationGas,bytes32 gasFees,bytes paymasterAndData,bytes signature) userOp,bytes32 userOpHash,uint256 maxCost) returns(bytes context,uint256 validationData)",
   "function getUserOpHash((address sender,uint256 nonce,bytes initCode,bytes callData,bytes32 accountGasLimits,uint256 preVerificationGas,bytes32 gasFees,bytes paymasterAndData,bytes signature) userOp) view returns(bytes32)",
   "function handleOps((address sender,uint256 nonce,bytes initCode,bytes callData,bytes32 accountGasLimits,uint256 preVerificationGas,bytes32 gasFees,bytes paymasterAndData,bytes signature)[] ops,address beneficiary)",
@@ -346,6 +352,7 @@ export class UserOperationChain {
         "Local and deployed EntryPoint v0.7 hashes do not agree.",
       );
     let paymasterProof;
+    let simulationFrom: Address = "0x000000000000000000000000000000000000dEaD";
     if (op.paymaster) {
       const configured = provider?.configuration(binding.chainId);
       if (!provider || !configured?.paymasterPolicy)
@@ -369,7 +376,10 @@ export class UserOperationChain {
         evidence,
       );
       paymasterProof = provider.inspectPaymaster(binding.chainId, op, "final");
-      if (configured.paymasterPolicy.profile === "pimlico-v7-legacy-mode") {
+      if (
+        configured.paymasterPolicy.profile === "pimlico-v7-legacy-mode" ||
+        configured.paymasterPolicy.profile === "pimlico-v7-current-flags"
+      ) {
         const entryPointData = await this.call(
           binding.chainId,
           op.paymaster,
@@ -390,45 +400,95 @@ export class UserOperationChain {
             "USER_OPERATION_PAYMASTER_MISMATCH",
             "The pinned paymaster is configured for another EntryPoint.",
           );
-        const data = uoBytes(
-          await this.request(binding.chainId, "eth_call", [
-            {
-              from: binding.entryPoint.address,
-              to: op.paymaster,
-              data: encodeFunctionData({
-                abi: ENTRY_POINT_V07_ABI,
-                functionName: "validatePaymasterUserOp",
-                args: [
-                  packUserOperation(op),
-                  operationHash,
-                  userOperationMaximumCost(op),
-                ],
-              }),
-              gas: op.paymasterVerificationGasLimit,
-            },
-            this.tag(evidence),
-          ]),
-          "paymaster validation result",
-          4096,
-        );
-        const [context, validation] = decodeFunctionResult({
-          abi: ENTRY_POINT_V07_ABI,
-          functionName: "validatePaymasterUserOp",
-          data,
-        });
-        const until = (validation >> 160n) & ((1n << 48n) - 1n);
-        const after = validation >> 208n;
-        const time = BigInt(Math.floor(this.now() / 1000));
-        if (
-          context !== "0x" ||
-          (validation & ((1n << 160n) - 1n)) !== 0n ||
-          after > time ||
-          (until !== 0n && until <= time + 30n)
-        )
-          uoError(
-            "USER_OPERATION_PAYMASTER_SIGNATURE",
-            "The deployed gas-only paymaster rejected the exact sponsorship signature or validity window.",
+        if (configured.paymasterPolicy.profile === "pimlico-v7-current-flags" && op.paymasterData?.slice(2, 4) === "00") {
+          // This source's flag 00 checks tx.origin. A direct paymaster call from
+          // EntryPoint cannot represent an allowed bundler origin. Authenticate
+          // its exact verifying-mode signature from the pinned getHash/signers
+          // implementation, then run the complete real handleOps below.
+          const bundler = configured.simulationBundlerAddress;
+          if (!bundler || !isAddress(bundler) || BigInt(bundler) === 0n)
+            uoError("USER_OPERATION_BUNDLER_ORIGIN_REQUIRED",
+              "Restricted sponsorship requires an operator-configured simulation bundler address.");
+          if (op.paymaster !== CURRENT_PIMLICO_PAYMASTER.address ||
+              configured.paymasterPolicy.contract.runtimeCodeHash !== CURRENT_PIMLICO_PAYMASTER.runtimeCodeHash ||
+              op.paymasterData.length !== 158)
+            uoError("USER_OPERATION_PAYMASTER_MISMATCH", "The restricted sponsor differs from its reviewed deployment.");
+          const signature = op.paymasterData.slice(28);
+          const s = BigInt(`0x${signature.slice(64, 128)}`), v = Number(BigInt(`0x${signature.slice(128, 130)}`));
+          if (s === 0n || s > 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n || (v !== 27 && v !== 28))
+            uoError("USER_OPERATION_PAYMASTER_SIGNATURE", "The sponsor signature is not canonical OpenZeppelin ECDSA data.");
+          const [bundlerCode, allowedResult, hashResult] = await Promise.all([
+            this.request(binding.chainId, "eth_getCode", [bundler, this.tag(evidence)]),
+            this.call(binding.chainId, op.paymaster, encodeFunctionData({
+              abi: ENTRY_POINT_V07_ABI, functionName: "isBundlerAllowed", args: [bundler],
+            }), evidence),
+            this.call(binding.chainId, op.paymaster, encodeFunctionData({
+              abi: ENTRY_POINT_V07_ABI, functionName: "getHash", args: [0, packUserOperation(op)],
+            }), evidence),
+          ]);
+          if (bundlerCode !== "0x" || !decodeFunctionResult({
+            abi: ENTRY_POINT_V07_ABI, functionName: "isBundlerAllowed", data: allowedResult,
+          }))
+            uoError("USER_OPERATION_BUNDLER_ORIGIN_UNVERIFIED",
+              "The configured simulation origin must be an allowed EOA at the verified block.");
+          const sponsorHash = decodeFunctionResult({ abi: ENTRY_POINT_V07_ABI, functionName: "getHash", data: hashResult });
+          let recovered: Address;
+          try {
+            recovered = await recoverMessageAddress({ message: { raw: sponsorHash }, signature: `0x${signature}` });
+          } catch {
+            return uoError("USER_OPERATION_PAYMASTER_SIGNATURE", "The sponsor signature cannot authenticate this exact operation.");
+          }
+          const signerResult = await this.call(binding.chainId, op.paymaster, encodeFunctionData({
+            abi: ENTRY_POINT_V07_ABI, functionName: "signers", args: [recovered],
+          }), evidence);
+          const time = Math.floor(this.now() / 1000);
+          if (BigInt(recovered) === 0n || !decodeFunctionResult({
+            abi: ENTRY_POINT_V07_ABI, functionName: "signers", data: signerResult,
+          }) || paymasterProof.validAfter > time || paymasterProof.validUntil <= time + 30)
+            uoError("USER_OPERATION_PAYMASTER_SIGNATURE",
+              "The deployed gas-only paymaster rejected the exact sponsorship signature or validity window.");
+          simulationFrom = bundler;
+        } else {
+          const data = uoBytes(
+            await this.request(binding.chainId, "eth_call", [
+              {
+                from: binding.entryPoint.address,
+                to: op.paymaster,
+                data: encodeFunctionData({
+                  abi: ENTRY_POINT_V07_ABI,
+                  functionName: "validatePaymasterUserOp",
+                  args: [
+                    packUserOperation(op),
+                    operationHash,
+                    userOperationMaximumCost(op),
+                  ],
+                }),
+                gas: op.paymasterVerificationGasLimit,
+              },
+              this.tag(evidence),
+            ]),
+            "paymaster validation result",
+            4096,
           );
+          const [context, validation] = decodeFunctionResult({
+            abi: ENTRY_POINT_V07_ABI,
+            functionName: "validatePaymasterUserOp",
+            data,
+          });
+          const until = (validation >> 160n) & ((1n << 48n) - 1n);
+          const after = validation >> 208n;
+          const time = BigInt(Math.floor(this.now() / 1000));
+          if (
+            context !== "0x" ||
+            (validation & ((1n << 160n) - 1n)) !== 0n ||
+            after > time ||
+            (until !== 0n && until <= time + 30n)
+          )
+            uoError(
+              "USER_OPERATION_PAYMASTER_SIGNATURE",
+              "The deployed gas-only paymaster rejected the exact sponsorship signature or validity window.",
+            );
+        }
       }
     }
     const payer = op.paymaster ?? op.sender;
@@ -494,7 +554,7 @@ export class UserOperationChain {
       BigInt(op.paymasterPostOpGasLimit ?? "0x0");
     const validationResult = await this.request(binding.chainId, "eth_call", [
       {
-        from: "0x000000000000000000000000000000000000dEaD",
+        from: simulationFrom,
         to: binding.entryPoint.address,
         data: encodeFunctionData({
           abi: ENTRY_POINT_V07_ABI,

@@ -1,0 +1,332 @@
+{
+  "schemaVersion": 1,
+  "contractName": "CenterSessionGuardV2",
+  "compiler": {
+    "version": "0.8.28+commit.7893614a",
+    "evmVersion": "cancun",
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "metadata": {
+      "bytecodeHash": "none"
+    }
+  },
+  "sourceSha256": "c8af7efe042c7bdc6a31d75f780a78a7f3d52563222c1da40acbda72a75f5069",
+  "runtimeCodeHash": "0xb8787af1b7dad3b5fac11ec656824adbe575610ee467661be4acde928e3d7c04",
+  "compilerOutputSha256": "70506f6056d015a9048b647bfb448cd01ae5c4e134e43bce33d1a8dff32ef40a",
+  "initializerBytes": 288,
+  "configAbi": [
+    {
+      "name": "paymaster",
+      "type": "address",
+      "internalType": "address"
+    },
+    {
+      "name": "paymasterCodeHash",
+      "type": "bytes32",
+      "internalType": "bytes32"
+    },
+    {
+      "name": "maxGasPerOperation",
+      "type": "uint256",
+      "internalType": "uint256"
+    },
+    {
+      "name": "maxFeePerGas",
+      "type": "uint256",
+      "internalType": "uint256"
+    },
+    {
+      "name": "maxPriorityFeePerGas",
+      "type": "uint256",
+      "internalType": "uint256"
+    },
+    {
+      "name": "totalGasLimit",
+      "type": "uint256",
+      "internalType": "uint256"
+    },
+    {
+      "name": "totalSponsoredCostLimit",
+      "type": "uint256",
+      "internalType": "uint256"
+    },
+    {
+      "name": "maximumCalls",
+      "type": "uint128",
+      "internalType": "uint128"
+    },
+    {
+      "name": "maxPaymasterDataLength",
+      "type": "uint32",
+      "internalType": "uint32"
+    }
+  ],
+  "stateMappingSlot": 0,
+  "mappingKeyOrder": [
+    "id",
+    "multiplexer",
+    "account"
+  ],
+  "stateMembers": [
+    {
+      "name": "config",
+      "slot": 0,
+      "offset": 0,
+      "type": "Config"
+    },
+    {
+      "name": "gasUsed",
+      "slot": 8,
+      "offset": 0,
+      "type": "uint256"
+    },
+    {
+      "name": "costUsed",
+      "slot": 9,
+      "offset": 0,
+      "type": "uint256"
+    },
+    {
+      "name": "callsUsed",
+      "slot": 10,
+      "offset": 0,
+      "type": "uint128"
+    }
+  ],
+  "configMembers": [
+    {
+      "name": "paymaster",
+      "slot": 0,
+      "offset": 0,
+      "type": "address"
+    },
+    {
+      "name": "paymasterCodeHash",
+      "slot": 1,
+      "offset": 0,
+      "type": "bytes32"
+    },
+    {
+      "name": "maxGasPerOperation",
+      "slot": 2,
+      "offset": 0,
+      "type": "uint256"
+    },
+    {
+      "name": "maxFeePerGas",
+      "slot": 3,
+      "offset": 0,
+      "type": "uint256"
+    },
+    {
+      "name": "maxPriorityFeePerGas",
+      "slot": 4,
+      "offset": 0,
+      "type": "uint256"
+    },
+    {
+      "name": "totalGasLimit",
+      "slot": 5,
+      "offset": 0,
+      "type": "uint256"
+    },
+    {
+      "name": "totalSponsoredCostLimit",
+      "slot": 6,
+      "offset": 0,
+      "type": "uint256"
+    },
+    {
+      "name": "maximumCalls",
+      "slot": 7,
+      "offset": 0,
+      "type": "uint128"
+    },
+    {
+      "name": "maxPaymasterDataLength",
+      "slot": 7,
+      "offset": 16,
+      "type": "uint32"
+    }
+  ],
+  "storageLayout": {
+    "storage": [
+      {
+        "astId": 80,
+        "contract": "contracts/CenterSessionGuardV2.sol:CenterSessionGuardV2",
+        "label": "_states",
+        "offset": 0,
+        "slot": "0",
+        "type": "t_mapping(t_bytes32,t_mapping(t_address,t_mapping(t_address,t_struct(State)51_storage)))"
+      }
+    ],
+    "types": {
+      "t_address": {
+        "encoding": "inplace",
+        "label": "address",
+        "numberOfBytes": "20"
+      },
+      "t_bytes32": {
+        "encoding": "inplace",
+        "label": "bytes32",
+        "numberOfBytes": "32"
+      },
+      "t_mapping(t_address,t_mapping(t_address,t_struct(State)51_storage))": {
+        "encoding": "mapping",
+        "key": "t_address",
+        "label": "mapping(address => mapping(address => struct CenterSessionGuardV2.State))",
+        "numberOfBytes": "32",
+        "value": "t_mapping(t_address,t_struct(State)51_storage)"
+      },
+      "t_mapping(t_address,t_struct(State)51_storage)": {
+        "encoding": "mapping",
+        "key": "t_address",
+        "label": "mapping(address => struct CenterSessionGuardV2.State)",
+        "numberOfBytes": "32",
+        "value": "t_struct(State)51_storage"
+      },
+      "t_mapping(t_bytes32,t_mapping(t_address,t_mapping(t_address,t_struct(State)51_storage)))": {
+        "encoding": "mapping",
+        "key": "t_bytes32",
+        "label": "mapping(bytes32 => mapping(address => mapping(address => struct CenterSessionGuardV2.State)))",
+        "numberOfBytes": "32",
+        "value": "t_mapping(t_address,t_mapping(t_address,t_struct(State)51_storage))"
+      },
+      "t_struct(Config)41_storage": {
+        "encoding": "inplace",
+        "label": "struct CenterSessionGuardV2.Config",
+        "numberOfBytes": "256",
+        "members": [
+          {
+            "astId": 24,
+            "contract": "contracts/CenterSessionGuardV2.sol:CenterSessionGuardV2",
+            "label": "paymaster",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_address"
+          },
+          {
+            "astId": 26,
+            "contract": "contracts/CenterSessionGuardV2.sol:CenterSessionGuardV2",
+            "label": "paymasterCodeHash",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_bytes32"
+          },
+          {
+            "astId": 28,
+            "contract": "contracts/CenterSessionGuardV2.sol:CenterSessionGuardV2",
+            "label": "maxGasPerOperation",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_uint256"
+          },
+          {
+            "astId": 30,
+            "contract": "contracts/CenterSessionGuardV2.sol:CenterSessionGuardV2",
+            "label": "maxFeePerGas",
+            "offset": 0,
+            "slot": "3",
+            "type": "t_uint256"
+          },
+          {
+            "astId": 32,
+            "contract": "contracts/CenterSessionGuardV2.sol:CenterSessionGuardV2",
+            "label": "maxPriorityFeePerGas",
+            "offset": 0,
+            "slot": "4",
+            "type": "t_uint256"
+          },
+          {
+            "astId": 34,
+            "contract": "contracts/CenterSessionGuardV2.sol:CenterSessionGuardV2",
+            "label": "totalGasLimit",
+            "offset": 0,
+            "slot": "5",
+            "type": "t_uint256"
+          },
+          {
+            "astId": 36,
+            "contract": "contracts/CenterSessionGuardV2.sol:CenterSessionGuardV2",
+            "label": "totalSponsoredCostLimit",
+            "offset": 0,
+            "slot": "6",
+            "type": "t_uint256"
+          },
+          {
+            "astId": 38,
+            "contract": "contracts/CenterSessionGuardV2.sol:CenterSessionGuardV2",
+            "label": "maximumCalls",
+            "offset": 0,
+            "slot": "7",
+            "type": "t_uint128"
+          },
+          {
+            "astId": 40,
+            "contract": "contracts/CenterSessionGuardV2.sol:CenterSessionGuardV2",
+            "label": "maxPaymasterDataLength",
+            "offset": 16,
+            "slot": "7",
+            "type": "t_uint32"
+          }
+        ]
+      },
+      "t_struct(State)51_storage": {
+        "encoding": "inplace",
+        "label": "struct CenterSessionGuardV2.State",
+        "numberOfBytes": "352",
+        "members": [
+          {
+            "astId": 44,
+            "contract": "contracts/CenterSessionGuardV2.sol:CenterSessionGuardV2",
+            "label": "config",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_struct(Config)41_storage"
+          },
+          {
+            "astId": 46,
+            "contract": "contracts/CenterSessionGuardV2.sol:CenterSessionGuardV2",
+            "label": "gasUsed",
+            "offset": 0,
+            "slot": "8",
+            "type": "t_uint256"
+          },
+          {
+            "astId": 48,
+            "contract": "contracts/CenterSessionGuardV2.sol:CenterSessionGuardV2",
+            "label": "costUsed",
+            "offset": 0,
+            "slot": "9",
+            "type": "t_uint256"
+          },
+          {
+            "astId": 50,
+            "contract": "contracts/CenterSessionGuardV2.sol:CenterSessionGuardV2",
+            "label": "callsUsed",
+            "offset": 0,
+            "slot": "10",
+            "type": "t_uint128"
+          }
+        ]
+      },
+      "t_uint128": {
+        "encoding": "inplace",
+        "label": "uint128",
+        "numberOfBytes": "16"
+      },
+      "t_uint256": {
+        "encoding": "inplace",
+        "label": "uint256",
+        "numberOfBytes": "32"
+      },
+      "t_uint32": {
+        "encoding": "inplace",
+        "label": "uint32",
+        "numberOfBytes": "4"
+      }
+    }
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "chainIds": [
+    1,
+    10,
+    8453,
+    42161
+  ],
+  "component": {
+    "path": "artifacts/PimlicoSingletonPaymasterV7.json",
+    "fileSha256": "fac8552a3463679a8673466ba891284e998bf81cf665b7c4bb7159c6594887e6",
+    "address": "0x777777777777AeC03fd955926DbF81597e66834C",
+    "runtimeCodeHash": "0x337b6e1b6c2167c0528c5240c028ead407c673595b2820029b69741b76d98fbc",
+    "source": {
+      "repo": "https://github.com/pimlicolabs/singleton-paymaster",
+      "commit": "2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05",
+      "artifactSha256": "e686a8a4ffb342ba06abaf062eced2ef2b9b2696e7447979b80a971ed00246cd",
+      "artifactType": "locallyReproducedCompilerOutput",
+      "verificationInputSha256": "62d61383f8ec0fa155778ff0662d2ddadb174d5948e5d3af2df23604686096ef",
+      "verifiedSourceUrl": "https://sourcify.dev/server/v2/contract/42161/0x777777777777AeC03fd955926DbF81597e66834C?fields=all",
+      "commitProvenance": "Exact published source and build-settings match; source-equivalent commits prevent uniquely inferring the deployment checkout."
+    },
+    "chainIds": [
+      1,
+      10,
+      8453,
+      42161
+    ],
+    "role": "reviewed-gas-only-paymaster-profile",
+    "deploymentStatus": "historically-observed",
+    "evidence": "evidence/pimlico-paymaster.json",
+    "evidenceSha256": "34f45e3e79da722217f797efe4bfde662a7f12d7540080278c2f3b54b3012a44"
+  },
+  "gasOnlyProfile": {
+    "id": "pimlico-v7-current-flags",
+    "paymasterAndDataBytes": 130,
+    "paymasterDataBytes": 78,
+    "flagsOffset": 52,
+    "allowedFlags": [
+      0,
+      1
+    ],
+    "modeShift": 1,
+    "verifyingMode": 0,
+    "allowAllBundlersMask": 1,
+    "validUntilOffset": 53,
+    "validAfterOffset": 59,
+    "signatureOffset": 65,
+    "signatureBytes": 65,
+    "validationContext": "empty",
+    "tokenCharge": "none"
+  },
+  "compilerInput": {
+    "path": "evidence/pimlico-compiler-input.json",
+    "sha256": "62d61383f8ec0fa155778ff0662d2ddadb174d5948e5d3af2df23604686096ef"
+  }
+}

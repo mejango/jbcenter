@@ -50,6 +50,7 @@ import {
 import { observeUserOperation } from "./execution.js";
 import { UserOperationProvider } from "./provider.js";
 import { createSessionGasEstimation } from "./estimation.js";
+import { finalizeUserOperationSponsorship } from "./sponsorship.js";
 import {
   digest,
   recoveryCursor,
@@ -405,12 +406,12 @@ export class UserOperationService {
     };
     const createdAt = this.now();
     let expiresAt = Math.min(plan.expiresAt, createdAt + 300_000);
-    const dummy = () =>
+    const dummy = (expiry = expiresAt) =>
       session
         ? encodeLegacyUseSignature(session.permissionId, dummySignature)
         : encodeSafe7579OwnerSignature({
             validAfter: String(Math.floor(createdAt / 1000)),
-            validUntil: String(Math.floor(expiresAt / 1000)),
+            validUntil: String(Math.floor(expiry / 1000)),
             signatures: `0x${dummySignature.slice(2).repeat(binding.state.threshold)}`,
           });
     const providerConfig = this.options.provider.configuration(
@@ -459,31 +460,22 @@ export class UserOperationService {
     } else operation = applyUserOperationEstimate(operation, estimate);
     gasEstimation?.assert(operation);
     if (sponsored && !stub?.isFinal) {
-      const funded = await this.options.provider.sponsor(
-        binding.wallet.chainId,
+      const funded = await finalizeUserOperationSponsorship({
+        chainId: binding.wallet.chainId,
         operation,
+        gasPolicy: policy.gas,
+        profile: providerConfig.paymasterPolicy?.profile,
+        expiresAt,
+        dummySignature: dummy,
+        provider: this.options.provider,
+        sessionGas: gasEstimation,
         signal,
-      );
+      });
       operation = funded.operation;
-      expiresAt = Math.min(expiresAt, funded.proof.validUntil * 1000);
-      // Final sponsorship may alter validation cost. Never sign fields that have not been estimated together.
-      const finalEstimate = await this.options.provider.estimate(
-        binding.wallet.chainId,
-        { ...operation, signature: dummy() },
-        signal,
-        gasEstimation,
-      );
-      for (const [field, amount] of Object.entries(finalEstimate))
-        if (
-          BigInt(amount) >
-          BigInt(operation[field as keyof UserOperationV07] ?? "0x0")
-        )
-          fail(
-            "USER_OPERATION_SPONSOR_GAS_CHANGED",
-            "Final sponsorship requires more gas than the reviewed operation. Prepare again with the provider's current estimate.",
-          );
+      expiresAt = funded.expiresAt;
     }
     assertUserOperationGasPolicy(operation, policy.gas);
+    gasEstimation?.assert(operation);
     await chain.canonical(evidence);
     operation = normalizeUserOperation(operation);
     const operationHash = getUserOperationHash(

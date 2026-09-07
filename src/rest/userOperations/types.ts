@@ -64,7 +64,7 @@ export interface PaymasterDataProof {
 }
 export interface UserOperationPaymasterPolicy {
   id: string;
-  profile?: "pimlico-v7-legacy-mode";
+  profile?: "pimlico-v7-legacy-mode" | "pimlico-v7-current-flags";
   maximumPaymasterDataLength?: number;
   contract: UserOperationCodePin;
   /** Host-owned provider policy parameters; never supplied by a client. */
@@ -81,6 +81,8 @@ export interface UserOperationProviderConfig {
   entryPoint: UserOperationCodePin;
   bundlerUrl: string;
   paymasterUrl?: string;
+  /** Private operator-selected origin for current Pimlico restricted-bundler simulation; verified onchain before use. */
+  simulationBundlerAddress?: Address;
   /** Operator credentials only; sanitized from every result and error. */
   bundlerHeaders?: Record<string, string>;
   paymasterHeaders?: Record<string, string>;

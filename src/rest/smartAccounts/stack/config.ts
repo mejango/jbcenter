@@ -9,6 +9,14 @@ import {
 } from "../compiler.js";
 import { fingerprint } from "../service.js";
 import type { ContractPin, SmartAccountManifest } from "../types.js";
+import { currentPimlicoGuard, currentPimlicoPaymaster } from "./current-pimlico/config.js";
+import {
+  CURRENT_PIMLICO_GUARD_MANIFEST_SHA256,
+  CURRENT_PIMLICO_GUARD_RUNTIME_HASH,
+  CURRENT_PIMLICO_PAYMASTER_MANIFEST_SHA256,
+  type SessionGuardVersion,
+  type SmartAccountPaymasterProfile,
+} from "./current-pimlico/pins.js";
 
 export const SMART_ACCOUNT_STACK_MANIFEST_SHA256 =
   "1924517cd7b1dfec32dc73ae62b7bf8919da1a1c44b1deeae0d5307d223235ff";
@@ -118,7 +126,8 @@ function pin(component: Component, override?: Address): ContractPin {
 /** Server-owned configuration only. RPC verification of every configured deployment remains mandatory. */
 export async function createConfiguredSmartAccountStack(input: {
   chainId: number;
-  sessionGuard?: { address: Address; runtimeCodeHash: Hex };
+  paymasterProfile?: SmartAccountPaymasterProfile;
+  sessionGuard?: { address: Address; runtimeCodeHash: Hex; version?: SessionGuardVersion };
 }) {
   loaded ??= checkedManifest().catch((error: unknown) => {
     loaded = undefined;
@@ -150,21 +159,33 @@ export async function createConfiguredSmartAccountStack(input: {
   const timeFrame = pin(component("TimeFramePolicy")),
     universalAction = pin(component("UniActionPolicy")),
     valueLimit = pin(component("ValueLimitPolicy"));
+  const paymasterProfile = input.paymasterProfile ?? "pimlico-v7-legacy-mode";
+  const guardVersion = input.sessionGuard?.version ?? "legacy-v1";
+  if (!["pimlico-v7-legacy-mode", "pimlico-v7-current-flags"].includes(paymasterProfile) ||
+      !["legacy-v1", "current-v2"].includes(guardVersion) ||
+      (input.sessionGuard && (guardVersion === "current-v2") !== (paymasterProfile === "pimlico-v7-current-flags")))
+    fail("The guard and paymaster must select the same reviewed deployment profile.");
   let sessionGuard: ContractPin | undefined;
   if (input.sessionGuard) {
-    const c = data.components.CenterSessionGuard;
-    if (
-      !c ||
-      input.sessionGuard.runtimeCodeHash.toLowerCase() !== c.runtimeCodeHash ||
-      c.runtimeCodeHash !== LEGACY_COMPILER_RUNTIME_HASHES.sessionGuard
-    )
-      fail(
-        "The operator guard deployment must match the exact reviewed source runtime.",
-      );
-    sessionGuard = pin(c, input.sessionGuard.address);
+    if (guardVersion === "current-v2") {
+      if (input.sessionGuard.runtimeCodeHash.toLowerCase() !== CURRENT_PIMLICO_GUARD_RUNTIME_HASH)
+        fail("The current guard deployment must match its exact reviewed source runtime.");
+      sessionGuard = await currentPimlicoGuard(input.sessionGuard.address);
+    } else {
+      const c = data.components.CenterSessionGuard;
+      if (
+        !c ||
+        input.sessionGuard.runtimeCodeHash.toLowerCase() !== c.runtimeCodeHash ||
+        c.runtimeCodeHash !== LEGACY_COMPILER_RUNTIME_HASHES.sessionGuard
+      )
+        fail(
+          "The operator guard deployment must match the exact reviewed source runtime.",
+        );
+      sessionGuard = pin(c, input.sessionGuard.address);
+    }
   }
   const body = {
-    id: `safe7579-f22a194-legacy-f24dddf-${input.chainId}${sessionGuard ? "-guard-v1" : "-owner"}`,
+    id: `safe7579-f22a194-legacy-f24dddf-${input.chainId}${sessionGuard ? (guardVersion === "current-v2" ? "-guard-v2" : "-guard-v1") : "-owner"}`,
     // The complete base stack supports independently approved owner UserOperations.
     // Delegated sessions additionally require compilerStack and the verified guard.
     mode: "execution-candidate" as const,
@@ -191,6 +212,12 @@ export async function createConfiguredSmartAccountStack(input: {
     revision: fingerprint({
       ...body,
       manifestSha256: SMART_ACCOUNT_STACK_MANIFEST_SHA256,
+      // Provider upgrades do not change owner bindings or their history namespaces.
+      // A new installed guard gets a separate identity with its complete new provenance.
+      ...(sessionGuard && guardVersion === "current-v2" ? {
+        guardManifestSha256: CURRENT_PIMLICO_GUARD_MANIFEST_SHA256,
+        paymasterManifestSha256: CURRENT_PIMLICO_PAYMASTER_MANIFEST_SHA256,
+      } : {}),
     }),
   };
   const compilerStack: SessionCompilerStack | undefined = sessionGuard
@@ -210,7 +237,7 @@ export async function createConfiguredSmartAccountStack(input: {
     entryPoint,
     compilerStack,
     sourceManifestSha256: SMART_ACCOUNT_STACK_MANIFEST_SHA256,
-    paymaster: {
+    paymaster: paymasterProfile === "pimlico-v7-current-flags" ? await currentPimlicoPaymaster(input.chainId) : {
       ...pin(component("PimlicoSingletonPaymasterV7")),
       profileId: "pimlico-singleton-v7-legacy-verifying" as const,
       paymasterAndDataBytes: 130 as const,
@@ -225,7 +252,7 @@ export async function createConfiguredSmartAccountStack(input: {
           "SMART_SESSION_GUARD_DEPLOYMENT_REQUIRED",
           "Configure and verify a deployment of the exact reviewed CenterSessionGuard before compiling executable sessions.",
         );
-      return createLegacySessionCompiler({ stack: compilerStack });
+      return createLegacySessionCompiler({ stack: compilerStack, guardVersion });
     },
   };
 }

@@ -183,9 +183,9 @@ Discover `/smart-accounts/capabilities` and the top-level `userOperations` and
 `sessions` capabilities before selecting a chain. Implemented routes and
 historical deployment research do not establish activation readiness. Hosted
 owner execution requires a reviewed manifest, complete account-history/module
-verification, configured bundler/paymaster and funded sponsorship policy.
-Recurring sessions additionally require the reviewed deployed session guard;
-the checked guard artifact has no deployment address in the repository. Owner
+verification, configured bundler/paymaster, provider billing and eligible sponsorship policy.
+Recurring sessions additionally require the reviewed deployed guard matching the
+selected paymaster profile; both legacy and current guard artifacts are undeployed. Owner
 execution can be configured without that guard. See
 [execution operations](/api/docs/execution-operations) for the live setup.
 

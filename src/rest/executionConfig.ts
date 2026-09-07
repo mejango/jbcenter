@@ -2,9 +2,15 @@ import { getAddress, isAddress, type Address } from "viem";
 import { RestError } from "./core.js";
 import { createConfiguredSmartAccountStack } from "./smartAccounts/stack/config.js";
 import { LEGACY_COMPILER_RUNTIME_HASHES } from "./smartAccounts/compiler.js";
+import {
+  CURRENT_PIMLICO_GUARD_RUNTIME_HASH,
+  type SessionGuardVersion,
+  type SmartAccountPaymasterProfile,
+} from "./smartAccounts/stack/current-pimlico/pins.js";
 import type { ReviewedSessionPaymaster } from "./smartAccounts/policy.js";
 import {
   createPimlicoV7PaymasterPolicy,
+  createPimlicoCurrentV7PaymasterPolicy,
   UserOperationProvider,
 } from "./userOperations/provider.js";
 import type {
@@ -159,7 +165,10 @@ export async function readRestExecutionConfiguration(
       "bundlerUrl",
       "paymasterUrl",
       "paymasterPolicyId",
+      "paymasterProfile",
+      "simulationBundlerAddress",
       "sessionGuardAddress",
+      "sessionGuardVersion",
       "gas",
       "confirmations",
     ]);
@@ -172,12 +181,28 @@ export async function readRestExecutionConfiguration(
       invalid("Provider chains must be supported, explicit and unique.");
     const chainId = value.chainId;
     usedChains.add(chainId);
+    const paymasterProfile = value.paymasterProfile ?? "pimlico-v7-legacy-mode";
+    const guardVersion = value.sessionGuardVersion ?? "legacy-v1";
+    if ((paymasterProfile !== "pimlico-v7-legacy-mode" && paymasterProfile !== "pimlico-v7-current-flags") ||
+        (guardVersion !== "legacy-v1" && guardVersion !== "current-v2") ||
+        (value.sessionGuardVersion !== undefined && value.sessionGuardAddress === undefined) ||
+        (value.sessionGuardAddress !== undefined &&
+          (guardVersion === "current-v2") !== (paymasterProfile === "pimlico-v7-current-flags")))
+      invalid("Select an exact reviewed paymaster profile and its matching guard version.");
     if (
       typeof value.paymasterPolicyId !== "string" ||
       !/^[A-Za-z0-9._-]{1,128}$/.test(value.paymasterPolicyId)
     )
       invalid("A bounded hosted sponsorship policy identifier is required.");
     let guardAddress: Address | undefined;
+    let simulationBundlerAddress: Address | undefined;
+    if (value.simulationBundlerAddress !== undefined) {
+      if (paymasterProfile !== "pimlico-v7-current-flags" ||
+          typeof value.simulationBundlerAddress !== "string" ||
+          !isAddress(value.simulationBundlerAddress) || BigInt(value.simulationBundlerAddress) === 0n)
+        invalid("A simulation bundler requires the current paymaster profile and an explicit nonzero address.");
+      simulationBundlerAddress = getAddress(value.simulationBundlerAddress);
+    }
     if (value.sessionGuardAddress !== undefined) {
       if (
         typeof value.sessionGuardAddress !== "string" ||
@@ -202,17 +227,22 @@ export async function readRestExecutionConfiguration(
     const gas = gasPolicy(chainId, value.gas);
     const stack = await createConfiguredSmartAccountStack({
       chainId,
+      paymasterProfile: paymasterProfile as SmartAccountPaymasterProfile,
       ...(guardAddress
         ? {
             sessionGuard: {
               address: guardAddress,
-              runtimeCodeHash: LEGACY_COMPILER_RUNTIME_HASHES.sessionGuard,
+              version: guardVersion as SessionGuardVersion,
+              runtimeCodeHash: guardVersion === "current-v2"
+                ? CURRENT_PIMLICO_GUARD_RUNTIME_HASH : LEGACY_COMPILER_RUNTIME_HASHES.sessionGuard,
             },
           }
         : {}),
     });
     stacks.set(chainId, stack);
-    const paymasterPolicy = createPimlicoV7PaymasterPolicy({
+    const createPaymasterPolicy = paymasterProfile === "pimlico-v7-current-flags"
+      ? createPimlicoCurrentV7PaymasterPolicy : createPimlicoV7PaymasterPolicy;
+    const paymasterPolicy = createPaymasterPolicy({
       chainId,
       policyId: value.paymasterPolicyId,
       context: { sponsorshipPolicyId: value.paymasterPolicyId },
@@ -233,6 +263,7 @@ export async function readRestExecutionConfiguration(
       bundlerUrl: endpoint(value.bundlerUrl),
       paymasterUrl: endpoint(value.paymasterUrl),
       paymasterPolicy,
+      ...(simulationBundlerAddress ? { simulationBundlerAddress } : {}),
     });
     policies.push({ chainId, gas, confirmations });
     paymasters.push({

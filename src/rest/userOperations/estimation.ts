@@ -9,9 +9,12 @@ import {
 } from "viem";
 import type { StoredSession } from "../sessions/types.js";
 import {
-  LEGACY_COMPILER_RUNTIME_HASHES,
+  SESSION_GUARD_PROFILES,
   SESSION_GUARD_INIT_ABI,
+  sessionGuardVersionForRuntime,
 } from "../smartAccounts/compiler.js";
+import { currentPimlicoGuardPackage } from "../smartAccounts/stack/current-pimlico/config.js";
+import type { SessionGuardVersion } from "../smartAccounts/stack/current-pimlico/pins.js";
 import {
   normalizeUserOperation,
   uoCanonical,
@@ -40,10 +43,13 @@ const admitted = new WeakMap<
 >();
 const minimum = (...values: bigint[]) =>
   values.reduce((a, b) => (a < b ? a : b));
-let layout: Promise<bigint[]> | undefined;
-async function offsets(): Promise<bigint[]> {
-  layout ??= (async () => {
-    const [proof, artifact] = await Promise.all([
+const layouts = new Map<SessionGuardVersion, Promise<bigint[]>>();
+async function offsets(version: SessionGuardVersion): Promise<bigint[]> {
+  const existing = layouts.get(version);
+  if (existing) return existing;
+  const layout = (async () => {
+    const current = version === "current-v2" ? await currentPimlicoGuardPackage() : undefined;
+    const [proof, artifact] = current ? [current.proof, current.artifact] : await Promise.all([
       readFile(
         new URL("./evidence/guard-storage.json", import.meta.url),
         "utf8",
@@ -58,10 +64,10 @@ async function offsets(): Promise<bigint[]> {
     ]);
     if (
       proof.schemaVersion !== 1 ||
-      proof.runtimeCodeHash !== LEGACY_COMPILER_RUNTIME_HASHES.sessionGuard ||
+      proof.runtimeCodeHash !== SESSION_GUARD_PROFILES[version].runtimeCodeHash ||
       artifact.runtimeCodeHash !== proof.runtimeCodeHash ||
       artifact.source.sha256 !== proof.sourceSha256 ||
-      artifact.compiler.version !== proof.compilerVersion
+      artifact.compiler?.version !== (version === "current-v2" ? proof.compiler?.version : proof.compilerVersion)
     )
       uoError(
         "SESSION_GAS_LAYOUT_UNVERIFIED",
@@ -119,6 +125,7 @@ async function offsets(): Promise<bigint[]> {
       return BigInt(member.slot);
     });
   })();
+  layouts.set(version, layout);
   return layout;
 }
 /** No externally supplied overrides: only this opaque, source-checked preparation context is admitted. */
@@ -154,10 +161,12 @@ export async function createSessionGasEstimation(
   const configs = record.compiled.configurations.filter(
     (c) => c.kind === "gas-budget" && c.scope === "user-operation",
   );
+  const guardVersion = configs.length === 1
+    ? sessionGuardVersionForRuntime(configs[0]!.policy.runtimeCodeHash)
+    : undefined;
   if (
     configs.length !== 1 ||
-    configs[0]!.policy.runtimeCodeHash !==
-      LEGACY_COMPILER_RUNTIME_HASHES.sessionGuard ||
+    !guardVersion ||
     !record.observation
   )
     uoError(
@@ -300,7 +309,7 @@ export async function createSessionGasEstimation(
       ),
     ),
   );
-  const slots = await offsets(),
+  const slots = await offsets(guardVersion),
     stateDiff: Record<Hex, Hex> = {};
   for (let i = 0; i < slots.length; i++)
     stateDiff[toHex((base + slots[i]!) % (1n << 256n), { size: 32 })] = toHex(

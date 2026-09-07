@@ -98,8 +98,9 @@ generation, expiry, exact actions, and budget allocations. Neither operation ins
 
 Seven/thirty-day sessions now have a pinned stack, policy compiler, installed-policy verifier,
 durable lifecycle store and UserOperation transport. Live recurring execution requires a verified
-deployed session guard, configured hosted bundler/paymaster, funded sponsorship and owner activation;
-the checked guard artifact has no deployment address. Runtime capabilities expose configuration,
+deployed session guard matching the selected paymaster, configured hosted bundler/paymaster,
+provider billing, eligible sponsorship and owner activation. Both checked guard artifacts are
+undeployed; legacy profile defaults remain unchanged. Runtime capabilities expose configuration,
 and each operation verifies current account and chain evidence. Removing an API grant or
 unlinking an account cannot revoke signatures or permissions already accepted by an onchain
 module. Contract-enforced revocation is a separate owner action. See [sessions](SESSIONS.md).

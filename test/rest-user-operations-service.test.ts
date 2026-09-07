@@ -92,7 +92,7 @@ function gate() {
 }
 
 /** Real signatures, services, codecs and stores; only upstream chain/provider I/O is synthetic. */
-async function fixture(useSession = false) {
+async function fixture(useSession = false, currentProfile = false) {
   let now = 1_800_000_000_000;
   const blockTimestamp = now / 1000;
   let linked = true;
@@ -259,6 +259,8 @@ async function fixture(useSession = false) {
     providerHint: txHash,
     sessionProofFailure: false,
     estimatedCallGas: "0x64" as Hex,
+    finalQuotes: 0,
+    finalGasGrowth: false,
   };
   const log = (
     index: number,
@@ -408,15 +410,20 @@ async function fixture(useSession = false) {
       case "eth_estimateUserOperationGas":
         result = {
           callGasLimit: state.estimatedCallGas,
-          verificationGasLimit: "0x64",
-          preVerificationGas: "0x64",
+          verificationGasLimit:
+            state.finalGasGrowth && state.finalQuotes === 1 ? "0x65" : "0x64",
+          preVerificationGas:
+            state.finalGasGrowth && state.finalQuotes === 1 ? "0x65" : "0x64",
         };
         break;
       case "pm_getPaymasterStubData":
       case "pm_getPaymasterData":
+        if (body.method === "pm_getPaymasterData") state.finalQuotes++;
         result = {
           paymaster,
-          paymasterData: "0x1234",
+          paymasterData: currentProfile && body.method === "pm_getPaymasterData"
+            ? toHex(0x1234 + state.finalQuotes, { size: 2 })
+            : "0x1234",
           paymasterVerificationGasLimit: "0x64",
           paymasterPostOpGasLimit: "0x0",
           ...(body.method === "pm_getPaymasterStubData" && state.stubFinal
@@ -451,11 +458,14 @@ async function fixture(useSession = false) {
         providerId: "fixture-provider",
         entryPoint: pin(entryPoint),
         bundlerUrl: "https://bundler.example/rpc",
-        ...(useSession
+        ...(useSession || currentProfile
           ? {
               paymasterUrl: "https://paymaster.example/rpc",
               paymasterPolicy: {
                 id: "fixture-policy",
+                ...(currentProfile
+                  ? { profile: "pimlico-v7-current-flags" as const }
+                  : {}),
                 contract: pin(paymaster),
                 context: {},
                 inspect: () => ({
@@ -936,6 +946,39 @@ describe("UserOperationService integration", () => {
     expect(BigInt(prepared.operation.callGasLimit)).toBeLessThan(1000n);
     expect(prepared.operation.paymasterVerificationGasLimit).toBe("0x64");
   });
+  it.each([false, true])(
+    "requotes current sponsorship and stores the exact final estimate for session=%s",
+    async (useSession) => {
+      const f = await fixture(useSession, true);
+      f.state.finalGasGrowth = true;
+      const prepared = await f.prepare();
+      const bodies = f.fetcher.mock.calls.map(([, init]) =>
+        JSON.parse(String(init?.body)),
+      );
+      const quotes = bodies.filter((body) => body.method === "pm_getPaymasterData");
+      const estimates = bodies.filter((body) => body.method === "eth_estimateUserOperationGas");
+      expect(quotes).toHaveLength(2);
+      expect(estimates).toHaveLength(3);
+      expect(quotes[0].params[0].verificationGasLimit).toBe("0x64");
+      expect(quotes[1].params[0]).toMatchObject({
+        verificationGasLimit: "0x6b",
+        preVerificationGas: "0x6b",
+        callGasLimit: "0x64",
+      });
+      for (const quote of quotes) expect(quote.params[0]).not.toHaveProperty("signature");
+      expect(prepared.operation).toEqual({
+        ...estimates.at(-1).params[0],
+        signature: "0x",
+      });
+      expect(prepared.operation.paymasterData).toBe("0x1236");
+      expect(f.state.sends).toBe(0);
+      if (useSession)
+        for (const estimate of estimates) {
+          expect(estimate.params).toHaveLength(3);
+          expect(estimate.params[2]).toEqual(estimates[0].params[2]);
+        }
+    },
+  );
   it("does not reuse one effect log to claim independent modeled success for two calls", async () => {
     const f = await fixture(),
       prepared = await f.prepare("two-calls", 2),
