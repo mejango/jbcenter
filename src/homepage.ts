@@ -209,6 +209,8 @@ const referenceLabels: Record<NonNullable<JourneyNode["content"]>, string> = {
   wip: "WIP projects and status",
 };
 
+const RETURN_ICON = `<svg class="return-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="m9 4-5 5 5 5M4 9h10a6 6 0 0 1 0 12h-3"/></svg>`;
+
 function renderJourney(view: JourneyView): string {
   return `<section class="journey-map" id="map-${view.id}" data-view="${view.id}" data-entry="${view.entry}" aria-labelledby="map-title-${view.id}">
     <h2 class="map-title" id="map-title-${view.id}">${escapeHtml(view.title)}</h2>
@@ -231,7 +233,7 @@ function renderJourney(view: JourneyView): string {
                   const kind = edge.kind ?? "next";
                   const symbol =
                     kind === "return"
-                      ? "↶"
+                      ? RETURN_ICON
                       : destination.id !== view.id
                         ? "↗"
                         : "→";
@@ -289,8 +291,9 @@ h3 { font-size: 15px; line-height: 1.5; font-weight: 500; }
 .journey-tabs button { width: 100%; height: 100%; min-height: 48px; padding: 12px 14px; border: 1px solid var(--line); background: var(--node); text-align: left; font-size: 12px; }
 .journey-tabs button:hover { border-color: var(--accent); }
 .journey-tabs button.selected, .journey-tabs button[aria-expanded="true"] { border-color: var(--accent); background: var(--selected); color: var(--accent); }
-.is-enhanced .map-key { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 22px 0 8px; font-size: 11px; color: var(--muted); }
-.map-key .return-key { color: var(--return); }
+.is-enhanced .map-key { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; margin: 22px 0 8px; font-size: 11px; color: var(--muted); }
+.map-key .return-key { display: inline-flex; align-items: center; gap: 6px; color: var(--return); }
+.return-icon { display: block; width: 22px; height: 22px; flex-shrink: 0; }
 .is-enhanced .journey-map { display: block; position: relative; padding: 24px; margin: 0 0 28px; }
 .map-title { margin-bottom: 28px; }
 .journey-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: auto; align-items: start; gap: 64px; }
@@ -423,7 +426,7 @@ export const HOMEPAGE_HTML = `<!doctype html>
           <h2 id="choose-journey">What do you want to do?</h2>
           <ul>${journeyViews.map((view) => `<li><button type="button" id="journey-${view.id}" data-view="${view.id}" aria-controls="map-${view.id}" aria-expanded="false">${escapeHtml(view.title)}</button></li>`).join("")}</ul>
         </nav>
-        <p class="map-key"><span>→ Next step</span><span class="return-key">↶ Revisit a decision</span><span>↗ Related path</span></p>
+        <p class="map-key"><span>→ Next step</span><span class="return-key">${RETURN_ICON}Revisit a decision</span><span>↗ Related path</span></p>
         ${journeyViews.map(renderJourney).join("")}
         <details class="directory-reference" id="directory" open>
           <summary>Already know what you need? Browse the directory</summary>
