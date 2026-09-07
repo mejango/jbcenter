@@ -31,8 +31,13 @@ Each node's title is also the label of every option pointing to it. Keep that ti
 use its separate prompt for the question inside the card. Edges only identify destinations,
 so option labels and destination headings stay in sync.
 Maintain the complete directory and repository links in [`src/directory.ts`](src/directory.ts).
-Graph validation rejects broken destinations and placements; tests verify reachable routes,
-merges, and return cycles. Layout and styling live in [`src/homepage.ts`](src/homepage.ts), with browser behavior in
+Every sequence of questions must reach a resource with an external link or a usable reference.
+Graph validation rejects question-only cycles (even with an escape route), dead ends, empty
+resources, and broken destinations or placements. Optional returns remain available after a
+resource has been reached, under “Optional next steps.” Shared nodes have an explicit home view
+for crossovers, so a destination does not change sections when map declarations are reordered.
+Tests verify these rules, reachable routes, and shared destinations.
+Layout and styling live in [`src/homepage.ts`](src/homepage.ts), with browser behavior in
 [`src/directoryClient.ts`](src/directoryClient.ts). Keep monospace type, square corners, and minimal
 copy. Do not use middot separators. Verify public destinations, protocol versions, and feature
 availability before adding or changing a link. Distinguish source repositories from live apps.

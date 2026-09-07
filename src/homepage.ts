@@ -167,7 +167,9 @@ const graphNodes = new Map(journeyNodes.map((node) => [node.id, node]));
 function targetView(target: string, current: JourneyView): JourneyView {
   if (current.layout.some((placement) => placement.node === target))
     return current;
+  const homeView = graphNodes.get(target)?.homeView;
   const found =
+    journeyViews.find((view) => view.id === homeView) ??
     journeyViews.find((view) => view.entry === target) ??
     journeyViews.find((view) =>
       view.layout.some((placement) => placement.node === target),
@@ -223,7 +225,7 @@ function renderJourney(view: JourneyView): string {
         ${node.content ? `<details class="node-reference"><summary>${referenceLabels[node.content]}</summary>${referenceContent(node.content, `graph-${view.id}-${node.id}`)}</details>` : ""}
         ${
           node.edges.length
-            ? `<ul class="edge-choices">${node.edges
+            ? `${node.kind === "resource" ? '<p class="continuation-label">Optional next steps</p>' : ""}<ul class="edge-choices">${node.edges
                 .map((edge) => {
                   const destination = targetView(edge.to, view);
                   const kind = edge.kind ?? "next";
@@ -303,6 +305,8 @@ ${Array.from({ length: Math.max(...journeyViews.flatMap((view) => view.layout.ma
 .resource-links { margin-top: 12px; }
 .resource-links a { display: inline-block; font-size: 12px; padding: 7px 0; }
 .edge-choices { margin-top: 16px; border-top: 1px solid var(--line); }
+.continuation-label { margin-top: 16px; font-size: 11px; color: var(--muted); }
+.continuation-label + .edge-choices { margin-top: 8px; }
 .edge-choices li + li { border-top: 1px solid var(--line); }
 .journey-edge { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; padding: 10px 0; font-size: 12px; text-decoration: none; }
 .journey-edge:hover > span:first-child { text-decoration: underline; }

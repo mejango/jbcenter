@@ -8,6 +8,8 @@ export interface JourneyNode {
   id: string;
   title: string;
   prompt?: string;
+  /** Stable destination when this node is reached from another map. */
+  homeView?: string;
   kind: "question" | "resource";
   links?: readonly { title: string; url: string }[];
   note?: string;
@@ -42,6 +44,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     id: "apps",
     title: "Use Juicebox",
     prompt: "What brings you here?",
+    homeView: "apps",
     kind: "question",
     edges: [
       { to: "find-project" },
@@ -53,7 +56,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "find-project",
     title: "Use a project",
-    prompt: "Find one, or choose an action?",
+    prompt: "Choose an app, or review other actions?",
     kind: "question",
     edges: [{ to: "project-action" }, { to: "project-kind" }],
   },
@@ -70,7 +73,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "project-kind",
-    title: "Find a project or revnet",
+    title: "Choose a project app",
     prompt: "Which app do you need?",
     kind: "question",
     edges: [
@@ -126,6 +129,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "juicescan",
     title: "Juicescan explorer",
+    homeView: "apps",
     kind: "resource",
     links: [
       { title: "Open explorer", url: JUICESCAN },
@@ -143,6 +147,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     id: "projects",
     title: "Launch or run a project",
     prompt: "New or existing project?",
+    homeView: "projects",
     kind: "question",
     edges: [{ to: "control-model" }, { to: "manage-project" }],
   },
@@ -211,6 +216,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "control-review",
     title: "Permissions and control",
+    homeView: "auditors",
     kind: "resource",
     links: [
       {
@@ -227,6 +233,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     id: "developers",
     title: "Build an app",
     prompt: "Interface, integration, or agent workflow?",
+    homeView: "developers",
     kind: "question",
     edges: [
       { to: "webclient-start" },
@@ -249,6 +256,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     id: "integration-layer",
     title: "Build an integration",
     prompt: "Contract calls, indexed data, custom behavior, or shared APIs?",
+    homeView: "developers",
     kind: "question",
     edges: [
       { to: "sdk" },
@@ -260,6 +268,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "webclients",
     title: "Start from a webclient",
+    homeView: "developers",
     kind: "resource",
     content: "webclients",
     edges: [
@@ -271,6 +280,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "sdk",
     title: "Juice SDK V6",
+    homeView: "developers",
     kind: "resource",
     links: [
       {
@@ -283,6 +293,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "bendystraw",
     title: "Bendystraw project data",
+    homeView: "api",
     kind: "resource",
     links: [
       { title: "Explore GraphQL schema", url: "https://bendystraw.xyz/schema" },
@@ -294,6 +305,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "architecture",
     title: "V6 architecture",
+    homeView: "auditors",
     kind: "resource",
     links: [
       { title: "Trace the system", url: `${V6}/blob/main/ARCHITECTURE.md` },
@@ -312,6 +324,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     id: "api",
     title: "Use an API",
     prompt: "Read a chain, handle files, or connect an agent?",
+    homeView: "api",
     kind: "question",
     edges: [
       { to: "chain-data" },
@@ -347,6 +360,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "rpc",
     title: "Center read RPC",
+    homeView: "api",
     kind: "resource",
     content: "rpc",
     edges: [{ to: "sdk", kind: "cross" }, { to: "bendystraw" }],
@@ -354,6 +368,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "ipfs",
     title: "Center IPFS gateway",
+    homeView: "api",
     kind: "resource",
     content: "ipfs",
     edges: [
@@ -383,6 +398,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     id: "agents",
     title: "Connect an AI agent",
     prompt: "Need setup, or ready to choose a task?",
+    homeView: "agents",
     kind: "question",
     edges: [{ to: "agent-setup" }, { to: "agent-work" }],
   },
@@ -442,6 +458,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "agent-metadata",
     title: "Publish reviewed metadata",
+    homeView: "agents",
     kind: "resource",
     links: [{ title: "Follow the MCP workflow", url: MCP_JOURNEYS }],
     edges: [
@@ -454,6 +471,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     id: "auditors",
     title: "Audit or research",
     prompt: "A transaction or the protocol?",
+    homeView: "auditors",
     kind: "question",
     edges: [{ to: "transaction-scope" }, { to: "protocol-scope" }],
   },
@@ -471,6 +489,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "transaction-review",
     title: "Review before signing",
+    homeView: "auditors",
     kind: "resource",
     links: [
       { title: "Transaction audit guide", url: "https://juicebox.money/audit" },
@@ -514,6 +533,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "risks-invariants",
     title: "Assumptions and invariants",
+    homeView: "auditors",
     kind: "resource",
     links: [
       { title: "Read Risks", url: `${V6}/blob/main/RISKS.md` },
@@ -531,6 +551,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "deployments",
     title: "Deployment artifacts",
+    homeView: "repositories",
     kind: "resource",
     links: [
       {
@@ -544,6 +565,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     id: "repositories",
     title: "Browse repositories",
     prompt: "Source or deployed contracts?",
+    homeView: "repositories",
     kind: "question",
     edges: [{ to: "repository-purpose" }, { to: "deployments" }],
   },
@@ -561,6 +583,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "repository-index",
     title: "All V6 repositories",
+    homeView: "repositories",
     kind: "resource",
     content: "repositories",
     links: [{ title: "Open the top-level repo", url: V6 }],
@@ -577,6 +600,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     id: "wip",
     title: "Explore WIP extensions",
     prompt: "User features or payment infrastructure?",
+    homeView: "wip",
     kind: "question",
     note: "Work in progress. Not production recommendations.",
     edges: [
@@ -844,6 +868,38 @@ export function validateJourneyGraph(
       }
     }
   }
+
+  // Every sequence of questions must reach a usable resource before it can
+  // return to an earlier decision. Finding one possible exit is insufficient:
+  // a question cycle could still keep someone circling past that exit.
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const resolved = new Set<string>();
+  const visiting = new Set<string>();
+  function resolveQuestion(id: string, path: readonly string[]): void {
+    if (resolved.has(id)) return;
+    const node = nodesById.get(id)!;
+    if (node.kind === "resource") {
+      if (!node.links?.length && !node.content) {
+        throw new Error(`Journey resource has no destination: ${id}`);
+      }
+      resolved.add(id);
+      return;
+    }
+    if (visiting.has(id)) {
+      throw new Error(
+        `Unresolving question cycle: ${[...path, id].join(" -> ")}`,
+      );
+    }
+    if (!node.edges.length) {
+      throw new Error(`Journey question has no destination: ${id}`);
+    }
+    visiting.add(id);
+    for (const edge of node.edges) resolveQuestion(edge.to, [...path, id]);
+    visiting.delete(id);
+    resolved.add(id);
+  }
+  for (const node of nodes) resolveQuestion(node.id, []);
+
   const viewIds = new Set<string>();
   const placed = new Set<string>();
   for (const view of views) {
@@ -873,6 +929,20 @@ export function validateJourneyGraph(
   }
   for (const id of ids) {
     if (!placed.has(id)) throw new Error(`Journey node has no view: ${id}`);
+  }
+  for (const node of nodes) {
+    const containingViews = views.filter((view) =>
+      view.layout.some((cell) => cell.node === node.id),
+    );
+    if (containingViews.length > 1 && node.homeView === undefined) {
+      throw new Error(`Shared journey node needs a home view: ${node.id}`);
+    }
+    if (
+      node.homeView !== undefined &&
+      !containingViews.some((view) => view.id === node.homeView)
+    ) {
+      throw new Error(`Invalid journey home view: ${node.id}/${node.homeView}`);
+    }
   }
 }
 

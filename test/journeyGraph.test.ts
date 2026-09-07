@@ -273,4 +273,77 @@ describe("directory edit validation", () => {
       ]),
     ).toThrow();
   });
+
+  it("rejects a question loop even when it has another route to a resource", () => {
+    const loop = fixtureNodes.map(
+      (node): JourneyNode =>
+        node.id === "first"
+          ? {
+              id: "first",
+              title: "Choose again",
+              kind: "question",
+              edges: [{ to: "start" }, { to: "second" }],
+            }
+          : node,
+    );
+    expect(() => validateJourneyGraph(loop, [fixtureView])).toThrow(
+      "Unresolving question cycle",
+    );
+  });
+
+  it("rejects a question that cannot lead anywhere", () => {
+    const deadEnd = fixtureNodes.map((node) =>
+      node.id === "start" ? { ...node, edges: [] } : node,
+    );
+    expect(() => validateJourneyGraph(deadEnd, [fixtureView])).toThrow(
+      "Journey question has no destination",
+    );
+  });
+
+  it("rejects a resource card that has no usable destination", () => {
+    const emptyResource = fixtureNodes.map((node) =>
+      node.id === "first" ? { ...node, links: [] } : node,
+    );
+    expect(() => validateJourneyGraph(emptyResource, [fixtureView])).toThrow(
+      "Journey resource has no destination",
+    );
+  });
+
+  it("allows an optional return after reaching a resource or API reference", () => {
+    const returnPaths = fixtureNodes.map(
+      (node): JourneyNode =>
+        node.kind === "resource"
+          ? {
+              ...node,
+              ...(node.id === "second" ? { links: [], content: "rpc" } : {}),
+              edges: [{ to: "start", kind: "return" }],
+            }
+          : node,
+    );
+    expect(() =>
+      validateJourneyGraph(returnPaths, [fixtureView]),
+    ).not.toThrow();
+  });
+
+  it("requires shared resources to identify a home view that contains them", () => {
+    const alternate: JourneyView = {
+      id: "alternate",
+      title: "Another route",
+      entry: "first",
+      layout: [{ node: "first", column: 2, row: 1 }],
+    };
+    const views = [fixtureView, alternate];
+    expect(() => validateJourneyGraph(fixtureNodes, views)).toThrow();
+    const routed = fixtureNodes.map((node) =>
+      node.id === "first" ? { ...node, homeView: "example" } : node,
+    );
+    expect(() => validateJourneyGraph(routed, views)).not.toThrow();
+    expect(() =>
+      validateJourneyGraph(routed, [...views].reverse()),
+    ).not.toThrow();
+    const misplaced = routed.map((node) =>
+      node.id === "start" ? { ...node, homeView: "alternate" } : node,
+    );
+    expect(() => validateJourneyGraph(misplaced, views)).toThrow();
+  });
 });
