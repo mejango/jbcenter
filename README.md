@@ -97,9 +97,10 @@ npm run dev
 ```
 
 Pinning and intent API requests require an origin hardcoded for the active Railway environment.
-Production accepts `https://juicebox.money`, `https://revnet.money`, `https://eth.shop`, and
-`https://succulent.money`. `dev` accepts their `dev.` subdomains and `http://localhost:3001`
-through `http://localhost:3004`. The homepage, `/ipfs/*` read gateway, and `/v1/rpc/:chainId`
+Production accepts `https://juicebox.money`, `https://revnet.money`, `https://eth.shop`,
+`https://succulent.money`, and `https://homerun.money`. `dev` accepts the first four sites'
+`dev.` subdomains, `http://localhost:3001` through `http://localhost:3004`, and Homerun's
+`http://localhost:3010` and `http://localhost:3014`. The homepage, `/ipfs/*` read gateway, and `/v1/rpc/:chainId`
 RPC are public; RPC accepts any or no Origin. `GET /healthz` is public for infrastructure checks.
 
 ## Connect an assistant through MCP

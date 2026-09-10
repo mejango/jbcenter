@@ -81,14 +81,15 @@ describe("IPFS pinning", () => {
     expect(safeIpfsPath(`${CID}/../secret`)).toBeNull();
   });
 
-  it("pins JSON directly from either trusted browser origin", async () => {
-    for (const origin of ["https://juicebox.money", "https://revnet.money"]) {
+  it("pins JSON directly from trusted browser origins", async () => {
+    for (const origin of ["https://juicebox.money", "https://revnet.money", "https://homerun.money"]) {
       const pinning = pinningMock();
       const response = await app(pinning).request(
         "/v1/pins/json",
         jsonRequest('{"name":"Public goods"}', origin),
       );
       expect(response.status).toBe(201);
+      expect(response.headers.get("access-control-allow-origin")).toBe(origin);
       expect(await response.json()).toEqual({
         cid: CID,
         status: "queued",

@@ -77,6 +77,7 @@ describe("co-hosted MCP configuration", () => {
     expect(config.centerOrigin).toBeUndefined();
     expect(config.allowedOrigins).toContain(ORIGIN);
     expect(config.allowedOrigins).toContain("https://juicebox.money");
+    expect(config.allowedOrigins).toContain("https://homerun.money");
     expect(config.rpcUrls[8453]).toBe(`${ORIGIN}/v1/rpc/8453`);
     await expect(services.center.search({ query: "example" })).resolves.toEqual(
       { items: [], totalCount: 0, nextCursor: null },

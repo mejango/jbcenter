@@ -48,6 +48,7 @@ const PRODUCTION_ORIGINS = [
   "https://revnet.money",
   "https://eth.shop",
   "https://succulent.money",
+  "https://homerun.money",
 ] as const;
 const DEV_ORIGINS = [
   "https://dev.juicebox.money",
@@ -58,6 +59,8 @@ const DEV_ORIGINS = [
   "http://localhost:3003",
   "https://dev.succulent.money",
   "http://localhost:3004",
+  "http://localhost:3010",
+  "http://localhost:3014",
 ] as const;
 
 export function originsForEnvironment(environment = process.env.RAILWAY_ENVIRONMENT_NAME) {
