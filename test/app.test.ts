@@ -162,14 +162,14 @@ describe("JB Center API", () => {
     expect(await metrics.text()).toContain("jbcenter_http_requests_total");
   });
 
-  it("accepts only Juicebox Money and Revnet Money browser origins", async () => {
+  it("accepts the configured production browser origins", async () => {
     const app = createApp(new MemoryStore());
     const rejected = await app.request("/v1/search", {
       headers: { ...trusted, origin: "https://example.com" },
     });
     expect(rejected.status).toBe(403);
 
-    for (const origin of ["https://juicebox.money", "https://revnet.money"]) {
+    for (const origin of originsForEnvironment("production")) {
       const accepted = await app.request("/v1/search", { headers: { ...trusted, origin } });
       expect(accepted.status).toBe(200);
       expect(accepted.headers.get("access-control-allow-origin")).toBe(origin);
@@ -182,6 +182,7 @@ describe("JB Center API", () => {
       "https://revnet.money",
       "https://eth.shop",
       "https://succulent.money",
+      "https://homerun.money",
     ]);
     const devOrigins = originsForEnvironment("dev");
     expect(devOrigins).toEqual([
@@ -193,6 +194,8 @@ describe("JB Center API", () => {
       "http://localhost:3003",
       "https://dev.succulent.money",
       "http://localhost:3004",
+      "http://localhost:3010",
+      "http://localhost:3014",
     ]);
 
     const app = createApp(new MemoryStore(), { allowedOrigins: devOrigins });
@@ -201,7 +204,7 @@ describe("JB Center API", () => {
       expect(accepted.status).toBe(200);
       expect(accepted.headers.get("access-control-allow-origin")).toBe(origin);
     }
-    for (const origin of ["https://juicebox.money", "https://revnet.money"]) {
+    for (const origin of originsForEnvironment("production")) {
       const rejected = await app.request("/v1/search", {
         headers: { ...trusted, origin },
       });
