@@ -34,7 +34,9 @@
     "catalog:check": "node --import tsx scripts/generate-catalog.ts --check",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "smoke:live": "node --import tsx scripts/smoke-live.ts"
+    "smoke:live": "node --import tsx scripts/smoke-live.ts",
+    "rollout:sync": "node --import tsx scripts/sync-rollout.ts",
+    "rollout:check": "node --import tsx scripts/sync-rollout.ts --check"
   },
   "dependencies": {
     "@bananapus/nana-sdk-core": "2.4.0",

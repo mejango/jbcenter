@@ -15,7 +15,7 @@ describe("pinned V6 contract catalog", () => {
     expect(catalog.data.chains.map((chain) => chain.id)).toEqual([1, 10, 8453, 42161, 84532, 421614, 11155111, 11155420]);
     expect(catalog.data.deploymentManifest.commit).toMatch(/^[a-f0-9]{40}$/);
     const deployments = catalog.data.contracts.flatMap((contract) => contract.deployments.flatMap((chain) => chain.instances));
-    expect(deployments).toHaveLength(620);
+    expect(deployments).toHaveLength(703);
     for (const contract of catalog.data.contracts) {
       expect(contract.deployments).toHaveLength(8);
       expect(contract.id).toBe(`${contract.packageId}:${contract.sourcePath}:${contract.name}`);
@@ -24,7 +24,9 @@ describe("pinned V6 contract catalog", () => {
         expect(chain.status === "published").toBe(chain.instances.length > 0);
       }
     }
-    expect(deployments.some((entry) => /_deprecated\d*$|__TwapOracleUpgrade$/.test(entry.alias))).toBe(false);
+    for (const deployment of deployments)
+      expect(deployment.retired).toBe(/_deprecated\d*$|__TwapOracleUpgrade$/.test(deployment.alias));
+    expect(deployments.some((entry) => entry.retired)).toBe(true);
     expect(catalog.data.contracts.some((entry) => entry.sourcePath.includes("/archive/"))).toBe(false);
     expect(catalog.data.packages.some((entry) => /sticky|jbchat|processor|plugin/i.test(entry.id))).toBe(false);
   });
@@ -35,7 +37,7 @@ describe("pinned V6 contract catalog", () => {
       expect(contract.deployments.find((chain) => chain.chainId === 11155420)).toMatchObject({ status: "missing", instances: [] });
       expect(contract.deployments.find((chain) => chain.chainId === 1)?.status).toBe("published");
     }
-    for (const name of ["JB721Distributor", "JBTokenDistributor", "JBXDistributor", "JBSwapSplitHook", "JBPayRouteResolver", "JBRouterTerminalGateway"]) {
+    for (const name of ["JB721Distributor", "JBTokenDistributor", "JBXDistributor", "JBSwapSplitHook", "JBPayRouteResolver"]) {
       const contract = catalog.list().find((entry) => entry.name === name && entry.category === "contract")!;
       expect(contract).toBeDefined();
       expect(contract.deployments.every((chain) => chain.status === "missing")).toBe(true);
@@ -44,6 +46,39 @@ describe("pinned V6 contract catalog", () => {
     expect(catalog.list({ category: "script" }).length).toBeGreaterThan(0);
     expect(catalog.list({ category: "script", executableOnly: true })).toHaveLength(0);
     expect(catalog.list({ packageId: "@bananapus/permission-ids-v6", category: "library" })).toHaveLength(1);
+  });
+
+  it("publishes the rollout per chain and retains previous/v1 router and hook generations", () => {
+    const named = (name: string) => catalog.list({ category: "contract" }).find((entry) => entry.name === name)!;
+    const gateway = named("JBRouterTerminalGateway");
+    const ratio = named("JBRatioPriceFeed");
+    const rolloutChains = [84532, 421614, 11155111];
+    for (const chain of catalog.data.chains) {
+      expect(gateway.deployments.find((entry) => entry.chainId === chain.id)!.status)
+        .toBe(rolloutChains.includes(chain.id) ? "published" : "missing");
+      expect(ratio.deployments.find((entry) => entry.chainId === chain.id)!.status)
+        .toBe(chain.testnet ? "published" : "missing");
+      for (const name of ["JBRouterTerminal", "JBBuybackHook"]) {
+        const instances = named(name).deployments.find((entry) => entry.chainId === chain.id)!.instances;
+        if (chain.id === 11155420) {
+          expect(instances).toEqual([]);
+          continue;
+        }
+        expect(instances.find((instance) => !instance.retired)?.generation).toBe(chain.testnet ? "current" : "previous");
+        expect(instances.some((instance) => instance.generation === "v1" && instance.retired)).toBe(true);
+        if (rolloutChains.includes(chain.id)) {
+          expect(instances.some((instance) => instance.generation === "previous" && instance.retired)).toBe(true);
+          for (const instance of instances)
+            expect(catalog.lookup(chain.id, instance.address).some((match) => match.deployment.abiHash === instance.abiHash)).toBe(true);
+        }
+      }
+    }
+    const methods = new Set(gateway.methods.map((method) => method.name));
+    for (const name of ["ROUTER", "pendingCallCount", "pendingCallCommitmentOf", "pendingCallFailureOf", "processPendingCall", "processPendingCallWithGas", "finalizePendingCall", "finalizePendingCallWithGas"])
+      expect(methods.has(name)).toBe(true);
+    const events = new Set(gateway.abi.filter((entry) => entry.type === "event").map((entry) => entry.name));
+    for (const name of ["QueuePendingCall", "ProcessPendingCall", "RefundPendingCall", "RecordTerminalCallFailure"])
+      expect(events.has(`JBRouterTerminalGateway_${name}`)).toBe(true);
   });
 
   it("disambiguates source declarations and resolves exact chain addresses and ABI variants", () => {

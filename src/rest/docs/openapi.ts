@@ -185,7 +185,9 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
       queryParameter("offset", { ...uint(100000), default: 0 }), queryParameter("limit", { type: "integer", minimum: 1, maximum: 100, default: 25 })],
     result: object({ protocolVersion: ref("ProtocolVersion"), provenance: { type: "object", additionalProperties: true }, packages: array({ type: "object", additionalProperties: true }),
       exclusions: array(object({ path: text, reason: text })), items: array(object({ id: text, name: text, packageId: text, category: text, executable: { type: "boolean" },
-        methodCounts: object({ read: uint(), write: uint() }), chains: array(object({ chainId: ref("ChainId"), status: { type: "string", enum: ["published", "missing"] }, addresses: array(ref("Address")) })) })),
+        methodCounts: object({ read: uint(), write: uint() }), chains: array(object({ chainId: ref("ChainId"), status: { type: "string", enum: ["published", "missing"] }, addresses: array(ref("Address")),
+          instances: array(object({ address: ref("Address"), retired: { type: "boolean", description: "Historical artifact retained for decoding; not a default destination." },
+            generation: { type: "string", enum: ["current", "previous", "v1"], description: "Router/buyback release generation, independent of chain or project migration." } }, ["address", "retired"])) })) })),
       total: uint(), nextOffset: nullable(uint()) }),
   });
   add("/catalog/contract", "GET", "getContractCatalogEntry", "Read all ABI variants, methods and deployments of one contract type", "Discovery", "public", {

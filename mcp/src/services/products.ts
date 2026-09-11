@@ -11,7 +11,6 @@ import {
   jbPricesAbi,
   jbProjectsAbi,
   jbRouterTerminalAbi,
-  jbRouterTerminalRegistryAbi,
   jbSuckerRegistryAbi,
   revDeployerAbi,
   revOwnerAbi,
@@ -61,6 +60,7 @@ import {
   type tierConfigSchema,
 } from '../domain/products.js';
 import { toTerminalConfig } from '../domain/rulesets.js';
+import { resolveRouterTerminal } from '../domain/routing.js';
 import type {
   ChainId,
   PlanDraft,
@@ -70,6 +70,7 @@ import type {
   RpcSnapshot,
 } from '../domain/types.js';
 import { PaymentService } from './payments.js';
+import { deploymentAddresses } from './rollout.js';
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const fail = (code: string, message: string): never => {
@@ -88,8 +89,12 @@ const routeResolverAbi = parseAbi([
   'function previewBestPayRoute(address router, address wrappedNativeToken, uint256 projectId, address tokenIn, uint256 amount, address beneficiary, bytes metadata) view returns (address destTerminal, address tokenOut, uint256 amountOut, (uint48 cycleNumber, uint48 id, uint48 basedOnId, uint48 start, uint32 duration, uint112 weight, uint32 weightCutPercent, address approvalHook, uint256 metadata) ruleset, uint256 beneficiaryTokenCount, uint256 reservedTokenCount, (address hook, bool noop, uint256 amount, bytes metadata)[] hookSpecifications)',
 ]);
 // deploy-all-v6/out/JBPayRouteResolver.sol/JBPayRouteResolver.json runtime, with its seven DIRECTORY immutable references patched.
-// The canonical router constructs this resolver at CREATE nonce 1; all deployed V6 chains share this code and directory.
-const routeResolverCodeHash = '0x90ee8a5465c15b0425d4ecf02ce9ac3ae57b53ef51a328c3d99bbe48206cf947';
+// Recorded routers construct this resolver at CREATE nonce 1. Keep the previous runtime for existing projects.
+// The 1.3 creation artifact matches the executed Sepolia router deployment and embeds this resolver's creation code.
+const routeResolverCodeHashes: readonly Hex[] = [
+  '0x90ee8a5465c15b0425d4ecf02ce9ac3ae57b53ef51a328c3d99bbe48206cf947',
+  '0xc2e2a2fae702f0478d3c2807ec2b271efadc1807ca1a9d1ca08b5e2f72c96223',
+];
 function prepared(
   chainId: ChainId,
   to: Address,
@@ -213,7 +218,7 @@ export class ProductService {
         });
       } else if (
         [
-          v6Address('JBBuybackHook', project.chainId),
+          ...deploymentAddresses('JBBuybackHook', project.chainId),
           v6Address('JBBuybackHookRegistry', project.chainId),
         ].some((value) => same(value, hook))
       )
@@ -333,14 +338,8 @@ export class ProductService {
         route: 'direct',
       };
     const registry = v6Address('JBRouterTerminalRegistry', input.project.chainId);
-    let router = quote.terminal;
-    if (same(router, registry))
-      router = await snapshot.client.readContract({
-        address: registry,
-        abi: jbRouterTerminalRegistryAbi,
-        functionName: 'terminalOf',
-        args: [BigInt(input.project.projectId)],
-      });
+    const resolved = await resolveRouterTerminal(snapshot.client, input.project, quote.terminal);
+    const router = resolved.router;
     if (same(router, multi))
       return {
         terminal: multi,
@@ -349,7 +348,11 @@ export class ProductService {
         payer: registry,
         route: 'registry-forward',
       };
-    if (!same(router, v6Address('JBRouterTerminal', input.project.chainId)))
+    if (
+      !deploymentAddresses('JBRouterTerminal', input.project.chainId).some((address) =>
+        same(router, address),
+      )
+    )
       fail('NFT_ROUTER_UNSUPPORTED', 'The NFT payment route is not a supported canonical router.');
     await this.code(snapshot.client, [router]);
     const helper = getContractAddress({ from: router, nonce: 1n });
@@ -373,7 +376,7 @@ export class ProductService {
     ]);
     if (
       !code ||
-      keccak256(code) !== routeResolverCodeHash ||
+      !routeResolverCodeHashes.includes(keccak256(code)) ||
       !same(directory, v6Address('JBDirectory', input.project.chainId)) ||
       !same(helperDirectory, directory) ||
       same(wrappedNative, zeroAddress)
@@ -413,7 +416,16 @@ export class ProductService {
         'NFT_ROUTE_PREVIEW_MISMATCH',
         'The independently resolved NFT destination disagrees with the reviewed terminal preview.',
       );
-    return { terminal, token, amount, payer: router, route: 'router-conversion', resolver: helper };
+    return {
+      terminal,
+      token,
+      amount,
+      payer: router,
+      route: 'router-conversion',
+      resolver: helper,
+      terminalPath: resolved.path,
+      gateway: resolved.gateway,
+    };
   }
 
   private async nftPay(raw: z.input<typeof pay721Schema>): Promise<PlanDraft> {
@@ -569,6 +581,11 @@ export class ProductService {
         'NFT IDs are indicative until execution. Supply, prices, credits, and current rulesets can change; simulate the final payer call immediately before signing.',
         'Terminal calldata enforces its fungible-token minimum. It cannot lock a specific NFT hook across a ruleset transition; verify the requested NFT mints in the receipt.',
         'NFT tier supply and credits are local to this chain. Tier payouts and NFT reserve entitlements are separate from fungible project-token issuance.',
+        ...(destination.gateway
+          ? [
+              'The registry-selected gateway forwards into its immutable router. Protocol-fee or protocol-payer calls retained by the gateway remain in custody until a verified retry or accounted refund; an outer successful receipt does not prove the requested NFT delivery.',
+            ]
+          : []),
       ],
     };
   }

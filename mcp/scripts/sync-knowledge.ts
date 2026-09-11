@@ -31,6 +31,15 @@ function add(repository: string, category: KnowledgeCategory, paths: string[]) {
 }
 
 // Explicit documentation landmarks complement constrained source-directory discovery below.
+for (const repository of [
+  'nana-router-terminal-v6',
+  'nana-buyback-hook-v6',
+  'nana-core-v6',
+  'deploy-all-v6',
+]) {
+  add(repository, 'contracts', ['README.md', 'ARCHITECTURE.md', 'RISKS.md', 'ADMINISTRATION.md']);
+}
+add('deploy-all-v6', 'contracts', ['DEPLOY.md']);
 add('juice-sdk-v4', 'sdk', [
   'README.md',
   'packages/core/src/jbcenter.ts',
@@ -43,6 +52,8 @@ add('bendystraw-v6', 'indexer', [
   'ponder.schema.ts',
   'src/api/index.ts',
   'src/util/id.ts',
+  'src/JBRouterTerminalGateway.ts',
+  'src/constants/rolloutDeployments.ts',
 ]);
 add('jbcenter', 'center', [
   'README.md',
@@ -133,7 +144,7 @@ function sync(values: { workspace?: string; skills?: string; output?: string; ch
   const workspace = resolve(
     values.workspace ?? fileURLToPath(new URL('../../../../', import.meta.url)),
   );
-  const skills = resolve(values.skills ?? resolve(workspace, '..', '..', 'juicebox-skills'));
+  const skills = resolve(values.skills ?? resolve(workspace, 'skills'));
   const output = resolve(
     values.output ?? fileURLToPath(new URL('../data/knowledge.json', import.meta.url)),
   );

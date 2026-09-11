@@ -104,7 +104,9 @@ test('target records match exact catalog publications and compiler-declared span
       assert.equal(publication.deployment.compilerInputIdentitySha256, record.code.compilerEvidence.sourceInputIdentitySha256);
       assert(record.code.compilerEvidence.deploymentPaths.includes(publication.deployment.artifactPath));
       const canonical = catalog.contracts.find(item => item.id === record.contractId).deployments.find(item => item.chainId === publication.chainId).instances[0];
-      assert.deepEqual(publication.deployment, canonical);
+      // Older pinned evidence predates retirement labels; keep every publication field and retirement state bound.
+      assert.equal(canonical.retired, false, 'Active target evidence must not match a retired catalog deployment');
+      assert.deepEqual({ retired: false, ...publication.deployment }, canonical);
     }
     assert.deepEqual(record.linkage.flatMap(link => link.runtimeReferences).map(({ start, length }) => ({ start, length })).sort((a, b) => a.start - b.start), record.code.linkReferences);
     for (const link of record.linkage) for (const span of link.runtimeReferences) {

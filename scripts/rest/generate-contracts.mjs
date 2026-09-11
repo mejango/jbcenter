@@ -249,10 +249,6 @@ const artifactPaths = git(deployRepo, "ls-tree", "-r", "--name-only", deployPin.
 const treeHash = createHash("sha256");
 for (const path of artifactPaths) {
   const alias = basename(path, ".json");
-  if (/_deprecated\d*$/.test(alias) || alias.endsWith("__TwapOracleUpgrade")) {
-    exclusions.push({ path: `deploy-all-v6/${path}`, reason: "superseded-deployment-snapshot" });
-    continue;
-  }
   const raw = git(deployRepo, "show", `${deployPin.commit}:${path}`);
   const artifact = JSON.parse(raw.toString());
   if (!artifact.address || !Array.isArray(artifact.abi) || !artifact.chainId) continue;
@@ -302,6 +298,11 @@ for (const path of artifactPaths) {
   if (!variant.codeIds.includes(codeId)) variant.codeIds.push(codeId);
   const deployment = {
     alias, address: getAddress(artifact.address), chainId, abiHash: variant.abiHash, codeId,
+    retired: /_deprecated\d*$|__TwapOracleUpgrade$/.test(alias),
+    ...(["JBBuybackHook", "JBRouterTerminal"].includes(artifact.contractName) ? {
+      generation: /@1\.0\./.test(artifact.gitCommit) ? "v1"
+        : /@1\.1\./.test(artifact.gitCommit) ? "previous" : "current",
+    } : {}),
     artifactPath: `deploy-all-v6/${path}`, artifactSha256: sha256(raw), sourceRef: artifact.gitCommit,
     solcInputHash: artifact.solcInputHash, constructorArguments: artifact.args ?? [],
     compilerInputIdentitySha256,
@@ -333,9 +334,11 @@ for (const [packageId, implementationName, factoryName, getter, standard] of fam
 }
 for (const contract of contracts.values()) {
   contract.variants.sort((a, b) => (a.usage === b.usage ? a.abiHash.localeCompare(b.abiHash) : a.usage === "published" ? -1 : 1));
-  const primary = contract.variants[0];
+  const active = contract.deployments.flatMap((chain) => chain.instances).filter((instance) => !instance.retired);
+  const primary = contract.variants.find((variant) => active.some((instance) => instance.generation === "current" && instance.abiHash === variant.abiHash))
+    ?? contract.variants.find((variant) => active.some((instance) => instance.abiHash === variant.abiHash)) ?? contract.variants[0];
   contract.abi = primary.abi; contract.abiHash = primary.abiHash; contract.methods = primary.methods;
-  for (const chain of contract.deployments) chain.instances.sort((a, b) => a.alias.localeCompare(b.alias, "en"));
+  for (const chain of contract.deployments) chain.instances.sort((a, b) => Number(a.retired) - Number(b.retired) || a.alias.localeCompare(b.alias, "en"));
 }
 const data = {
   schemaVersion: 1, protocolVersion: 6, chains, packages: packages.sort((a, b) => a.id.localeCompare(b.id, "en")),

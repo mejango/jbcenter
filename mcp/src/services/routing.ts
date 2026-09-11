@@ -27,6 +27,7 @@ import {
   numberToHex,
   parseAbi,
   zeroAddress,
+  zeroHash,
   type Address,
   type Hex,
 } from 'viem';
@@ -38,6 +39,7 @@ import {
   prepareBuybackPoolSchema,
   prepareBuybackTwapSchema,
   prepareRouterTerminalSchema,
+  resolveRouterTerminal,
   routingSchema,
 } from '../domain/routing.js';
 import type {
@@ -47,6 +49,7 @@ import type {
   RpcProvider,
   RpcSnapshot,
 } from '../domain/types.js';
+import { deploymentAddresses, routerGatewayAbi } from './rollout.js';
 
 const NATIVE = '0x000000000000000000000000000000000000EEEe' as const;
 const oracleAbi = parseAbi([
@@ -55,6 +58,8 @@ const oracleAbi = parseAbi([
 ]);
 const storageAbi = parseAbi(['function extsload(bytes32 slot) view returns (bytes32)']);
 const same = isAddressEqual;
+const recordedBuyback = (address: Address, chainId: ProjectRef['chainId']) =>
+  deploymentAddresses('JBBuybackHook', chainId).some((candidate) => same(candidate, address));
 const known = <T>(value: T): Observation<T> => ({ status: 'known', value });
 const unavailable = <T = never>(code: string, message: string): Observation<T> => ({
   status: 'unknown',
@@ -179,7 +184,7 @@ export async function resolveRoutingHooks(
     result.buyback = same(resolved, zeroAddress) ? null : resolved;
   } else if (!same(hook, zeroAddress)) {
     const allowed =
-      same(hook, v6Address('JBBuybackHook', project.chainId)) ||
+      recordedBuyback(hook, project.chainId) ||
       (await client.readContract({
         address: registry,
         abi: jbBuybackHookRegistryAbi,
@@ -286,6 +291,61 @@ export class RoutingService {
         }),
       ),
     ]);
+    const route = await observe(async () => {
+      const resolved = await resolveRouterTerminal(client, input.project, required(resolvedRouter));
+      return { ...resolved, entryTerminal: registry, path: [registry, ...resolved.path] };
+    });
+    const pendingCalls = await observe(async () => {
+      const gateway = required(route).gateway;
+      if (!gateway) return null;
+      const issuedIdCount = await observe(() =>
+        client.readContract({
+          address: gateway,
+          abi: routerGatewayAbi,
+          functionName: 'pendingCallCount',
+        }),
+      );
+      const calls = await Promise.all(
+        (input.pendingCallIds ?? []).map(async (id) => {
+          const [commitment, failure] = await Promise.all([
+            observe(() =>
+              client.readContract({
+                address: gateway,
+                abi: routerGatewayAbi,
+                functionName: 'pendingCallCommitmentOf',
+                args: [id],
+              }),
+            ),
+            observe(() =>
+              client.readContract({
+                address: gateway,
+                abi: routerGatewayAbi,
+                functionName: 'pendingCallFailureOf',
+                args: [id],
+              }),
+            ),
+          ]);
+          return {
+            id,
+            commitment,
+            failure,
+            retained:
+              commitment.status === 'known' ? known(commitment.value !== zeroHash) : commitment,
+          };
+        }),
+      );
+      return {
+        gateway,
+        issuedIdCount,
+        calls,
+        coverage:
+          'The counter is the total identifiers ever issued, not the outstanding-call count. Only requested IDs are inspected. Queue-event call data must establish source project, token and amount and match the commitment.',
+        custody:
+          'Failed protocol-fee and protocol-payer router calls can remain in gateway custody for retry or accounted refund. A successful outer receipt or zero project-token return does not prove settlement. A zero commitment means no call is retained under that ID, not whether it settled, refunded or never existed.',
+        recovery:
+          'processPendingCallWithGas and finalizePendingCallWithGas require the exact queue-event call, memo and metadata. Match JBRouterTerminalGateway_QueuePendingCall, JBRouterTerminalGateway_ProcessPendingCall, JBRouterTerminalGateway_RefundPendingCall and JBRouterTerminalGateway_RecordTerminalCallFailure evidence; this read does not authorize recovery transactions.',
+      };
+    });
     const terminalContexts = await observe(async () =>
       Promise.all(
         required(terminals).map(async (terminal) => ({
@@ -334,7 +394,7 @@ export class RoutingService {
       observe(async () => {
         const hook = required(hooks).buyback;
         if (!hook) return [];
-        if (!same(hook, v6Address('JBBuybackHook', input.project.chainId)))
+        if (!recordedBuyback(hook, input.project.chainId))
           throw new DomainError(
             'UNSUPPORTED_BUYBACK_IMPLEMENTATION',
             'Registry-selected custom buyback hook is identified, but its pool and oracle semantics require a separate adapter.',
@@ -348,8 +408,12 @@ export class RoutingService {
       }),
       observe(async () => {
         if (!input.pairs?.length) return [];
-        const router = required(resolvedRouter);
-        if (!same(router, v6Address('JBRouterTerminal', input.project.chainId)))
+        const router = required(route).router;
+        if (
+          !deploymentAddresses('JBRouterTerminal', input.project.chainId).some((candidate) =>
+            same(candidate, router),
+          )
+        )
           throw new DomainError(
             'UNSUPPORTED_ROUTER_IMPLEMENTATION',
             'Pool discovery is supported only on the canonical router selected for this project.',
@@ -399,6 +463,8 @@ export class RoutingService {
       router: {
         registry,
         resolved: resolvedRouter,
+        path: route,
+        pendingCalls,
         cohortDefault: defaultRouter,
         locked: routerLocked,
         directoryTerminals: terminals,
@@ -415,9 +481,11 @@ export class RoutingService {
         tokenLimit: 8,
         discoveredTokenCount: tokenMap.size,
         routing:
-          'An empty routing-terminal context list does not mean no accepted tokens. Primary-terminal discovery does not prove a payable route. Router registries use project/cohort resolution, not the newest global default.',
+          'An empty routing-terminal context list does not mean no accepted tokens. Primary-terminal discovery does not prove a payable route. Resolve registry terminalOf(projectId), then a recorded gateway ROUTER. Registries use project/cohort resolution; retired implementations can still serve existing projects even when disallowed for new selections.',
         prices:
-          'Pool slot0 and liquidity are diagnostics. No spot price is presented as an executable or manipulation-resistant quote. Oracle age and actual observation success remain separate facts.',
+          'Pool slot0 and liquidity are diagnostics. No spot price is presented as an executable or manipulation-resistant quote. Oracle age and actual observation success remain separate facts. JBPrices resolves project overrides and default feeds; JBRatioPriceFeed composes the relevant feeds for USDC/native and USDC/ETH conversions. Inspect live feed selection and exact currency/decimal inputs; a deployment record alone does not prove registration or a successful price read.',
+        buybackPayMetadata:
+          'The 1.4 buyback pay entry uses getId("pay", hook) and abi.encode(amountToSwapWith, minimumSwapAmountOut, skipSplits). Two-word pay entries revert on that implementation. A fill below its derived TWAP floor unwinds the swap and falls back to minting; an explicit minimum still constrains settlement. Resolve the project hook and its generation before encoding metadata.',
         slippageConfiguration:
           'V6 has no setDefaultSlippageToleranceOf. Buyback tolerance is derived from amount, liquidity, and fees; explicit minima are supplied in transaction metadata.',
       },
@@ -823,7 +891,7 @@ export class RoutingService {
         'BUYBACK_NOT_CONFIGURED',
         'No buyback hook belongs to the current project data-hook configuration.',
       );
-    if (!same(resolution.buyback, v6Address('JBBuybackHook', project.chainId)))
+    if (!recordedBuyback(resolution.buyback, project.chainId))
       throw new DomainError(
         'UNSUPPORTED_BUYBACK_IMPLEMENTATION',
         'Preparing pool or TWAP changes on a custom hook requires its own verified adapter.',
@@ -939,6 +1007,7 @@ export class RoutingService {
       [
         'A registry-allowed custom hook can have different economic and oracle behavior. Its pool configuration is separate from the previous hook.',
         'The project data-hook wrapper and ruleset flags still determine which payment and cash-out calls reach this implementation.',
+        'Migrating to buyback 1.4 requires three-word pay metadata and a separately configured pool/TWAP window. A retired hook can keep serving existing projects while being disallowed for a new selection.',
       ],
     );
   }
@@ -990,6 +1059,9 @@ export class RoutingService {
       );
     const clearsOverride = same(input.terminal, zeroAddress);
     const effectiveTerminalAfter = clearsOverride ? cohortDefault : input.terminal;
+    const effectivePathAfter = await observe(() =>
+      resolveRouterTerminal(snapshot.client, input.project, effectiveTerminalAfter),
+    );
     const args = [snapshot.projectId, input.terminal] as const;
     return this.draft(
       input.project,
@@ -1009,6 +1081,7 @@ export class RoutingService {
         requestedTerminal: input.terminal,
         cohortDefault,
         effectiveTerminalAfter,
+        effectivePathAfter,
         meaning: !clearsOverride
           ? 'Pins the project forwarding terminal.'
           : same(cohortDefault, zeroAddress)
@@ -1018,6 +1091,7 @@ export class RoutingService {
       [
         'The contract simulation must validate nested forwarding and reject circular routes.',
         'This changes forwarding for this project on this chain; it does not migrate treasury balances or alter directory terminal registrations.',
+        'A gateway is the registry-selectable forwarding terminal; its immutable router is a separate contract. Retained gateway fees remain in custody until a verified retry or accounted refund.',
       ],
     );
   }

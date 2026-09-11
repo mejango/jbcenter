@@ -22,6 +22,7 @@ import {
   type PayInput,
   type PayoutInput,
 } from '../../src/services/payments.js';
+import { deploymentAddress } from '../../src/services/rollout.js';
 import type { BlockEvidence, RpcProvider } from '../../src/domain/types.js';
 
 const project = { chainId: 8453, projectId: '12', version: 6 } as const;
@@ -100,6 +101,7 @@ function fixture(
     errorOn?: string;
     primaryTerminal?: Address;
     routerTarget?: Address;
+    gatewayRouter?: Address;
     registered?: boolean;
     tieredHook?: Address;
     nftClone?: Address;
@@ -122,6 +124,8 @@ function fixture(
         return [ruleset, metadata];
       case 'primaryTerminalOf':
         return options.primaryTerminal ?? terminal;
+      case 'ROUTER':
+        return options.gatewayRouter;
       case 'terminalOf':
         return options.routerTarget ?? v6Address('JBRouterTerminal', project.chainId);
       case 'terminalsOf':
@@ -331,6 +335,50 @@ describe('payment quotes and approval plans', () => {
     ).toBe(metadata);
   });
 
+  it('resolves registry -> gateway -> router on an executed chain and approves the outer terminal', async () => {
+    const chainId = 84532;
+    const registryTerminal = v6Address('JBRouterTerminalRegistry', chainId);
+    const gateway = deploymentAddress('JBRouterTerminalGateway', chainId)!;
+    const router = deploymentAddress('JBRouterTerminal', chainId)!;
+    const input: PayInput = { ...payInput, project: { ...project, chainId }, token };
+    const { service, readContract } = fixture({
+      primaryTerminal: registryTerminal,
+      routerTarget: gateway,
+      gatewayRouter: router,
+    });
+    const plan = await service.preparePay(input);
+    expect(plan.summary).toMatchObject({
+      terminalPath: [registryTerminal, gateway, router],
+      routerGateway: gateway,
+    });
+    expect(plan.calls.at(-1)?.to).toBe(registryTerminal);
+    expect(decodeFunctionData({ abi: erc20Abi, data: plan.calls[0]!.data }).args).toEqual([
+      getAddress(registryTerminal),
+      100n,
+    ]);
+    expect(
+      readContract.mock.calls.some(
+        ([request]) => request.address === gateway && request.functionName === 'ROUTER',
+      ),
+    ).toBe(true);
+    expect(plan.warnings.join(' ')).toContain('pending, not paid or forgiven');
+    await expect(
+      fixture({
+        primaryTerminal: registryTerminal,
+        routerTarget: gateway,
+        gatewayRouter: custom,
+      }).service.preparePay(input),
+    ).rejects.toMatchObject({ code: 'UNSUPPORTED_ROUTER_GATEWAY' });
+    await expect(
+      fixture({
+        primaryTerminal: registryTerminal,
+        routerTarget: gateway,
+        gatewayRouter: router,
+        errorOn: 'ROUTER',
+      }).service.preparePay(input),
+    ).rejects.toThrow('RPC read unavailable');
+  });
+
   it('reads buyback beneficiary output rather than treating zero terminal issuance or raw diagnostics as settlement', async () => {
     const { service } = fixture({
       dataHook: registry,
@@ -347,7 +395,7 @@ describe('payment quotes and approval plans', () => {
     expect(
       decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.[4],
     ).toBe(247n);
-    expect(plan.warnings.join(' ')).toContain('fall back');
+    expect(plan.warnings.join(' ')).toContain('falls back');
   });
 
   it('does not add buyback output twice when router previews have already normalized it', async () => {

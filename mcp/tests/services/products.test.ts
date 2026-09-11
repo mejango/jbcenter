@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -19,6 +20,7 @@ import {
   type PublicClient,
 } from 'viem';
 import { ProductService } from '../../src/services/products.js';
+import { deploymentAddress, deploymentAddresses } from '../../src/services/rollout.js';
 import {
   get721ShopSchema,
   pay721Schema,
@@ -30,6 +32,9 @@ import {
   verify721Hook,
 } from '../../src/domain/products.js';
 import type { BlockEvidence, ChainId, RpcProvider } from '../../src/domain/types.js';
+
+const currentResolverRuntime =
+  `0x${gunzipSync(Buffer.from(JSON.parse(readFileSync(new URL('./fixtures/router-resolver-1.3.json', import.meta.url), 'utf8')).runtimeGzipBase64, 'base64')).toString('hex')}` as Hex;
 
 // Offline canonical JBPayRouteResolver runtime fixture (deploy-all-v6 artifact, DIRECTORY immutables patched).
 // Keep the real bytes so converted-route tests exercise the production code-hash check.
@@ -159,6 +164,7 @@ function fixture(
     convertedToken?: Address;
     convertedAmount?: bigint;
     wrongResolverCode?: boolean;
+    currentResolverCode?: boolean;
     routeMismatch?: boolean;
     invalidPriceCurrency?: bigint;
   } = {},
@@ -204,6 +210,8 @@ function fixture(
         return options.store ?? v6Address('JB721TiersHookStore', chainId);
       case 'DIRECTORY':
         return v6Address('JBDirectory', chainId);
+      case 'ROUTER':
+        return deploymentAddress('JBRouterTerminal', chainId)!;
       case 'projectId':
         return options.projectId ?? 12n;
       case 'METADATA_ID_TARGET':
@@ -307,10 +315,16 @@ function fixture(
   const getBytecode = vi.fn(async ({ address }: { address: Address }) => {
     if (options.noCode?.toLowerCase() === address.toLowerCase()) return undefined;
     if (
-      address.toLowerCase() ===
-      getContractAddress({ from: v6Address('JBRouterTerminal', chainId), nonce: 1n }).toLowerCase()
+      deploymentAddresses('JBRouterTerminal', chainId).some(
+        (router) =>
+          address.toLowerCase() === getContractAddress({ from: router, nonce: 1n }).toLowerCase(),
+      )
     )
-      return options.wrongResolverCode ? '0x6000' : resolverRuntime;
+      return options.wrongResolverCode
+        ? '0x6000'
+        : options.currentResolverCode
+          ? currentResolverRuntime
+          : resolverRuntime;
     return address === hook
       ? options.fakeCode
         ? '0x6000'
@@ -517,6 +531,42 @@ describe('721 payment preparation', () => {
         destination: { payer: primaryTerminal },
       });
     }
+  });
+  it('follows the executed gateway to its router for NFT conversion and preserves gateway custody warnings', async () => {
+    const chainId = 11155111;
+    const registry = v6Address('JBRouterTerminalRegistry', chainId);
+    const gateway = deploymentAddress('JBRouterTerminalGateway', chainId)!;
+    const router = deploymentAddress('JBRouterTerminal', chainId)!;
+    const f = fixture({
+      chainId,
+      primaryTerminal: registry,
+      registryTarget: gateway,
+      convertedToken: account,
+      convertedAmount: 88n,
+      currentResolverCode: true,
+    });
+    const plan = await f.service.prepare721Pay({
+      ...pay,
+      project: { ...project, chainId },
+      amount: '123',
+    });
+    expect(plan.calls[0]!.to).toBe(registry);
+    expect(plan.summary).toMatchObject({
+      destination: {
+        gateway,
+        terminalPath: [registry, gateway, router],
+        payer: router,
+        token: account,
+        amount: '88',
+      },
+      normalizedPayment: '88',
+    });
+    expect(plan.warnings.some((warning) => warning.includes('remain in custody'))).toBe(true);
+    expect(
+      f.readContract.mock.calls.find(
+        ([request]) => request.functionName === 'previewBestPayRoute',
+      )?.[0].args?.[0],
+    ).toBe(router);
   });
 });
 

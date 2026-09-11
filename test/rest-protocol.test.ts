@@ -69,6 +69,7 @@ function record(
   const id = `core:src/${name}.sol:${name}`;
   const deployment: DeploymentRecord = {
     alias: name,
+    retired: false,
     address: target,
     chainId: 1,
     abiHash: name,
@@ -233,6 +234,47 @@ describe("REST protocol ABI boundaries", () => {
 });
 
 describe("REST protocol canonical reads", () => {
+  it("retains historical addresses without making default destination resolution ambiguous", async () => {
+    const current = record();
+    const previous = { ...current.deployments[0]!.instances[0]!, address: other, alias: "JBExample_deprecated", retired: true };
+    const records = [{ ...current, deployments: [{ chainId: 1, status: "published" as const, instances: [previous, ...current.deployments[0]!.instances] }] }];
+    const { service } = fixture({ records });
+    expect((await service.resolve({ chainId: 1, contractId: current.id })).address).toBe(destination);
+    expect((await service.resolve({ chainId: 1, contractId: current.id, address: other })).provenance).toMatchObject({ publication: { retired: true } });
+  });
+
+  it.each([true, false])("resolves the project's registry-selected router with gateway=%s", async (useGateway) => {
+    const registry = record("JBRouterTerminalRegistry", factoryAddress, parseAbi(["function terminalOf(uint256) view returns (address)"]));
+    const gateway = record("JBRouterTerminalGateway", other, parseAbi(["function ROUTER() view returns (address)"]));
+    const router = record("JBRouterTerminal", destination);
+    const retired = { ...router.deployments[0]!.instances[0]!, retired: !useGateway };
+    const selectedRouter = { ...router, deployments: [{ chainId: 1, status: "published" as const, instances: [retired] }] };
+    const directory = record("JBDirectory", owner, parseAbi(["function terminalsOf(uint256) view returns (address[])"]));
+    const projects = record("JBProjects", projectsAddress, parseAbi(["function ownerOf(uint256) view returns (address)"]));
+    let registryAttached = true;
+    const { service, request } = fixture({
+      records: [registry, gateway, selectedRouter, directory, projects],
+      onCall: (_target, fn) => fn === "terminalOf" ? [useGateway ? other : destination]
+        : fn === "ROUTER" ? [destination] : fn === "terminalsOf" ? [registryAttached ? [factoryAddress] : []] : [owner],
+    });
+    const result = await service.resolve({ chainId: 1, contractId: router.id, projectId: "2" });
+    expect(result.address).toBe(destination);
+    expect(result.provenance).toMatchObject({ projectContext: {
+      terminalAssociationChecked: true,
+      routerRoute: { registry: factoryAddress, terminal: useGateway ? other : destination, gateway: useGateway ? other : null, router: destination },
+    } });
+    if (useGateway) {
+      expect((await service.resolve({ chainId: 1, contractId: gateway.id, projectId: "2" })).address).toBe(other);
+      await expect(service.resolve({ chainId: 1, contractId: router.id, projectId: "2", address: other })).rejects.toMatchObject({ code: "PROJECT_ROUTER_MISMATCH" });
+    } else {
+      await expect(service.resolve({ chainId: 1, contractId: gateway.id, projectId: "2" })).rejects.toMatchObject({ code: "PROJECT_ROUTER_MISMATCH" });
+    }
+    for (const [, method, params] of request.mock.calls)
+      if (method === "eth_getCode" || method === "eth_call") expect(params[1]).toEqual({ blockHash, requireCanonical: true });
+    registryAttached = false;
+    await expect(service.resolve({ chainId: 1, contractId: router.id, projectId: "2" })).rejects.toMatchObject({ code: "PROJECT_TERMINAL_MISMATCH" });
+  });
+
   it("pins code and calls by canonical block hash and returns narrow and wide integers as strings", async () => {
     const { service, request, record } = fixture();
     const result = await service.read({

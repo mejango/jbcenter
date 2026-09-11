@@ -34,7 +34,18 @@ no compiler method identifier matches the ordinary canonical ABI signature.
 
 All eight supported chains have explicit availability records. Missing deployments
 are never filled using another chain, an SDK default, or a source-only build.
-Deprecated and TWAP upgrade snapshots and archived source declarations are excluded.
+Deprecated and TWAP upgrade snapshots remain available for historical address and
+ABI lookup, marked `retired`. Default destination resolution excludes them, while
+an explicit address or a project's live registry selection can still resolve them.
+Router and buyback instances also expose `generation` (`current`, `previous`, or
+`v1`) from their artifact package version. Generation does not imply that a chain
+or project has migrated. Archived source declarations remain excluded.
+
+Gateway and ratio-feed availability comes only from each chain's published
+deployment records. Pending mainnet proposals are not published deployments; refresh
+the deploy-all pin after execution. For project router reads, Center resolves
+`registry.terminalOf(projectId)` and then the selected gateway's `ROUTER()` at the
+same canonical block. Previous routers remain resolvable for unmigrated projects.
 
 Deployment manifests attest published addresses, receipts, source references, and
 artifact hashes. They do not establish current on-chain bytecode. In particular,

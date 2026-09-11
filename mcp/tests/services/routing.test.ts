@@ -19,7 +19,9 @@ import {
   type PublicClient,
 } from 'viem';
 import { RoutingService, resolveRoutingHooks } from '../../src/services/routing.js';
-import type { ProjectRef, RpcProvider, RpcSnapshot } from '../../src/domain/types.js';
+import { resolveRouterTerminal, routingSchema } from '../../src/domain/routing.js';
+import { deploymentAddress, deploymentAddresses } from '../../src/services/rollout.js';
+import type { ChainId, ProjectRef, RpcProvider, RpcSnapshot } from '../../src/domain/types.js';
 
 const project = { chainId: 1, projectId: '42', version: 6 } as const;
 const owner = '0x1111111111111111111111111111111111111111' as const;
@@ -82,7 +84,7 @@ const current: JBRulesetWithMetadata = {
 };
 type Read = { address: Address; functionName: string; args?: readonly unknown[] };
 const pass = Symbol('passthrough');
-function fixture(override: (request: Read) => unknown = () => pass) {
+function fixture(override: (request: Read) => unknown = () => pass, chainId: ChainId = 1) {
   const reads: Read[] = [];
   const client = {
     readContract: vi.fn(async (request: Read) => {
@@ -91,7 +93,7 @@ function fixture(override: (request: Read) => unknown = () => pass) {
       if (result !== pass) return result;
       switch (request.functionName) {
         case 'controllerOf':
-          return v6Address('JBController', 1);
+          return v6Address('JBController', chainId);
         case 'currentRulesetOf':
           return [current.ruleset, current.metadata];
         case 'ownerOf':
@@ -99,14 +101,34 @@ function fixture(override: (request: Read) => unknown = () => pass) {
         case 'hasPermission':
           return true;
         case 'terminalsOf':
-          return [v6Address('JBMultiTerminal', 1), v6Address('JBRouterTerminalRegistry', 1)];
+          return [
+            v6Address('JBMultiTerminal', chainId),
+            v6Address('JBRouterTerminalRegistry', chainId),
+          ];
         case 'accountingContextsOf':
-          return request.address === v6Address('JBMultiTerminal', 1)
+          return request.address === v6Address('JBMultiTerminal', chainId)
             ? [{ token: native, currency: 61166, decimals: 18 }]
             : [];
         case 'terminalOf':
         case 'defaultTerminalFor':
-          return v6Address('JBRouterTerminal', 1);
+          return deploymentAddress('JBRouterTerminal', chainId)!;
+        case 'ROUTER':
+          return deploymentAddress('JBRouterTerminal', chainId)!;
+        case 'DIRECTORY':
+          return v6Address('JBDirectory', chainId);
+        case 'pendingCallCount':
+          return 8n;
+        case 'pendingCallCommitmentOf':
+          return request.args?.[0] === numberToHex(1n, { size: 32 })
+            ? numberToHex(55n, { size: 32 })
+            : zeroHash;
+        case 'pendingCallFailureOf':
+          return {
+            errorHash: numberToHex(44n, { size: 32 }),
+            count: 2,
+            lastFailureAt: 1700000000,
+            highestGasLimit: 1000000n,
+          };
         case 'hasLockedTerminal':
         case 'hasLockedHook':
           return false;
@@ -114,11 +136,11 @@ function fixture(override: (request: Read) => unknown = () => pass) {
         case 'isHookAllowed':
           return true;
         case 'hookOf':
-          return buyback;
+          return deploymentAddress('JBBuybackHook', chainId)!;
         case 'defaultHookProjectIdThreshold':
           return 0n;
         case 'defaultHook':
-          return buyback;
+          return deploymentAddress('JBBuybackHook', chainId)!;
         case 'defaultHookHistoryLength':
           return 0n;
         case 'BUYBACK_HOOK':
@@ -168,7 +190,7 @@ function fixture(override: (request: Read) => unknown = () => pass) {
   const snapshot: RpcSnapshot = {
     client,
     evidence: {
-      chainId: 1,
+      chainId,
       blockNumber: '20000000',
       blockHash: zeroHash,
       timestamp: '1700000100',
@@ -246,6 +268,94 @@ describe('routing hook resolution', () => {
 });
 
 describe('routing diagnostics', () => {
+  it('resolves an executed testnet gateway and distinguishes issued IDs, retained custody and failed reads', async () => {
+    const chainId = 11155111;
+    const testProject = { ...project, chainId } as const;
+    const gateway = deploymentAddress('JBRouterTerminalGateway', chainId)!;
+    const router = deploymentAddress('JBRouterTerminal', chainId)!;
+    const retainedId = numberToHex(1n, { size: 32 });
+    const absentId = numberToHex(2n, { size: 32 });
+    const unknownId = numberToHex(3n, { size: 32 });
+    const { service, reads } = fixture((request) => {
+      if (request.functionName === 'terminalOf') return gateway;
+      if (request.functionName === 'pendingCallCommitmentOf' && request.args?.[0] === unknownId)
+        throw new Error('pending commitment unavailable');
+      return pass;
+    }, chainId);
+    const result = await service.getRouting({
+      project: testProject,
+      pendingCallIds: [retainedId, absentId, unknownId],
+      pairs: [{ tokenIn: native, tokenOut: projectToken }],
+    });
+    expect(result).toMatchObject({
+      router: {
+        resolved: { value: gateway },
+        path: {
+          value: {
+            gateway,
+            router,
+            path: [v6Address('JBRouterTerminalRegistry', chainId), gateway, router],
+          },
+        },
+        pendingCalls: {
+          value: {
+            issuedIdCount: { value: '8' },
+            calls: [
+              {
+                id: retainedId,
+                retained: { value: true },
+                failure: { value: { count: 2, highestGasLimit: '1000000' } },
+              },
+              { id: absentId, retained: { value: false } },
+              { id: unknownId, retained: { status: 'unknown' }, failure: { status: 'known' } },
+            ],
+          },
+        },
+      },
+      buybackPools: { status: 'known' },
+    });
+    expect(reads.find((read) => read.functionName === 'discoverBestPool')?.address).toBe(router);
+    expect(reads.filter((read) => read.functionName === 'pendingCallCommitmentOf')).toHaveLength(3);
+    expect(JSON.stringify(result)).toContain('not the outstanding-call count');
+  });
+
+  it('keeps proposed mainnet gateway deployment absent and preserves recorded retired router routes', async () => {
+    expect(deploymentAddress('JBRouterTerminalGateway', 1)).toBeUndefined();
+    const retired = deploymentAddresses('JBRouterTerminal', 1).find(
+      (address) => address !== deploymentAddress('JBRouterTerminal', 1),
+    )!;
+    const { service, reads } = fixture((request) =>
+      request.functionName === 'terminalOf' ? retired : pass,
+    );
+    expect(
+      await service.getRouting({ project, pairs: [{ tokenIn: native, tokenOut: projectToken }] }),
+    ).toMatchObject({
+      router: {
+        resolved: { value: retired },
+        pendingCalls: { value: null },
+        pairs: { status: 'known' },
+      },
+    });
+    expect(reads.find((read) => read.functionName === 'discoverBestPool')?.address).toBe(retired);
+    expect(reads.some((read) => read.functionName === 'ROUTER')).toBe(false);
+  });
+
+  it('rejects a recorded gateway with an unrecognized immutable router', async () => {
+    const chainId = 11155111;
+    const gateway = deploymentAddress('JBRouterTerminalGateway', chainId)!;
+    const { snapshot } = fixture(
+      (request) => (request.functionName === 'ROUTER' ? custom : pass),
+      chainId,
+    );
+    await expect(
+      resolveRouterTerminal(snapshot.client, { ...project, chainId }, gateway),
+    ).rejects.toMatchObject({ code: 'UNSUPPORTED_ROUTER_GATEWAY' });
+    expect(
+      routingSchema.safeParse({ project, pendingCallIds: [zeroHash, ...Array(8).fill(zeroHash)] })
+        .success,
+    ).toBe(false);
+  });
+
   it('normalizes native storage keys and distinguishes partial oracle history from its requested window', async () => {
     const { service, reads } = fixture();
     const result = await service.getRouting({ project });

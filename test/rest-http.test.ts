@@ -117,6 +117,16 @@ describe("mounted signed REST API", () => {
     const catalog = await f.app.request(`${audience}/api/v1/catalog/contracts?limit=1`);
     expect(catalog.status).toBe(200);
     expect(await catalog.json()).toMatchObject({ protocolVersion: 6, items: expect.any(Array) });
+    const routers = await f.app.request(`${audience}/api/v1/catalog/contracts?packageId=%40bananapus%2Frouter-terminal-v6&category=contract&limit=100`);
+    expect(await routers.json()).toMatchObject({ items: expect.arrayContaining([expect.objectContaining({
+      name: "JBRouterTerminal", chains: expect.arrayContaining([expect.objectContaining({ chainId: 11155111,
+        instances: expect.arrayContaining([
+          expect.objectContaining({ generation: "current", retired: false }),
+          expect.objectContaining({ generation: "previous", retired: true }),
+          expect.objectContaining({ generation: "v1", retired: true }),
+        ]),
+      })]),
+    })]) });
     const unsigned = await f.app.request(`${audience}/api/v1/projects/1/1?source=onchain`);
     expect(unsigned.status).toBe(401);
     expect(await unsigned.json()).toMatchObject({ code: "AUTH_REQUIRED", status: 401 });

@@ -4,9 +4,9 @@
     {
       "repository": "nana-core-v6",
       "repositoryUrl": "https://github.com/Bananapus/nana-core-v6",
-      "commit": "898f08b96194391d545df31a62f9d89ef6759f9a",
+      "commit": "655f66e0ed02c5bb44be0ed308d808abaf89f8e8",
       "id": "@bananapus/core-v6",
-      "version": "1.2.0"
+      "version": "1.2.1"
     },
     {
       "repository": "nana-721-hook-v6",
@@ -25,9 +25,9 @@
     {
       "repository": "nana-buyback-hook-v6",
       "repositoryUrl": "https://github.com/Bananapus/nana-buyback-hook-v6",
-      "commit": "9cdd10d8902bd68df5335f807f0afd3b83498d9e",
+      "commit": "bf77c36d6a055615a96a2bda4c51108534df701d",
       "id": "@bananapus/buyback-hook-v6",
-      "version": "1.4.0"
+      "version": "1.4.1"
     },
     {
       "repository": "nana-fee-project-deployer-v6",
@@ -60,9 +60,9 @@
     {
       "repository": "nana-router-terminal-v6",
       "repositoryUrl": "https://github.com/Bananapus/nana-router-terminal-v6",
-      "commit": "e3a128d8a389b6a9b046234f813014a98d5a8b01",
+      "commit": "e03aa1053ec6c9f08be9a3679694773b80ecea41",
       "id": "@bananapus/router-terminal-v6",
-      "version": "1.3.0"
+      "version": "1.3.1"
     },
     {
       "repository": "nana-suckers-v6",
@@ -109,7 +109,7 @@
     {
       "repository": "deploy-all-v6",
       "repositoryUrl": "https://github.com/Bananapus/deploy-all-v6",
-      "commit": "20883a7c7fcd58b6264f8375b6156a59ab9a2597",
+      "commit": "8522541297557c80f8bc2dd674c3098f8849b527",
       "id": "@bananapus/deploy-all-v6",
       "version": "1.3.2"
     },

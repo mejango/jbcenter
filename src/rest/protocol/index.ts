@@ -429,7 +429,7 @@ export function createProtocolReadService({
     const candidates = deploymentCandidates(record, snap.evidence.chainId);
     const matches = requested
       ? candidates.filter((item) => same(item.address, requested))
-      : candidates;
+      : candidates.filter((item) => !item.retired);
     if (matches.length === 0)
       throw new RestError(
         422,
@@ -848,6 +848,22 @@ export function createProtocolReadService({
         : address(input.address, "address", true);
     const projectId =
       input.projectId === undefined ? undefined : BigInt(input.projectId);
+    let routerRoute: { registry: Address; terminal: Address; gateway: Address | null; router: Address } | undefined;
+    if (projectId !== undefined && ["JBRouterTerminal", "JBRouterTerminalGateway"].includes(record.name)) {
+      const registry = await anchor(snap, "JBRouterTerminalRegistry");
+      const terminal = await addressRead(snap, registry, "terminalOf(uint256)", [projectId]);
+      if (BigInt(terminal) === 0n)
+        throw new RestError(422, "PROJECT_COMPONENT_MISSING", "This project has no selected router terminal at the observed block.");
+      const gatewayRecord = catalog.data.contracts.find((item) => item.name === "JBRouterTerminalGateway" && item.category === "contract");
+      const gateway = gatewayRecord && deploymentCandidates(gatewayRecord, snap.evidence.chainId).some((item) => same(item.address, terminal))
+        ? await official(snap, gatewayRecord, terminal) : undefined;
+      const router = gateway ? await addressRead(snap, gateway, "ROUTER()") : terminal;
+      const selected = record.name === "JBRouterTerminalGateway" ? gateway?.address : router;
+      if (!selected || (requested && !same(requested, selected)))
+        throw new RestError(422, "PROJECT_ROUTER_MISMATCH", "The requested contract is not on this project's registry-selected router path.");
+      requested = selected;
+      routerRoute = { registry: registry.address, terminal, gateway: gateway?.address ?? null, router };
+    }
     if (!requested && projectId !== undefined) {
       if (record.name === "JBERC20")
         requested = await addressRead(
@@ -959,7 +975,7 @@ export function createProtocolReadService({
           "The project's current controller differs from the requested deployment.",
         );
       if (
-        ["JBMultiTerminal", "JBRouterTerminalRegistry"].includes(record.name)
+        ["JBMultiTerminal", "JBRouterTerminalRegistry"].includes(record.name) || routerRoute
       ) {
         const terminals = (
           await call(snap, directory, "terminalsOf(uint256)", [projectId])
@@ -969,7 +985,7 @@ export function createProtocolReadService({
           !terminals.some(
             (item) =>
               typeof item === "string" &&
-              same(item as Address, resolved.address),
+              same(item as Address, routerRoute?.registry ?? resolved.address),
           )
         )
           throw new RestError(
@@ -1032,7 +1048,8 @@ export function createProtocolReadService({
             terminalAssociationChecked: [
               "JBMultiTerminal",
               "JBRouterTerminalRegistry",
-            ].includes(record.name),
+            ].includes(record.name) || routerRoute !== undefined,
+            ...(routerRoute ? { routerRoute } : {}),
             dynamicAssociationChecked: observedProject !== undefined,
             ...(revnet ? { revnet } : {}),
           },

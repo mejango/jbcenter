@@ -463,6 +463,9 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
           chainId: deployment.chainId,
           status: deployment.status,
           addresses: deployment.instances.map((instance) => instance.address),
+          instances: deployment.instances.map(({ address, retired, generation }) => ({
+            address, retired, ...(generation ? { generation } : {}),
+          })),
         })),
       })),
       total: all.length,

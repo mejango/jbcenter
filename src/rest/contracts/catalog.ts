@@ -72,6 +72,8 @@ export class ContractCatalog {
         observedChains.add(chain.chainId);
         for (const deployment of chain.instances) {
           if (deployment.chainId !== chain.chainId || !/^0x[0-9a-fA-F]{40}$/.test(deployment.address)
+            || typeof deployment.retired !== "boolean"
+            || (deployment.generation !== undefined && !["current", "previous", "v1"].includes(deployment.generation))
             || !this.#codes.has(deployment.codeId)
             || !contract.variants.some((variant) => variant.abiHash === deployment.abiHash && variant.usage === "published")) {
             throw new ContractCatalogError("CATALOG_REFERENCE", `Invalid deployment: ${contract.id}/${deployment.alias}`);

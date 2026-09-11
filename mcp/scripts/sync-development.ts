@@ -47,6 +47,9 @@ const SOURCES = {
     framework: 'react',
     files: [
       ['money.pay-panel', 'src/components/project/PayPanel.tsx'],
+      ['money.pay-router-entry', 'src/lib/payment-router-entry.ts'],
+      ['money.protocol-rollout', 'src/lib/protocol-rollout.ts'],
+      ['money.protocol-deployments', 'src/lib/protocol-rollout.json'],
       ['money.buyback-router', 'src/components/project/MultiChainBuybackRouterCard.tsx'],
       ['money.builders', 'src/lib/transaction-builders.ts'],
       ['money.review', 'src/lib/transaction-review.ts'],
@@ -312,6 +315,7 @@ const FEATURES: DevelopmentFeature[] = [
       action(
         'read',
         'Resolve accepted terminals and accounting contexts, then preview with the actual payer intent, beneficiary and hook metadata.',
+        binding('money.pay-router-entry', 'readPaymentRouterEntry'),
         sdk('sdk.terminals', 'resolvePaymentTerminal'),
         sdk('sdk.terminals', 'getAccountingContexts'),
         sdk('sdk.pay', 'previewPay'),
@@ -335,7 +339,14 @@ const FEATURES: DevelopmentFeature[] = [
       'Quote metadata must equal execution metadata; NFT selections and buyback opt-outs affect the route.',
       'Native value, ERC-20 allowance and token decimals must match the resolved terminal route.',
     ],
-    ['money.pay-panel', 'scan.pay-preview', 'revnet.pay', 'revnet.pay-routes'],
+    [
+      'money.pay-panel',
+      'money.protocol-rollout',
+      'money.protocol-deployments',
+      'scan.pay-preview',
+      'revnet.pay',
+      'revnet.pay-routes',
+    ],
     ['sdk.pay-test', 'revnet.pay-test', 'scan.pay-test'],
   ),
   feature(
@@ -439,6 +450,7 @@ const FEATURES: DevelopmentFeature[] = [
     ],
     [
       'A configured hook does not prove an executable pool or a better price.',
+      'Buyback 1.4.0 pay quote metadata contains three words: amountToSwapWith, minimumSwapAmountOut and skipSplits. Two-word quotes revert. A swap below the TWAP floor falls back to minting, subject to the reviewed beneficiary minimum.',
       'TWAP and pool configuration are chain-specific operator actions. Read authority and simulate exact calls before review.',
       'Direct AMM acquisition and hook-assisted treasury payments have different money flows.',
     ],
@@ -470,7 +482,10 @@ const FEATURES: DevelopmentFeature[] = [
       ),
     ],
     [
-      'The router terminal registry, direct swap router and buyback hook are distinct contracts. Discover and label each.',
+      'Resolve the project registry terminalOf first, then gateway ROUTER where the selected terminal is a recorded gateway. Preserve the outer approval target; the underlying router is not necessarily registry-selectable.',
+      'Gateway JBRouterTerminalGateway_QueuePendingCall retains failed opted-in fee or protocol-payer input. JBRouterTerminalGateway_ProcessPendingCall, JBRouterTerminalGateway_RefundPendingCall and JBRouterTerminalGateway_RecordTerminalCallFailure distinguish settlement, refund and retry failure. A queued fee is pending, not paid or forgiven; refunds do not restore core feeFreeSurplusOf.',
+      'Read rollout addresses from executed per-chain deployment records. Keep previous and v1 addresses for history and unmigrated projects. A mainnet proposal does not make the new stack live.',
+      'JBRatioPriceFeed supplies USDC/native and USDC/ETH conversion on chains where registered in JBPrices; feed-only chains may still lack a buyback hook, router or gateway.',
       'Currency identifiers, token addresses and decimals are separate dimensions; retain all three.',
       'Requested chains are planning scope only. A chain supported by the SDK may lack a particular deployment.',
     ],

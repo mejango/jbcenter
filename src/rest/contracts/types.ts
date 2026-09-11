@@ -80,6 +80,10 @@ export interface CloneFamily {
 }
 export interface DeploymentRecord {
   alias: string;
+  /** Historical artifacts remain address-decodable but are not default destinations. */
+  retired: boolean;
+  /** Router/buyback release generation, independent of chain rollout or project selection. */
+  generation?: "current" | "previous" | "v1";
   address: Address;
   chainId: number;
   abiHash: string;

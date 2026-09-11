@@ -4,7 +4,6 @@ import {
   jbDirectoryAbi,
   jbMultiTerminalAbi,
   jbOmnichainDeployerAbi,
-  jbRouterTerminalRegistryAbi,
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
 import {
@@ -32,6 +31,8 @@ import {
 import { DomainError } from '../domain/errors.js';
 import { jsonSafe } from '../domain/json.js';
 import { verify721Hook } from '../domain/products.js';
+import { resolveRouterTerminal } from '../domain/routing.js';
+import { deploymentAddresses } from './rollout.js';
 import type {
   ChainId,
   PlanDraft,
@@ -340,9 +341,9 @@ export class PaymentService {
     };
     const inspectHook = async (hook: Address, depth = 0): Promise<void> => {
       if (same(hook, zeroAddress)) return;
-      const canonicalBuyback = v6Address('JBBuybackHook', project.chainId);
+      const knownBuybacks = deploymentAddresses('JBBuybackHook', project.chainId);
       const canonicalRegistry = v6Address('JBBuybackHookRegistry', project.chainId);
-      if (same(hook, canonicalBuyback)) buybackHook = hook;
+      if (knownBuybacks.some((address) => same(hook, address))) buybackHook = hook;
       else if (
         same(hook, canonicalRegistry) ||
         same(hook, v6Address('REVOwner', project.chainId))
@@ -372,7 +373,10 @@ export class PaymentService {
           functionName: 'hookOf',
           args: [projectId],
         });
-        if (!same(buybackHook, zeroAddress) && !same(buybackHook, canonicalBuyback)) {
+        if (
+          !same(buybackHook, zeroAddress) &&
+          !knownBuybacks.some((address) => same(buybackHook, address))
+        ) {
           unsupported(
             'The project resolves to a custom or historical buyback hook whose settlement format is not supported.',
           );
@@ -432,15 +436,7 @@ export class PaymentService {
     return { ...current, controller, buybackHook, revOwner, tieredHook };
   }
 
-  private async paymentTerminal(
-    client: PublicClient,
-    project: ProjectRef,
-    token: Address,
-  ): Promise<{
-    address: Address;
-    isRouter: boolean;
-    previewSemantics: 'issuance' | 'router-normalized';
-  }> {
+  private async paymentTerminal(client: PublicClient, project: ProjectRef, token: Address) {
     const resolved = await resolvePaymentTerminal(client, {
       chainId: project.chainId,
       projectId: BigInt(project.projectId),
@@ -448,73 +444,57 @@ export class PaymentService {
     });
     const multi = v6Address('JBMultiTerminal', project.chainId);
     const registry = v6Address('JBRouterTerminalRegistry', project.chainId);
-    let registryTarget: Address | undefined;
-    // The router deployment is absent on some supported chains. It is only
-    // required when a resolved address actually needs the router adapter.
     if (same(resolved.address, multi))
-      return { address: resolved.address, isRouter: false, previewSemantics: 'issuance' };
-    if (same(resolved.address, registry)) {
-      const target = await client.readContract({
-        address: registry,
-        abi: jbRouterTerminalRegistryAbi,
-        functionName: 'terminalOf',
-        args: [BigInt(project.projectId)],
-      });
-      registryTarget = target;
-      if (same(target, zeroAddress))
-        throw new DomainError(
-          'NO_PAYMENT_ROUTE',
-          'The router registry has no effective terminal for this project.',
-        );
-      if (same(target, multi))
-        return { address: registry, isRouter: true, previewSemantics: 'issuance' };
-      if (!same(target, v6Address('JBRouterTerminal', project.chainId)))
-        unsupported('The router registry points to an unsupported terminal.');
-    } else if (!same(resolved.address, v6Address('JBRouterTerminal', project.chainId))) {
-      unsupported('The resolved payment terminal is custom and has no supported quote adapter.');
-    }
-    // Router discovery can choose among the project's registered destinations.
-    // Reject unknown destinations rather than claiming their pay return is a
-    // canonical balance-delta guarantee.
-    const terminals = await client.readContract({
-      address: v6Address('JBDirectory', project.chainId),
-      abi: jbDirectoryAbi,
-      functionName: 'terminalsOf',
-      args: [BigInt(project.projectId)],
-    });
-    if (
-      terminals.some(
-        (terminal) =>
-          !same(terminal, multi) &&
-          !same(terminal, registry) &&
-          !same(terminal, v6Address('JBRouterTerminal', project.chainId)),
-      )
-    ) {
-      unsupported(
-        'The router can select a custom destination terminal; its settlement requires a dedicated adapter.',
+      return {
+        address: resolved.address,
+        isRouter: false,
+        previewSemantics: 'issuance' as const,
+        path: [resolved.address],
+        gateway: null,
+      };
+    const route = await resolveRouterTerminal(client, project, resolved.address);
+    if (same(route.terminal, zeroAddress))
+      throw new DomainError(
+        'NO_PAYMENT_ROUTE',
+        'The router registry has no effective terminal for this project.',
       );
-    }
-    // Even when the outer call goes straight to JBRouterTerminal, a candidate
-    // accounting token can resolve through the registry. Check that forwarding
-    // edge as well: a trusted registry address alone does not constrain its target.
-    if (terminals.some((terminal) => same(terminal, registry))) {
-      registryTarget ??= await client.readContract({
-        address: registry,
-        abi: jbRouterTerminalRegistryAbi,
-        functionName: 'terminalOf',
+    const routers = deploymentAddresses('JBRouterTerminal', project.chainId);
+    if (!same(route.router, multi) && !routers.some((address) => same(address, route.router)))
+      unsupported('The resolved payment terminal is custom and has no supported quote adapter.');
+    if (!same(route.router, multi)) {
+      // A known outer forwarder does not establish the identity of its candidate destinations.
+      const terminals = await client.readContract({
+        address: v6Address('JBDirectory', project.chainId),
+        abi: jbDirectoryAbi,
+        functionName: 'terminalsOf',
         args: [BigInt(project.projectId)],
       });
-      if (
-        !same(registryTarget, zeroAddress) &&
-        !same(registryTarget, multi) &&
-        !same(registryTarget, v6Address('JBRouterTerminal', project.chainId))
-      ) {
-        unsupported(
-          'A candidate destination registry forwards to a custom terminal whose settlement is unsupported.',
-        );
+      for (const terminal of terminals) {
+        if (same(terminal, multi)) continue;
+        const candidate = same(terminal, resolved.address)
+          ? route
+          : await resolveRouterTerminal(client, project, terminal);
+        if (
+          !same(candidate.router, zeroAddress) &&
+          !same(candidate.router, multi) &&
+          !routers.some((address) => same(address, candidate.router))
+        )
+          unsupported(
+            same(terminal, registry)
+              ? 'A candidate destination registry forwards to a custom terminal whose settlement is unsupported.'
+              : 'The router can select a custom destination terminal; its settlement requires a dedicated adapter.',
+          );
       }
     }
-    return { address: resolved.address, isRouter: true, previewSemantics: 'router-normalized' };
+    return {
+      address: resolved.address,
+      isRouter: true,
+      previewSemantics: same(route.router, multi)
+        ? ('issuance' as const)
+        : ('router-normalized' as const),
+      path: route.path,
+      gateway: route.gateway,
+    };
   }
 
   private async balanceTerminal(
@@ -601,6 +581,10 @@ export class PaymentService {
       'This quote follows the project terminal route. Direct market acquisition has not been compared, so this is not a best-price claim.',
       'A terminal payment can route funds into a buyback pool or hooks. The full payment is not necessarily retained in the treasury.',
     ];
+    if (terminal.gateway)
+      warnings.push(
+        'The registry-selected gateway takes custody before forwarding to its immutable router. Only failed zero-minimum calls with a valid source-project opt-in can be retained; ordinary failed payments revert. A queued fee is pending, not paid or forgiven.',
+      );
     for (const spec of hooks) {
       if (spec.noop) continue;
       if (context.tieredHook && same(spec.hook, context.tieredHook)) {
@@ -616,6 +600,10 @@ export class PaymentService {
       if (same(context.buybackHook, zeroAddress) || !same(spec.hook, context.buybackHook))
         unsupported(
           'The pay preview includes an unrecognized active hook. Its final beneficiary output is unknown.',
+        );
+      if (spec.metadata.length !== 2 + 17 * 64)
+        unsupported(
+          'The selected historical buyback hook uses an unsupported settlement format; its address remains available in the contract catalog.',
         );
       const decoded = decodeAbiParameters(buybackPaySpecParameters, spec.metadata);
       const amountToMintWith = decoded[1];
@@ -637,7 +625,7 @@ export class PaymentService {
       reservedTokenCount = decoded[12];
       quoteBasis = 'buyback-hook-indicative-output';
       warnings.push(
-        'Buyback output is indicative. A pool failure may fall back to issuance; the transaction reverts if the final beneficiary balance increase is below its reviewed minimum.',
+        'Buyback output is indicative. Buyback 1.4.0 pay quotes encode three words (amountToSwapWith, minimumSwapAmountOut, skipSplits); two-word quotes revert. A pool failure or swap below the TWAP floor falls back to issuance; the transaction reverts if the final beneficiary balance increase is below its reviewed minimum.',
       );
     }
     const minimum = slippageFloor(beneficiaryTokenCount, slippage);
@@ -660,6 +648,8 @@ export class PaymentService {
       project: input.project,
       account: input.account,
       terminal: terminal.address,
+      terminalPath: terminal.path,
+      routerGateway: terminal.gateway,
       route: terminal.isRouter ? 'router-terminal' : 'multi-terminal',
       quoteBasis,
       payment: { token: input.token, amount: amount.toString(), unit: 'token-base-units' },
