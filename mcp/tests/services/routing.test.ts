@@ -550,28 +550,39 @@ describe('routing configuration plans', () => {
     ).rejects.toThrow('unavailable');
   });
 
-  it('registers an initialized exact pool key with the canonical oracle and exposes the max-window sentinel', async () => {
-    const { service } = fixture((request) =>
-      request.functionName === 'poolKeyOf' ? emptyKey : pass,
-    );
-    const plan = await service.prepareBuybackPool({
-      project,
-      account: owner,
-      terminalToken: native,
-      fee: 3000,
-      tickSpacing: 60,
-      twapWindowSeconds: 172800,
-    });
-    expect(decodeFunctionData({ abi: jbBuybackHookAbi, data: plan.calls[0]!.data })).toEqual({
-      functionName: 'setPoolFor',
-      args: [42n, 3000, 60, 172800n, native],
-    });
-    expect(plan.summary).toMatchObject({
-      key,
-      storedTwapWindowSeconds: 1800,
-      requestedTwapWindowSeconds: 172800,
-    });
-  });
+  it.each(deploymentAddresses('JBBuybackHook', 1))(
+    'registers the exact pool key and applies the max-window sentinel only for the rollout hook: %s',
+    async (hook) => {
+      const { service } = fixture((request) =>
+        request.functionName === 'poolKeyOf'
+          ? emptyKey
+          : request.functionName === 'hookOf'
+            ? hook
+            : pass,
+      );
+      const plan = await service.prepareBuybackPool({
+        project,
+        account: owner,
+        terminalToken: native,
+        fee: 3000,
+        tickSpacing: 60,
+        twapWindowSeconds: 172800,
+      });
+      expect(decodeFunctionData({ abi: jbBuybackHookAbi, data: plan.calls[0]!.data })).toEqual({
+        functionName: 'setPoolFor',
+        args: [42n, 3000, 60, 172800n, native],
+      });
+      expect(plan.summary).toMatchObject({
+        key,
+        storedTwapWindowSeconds: hook === deploymentAddress('JBBuybackHook', 1) ? 1800 : 172800,
+        requestedTwapWindowSeconds: 172800,
+      });
+      expect(plan.calls[0]!.to).toBe(hook);
+      expect(plan.warnings.some((warning) => warning.includes('sentinel 172800 stores 1800'))).toBe(
+        hook === deploymentAddress('JBBuybackHook', 1),
+      );
+    },
+  );
 
   it('rejects immutable existing pools and uninitialized proposed pools', async () => {
     const input = {

@@ -56,7 +56,7 @@ export const prepareBuybackPoolSchema = z
       .min(300)
       .max(172800)
       .describe(
-        'Registration at 172800 stores the contract default of 1800 seconds. Use the TWAP update tool afterward for an explicit 172800-second window.',
+        'The current hook maps registration at 172800 to its 1800-second default; retired 1.1.1 and v1 hooks store 172800 unchanged. Use the TWAP update tool afterward for an explicit 172800-second window on the current hook.',
       ),
   })
   .strict();

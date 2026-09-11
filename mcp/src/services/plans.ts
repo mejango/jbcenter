@@ -43,6 +43,7 @@ import {
   uintSchema,
 } from '../domain/schemas.js';
 import type { BlockEvidence, PlanDraft, PreparedCall, RpcProvider } from '../domain/types.js';
+import { deploymentAddress, deploymentAddresses } from './rollout.js';
 
 // Fit token + review in MCP result limits, and token + references in the HTTP request limit.
 const MAX_TOKEN_BYTES = 192 * 1024;
@@ -799,11 +800,13 @@ export class PlanService {
       // Canonical deployments matter: arbitrary contracts can copy a Juicebox event signature.
       const terminalEmitter = v6Address('JBMultiTerminal', call.chainId);
       const directTerminal = same(call.to, terminalEmitter);
-      const router = v6Address('JBRouterTerminal', call.chainId);
+      const routers = deploymentAddresses('JBRouterTerminal', call.chainId);
+      const gateways = deploymentAddresses('JBRouterTerminalGateway', call.chainId);
+      const buybacks = deploymentAddresses('JBBuybackHook', call.chainId);
       const routerRegistry = v6Address('JBRouterTerminalRegistry', call.chainId);
       if (
         directTerminal ||
-        ((same(call.to, router) || same(call.to, routerRegistry)) &&
+        ([...routers, ...gateways, routerRegistry].some((address) => same(call.to, address)) &&
           same(call.data.slice(0, 10), PAY_SELECTOR))
       ) {
         const decoded = decodeFunctionData({ abi: jbMultiTerminalAbi, data: call.data });
@@ -846,13 +849,14 @@ export class PlanService {
             }
             const callerMatches = directTerminal
               ? same(fields.caller, plan.draft.account)
-              : same(fields.caller, router) || same(fields.caller, routerRegistry);
+              : [...routers, routerRegistry].some((address) => same(fields.caller, address));
             if (event.eventName !== eventName || !callerMatches) continue;
             // Pay.newlyIssuedTokenCount is newly minted tokens only. The exact successful call
             // enforces minReturnedTokens against the beneficiary's complete balance delta, including hooks.
             if (
               eventName === 'Pay' &&
-              (!same(fields.payer, plan.draft.account) || !same(fields.beneficiary, args[3]))
+              (!same(fields.payer, directTerminal ? plan.draft.account : fields.caller) ||
+                !same(fields.beneficiary, args[3]))
             )
               continue;
             if (
@@ -876,7 +880,7 @@ export class PlanService {
         let sellFailed = false;
         if (eventName === 'Pay' || eventName === 'CashOutTokens') {
           for (const log of sourceLogs) {
-            if (!same(log.address, v6Address('JBBuybackHook', call.chainId))) continue;
+            if (!buybacks.some((address) => same(log.address, address))) continue;
             try {
               const event = decodeEventLog({
                 abi: jbBuybackHookAbi,
@@ -1435,7 +1439,9 @@ export class PlanService {
           ).length > 0,
       );
     }
-    if (same(call.to, v6Address('JBBuybackHook', call.chainId))) {
+    if (
+      deploymentAddresses('JBBuybackHook', call.chainId).some((address) => same(call.to, address))
+    ) {
       const decoded = decodeFunctionData({ abi: jbBuybackHookAbi, data: call.data });
       if (decoded.functionName === 'setTwapWindowOf') {
         const [projectId, terminalToken, window] = decoded.args;
@@ -1511,8 +1517,11 @@ export class PlanService {
             same(args.terminalToken, normalized) &&
             same(args.poolId, poolId),
         );
-        // V6 normalizes MAX_TWAP_WINDOW (2 days) to its 30-minute deployment default on pool registration.
-        const expectedWindow = window === 172800n ? 1800n : window;
+        // The rollout hook remaps the registration sentinel; retired 1.1.1/v1 store the literal window.
+        const expectedWindow =
+          window === 172800n && same(call.to, deploymentAddress('JBBuybackHook', call.chainId))
+            ? 1800n
+            : window;
         const windows = matching(
           jbBuybackHookAbi,
           'TwapWindowChanged',

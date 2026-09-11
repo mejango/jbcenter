@@ -33,6 +33,7 @@ import {
 } from '@bananapus/nana-sdk-core';
 import { jbSuckerV6Abi, uniswapV4PoolId, v6Address } from '@bananapus/nana-sdk-core/v6';
 import { PlanService } from '../../src/services/plans.js';
+import { deploymentAddress, deploymentAddresses } from '../../src/services/rollout.js';
 import { canonicalJson } from '../../src/domain/json.js';
 import type {
   BlockEvidence,
@@ -1180,51 +1181,58 @@ describe('extension receipt evidence', () => {
     expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
   });
 
-  it('does not call a cash-out swap fallback successful terminal-token delivery', async () => {
-    const call: PreparedCall = {
-      ...payCall(),
-      data: encodeFunctionData({
-        abi: jbMultiTerminalAbi,
-        functionName: 'cashOutTokensOf',
-        args: [ACCOUNT, 7n, 100n, TOKEN, 0n, OTHER, '0x'],
-      }),
-      decoded: {
-        functionName: 'cashOutTokensOf',
-        args: [ACCOUNT, '7', '100', TOKEN, '0', OTHER, '0x'],
-      },
-    };
-    const { service, sealed, receipt } = setup(draft([call]));
-    receipt.logs = [
-      abiLog(
-        jbMultiTerminalAbi,
-        'CashOutTokens',
-        {
-          rulesetId: 1n,
-          rulesetCycleNumber: 1n,
-          projectId: 7n,
-          holder: ACCOUNT,
-          beneficiary: OTHER,
-          cashOutCount: 100n,
-          cashOutTaxRate: 0n,
-          reclaimAmount: 0n,
-          metadata: '0x',
-          caller: ACCOUNT,
+  it.each([...deploymentAddresses('JBBuybackHook', 1), OTHER])(
+    'checks failed-sell evidence from recorded hook generations and excludes alien emitter %s',
+    async (hook) => {
+      const call: PreparedCall = {
+        ...payCall(),
+        data: encodeFunctionData({
+          abi: jbMultiTerminalAbi,
+          functionName: 'cashOutTokensOf',
+          args: [ACCOUNT, 7n, 100n, TOKEN, 0n, OTHER, '0x'],
+        }),
+        decoded: {
+          functionName: 'cashOutTokensOf',
+          args: [ACCOUNT, '7', '100', TOKEN, '0', OTHER, '0x'],
         },
-        TERMINAL,
-      ),
-      abiLog(
-        jbBuybackHookAbi,
-        'SellSwapReverted',
-        { projectId: 7n, holder: ACCOUNT, amount: 100n, caller: TERMINAL },
-        v6Address('JBBuybackHook', 1),
-        1,
-      ),
-    ];
-    const result = await service.verify(params(sealed.token));
-    expect(result.transactionConfirmed).toBe(true);
-    expect(result.outcomeVerified).toBe(false);
-    expect(result.steps[0]!.reason).toContain('project tokens were returned');
-  });
+      };
+      const { service, sealed, receipt } = setup(draft([call]));
+      receipt.logs = [
+        abiLog(
+          jbMultiTerminalAbi,
+          'CashOutTokens',
+          {
+            rulesetId: 1n,
+            rulesetCycleNumber: 1n,
+            projectId: 7n,
+            holder: ACCOUNT,
+            beneficiary: OTHER,
+            cashOutCount: 100n,
+            cashOutTaxRate: 0n,
+            reclaimAmount: 0n,
+            metadata: '0x',
+            caller: ACCOUNT,
+          },
+          TERMINAL,
+        ),
+        abiLog(
+          jbBuybackHookAbi,
+          'SellSwapReverted',
+          { projectId: 7n, holder: ACCOUNT, amount: 100n, caller: TERMINAL },
+          hook,
+          1,
+        ),
+      ];
+      const result = await service.verify(params(sealed.token));
+      expect(result.transactionConfirmed).toBe(true);
+      expect(result.outcomeVerified).toBe(hook === OTHER);
+      if (hook !== OTHER) expect(result.steps[0]!.reason).toContain('project tokens were returned');
+      else
+        expect(result.steps[0]!.outcome?.some((event) => event.event === 'SellSwapReverted')).toBe(
+          false,
+        );
+    },
+  );
 
   it('requires NFT Mint and ERC721 ownership Transfer, in addition to the payment event', async () => {
     const plan = {
@@ -1298,81 +1306,87 @@ describe('extension receipt evidence', () => {
     }
   });
 
-  it('verifies native-token TWAP windows using normalized zero-address event keys', async () => {
-    const hook = v6Address('JBBuybackHook', 1);
-    const { service, sealed, receipt } = setup(
-      planFor(hook, jbBuybackHookAbi, 'setTwapWindowOf', [7n, NATIVE_TOKEN, 172800n]),
-    );
-    receipt.logs = [
-      abiLog(
-        jbBuybackHookAbi,
-        'TwapWindowChanged',
-        {
-          projectId: 7n,
-          terminalToken: zeroAddress,
-          oldWindow: 1800n,
-          newWindow: 172800n,
-          caller: ACCOUNT,
-        },
-        hook,
-      ),
-    ];
-    expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(true);
-  });
+  it.each(deploymentAddresses('JBBuybackHook', 1))(
+    'verifies native-token TWAP windows on recorded hook %s using the exact emitter',
+    async (hook) => {
+      const { service, sealed, receipt } = setup(
+        planFor(hook, jbBuybackHookAbi, 'setTwapWindowOf', [7n, NATIVE_TOKEN, 172800n]),
+      );
+      receipt.logs = [
+        abiLog(
+          jbBuybackHookAbi,
+          'TwapWindowChanged',
+          {
+            projectId: 7n,
+            terminalToken: zeroAddress,
+            oldWindow: 1800n,
+            newWindow: 172800n,
+            caller: ACCOUNT,
+          },
+          hook,
+        ),
+      ];
+      expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(true);
+      receipt.logs = receipt.logs.map((log) => ({ ...log, address: OTHER }));
+      expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
+    },
+  );
 
-  it('verifies the actual five-argument pool-registration key and registration TWAP sentinel', async () => {
-    const hook = v6Address('JBBuybackHook', 1);
-    const key = {
-      currency0: zeroAddress,
-      currency1: TOKEN,
-      fee: 10000,
-      tickSpacing: 200,
-      hooks: OTHER,
-    };
-    const plan = planFor(hook, jbBuybackHookAbi, 'setPoolFor', [
-      7n,
-      10000,
-      200,
-      172800n,
-      NATIVE_TOKEN,
-    ]);
-    plan.summary = { key };
-    const { service, sealed, receipt } = setup(plan);
-    receipt.logs = [
-      abiLog(
+  it.each(deploymentAddresses('JBBuybackHook', 1))(
+    'verifies the pool-registration key and generation-specific TWAP sentinel on hook %s',
+    async (hook) => {
+      const key = {
+        currency0: zeroAddress,
+        currency1: TOKEN,
+        fee: 10000,
+        tickSpacing: 200,
+        hooks: OTHER,
+      };
+      const plan = planFor(hook, jbBuybackHookAbi, 'setPoolFor', [
+        7n,
+        10000,
+        200,
+        172800n,
+        NATIVE_TOKEN,
+      ]);
+      plan.summary = { key };
+      const { service, sealed, receipt } = setup(plan);
+      receipt.logs = [
+        abiLog(
+          jbBuybackHookAbi,
+          'PoolAdded',
+          {
+            projectId: 7n,
+            terminalToken: zeroAddress,
+            poolId: uniswapV4PoolId(key),
+            caller: ACCOUNT,
+          },
+          hook,
+        ),
+        abiLog(
+          jbBuybackHookAbi,
+          'TwapWindowChanged',
+          {
+            projectId: 7n,
+            terminalToken: zeroAddress,
+            oldWindow: 0n,
+            newWindow: hook === deploymentAddress('JBBuybackHook', 1) ? 1800n : 172800n,
+            caller: ACCOUNT,
+          },
+          hook,
+          1,
+        ),
+      ];
+      expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(true);
+      receipt.logs[0] = abiLog(
         jbBuybackHookAbi,
         'PoolAdded',
-        {
-          projectId: 7n,
-          terminalToken: zeroAddress,
-          poolId: uniswapV4PoolId(key),
-          caller: ACCOUNT,
-        },
+        { projectId: 7n, terminalToken: zeroAddress, poolId: zeroHash, caller: ACCOUNT },
         hook,
-      ),
-      abiLog(
-        jbBuybackHookAbi,
-        'TwapWindowChanged',
-        {
-          projectId: 7n,
-          terminalToken: zeroAddress,
-          oldWindow: 0n,
-          newWindow: 1800n,
-          caller: ACCOUNT,
-        },
-        hook,
-        1,
-      ),
-    ];
-    expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(true);
-    receipt.logs[0] = abiLog(
-      jbBuybackHookAbi,
-      'PoolAdded',
-      { projectId: 7n, terminalToken: zeroAddress, poolId: zeroHash, caller: ACCOUNT },
-      hook,
-    );
-    expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
-  });
+      );
+      expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
+    },
+  );
 
   it('verifies queued rulesets without claiming that they are already active', async () => {
     const { service, sealed, receipt } = setup(
@@ -1391,12 +1405,34 @@ describe('extension receipt evidence', () => {
     expect(result.steps[0]!.reason).toContain('does not assert approval or activation');
   });
 
-  it('verifies routed payments only from the canonical destination emitter and canonical caller', async () => {
-    const router = v6Address('JBRouterTerminal', 1);
-    const { service, sealed, receipt } = setup(draft([{ ...payCall(), to: router }]));
-    receipt.logs = [payLog({ caller: router })];
-    expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(true);
-    receipt.logs = [payLog({ caller: OTHER })];
+  it.each([
+    ...deploymentAddresses('JBRouterTerminal', 1),
+    ...deploymentAddresses('JBRouterTerminalGateway', 1),
+    v6Address('JBRouterTerminalRegistry', 1),
+  ])(
+    'verifies routed payments through recorded target %s using the canonical immediate caller as payer',
+    async (target) => {
+      const router = deploymentAddresses('JBRouterTerminal', 1).includes(target)
+        ? target
+        : deploymentAddress('JBRouterTerminal', 1)!;
+      const { service, sealed, receipt } = setup(draft([{ ...payCall(), to: target }]));
+      receipt.logs = [payLog({ caller: router, payer: router })];
+      expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(true);
+      receipt.logs = [payLog({ caller: OTHER, payer: OTHER })];
+      expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
+      receipt.logs = [payLog({ caller: router, payer: ACCOUNT })];
+      expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
+      receipt.logs = [payLog({ caller: router, payer: router }, OTHER)];
+      expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
+      receipt.logs = [];
+      expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
+    },
+  );
+
+  it('does not verify a copied routed-payment event for an unrecorded outer target', async () => {
+    const { service, sealed, receipt } = setup(draft([{ ...payCall(), to: OTHER }]));
+    const router = deploymentAddress('JBRouterTerminal', 1)!;
+    receipt.logs = [payLog({ caller: router, payer: router })];
     expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
   });
 });

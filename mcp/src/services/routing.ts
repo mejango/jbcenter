@@ -49,7 +49,7 @@ import type {
   RpcProvider,
   RpcSnapshot,
 } from '../domain/types.js';
-import { deploymentAddresses, routerGatewayAbi } from './rollout.js';
+import { deploymentAddress, deploymentAddresses, routerGatewayAbi } from './rollout.js';
 
 const NATIVE = '0x000000000000000000000000000000000000EEEe' as const;
 const oracleAbi = parseAbi([
@@ -729,6 +729,9 @@ export class RoutingService {
     const snapshot = await this.context(input.project);
     const resolution = await resolveRoutingHooks(snapshot, input.project, snapshot.current);
     const hook = this.canonicalBuyback(resolution, input.project);
+    const remapsRegistrationWindow =
+      input.twapWindowSeconds === 172800 &&
+      same(hook, deploymentAddress('JBBuybackHook', input.project.chainId)!);
     const authorization = await this.authorize(snapshot, input.project, input.account, 29);
     const [oldKey, manager, oracleHook, tokens] = await Promise.all([
       snapshot.client.readContract({
@@ -818,13 +821,12 @@ export class RoutingService {
         key,
         state,
         requestedTwapWindowSeconds: input.twapWindowSeconds,
-        storedTwapWindowSeconds:
-          input.twapWindowSeconds === 172800 ? 1800 : input.twapWindowSeconds,
+        storedTwapWindowSeconds: remapsRegistrationWindow ? 1800 : input.twapWindowSeconds,
       },
       [
         'This permanently selects the pool key for this project and terminal token on this chain.',
         'Pool initialization does not establish oracle coverage or adequate trade-size liquidity. Fresh terminal previews are still required.',
-        ...(input.twapWindowSeconds === 172800
+        ...(remapsRegistrationWindow
           ? [
               'The contract registration sentinel 172800 stores 1800 seconds. Use a separate TWAP update to deliberately select 172800 seconds.',
             ]
