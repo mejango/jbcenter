@@ -57,6 +57,7 @@ add('bendystraw-v6', 'indexer', [
 ]);
 add('jbcenter', 'center', [
   'README.md',
+  'RISKS.md',
   'src/types.ts',
   'src/intent.ts',
   'src/deploymentVerifier.ts',

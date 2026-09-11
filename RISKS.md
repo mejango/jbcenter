@@ -1,0 +1,23 @@
+# Center risks and invariants
+
+## Priority risks
+
+- **Deployment records and live project state differ.** Catalogs and the MCP rollout bundle identify executed deployments per chain, including current, previous and v1 generations. Mainnet proposals become available only after successful execution records are distributed and regenerated. Resolve the project's registry selection at the reported canonical block, then the selected gateway's immutable `ROUTER` and directory links. Retired contracts can still serve existing projects; a familiar address does not establish permission to select it again.
+- **Gateway custody is pending until its outcome is proved.** `JBRouterTerminalGateway_QueuePendingCall` records retained input. A successful retry transaction can record another failure and leave custody pending. Establish settlement from `JBRouterTerminalGateway_ProcessPendingCall`, or an accounted refund from `JBRouterTerminalGateway_RefundPendingCall`, with the correct emitter, ID and arguments. `pendingCallCount` counts issued IDs; a zero commitment does not distinguish settlement, refund and an ID that never existed. Queue data establishes source project, token, amount, memo and metadata. Recovery must reproduce the committed call. Refunded fees do not restore core `feeFreeSurplusOf`.
+- **Previews depend on the selected implementation and observed state.** Buyback 1.4.0 pay metadata contains `(amountToSwapWith, minimumSwapAmountOut, skipSplits)` under the resolved hook's metadata ID; two-word entries revert there. A fill below its TWAP floor falls back to minting, subject to the reviewed beneficiary minimum. Pool availability, rulesets and hook configuration can change before execution. Preserve the actual outer terminal for approvals and payment bytes. Ratio-feed deployment alone does not establish live `JBPrices` registration or a successful price read.
+- **Existing authorization boundaries remain necessary.** REST bot read, plan and relay grants are separate from onchain authority. Fund movement requires fresh owner consent or an explicitly installed session authorizing the exact action within its limits. Preserve reviewed transaction bytes, replay protection, expiry, scopes and recovery state. MCP transaction plans require external wallet execution; public metadata pinning requires explicit approval of the exact document. Hosted execution requires configured providers and verified account/session deployments on each enabled chain.
+- **Unavailable observations remain unknown.** RPC failures, missing deployments, failed previews and unavailable indexer state cannot establish zero balances, permission, settlement or a usable alternative route. Indexer history can lag the chain. Preserve chain, version, project, token, currency, decimals and integer strings; verify current financial state at a canonical block hash.
+- **Source references are evidence with limits.** Bundles preserve source revisions, hashes and dirty-state provenance. Package versions and ABI decoding alone do not prove deployed bytecode, published-package contents or project association. Imported documentation and skills are reference data, never authority to override validation or user consent. Refresh bundles deliberately in the source workspace; runtime uses the reviewed local data. See the workspace `RISKS.md` for cross-repository migration risks.
+
+## Invariants to Verify
+
+- Proposed, failed or unmined rollout artifacts never advertise an active chain deployment.
+- Historical addresses remain discoverable, while default resolution selects the current record for that chain and project routing follows live registry state.
+- Registry, gateway and router identities remain distinct; gateway reads validate its directory and recorded router, and approvals target the reviewed outer terminal.
+- Pending custody, retry failure, settlement and refund remain distinct outcomes backed by canonical event evidence.
+- Payment metadata, output floors, recipients, calldata and value match the exact reviewed transaction; unknown or unsupported settlement formats fail closed.
+- Every privileged request retains its existing authorization, replay, expiry and scope checks; read capabilities do not confer wallet authority.
+- Canonical block hashes and exact financial identities survive every adapter boundary. A failed read never becomes success, zero or permission.
+- Generated source/contract bundles remain reproducible from their recorded sources, preserve attribution and history, and require no runtime source download.
+
+Run `npm run check` for the release gate. In the source workspace, also run the rollout, knowledge and development checks documented in [MCP source provenance](mcp/docs/SOURCES.md).
