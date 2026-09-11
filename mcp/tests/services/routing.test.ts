@@ -32,7 +32,7 @@ const manager = '0x5555555555555555555555555555555555555555' as const;
 const oracle = '0x6666666666666666666666666666666666666666' as const;
 const nft = '0x7777777777777777777777777777777777777777' as const;
 const native = '0x000000000000000000000000000000000000EEEe' as const;
-const buyback = v6Address('JBBuybackHook', 1);
+const buyback = deploymentAddress('JBBuybackHook', 1)!;
 const registry = v6Address('JBBuybackHookRegistry', 1);
 const key = {
   currency0: zeroAddress,
@@ -268,59 +268,62 @@ describe('routing hook resolution', () => {
 });
 
 describe('routing diagnostics', () => {
-  it('resolves an executed testnet gateway and distinguishes issued IDs, retained custody and failed reads', async () => {
-    const chainId = 11155111;
-    const testProject = { ...project, chainId } as const;
-    const gateway = deploymentAddress('JBRouterTerminalGateway', chainId)!;
-    const router = deploymentAddress('JBRouterTerminal', chainId)!;
-    const retainedId = numberToHex(1n, { size: 32 });
-    const absentId = numberToHex(2n, { size: 32 });
-    const unknownId = numberToHex(3n, { size: 32 });
-    const { service, reads } = fixture((request) => {
-      if (request.functionName === 'terminalOf') return gateway;
-      if (request.functionName === 'pendingCallCommitmentOf' && request.args?.[0] === unknownId)
-        throw new Error('pending commitment unavailable');
-      return pass;
-    }, chainId);
-    const result = await service.getRouting({
-      project: testProject,
-      pendingCallIds: [retainedId, absentId, unknownId],
-      pairs: [{ tokenIn: native, tokenOut: projectToken }],
-    });
-    expect(result).toMatchObject({
-      router: {
-        resolved: { value: gateway },
-        path: {
-          value: {
-            gateway,
-            router,
-            path: [v6Address('JBRouterTerminalRegistry', chainId), gateway, router],
+  it.each([1, 11155111] as const)(
+    'resolves chain %i gateway and distinguishes issued IDs, retained custody and failed reads',
+    async (chainId) => {
+      const testProject = { ...project, chainId } as const;
+      const gateway = deploymentAddress('JBRouterTerminalGateway', chainId)!;
+      const router = deploymentAddress('JBRouterTerminal', chainId)!;
+      const retainedId = numberToHex(1n, { size: 32 });
+      const absentId = numberToHex(2n, { size: 32 });
+      const unknownId = numberToHex(3n, { size: 32 });
+      const { service, reads } = fixture((request) => {
+        if (request.functionName === 'terminalOf') return gateway;
+        if (request.functionName === 'pendingCallCommitmentOf' && request.args?.[0] === unknownId)
+          throw new Error('pending commitment unavailable');
+        return pass;
+      }, chainId);
+      const result = await service.getRouting({
+        project: testProject,
+        pendingCallIds: [retainedId, absentId, unknownId],
+        pairs: [{ tokenIn: native, tokenOut: projectToken }],
+      });
+      expect(result).toMatchObject({
+        router: {
+          resolved: { value: gateway },
+          path: {
+            value: {
+              gateway,
+              router,
+              path: [v6Address('JBRouterTerminalRegistry', chainId), gateway, router],
+            },
+          },
+          pendingCalls: {
+            value: {
+              issuedIdCount: { value: '8' },
+              calls: [
+                {
+                  id: retainedId,
+                  retained: { value: true },
+                  failure: { value: { count: 2, highestGasLimit: '1000000' } },
+                },
+                { id: absentId, retained: { value: false } },
+                { id: unknownId, retained: { status: 'unknown' }, failure: { status: 'known' } },
+              ],
+            },
           },
         },
-        pendingCalls: {
-          value: {
-            issuedIdCount: { value: '8' },
-            calls: [
-              {
-                id: retainedId,
-                retained: { value: true },
-                failure: { value: { count: 2, highestGasLimit: '1000000' } },
-              },
-              { id: absentId, retained: { value: false } },
-              { id: unknownId, retained: { status: 'unknown' }, failure: { status: 'known' } },
-            ],
-          },
-        },
-      },
-      buybackPools: { status: 'known' },
-    });
-    expect(reads.find((read) => read.functionName === 'discoverBestPool')?.address).toBe(router);
-    expect(reads.filter((read) => read.functionName === 'pendingCallCommitmentOf')).toHaveLength(3);
-    expect(JSON.stringify(result)).toContain('not the outstanding-call count');
-  });
+        buybackPools: { status: 'known' },
+      });
+      expect(reads.find((read) => read.functionName === 'discoverBestPool')?.address).toBe(router);
+      expect(reads.filter((read) => read.functionName === 'pendingCallCommitmentOf')).toHaveLength(
+        3,
+      );
+      expect(JSON.stringify(result)).toContain('not the outstanding-call count');
+    },
+  );
 
-  it('keeps proposed mainnet gateway deployment absent and preserves recorded retired router routes', async () => {
-    expect(deploymentAddress('JBRouterTerminalGateway', 1)).toBeUndefined();
+  it('preserves recorded retired router routes after the current gateway deploys', async () => {
     const retired = deploymentAddresses('JBRouterTerminal', 1).find(
       (address) => address !== deploymentAddress('JBRouterTerminal', 1),
     )!;
@@ -338,6 +341,11 @@ describe('routing diagnostics', () => {
     });
     expect(reads.find((read) => read.functionName === 'discoverBestPool')?.address).toBe(retired);
     expect(reads.some((read) => read.functionName === 'ROUTER')).toBe(false);
+  });
+
+  it('keeps the feed-only chain free of unexecuted gateway deployments', () => {
+    expect(deploymentAddress('JBRatioPriceFeed', 11155420)).toBeDefined();
+    expect(deploymentAddress('JBRouterTerminalGateway', 11155420)).toBeUndefined();
   });
 
   it('rejects a recorded gateway with an unrecognized immutable router', async () => {
@@ -480,7 +488,7 @@ describe('routing diagnostics', () => {
       pairs: [{ tokenIn: native, tokenOut: projectToken }],
     });
     expect(reads.find((read) => read.functionName === 'discoverBestPool')).toMatchObject({
-      address: v6Address('JBRouterTerminal', 1),
+      address: deploymentAddress('JBRouterTerminal', 1),
       args: [custom, projectToken],
     });
     expect(result).toMatchObject({
@@ -640,8 +648,8 @@ describe('routing configuration plans', () => {
       terminal: zeroAddress,
     });
     expect(plan.summary).toMatchObject({
-      cohortDefault: v6Address('JBRouterTerminal', 1),
-      effectiveTerminalAfter: v6Address('JBRouterTerminal', 1),
+      cohortDefault: deploymentAddress('JBRouterTerminal', 1),
+      effectiveTerminalAfter: deploymentAddress('JBRouterTerminal', 1),
       meaning:
         'Clears the override. The verified project cohort default becomes the forwarding terminal.',
     });

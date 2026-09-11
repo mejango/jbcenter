@@ -15,7 +15,7 @@ describe("pinned V6 contract catalog", () => {
     expect(catalog.data.chains.map((chain) => chain.id)).toEqual([1, 10, 8453, 42161, 84532, 421614, 11155111, 11155420]);
     expect(catalog.data.deploymentManifest.commit).toMatch(/^[a-f0-9]{40}$/);
     const deployments = catalog.data.contracts.flatMap((contract) => contract.deployments.flatMap((chain) => chain.instances));
-    expect(deployments).toHaveLength(703);
+    expect(deployments).toHaveLength(719);
     for (const contract of catalog.data.contracts) {
       expect(contract.deployments).toHaveLength(8);
       expect(contract.id).toBe(`${contract.packageId}:${contract.sourcePath}:${contract.name}`);
@@ -52,19 +52,19 @@ describe("pinned V6 contract catalog", () => {
     const named = (name: string) => catalog.list({ category: "contract" }).find((entry) => entry.name === name)!;
     const gateway = named("JBRouterTerminalGateway");
     const ratio = named("JBRatioPriceFeed");
-    const rolloutChains = [84532, 421614, 11155111];
+    const rolloutChains = [1, 10, 8453, 42161, 84532, 421614, 11155111];
     for (const chain of catalog.data.chains) {
       expect(gateway.deployments.find((entry) => entry.chainId === chain.id)!.status)
         .toBe(rolloutChains.includes(chain.id) ? "published" : "missing");
       expect(ratio.deployments.find((entry) => entry.chainId === chain.id)!.status)
-        .toBe(chain.testnet ? "published" : "missing");
+        .toBe("published");
       for (const name of ["JBRouterTerminal", "JBBuybackHook"]) {
         const instances = named(name).deployments.find((entry) => entry.chainId === chain.id)!.instances;
         if (chain.id === 11155420) {
           expect(instances).toEqual([]);
           continue;
         }
-        expect(instances.find((instance) => !instance.retired)?.generation).toBe(chain.testnet ? "current" : "previous");
+        expect(instances.find((instance) => !instance.retired)?.generation).toBe("current");
         expect(instances.some((instance) => instance.generation === "v1" && instance.retired)).toBe(true);
         if (rolloutChains.includes(chain.id)) {
           expect(instances.some((instance) => instance.generation === "previous" && instance.retired)).toBe(true);
