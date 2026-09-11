@@ -1,6 +1,8 @@
 # Smart accounts and bounded sessions
 
-The REST service implements separate smart-wallet ownership bindings, exact session compilation, owner activation/revocation plans, and independent installed-policy verification. Session execution requires a verified deployed stack, a configured hosted bundler/paymaster, and a canonical owner-approved activation. Existing direct transaction and Relayr transports retain their own authority rules. A linked smart wallet is never silently replaced with its owner EOA.
+A **smart wallet** is an account controlled by code and its owners. A **binding** links a verified wallet to a Center API account. A **session** permits a bot to repeat specific wallet actions within owner-approved limits and an expiry. Linking a wallet grants no permission to spend. See the [glossary](https://juicebox.center/api#glossary).
+
+Center prepares exact session policies and owner-approved activation or revocation plans, then independently checks the installed policy. Sessions require verified deployed contracts, a configured submission service (**bundler**) and gas sponsor (**paymaster**), and verified owner-approved activation onchain. Direct transactions and Relayr retain their own approval rules. Center never silently replaces a linked wallet with its owner's directly controlled account (**EOA**).
 
 `createSmartAccountService`, `createSessionPolicyReviewer`, `createLegacySessionCompiler`, and `createInstalledSessionVerifier` are exported from `src/rest/smartAccounts/index.ts`. Runtime configuration owns deployment manifests, module inspectors, reviewed targets/assets and paymasters. HTTP callers cannot supply those trust inputs. Missing configuration fails explicitly; source artifacts do not constitute a live deployment.
 

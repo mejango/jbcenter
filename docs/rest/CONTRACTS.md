@@ -1,6 +1,8 @@
 # V6 contract reads and unsigned preparation
 
-The contract catalog identifies a pinned package, source declaration, ABI variant and published deployment. The protocol service exposes every `view`/`pure` function of a resolved executable contract for reading, and every `nonpayable`/`payable` function for unsigned transaction preparation. HTTP hosts must mount reads as GET operations and preparation as a separate authenticated action. Preparation does not authorize signing or broadcast.
+A **smart contract** is code running on a blockchain. Its **ABI** describes the functions your software can call and their input and output types. Center's catalog links each contract to its exact package version, source, ABI, and published addresses. See the [glossary](https://juicebox.center/api#glossary) for related terms.
+
+The service exposes every `view`/`pure` function of a verified target for reads, and every `nonpayable`/`payable` function for unsigned transaction preparation. Hosts must serve reads as GET requests and preparation as a separate authenticated action. Preparation gives no permission to sign or submit a transaction.
 
 ```ts
 import { createProtocolReadService } from "../../src/rest/protocol/index.js";

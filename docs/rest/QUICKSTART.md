@@ -1,13 +1,16 @@
 # Get started
 
-Choose the smallest setup for your task:
+Start with what you want to do. An API lets your software use Center; REST is
+the web request interface documented here. An assistant can use Center's tools
+through MCP (Model Context Protocol). See the [glossary](https://juicebox.center/api#glossary)
+for terms used below.
 
 | Task | Start here |
 | --- | --- |
-| Browse apps, documentation, contract schemas, or API capabilities | [Directory](https://juicebox.center), [API explorer](https://juicebox.center/api), or [capabilities](https://juicebox.center/api/v1/capabilities). No wallet or account needed. |
-| Ask an agent to inspect V6 projects or prepare a transaction | Connect an MCP client to `https://juicebox.center/mcp`. No REST enrollment or bot grant needed for MCP tools; wallet execution remains separate. |
-| Automate protected REST reads, plans, or relay | Enroll once and register a client-held bot key below. The bot signs subsequent API requests without wallet prompts. |
-| Execute with sponsored gas | Connect a supported smart wallet on `/accounts`, prepare an action, and sign the exact owner operation. No bot or weekly/monthly permission is required. |
+| Find apps, guides, or developer tools | [Directory](https://juicebox.center) or [API explorer](https://juicebox.center/api). |
+| Ask an assistant to inspect V6 projects or prepare a transaction | Connect it to `https://juicebox.center/mcp`. MCP tools need no Center account. Wallet approval is separate. |
+| Automate data reads, transaction preparation, or submission | Create an API account and register a bot key below. The bot keeps its key and signs later API requests without wallet prompts. |
+| Have a sponsor cover the network cost | Connect a supported smart wallet on `/accounts`, prepare an action, and sign it. A smart wallet is an account controlled by code and its owners. No bot or recurring permission is required. |
 
 See the [journey map](./USER_JOURNEYS.md) for source choices, approvals, and
 current execution limits. Smart-wallet creation currently requires an
@@ -15,15 +18,19 @@ owner-funded transaction; sponsored execution is a separate step.
 
 ## Enroll an API account
 
-Open `/accounts` on the Center service. Connect an EIP-1193 browser wallet, choose its account and authority chain, and select **Enroll account**. Enrollment signs an API request with an empty JSON body; it does not send an onchain transaction. Existing owners can select **Load account**.
+Open [Accounts](https://juicebox.center/accounts). Connect a compatible browser wallet. Choose its address and network, then select **Enroll account**. This signs an API request with an empty JSON body; it does not send a transaction. Existing owners can select **Load account**.
 
-The account identity is `eip155:<authority-chain-id>:<lowercase-owner-address>`. The authority chain is part of the account identity, so switching wallet chains selects another account. The page clears its connection when the wallet account or chain changes. Use the profile form to update the display name, bio, and optional HTTPS/IPFS avatar URI.
+The selected network identifies your API account; it is called the **authority chain**. The account ID is `eip155:<authority-chain-id>:<lowercase-owner-address>`, so switching wallet networks selects another account. The page clears its connection when the wallet address or network changes. The profile form accepts a display name, bio, and optional avatar link using HTTPS or IPFS, a network for sharing files by their content.
 
 The account page signs protected requests with the connected owner wallet, so its reads and changes can prompt the wallet. For ongoing automation, register a bot instead of repeatedly asking the owner to sign reads. The browser keeps no private key in localStorage or sessionStorage. It renders user-supplied profile and bot text as text, and does not fetch avatar URLs.
 
 ## Create a bot in the browser
 
-1. Choose a label, expiration, and permission profile under **Bots**: **Read**, **Read + plan**, or **Read + plan + relay**. Planning includes reads so the bot can retrieve and review its plans. Relay includes reads and planning because a bot can relay only plans created by that same bot. Wallet transaction signatures remain separate.
+You choose what a bot may do through the API. These permissions form its **grant**.
+A **plan** stores the exact proposed transactions for review. **Relay** means
+submitting transactions the wallet has already signed.
+
+1. Choose a label, expiration, and permissions under **Bots**: **Read**, **Read + plan**, or **Read + plan + relay**. Planning includes reads so the bot can review its plans. Relay includes reads and planning because a bot can submit only its own plans. Wallet transaction signatures remain separate.
 2. Select **Generate and download key**. The private key is created locally and downloaded once as a JSON file. The page retains only the public registration proof.
 3. Save the file, then select **Register downloaded bot** and approve the owner signature. Save the returned grant ID; it is public and identifies the bot's authorization.
 4. Use **Refresh bots** to list grants and **Revoke bot** to withdraw authorization.
@@ -36,11 +43,11 @@ Browser downloads commonly have mode `0644`. Before using a downloaded key with 
 chmod 600 /path/to/juicebox-bot-key.json
 ```
 
-If registration does not complete, keep the downloaded key. Create a fresh public proof request and use the CLI workflow below. Registration proofs are bound to one owner request nonce, so the page does not automatically reuse a possibly consumed nonce.
+If registration does not complete, keep the downloaded key. Create a fresh public proof request and use the command-line workflow below. Each owner request has a single-use random value, called a **nonce**. The page does not automatically reuse one because the server may already have consumed it.
 
 ## Bring an existing bot key
 
-Build the CLI's shared client once in `extensions/jbcenter` with Node 22 or newer:
+Build the command-line tool (CLI) once in `extensions/jbcenter` with Node 22 or newer:
 
 ```sh
 npm run build
@@ -53,7 +60,7 @@ Generate a new local key if needed. The destination must not exist; key creation
 node scripts/rest/center.mjs keygen --out /private/path/bot-key.json
 ```
 
-The keyfile format is `juicebox-center-bot-key-v1`, with `botAddress` and `privateKey` fields. If you already manage a bot EOA, create this file locally using your existing secret-management process. Do not paste the private key into the account page or put it on a command line. The CLI accepts owned regular keyfiles with mode `0600` or `0400`, rejects symlinks and multiple hard links, and checks that the public address matches the key.
+The keyfile format is `juicebox-center-bot-key-v1`, with `botAddress` and `privateKey` fields. If you already manage a bot's signing key, create this file locally using your existing secret-management process. Do not paste the private key into the account page or put it on a command line. The CLI accepts owned regular keyfiles with mode `0600` or `0400`, rejects symlinks and multiple hard links, and checks that the public address matches the key.
 
 On `/accounts`, expand **Bring your own bot key**, select the bot label/permissions/expiration, and download the public proof request. Sign it locally:
 
@@ -68,7 +75,7 @@ Paste only `registration.json` into the page. Select **Review registration**, ch
 
 ## Make signed requests
 
-Use the same service origin as the authentication audience. It must be HTTPS, or HTTP on localhost. The account ID uses a lowercase address. Set the public account and grant values returned during registration:
+Sign requests for the service URL you will send them to. This URL is the authentication **audience**. It must use HTTPS, or HTTP on localhost. The account ID uses a lowercase address. Set the public account and grant values returned during registration:
 
 ```sh
 CENTER_ACCOUNT='eip155:1:0x0000000000000000000000000000000000000000'
@@ -86,7 +93,7 @@ node scripts/rest/center.mjs send \
   --target '/api/v1/accounts/me'
 ```
 
-For an API mutation, write the exact JSON document to a local file and supply `--method POST --body /path/to/body.json --content-type application/json`. Amounts and other large integers belong in decimal strings. Use the API catalog for the endpoint's required schema and bot scope. Owner API requests omit `--grant`; owner wallet keys should stay in the wallet instead of being exported for this CLI.
+For a request that changes state, write the exact JSON to a local file and supply `--method POST --body /path/to/body.json --content-type application/json`. Put amounts and other large integers in decimal strings. The API catalog gives each route's input format and required bot permission, called its **scope**. Owner API requests omit `--grant`; keep owner keys in the wallet.
 
 `sign` writes one signed request to an exclusive `0600` file without transmitting it:
 
@@ -104,7 +111,8 @@ That file includes `url`, `method`, `headers`, and `bodyBase64`. A custom transp
 
 ## Approve bot relay with the owner wallet
 
-This section is for direct EOA transactions and prepaid Relayr publication.
+This section is for wallets controlled directly by a signing key, called
+**externally owned accounts (EOAs)**, and for prepaid Relayr publication.
 For sponsored Safe execution, use the separate [smart-account
 workflow](./API.md#smart-accounts-and-sponsored-owner-execution): the owner signs
 the returned, time-limited `SafeOp`; no additional `CenterTransactionApproval`
@@ -183,6 +191,10 @@ await botClient.request({
 Use the exported hash helper without reordering signatures or changing the preparation commitment. Direct transaction approvals and sponsorship approvals are distinct typed documents and cannot substitute for each other. The exact plan or sponsorship remains owned by its creating principal; another bot's grant cannot take it over.
 
 ## Request fidelity and retries
+
+For a retry, an **idempotency key** identifies the same operation so the server
+can return its existing result. It is separate from the nonce, which must be
+new for each signed request.
 
 The TypeScript client exports `SignedRestClient`, `prepareSignedRequest`, `createBotRegistration`, `parseBotRegistration`, the two approval builders, and `sponsorshipSubmissionHash` from `src/rest/client/index.ts`. It uses the same browser-safe typed-data builders as the server. JSON is encoded once, raw bodies are copied before signing, and request targets that Fetch would normalize are rejected before signing. Redirects and ambient browser credentials are disabled.
 

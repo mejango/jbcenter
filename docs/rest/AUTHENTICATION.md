@@ -1,14 +1,18 @@
 # Wallet-owned accounts and signed REST requests
 
-Center REST accounts belong to a wallet on an explicit authority chain. The account
+Center's API lets software request data or actions through web requests (REST).
+To use protected routes, a wallet owner creates an account and signs requests.
+The network used to identify that account is its **authority chain**. The account
 identifier is `eip155:<authorityChainId>:<lowercaseOwnerAddress>`. A profile contains
 only a display name, biography, and optional avatar URI; none of these fields
 establish identity or grant permissions.
 
-Owners can register client-generated secp256k1 bot keys. The private key remains
-with the client. Center stores the public address, immutable grant identifier,
-scopes, label, expiry, and revocation time. No API key, bearer token, or server-side
-wallet private key is used for this authentication scheme.
+Owners can let a bot sign API requests using its own locally generated
+secp256k1 key. The permissions form a **grant**; each permission is a **scope**.
+The private key stays with the client. Center stores the public address, fixed
+grant ID, scopes, label, expiry, and revocation time. This scheme uses request
+signatures, with no API key, bearer token, or server-held wallet key. See the
+[glossary](https://juicebox.center/api#glossary).
 
 Public discovery does not require a bot grant. Owner enrollment is an independently
 signed request and works before an account or bot exists. A bot cannot enroll an
@@ -16,7 +20,9 @@ account on behalf of an unrelated owner.
 
 ## Request signatures
 
-Every protected request uses an EIP-712 `CenterRequest` signature. The exact schema
+Every protected request signs structured fields using the EIP-712 standard and
+Center's `CenterRequest` format. A single-use random value (**nonce**) prevents
+replay. An **idempotency key** identifies retries of the same operation. The exact schema
 and browser-compatible helpers live in
 [`src/rest/auth/signatures.ts`](../../src/rest/auth/signatures.ts).
 

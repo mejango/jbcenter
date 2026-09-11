@@ -10,8 +10,8 @@ export function accountsPage(options: { scriptPath?: string; stylePath?: string;
 <body data-audience="${escapeHtml(options.audience ?? "")}"><main>
 <header><a href="/">JUICEBOX CENTER</a><span>V6 / ACCOUNTS</span></header>
 <h1>Your account.<br>Your bots.</h1>
-<p class="lede">Connect your wallet to manage API access or approve sponsored V6 transactions. Add a bot when you want an agent to read data and prepare plans.</p>
-<nav class="section-nav" aria-label="Account sections"><a href="#wallet-heading">Wallet</a><a href="#profile-heading">Profile</a><a href="#bots-heading">Bots</a><a href="#smart-heading">Smart wallet</a><a href="#operation-heading">Execute</a><a id="session-nav" href="#session-heading" hidden>Bot permissions</a></nav>
+<p class="lede">Connect your wallet to manage app access or approve V6 transactions. Add a bot to read data and prepare transactions for your review.</p>
+<nav class="section-nav" aria-label="Account sections"><a href="#wallet-heading">Wallet</a><a href="#profile-heading">Profile</a><a href="#bots-heading">Bots</a><a href="#smart-heading">Smart wallet</a><a href="#operation-heading">Send a transaction</a><a id="session-nav" href="#session-heading" hidden>Bot permissions</a><a href="/api#glossary">Glossary</a></nav>
 <p id="status" role="status" aria-live="polite">Ready.</p>
 <section aria-labelledby="wallet-heading"><h2 id="wallet-heading">01 / Wallet</h2>
 <div class="row"><label>Wallet<select id="wallets"><option value="">Looking for wallets…</option></select></label><button id="connect" type="button">Connect wallet</button><button id="disconnect" type="button" hidden>Disconnect</button></div>
@@ -23,18 +23,18 @@ export function accountsPage(options: { scriptPath?: string; stylePath?: string;
 <form id="profile-form"><fieldset id="profile-fields" disabled>
 <label>Display name<input id="display-name" name="displayName" maxlength="120" autocomplete="nickname"></label>
 <label>Bio<textarea id="bio" name="bio" maxlength="2000" rows="3"></textarea></label>
-<label>Avatar URI<input id="avatar-uri" name="avatarUri" maxlength="2048" placeholder="https:// or ipfs://"></label>
+<label>Profile image address<input id="avatar-uri" name="avatarUri" maxlength="2048" placeholder="https:// or ipfs://"></label>
 <button type="submit">Save profile</button></fieldset></form></details></section>
 <section aria-labelledby="bots-heading"><h2 id="bots-heading">03 / Bots</h2>
-<p>Read retrieves data. Planning includes reads. Relay includes reads and planning, and requires fresh owner approval to submit wallet-signed transactions. A bot grant does not let a bot spend the owner’s funds.</p>
+<p>A bot is a program with its own key. Choose what it can do: read data, prepare plans, or send already signed transactions (relay). Each level includes the earlier ones. Relay needs fresh owner approval; API access does not let a bot spend the owner’s funds.</p>
 <fieldset id="bot-fields" disabled><div class="row">
 <label>Bot label<input id="bot-label" maxlength="120" value="My bot"></label>
 <label>Expires in days<input id="bot-days" type="number" min="1" max="365" value="31"></label></div>
-<label>Permission profile<select id="bot-permissions"><option value="read">Read</option><option value="plan">Read + plan</option><option value="relay">Read + plan + relay</option></select></label>
+<label>API permissions<select id="bot-permissions"><option value="read">Read</option><option value="plan">Read + plan</option><option value="relay">Read + plan + relay</option></select></label>
 <p>A new key is created in this browser and downloaded once. Keep the file private. The server receives the address and signed proof.</p>
 <div class="row"><button id="generate-bot" type="button">Generate and download key</button><button id="register-generated" type="button" disabled>Register downloaded bot</button></div>
 <p id="pending-bot"></p>
-<details><summary>Bring your own bot key</summary><p>Download a public proof request. Run the CLI with your local key, then paste the resulting registration JSON. Keep the private key file on your machine.</p>
+<details><summary>Bring your own bot key</summary><p>Download a public proof request. Use the command-line tool (CLI) with your local key, then paste the registration JSON it creates. Keep the private key file on your machine.</p>
 <button id="proof-request" type="button">Download proof request</button>
 <label>Public registration JSON<textarea id="registration-json" rows="7" spellcheck="false" autocomplete="off" placeholder='{"format":"juicebox-center-bot-registration-v1",…}'></textarea></label>
 <button id="review-proof" type="button">Review registration</button><pre id="proof-preview" hidden></pre><button id="register-proof" type="button" hidden>Sign and register this bot</button></details>
@@ -42,7 +42,7 @@ export function accountsPage(options: { scriptPath?: string; stylePath?: string;
 <div class="row"><h3>Registered bots</h3><button id="refresh-bots" type="button" disabled>Refresh bots</button></div><ul id="bot-list" class="bot-list"><li>Load your account to view bots.</li></ul>
 </section>
 ${smartWalletSections()}
-<footer>Private keys stay in your wallet or this page. Signatures authorize exact API requests and reviewed onchain operations.</footer>
+<footer>Private keys stay in your wallet or this page. Signatures approve exact API requests and reviewed blockchain actions.</footer>
 </main></body></html>`;
 }
 export function accountsCss(): string {

@@ -1,6 +1,6 @@
 # Relayr sponsorship
 
-Center can prepare and publish owner-signed, exact ERC-2771 calls through the existing Relayr prepaid transport. A wallet separately funds the resulting bundle. The payer can be the user or an independent sponsor; Center never holds a signing key, pays for a bundle, or grants a bot wallet authority.
+Relayr lets a user or sponsor prepay the network cost of wallet-approved calls. Center prepares the exact calls, the owner signs them, and Center publishes them through Relayr using the ERC-2771 forwarding standard. A wallet separately pays for the group of calls (**bundle**). Center never holds a signing key, pays for a bundle, or gives a bot permission to spend from a wallet. See the [glossary](https://juicebox.center/api#glossary).
 
 This transport is `relayr-prepaid-erc2771`. It supports Ethereum (`1`), Optimism (`10`), Base (`8453`), and Arbitrum (`42161`) mainnets when the host enables them and verifies their deployed contracts. Testnets, ERC-4337 paymasters, Safe module execution, and reusable session keys are not supported by this adapter. Capability configuration is not a claim that a provider is currently healthy or a particular target is eligible.
 

@@ -1,8 +1,8 @@
 # V6 indexed reads
 
-The REST indexer service exposes bounded reads across the complete pinned Bendystraw V6 schema: 56 cataloged entities, 55 supported entity list/single pairs, and indexer progress through `_meta`. The unversioned `wallet` aggregate is explicitly unsupported. Its lifetime volume and historical aggregates cannot be presented as V6 holdings; use versioned participants, NFTs, loans and permission holders instead.
+An **indexer** organizes blockchain records for search and history. Center reads from Bendystraw's pinned V6 data format: 56 cataloged record types, 55 supported list/single-record pairs, and indexing progress through `_meta`. The unversioned `wallet` aggregate is unsupported. Its lifetime volume and history cannot be presented as V6 holdings; use versioned participants, NFTs, loans and permission holders instead. See the [glossary](https://juicebox.center/api#glossary).
 
-This is an indexed data adapter. It does not quote executable payments, calculate spendable balances, verify live ownership, pin a response to a chain block, or fetch metadata URLs. Cost basis, contributed volume, historical snapshots, group totals, token units and indexed USD fields retain their source meanings. Query current contracts for consequential balances, permissions, loan capacity and transaction preparation.
+Indexed data can lag. It does not quote a payment, calculate spendable balances, verify current ownership, fix a response to one chain block, or fetch descriptive project files (**metadata**). Cost basis, contributed volume, historical snapshots, group totals, token units and indexed USD fields retain their source meanings. Read current contracts before relying on balances, permissions, loan capacity, or preparing transactions.
 
 ## Host interface
 

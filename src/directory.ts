@@ -37,12 +37,12 @@ const workInProgress: readonly (DirectoryNode & {
     title: "Shops and NFTs → eth.shop",
     url: "https://eth.shop",
     sourceUrl: "https://github.com/mejango/eth-shop",
-    note: "WIP shop and NFT interface.",
+    note: "Unfinished shop and NFT app.",
   },
   {
     title: "Token locks and rewards → Sticky",
     url: "https://github.com/mejango/jbsticky",
-    note: "WIP project token locks and rewards.",
+    note: "Unfinished token lock and reward tools.",
   },
   {
     title: "Project messaging and support → JBChat",
@@ -52,12 +52,12 @@ const workInProgress: readonly (DirectoryNode & {
   {
     title: "Card and bank payments → JBProcessor",
     url: "https://github.com/mejango/jbprocessor",
-    note: "Live Stripe settlement and end-to-end onboarding remain unfinished.",
+    note: "Live Stripe payment processing and account setup remain unfinished.",
   },
   {
     title: "Revnets for funded machines → Plugin",
     url: "https://github.com/mejango/plugin",
-    note: "Frontend deployed; machine-launcher contracts are not configured.",
+    note: "Website published; contracts that launch funded machines are not configured.",
   },
 ];
 
@@ -144,13 +144,13 @@ export const directoryTree: readonly DirectoryNode[] = [
         url: "https://github.com/Bananapus/juice-sdk-v4#v6-actions-bananapusnana-sdk-corev6",
       },
       {
-        title: "Query projects and activity → Bendystraw",
+        title: "Search projects and activity → Bendystraw",
         url: "https://bendystraw.xyz/schema",
         sourceUrl: "https://github.com/peripheralist/bendystraw",
-        note: "Filter queries to V6. API queries require a key.",
+        note: "Filter results to V6. API requests require a key.",
       },
       {
-        title: "Integrate project listings and shared services → Center",
+        title: "Add project listings and shared services → Center",
         url: "https://github.com/mejango/jbcenter",
       },
       {
@@ -158,7 +158,7 @@ export const directoryTree: readonly DirectoryNode[] = [
         url: "https://github.com/Bananapus/version-6/blob/main/ARCHITECTURE.md",
       },
       {
-        title: "Start from a webclient",
+        title: "Start from an app",
         children: [
           {
             title: "General-purpose projects → Juicebox Money source",
@@ -169,11 +169,11 @@ export const directoryTree: readonly DirectoryNode[] = [
             url: "https://github.com/mejango/revnet-money",
           },
           {
-            title: "Static explorer → Juicescan source",
+            title: "Project explorer → Juicescan source",
             url: "https://github.com/mejango/juicescan",
           },
           {
-            title: "Shop prototype → eth.shop source (WIP)",
+            title: "Shop prototype → eth.shop source (unfinished)",
             url: "https://github.com/mejango/eth-shop",
           },
           {
@@ -189,7 +189,7 @@ export const directoryTree: readonly DirectoryNode[] = [
     id: "api",
     children: [
       {
-        title: "Read V6 data and relay signed transactions → REST API",
+        title: "Read V6 data and send signed transactions → REST API",
         url: "https://juicebox.center/api",
       },
       {
@@ -261,7 +261,7 @@ export const directoryTree: readonly DirectoryNode[] = [
         url: "https://github.com/Bananapus/version-6/blob/main/INVARIANTS.md",
       },
       {
-        title: "Find addresses and ABIs → Deployment artifacts",
+        title: "Find deployed contracts and their interfaces → Deployment records",
         url: "https://github.com/Bananapus/deploy-all-v6/tree/main/deployments",
       },
       {
@@ -276,7 +276,7 @@ export const directoryTree: readonly DirectoryNode[] = [
     content: "repositories",
   },
   {
-    title: "Explore WIP extensions",
+    title: "Explore unfinished tools",
     id: "wip",
     children: workInProgress,
   },
@@ -290,7 +290,7 @@ export const repositoryGroups: readonly RepositoryGroup[] = [
         title: "Core protocol",
         url: "https://github.com/Bananapus/nana-core-v6",
         description:
-          "Projects, rulesets, accounting, tokens, payments, and cash outs.",
+          "Projects, rules, balances, tokens, payments, and cash outs.",
       },
       {
         title: "Permission IDs",
@@ -306,12 +306,12 @@ export const repositoryGroups: readonly RepositoryGroup[] = [
       {
         title: "Address registry",
         url: "https://github.com/Bananapus/nana-address-registry-v6",
-        description: "Record and inspect contract deployer provenance.",
+        description: "Record and check who deployed a contract.",
       },
       {
         title: "Project handles",
         url: "https://github.com/Bananapus/nana-project-handles-v6",
-        description: "Resolve ENS handles linked to specific projects.",
+        description: "Find projects by their Ethereum Name Service (ENS) names.",
       },
       {
         title: "Project payer",
@@ -334,7 +334,7 @@ export const repositoryGroups: readonly RepositoryGroup[] = [
         title: "Buyback hook",
         url: "https://github.com/Bananapus/nana-buyback-hook-v6",
         description:
-          "Compare pool execution with protocol mint and cash-out paths.",
+          "Compare a market trade with creating or cashing out project tokens.",
       },
       {
         title: "Router terminal",
@@ -355,7 +355,7 @@ export const repositoryGroups: readonly RepositoryGroup[] = [
       {
         title: "Swap split hook",
         url: "https://github.com/Bananapus/nana-swap-split-hook-v6",
-        description: "Rebalance a project treasury between accounting tokens.",
+        description: "Move project funds between its accepted tokens.",
       },
     ],
   },
@@ -375,12 +375,12 @@ export const repositoryGroups: readonly RepositoryGroup[] = [
       {
         title: "Deploy All V6",
         url: "https://github.com/Bananapus/deploy-all-v6",
-        description: "Coordinate deployments and inspect chain artifacts.",
+        description: "Deploy contracts and check their published records.",
       },
       {
         title: "Fee project deployer",
         url: "https://github.com/Bananapus/nana-fee-project-deployer-v6",
-        description: "Deploy the V6 protocol fee beneficiary project.",
+        description: "Deploy the shared V6 infrastructure revnet.",
       },
     ],
   },
@@ -391,7 +391,7 @@ export const repositoryGroups: readonly RepositoryGroup[] = [
         title: "Revnet core",
         url: "https://github.com/rev-net/revnet-core-v6",
         description:
-          "Staged economics, cross-chain revnets, and collateralized loans.",
+          "Scheduled token rules, revnets across chains, and loans backed by tokens.",
       },
       {
         title: "Croptop",
@@ -401,7 +401,7 @@ export const repositoryGroups: readonly RepositoryGroup[] = [
       {
         title: "Banny retail",
         url: "https://github.com/mejango/banny-retail-v6",
-        description: "Compose onchain avatar bodies, outfits, and backgrounds.",
+        description: "Combine avatar bodies, outfits, and backgrounds stored onchain.",
       },
       {
         title: "Defifa",
@@ -412,7 +412,7 @@ export const repositoryGroups: readonly RepositoryGroup[] = [
       {
         title: "Distributor",
         url: "https://github.com/Bananapus/nana-distributor-v6",
-        description: "Distribute token and NFT rewards with vesting rounds.",
+        description: "Share token and NFT rewards that unlock over time.",
       },
       {
         title: "JBX distributor",
@@ -427,17 +427,17 @@ export const repositoryGroups: readonly RepositoryGroup[] = [
       {
         title: "Juicebox Money",
         url: "https://github.com/mejango/juicebox-money",
-        description: "General-purpose project webclient.",
+        description: "App for funding and running Juicebox projects.",
       },
       {
         title: "Revnet Money",
         url: "https://github.com/mejango/revnet-money",
-        description: "Revnet webclient.",
+        description: "App for funding and launching revnets.",
       },
       {
         title: "Juicescan",
         url: "https://github.com/mejango/juicescan",
-        description: "Static V6 explorer and transaction interface.",
+        description: "Look up V6 projects and prepare transactions.",
       },
       {
         title: "Succulent",
@@ -458,13 +458,13 @@ export const repositoryGroups: readonly RepositoryGroup[] = [
         title: "Bendystraw",
         url: "https://github.com/peripheralist/bendystraw",
         description:
-          "GraphQL indexing for projects, balances, and activity. Scope queries to V6.",
+          "Search projects, balances, and activity through GraphQL. Filter to V6.",
       },
       {
         title: "Juicebox Center",
         url: "https://github.com/mejango/jbcenter",
         description:
-          "Shared project intents, public read RPC, IPFS, and MCP services.",
+          "Shared project listings, blockchain reads, file storage, and assistant tools.",
       },
       {
         title: "Juicebox V6 skills",
@@ -479,7 +479,7 @@ export const repositoryGroups: readonly RepositoryGroup[] = [
     ],
   },
   {
-    title: "WIP extensions",
+    title: "Unfinished tools",
     links: workInProgress.map(({ title, url, sourceUrl, note }) => ({
       title,
       url: sourceUrl ?? url,

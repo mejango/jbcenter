@@ -114,6 +114,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     id: "revnet-money",
     title: "Revnet Money",
     kind: "resource",
+    note: "Token rules scheduled at launch, with limited operator powers.",
     links: [
       { title: "Open app", url: "https://revnet.money" },
       { title: "Source", url: "https://github.com/mejango/revnet-money" },
@@ -158,7 +159,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "control-model",
     title: "Choose project rules",
-    prompt: "Owner-managed projects or precommitted revnet economics?",
+    prompt: "Rules an owner can change, or a schedule set at launch?",
     kind: "question",
     edges: [
       { to: "launch-project" },
@@ -169,7 +170,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "manage-project",
     title: "Manage a project",
-    prompt: "Configuration, permissions, or a custom integration?",
+    prompt: "Settings, permissions, or an app connection?",
     kind: "question",
     edges: [
       { to: "juicescan" },
@@ -236,7 +237,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "developers",
     title: "Build an app",
-    prompt: "Interface, integration, or agent workflow?",
+    prompt: "A website, app connection, or AI assistant?",
     homeView: "developers",
     kind: "question",
     edges: [
@@ -247,7 +248,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "webclient-start",
-    title: "Build a webclient",
+    title: "Build a website",
     prompt: "Start from an app, the design, or contract calls?",
     kind: "question",
     edges: [
@@ -259,7 +260,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "integration-layer",
     title: "Build an integration",
-    prompt: "Contract calls, indexed data, custom behavior, or shared APIs?",
+    prompt: "Read or send transactions, search history, or add project behavior?",
     homeView: "developers",
     kind: "question",
     edges: [
@@ -271,7 +272,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "webclients",
-    title: "Start from a webclient",
+    title: "Start from an app",
     homeView: "developers",
     kind: "resource",
     content: "webclients",
@@ -284,6 +285,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "sdk",
     title: "Juice SDK V6",
+    note: "Reusable code for reading projects and preparing transactions.",
     homeView: "developers",
     kind: "resource",
     links: [
@@ -303,12 +305,12 @@ export const journeyNodes: readonly JourneyNode[] = [
       { title: "Explore GraphQL schema", url: "https://bendystraw.xyz/schema" },
       { title: "Source", url: "https://github.com/peripheralist/bendystraw" },
     ],
-    note: "API key required. Scope queries to V6.",
+    note: "Searchable project history. API key required; filter results to V6.",
     edges: [{ to: "rpc", kind: "cross" }, { to: "sdk" }],
   },
   {
     id: "architecture",
-    title: "V6 architecture",
+    title: "How V6 fits together",
     homeView: "auditors",
     kind: "resource",
     links: [
@@ -327,7 +329,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "api",
     title: "Use an API",
-    prompt: "Protocol access, chain data, files, or an agent?",
+    prompt: "Project actions, blockchain data, files, or an assistant?",
     homeView: "api",
     kind: "question",
     edges: [
@@ -347,27 +349,27 @@ export const journeyNodes: readonly JourneyNode[] = [
       { title: "Create a bot", url: "https://juicebox.center/accounts" },
       { title: "OpenAPI specification", url: "https://juicebox.center/api/v1/openapi.json" },
     ],
-    note: "V6 reads, transaction plans, and wallet-signed relay.",
+    note: "Read V6 projects, plan transactions, and send transactions your wallet has signed.",
     edges: [{ to: "transaction-review", kind: "cross" }],
   },
   {
     id: "chain-data",
     title: "Read chain data",
-    prompt: "Live state or indexed history?",
+    prompt: "Current values or searchable history?",
     kind: "question",
     edges: [{ to: "rpc" }, { to: "bendystraw" }],
   },
   {
     id: "files",
-    title: "Files and metadata",
-    prompt: "Retrieve an existing CID or publish something new?",
+    title: "Files and project details",
+    prompt: "Open a file or publish something new?",
     kind: "question",
     edges: [{ to: "ipfs" }, { to: "publishing" }],
   },
   {
     id: "publishing",
     title: "Publish content",
-    prompt: "Approved app, agent, or another integration?",
+    prompt: "A supported app, assistant, or your own app?",
     kind: "question",
     edges: [
       { to: "pinning" },
@@ -377,7 +379,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "rpc",
-    title: "Center read RPC",
+    title: "Read a blockchain",
     homeView: "api",
     kind: "resource",
     content: "rpc",
@@ -385,7 +387,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "ipfs",
-    title: "Center IPFS gateway",
+    title: "Open a file",
     homeView: "api",
     kind: "resource",
     content: "ipfs",
@@ -398,10 +400,10 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "pinning",
-    title: "Center IPFS pinning",
+    title: "Store a public file",
     kind: "resource",
     content: "pinning",
-    note: "Approved browser origins required.",
+    note: "Uploads must come from an approved app.",
     edges: [{ to: "ipfs" }],
   },
   {
@@ -409,7 +411,7 @@ export const journeyNodes: readonly JourneyNode[] = [
     title: "Check upload requirements",
     kind: "resource",
     links: [{ title: "Center API documentation", url: CENTER }],
-    note: "Review allowed origins and upload limits.",
+    note: "Check which apps can upload, and the file size limits.",
     edges: [{ to: "publishing", kind: "return" }],
   },
   {
@@ -422,7 +424,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "agent-setup",
-    title: "Connect the hosted MCP",
+    title: "Connect your assistant",
     kind: "resource",
     content: "mcp",
     links: [
@@ -437,13 +439,13 @@ export const journeyNodes: readonly JourneyNode[] = [
     id: "agent-instructions",
     title: "Juicebox V6 skills",
     kind: "resource",
-    links: [{ title: "Get portable instructions", url: SKILLS }],
+    links: [{ title: "Get Juicebox instructions", url: SKILLS }],
     edges: [{ to: "agent-work" }],
   },
   {
     id: "agent-work",
     title: "Choose an agent task",
-    prompt: "Research, transactions, metadata, or code?",
+    prompt: "Research, transactions, project details, or code?",
     kind: "question",
     edges: [
       { to: "agent-read" },
@@ -454,7 +456,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "agent-read",
-    title: "Read with the MCP",
+    title: "Research with your assistant",
     kind: "resource",
     links: [
       { title: "Find a tool", url: `${CENTER}/tree/main/mcp` },
@@ -475,7 +477,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "agent-metadata",
-    title: "Publish reviewed metadata",
+    title: "Publish project details",
     homeView: "agents",
     kind: "resource",
     links: [{ title: "Follow the MCP workflow", url: MCP_JOURNEYS }],
@@ -496,7 +498,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   {
     id: "transaction-scope",
     title: "Review a transaction",
-    prompt: "Inspect state, permissions, or calldata?",
+    prompt: "Check current values, permissions, or transaction instructions?",
     kind: "question",
     edges: [
       { to: "juicescan" },
@@ -550,7 +552,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "risks-invariants",
-    title: "Assumptions and invariants",
+    title: "Risks and required guarantees",
     homeView: "auditors",
     kind: "resource",
     links: [
@@ -616,7 +618,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "wip",
-    title: "Explore WIP extensions",
+    title: "Explore unfinished tools",
     prompt: "User features or payment infrastructure?",
     homeView: "wip",
     kind: "question",
@@ -629,21 +631,21 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "wip-features",
-    title: "User features (WIP)",
+    title: "User features (unfinished)",
     prompt: "Shops, locks, or messaging?",
     kind: "question",
     edges: [{ to: "eth-shop" }, { to: "sticky" }, { to: "jbchat" }],
   },
   {
     id: "wip-infrastructure",
-    title: "Payment infrastructure (WIP)",
+    title: "Payment infrastructure (unfinished)",
     prompt: "Payment rails or funded machines?",
     kind: "question",
     edges: [{ to: "jbprocessor" }, { to: "plugin" }],
   },
   {
     id: "eth-shop",
-    title: "eth.shop (WIP)",
+    title: "eth.shop (unfinished)",
     kind: "resource",
     links: [
       { title: "Open prototype", url: "https://eth.shop" },
@@ -653,7 +655,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "sticky",
-    title: "Sticky (WIP)",
+    title: "Sticky (unfinished)",
     kind: "resource",
     links: [
       { title: "Explore source", url: "https://github.com/mejango/jbsticky" },
@@ -662,7 +664,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "jbchat",
-    title: "JBChat (WIP)",
+    title: "JBChat (unfinished)",
     kind: "resource",
     links: [
       { title: "Explore source", url: "https://github.com/mejango/jbchat" },
@@ -672,7 +674,7 @@ export const journeyNodes: readonly JourneyNode[] = [
   },
   {
     id: "jbprocessor",
-    title: "JBProcessor (WIP)",
+    title: "JBProcessor (unfinished)",
     kind: "resource",
     links: [
       {
@@ -680,22 +682,22 @@ export const journeyNodes: readonly JourneyNode[] = [
         url: "https://github.com/mejango/jbprocessor",
       },
     ],
-    note: "Live settlement and end-to-end onboarding remain unfinished.",
+    note: "Live payment processing and account setup remain unfinished.",
     edges: [{ to: "wip-next" }],
   },
   {
     id: "plugin",
-    title: "Plugin (WIP)",
+    title: "Plugin (unfinished)",
     kind: "resource",
     links: [
       { title: "Explore source", url: "https://github.com/mejango/plugin" },
     ],
-    note: "Machine-launcher contracts are not configured.",
+    note: "The contracts that launch funded machines are not configured.",
     edges: [{ to: "wip-next" }],
   },
   {
     id: "wip-index",
-    title: "All WIP extensions",
+    title: "All unfinished tools",
     kind: "resource",
     content: "wip",
     edges: [{ to: "wip-next" }],
@@ -841,7 +843,7 @@ export const journeyViews: readonly JourneyView[] = [
   },
   {
     id: "wip",
-    title: "Explore WIP extensions",
+    title: "Explore unfinished tools",
     entry: "wip",
     layout: [
       { node: "wip", column: 2, row: 1 },

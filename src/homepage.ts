@@ -66,11 +66,12 @@ const { cid, uri, gatewayUrl } = await response.json();`;
 
 const API_CONTENT = {
   rpc: `<div class="resource-panel" data-flow-node>
+    <p>Read blockchain data through <a href="/api#glossary-rpc">RPC</a>, the request format used by wallets and apps.</p>
     <p class="access">Public. No API key.</p>
     <code class="endpoint">POST https://juicebox.center/v1/rpc/:chainId</code>
     <table>
       <caption>Choose a chain ID</caption>
-      <thead><tr><th scope="col">Network</th><th scope="col">Mainnet</th><th scope="col">Sepolia</th></tr></thead>
+      <thead><tr><th scope="col">Network</th><th scope="col">Real funds (mainnet)</th><th scope="col">Test funds (Sepolia)</th></tr></thead>
       <tbody>
         <tr><th scope="row">Ethereum</th><td>1</td><td>11155111</td></tr>
         <tr><th scope="row">Optimism</th><td>10</td><td>11155420</td></tr>
@@ -79,20 +80,22 @@ const API_CONTENT = {
       </tbody>
     </table>
     <details class="example"><summary>Example: read a Base block number</summary><pre><code>${escapeHtml(RPC_EXAMPLE)}</code></pre></details>
-    <p class="note">One JSON-RPC object per request. Reads and bounded simulations; submit transactions through your wallet. Handle HTTP 429 rate limits.</p>
+    <p class="note">Send one JSON-RPC object per request. Read data or test a call within the published limits; send transactions through your wallet. HTTP 429 means too many requests.</p>
     <a class="reference" href="https://github.com/mejango/jbcenter#read-ethereum-rpc">RPC documentation ↗</a>
     <a class="reference" href="https://github.com/mejango/jbcenter/blob/main/src/rpc.ts">Methods and limits ↗</a>
   </div>`,
   ipfs: `<div class="resource-panel" data-flow-node>
+    <p>Retrieve files from <a href="/api#glossary-ipfs">IPFS</a>, a shared file network. A file's content gives it an identifier called a CID.</p>
     <p class="access">Public. No API key.</p>
     <code class="endpoint">GET https://juicebox.center/ipfs/:cid[/path]</code>
     <p><code>ipfs://CID/image.png</code> becomes:</p>
     <code class="endpoint">https://juicebox.center/ipfs/CID/image.png</code>
-    <p class="note">Cross-origin reads and media byte ranges. Up to 500 MiB. HTML, scripts, CSS, XML, PDFs, and Wasm download as files.</p>
+    <p class="note">Apps on other sites can read files and request parts of a media file. Up to 500 MiB. HTML, scripts, CSS, XML, PDFs, and Wasm download as files.</p>
     <a class="reference" href="https://github.com/mejango/jbcenter#pin-and-read-ipfs-content">Gateway documentation ↗</a>
   </div>`,
   pinning: `<div class="resource-panel" data-flow-node>
-    <p class="access">Approved app origins required</p>
+    <p>Upload public files to IPFS. Keeping a copy available is called pinning.</p>
+    <p class="access">Uploads must come from an approved app</p>
     <p>Browser uploads: <a href="https://juicebox.money">juicebox.money</a>, <a href="https://revnet.money">revnet.money</a>, <a href="https://eth.shop">eth.shop</a>, <a href="https://succulent.money">succulent.money</a>, or <a href="https://homerun.money">homerun.money</a>.</p>
     <table class="pin-routes">
       <caption>POST to https://juicebox.center</caption>
@@ -108,12 +111,13 @@ const API_CONTENT = {
       <p>Use the multipart field <code>file</code>. The browser sets Origin and Content-Type. Use <code>/v1/pins/media</code> for video, audio, PDF, or text.</p>
       <pre><code>${escapeHtml(PIN_FILE_EXAMPLE)}</code></pre>
     </details>
-    <p class="note">HTTP 201 returns <code>cid</code>, <code>uri</code> (<code>ipfs://…</code>), <code>gatewayUrl</code> (<code>/ipfs/…</code>), and <code>status: "queued"</code> for the redundant pin. Uploads are public.</p>
+    <p class="note">HTTP 201 returns <code>cid</code>, <code>uri</code> (<code>ipfs://…</code>), <code>gatewayUrl</code> (<code>/ipfs/…</code>), and <code>status: "queued"</code> for a second stored copy. Queued means that copy is still waiting. Uploads are public.</p>
     <a class="reference" href="https://github.com/mejango/jbcenter#pin-and-read-ipfs-content">Upload documentation ↗</a>
-    <a class="reference" href="https://github.com/mejango/jbcenter/blob/main/mcp/docs/USER_JOURNEYS.md">Publish reviewed metadata with an agent ↗</a>
+    <a class="reference" href="https://github.com/mejango/jbcenter/blob/main/mcp/docs/USER_JOURNEYS.md">Publish project details with an agent ↗</a>
   </div>`,
   mcp: `<div class="resource-panel" data-flow-node>
-    <p class="access">Streamable HTTP. Any compatible agent.</p>
+    <p>Give an assistant access to Juicebox tools through <a href="/api#glossary-mcp">MCP</a>, a shared format for connecting AI apps to tools.</p>
+    <p class="access">Use a compatible client with Streamable HTTP.</p>
     <code class="endpoint">https://juicebox.center/mcp</code>
   </div>`,
 };
@@ -124,7 +128,11 @@ function nodeChildren(
   return node.content === "repositories"
     ? repositoryGroups.map((category) => ({
         title: category.title,
-        children: category.links.map(({ title, url }) => ({ title, url })),
+        children: category.links.map(({ title, url, description }) => ({
+          title,
+          url,
+          note: description,
+        })),
       }))
     : node.children;
 }
@@ -205,8 +213,8 @@ const referenceLabels: Record<NonNullable<JourneyNode["content"]>, string> = {
   pinning: "Upload routes and examples",
   mcp: "MCP endpoint",
   repositories: "All source repositories",
-  webclients: "Webclient sources",
-  wip: "WIP projects and status",
+  webclients: "App source code",
+  wip: "Unfinished projects and status",
 };
 
 const RETURN_ICON = `<svg class="return-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="m9 4-5 5 5 5M4 9h10a6 6 0 0 1 0 12h-3"/></svg>`;
@@ -404,7 +412,7 @@ export const HOMEPAGE_HTML = `<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="The pay and cash out functions of the open internet. Find Juicebox apps, contracts, RPC and IPFS APIs, skills, and audit resources.">
+  <meta name="description" content="Find Juicebox apps, learn how projects work, build an integration, and check the code.">
   <script defer src="${HOMEPAGE_JS_PATH}?v=${createHash("sha256").update(HOMEPAGE_JS).digest("hex").slice(0, 12)}"></script>
   <meta name="theme-color" content="#f5f4ef">
   <title>Juicebox Center</title>
@@ -420,7 +428,7 @@ export const HOMEPAGE_HTML = `<!doctype html>
     </header>
     <main id="main">
       <h1>Everything Juicebox in one place</h1>
-      <p class="introduction">Juicebox is a decentralized protocol that runs on public blockchains - the 'pay' and 'cash out' functions of the open web. Juicebox Center is a directory that makes it easier to find your way across the wide ecosystem of products and platforms that use the protocol.</p>
+      <p class="introduction">Juicebox lets projects raise and share money under rules anyone can check. Find an app, learn how it works, or build your own. <a href="https://juicebox.money/learn">Start with the basics</a> or look up a word in the <a href="/api#glossary">glossary</a>.</p>
       <section class="journey-explorer" aria-label="Juicebox journeys">
         <nav class="journey-tabs" aria-labelledby="choose-journey">
           <h2 id="choose-journey">What do you want to do?</h2>
@@ -436,7 +444,8 @@ export const HOMEPAGE_HTML = `<!doctype html>
     </main>
     <footer>
       <a href="https://github.com/mejango/jbcenter/blob/main/src/directory.ts">Improve this directory ↗</a>
-      <a href="https://github.com/Bananapus/version-6/issues">Ecosystem issues ↗</a>
+      <a href="https://github.com/Bananapus/version-6/issues">Report an issue ↗</a>
+      <a href="/api#glossary">Glossary</a>
     </footer>
   </div>
 </body>

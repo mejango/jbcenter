@@ -1,10 +1,16 @@
 # Durable plans and signed transaction relay
 
-The REST transaction service stores immutable reviewed calls and tracks exact execution through direct EOA, Relayr forwarding, or a separately configured EntryPoint v0.7 UserOperation service. The direct relay accepts an exact wallet-signed EVM transaction matching one call. Center never stores wallet private keys, signs transactions, invents an allowance, or grants onchain permissions through an API credential.
+A **plan** stores the exact proposed transactions for review. **Relay** means submitting transactions a wallet has signed. Center stores the reviewed calls unchanged and tracks their results. It never holds wallet keys, signs transactions, assumes token spending approval, or gives spending permission through an API credential.
+
+The service supports wallets controlled directly by a signing key (**EOAs**), calls forwarded by Relayr, and separately configured smart-wallet requests (**UserOperations**) through EntryPoint v0.7. Direct relay accepts one exact wallet-signed EVM transaction matching one planned call. See the [glossary](https://juicebox.center/api#glossary).
 
 The direct transport supports EIP-155 protected legacy, EIP-2930, and EIP-1559 transactions. Contract creation without a destination, unprotected legacy transactions, blobs, and EIP-7702 authorization-list transactions are rejected. Factory calls with an explicit reviewed destination remain ordinary supported calls. Runtime capabilities report each transport's configured availability, confirmations, and fee bounds. The separate [Relayr sponsorship service](./SPONSORSHIP.md) reports `relayr-prepaid-erc2771` funding requirements; `userOperations` and `sessions` report hosted EntryPoint execution and recurring authority. A route or account binding alone does not establish availability.
 
 ## Workflow
+
+The encoded call instructions are **calldata**. **Canonical** block evidence
+comes from a block that remains in the chain's accepted history. An
+**idempotency key** identifies retries of the same operation; keep it unchanged.
 
 1. A protocol operation or reviewed ABI method produces `RestPlanDraft`: wallet account, exact chain/destination/calldata/native value, ordered dependencies, and canonical block evidence. The authenticated account must own the planned wallet. A bot principal is an API identity, not the wallet signer.
 2. `createPlan(actor, draft, idempotencyKey, requestHash)` returns a durable plan ID, commitment, expiry, calls, and redacted step state. The body digest is computed by the authenticated HTTP boundary. An identical idempotency retry returns the original plan, including after its expiry; another body or operation conflicts.

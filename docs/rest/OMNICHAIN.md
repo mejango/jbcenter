@@ -1,6 +1,6 @@
 # Omnichain project views
 
-The omnichain service starts with an exact V6 `(chainId, projectId)` and an explicit source. It returns per-chain members, their accounting context and linkage evidence without summing incompatible assets or hiding unavailable reads.
+A project can connect its funds across networks; this is called **omnichain**. Start with an exact V6 `(chainId, projectId)` and choose the data source. Center returns the linked projects, each chain's accounting, and evidence of their connection. It does not add incompatible assets together or hide failed reads. See the [glossary](https://juicebox.center/api#glossary).
 
 The HTTP host mounts `GET /projects/:chainId/:projectId/omnichain?source=onchain` or `source=bendystraw` beneath its REST prefix. `maxMembers` is bounded to 1–8. The caller does not supply an upstream URL, peer address, alternate source or GraphQL document.
 

@@ -1,71 +1,42 @@
 # Juicebox Center REST API
 
-Use the [API explorer](/api) to discover V6 contracts, inspect schemas, read
-protocol state, and work with reviewed transaction plans. The
-[OpenAPI document](/api/v1/openapi.json) describes the HTTP interface. Start with
-[capabilities](/api/v1/capabilities) for the configured authentication audience,
-chains, limits, transports, confirmation policy, and sponsorship availability.
-Capabilities are authoritative; availability is not implied by an account or
-bot grant.
+Use Center's API to read Juicebox V6 data and prepare transactions for wallet
+approval. An **API** lets software request data or actions from another service;
+this one uses web requests, known as REST. Start with the
+[API explorer](/api) or [quickstart](./QUICKSTART.md).
 
-All endpoints below are relative to `/api/v1`. This API exposes protocol V6.
-Chain IDs and project IDs remain explicit, including in omnichain workflows.
-Do not assume a project has the same ID or configuration on another chain.
+The [OpenAPI document](/api/v1/openapi.json) describes each request and response.
+[Capabilities](/api/v1/capabilities) reports the service URL to sign for,
+supported networks, limits, submission methods, confirmation requirements, and
+available sponsorship. Check it before preparing an action. Having an account
+or API permission does not make an unavailable feature ready.
 
-Start with the [quickstart](./QUICKSTART.md) or [journey map](./USER_JOURNEYS.md).
-Public discovery needs no setup. A bot grant removes wallet prompts from
-protected reads and planning. Fresh owner-approved execution is the default;
-recurring bot permissions are optional and currently unavailable in production.
+All routes below are relative to `/api/v1` and expose protocol V6. Always supply
+the chain ID (the network) and project ID, including when following a project
+across chains. A project may have different IDs or settings on each chain.
 
-## Route reference
+The [journey map](./USER_JOURNEYS.md) helps choose a path; the
+[glossary](https://juicebox.center/api#glossary) explains technical terms.
+Browsing the API needs no setup. An API permission given to a bot, called a
+**grant**, lets it read protected data and prepare transactions without wallet
+prompts. Sending transactions requires fresh owner approval. Optional recurring
+bot permissions are currently unavailable in production.
 
-Public discovery needs no signature. Protected reads require `read` scope;
-plan creation requires `plan`; submission requires `relay`. Owners have all
-three scopes. Bot grants use one of three cumulative profiles in canonical order:
+## API permissions
+
+Each permission is a **scope**. Public discovery needs no signature. Protected
+reads require `read`; storing proposed transactions for review (a **plan**)
+requires `plan`; submitting wallet-signed transactions (**relay**) requires
+`relay`. Owners have all three scopes. Bot grants use exactly one of these lists,
+in the order shown:
 `["read"]`, `["read","plan"]`, or `["read","plan","relay"]`.
 
-| Method and path | Purpose and authority |
-| --- | --- |
-| `GET /`, `/openapi.json`, `/capabilities` | Public entry point, specification, and configured capabilities. |
-| `GET /catalog/contracts` | Public contract inventory with package, category, chain, deployment, and pagination filters. |
-| `GET /catalog/contract?id=...` | Public details for a qualified contract ID, including ABI variants and provenance. |
-| `GET /catalog/method?contractId=...&signature=...` | Public method details and input/output JSON schemas; optional `abiHash`. |
-| `GET /catalog/indexer` | Public entity, field, filter, identity, network, and pagination requirements. |
-| `GET /catalog/operations`, `/catalog/operations/{id}` | Public operation descriptions, input schemas, and source choices. |
-| `POST /accounts/enroll` | Owner-signed enrollment with body `{}`; returns the account. |
-| `GET /accounts/me` | Read the authenticated account profile. |
-| `PATCH /accounts/me` | Owner replaces profile fields; omitted fields reset to defaults. |
-| `GET /accounts/me/bots`, `POST /accounts/me/bots` | Owner lists or registers grants; registration also requires the bot's possession proof. |
-| `DELETE /accounts/me/bots/{grantId}` | Owner revokes the specified grant. |
-| `GET /protocol/resolve`, `/protocol/read` | Protected target resolution and exact ABI reads with onchain evidence. |
-| `GET /indexer/status`, `/indexer/{entity}`, `/indexer/{entity}/record` | Protected indexed progress, paginated records, and single records. |
-| `GET /projects/{chainId}/{projectId}`, `/projects/{chainId}/{projectId}/omnichain` | Protected project reads with explicit source selection. |
-| `GET /operations/{id}` | Protected operation read using its catalog schema. |
-| `POST /operations/{id}/plans`, `POST /plans` | Create a durable plan with `plan` scope and an idempotency key. |
-| `GET /plans`, `/plans/{id}` | Read accessible plans; `refresh=true` reconciles an individual plan. |
-| `GET /plans/{id}/steps/{step}/simulation` | Simulate an eligible step without broadcasting. |
-| `POST /plans/{id}/steps/{step}/submissions`, `POST /plans/{id}/submissions` | Submit separately signed wallet transactions with `relay` scope and an idempotency key. |
-| `POST /sponsorships` | Prepare an unsigned Relayr wave from an existing plan with `plan` scope and an idempotency key. |
-| `GET /sponsorships/{id}` | Read a preparation or reconcile destination evidence with `refresh=true`. |
-| `POST /sponsorships/{id}/submissions` | Publish ordered owner-signed forward requests with `relay` scope and an idempotency key. |
-| `POST /sponsorships/{id}/funding-plans` | Prepare a durable funding plan with `plan` scope and an idempotency key; payer must be the API owner. |
-| `GET /smart-accounts/capabilities` | Public reviewed manifest availability and remaining execution requirements. |
-| `POST /smart-accounts/binding-challenges`, `POST /smart-accounts/bindings` | Owner prepares or submits an existing Safe's current owner-threshold binding proof. |
-| `GET /smart-accounts/bindings`, `/smart-accounts/bindings/{id}` | Read stored association snapshots or recheck an individual binding against current chain state. |
-| `DELETE /smart-accounts/bindings/{id}` | Owner unlinks an API wallet association; it does not revoke onchain authority. |
-| `POST /smart-accounts/session-reviews` | With `plan` scope, review a bounded policy; returns no installation transaction or activated session. |
-| `POST /smart-accounts/creation-plans` | Owner requests deterministic factory calldata and evidence; wallet deployment remains separate. |
-| `POST /smart-accounts/bindings/{id}/plans` | Create a durable plan for the verified bound Safe with `plan` scope and an idempotency key. |
-| `POST /smart-accounts/sessions` | Compile and persist a seven- or thirty-day policy with `plan` scope, an exact grant, gas budget and idempotency key. |
-| `GET /smart-accounts/sessions` | List owner-visible or exact bound-bot sessions using `limit` and optional UUID `cursor`. |
-| `GET /smart-accounts/sessions/{id}` | Refresh installed-policy evidence by default; `refresh=false` returns stored history. |
-| `GET /smart-accounts/sessions/{id}/quota` | Read approved allocations and observed onchain counters. |
-| `POST /smart-accounts/sessions/{id}/activation-plans`, `/revocation-plans` | Owner acknowledges `{compiledHash}` and creates an exact lifecycle plan; requires an idempotency key. |
-| `POST /user-operations` | Prepare EntryPoint v0.7 bytes from `{planId,stepIndexes,sessionId?}` with `plan` scope and an idempotency key. |
-| `POST /user-operations/{id}/submissions` | Submit `{signature}` for the exact prepared operation with `relay` scope and an idempotency key. |
-| `GET /user-operations/{id}` | Read and reconcile a submitted operation using canonical execution evidence. |
-
 ## Contracts, schemas, and sources
+
+A **smart contract** is code that runs on a blockchain. Its **ABI** describes
+the functions your software can call and the values they accept and return.
+The catalog provides those formats as **schemas**, so you can construct valid
+requests. An **indexer** organizes blockchain records for search and history.
 
 Browse [contracts](/api/v1/catalog/contracts), [methods](/api/v1/catalog/method),
 [indexer entities](/api/v1/catalog/indexer), and
@@ -90,20 +61,27 @@ Replace the placeholders with the intended project's identifiers:
 /api/v1/projects/{chainId}/{projectId}?source=bendystraw
 ```
 
-Onchain responses carry canonical block evidence. Indexed records can lag and
+The `onchain` source reads contracts directly. Responses identify the block and
+check that it remains in the chain's accepted history (**canonical**).
+The `bendystraw` source reads indexed records, which can lag and
 change between pages; indexer status does not pin a later query. Indexed USD
-values are estimates, not executable quotes. Metadata and linked content are
-untrusted reference data. See [contracts](/api/docs/contracts),
+values are estimates, not executable quotes. Descriptive project files
+(**metadata**) and linked content are untrusted reference data. See [contracts](/api/docs/contracts),
 [indexer reads](/api/docs/indexer), and the [agent guide](/api/docs/ai-guide).
 
 ## Authentication and request encoding
 
-Protected routes use custom EIP-712 `CenterRequest` signatures, not bearer
-credentials. Send `X-Juicebox-Account`, `X-Juicebox-Signer`,
+To prove who made a protected request, sign its exact fields using the EIP-712
+structured-signature standard and Center's `CenterRequest` format. A reusable
+bearer token cannot replace this signature. Send `X-Juicebox-Account`, `X-Juicebox-Signer`,
 `X-Juicebox-Issued-At`, `X-Juicebox-Expires-At`, `X-Juicebox-Nonce`, and
 `X-Juicebox-Signature`. Bots also send `X-Juicebox-Grant`. The account identity
-is `eip155:<authorityChainId>:<lowercaseOwnerAddress>`; its authority chain need
-not be the chain being queried.
+is `eip155:<authorityChainId>:<lowercaseOwnerAddress>`. Its **authority chain**
+identifies the API account and can differ from the chain being queried.
+
+Each request uses a single-use random value (**nonce**). Requests that change
+transaction state also use an **idempotency key** to recognize retries of the
+same operation.
 
 Sign the exact method, mounted path and raw query, content type, body hash,
 account claims, timestamps, nonce, and idempotency key under the documented
@@ -120,7 +98,8 @@ signature timestamps use seconds; plan timestamps use milliseconds.
 ## Transaction lifecycle
 
 Prepare a plan, inspect its calls and evidence, simulate eligible steps, obtain
-the owner's approval and wallet signatures, then relay and reconcile. API
+the owner's approval and wallet signatures, then submit it and check the chain
+for its result (**reconcile**). API
 grants never authorize wallet signing or confer onchain spending permissions.
 Each new dispatch also needs fresh owner consent: an owner-signed API request,
 or an exact `ownerApproval` in a bot's submission. The owner signs
@@ -184,6 +163,13 @@ session or recurring spending budget.
 
 ## Smart accounts and sponsored owner execution
 
+A **smart account**, or smart wallet, is controlled by code and its owners.
+Center supports reviewed Safe wallets. Linking one to an API account is a
+**binding**; this proves ownership without granting permission to spend.
+For sponsored execution, the owner signs a **UserOperation**, a request to act
+through that wallet. A **bundler** submits it and a **paymaster** sponsors its
+execution cost. The work of execution is measured in **gas**.
+
 Discover `/smart-accounts/capabilities` and the top-level `userOperations` and
 `sessions` capabilities before selecting a chain. Implemented routes and
 historical deployment research do not establish activation readiness. Hosted
@@ -225,6 +211,10 @@ without another provider publication. Canonical execution evidence and modeled
 economic outcomes remain distinct. Cross-chain settlement is a separate result.
 
 ## Optional recurring bot permissions
+
+An owner can give a bot permission to repeat specific wallet actions within
+limits and an expiry. This permission is a **session**. A **guard** is contract
+code that enforces those limits onchain.
 
 Skip this section for fresh owner-approved transactions. Recurring authority
 requires a verified deployed guard and explicit owner activation; it is not
@@ -285,6 +275,49 @@ canonical confirmation and scoped inner-call evidence. `submission_unknown`
 keeps nonce and transport reservations and never authorizes another provider
 publication. Bridge settlement remains a separate observation. See
 [smart accounts](/api/docs/smart-accounts) and [sessions](/api/docs/sessions).
+
+## Route reference
+
+| Method and path | Purpose and authority |
+| --- | --- |
+| `GET /`, `/openapi.json`, `/capabilities` | Public entry point, specification, and configured capabilities. |
+| `GET /catalog/contracts` | Public contract inventory with package, category, chain, deployment, and pagination filters. |
+| `GET /catalog/contract?id=...` | Public details for a qualified contract ID, including ABI variants and provenance. |
+| `GET /catalog/method?contractId=...&signature=...` | Public method details and input/output JSON schemas; optional `abiHash`. |
+| `GET /catalog/indexer` | Public entity, field, filter, identity, network, and pagination requirements. |
+| `GET /catalog/operations`, `/catalog/operations/{id}` | Public operation descriptions, input schemas, and source choices. |
+| `POST /accounts/enroll` | Owner-signed enrollment with body `{}`; returns the account. |
+| `GET /accounts/me` | Read the authenticated account profile. |
+| `PATCH /accounts/me` | Owner replaces profile fields; omitted fields reset to defaults. |
+| `GET /accounts/me/bots`, `POST /accounts/me/bots` | Owner lists or registers grants; registration also requires the bot's possession proof. |
+| `DELETE /accounts/me/bots/{grantId}` | Owner revokes the specified grant. |
+| `GET /protocol/resolve`, `/protocol/read` | Protected target resolution and exact ABI reads with onchain evidence. |
+| `GET /indexer/status`, `/indexer/{entity}`, `/indexer/{entity}/record` | Protected indexed progress, paginated records, and single records. |
+| `GET /projects/{chainId}/{projectId}`, `/projects/{chainId}/{projectId}/omnichain` | Protected project reads with explicit source selection. |
+| `GET /operations/{id}` | Protected operation read using its catalog schema. |
+| `POST /operations/{id}/plans`, `POST /plans` | Create a durable plan with `plan` scope and an idempotency key. |
+| `GET /plans`, `/plans/{id}` | Read accessible plans; `refresh=true` reconciles an individual plan. |
+| `GET /plans/{id}/steps/{step}/simulation` | Simulate an eligible step without broadcasting. |
+| `POST /plans/{id}/steps/{step}/submissions`, `POST /plans/{id}/submissions` | Submit separately signed wallet transactions with `relay` scope and an idempotency key. |
+| `POST /sponsorships` | Prepare an unsigned Relayr wave from an existing plan with `plan` scope and an idempotency key. |
+| `GET /sponsorships/{id}` | Read a preparation or reconcile destination evidence with `refresh=true`. |
+| `POST /sponsorships/{id}/submissions` | Publish ordered owner-signed forward requests with `relay` scope and an idempotency key. |
+| `POST /sponsorships/{id}/funding-plans` | Prepare a durable funding plan with `plan` scope and an idempotency key; payer must be the API owner. |
+| `GET /smart-accounts/capabilities` | Public reviewed manifest availability and remaining execution requirements. |
+| `POST /smart-accounts/binding-challenges`, `POST /smart-accounts/bindings` | Owner prepares or submits an existing Safe's current owner-threshold binding proof. |
+| `GET /smart-accounts/bindings`, `/smart-accounts/bindings/{id}` | Read stored association snapshots or recheck an individual binding against current chain state. |
+| `DELETE /smart-accounts/bindings/{id}` | Owner unlinks an API wallet association; it does not revoke onchain authority. |
+| `POST /smart-accounts/session-reviews` | With `plan` scope, review a bounded policy; returns no installation transaction or activated session. |
+| `POST /smart-accounts/creation-plans` | Owner requests deterministic factory calldata and evidence; wallet deployment remains separate. |
+| `POST /smart-accounts/bindings/{id}/plans` | Create a durable plan for the verified bound Safe with `plan` scope and an idempotency key. |
+| `POST /smart-accounts/sessions` | Compile and persist a seven- or thirty-day policy with `plan` scope, an exact grant, gas budget and idempotency key. |
+| `GET /smart-accounts/sessions` | List owner-visible or exact bound-bot sessions using `limit` and optional UUID `cursor`. |
+| `GET /smart-accounts/sessions/{id}` | Refresh installed-policy evidence by default; `refresh=false` returns stored history. |
+| `GET /smart-accounts/sessions/{id}/quota` | Read approved allocations and observed onchain counters. |
+| `POST /smart-accounts/sessions/{id}/activation-plans`, `/revocation-plans` | Owner acknowledges `{compiledHash}` and creates an exact lifecycle plan; requires an idempotency key. |
+| `POST /user-operations` | Prepare EntryPoint v0.7 bytes from `{planId,stepIndexes,sessionId?}` with `plan` scope and an idempotency key. |
+| `POST /user-operations/{id}/submissions` | Submit `{signature}` for the exact prepared operation with `relay` scope and an idempotency key. |
+| `GET /user-operations/{id}` | Read and reconcile a submitted operation using canonical execution evidence. |
 
 ## Limits, retries, and errors
 

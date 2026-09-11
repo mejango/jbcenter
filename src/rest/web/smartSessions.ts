@@ -285,8 +285,8 @@ export function installSmartWalletUI(options: {
       field("operation-authority").value === "session";
     if (!host) return;
     element("smart-readiness").textContent = executionAvailable()
-      ? "Execution is configured for this chain. Review and sign each transaction with your owner wallet."
-      : "Hosted execution is unavailable on the connected chain. Choose a configured chain to continue.";
+      ? "Transactions are configured for this chain. Review and sign each one with your owner wallet."
+      : "This service cannot send transactions on the connected chain. Choose a supported chain.";
   }
   function setBinding(next: SmartAccountBinding) {
     if (
@@ -427,7 +427,7 @@ export function installSmartWalletUI(options: {
     button("smart-create-send").disabled = false;
     button("smart-create-status").disabled = true;
     options.status(
-      "Review the wallet owners, threshold, factory and creation fee before sending the wallet transaction.",
+      "Review the wallet owners, required signature count, creation contract and network cost before sending.",
     );
   });
   event("smart-create-send", async () => {
@@ -500,7 +500,7 @@ export function installSmartWalletUI(options: {
     field("smart-address").value = reviewed!.result.address;
     show("smart-creation", { ...reviewed!.result, receipt });
     options.status(
-      "A successful creation receipt was found. Inspect and bind the wallet to verify its deployed code and authority.",
+      "A successful creation receipt was found. Inspect and link the wallet to verify its deployed code and permissions.",
     );
   });
   event("smart-bind-prepare", async () => {
@@ -532,7 +532,7 @@ export function installSmartWalletUI(options: {
     button("smart-bind-sign").disabled = false;
     button("smart-bind-submit").disabled = false;
     options.status(
-      "Review current owners, threshold and deployed authority, then sign the exact binding document.",
+      "Review current owners, required signatures and contract permissions, then sign the exact wallet-link document.",
     );
   });
   event("smart-bind-sign", async () => {
@@ -726,7 +726,7 @@ export function installSmartWalletUI(options: {
     setSession(result);
     show("session-quota", quota);
     options.status(
-      `Session state: ${result.state}. Quota reflects the displayed onchain observation.`,
+      `Session state: ${result.state}. Remaining limits reflect the displayed blockchain record.`,
     );
   });
   function authorityChanged() {
@@ -786,7 +786,7 @@ export function installSmartWalletUI(options: {
         element("session-key-status").textContent =
           `Local signer: ${signer.address}. Private key retained only in this page's memory.`;
         options.status(
-          "Local session signer loaded. Prepare the action using session authority.",
+          "Local bot key loaded. Prepare an action within its approved permissions.",
         );
       }),
   );
@@ -866,7 +866,7 @@ export function installSmartWalletUI(options: {
     button("operation-sign").disabled = false;
     button("operation-status").disabled = false;
     options.status(
-      "Operation prepared and simulated. Review calldata, gas, paymaster, expiration and the public signing document before signing.",
+      "Operation prepared and simulated. Review the encoded instructions (calldata), network costs, sponsor (paymaster), expiry and public signing document.",
     );
   });
   event("operation-sign", async () => {
@@ -952,7 +952,7 @@ export function installSmartWalletUI(options: {
     element("operation-result").textContent =
       `Operation ${result.id}: ${result.state}. A submission is not confirmation.`;
     options.status(
-      "Operation submitted. Refresh its status to check canonical confirmation.",
+      "Operation submitted. Refresh its status to check confirmation against the chain.",
     );
   });
   event("operation-status", async () => {
