@@ -25,7 +25,7 @@ export interface RepositoryGroup {
 // Published September 3, 2026; latest jb-directory record in Pinata, pinned by
 // Filebase. HTML and app.js verified through eth.sucks on September 6.
 // Update only after confirming a newer published CID, not a local build hash.
-const JUICESCAN_URL =
+export const JUICESCAN_URL =
   "https://bafybeidt2dd3bsiyyk6rfkjuuglcpjvojxeztxd2g4esamopeybpcj25di.eth.sucks/";
 
 // WIP scope includes maintainer-designated projects; deployment alone is not readiness.
@@ -93,6 +93,10 @@ export const directoryTree: readonly DirectoryNode[] = [
       {
         title: "Learn how it works → Juicebox guide",
         url: "https://juicebox.money/learn",
+      },
+      {
+        title: "Read, pay, and inspect → First payment tutorial",
+        url: "https://juicebox.money/build/first-payment",
       },
     ],
   },

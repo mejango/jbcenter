@@ -1,3 +1,5 @@
+import { JUICESCAN_URL } from "./directory.js";
+
 /** Shared decisions and resources. A view shows one route through this graph. */
 export interface JourneyEdge {
   to: string;
@@ -36,8 +38,7 @@ const CENTER = "https://github.com/mejango/jbcenter";
 const SKILLS = "https://github.com/mejango/juicebox-skills";
 const MCP_JOURNEYS = `${CENTER}/blob/main/mcp/docs/USER_JOURNEYS.md`;
 // The published CID verified in directory.ts, not a local build hash.
-const JUICESCAN =
-  "https://bafybeidt2dd3bsiyyk6rfkjuuglcpjvojxeztxd2g4esamopeybpcj25di.eth.sucks/";
+export const JUICESCAN = JUICESCAN_URL;
 
 export const journeyNodes: readonly JourneyNode[] = [
   {
@@ -93,7 +94,10 @@ export const journeyNodes: readonly JourneyNode[] = [
     id: "learn",
     title: "Learn Juicebox",
     kind: "resource",
-    links: [{ title: "Open the guide", url: "https://juicebox.money/learn" }],
+    links: [
+      { title: "Open the guide", url: "https://juicebox.money/learn" },
+      { title: "Follow your first payment", url: "https://juicebox.money/build/first-payment" },
+    ],
     edges: [{ to: "apps", kind: "return" }],
   },
   {

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it, vi } from "vitest";
 import { createApp, originsForEnvironment } from "../src/app.js";
+import { JUICESCAN } from "../src/journeyGraph.js";
 import { DeploymentVerificationError } from "../src/deploymentVerifier.js";
 import type { RpcGateway } from "../src/rpc.js";
 import {
@@ -182,6 +183,25 @@ describe("JB Center API", () => {
   it("requires a trusted browser origin", async () => {
     const response = await createApp(new MemoryStore()).request("/v1/search");
     expect(response.status).toBe(403);
+  });
+
+  it("serves agent discovery without credentials and preserves project identity in inspection links", async () => {
+    const app = createApp(new MemoryStore());
+    const index = await app.request("/llms.txt");
+    expect(index.status).toBe(200);
+    expect(index.headers.get("content-type")).toContain("text/plain");
+    expect(await index.text()).toContain("https://juicebox.center/api/v1/capabilities");
+    for (const chain of ["eth", "op", "base", "arb", "sep", "opsep", "basesep", "arbsep"]) {
+      const result = await app.request(`/inspect/${chain}/42`);
+      expect(result.status).toBe(302);
+      expect(result.headers.get("location")).toBe(`${JUICESCAN}#${chain}:42`);
+    }
+    for (const path of ["/inspect/wrong/1", "/inspect/base/0", "/inspect/base/01", "/inspect/base/9007199254740992", "/inspect/base/1%23other", "/inspect/base/1e3"]) {
+      const result = await app.request(path);
+      expect(result.status).toBe(400);
+      expect(result.headers.has("location")).toBe(false);
+    }
+    expect((await app.request("/v1/search")).status).toBe(403);
   });
 
   it("separates liveness, readiness, and protected metrics", async () => {

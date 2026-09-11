@@ -41,6 +41,8 @@ import {
 import { ConflictError, StorageLimitError, type Store } from "./store.js";
 import type { JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
+import { llmsIndex } from "./llms.js";
+import { JUICESCAN } from "./journeyGraph.js";
 
 const MAX_BODY_BYTES = 16_800_000;
 const PRODUCTION_ORIGINS = [
@@ -364,6 +366,22 @@ export function createApp(
   if (options.rest) mountRestSite(app, options.rest);
 
   app.get("/", (c) => c.html(HOMEPAGE_HTML, 200, HOMEPAGE_HEADERS));
+  app.get("/llms.txt", (c) => c.text(llmsIndex(options.rest?.audience), 200, {
+    "Cache-Control": "public, max-age=300",
+    "X-Content-Type-Options": "nosniff",
+  }));
+  // Stable cross-site links follow the same reviewed deployment as the directory.
+  app.get("/inspect/:chain/:project", (c) => {
+    const chain = c.req.param("chain");
+    const project = c.req.param("project");
+    if (!["eth", "op", "base", "arb", "sep", "opsep", "basesep", "arbsep"].includes(chain)
+      || !/^[1-9]\d{0,15}$/.test(project)
+      || !Number.isSafeInteger(Number(project))) {
+      return c.text("Use a supported chain slug and a positive safe-integer project ID.", 400);
+    }
+    c.header("Cache-Control", "public, max-age=300");
+    return c.redirect(`${JUICESCAN}#${chain}:${project}`, 302);
+  });
   app.get(HOMEPAGE_CSS_PATH, (c) => c.body(HOMEPAGE_CSS, 200, {
     ...HOMEPAGE_HEADERS,
     "Content-Type": "text/css; charset=UTF-8",
