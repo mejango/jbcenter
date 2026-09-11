@@ -40,8 +40,19 @@ for (const repository of [
   add(repository, 'contracts', ['README.md', 'ARCHITECTURE.md', 'RISKS.md', 'ADMINISTRATION.md']);
 }
 add('deploy-all-v6', 'contracts', ['DEPLOY.md']);
+add('juicebox-skills', 'skills', ['RISKS.md']);
+for (const repository of ['juicescan', 'juicebox-money', 'revnet-money']) {
+  add(repository, 'sdk', ['RISKS.md']);
+}
+const repositoryPaths: Record<string, string> = {
+  jbcenter: 'extensions/jbcenter',
+  juicescan: 'webclients/juicescan',
+  'juicebox-money': 'webclients/juicebox-money',
+  'revnet-money': 'webclients/revnet-money',
+};
 add('juice-sdk-v4', 'sdk', [
   'README.md',
+  'RISKS.md',
   'packages/core/src/jbcenter.ts',
   'packages/core/src/chains.ts',
   'packages/core/src/contracts.ts',
@@ -49,6 +60,7 @@ add('juice-sdk-v4', 'sdk', [
 ]);
 add('bendystraw-v6', 'indexer', [
   'README.md',
+  'RISKS.md',
   'ponder.schema.ts',
   'src/api/index.ts',
   'src/util/id.ts',
@@ -229,7 +241,7 @@ function sync(values: { workspace?: string; skills?: string; output?: string; ch
     const root = realpathSync(
       repository === 'juicebox-skills'
         ? skills
-        : resolve(workspace, repository === 'jbcenter' ? 'extensions/jbcenter' : repository),
+        : resolve(workspace, repositoryPaths[repository] ?? repository),
     );
     if (realpathSync(git(root, ['rev-parse', '--show-toplevel'])) !== root) {
       throw new Error(

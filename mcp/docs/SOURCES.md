@@ -2,7 +2,7 @@
 
 The MCP ships its reference corpus in [`data/knowledge.json`](../data/knowledge.json). Serving, searching, and reading references require no sibling repositories, Git executable, embeddings service, or outbound request. The same bundle works over stdio and HTTP, regardless of the configured public hostname.
 
-The generated bundle manifest records current file and repository counts. The corpus includes first-party Solidity, protocol architecture and risk documentation, SDK modules, Juicebox V6 skills, Bendystraw references, and JB Center references. It covers contract implementation, framework-independent SDK helpers, indexing semantics, signed intents and RPC, and the selected V6 skills, including explicit V6 identity and project metadata publication guidance. It does not import whole repositories or copy generated ABI trees. Runtime contract ABI/address lookup uses the pinned SDK and the executed-deployment rollout bundle, separate from reference text. The [initial verification record](VERIFICATION.md) preserves the earlier corpus counts and hashes as historical evidence.
+The generated bundle manifest records current file and repository counts. The corpus includes first-party Solidity, protocol architecture and risk documentation, SDK modules and webclient integration risks, Juicebox V6 skills, Bendystraw references, and JB Center references. It covers contract implementation, framework-independent SDK helpers, indexing semantics, signed intents and RPC, and the selected V6 skills, including explicit V6 identity and project metadata publication guidance. It does not import whole repositories or copy generated ABI trees. Runtime contract ABI/address lookup uses the pinned SDK and the executed-deployment rollout bundle, separate from reference text. The [initial verification record](VERIFICATION.md) preserves the earlier corpus counts and hashes as historical evidence.
 
 ## Which source answers which question
 
@@ -88,6 +88,8 @@ Before a release, resync against the intended source revisions, inspect the Git 
 `get(id, { offset?, limit? })` accepts only IDs from the in-memory allowlist. It returns exact source slices, a next offset, whole-file provenance, and page line numbers. The default page is 8,000 UTF-16 code units; the maximum is 24,000. Pagination units are declared explicitly so callers can reconstruct the original text without dropping characters. Neither reference IDs nor pagination parameters become filesystem paths.
 
 The service validates the complete bundle with Zod at construction, checks document hashes and the bundle fingerprint, bounds the file to 16 MiB, and bounds every search/page input again at the service boundary. Unit tests cover deterministic ranking, contract citations, category filtering, missing matches, lossless pagination, source/bundle tampering, traversal attempts, reference metadata isolation, and standalone corpus coverage.
+
+The SDK, indexer, skills, Center and three webclients also contribute their local `RISKS.md` so integration guidance stays paired with its trust and failure assumptions. Webclient integration risk references use the SDK category.
 
 ## Executed router and buyback rollout records
 
