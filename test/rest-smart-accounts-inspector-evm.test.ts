@@ -900,6 +900,22 @@ describe.skipIf(!available)(
       expect((await inspect(inspector(restricted))).complete).toBe(true);
       expect(limited).toBeGreaterThan(0);
     });
+    it("uses the configured provider range on the first request while retaining complete verification", async () => {
+      await rpc("anvil_mine", ["0x4"]);
+      let pages = 0;
+      const bounded = { request: async (chain: number, method: string, params: readonly unknown[]) => {
+        if (method === "eth_getLogs") {
+          const filter = params[0] as {fromBlock: Hex; toBlock: Hex};
+          expect(BigInt(filter.toBlock) - BigInt(filter.fromBlock)).toBeLessThan(2n);
+          pages++;
+        }
+        return transport.request(chain, method, params);
+      }};
+      const subject = createSafe7579Inspector({rpc: bounded, utility: pin(utility), maxLogRangeBlocks: 2,
+        inspectSessions: createInstalledSessionVerifier({rpc: bounded}).inspectAllAt});
+      expect((await inspect(subject)).complete).toBe(true);
+      expect(pages).toBeGreaterThan(3);
+    });
     it("proves a dormant month's account history with candidate traces and still catches later hidden code changes", async () => {
       // A month of idle time and more elapsed blocks than this inspector's two-active-block
       // budget. Small local block counts keep this test independent of Anvil archive pruning.

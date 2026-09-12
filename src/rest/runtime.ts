@@ -244,7 +244,7 @@ export async function createRestRuntime(options: {
               rpc,
               utility: execution.stacks[0]!.utility,
               inspectSessions: installedVerifier.inspectAllAt,
-              ...(factoryHistory ? {creationLogs: factoryHistory.creationLogs.bind(factoryHistory)} : {}),
+              ...(factoryHistory ? {creationLogs: factoryHistory.creationLogs.bind(factoryHistory), maxLogRangeBlocks: 500} : {}),
               checkpointStore: new PostgresSafe7579CheckpointStore(
                 options.pool,
               ),

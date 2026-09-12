@@ -256,7 +256,6 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
       );
     const account = getAddress(input.address),
       snap = await snapshot(m.chainId, signal, at);
-    const codeHashes: SmartAccountState["codeHashes"] = [];
     async function requireCode(address: Address, expected: Hex) {
       const code = rpcHex(
         await snap.request("eth_getCode", [address]),
@@ -267,11 +266,12 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
           "SMART_RUNTIME_MISMATCH",
           "Smart account or dependency runtime does not match its reviewed deployment pin.",
         );
-      codeHashes.push({ address, runtimeCodeHash: keccak256(code) });
+      return { address, runtimeCodeHash: keccak256(code) };
     }
-    await requireCode(account, m.proxyRuntimeCodeHash);
-    for (const pin of pins(m))
-      await requireCode(pin.address, pin.runtimeCodeHash);
+    const codeHashes = await Promise.all([
+      requireCode(account, m.proxyRuntimeCodeHash),
+      ...pins(m).map(pin => requireCode(pin.address, pin.runtimeCodeHash)),
+    ]);
     const [singleton, fallback, guard] = await Promise.all(
       [slot0, fallbackSlot, guardSlot].map(async (slot) =>
         addressFromSlot(

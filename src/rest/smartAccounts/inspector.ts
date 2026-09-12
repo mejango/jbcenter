@@ -269,6 +269,7 @@ export interface Safe7579InspectorOptions {
   maxHistoryBlocks?: number;
   maxHistoryTransactions?: number;
   maxLogRequests?: number;
+  maxLogRangeBlocks?: number;
   maxLogBytes?: number;
   maxTraceFramesPerBlock?: number;
   maxCachedAccounts?: number;
@@ -306,6 +307,7 @@ export function createSafe7579Inspector(
     history: options.maxHistoryBlocks ?? 4096,
     transactions: options.maxHistoryTransactions ?? 10000,
     logs: options.maxLogRequests ?? 2048,
+    logRange: options.maxLogRangeBlocks ?? 50000,
     logBytes: options.maxLogBytes ?? 16 * 1024 * 1024,
     frames: options.maxTraceFramesPerBlock ?? 100000,
     cache: options.maxCachedAccounts ?? 256,
@@ -322,6 +324,7 @@ export function createSafe7579Inspector(
     limits.history > 100000 ||
     limits.transactions > 100000 ||
     limits.logs > 10000 ||
+    limits.logRange > 50000 ||
     limits.logBytes > 64 * 1024 * 1024 ||
     limits.frames > 1000000 ||
     limits.cache > 10000 ||
@@ -418,7 +421,9 @@ export function createSafe7579Inspector(
         const result: Record<string, unknown>[] = [];
         const pending = from <= to ? [{ start: from, finish: to }] : [];
         while (pending.length) {
-          const { start, finish } = pending.pop()!;
+          let { start, finish } = pending.pop()!;
+          const pageEnd = start + BigInt(limits.logRange) - 1n;
+          if (finish > pageEnd) { pending.push({start:pageEnd+1n,finish}); finish=pageEnd; }
           if (++logRequests > limits.logs)
             fail(
               "SMART_HISTORY_LIMIT",
@@ -644,7 +649,7 @@ export function createSafe7579Inspector(
             "Creation uses another Safe singleton.",
           );
         prepared = verifySafe7579CreationCall(m, account, hex(tx.input));
-        for (const pin of [
+        await Promise.all([
           m.factory,
           m.singleton,
           m.safe7579,
@@ -652,7 +657,7 @@ export function createSafe7579Inspector(
           m.smartSessions,
           m.entryPoint,
           options.utility,
-        ]) {
+        ].map(async pin => {
           const code = hex(
             await rpc("eth_getCode", [
               pin.address,
@@ -664,7 +669,7 @@ export function createSafe7579Inspector(
               "SMART_HISTORY_CODE_MISMATCH",
               "Creation did not use the reviewed immutable stack.",
             );
-        }
+        }));
         history = {
           creationBlock,
           creationHash: h.hash,
@@ -696,19 +701,11 @@ export function createSafe7579Inspector(
       // replacement: an outer revert that removes that log also removes all inner state effects.
       // With only this adapter installed and no handlers/hooks, the only additional authority
       // ingress is initialization (adapter event) or EntryPoint validation (sender event).
-      const safeEvents = await logs(account, [], start, end);
-      const initializationEvents = await logs(
-        m.safe7579.address,
-        [initializedTopic, padHex(account, { size: 32 })],
-        start,
-        end,
-      );
-      const userOperationEvents = await logs(
-        ENTRY_POINT,
-        [userOperationTopic, null, padHex(account, { size: 32 })],
-        start,
-        end,
-      );
+      const [safeEvents, initializationEvents, userOperationEvents] = await Promise.all([
+        logs(account, [], start, end),
+        logs(m.safe7579.address, [initializedTopic, padHex(account, { size: 32 })], start, end),
+        logs(ENTRY_POINT, [userOperationTopic, null, padHex(account, { size: 32 })], start, end),
+      ]);
       const candidatesByBlock = new Map<bigint, Map<Hex, Hex>>();
       let candidateTransactions = 0;
       function addCandidate(n: bigint, txHash: Hex, blockHash: Hex) {
@@ -1219,7 +1216,7 @@ export function createSafe7579Inspector(
           503,
         );
 
-      for (const pin of [
+      await Promise.all([
         m.factory,
         m.singleton,
         m.safe7579,
@@ -1227,14 +1224,14 @@ export function createSafe7579Inspector(
         m.smartSessions,
         m.entryPoint,
         options.utility,
-      ]) {
+      ].map(async pin => {
         const code = hex(await snapshot.request("eth_getCode", [pin.address]));
         if (code === "0x" || !same(keccak256(code), pin.runtimeCodeHash))
           fail(
             "SMART_INSPECTION_CODE_MISMATCH",
             "The current stack no longer matches its reviewed code identity.",
           );
-      }
+      }));
 
       async function call(
         name:
@@ -1318,8 +1315,7 @@ export function createSafe7579Inspector(
           "Module enumeration exceeds the supported bound.",
         );
       }
-      const validators = await list(2),
-        executors = await list(3);
+      const [validators, executors] = await Promise.all([list(2), list(3)]);
       if (
         validators.length !== 1 ||
         !same(validators[0]!, m.smartSessions.address) ||
@@ -1329,16 +1325,15 @@ export function createSafe7579Inspector(
           "SMART_MODULE_CONFIGURATION_UNSUPPORTED",
           "Only the reviewed SmartSession validator and no executors may be installed.",
         );
-      const hooks = [
-        await call("getActiveHook"),
-        await call("getPrevalidationHook", [9n]),
-        await call("getPrevalidationHook", [8n]),
-      ] as Address[];
+      const [hooks, hookStorage] = await Promise.all([
+        Promise.all([call("getActiveHook"), call("getPrevalidationHook", [9n]), call("getPrevalidationHook", [8n])]) as Promise<Address[]>,
+        Promise.all([5, 7, 8].map(slot => storage(safe7579MappingSlot(account, slot)))),
+      ]);
       for (let i = 0; i < 3; i++)
         if (
           !same(
             hooks[i]!,
-            await storage(safe7579MappingSlot(account, [5, 7, 8][i]!)),
+            hookStorage[i]!,
           ) ||
           !same(hooks[i]!, zeroAddress)
         )
@@ -1346,12 +1341,13 @@ export function createSafe7579Inspector(
             "SMART_MODULE_CONFIGURATION_UNSUPPORTED",
             "Global and prevalidation hooks must be absent.",
           );
-      if (!same(await storage(safe7579MappingSlot(account, 0)), zeroAddress))
+      const [registryAddress, adapterEntryPoint] = await Promise.all([storage(safe7579MappingSlot(account, 0)), call("entryPoint")]);
+      if (!same(registryAddress, zeroAddress))
         fail(
           "SMART_REGISTRY_STATE_UNSUPPORTED",
           "This source revision does not enforce or configure registry attesters; unexpected registry storage is unsupported.",
         );
-      if (!same(String(await call("entryPoint")), ENTRY_POINT))
+      if (!same(String(adapterEntryPoint), ENTRY_POINT))
         fail(
           "SMART_ENTRYPOINT_MISMATCH",
           "The adapter EntryPoint differs from its reviewed immutable source.",
