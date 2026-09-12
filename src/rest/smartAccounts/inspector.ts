@@ -273,6 +273,7 @@ export interface Safe7579InspectorOptions {
   maxTraceFramesPerBlock?: number;
   maxCachedAccounts?: number;
   timeoutMs?: number;
+  creationLogs?: (chainId: number, factory: Address, account: Address, end: bigint, signal?: AbortSignal) => Promise<Record<string, unknown>[] | undefined>;
   /** Retained server-verified history; never populated from an HTTP request or client assertion. */
   checkpointStore?: Safe7579CheckpointStore;
 }
@@ -579,7 +580,7 @@ export function createSafe7579Inspector(
       if (!history) {
         // The indexed proxy topic identifies the first and only CREATE2 deployment by this immutable
         // factory. This rules out destroyed/recreated accounts retaining old adapter mapping state.
-        const creations = await logs(
+        const creations = await options.creationLogs?.(m.chainId, m.factory.address, account, end, deadline) ?? await logs(
           m.factory.address,
           [creationTopic, padHex(account, { size: 32 })],
           0n,

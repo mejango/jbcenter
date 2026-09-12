@@ -44,6 +44,7 @@ import {
 } from "./smartAccounts/index.js";
 import { createSessionTargetResolver } from "./smartAccounts/targets.js";
 import { createSafe7579Inspector } from "./smartAccounts/inspector.js";
+import { FactoryHistoryIndex, loadFactoryHistorySeed } from "./smartAccounts/factoryHistory.js";
 import { PostgresSafe7579CheckpointStore } from "./smartAccounts/checkpoints.js";
 import {
   readRestExecutionConfiguration,
@@ -231,6 +232,8 @@ export async function createRestRuntime(options: {
           !activeManifests.some((active) => active.id === manifest.id),
       );
   const manifests = [...activeManifests, ...retainedManifests];
+  const factoryHistory = options.upstreams.has(8453) && execution.stacks.length && !options.smartAccountModuleInspectors && !options.smartAccountManifests
+    ? new FactoryHistoryIndex(options.pool, rpc, await loadFactoryHistorySeed()) : undefined;
   const moduleInspectors =
     options.smartAccountModuleInspectors ??
     (options.smartAccountManifests
@@ -241,6 +244,7 @@ export async function createRestRuntime(options: {
               rpc,
               utility: execution.stacks[0]!.utility,
               inspectSessions: installedVerifier.inspectAllAt,
+              ...(factoryHistory ? {creationLogs: factoryHistory.creationLogs.bind(factoryHistory)} : {}),
               checkpointStore: new PostgresSafe7579CheckpointStore(
                 options.pool,
               ),
@@ -442,6 +446,10 @@ export async function createRestRuntime(options: {
         maintenance = undefined;
       });
   };
+  const factoryTimer = options.startMaintenance === false || !factoryHistory ? undefined : setInterval(() => {
+    void factoryHistory.sync().catch(() => console.error(JSON.stringify({level:"error",service:"rest",code:"FACTORY_HISTORY_RETRY"})));
+  }, 30000);
+  factoryTimer?.unref();
   const timer =
     options.startMaintenance === false ? undefined : setInterval(run, 30_000);
   timer?.unref();
@@ -458,7 +466,9 @@ export async function createRestRuntime(options: {
     async stop() {
       stopped = true;
       if (timer) clearInterval(timer);
+      if (factoryTimer) clearInterval(factoryTimer);
       shutdownSignal.abort();
+      await factoryHistory?.stop();
       if (maintenance) await maintenance;
     },
   };
