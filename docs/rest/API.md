@@ -138,11 +138,12 @@ For sponsored gas, use the smart-account owner workflow below. It does not
 require a session guard or recurring bot permissions. Runtime capabilities
 determine the available chains and transports.
 
-## Prepaid Relayr execution
+## Prepaid execution
 
 When capabilities enable the adapter, `POST /sponsorships` accepts
-`{planId, stepIndexes?}` and returns one to four exact `ForwardRequest`
-authorizations, with at most one independent call per supported mainnet chain.
+`{planId, stepIndexes?}` and returns exact `ForwardRequest` authorizations for ready calls on supported chains.
+Multiple calls on the same chain execute in plan order. Center’s existing
+32-step plan capacity and request-size limits apply.
 The source plan's creating principal must prepare and publish the wave. The
 owner reviews and signs every returned request, including its onchain deadline.
 The shorter `publicationExpiresAt` cannot revoke a published signature.
@@ -299,7 +300,7 @@ publication. Bridge settlement remains a separate observation. See
 | `GET /plans`, `/plans/{id}` | Read accessible plans; `refresh=true` reconciles an individual plan. |
 | `GET /plans/{id}/steps/{step}/simulation` | Simulate an eligible step without broadcasting. |
 | `POST /plans/{id}/steps/{step}/submissions`, `POST /plans/{id}/submissions` | Submit separately signed wallet transactions with `relay` scope and an idempotency key. |
-| `POST /sponsorships` | Prepare an unsigned Relayr wave from an existing plan with `plan` scope and an idempotency key. |
+| `POST /sponsorships` | Prepare an unsigned prepaid wave from an existing plan with `plan` scope and an idempotency key. |
 | `GET /sponsorships/{id}` | Read a preparation or reconcile destination evidence with `refresh=true`. |
 | `POST /sponsorships/{id}/submissions` | Publish ordered owner-signed forward requests with `relay` scope and an idempotency key. |
 | `POST /sponsorships/{id}/funding-plans` | Prepare a durable funding plan with `plan` scope and an idempotency key; payer must be the API owner. |

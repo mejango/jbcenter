@@ -32,6 +32,7 @@ import {
 } from "./store.js";
 import type {
   DestinationObservation,
+  RelayrEntry,
   SponsorshipPolicy,
   SponsorshipPrepareInput,
   SponsorshipRecord,
@@ -146,7 +147,7 @@ export class RelayrSponsorshipService {
       },
       limits: {
         maximumIndependentCalls: RELAYR_LIMITS.maximumCalls,
-        maximumCallsPerChain: 1,
+        maximumCallsPerChain: RELAYR_LIMITS.maximumCalls,
       },
       unsupported: [
         "erc4337-paymaster",
@@ -163,7 +164,7 @@ export class RelayrSponsorshipService {
     if (!this.policy.enabled)
       fail(
         "SPONSORSHIP_NOT_CONFIGURED",
-        "The host has not enabled the Relayr prepaid adapter.",
+        "The host has not enabled prepaid execution.",
         503,
       );
   }
@@ -320,7 +321,7 @@ export class RelayrSponsorshipService {
     )
       fail(
         "INVALID_SPONSORSHIP_STEPS",
-        "Choose 1–4 distinct source plan steps.",
+        "Choose distinct source plan steps within Center’s 32-step plan capacity.",
         400,
       );
     const sorted = [...indexes].sort((a, b) => a - b);
@@ -331,11 +332,6 @@ export class RelayrSponsorshipService {
       fail(
         "SPONSORSHIP_CHAIN_UNAVAILABLE",
         "The prepaid adapter is enabled only for its configured mainnet chains.",
-      );
-    if (new Set(calls.map((call) => call.chainId)).size !== calls.length)
-      fail(
-        "SPONSORSHIP_WAVE_REQUIRED",
-        "A sponsored wave currently supports one independently executable call per chain.",
       );
     if (
       sorted.some(
@@ -370,6 +366,14 @@ export class RelayrSponsorshipService {
         ),
       ),
     );
+    const nextNonces = new Map<number, { base: string; offset: number }>();
+    for (const prepared of requests) {
+      const position = nextNonces.get(prepared.chainId) ?? { base: prepared.message.nonce, offset: 0 };
+      if (position.base !== prepared.message.nonce)
+        fail("FORWARD_REQUEST_CHANGED", "The forwarding nonce changed during preparation. Prepare again.", 409);
+      prepared.message.nonce = (BigInt(position.base) + BigInt(position.offset++)).toString();
+      nextNonces.set(prepared.chainId, position);
+    }
     this.mutable(plan, actor);
     assertSignal(request.signal);
     const commitment = digest({
@@ -446,11 +450,11 @@ export class RelayrSponsorshipService {
       record.requests.map((r) => r.stepIndex),
       chain,
     );
-    const entries = await Promise.all(
-      record.requests.map((value, i) =>
-        chain.signed(value, input.signatures[i]!),
-      ),
-    );
+    const entries: RelayrEntry[] = [];
+    for (const [i, value] of record.requests.entries()) {
+      const preceding = entries.filter((entry) => entry.chain === value.chainId);
+      entries.push(await chain.signed(value, input.signatures[i]!, preceding));
+    }
     if (
       Buffer.byteLength(JSON.stringify(record)) +
         2 * Buffer.byteLength(JSON.stringify(entries)) >
@@ -734,7 +738,12 @@ export class RelayrSponsorshipService {
       record.requests.map((value) => value.stepIndex),
       chain,
     );
-    await Promise.all(record.requests.map((value) => chain.revalidate(value)));
+    const offsets = new Map<number, number>();
+    await Promise.all(record.requests.map((value) => {
+      const offset = offsets.get(value.chainId) ?? 0;
+      offsets.set(value.chainId, offset + 1);
+      return chain.revalidate(value, offset);
+    }));
     const evidence = await chain.payment(payment, input.payer);
     assertSignal(request.signal);
     if (
@@ -760,7 +769,7 @@ export class RelayrSponsorshipService {
           to: payment.to,
           data: payment.data,
           value: payment.value,
-          label: "Fund the exact Relayr bundle",
+          label: "Fund the approved transaction bundle",
           dependsOn: [],
           decoded: {
             bundleUuid: quote.bundleUuid,
@@ -780,7 +789,7 @@ export class RelayrSponsorshipService {
         economicCompletion: false,
       },
       warnings: [
-        "This payment funds Relayr execution; it does not prove destination success or bridge settlement.",
+        "This payment funds prepaid execution; it does not prove destination success or bridge settlement.",
         "Fund this bundle only once. Inspect an existing funding transaction before sending another.",
         "The payer must independently review and sign this exact draft. Another account’s API authorization does not authorize the payer’s wallet.",
       ],

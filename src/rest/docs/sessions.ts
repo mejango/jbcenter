@@ -86,7 +86,7 @@ export function sessionSchemas(): Record<string, Schema> {
     PrepareUserOperation: { ...object({ planId: ref("ResourceId"), stepIndexes: array({ type: "integer", minimum: 0, maximum: 31 }, { minItems: 1, maxItems: 16, uniqueItems: true }),
       sessionId: ref("ResourceId") }, ["planId", "stepIndexes"]),
       allOf: [{ if: { required: ["sessionId"] }, then: { properties: { stepIndexes: { maxItems: 1 } } } }],
-      description: "Use the creating principal of a durable smart-account plan. Indices must increase in original order. Omit sessionId for current Safe-owner threshold signing; a bound bot supplies sessionId for one approved action." },
+      description: "Use the creating principal of a durable smart-account plan. Indices must increase in original order. Omit `sessionId` for current Safe-owner threshold signing; a bound bot supplies `sessionId` for one approved action." },
     UserOperationV07: { ...object(operationFields, ["sender", "nonce", "callData", "callGasLimit", "verificationGasLimit", "preVerificationGas", "maxFeePerGas", "maxPriorityFeePerGas", "signature"]),
       dependentRequired: { factory: ["factoryData"], factoryData: ["factory"], paymaster: ["paymasterVerificationGasLimit", "paymasterPostOpGasLimit", "paymasterData"],
         paymasterVerificationGasLimit: ["paymaster"], paymasterPostOpGasLimit: ["paymaster"], paymasterData: ["paymaster"] },

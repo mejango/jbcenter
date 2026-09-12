@@ -64,6 +64,7 @@ export async function createRestRuntime(options: {
   config: Config;
   upstreams: RpcUpstreams;
   audience?: string;
+  para?: RestSite["para"];
   rpcSiteLimitPerMinute?: number;
   smartAccountManifests?: readonly SmartAccountManifest[];
   smartAccountModuleInspectors?: readonly SmartModuleInspector[];
@@ -445,6 +446,7 @@ export async function createRestRuntime(options: {
   timer?.unref();
   return {
     site: {
+      ...(options.para ? { para: options.para } : {}),
       app,
       audience: auth.audience,
       docsHtml: apiDocsPage(openapi),

@@ -1,11 +1,11 @@
 # Wallet-owned accounts and signed REST requests
 
 Center's API lets software request data or actions through web requests (REST).
-To use protected routes, a wallet owner creates an account and signs requests.
-The network used to identify that account is its **authority chain**. The account
-identifier is `eip155:<authorityChainId>:<lowercaseOwnerAddress>`. A profile contains
-only a display name, biography, and optional avatar URI; none of these fields
-establish identity or grant permissions.
+To use protected routes, select **Sign in** on [Accounts](/accounts) with your
+email, phone, social account, or an existing wallet. Your account wallet signs
+the request that creates or loads your account. The network used to identify
+that account is its **authority chain**. The account identifier is
+`eip155:<authorityChainId>:<lowercaseOwnerAddress>`.
 
 Owners can let a bot sign API requests using its own locally generated
 secp256k1 key. The permissions form a **grant**; each permission is a **scope**.
@@ -17,6 +17,47 @@ signatures, with no API key, bearer token, or server-held wallet key. See the
 Public discovery does not require a bot grant. Owner enrollment is an independently
 signed request and works before an account or bot exists. A bot cannot enroll an
 account on behalf of an unrelated owner.
+
+## Start with the client
+
+Sign in on [Accounts](https://juicebox.center/accounts), then create a connection
+under **02 / API access**. Choose its permissions and expiry and approve the
+locally generated bot key. The bot then authenticates API requests automatically
+through `SignedRestClient`; routine reads and planning need no owner wallet prompt.
+See [the setup walkthrough](./QUICKSTART.md#create-your-connection).
+
+```ts
+import { SignedRestClient } from "@juicebox/center-client";
+
+// botSigner is the registered key held in your local signer or secret store.
+// accountId and grantId are the public identifiers returned at registration.
+const center = new SignedRestClient({
+  audience: "https://juicebox.center",
+  accountId,
+  grantId,
+  signer: botSigner,
+});
+const account = await center.request({ requestTarget: "/api/v1/accounts/me" });
+```
+
+The client creates the signature, nonce and expiry, and sends the exact signed
+request bytes. Use the wire reference below when implementing another client.
+The owner address identifies whose account is being accessed; the signer is the
+owner or the registered bot acting for that account.
+
+## API access and wallet actions
+
+| Layer | What you approve | What happens afterward |
+| --- | --- | --- |
+| API access | A bot key, scopes and expiry | The client signs requests using that key. Revoke its grant to end access. |
+| One wallet action | Exact calls, amounts and execution deadline | The wallet signs the returned transaction or approval document. |
+| Recurring wallet actions | A separate supported session with actions, budgets and expiry | The delegated key can authorize only what the verified wallet policy allows. |
+
+API `read`, `plan` and `relay` scopes do not grant wallet spending authority.
+Use [owner-approved transactions](./CLIENT.md#prepare-review-approve-submit)
+for individual actions and [wallet sessions](./SESSIONS.md) for optional recurring
+execution. Direct and prepaid bot submissions require fresh owner dispatch
+approval; supported Safe execution uses its time-limited `SafeOp` approval.
 
 ## Request signatures
 
@@ -90,7 +131,9 @@ a financial operation merely because its HTTP response was lost.
 
 ## Enrollment and profile routes
 
-The account router mounts under `/api/v1`:
+The account router mounts under `/api/v1`. Profile fields remain available to
+API clients: a display name, biography, and optional avatar URI. These fields
+do not establish identity or grant permissions.
 
 | Method and path | Authority | Input / response |
 | --- | --- | --- |
@@ -304,16 +347,3 @@ request. Static headers or a pasted bearer token cannot implement this protocol.
 A local signing adapter can keep the key outside an agent conversation while
 forwarding its requests. Ordinary MCP URL configuration does not automatically
 add this REST signing behavior.
-
-## Derive influence
-
-The owner-to-session-key relationship, scoped access, expiry, and key-management
-UX follow useful concepts from Derive's
-[session keys](https://docs.derive.xyz/reference/session-keys) and
-[scoped registration](https://docs.derive.xyz/reference/private-register_scoped_session_key).
-Derive documents a timestamp signature for private-endpoint authentication and a
-separate action-payload signature for self-custodial operations, including nonce
-and expiry. Center signs the full HTTP request and consumes a
-single-use nonce. API authority remains separate from onchain authority.
-See [Derive authentication](https://docs.derive.xyz/reference/authentication) and
-[action signing](https://docs.derive.xyz/reference/submit-order).

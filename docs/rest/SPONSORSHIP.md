@@ -1,20 +1,20 @@
-# Relayr sponsorship
+# Prepaid transactions
 
-Relayr lets a user or sponsor prepay the network cost of wallet-approved calls. Center prepares the exact calls, the owner signs them, and Center publishes them through Relayr using the ERC-2771 forwarding standard. A wallet separately pays for the group of calls (**bundle**). Center never holds a signing key, pays for a bundle, or gives a bot permission to spend from a wallet. See the [glossary](https://juicebox.center/api#glossary).
+Center lets you or a sponsor prepay the network cost of wallet-approved calls. Center prepares the exact calls, the owner signs them, and Center publishes them using wallet-approved forwarding. A wallet separately pays for the group of calls (**bundle**). Center never holds a signing key, pays for a bundle, or gives a bot permission to spend from a wallet. See the [glossary](https://juicebox.center/api#glossary).
 
-This transport is `relayr-prepaid-erc2771`. It supports Ethereum (`1`), Optimism (`10`), Base (`8453`), and Arbitrum (`42161`) mainnets when the host enables them and verifies their deployed contracts. Testnets, ERC-4337 paymasters, Safe module execution, and reusable session keys are not supported by this adapter. Capability configuration is not a claim that a provider is currently healthy or a particular target is eligible.
+Check `capabilities.sponsorship` for availability. Prepaid execution supports Ethereum (`1`), Optimism (`10`), Base (`8453`), and Arbitrum (`42161`) mainnets when the host enables them and verifies their deployed contracts. Testnets, ERC-4337 paymasters, Safe module execution, and reusable session keys are not supported by this adapter. Capability configuration is not a claim that a provider is currently healthy or a particular target is eligible.
 
 ## User journey
 
 1. Prepare an immutable V6 transaction plan through the protocol or contract API. Read its calls, amounts, dependencies, warnings, and onchain evidence.
-2. Create a sponsorship preparation with that plan ID and the indexes of an independently executable wave. Each selected target must trust the catalog's verified V6 forwarder. The current adapter allows at most four calls, with one call per chain. Complete prerequisite steps first.
+2. Create a sponsorship preparation with that plan ID and the indexes of an independently executable wave. Each selected target must trust the catalog's verified V6 forwarder. Multiple calls on the same chain execute in plan order. Center’s existing 32-step plan capacity and request-size bounds apply; these are not provider transaction limits. Complete prerequisite steps first.
 3. Review and sign each returned EIP-712 `ForwardRequest` using the owner wallet. Each signature binds the chain, canonical forwarder, exact sender, target, calldata, native value, forwarding gas, live forwarding nonce, and explicit execution deadline. A registered bot key cannot replace this signature.
 4. Approve publication through Center's fresh owner approval and submit the exact ordered signatures with an idempotency key. Center rechecks the signature, runtime, target trust, current nonce, simulation, API grant, and fresh approval before reserving publication.
 5. Inspect the stored quote and request a funding plan for one payment chain. Review its exact bundle identifier, payment contract, calldata, native value, and deadline. Sign and submit that funding transaction through the ordinary transaction API.
-6. Refresh both sponsorship and source plan. Relayr status is a transaction-discovery hint. Center independently verifies the canonical destination transaction, receipt, forwarding execution, confirmations, and operation-specific outcome before reporting completion or unlocking dependencies.
+6. Refresh both sponsorship and source plan. Execution status is a transaction-discovery hint. Center independently verifies the canonical destination transaction, receipt, forwarding execution, confirmations, and operation-specific outcome before reporting completion or unlocking dependencies.
 7. Prepare the next dependent wave only after the original journey records the required confirmed outcome. A bundle is not atomic across chains; one destination can succeed while another remains pending or fails.
 
-An ERC-20 approval usually targets a token that does not trust the V6 forwarder. Such a step needs a separate direct wallet transaction and confirmation before the sponsored wave. A prerequisite cannot be smuggled into the same wave and assumed successful because Relayr accepted the bundle.
+An ERC-20 approval usually targets a token that does not trust the V6 forwarder. Such a step needs a separate direct wallet transaction and confirmation before the sponsored wave. A prerequisite cannot be smuggled into the same wave and assumed successful because Center accepted the bundle.
 
 ## HTTP interface
 
@@ -64,13 +64,13 @@ The payment contract is independently pinned from the existing local webclient i
 
 Payment calldata must be exactly the selector followed by the ABI-encoded `bytes16` bundle UUID and `uint40` deadline, with canonical padding. The declared deadline must match those bytes. Center rejects unsupported chains, tokens, targets, duplicate payment options, invalid amounts, conflicting IDs, and changes to the exact outer call. Zero-value quotes are valid if all other checks pass. The default maximum quoted native funding amount is one native unit (`10^18` base units); the host can set a stricter limit.
 
-Provider bundle entries retain exact chain, forwarder target, execute calldata, native value, `virtual_nonce: 0`, and unique transaction UUIDs. Status responses must reproduce all those bindings. Neither a provider URL nor request headers, credentials, arbitrary redirects, or user-selected RPC endpoints can be supplied through this interface.
+Internally, provider bundle entries retain exact chain, forwarder target, execute calldata, native value, consecutive per-chain `virtual_nonce` values, and unique transaction UUIDs. Status responses must reproduce all those bindings. Neither a provider URL nor request headers, credentials, arbitrary redirects, or user-selected RPC endpoints can be supplied through this interface.
 
-The payer simulation uses the pinned payment contract, exact quote calldata and value, and a bounded 150,000 gas allowance. Destination simulation uses the owner's real balance and current state without synthetic balance overrides. Consequently, a destination call that fails this conservative simulation is unavailable even if another account might ultimately supply its native value through Relayr. This adapter does not promise that every wallet with no native balance can prepare every value-bearing call.
+The payer simulation uses the pinned payment contract, exact quote calldata and value, and a bounded 150,000 gas allowance. Destination simulation uses the owner's real balance and current state without synthetic balance overrides. Consequently, a destination call that fails this conservative simulation is unavailable even if another account might ultimately supply its native value through the execution service. This adapter does not promise that every wallet with no native balance can prepare every value-bearing call.
 
 ## Durable admission and recovery
 
-Migration `006_rest_sponsorship.sql` adds sponsorship records and permanent execution reservations. PostgreSQL holds the same account lock used for grant revocation and direct transaction admission while checking authority and reserving the selected plan steps. A direct transaction and Relayr publication cannot both claim the same step. A separate global forwarding reservation prevents different plans or account identities from publishing competing requests for the same chain, forwarder, sender, and forwarding nonce.
+Migration `006_rest_sponsorship.sql` adds sponsorship records and permanent execution reservations. PostgreSQL holds the same account lock used for grant revocation and direct transaction admission while checking authority and reserving the selected plan steps. A direct transaction and prepaid publication cannot both claim the same step. A separate global forwarding reservation prevents different plans or account identities from publishing competing requests for the same chain, forwarder, sender, and forwarding nonce.
 
 Both reservations and the exact submission binding are durable before any provider `POST`. The original plan is tagged with the external execution binding before publication. If the process crashes before that tag, normal plan recovery discovers the permanent transport reservation. No fake EOA transaction attempt is introduced.
 
@@ -87,7 +87,7 @@ A valid bundle identity is stored before funding cost, timing, or runtime checks
 
 The existing prepaid API does not provide a verified idempotency header or lookup by a client-generated publication key. An uncertain `POST` is therefore never repeated automatically. The same idempotency key and exact signature submission return the stored state; conflicting reuse is rejected. Expiry, disconnects, process restarts, grant revocation, or a missing UUID do not release an ambiguous transport or forwarding-nonce reservation.
 
-Without a validated provider UUID, the adapter cannot independently recover a lost provider bundle. Manual reconciliation is required. Advancing the canonical forwarder nonce makes the next nonce independently usable; this adapter does not automatically create nonce-cancellation transactions or retire ambiguous reservations. A failed outer attempt may be retried by Relayr under the same stored bundle and binding, so failed receipt observations are reconciled again.
+Without a validated provider UUID, the adapter cannot independently recover a lost provider bundle. Manual reconciliation is required. Advancing the canonical forwarder nonce makes the next nonce independently usable; this adapter does not automatically create nonce-cancellation transactions or retire ambiguous reservations. A failed outer attempt may be retried by the execution service under the same stored bundle and binding, so failed receipt observations are reconciled again.
 
 ## Execution and economic completion
 
@@ -118,10 +118,30 @@ The transaction service receives an external observer with `kind: "relayr"` and 
 
 Each network operation has a 60-second overall cancellation signal, a maximum of 128 RPC calls, individual RPC timeouts up to 10 seconds, and provider timeouts up to 45 seconds. Provider responses are streamed with a 512 KiB byte limit, fatal UTF-8 decoding, and bounded structures; timeout and cancellation work even if an injected provider ignores its signal. The host adds shared and account quotas and bounded database timeouts. Each account can retain at most 1,000 sponsorship records. No signatures or provider credentials appear in returned status views or error details.
 
-The implementation and fixtures are derived from the repository's existing `webclients/juicebox-money/src/lib/relayr.ts`, `webclients/juicescan/src/relayr.js`, their pinned payment-runtime tests, the V6 forwarder deployment, and the canonical contract catalog. Offline tests use public fixture keys and injected RPC/provider transports. Real PostgreSQL tests use disposable schemas and verify race behavior and complete rollback. Tests never publish a Relayr bundle, sign with production keys, fund a quote, or broadcast a transaction.
+The implementation and fixtures are derived from the repository's existing `webclients/juicebox-money/src/lib/relayr.ts`, `webclients/juicescan/src/relayr.js`, their pinned payment-runtime tests, the V6 forwarder deployment, and the canonical contract catalog. Offline tests use public fixture keys and injected RPC/provider transports. Real PostgreSQL tests use disposable schemas and verify race behavior and complete rollback. Tests never publish a prepaid bundle, sign with production keys, fund a quote, or broadcast a transaction.
 
 ## Sessions and prepaid spending
 
-Relayr prepayment buys execution service for exact calls; it does not establish a reusable wallet spending balance or an expiring bot session. V6 operator permission bitmaps have no expiry. A forwarding deadline also does not expire an ERC-20 allowance or permission installed by the forwarded call.
+Prepayment buys execution service for exact calls; it does not establish a reusable wallet spending balance or an expiring bot session. V6 operator permission bitmaps have no expiry. A forwarding deadline also does not expire an ERC-20 allowance or permission installed by the forwarded call.
 
 Week/month sessions and repeated payments from an explicitly isolated prepaid balance require additional reviewed onchain authority. The proposed session executor and separate asset-budget architecture, including scope, asset, chain, expiry, target, approval-bypass, revocation, and caller-semantics enforcement, are specified in [SESSIONS.md](./SESSIONS.md). Those contracts are not deployed by this REST adapter. Until such enforcement exists, every new fund-moving authorization requires fresh owner approval.
+
+## Hosting and provider implementation
+
+Center uses an internal relay adapter; API clients use the sponsorship routes and
+returned signing documents without integrating with that provider. The historical
+transport identifier `relayr-prepaid-erc2771` remains stable for compatibility.
+[Bundle ordering](https://relayr-docs-staging.up.railway.app/docs/concepts/bundle/)
+is implemented with `Multichain` virtual nonces: consecutive values starting at
+zero per chain, with equal values on different chains eligible to run together.
+Center assigns consecutive wallet forwarding nonces, verifies signed prefixes
+with sequential `eth_simulateV1` calls against the deployed forwarder, and publishes
+individual calls for independent receipt reconciliation. Failed calls stop later
+nonce levels; this does not make cross-chain execution atomic. Explicit plan
+prerequisites still require canonical confirmation before preparation.
+
+Same-chain sequences require the configured RPC to support
+[`eth_simulateV1`](https://geth.ethereum.org/docs/interacting-with-geth/rpc/ns-eth#eth-simulatev1).
+Center checks every individual execution result and rechecks the canonical parent
+block. Unsupported RPC methods, missing results and any failed call prevent
+publication. No account balance, code or nonce overrides are used.

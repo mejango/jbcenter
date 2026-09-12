@@ -1,5 +1,6 @@
 import { getAddress, toHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { arbitrum, arbitrumSepolia, base, baseSepolia, mainnet, optimism, optimismSepolia, sepolia } from "viem/chains";
 import {
   RestClientError,
   SignedRestClient,
@@ -33,6 +34,8 @@ import type {
   SmartAccountManifest,
 } from "../smartAccounts/types.js";
 import type { StoredSession } from "../sessions/types.js";
+import { installOperationQueue } from "./operationQueue.js";
+import { recordWalletRecovery, removeWalletRecovery, renderWalletRecovery, walletRecoveries, type WalletRecoveryRecord } from "./walletRecovery.js";
 
 export interface SmartWalletConnection {
   provider: WalletProvider;
@@ -40,7 +43,26 @@ export interface SmartWalletConnection {
   chainId: number;
   accountId: string;
   client: SignedRestClient;
+  execution?(chainId: number): Promise<WalletProvider>;
 }
+interface BindingReview {
+  request: BindingRequest;
+  result: BindingChallenge;
+  document: WalletTypedData;
+  signatures: Hex[];
+  submissionKey: string;
+}
+interface CreationReview {
+  attemptId: string;
+  request: WalletCreationRequest;
+  result: WalletCreationPreparation;
+  manifest: SmartAccountManifest;
+  transactionHash?: Hex;
+  state: "reviewed" | "submission-unknown" | "pending" | "reverted" | "ready-to-connect" | "connected";
+  bindingReview?: BindingReview;
+  binding?: SmartAccountBinding;
+}
+type CreationReceipt = { status?: string; transactionHash?: string; blockHash?: string; blockNumber?: string };
 interface HostCapabilities {
   smartAccounts: SmartAccountCapabilities;
   sessions?: { activationReady?: boolean; configuredChainIds?: number[] };
@@ -61,6 +83,8 @@ const field = (id: string) =>
   element<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(id);
 const button = (id: string) => element<HTMLButtonElement>(id);
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+const supportedNetworks = [mainnet, optimism, base, arbitrum, sepolia, optimismSepolia, baseSepolia, arbitrumSepolia];
+const networkName = (chainId: number) => supportedNetworks.find((entry) => entry.id === chainId)?.name ?? `Network ${chainId}`;
 function fail(message: string): never {
   throw new RestClientError("SMART_WALLET_REVIEW_REQUIRED", message);
 }
@@ -117,22 +141,10 @@ export function installSmartWalletUI(options: {
   let epoch = 0,
     host: HostCapabilities | undefined,
     binding: SmartAccountBinding | undefined;
-  let creation:
-    | {
-        request: WalletCreationRequest;
-        result: WalletCreationPreparation;
-        manifest: SmartAccountManifest;
-        transactionHash?: Hex;
-      }
-    | undefined;
-  let challenge:
-    | {
-        request: BindingRequest;
-        result: BindingChallenge;
-        document: WalletTypedData;
-        signatures: Hex[];
-      }
-    | undefined;
+  let creations: CreationReview[] = [];
+  let challenge: BindingReview | undefined;
+  let networkChoices: HTMLInputElement[] = [];
+  const savedBindings = new Map<string, Pick<SmartAccountBinding, "id" | "wallet" | "manifestId">>();
   let session: StoredSession | undefined,
     plan: SmartWalletPlan | undefined,
     operation: PreparedUserOperation | undefined;
@@ -141,13 +153,70 @@ export function installSmartWalletUI(options: {
     sessionSignature: Hex | undefined,
     submissionKey: string | undefined;
   let key: ReturnType<typeof privateKeyToAccount> | undefined;
+  let queue: ReturnType<typeof installOperationQueue> | undefined;
   function connection() {
     return (
-      options.connection() ?? fail("Connect and load your owner account first.")
+      options.connection() ?? fail("Sign in first.")
     );
   }
   function ownerClient() {
     return new SmartAccountClient(connection().client);
+  }
+  function creationReference(c: SmartWalletConnection, item: CreationReview): WalletRecoveryRecord {
+    return { accountId: c.accountId, chainId: item.result.chainId, walletAddress: item.result.address,
+      kind: "creation", attemptId: item.attemptId, ...(item.transactionHash ? { transactionHash: item.transactionHash } : {}) };
+  }
+  async function canonicalFailedCreation(provider: WalletProvider, receipt: CreationReceipt) {
+    if (receipt.status !== "0x0" || !receipt.blockHash || !/^0x[0-9a-fA-F]{64}$/.test(receipt.blockHash) ||
+      !receipt.blockNumber || !/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(receipt.blockNumber)) return false;
+    const block = await provider.request({ method: "eth_getBlockByNumber", params: [receipt.blockNumber, false] }) as { hash?: string } | null;
+    return !!block?.hash && same(block.hash, receipt.blockHash);
+  }
+  function refreshRecovery() {
+    const c = options.connection();
+    if (!c) { element("smart-recovery").hidden = true; return; }
+    renderWalletRecovery(c.accountId, { isCurrent: () => options.connection() === c,
+      onCheck: (record) => options.run(async () => {
+        const { check } = checkpoint();
+        if (record.kind === "user-operation") {
+          if (!record.operationId) fail("Keep this reference and inspect the wallet activity before trying again.");
+          const result = await ownerClient().userOperation(record.operationId!); check();
+          if (result.id !== record.operationId || result.chainId !== record.chainId || !same(result.operation.sender, record.walletAddress))
+            fail("The recovered operation differs from its saved wallet and network.");
+          if (["confirmed", "reverted"].includes(result.state)) removeWalletRecovery(c.accountId, record.attemptId);
+          options.status(`Saved transaction on ${networkName(record.chainId)}: ${result.state}. No transaction was submitted by this check.`);
+          return;
+        }
+        if (record.transactionHash) {
+          const provider = await executionProvider(c, record.chainId); check();
+          const receipt = await provider.request({ method: "eth_getTransactionReceipt", params: [record.transactionHash] }) as CreationReceipt | null;
+          check();
+          if (!receipt) { options.status("Wallet creation remains unconfirmed. Keep its reference and check again later."); return; }
+          if (!receipt.transactionHash || !same(receipt.transactionHash, record.transactionHash))
+            fail("This creation has no successful matching receipt. Inspect the saved transaction before starting another.");
+          if (await canonicalFailedCreation(provider, receipt)) {
+            check(); removeWalletRecovery(c.accountId, record.attemptId);
+            options.status("The saved creation transaction reverted. Its result is checked; you can review a new setup."); return;
+          }
+          if (receipt.status !== "0x1") fail("The saved creation result is not canonically resolved. Keep the reference and check again.");
+        }
+        const d = host?.smartAccounts.deployments.find((item) => item.chainId === record.chainId && item.manifest);
+        if (!d) fail("This network has no configured wallet inspection.");
+        const reviewed = await requestBindingReview(d!.manifestId, record.walletAddress); check();
+        challenge = reviewed; field("smart-manifest").value = reviewed.request.manifestId;
+        field("smart-address").value = reviewed.request.address; renderBindingReview();
+        options.status("The saved wallet is deployed and its current ownership is verified. Review and approve its connection to continue.");
+      }) });
+  }
+  async function executionProvider(c: SmartWalletConnection, chainId: number) {
+    const provider = c.execution ? await c.execution(chainId) : c.provider;
+    await assertWalletIdentity(provider, c.owner, chainId, () => options.connection() === c);
+    return provider;
+  }
+  function selectedChainId() {
+    return binding?.wallet.chainId ?? host?.smartAccounts.deployments.find(
+      (entry) => entry.manifestId === field("smart-manifest").value,
+    )?.chainId;
   }
   function checkpoint() {
     const c = connection(),
@@ -165,10 +234,6 @@ export function installSmartWalletUI(options: {
       (x) => x.manifestId === field("smart-manifest").value,
     );
     if (!d) return fail("Select a hosted reviewed deployment.");
-    if (d.chainId !== connection().chainId)
-      fail(
-        "Switch to the selected chain, then connect and load the account again.",
-      );
     return d;
   }
   function manifest() {
@@ -182,8 +247,7 @@ export function installSmartWalletUI(options: {
   function bound() {
     if (
       !binding ||
-      binding.ownerAccountId !== connection().accountId ||
-      binding.wallet.chainId !== connection().chainId
+      binding.ownerAccountId !== connection().accountId
     )
       fail("Load or bind a smart wallet on the connected chain.");
     return binding;
@@ -226,6 +290,7 @@ export function installSmartWalletUI(options: {
     field("operation-owner-signatures").value = "";
     element("operation-review").hidden = true;
     element("operation-result").textContent = "";
+    queue?.refresh();
   }
   function setPlan(next: SmartWalletPlan) {
     clearOperation();
@@ -238,7 +303,7 @@ export function installSmartWalletUI(options: {
   }
   function executionAvailable() {
     const provider = host?.userOperations?.providers?.find(
-      (entry) => entry.chainId === options.connection()?.chainId,
+      (entry) => entry.chainId === selectedChainId(),
     );
     return (
       host?.userOperations?.preparation === true &&
@@ -248,7 +313,7 @@ export function installSmartWalletUI(options: {
     );
   }
   function sessionsAvailable() {
-    const chainId = options.connection()?.chainId;
+    const chainId = selectedChainId();
     return (
       host?.sessions?.activationReady === true &&
       chainId !== undefined &&
@@ -284,18 +349,26 @@ export function installSmartWalletUI(options: {
       binding.state.threshold <= 1 ||
       field("operation-authority").value === "session";
     if (!host) return;
+    const selected = host.smartAccounts.deployments.find(
+      (entry) => entry.manifestId === field("smart-manifest").value,
+    );
+    button("smart-switch").hidden = true;
+    const sponsored = host.userOperations?.providers?.some(
+      (entry) => entry.chainId === selectedChainId() && entry.paymasterConfigured,
+    );
     element("smart-readiness").textContent = executionAvailable()
-      ? "Transactions are configured for this chain. Review and sign each one with your owner wallet."
-      : "This service cannot send transactions on the connected chain. Choose a supported chain.";
+      ? `You can send transactions on this network after reviewing and approving each one.${sponsored ? " Sponsored network fees are available, subject to the checks and limits shown when you prepare a transaction." : ""}`
+      : "Transactions are unavailable on your current network. Choose a supported network to continue.";
   }
   function setBinding(next: SmartAccountBinding) {
     if (
-      next.ownerAccountId !== connection().accountId ||
-      next.wallet.chainId !== connection().chainId
+      next.ownerAccountId !== connection().accountId
     )
       fail("The returned binding belongs to another account or chain.");
     epoch++;
     binding = next;
+    savedBindings.set(next.id, next);
+    renderSavedWallets();
     session = undefined;
     plan = undefined;
     key = undefined;
@@ -353,21 +426,46 @@ export function installSmartWalletUI(options: {
   }
   async function discoverHosted() {
     const generation = epoch;
-    const result = await readPublicRestJson<HostCapabilities>(
-      options.audience,
-      "/api/v1/capabilities",
-    );
+    button("smart-discover").hidden = true;
+    let result: HostCapabilities;
+    try {
+      result = await readPublicRestJson<HostCapabilities>(
+        options.audience,
+        "/api/v1/capabilities",
+      );
+    } catch (error) {
+      if (generation === epoch) {
+        button("smart-discover").hidden = false;
+        element("smart-readiness").textContent = "Could not load supported networks. Try again.";
+      }
+      throw error;
+    }
     if (generation !== epoch) return;
-    if (!Array.isArray(result.smartAccounts?.deployments))
+    if (!Array.isArray(result.smartAccounts?.deployments)) {
+      button("smart-discover").hidden = false;
       fail("This host has not configured smart wallets.");
+    }
     host = result;
+    const checked = new Set(networkChoices.filter((choice) => choice.checked).map((choice) => choice.value));
+    const choices = element("smart-networks"); choices.replaceChildren(); networkChoices = [];
+    const offeredChains = new Set<number>();
+    for (const d of result.smartAccounts.deployments) {
+      if (!d.manifest || offeredChains.has(d.chainId)) continue;
+      offeredChains.add(d.chainId);
+      const label = document.createElement("label"), input = document.createElement("input"), name = document.createElement("span");
+      label.className = "network-choice"; input.type = "checkbox"; input.value = d.manifestId;
+      input.checked = checked.size ? checked.has(d.manifestId) : d.chainId === options.connection()?.chainId;
+      name.textContent = networkName(d.chainId); label.append(input, name); choices.append(label); networkChoices.push(input);
+    }
     const select = element<HTMLSelectElement>("smart-manifest");
     const previous = select.value;
     select.replaceChildren();
     for (const d of result.smartAccounts.deployments) {
       const option = document.createElement("option");
       option.value = d.manifestId;
-      option.textContent = `Chain ${d.chainId} / ${d.manifestId}`;
+      const network = supportedNetworks.find((entry) => entry.id === d.chainId);
+      const variants = result.smartAccounts.deployments.filter((entry) => entry.chainId === d.chainId);
+      option.textContent = `${network?.name ?? `Network ${d.chainId}`}${variants.length > 1 ? ` / setup ${variants.indexOf(d) + 1}` : ""}`;
       select.append(option);
     }
     select.value = binding?.manifestId ??
@@ -380,222 +478,241 @@ export function installSmartWalletUI(options: {
     refreshReadiness();
     if (plan && !operation)
       button("operation-prepare").disabled = !executionAvailable();
-    show("smart-capabilities", {
-      deployments: result.smartAccounts.deployments.map(
-        ({ manifest: _m, ...d }) => d,
-      ),
-      requirements: result.smartAccounts.requirements,
-      execution: result.userOperations ?? { state: "unavailable" },
-      botPermissions: result.sessions ?? { activationReady: false },
-    });
   }
   event("smart-discover", discoverHosted);
+  field("smart-manifest").addEventListener("change", () => {
+    if (binding && binding.manifestId !== field("smart-manifest").value) {
+      epoch++; binding = undefined; session = undefined; key = undefined; plan = undefined; clearOperation();
+      element<HTMLFieldSetElement>("operation-fields").disabled = true;
+    }
+    refreshReadiness();
+  });
+  function revealLinkedSetup() {
+    if (["#smart-heading", "#operation-heading", "#session-heading"].includes(window.location.hash))
+      element<HTMLDetailsElement>("smart-setup").open = true;
+  }
+  window.addEventListener("hashchange", revealLinkedSetup);
+  revealLinkedSetup();
   event("smart-switch", async () => {
     const c = connection(),
       d = host?.smartAccounts.deployments.find(
         (x) => x.manifestId === field("smart-manifest").value,
       );
     if (!d) fail("Select a hosted chain first.");
-    await c.provider.request({
-      method: "wallet_switchEthereumChain",
-      params: [{ chainId: toHex(d!.chainId) }],
-    });
+    await executionProvider(c, d!.chainId);
     options.status(
-      "Chain switch requested. Connect and load the account on that chain.",
+      "Execution network selected. Your API account stays signed in.",
     );
   });
+  function renderCreations() {
+    const progress = element("smart-creation-progress");
+    progress.replaceChildren(); progress.hidden = creations.length === 0;
+    for (const item of creations) {
+      const row = document.createElement("p"); row.className = "network-progress-item";
+      row.textContent = `${networkName(item.result.chainId)} / ${item.result.address} / ${item.state}${item.transactionHash ? ` / transaction ${item.transactionHash}` : ""}`;
+      progress.append(row);
+    }
+    const summary = element("smart-create-review");
+    summary.hidden = creations.length === 0;
+    summary.textContent = creations.length ? `${creations.length} network${creations.length === 1 ? "" : "s"}. ${new Set(creations.map((item) => item.result.address.toLowerCase())).size === 1 ? `Same wallet address: ${creations[0]!.result.address}.` : "Review the distinct wallet addresses below."} Owners: ${creations[0]!.request.owners.join(", ")}. ${creations[0]!.request.threshold} owner approval(s) required. Each network keeps its own balance, deployment fee and transaction status.` : "";
+    if (creations.length) {
+      const reviews = creations.map((item) => ({ ...item.result, state: item.state, ...(item.transactionHash ? { transactionHash: item.transactionHash } : {}) }));
+      show("smart-creation", reviews.length === 1 ? reviews[0] : reviews);
+    }
+    button("smart-create-send").hidden = !creations.length;
+    button("smart-create-send").disabled = !creations.some((item) => !item.transactionHash && item.state === "reviewed");
+    button("smart-create-status").hidden = !creations.some((item) => !!item.transactionHash);
+    button("smart-create-status").disabled = !creations.some((item) => !!item.transactionHash && item.state !== "connected");
+  }
   event("smart-create-prepare", async () => {
-    const { c, check } = checkpoint(),
-      m = manifest();
-    const owners = field("smart-owners")
-      .value.split(/[\s,]+/)
-      .filter(Boolean)
-      .map((x) => getAddress(x));
-    const request = {
-      manifestId: m.id,
-      owners,
-      threshold: Number(field("smart-threshold").value),
-      saltNonce: BigInt(newRequestNonce()).toString(),
-    };
-    const result = (
-      await new SmartAccountClient(c.client).prepareCreation(request)
-    ).creation;
-    check();
-    verifyWalletCreation({ manifest: m, request, creation: result });
-    creation = { request, result, manifest: m };
-    show("smart-creation", result);
-    button("smart-create-send").disabled = false;
-    button("smart-create-status").disabled = true;
-    options.status(
-      "Review the wallet owners, required signature count, creation contract and network cost before sending.",
-    );
+    const { c, check } = checkpoint();
+    if (creations.some((item) => item.transactionHash && !["connected", "reverted"].includes(item.state)))
+      fail("Finish checking and connecting the wallets already submitted before preparing another setup.");
+    const selected = networkChoices.filter((input) => input.checked).map((input) =>
+      host?.smartAccounts.deployments.find((item) => item.manifestId === input.value));
+    if (!selected.length || selected.some((item) => !item?.manifest)) fail("Choose at least one supported network.");
+    const owners = field("smart-owners").value.split(/[\s,]+/).filter(Boolean).map((value) => getAddress(value));
+    const threshold = Number(field("smart-threshold").value), saltNonce = BigInt(newRequestNonce()).toString();
+    const reviewed: CreationReview[] = [];
+    for (const selectedManifest of selected) {
+      const m = selectedManifest!.manifest!;
+      const request = { manifestId: m.id, owners, threshold, saltNonce };
+      const result = (await new SmartAccountClient(c.client).prepareCreation(request)).creation;
+      check(); verifyWalletCreation({ manifest: m, request, creation: result });
+      reviewed.push({ attemptId: smartRequestKey(), request, result, manifest: m, state: "reviewed" });
+    }
+    creations = reviewed; challenge = undefined; renderCreations();
+    options.status("Review every selected network, wallet address and owner. Creation requires a separate transaction and network fee on each network.");
   });
   event("smart-create-send", async () => {
-    const { c, check } = checkpoint(),
-      reviewed = creation;
-    if (!reviewed) fail("Prepare wallet creation first.");
-    verifyWalletCreation({
-      manifest: reviewed!.manifest,
-      request: reviewed!.request,
-      creation: reviewed!.result,
-    });
-    await assertWalletIdentity(
-      c.provider,
-      c.owner,
-      reviewed!.result.chainId,
-      () => options.connection() === c,
-    );
-    check();
-    button("smart-create-send").disabled = true;
-    const hash = await c.provider.request({
-      method: "eth_sendTransaction",
-      params: [
-        {
-          from: c.owner,
-          to: reviewed!.result.transaction.to,
-          value: "0x0",
-          data: reviewed!.result.transaction.data,
-        },
-      ],
-    });
-    check();
-    if (typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash))
-      fail(
-        "The wallet did not return a transaction hash. Check its activity before preparing another creation.",
-      );
-    reviewed!.transactionHash = hash as Hex;
-    show("smart-creation", {
-      ...reviewed!.result,
-      transactionHash: hash,
-      state: "pending",
-    });
-    button("smart-create-status").disabled = false;
-    options.status(
-      "Creation submitted. Check the receipt before binding the wallet.",
-    );
+    const { c, check } = checkpoint();
+    const pending = creations.filter((item) => !item.transactionHash && item.state === "reviewed");
+    if (!pending.length) fail("Check the existing creation receipts before preparing another wallet.");
+    for (const reviewed of pending) {
+      verifyWalletCreation({ manifest: reviewed.manifest, request: reviewed.request, creation: reviewed.result });
+      const provider = await executionProvider(c, reviewed.result.chainId); check();
+      recordWalletRecovery(creationReference(c, reviewed)); refreshRecovery();
+      button("smart-create-send").disabled = true;
+      let hash: unknown, submissionUnknown = false;
+      try {
+        hash = await provider.request({ method: "eth_sendTransaction", params: [{ from: c.owner, chainId: toHex(reviewed.result.chainId),
+          to: reviewed.result.transaction.to, value: "0x0", data: reviewed.result.transaction.data }] });
+      } catch (error) {
+        if (!error || typeof error !== "object" || !("broadcastState" in error) || error.broadcastState !== "unknown" ||
+          !("transactionHash" in error) || typeof error.transactionHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(error.transactionHash)) {
+          if (error && typeof error === "object" && "code" in error && error.code === 4001 && !("broadcastState" in error))
+            removeWalletRecovery(c.accountId, reviewed.attemptId);
+          check(); throw error;
+        }
+        hash = error.transactionHash; submissionUnknown = true;
+      }
+      if (typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash))
+        fail("The wallet did not return a transaction hash. Check its activity before preparing another creation.");
+      reviewed.transactionHash = hash as Hex;
+      recordWalletRecovery(creationReference(c, reviewed), { requireDurable: false });
+      check(); refreshRecovery();
+      reviewed.state = submissionUnknown ? "submission-unknown" : "pending"; renderCreations();
+      if (submissionUnknown) {
+        options.status("A creation submission is uncertain. Its hash is saved below. Check the receipt before continuing with the remaining networks.", true);
+        return;
+      }
+    }
+    options.status("Wallet creations submitted. Check each network's receipt before connecting its wallet.");
   });
   event("smart-create-status", async () => {
-    const { c, check } = checkpoint(),
-      reviewed = creation;
-    if (!reviewed?.transactionHash) fail("Submit wallet creation first.");
-    await assertWalletIdentity(c.provider, c.owner, reviewed!.result.chainId);
-    check();
-    const receipt = (await c.provider.request({
-      method: "eth_getTransactionReceipt",
-      params: [reviewed!.transactionHash],
-    })) as { status?: string; transactionHash?: string } | null;
-    check();
-    if (!receipt) {
-      options.status("Creation is still pending. Check again later.");
-      return;
+    const { c, check } = checkpoint();
+    if (!creations.some((item) => item.transactionHash)) fail("Submit wallet creation first.");
+    for (const reviewed of creations.filter((item) => item.transactionHash && item.state !== "connected")) {
+      const provider = await executionProvider(c, reviewed.result.chainId); check();
+      const receipt = await provider.request({ method: "eth_getTransactionReceipt", params: [reviewed.transactionHash] }) as CreationReceipt | null;
+      check();
+      if (!receipt) continue;
+      if (!receipt.transactionHash || !same(receipt.transactionHash, reviewed.transactionHash!))
+        fail("Creation did not return a matching receipt. Inspect the wallet transaction.");
+      if (receipt.status !== "0x1") {
+        const reverted = await canonicalFailedCreation(provider, receipt); check();
+        if (reverted) { removeWalletRecovery(c.accountId, reviewed.attemptId); refreshRecovery(); }
+        reviewed.state = reverted ? "reverted" : "submission-unknown"; renderCreations();
+        fail("Creation did not return a successful matching receipt. Inspect the wallet transaction.");
+      }
+      if (!reviewed.bindingReview || reviewed.bindingReview.request.expiresAt <= Math.floor(Date.now() / 1000))
+        reviewed.bindingReview = await requestBindingReview(reviewed.manifest.id, reviewed.result.address);
+      check(); reviewed.state = "ready-to-connect"; renderCreations();
     }
-    if (
-      receipt.status !== "0x1" ||
-      !receipt.transactionHash ||
-      !same(receipt.transactionHash, reviewed!.transactionHash!)
-    )
-      fail(
-        "Creation did not return a successful matching receipt. Inspect the wallet transaction.",
-      );
-    field("smart-address").value = reviewed!.result.address;
-    show("smart-creation", { ...reviewed!.result, receipt });
-    options.status(
-      "A successful creation receipt was found. Inspect and link the wallet to verify its deployed code and permissions.",
-    );
+    const ready = creations.filter((item) => item.state === "ready-to-connect" && item.bindingReview);
+    if (!ready.length) { options.status("Wallet creation is still pending on the displayed networks. Check again later."); return; }
+    // The ordinary approval button connects single-owner networks together. Multisigs retain separate signature documents.
+    challenge = ready[0]!.bindingReview;
+    field("smart-address").value = challenge!.request.address;
+    field("smart-manifest").value = challenge!.request.manifestId;
+    renderBindingReview();
+    options.status("Creation receipts found and wallet setups checked. Review each connection before approving it; no transaction approval is included.");
   });
-  event("smart-bind-prepare", async () => {
-    const { c, check } = checkpoint(),
-      d = deployment();
-    const request = {
-      manifestId: d.manifestId,
-      address: address("smart-address"),
-      nonce: newRequestNonce(),
-      expiresAt: Math.floor(Date.now() / 1000) + 600,
-    };
-    const result = await ownerClient().challenge(request);
-    check();
-    const document = smartBindingDocument({
-      audience: options.audience,
-      accountId: c.accountId,
-      owner: c.owner,
-      request,
-      challenge: result,
-    });
-    challenge = { request, result, document, signatures: [] };
-    element("smart-binding-multisig").hidden = result.state.threshold <= 1;
+  async function requestBindingReview(manifestId: string, wallet: Address): Promise<BindingReview> {
+    const { c, check } = checkpoint();
+    const request = { manifestId, address: wallet, nonce: newRequestNonce(), expiresAt: Math.floor(Date.now() / 1000) + 600 };
+    const result = await ownerClient().challenge(request); check();
+    const document = smartBindingDocument({ audience: options.audience, accountId: c.accountId, owner: c.owner, request, challenge: result });
+    return { request, result, document, signatures: [], submissionKey: smartRequestKey() };
+  }
+  function pendingConnections() {
+    return creations.some((item) => item.bindingReview === challenge)
+      ? creations.filter((item) => item.state === "ready-to-connect" && item.bindingReview).map((item) => item.bindingReview!)
+      : challenge ? [challenge] : [];
+  }
+  function renderBindingReview() {
+    if (!challenge) return;
+    const reviews = pendingConnections();
+    element("smart-binding-multisig").hidden = challenge.result.state.threshold <= 1;
     field("smart-binding-signatures").value = "";
-    show("smart-binding-review", {
-      state: result.state,
-      digest: result.digest,
-      typedData: document,
-    });
-    button("smart-bind-sign").disabled = false;
-    button("smart-bind-submit").disabled = false;
-    options.status(
-      "Review current owners, required signatures and contract permissions, then sign the exact wallet-link document.",
-    );
-  });
+    const raw = reviews.map((review) => ({ state: review.result.state, digest: review.result.digest, typedData: review.document }));
+    show("smart-binding-review", raw.length === 1 ? raw[0] : raw);
+    const summary = element("smart-binding-summary");
+    summary.textContent = reviews.map((review) => `${networkName(review.result.state.chainId)} wallet: ${review.result.state.address}. Owners: ${review.result.state.owners.join(", ")}. ${review.result.state.threshold} of ${review.result.state.owners.length} owner approvals required.`).join(" ") + " Connecting wallets approves no transactions.";
+    summary.hidden = false; element("smart-binding-document").hidden = false;
+    button("smart-bind-sign").disabled = false; button("smart-bind-sign").hidden = false;
+    button("smart-bind-sign").textContent = challenge.result.state.threshold > 1 ? `Approve as one owner on ${networkName(challenge.result.state.chainId)}` : reviews.length > 1 ? "Approve and connect wallets" : "Approve and connect wallet";
+    button("smart-bind-submit").hidden = challenge.result.state.threshold <= 1;
+    button("smart-bind-submit").disabled = challenge.result.state.threshold <= 1;
+  }
+  async function prepareBinding() {
+    challenge = await requestBindingReview(deployment().manifestId, address("smart-address"));
+    renderBindingReview();
+    options.status("Review this wallet's owners and permissions, then approve its connection. This does not approve any transactions.");
+  }
+  event("smart-bind-prepare", prepareBinding);
+  async function connectReviewedWallet(reviewed: BindingReview, additional: Hex[] = []) {
+    const { c, check } = checkpoint();
+    const signature = await packOwnerSignatures({ digest: reviewed.result.digest, owners: reviewed.result.state.owners,
+      threshold: reviewed.result.state.threshold, signatures: [...reviewed.signatures, ...additional] }); check();
+    const result = await ownerClient().bind({ ...reviewed.request, stateHash: reviewed.result.state.stateHash, signature }, reviewed.submissionKey); check();
+    if (result.ownerAccountId !== c.accountId || result.wallet.chainId !== reviewed.result.state.chainId ||
+      !same(result.wallet.address, reviewed.request.address) || result.manifestId !== reviewed.request.manifestId)
+      fail("The returned wallet connection differs from the reviewed wallet and network.");
+    savedBindings.set(result.id, result); renderSavedWallets();
+    const created = creations.find((item) => item.bindingReview === reviewed);
+    if (created) { created.binding = result; created.state = "connected"; renderCreations(); }
+    for (const record of walletRecoveries(c.accountId))
+      if (record.kind === "creation" && record.chainId === result.wallet.chainId && same(record.walletAddress, result.wallet.address))
+        removeWalletRecovery(c.accountId, record.attemptId);
+    refreshRecovery();
+    return result;
+  }
   event("smart-bind-sign", async () => {
-    const { c, check } = checkpoint(),
-      reviewed = challenge;
-    if (!reviewed) fail("Prepare the binding challenge first.");
-    const signature = await signWalletTypedData({
-      provider: c.provider,
-      address: c.owner,
-      chainId: c.chainId,
-      document: reviewed!.document,
-      stillCurrent: () => options.connection() === c,
-    });
-    check();
-    reviewed!.signatures = [signature];
-    button("smart-bind-sign").disabled = true;
-    options.status(
-      reviewed!.result.state.threshold > 1
-        ? "Owner signature collected. Add the remaining owner signatures, then bind."
-        : "Owner signature collected. Verify and bind the wallet to continue.",
-    );
+    const { c, check } = checkpoint();
+    const reviews = pendingConnections();
+    if (!reviews.length) fail("Review the wallet connection first.");
+    let connected: SmartAccountBinding | undefined;
+    for (const reviewed of reviews) {
+      challenge = reviewed;
+      if (!reviewed.signatures.length) {
+        const provider = await executionProvider(c, reviewed.result.state.chainId); check();
+        const signature = await signWalletTypedData({ provider, address: c.owner, chainId: reviewed.result.state.chainId,
+          document: reviewed.document, stillCurrent: () => options.connection() === c }); check();
+        reviewed.signatures = [signature];
+      }
+      if (reviewed.result.state.threshold > 1) {
+        renderBindingReview(); button("smart-bind-sign").disabled = true;
+        options.status(`Your approval for ${networkName(reviewed.result.state.chainId)} is collected. Add the other required owners' signatures for this exact network, then connect it.`);
+        return;
+      }
+      try { connected = await connectReviewedWallet(reviewed); }
+      catch (error) { button("smart-bind-sign").textContent = "Retry wallet connection"; throw error; }
+      check();
+    }
+    if (connected) setBinding(connected);
+    button("smart-bind-sign").disabled = true; button("smart-bind-submit").disabled = true;
+    options.status("Transaction wallets connected. Choose a saved wallet to prepare its transactions.");
   });
   event("smart-bind-submit", async () => {
-    const { check } = checkpoint(),
-      reviewed = challenge;
-    if (!reviewed) fail("Prepare the binding challenge first.");
-    const signature = await packOwnerSignatures({
-      digest: reviewed!.result.digest,
-      owners: reviewed!.result.state.owners,
-      threshold: reviewed!.result.state.threshold,
-      signatures: [
-        ...reviewed!.signatures,
-        ...signatureList("smart-binding-signatures"),
-      ],
-    });
-    check();
-    const result = await ownerClient().bind({
-      ...reviewed!.request,
-      stateHash: reviewed!.result.state.stateHash,
-      signature,
-    });
-    check();
-    setBinding(result);
-    button("smart-bind-submit").disabled = true;
-    options.status(
-      "Smart wallet connected. Prepare a V6 action below, then review and sign with your owner wallet.",
-    );
+    if (!challenge) fail("Review the wallet connection first.");
+    const created = creations.some((item) => item.bindingReview === challenge);
+    const result = await connectReviewedWallet(challenge!, signatureList("smart-binding-signatures"));
+    const next = created ? pendingConnections()[0] : undefined;
+    if (next) { challenge = next; renderBindingReview(); }
+    else { setBinding(result); button("smart-bind-sign").disabled = true; button("smart-bind-submit").disabled = true; }
+    options.status(next ? "Wallet connected. Review the next network's ownership approval." : "Transaction wallet connected.");
   });
+  async function loadBinding(id: Hex) {
+    const { check } = checkpoint(), result = await ownerClient().binding(id); check();
+    setBinding(result); options.status(`Wallet on ${networkName(result.wallet.chainId)} checked and ready.`);
+  }
+  function renderSavedWallets() {
+    const list = element("smart-wallet-list"); list.replaceChildren();
+    for (const item of savedBindings.values()) {
+      const row = document.createElement("li"), use = document.createElement("button");
+      use.type = "button"; use.className = "wallet-choice";
+      use.textContent = `${networkName(item.wallet.chainId)} / ${item.wallet.address}`;
+      use.addEventListener("click", () => void options.run(() => loadBinding(item.id))); row.append(use); list.append(row);
+    }
+    list.hidden = savedBindings.size === 0;
+  }
   event("smart-bind-list", async () => {
-    const { check } = checkpoint(),
-      result = await ownerClient().bindings();
-    check();
-    show("smart-bindings", result);
+    const { check } = checkpoint(), result = await ownerClient().bindings(); check();
+    savedBindings.clear(); for (const item of result.items) savedBindings.set(item.id, item);
+    renderSavedWallets(); show("smart-bindings", result);
   });
-  event("smart-bind-load", async () => {
-    const { check } = checkpoint(),
-      result = await ownerClient().binding(
-        field("smart-binding-id").value as Hex,
-      );
-    check();
-    setBinding(result);
-    options.status("Current smart-wallet binding loaded.");
-  });
+  event("smart-bind-load", () => loadBinding(field("smart-binding-id").value as Hex));
   field("session-action").addEventListener("change", () => {
     element("session-payment").hidden =
       field("session-action").value === "v6-project-uri";
@@ -842,7 +959,8 @@ export function installSmartWalletUI(options: {
     check();
     if (
       freshBinding.ownerAccountId !== connection().accountId ||
-      freshBinding.wallet.chainId !== connection().chainId
+      freshBinding.id !== bound().id || freshBinding.wallet.chainId !== bound().wallet.chainId ||
+      !same(freshBinding.wallet.address, bound().wallet.address)
     )
       fail("The wallet binding changed.");
     binding = freshBinding;
@@ -865,6 +983,7 @@ export function installSmartWalletUI(options: {
     button("operation-prepare").disabled = true;
     button("operation-sign").disabled = false;
     button("operation-status").disabled = false;
+    queue?.refresh();
     options.status(
       "Operation prepared and simulated. Review the encoded instructions (calldata), network costs, sponsor (paymaster), expiry and public signing document.",
     );
@@ -900,10 +1019,11 @@ export function installSmartWalletUI(options: {
         validAfter: String(Math.floor(reviewed!.createdAt / 1000)),
         validUntil: String(Math.floor(reviewed!.expiresAt / 1000)),
       });
+      const provider = await executionProvider(c, m.chainId); check();
       const signature = await signWalletTypedData({
-        provider: c.provider,
+        provider,
         address: c.owner,
-        chainId: c.chainId,
+        chainId: m.chainId,
         document: payload.typedData,
         stillCurrent: () => options.connection() === c,
       });
@@ -919,7 +1039,7 @@ export function installSmartWalletUI(options: {
     );
   });
   event("operation-submit", async () => {
-    const { check } = checkpoint(),
+    const { c, check } = checkpoint(),
       reviewed = operation;
     if (!reviewed || !plan || !operationClient || !submissionKey)
       fail("Prepare and sign an operation first.");
@@ -936,16 +1056,23 @@ export function installSmartWalletUI(options: {
         );
     check();
     if (!signature) fail("Sign the exact session operation first.");
+    recordWalletRecovery({ accountId: c.accountId, chainId: reviewed!.chainId, walletAddress: reviewed!.operation.sender,
+      kind: "user-operation", attemptId: submissionKey!, idempotencyKey: submissionKey!, operationId: reviewed!.id });
+    refreshRecovery();
     // Once a request is sent, its outcome can be unknown. Never generate a new submission key or auto-resubmit.
     button("operation-submit").disabled = true;
     button("operation-sign").disabled = true;
     element("operation-result").textContent =
       "Submission started. If the request fails, refresh this operation's status before taking another action.";
-    const result = await operationClient!.submitUserOperation(
-      reviewed!.id,
-      signature!,
-      submissionKey,
-    );
+    let result: PreparedUserOperation;
+    try { result = await operationClient!.submitUserOperation(reviewed!.id, signature!, submissionKey); }
+    catch (error) {
+      if (error && typeof error === "object" && "requestNotSent" in error && error.requestNotSent === true) {
+        removeWalletRecovery(c.accountId, submissionKey!); refreshRecovery();
+        if (options.connection() === c) button("operation-submit").disabled = false;
+      }
+      throw error;
+    }
     check();
     operation = result;
     show("operation-review", result);
@@ -956,16 +1083,25 @@ export function installSmartWalletUI(options: {
     );
   });
   event("operation-status", async () => {
-    const { check } = checkpoint(),
+    const { c, check } = checkpoint(),
       reviewed = operation;
     if (!reviewed || !operationClient) fail("Prepare an operation first.");
     const result = await operationClient!.userOperation(reviewed!.id);
     check();
     operation = result;
+    if (submissionKey && ["confirmed", "reverted"].includes(result.state)) removeWalletRecovery(c.accountId, submissionKey);
+    refreshRecovery();
     show("operation-review", result);
     element("operation-result").textContent =
       `Operation ${result.id}: ${result.state}.`;
     options.status(`Operation state: ${result.state}.`);
+  });
+  queue = installOperationQueue({
+    connection: options.connection, execution: executionProvider, run: options.run, status: options.status, networkName, refreshRecovery,
+    current: () => operation && plan && binding && operationClient ? {
+      record: operation, plan, binding, client: operationClient, manifest: manifest(),
+    } : undefined,
+    takeCurrent: clearOperation,
   });
   return {
     async accountReady(ready: boolean) {
@@ -977,22 +1113,35 @@ export function installSmartWalletUI(options: {
         const generation = epoch;
         try {
           await discoverHosted();
+          refreshRecovery();
         } catch {
-          if (generation === epoch)
+          if (generation === epoch) {
+            button("smart-discover").hidden = false;
             element("smart-readiness").textContent =
-              "Could not load supported chains. Open hosted configuration to retry.";
+              "Could not load supported networks. Try again.";
+          }
         }
       }
     },
     reset() {
       epoch++;
       binding = undefined;
-      creation = undefined;
+      creations = [];
+      savedBindings.clear(); renderSavedWallets(); renderCreations();
       challenge = undefined;
       session = undefined;
       plan = undefined;
       key = undefined;
       host = undefined;
+      networkChoices = [];
+      queue.reset();
+      element("smart-recovery").hidden = true;
+      button("smart-discover").hidden = true;
+      button("smart-switch").hidden = true;
+      button("smart-bind-submit").hidden = true;
+      for (const id of ["smart-create-send", "smart-create-status", "smart-bind-sign"])
+        button(id).hidden = true;
+      element("smart-readiness").textContent = "Sign in to see the supported networks.";
       field("operation-authority").value = "owner";
       field("smart-threshold").value = "1";
       refreshReadiness();
@@ -1022,6 +1171,8 @@ export function installSmartWalletUI(options: {
       for (const id of [
         "smart-creation",
         "smart-binding-review",
+        "smart-binding-summary",
+        "smart-binding-document",
         "smart-bindings",
         "session-review",
         "session-quota",

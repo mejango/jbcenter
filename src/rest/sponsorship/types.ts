@@ -31,7 +31,7 @@ export interface RelayrEntry {
   target: Address;
   data: Hex;
   value: string;
-  virtual_nonce: 0;
+  virtual_nonce: number;
 }
 export interface RelayrPayment {
   chainId: number;

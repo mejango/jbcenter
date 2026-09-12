@@ -12,23 +12,13 @@ Current final sponsorship can require an allowed bundler origin even when its st
 
 All fund movement requires fresh owner approval unless it spends an explicitly set-aside, onchain-bounded payment allocation. Session keys cannot install modules, change ownership or permissions, change allowances, issue permits, or redirect funds. The existing [API bot grants](AUTHENTICATION.md) and [transaction transport](TRANSACTIONS.md) remain separate authorities.
 
-## The Derive model and Center's boundaries
+## Accounts and authority
 
-Derive's [interface onboarding](https://docs.derive.xyz/reference/ux-create-or-deposit-to-subaccount) creates a smart-contract wallet controlled by the original signer; protocol transfers appear under that wallet's address. Its [subaccounts](https://docs.derive.xyz/reference/multiple-subaccounts) organize separate balances under the same controlling wallet. Center adopts the owner-to-smart-account-to-session relationship, with separately identified per-chain accounts and payment allocations.
-
-Derive [session keys](https://docs.derive.xyz/reference/session-keys) can authenticate API requests and, with admin authority, sign financial actions. Its [scoped registration](https://docs.derive.xyz/reference/private-register_scoped_session_key) distinguishes API-only registration from transaction-backed admin registration. Derive documents key expiry, deposits/withdrawals restricted to the original owner, and no session-key bridging. Center has no bot-admin scope or session-created sessions; financial session authority requires an explicit payment budget. A weekly API grant alone never authorizes an onchain operation.
-
-Derive signs a timestamp for [private-endpoint authentication](https://docs.derive.xyz/reference/authentication) and separately signs [action payloads](https://docs.derive.xyz/reference/submit-order), which include action data, nonce and expiry. Center's HTTP signature binds the full request and a single-use nonce. This comparison uses Derive's published documentation checked on 2026-09-07, not independent verification of its deployed implementation. Center's per-chain registry, Safe7579/Smart Sessions stack and payment allocations are Center design choices; these references do not establish that Derive uses them.
-
-| Identity or authority | Meaning                                                                                  | Owner approval                                                                    |
-| --------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| API owner             | Existing `eip155:<authorityChainId>:<ownerAddress>` identity                             | Owns the Center account and registers bot keys                                    |
-| Smart account         | A distinct `(chainId, smartAccountAddress)` with verified owner and module configuration | Exact factory/setup or existing-account registration; no EOA-address substitution |
-| API bot grant         | Signed requests within cumulative `read`, `read+plan`, or `read+plan+relay` profiles     | Explicit grant and expiry; no wallet authority                                    |
-| Onchain session       | Exact key, account, module, policy configuration and validity                            | Exact installation or enable authorization                                        |
-| Payment allocation    | Approved chain/asset amounts and route, enforced by onchain policy counters              | Separate explicit funding, finite allowance if needed, and bounded payment policy |
-
-Private keys stay with the owner/client; Center stores public account, grant, policy and execution records. The smart account owns any deposited assets. Allocation records do not move or escrow funds, prove a balance, or create a token allowance. Use a separately funded smart account when funds must be isolated from other wallet assets. Gas sponsorship is a separate budget, not custody of those assets.
+The owner controls each linked smart account and separately approves any session
+that may act for it. API grants authenticate requests; wallet policies enforce
+financial authority, including permitted actions, budgets and expiry. Center has
+no bot-admin scope or session-created sessions. A weekly API grant alone never
+authorizes an onchain operation.
 
 ## Select and verify one complete stack
 

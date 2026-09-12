@@ -23,6 +23,11 @@ ajv.addSchema(JSON.parse(JSON.stringify({ $id: "urn:juicebox:approval-schemas", 
 const validator = (name: string) => ajv.compile({ $ref: `urn:juicebox:approval-schemas#/$defs/${name}` });
 
 describe("published approval and sponsorship schemas", () => {
+  it("accepts more than four steps within Center plan capacity", () => {
+    expect(validator("CreateSponsorship")({ planId: resourceId, stepIndexes: [0, 1, 2, 3, 4] })).toBe(true);
+    expect(validator("SubmitSponsorship")({ signatures: Array(32).fill(signature) })).toBe(true);
+    expect(validator("SubmitSponsorship")({ signatures: Array(33).fill(signature) })).toBe(false);
+  });
   it("accepts actual approval-builder claims and rejects cross-protocol or extra wire fields", () => {
     const common = { accountId, principalId, commitment: hash, issuedAt: now, expiresAt: now + 300, nonce: hash };
     const transaction = { ...common, planId: resourceId, stepIndex: 0, transactionHash: hash };

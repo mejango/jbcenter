@@ -119,14 +119,6 @@ or financial outcomes receive an independent review before release.
 
 ## Primary references
 
-- [Derive session keys](https://docs.derive.xyz/reference/session-keys)
-- [Derive authentication](https://docs.derive.xyz/reference/authentication)
-- [Derive action signatures](https://docs.derive.xyz/reference/submit-order)
 - [OpenAPI specification](https://spec.openapis.org/oas/)
 - [HTTP message signature considerations](https://www.rfc-editor.org/rfc/rfc9421.html)
 - [HTTP problem details](https://www.rfc-editor.org/rfc/rfc9457.html)
-
-Derive supplies useful account/delegation concepts. Its private-endpoint authentication signs a
-timestamp; financial actions separately sign their action payload, nonce and expiry. Center's
-HTTP authentication signs request content and a single-use nonce as well. This documentation
-comparison does not independently verify Derive's deployed implementation.

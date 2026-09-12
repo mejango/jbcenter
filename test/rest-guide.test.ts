@@ -1,0 +1,30 @@
+import { describe, expect, it } from "vitest";
+import { Hono } from "hono";
+import type { JbcenterEnv } from "../src/types.js";
+import { guidePage } from "../src/rest/docs/guide.js";
+import { mountRestSite, type RestSite } from "../src/rest/site.js";
+
+describe("readable developer guides", () => {
+  it("renders navigation, code, tables and stable heading links without executing raw HTML", () => {
+    const html = guidePage("quickstart", '# Get started\n\n## Connect\n\n[Client](./CLIENT.md#connect-from-node)\n\n```js\nconsole.log("hello");\n```\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n<script>alert(1)</script>\n\n[x](javascript:alert%281%29)');
+    expect(html).toContain('id="connect"');
+    expect(html).toContain('href="/api/docs/client#connect-from-node"');
+    expect(html).toContain('class="copy-code"');
+    expect(html).toContain('<table>');
+    expect(html).not.toContain('<script>alert');
+    expect(html).not.toContain('href="javascript:');
+    expect(html).toContain('aria-current="page"');
+  });
+  it("keeps Markdown available while serving readable pages and the actual client archive", async () => {
+    const app = new Hono<JbcenterEnv>();
+    mountRestSite(app, { app: new Hono(), audience: "https://juicebox.center", accountsScript: "", docsScript: "", docsHtml: "", docsCss: "", clientPackage: new Uint8Array([1, 2, 3]), documents: new Map([["quickstart", "# Hello"]]) } as RestSite);
+    const html = await app.request('/api/docs/quickstart');
+    expect(html.headers.get('content-type')).toContain('text/html');
+    expect(await html.text()).toContain('<h1 id="hello">Hello</h1>');
+    expect(await (await app.request('/api/docs/quickstart.md')).text()).toBe('# Hello');
+    expect(await (await app.request('/api/docs/quickstart', { headers: { accept: 'text/markdown' } })).text()).toBe('# Hello');
+    const archive = await app.request('/api/client/juicebox-center-client-0.1.0.tgz');
+    expect(archive.headers.get('content-type')).toBe('application/gzip');
+    expect(new Uint8Array(await archive.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+  });
+});

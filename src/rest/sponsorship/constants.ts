@@ -12,7 +12,8 @@ export const RELAYR_MAINNET_CHAINS = [1, 10, 8453, 42161] as const;
 export const RELAYR_PAYMENT_GAS = 150_000n;
 export const RELAYR_LIMITS = Object.freeze({
   maximumBytes: 524_288,
-  maximumCalls: 4,
+  // Center plans contain at most 32 steps; this is not a provider limit.
+  maximumCalls: 32,
   recordsPerAccount: 1000,
 });
 export const DEFAULT_SPONSORSHIP_POLICY: SponsorshipPolicy = {

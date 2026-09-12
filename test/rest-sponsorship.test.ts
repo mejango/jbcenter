@@ -5,6 +5,7 @@ import {
   encodeEventTopics,
   encodeFunctionResult,
   keccak256,
+  recoverTypedDataAddress,
   type Address,
   type Hex,
 } from "viem";
@@ -47,6 +48,8 @@ const hex = (value: number | bigint): Hex => `0x${BigInt(value).toString(16)}`;
 async function fixture(
   policy: Partial<SponsorshipPolicy> = {},
   authorizeDispatch?: RelayrSponsorshipOptions["authorizeDispatch"],
+  callCount = 1,
+  callChains: number[] = [],
 ) {
   let now = Math.floor(Date.now() / 1000) * 1000;
   const actor: RestActor = {
@@ -63,6 +66,7 @@ async function fixture(
     paymentCode: PAYMENT_CODE,
     domainChain: 1n,
     quoteFailure: false,
+    sequenceFailure: false,
     paymentDeadline: Math.floor(now / 1000) + 300,
     providerState: "Success",
   };
@@ -121,6 +125,8 @@ async function fixture(
     revision: 0,
     steps: [{ index: 0, state: "waiting" }],
   };
+  plan.draft.calls = Array.from({ length: callCount }, (_, i) => ({ ...structuredClone(plan.draft.calls[0]!), chainId: callChains[i] ?? 1 }));
+  plan.steps = Array.from({ length: callCount }, (_, index) => ({ index, state: "waiting" }));
   await transactionStore.create(
     plan,
     { key: "source", requestHash: "fixture", operation: "create" },
@@ -147,6 +153,22 @@ async function fixture(
       method === "eth_getTransactionByHash"
     )
       return null;
+    if (method === "eth_simulateV1") {
+      const input = params[0] as { blockStateCalls: { calls: { data: Hex }[] }[] };
+      const calls = input.blockStateCalls[0]!.calls;
+      for (const [offset, call] of calls.entries()) {
+        const decoded = decodeFunctionData({ abi: FORWARDER_ABI, data: call.data });
+        if (decoded.functionName !== "execute") throw new Error("Expected exact execute call");
+        const { signature, ...message } = decoded.args[0];
+        const signer = await recoverTypedDataAddress({
+          domain: { name: "Juicebox", version: "1", chainId, verifyingContract: FORWARDER },
+          types: FORWARD_REQUEST_TYPES, primaryType: "ForwardRequest",
+          message: { ...message, nonce: flags.nonce + BigInt(offset) }, signature,
+        });
+        if (signer.toLowerCase() !== message.from.toLowerCase()) throw new Error("Invalid consecutive nonce");
+      }
+      return [{ calls: calls.map((_, i) => ({ status: flags.sequenceFailure && i === calls.length - 1 ? "0x0" : "0x1", returnData: "0x" })) }];
+    }
     if (method === "eth_call") {
       const call = params[0] as { to: Address; data: Hex };
       let decoded;
@@ -163,7 +185,7 @@ async function fixture(
             "0x0f",
             "Juicebox",
             "1",
-            flags.domainChain,
+            BigInt(chainId) + flags.domainChain - 1n,
             FORWARDER,
             `0x${"0".repeat(64)}`,
             [],
@@ -197,12 +219,10 @@ async function fixture(
       {
         name: "ERC2771Forwarder",
         executable: true,
-        deployments: [
-          {
-            chainId: 1,
+        deployments: [1, 10, 8453, 42161].map((chainId) => ({
+            chainId,
             instances: [{ address: FORWARDER, codeId: "fixture" }],
-          },
-        ],
+          })),
       },
     ],
     code: () => ({
@@ -226,7 +246,7 @@ async function fixture(
       );
       return Response.json({
         bundle_uuid: BUNDLE,
-        tx_uuids: [TX_ID],
+        tx_uuids: posted.map((_, i) => i ? TX_ID.slice(0, -4) + String(i).padStart(4, "0") : TX_ID),
         payment_info: [
           {
             chain: 1,
@@ -241,8 +261,8 @@ async function fixture(
     }
     return Response.json({
       bundle_uuid: BUNDLE,
-      transactions: posted.map((entry) => ({
-        tx_uuid: TX_ID,
+      transactions: posted.map((entry, i) => ({
+        tx_uuid: i ? TX_ID.slice(0, -4) + String(i).padStart(4, "0") : TX_ID,
         request: entry,
         status: { state: flags.providerState },
       })),
@@ -855,6 +875,47 @@ describe("Relayr sponsorship service", () => {
       expect(f.fetcher).not.toHaveBeenCalled();
     },
   );
+  it.each([5, 32])("publishes %i same-chain calls with consecutive signed nonces and verifies the full prefix", async (count) => {
+    const f = await fixture({}, undefined, count);
+    const prepared = await f.prepare();
+    expect(prepared.authorizations.map((a) => a.message.nonce)).toEqual(Array.from({ length: count }, (_, i) => String(i)));
+    const signatures = await f.sign(prepared);
+    const quoted = await f.service.submit(f.actor, prepared.id, { signatures }, "publish");
+    expect(quoted.state).toBe("quoted");
+    const publication = JSON.parse(String(f.fetcher.mock.calls[0]![1]!.body));
+    expect(publication.virtual_nonce_mode).toBe("Multichain");
+    expect(publication.transactions.map((entry: RelayrEntry) => entry.virtual_nonce)).toEqual(Array.from({ length: count }, (_, i) => i));
+    const batches = f.rpc.mock.calls.filter(([, method]) => method === "eth_simulateV1");
+    expect(batches).toHaveLength(count - 1);
+    await f.service.submit(f.actor, prepared.id, { signatures }, "publish");
+    expect(f.fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    await expect(f.service.prepareFunding(f.actor, prepared.id, { chainId: 1, payer: owner.address })).resolves.toBeDefined();
+  });
+  it("orders nonces per chain while preserving source-step signature order", async () => {
+    const f = await fixture({}, undefined, 5, [1, 10, 1, 8453, 10]);
+    const prepared = await f.prepare();
+    expect(prepared.authorizations.map((a) => a.message.nonce)).toEqual(["0", "0", "1", "0", "1"]);
+    const signatures = await f.sign(prepared);
+    await f.service.submit(f.actor, prepared.id, { signatures }, "publish");
+    const publication = JSON.parse(String(f.fetcher.mock.calls[0]![1]!.body));
+    expect(publication.transactions.map((entry: RelayrEntry) => entry.virtual_nonce)).toEqual([0, 0, 1, 0, 1]);
+  });
+  it("rejects a later zero-value execution failure before publishing", async () => {
+    const f = await fixture({}, undefined, 5);
+    const prepared = await f.prepare();
+    const signatures = await f.sign(prepared);
+    f.flags.sequenceFailure = true;
+    await expect(f.service.submit(f.actor, prepared.id, { signatures }, "publish")).rejects.toMatchObject({ code: "FORWARD_SEQUENCE_SIMULATION_FAILED" });
+    expect(f.fetcher).not.toHaveBeenCalled();
+  });
+  it("rejects changed same-chain nonces before publishing", async () => {
+    const f = await fixture({}, undefined, 5);
+    const prepared = await f.prepare();
+    const signatures = await f.sign(prepared);
+    f.flags.nonce++;
+    await expect(f.service.submit(f.actor, prepared.id, { signatures }, "publish")).rejects.toMatchObject({ code: "FORWARD_REQUEST_CHANGED" });
+    expect(f.fetcher).not.toHaveBeenCalled();
+  });
   it("rejects unconfigured hosts and unsupported or repeated steps without provider publication", async () => {
     const disabled = await fixture({ enabled: false });
     await expect(disabled.prepare()).rejects.toMatchObject({

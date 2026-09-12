@@ -1,0 +1,16 @@
+{
+  "name": "@juicebox/center-client",
+  "version": "0.1.0",
+  "description": "Wallet-owned API access and reviewed transaction workflows for Juicebox Center",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": { "types": "./index.d.ts", "import": "./index.js" },
+    "./node": { "types": "./node.d.ts", "import": "./node.js" }
+  },
+  "bin": { "center": "./cli.mjs" },
+  "files": ["index.js", "index.d.ts", "node.js", "node.d.ts", "cli.mjs", "README.md"],
+  "engines": { "node": ">=22" },
+  "dependencies": { "viem": "^2.37.6" }
+}

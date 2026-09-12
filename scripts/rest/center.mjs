@@ -6,10 +6,13 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 const HELP = `Juicebox Center signed REST client (Node 22+)
 
-  center.mjs keygen --out bot-key.json
-  center.mjs proof --key bot-key.json --request public-proof-request.json --out registration.json
-  center.mjs sign --key bot-key.json --audience https://juicebox.center --account eip155:1:0x... --grant UUID --target /api/v1/... --out signed-request.json
-  center.mjs send --key bot-key.json --audience https://juicebox.center --account eip155:1:0x... --grant UUID --target /api/v1/...
+  center account --connection juicebox-connection.json
+  center send --connection juicebox-connection.json --target /api/v1/...
+
+  center keygen --out bot-key.json
+  center proof --key bot-key.json --request public-proof-request.json --out registration.json
+  center sign --key bot-key.json --audience https://juicebox.center --account eip155:1:0x... --grant UUID --target /api/v1/... --out signed-request.json
+  center send --key bot-key.json --audience https://juicebox.center --account eip155:1:0x... --grant UUID --target /api/v1/...
 
 sign/send options: --method GET|POST|PATCH|DELETE --body body.json
   --content-type application/json --idempotency KEY --retries 0|1|2 --timeout-ms 15000
@@ -53,7 +56,7 @@ export async function writeExclusive(filename, value) {
   try { await handle.writeFile(JSON.stringify(value, null, 2) + "\n", "utf8"); await handle.sync(); completed = true; }
   finally { await handle.close(); if (!completed) await unlink(filename).catch(() => undefined); }
 }
-export async function readProtectedKey(filename) {
+export async function readProtectedDocument(filename) {
   if (constants.O_NOFOLLOW === undefined) fail("This platform cannot safely open a private key file");
   const handle = await open(filename, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
@@ -64,6 +67,11 @@ export async function readProtectedKey(filename) {
     let document;
     try { document = JSON.parse(buffer.toString("utf8")); }
     finally { buffer.fill(0); }
+    return document;
+  } finally { await handle.close(); }
+}
+export async function readProtectedKey(filename) {
+    const document = await readProtectedDocument(filename);
     if (!document || typeof document !== "object" || Array.isArray(document)
       || Object.keys(document).some((key) => !["format", "botAddress", "privateKey"].includes(key))
       || document.format !== "juicebox-center-bot-key-v1" || !/^0x[0-9a-fA-F]{64}$/.test(document.privateKey)
@@ -71,8 +79,7 @@ export async function readProtectedKey(filename) {
     const signer = privateKeyToAccount(document.privateKey);
     if (signer.address.toLowerCase() !== document.botAddress.toLowerCase()) fail("Key file address does not match its private key");
     return signer;
-  } finally { await handle.close(); }
-}
+ }
 async function boundedFile(filename, maximum) {
   const handle = await open(filename, "r");
   try {
@@ -86,7 +93,12 @@ async function runtime() {
 }
 export async function main(argv, output = (value) => process.stdout.write(value + "\n")) {
   if (!argv.length || argv[0] === "--help" || argv[0] === "help") { output(HELP); return; }
-  const { command, args } = argsFor(argv);
+  let { command, args } = argsFor(argv);
+  if (command === "account") {
+    allow(args, ["connection"]);
+    required(args, "connection");
+    command = "send"; args.target = "/api/v1/accounts/me";
+  }
   if (command === "keygen") {
     allow(args, ["out"]);
     const filename = required(args, "out"); const privateKey = generatePrivateKey(); const signer = privateKeyToAccount(privateKey);
@@ -113,16 +125,22 @@ export async function main(argv, output = (value) => process.stdout.write(value 
     output(JSON.stringify({ registrationFileCreated: true, botAddress: signer.address, scopes: request.scopes, expiresAt: request.expiresAt })); return;
   }
   if (command !== "sign" && command !== "send") fail("Unknown command; run with --help");
-  allow(args, ["key", "audience", "account", "grant", "method", "target", "body", "content-type", "idempotency", "out", "retries", "timeout-ms"]);
+  allow(args, ["connection", "key", "audience", "account", "grant", "method", "target", "body", "content-type", "idempotency", "out", "retries", "timeout-ms"]);
   if (command === "sign" && args.retries !== undefined) fail("A signed request is a single attempt; --retries applies only to send");
   if (command === "send" && args.out !== undefined) fail("--out applies to sign; send writes its JSON response to stdout");
-  const { prepareSignedRequest, SignedRestClient } = await runtime();
-  const signer = await readProtectedKey(required(args, "key"));
-  const config = {
-    audience: required(args, "audience"), accountId: required(args, "account"), signer,
-    ...(args.grant ? { grantId: args.grant } : {}),
-    ...(args["timeout-ms"] ? { timeoutMs: Number(args["timeout-ms"]) } : {}),
-  };
+  const { prepareSignedRequest, SignedRestClient, parseConnection } = await runtime();
+  let config;
+  if (args.connection) {
+    if (["key", "audience", "account", "grant"].some(name => args[name])) fail("Use a connection file or explicit key settings, not both");
+    const saved = parseConnection(await readProtectedDocument(args.connection));
+    if (saved.expiresAt <= Math.floor(Date.now() / 1000)) fail("Bot connection has expired");
+    config = { audience: saved.audience, accountId: saved.accountId, grantId: saved.grantId, signer: privateKeyToAccount(saved.privateKey) };
+  } else {
+    const signer = await readProtectedKey(required(args, "key"));
+    config = { audience: required(args, "audience"), accountId: required(args, "account"), signer,
+      ...(args.grant ? { grantId: args.grant } : {}) };
+  }
+  if (args["timeout-ms"]) config.timeoutMs = Number(args["timeout-ms"]);
   const request = {
     requestTarget: required(args, "target"), method: args.method ?? "GET",
     ...(args.body ? { body: new Uint8Array(await boundedFile(args.body, 2 * 1024 * 1024)), contentType: args["content-type"] ?? "application/json" } : args["content-type"] ? { contentType: args["content-type"] } : {}),
@@ -142,9 +160,13 @@ export async function main(argv, output = (value) => process.stdout.write(value 
   }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  main(process.argv.slice(2)).catch(() => {
+  main(process.argv.slice(2)).catch((error) => {
     // Library, filesystem, and wallet errors may contain input material. Keep stderr credential-free.
-    process.stderr.write("Command failed. Check the options, build output, file permissions, and request identity. Run with --help for usage.\n");
+    const known = error?.name === "RestClientError" && /^[A-Z_]{1,80}$/.test(error.code)
+      ? `${error.code}: ${error.message}`
+      : error?.code === "ENOENT" ? "Connection or input file not found. Check its path."
+      : "Command failed. Check the options, file permissions, and request identity. Run with --help for usage.";
+    process.stderr.write(known + "\n");
     process.exitCode = 1;
   });
 }

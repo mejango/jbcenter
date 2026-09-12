@@ -72,7 +72,7 @@ Dynamic addresses require an exact ERC-1167 or Solady LibClone runtime, an embed
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | JBERC20                                | JBTokens implementation getter; `projectIdOf` and `tokenOf` agree; clone token authority is JBTokens                        |
 | JB721TiersHook                         | Factory implementation and JBAddressRegistry deployer agree; clone reports an existing project                              |
-| JBUniswapV4LPSplitHook                 | Factory implementation and JBAddressRegistry deployer agree; no unique represented project is inferred from feeProjectId    |
+| JBUniswapV4LPSplitHook                 | Factory implementation and JBAddressRegistry deployer agree; no unique represented project is inferred from `feeProjectId`    |
 | JB721Checkpoints                       | Factory implementation; verified tiers hook identifies the module through `checkpoints()`                                   |
 | DefifaHook                             | Defifa factory implementation and JBAddressRegistry deployer agree; hook reports an existing game project                   |
 | Optimism, Base, Arbitrum, CCIP suckers | Factory singleton and `isSucker`; initialized deployer; canonical project sucker registration                               |

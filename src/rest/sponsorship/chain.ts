@@ -1,5 +1,6 @@
 import {
   decodeFunctionResult,
+  decodeFunctionData,
   encodeFunctionData,
   isAddress,
   keccak256,
@@ -16,6 +17,7 @@ import {
   RELAYR_PAYMENT_ADDRESS,
   RELAYR_PAYMENT_CODE_HASH,
   RELAYR_PAYMENT_GAS,
+  RELAYR_LIMITS,
 } from "./constants.js";
 import type {
   PreparedForwardRequest,
@@ -36,7 +38,7 @@ import {
 
 /** A request owns one call budget and forwards cancellation to the configured RPC. */
 export class SponsorshipChain {
-  private remaining = 128;
+  private remaining = 128 + 24 * RELAYR_LIMITS.maximumCalls;
   constructor(
     private readonly rpc: RestRpc,
     private readonly policy: SponsorshipPolicy,
@@ -352,6 +354,7 @@ export class SponsorshipChain {
   async signed(
     request: PreparedForwardRequest,
     signature: Hex,
+    preceding: RelayrEntry[] = [],
   ): Promise<RelayrEntry> {
     if (
       typeof signature !== "string" ||
@@ -391,57 +394,55 @@ export class SponsorshipChain {
         "API bot keys cannot replace the owner wallet’s transaction signature.",
         403,
       );
-    const evidence = await this.revalidate(request);
+    const evidence = await this.revalidate(request, preceding.length);
     const { nonce: _nonce, ...withoutNonce } = message;
     const execution = { ...withoutNonce, signature };
-    const verified = await this.call(
-      request.chainId,
-      request.forwarder,
-      encodeFunctionData({
-        abi: FORWARDER_ABI,
-        functionName: "verify",
-        args: [execution],
-      }),
-      evidence,
-    );
-    if (
-      !decodeFunctionResult({
-        abi: FORWARDER_ABI,
-        functionName: "verify",
-        data: verified,
-      })
-    )
-      fail(
-        "FORWARD_SIGNATURE_REJECTED",
-        "The canonical forwarder rejected this signature or current nonce.",
+    if (!preceding.length) {
+      const verified = await this.call(
+        request.chainId,
+        request.forwarder,
+        encodeFunctionData({ abi: FORWARDER_ABI, functionName: "verify", args: [execution] }),
+        evidence,
       );
+      if (!decodeFunctionResult({ abi: FORWARDER_ABI, functionName: "verify", data: verified }))
+        fail("FORWARD_SIGNATURE_REJECTED", "The canonical forwarder rejected this signature or current nonce.");
+    }
     const data = encodeFunctionData({
       abi: FORWARDER_ABI,
       functionName: "execute",
       args: [execution],
     });
-    // The value is supplied by Relayr and priced in its funding quote.
-    await this.request(request.chainId, "eth_call", [
-      {
-        from: message.from,
-        to: request.forwarder,
-        data,
-        value: hex(message.value),
-        gas: hex(message.gas + message.gas / 63n + 100_000n),
-      },
-      this.tag(evidence),
-    ]);
-    await this.canonical(evidence);
-    return {
-      chain: request.chainId,
-      target: request.forwarder,
-      value: request.message.value,
-      data,
-      virtual_nonce: 0,
+    const entry: RelayrEntry = {
+      chain: request.chainId, target: request.forwarder,
+      value: request.message.value, data, virtual_nonce: preceding.length,
     };
+    const calls = [...preceding, entry].map((item) => {
+      const decoded = decodeFunctionData({ abi: FORWARDER_ABI, data: item.data });
+      if (item.chain !== request.chainId || !same(item.target, request.forwarder) || decoded.functionName !== "execute")
+        return fail("INVALID_FORWARD_SEQUENCE", "Forwarded calls must use the same chain and forwarder.", 400);
+      const gas = decoded.args[0].gas;
+      return { from: message.from, to: item.target, data: item.data,
+        value: hex(BigInt(item.value)), gas: hex(gas + gas / 63n + 100_000n) };
+    });
+    if (!preceding.length) {
+      await this.request(request.chainId, "eth_call", [calls[0], this.tag(evidence)]);
+    } else {
+      // Execute the exact individual calls in sequence. A batch forwarder call
+      // can hide a zero-value inner revert, so it cannot establish this result.
+      const result = await this.request(request.chainId, "eth_simulateV1", [
+        { blockStateCalls: [{ calls }], validation: false }, hex(BigInt(evidence.blockNumber)),
+      ]);
+      if (!Array.isArray(result) || result.length !== 1 || !object(result[0]) ||
+          !Array.isArray(result[0].calls) || result[0].calls.length !== calls.length ||
+          result[0].calls.some((call) => !object(call) || call.status !== "0x1" || call.error !== undefined || call.returnData !== "0x"))
+        fail("FORWARD_SEQUENCE_SIMULATION_FAILED", "The exact forwarded sequence could not be simulated successfully.");
+    }
+    await this.canonical(evidence);
+    return entry;
   }
   async revalidate(
     request: PreparedForwardRequest,
+    nonceOffset = 0,
   ): Promise<RestBlockEvidence> {
     if (
       Number(request.message.deadline) <=
@@ -484,7 +485,7 @@ export class SponsorshipChain {
         request.forwarderCodeHash ||
       keccak256(rpcHex(targetCode, "Target runtime")) !==
         request.targetCodeHash ||
-      nonce !== request.message.nonce ||
+      BigInt(nonce) + BigInt(nonceOffset) !== BigInt(request.message.nonce) ||
       !decodeFunctionResult({
         abi: FORWARDER_ABI,
         functionName: "isTrustedForwarder",
@@ -535,7 +536,7 @@ export class SponsorshipChain {
         RELAYR_PAYMENT_ADDRESS,
         this.tag(evidence),
       ]),
-      "Relayr payment runtime",
+      "The execution service payment runtime",
       2048,
     );
     if (keccak256(code) !== RELAYR_PAYMENT_CODE_HASH)
