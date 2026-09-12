@@ -33,7 +33,7 @@ const feeless = '0x4444444444444444444444444444444444444444' as const;
 const custom = '0x5555555555555555555555555555555555555555' as const;
 const controller = v6Address('JBController', project.chainId);
 const terminal = v6Address('JBMultiTerminal', project.chainId);
-const buybackHook = v6Address('JBBuybackHook', project.chainId);
+const buybackHook = deploymentAddress('JBBuybackHook', project.chainId)!;
 const registry = v6Address('JBBuybackHookRegistry', project.chainId);
 const omni = v6Address('JBOmnichainDeployer', project.chainId);
 const nftImplementation = v6Address('JB721TiersHook', project.chainId);
@@ -404,6 +404,38 @@ describe('payment quotes and approval plans', () => {
       decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.[4],
     ).toBe(247n);
     expect(plan.warnings.join(' ')).toContain('falls back');
+  });
+
+  it('supports the recorded 1.1.1 hook without accepting another generation or a partial buyback', async () => {
+    const legacy = '0x77bee1ad2ac0ace98a9b5b58d75685c8b4d94948' as Address;
+    const metadata = payHookMetadata().slice(0, 2 + 15 * 64) as Hex;
+    const legacyFixture = (hookMetadata = metadata, hook = legacy) =>
+      fixture({
+        dataHook: registry,
+        resolvedBuyback: hook,
+        beneficiaryCount: 0n,
+        payHooks: [{ hook, noop: false, amount: 100n, metadata: hookMetadata }],
+      });
+    const plan = await legacyFixture().service.preparePay({ ...payInput, memo: 'beep:demo' });
+    expect(plan.summary).toMatchObject({
+      beneficiaryTokenCount: '250',
+      minimumBeneficiaryTokenCount: '247',
+    });
+    expect(
+      decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.slice(4),
+    ).toEqual([247n, 'beep:demo', '0x']);
+    expect(plan.warnings.join(' ')).toContain('1.1.1');
+    await expect(
+      legacyFixture(metadata, buybackHook).service.preparePay(payInput),
+    ).rejects.toMatchObject({ code: 'UNSUPPORTED_CONFIGURATION' });
+    await expect(
+      legacyFixture(payHookMetadata()).service.preparePay(payInput),
+    ).rejects.toMatchObject({ code: 'UNSUPPORTED_CONFIGURATION' });
+    await expect(
+      legacyFixture(
+        payHookMetadata({ partialMint: 1n }).slice(0, 2 + 15 * 64) as Hex,
+      ).service.preparePay(payInput),
+    ).rejects.toMatchObject({ code: 'UNSUPPORTED_CONFIGURATION' });
   });
 
   it('does not add buyback output twice when router previews have already normalized it', async () => {

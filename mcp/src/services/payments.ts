@@ -95,6 +95,15 @@ const buybackPaySpecParameters = parseAbiParameters(
   'bool projectTokenIs0, uint256 amountToMintWith, uint256 minimumSwapAmountOut, bool hasUserSpecifiedQuote, address controller, uint256 tokenCountWithoutHook, uint256 weightRatio, uint256 amountToSwapWith, int24 twapTick, uint128 twapLiquidity, bytes32 poolId, uint256 minimumBeneficiaryTokenCount, uint256 minimumReservedTokenCount, uint256 rawSwapQuote, bool oracleUnseeded, bool skipSplits, uint256 reservedPercent',
 );
 
+// Executed 1.1.1 deployment, retained by the rollout catalog for existing projects.
+// Source 7bf3c6bad283c39e714d6edd7418ee041ef384e8, JBBuybackHook.sol:
+// keccak256 0x228c41a61a032067c67e79cba946dd21f9fe5e039307456376318a0a464b485e
+// matches the deployment's compiler metadata. This generation has no skipSplits word.
+const buyback111 = '0x77bee1ad2ac0ace98a9b5b58d75685c8b4d94948' as Address;
+const buyback111PaySpecParameters = parseAbiParameters(
+  'bool projectTokenIs0, uint256 amountToMintWith, uint256 minimumSwapAmountOut, bool hasUserSpecifiedQuote, address controller, uint256 tokenCountWithoutHook, uint256 weightRatio, uint256 amountToSwapWith, int24 twapTick, uint128 twapLiquidity, bytes32 poolId, uint256 minimumBeneficiaryTokenCount, uint256 minimumReservedTokenCount, uint256 rawSwapQuote, bool oracleUnseeded',
+);
+
 function same(a: Address, b: Address): boolean {
   return a.toLowerCase() === b.toLowerCase();
 }
@@ -609,14 +618,17 @@ export class PaymentService {
         unsupported(
           'The pay preview includes an unrecognized active hook. Its final beneficiary output is unknown.',
         );
-      if (spec.metadata.length !== 2 + 17 * 64)
+      const legacy111 = same(context.buybackHook, buyback111);
+      if (spec.metadata.length !== 2 + (legacy111 ? 15 : 17) * 64)
         unsupported(
           'The selected historical buyback hook uses an unsupported settlement format; its address remains available in the contract catalog.',
         );
-      const decoded = decodeAbiParameters(buybackPaySpecParameters, spec.metadata);
+      const decoded = legacy111
+        ? decodeAbiParameters(buyback111PaySpecParameters, spec.metadata)
+        : decodeAbiParameters(buybackPaySpecParameters, spec.metadata);
       const amountToMintWith = decoded[1];
       const previewController = decoded[4];
-      const skipSplits = decoded[15];
+      const skipSplits = legacy111 ? false : decoded[15];
       if (!same(previewController, context.controller))
         unsupported('The buyback preview names a different controller.');
       if (amountToMintWith !== 0n || skipSplits)
@@ -633,7 +645,9 @@ export class PaymentService {
       reservedTokenCount = decoded[12];
       quoteBasis = 'buyback-hook-indicative-output';
       warnings.push(
-        'Buyback output is indicative. Buyback 1.4.0 pay quotes encode three words (amountToSwapWith, minimumSwapAmountOut, skipSplits); two-word quotes revert. A pool failure or swap below the TWAP floor falls back to issuance; the transaction reverts if the final beneficiary balance increase is below its reviewed minimum.',
+        legacy111
+          ? 'Buyback 1.1.1 output is indicative. A total swap failure can fall back to issuance; a successful swap below its oracle minimum reverts. The terminal also enforces the reviewed beneficiary minimum.'
+          : 'Buyback output is indicative. Buyback 1.4.0 pay quotes encode three words (amountToSwapWith, minimumSwapAmountOut, skipSplits); two-word quotes revert. A pool failure or swap below the TWAP floor falls back to issuance; the transaction reverts if the final beneficiary balance increase is below its reviewed minimum.',
       );
     }
     const minimum = slippageFloor(beneficiaryTokenCount, slippage);
