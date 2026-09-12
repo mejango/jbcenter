@@ -329,6 +329,7 @@ export async function createRestRuntime(options: {
   userOperations = new UserOperationService({
     rpc,
     provider: new UserOperationProvider(execution.providers),
+    ...(execution.sponsorRoutes ? {sponsorRoutes: execution.sponsorRoutes} : {}),
     policies: execution.policies,
     store: new PostgresUserOperationStore(options.pool),
     transactionStore,
