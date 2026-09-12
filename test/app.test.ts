@@ -237,6 +237,7 @@ describe("JB Center API", () => {
       "https://eth.shop",
       "https://succulent.money",
       "https://homerun.money",
+      "https://beep.biz",
     ]);
     const devOrigins = originsForEnvironment("dev");
     expect(devOrigins).toEqual([
