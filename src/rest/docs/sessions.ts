@@ -84,7 +84,7 @@ export function sessionSchemas(): Record<string, Schema> {
       sessionMaximumCallsPerOperation: { type: "integer", const: 1 }, ownerMaximumCallsPerOperation: { type: "integer", const: 16 },
       freshOwnerApprovalOutsideSession: yes, activationRequirements: array(text) }),
     PrepareUserOperation: { ...object({ planId: ref("ResourceId"), stepIndexes: array({ type: "integer", minimum: 0, maximum: 31 }, { minItems: 1, maxItems: 16, uniqueItems: true }),
-      sessionId: ref("ResourceId") }, ["planId", "stepIndexes"]),
+      sessionId: ref("ResourceId"), sponsorAuthorization: {type:"string", minLength:1, maxLength:4096, description:"Short-lived server-issued application sponsorship voucher bound to this principal, plan, steps and idempotency key. Not accepted with sessionId."} }, ["planId", "stepIndexes"]),
       allOf: [{ if: { required: ["sessionId"] }, then: { properties: { stepIndexes: { maxItems: 1 } } } }],
       description: "Use the creating principal of a durable smart-account plan. Indices must increase in original order. Omit sessionId for current Safe-owner threshold signing; a bound bot supplies sessionId for one approved action." },
     UserOperationV07: { ...object(operationFields, ["sender", "nonce", "callData", "callGasLimit", "verificationGasLimit", "preVerificationGas", "maxFeePerGas", "maxPriorityFeePerGas", "signature"]),
