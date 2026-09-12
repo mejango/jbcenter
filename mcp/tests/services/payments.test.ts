@@ -237,6 +237,14 @@ function cashHookMetadata(minimum: bigint, explicit: boolean, direct = 100n): He
 }
 
 describe('payment quotes and approval plans', () => {
+  it('preserves an invoice memo in exact payment bytes and rejects oversized UTF-8 text', async () => {
+    const plan = await fixture().service.preparePay({ ...payInput, memo: 'beep:invoice-123' });
+    const decoded = decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data });
+    expect(decoded.args?.[5]).toBe('beep:invoice-123');
+    await expect(
+      fixture().service.preparePay({ ...payInput, memo: '🌈'.repeat(65) }),
+    ).rejects.toThrow('256 UTF-8 bytes');
+  });
   it('binds SDK previews to the caller and block evidence and encodes the exact floor', async () => {
     const { service, readContract, snapshot } = fixture();
     const plan = await service.preparePay(payInput);

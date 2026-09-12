@@ -43,6 +43,8 @@ import type {
 } from '../domain/types.js';
 
 export interface PayInput {
+  /** Optional receipt correlation text, bounded to 256 UTF-8 bytes. */
+  memo?: string;
   project: ProjectRef;
   /** Required even for previews: data hooks may depend on the payer. */
   account: Address;
@@ -536,6 +538,12 @@ export class PaymentService {
   }
 
   private async pay(input: PayInput) {
+    if (
+      input.memo !== undefined &&
+      (typeof input.memo !== 'string' || new TextEncoder().encode(input.memo).length > 256)
+    ) {
+      throw new DomainError('INVALID_MEMO', 'Payment memo must be at most 256 UTF-8 bytes.');
+    }
     const amount = uint(input.amount, 'amount');
     const slippage = bps(input.slippageBps);
     const snapshot = await this.rpc.snapshot(input.project.chainId);
@@ -641,6 +649,7 @@ export class PaymentService {
       amount,
       beneficiary: input.beneficiary,
       minReturnedTokens: minimum,
+      ...(input.memo === undefined ? {} : { memo: input.memo }),
       metadata,
     });
     const quote = {
