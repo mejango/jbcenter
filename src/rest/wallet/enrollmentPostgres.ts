@@ -66,6 +66,22 @@ export async function lockWalletEnrollmentInTransaction(client: PoolClient, id: 
   return row ? recordOf(row) : missing();
 }
 
+export interface CurrentWalletCredentialRow {
+  rp_id: string; credential_id: string; enrollment_id: string; account_id: string; user_handle: string;
+  public_key_x: Hex; public_key_y: Hex; backup_eligible: boolean; verified_at: string; superseded_at: string | null;
+}
+/** The caller owns transaction and lock order. This preserves W4's exact current-mapping check;
+ * it acquires no account lock and performs no proof verification or external reads. */
+export async function currentWalletCredentialInTransaction(client: PoolClient, enrollment: WalletEnrollment): Promise<CurrentWalletCredentialRow | null> {
+  const candidate = enrollment.candidate!, receipt = enrollment.receipt!;
+  const row = (await client.query<CurrentWalletCredentialRow>(
+    "SELECT * FROM rest_wallet_credentials WHERE rp_id=$1 AND credential_id=$2 FOR UPDATE", [enrollment.intent.rpId, candidate.credentialId])).rows[0];
+  if (!row || row.enrollment_id !== enrollment.intent.id || row.account_id !== receipt.accountId || row.user_handle !== candidate.userHandle ||
+      row.public_key_x !== candidate.publicKey.x || row.public_key_y !== candidate.publicKey.y || row.backup_eligible !== candidate.backupEligible ||
+      row.superseded_at !== null) return null;
+  return row;
+}
+
 /** Internal trusted service only. None of these methods create REST principals, login sessions,
  * deployment authority or onchain status. HTTP admission, cookies and CSRF are separate boundaries. */
 export class PostgresWalletEnrollmentStore {

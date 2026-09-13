@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { getAddress, hashTypedData, isAddress, keccak256, parseTransaction, serializeTransaction, type Address, type Hex } from "viem";
 import { RestError } from "../core.js";
 import { assertWalletCeremonyDraft, walletCeremonyMaxLifetimeMs, type WalletCeremonyDraft } from "./ceremonies.js";
-import { enrollmentDigest, walletEnrollmentDocument, type WalletEnrollment } from "./enrollment.js";
+import { assertVerifiedWalletEnrollment, enrollmentDigest, type WalletEnrollment } from "./enrollment.js";
 import { verifyWalletAssertion, type WalletAssertion } from "./webauthn.js";
 import { validateSignedTransaction } from "../transactions/signed.js";
 import type { RelayPolicy } from "../transactions/types.js";
@@ -66,26 +66,6 @@ function lifetime(times: { issuedAt: number; expiresAt: number }, verifiedAt: nu
       times.expiresAt <= times.issuedAt || times.expiresAt - times.issuedAt > walletCeremonyMaxLifetimeMs) invalid();
 }
 
-/** Input is an internal record loaded from W3's durable store, never HTTP JSON. These consistency
- * checks cannot turn a caller-forged receipt into verified enrollment or current onchain authority. */
-function checkedEnrollment(enrollment: WalletEnrollment): Hex {
-  fields(enrollment, ["intent", "createdAt", "state", "candidate", "candidateDigest", "creation", "possession", "receipt"]);
-  const registration = walletEnrollmentDocument(enrollment);
-  if (enrollment.state !== "verified" || !enrollment.receipt || !timestamp(enrollment.createdAt)) invalid();
-  const receipt = enrollment.receipt, creation = enrollment.creation!, candidate = enrollment.candidate!;
-  fields(receipt, ["id", "accountId", "enrollmentId", "credentialId", "initializerHash", "manifestCommitment",
-    "manifestRevision", "creationCommitment", "verificationDigest", "verifiedAt"]);
-  if (receipt.id !== enrollment.intent.id || receipt.enrollmentId !== enrollment.intent.id ||
-      receipt.accountId !== `eip155:8453:${creation.address.toLowerCase()}` || receipt.credentialId !== candidate.credentialId ||
-      receipt.initializerHash !== creation.initializerHash || receipt.manifestRevision !== enrollment.intent.manifest.revision ||
-      receipt.manifestCommitment !== commitment(enrollment.intent.manifest) || receipt.creationCommitment !== commitment(creation) ||
-      !timestamp(receipt.verifiedAt) || receipt.verifiedAt < enrollment.createdAt || receipt.verifiedAt >= enrollment.intent.expiresAt ||
-      receipt.verificationDigest !== enrollmentDigest({ version: "center-wallet-enrollment-proof-v1",
-        documentHash: hashTypedData(registration), credentialId: candidate.credentialId, publicKey: candidate.publicKey,
-        backupOwner: enrollment.intent.recoveryOwner })) invalid();
-  return commitment(enrollment);
-}
-
 const documentTypes = { WalletDeployment: [
   { name: "approvalId", type: "string" }, { name: "purpose", type: "string" }, { name: "version", type: "uint256" },
   { name: "enrollmentId", type: "string" }, { name: "enrollmentCommitment", type: "bytes32" },
@@ -114,7 +94,7 @@ function document(enrollment: WalletEnrollment, approval: Omit<WalletDeploymentA
  * the frozen wallet identity. Issuing this draft grants no nonce, budget, signing or session authority. */
 export function prepareWalletDeploymentApproval(enrollment: WalletEnrollment, times: { issuedAt: number; expiresAt: number }): WalletDeploymentApproval {
   try {
-    const enrollmentCommitment = checkedEnrollment(enrollment);
+    const enrollmentCommitment = assertVerifiedWalletEnrollment(enrollment);
     fields(times, ["issuedAt", "expiresAt"]);
     lifetime(times, enrollment.receipt!.verifiedAt);
     const base = { version: "center-wallet-deployment-v1" as const, id: randomUUID(), enrollmentId: enrollment.intent.id,
@@ -132,7 +112,7 @@ export function prepareWalletDeploymentApproval(enrollment: WalletEnrollment, ti
  * remain recoverable after approval expiry. Only fresh proof admission below checks the clock. */
 export function walletDeploymentDocument(enrollment: WalletEnrollment, approval: WalletDeploymentApproval) {
   try {
-    const enrollmentCommitment = checkedEnrollment(enrollment);
+    const enrollmentCommitment = assertVerifiedWalletEnrollment(enrollment);
     fields(approval, ["version", "id", "enrollmentId", "enrollmentCommitment", "nonce", "issuedAt", "expiresAt", "ceremony"]);
     if (approval.version !== "center-wallet-deployment-v1" || !uuid.test(approval.id) || !word.test(approval.nonce) ||
         approval.enrollmentId !== enrollment.intent.id || approval.enrollmentCommitment !== enrollmentCommitment) invalid();

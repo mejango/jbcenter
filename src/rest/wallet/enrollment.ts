@@ -267,3 +267,25 @@ Promise<{ verificationDigest: string }> {
     throw new RestError(403, "WALLET_ENROLLMENT_PROOF_INVALID", "Wallet enrollment requires matching passkey and backup ownership proofs.");
   }
 }
+
+/** Input is an internal record loaded from W3's durable store, never HTTP JSON. These consistency
+ * checks cannot turn a caller-forged receipt into verified enrollment or current onchain authority. */
+export function assertVerifiedWalletEnrollment(enrollment: WalletEnrollment): Hex {
+  enrollmentDigest(enrollment);
+  const timestamp = (value: number) => Number.isSafeInteger(value) && value > 0;
+  fields(enrollment, ["intent", "createdAt", "state", "candidate", "candidateDigest", "creation", "possession", "receipt"]);
+  const registration = walletEnrollmentDocument(enrollment);
+  if (enrollment.state !== "verified" || !enrollment.receipt || !timestamp(enrollment.createdAt)) invalid();
+  const receipt = enrollment.receipt, creation = enrollment.creation!, candidate = enrollment.candidate!;
+  fields(receipt, ["id", "accountId", "enrollmentId", "credentialId", "initializerHash", "manifestCommitment",
+    "manifestRevision", "creationCommitment", "verificationDigest", "verifiedAt"]);
+  if (receipt.id !== enrollment.intent.id || receipt.enrollmentId !== enrollment.intent.id ||
+      receipt.accountId !== `eip155:8453:${creation.address.toLowerCase()}` || receipt.credentialId !== candidate.credentialId ||
+      receipt.initializerHash !== creation.initializerHash || receipt.manifestRevision !== enrollment.intent.manifest.revision ||
+      receipt.manifestCommitment !== asHex(enrollmentDigest(enrollment.intent.manifest)) || receipt.creationCommitment !== asHex(enrollmentDigest(creation)) ||
+      !timestamp(receipt.verifiedAt) || receipt.verifiedAt < enrollment.createdAt || receipt.verifiedAt >= enrollment.intent.expiresAt ||
+      receipt.verificationDigest !== enrollmentDigest({ version: "center-wallet-enrollment-proof-v1",
+        documentHash: hashTypedData(registration), credentialId: candidate.credentialId, publicKey: candidate.publicKey,
+        backupOwner: enrollment.intent.recoveryOwner })) invalid();
+  return asHex(enrollmentDigest(enrollment));
+}

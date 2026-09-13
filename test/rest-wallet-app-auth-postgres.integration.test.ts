@@ -11,6 +11,9 @@ import { assertRestActorActive, PostgresAccountStore } from "../src/rest/auth/po
 import { PostgresWalletPolicyStore } from "../src/rest/wallet/policyPostgres.js";
 import { PostgresWalletAppGrantStore, getWalletAppGrantInTransaction } from "../src/rest/wallet/appGrantsPostgres.js";
 import { walletAppPrincipalId, type WalletAppGrant } from "../src/rest/wallet/appGrants.js";
+import { bindSmartAccountInTransaction, PostgresSmartAccountRegistry } from "../src/rest/smartAccounts/postgres.js";
+import { seedTrustedWalletAuthority, trustedAuthorityNow, unreadyTrustedWalletAuthority, writeTrustedWalletAuthoritySnapshot,
+  type TrustedWalletAuthorityFixture } from "./fixtures/wallet-authority-readiness.js";
 
 const database = process.env.TEST_DATABASE_URL, suite = database ? describe : describe.skip;
 const schema = `wallet_app_auth_${randomUUID().replaceAll("-", "")}`, audience = "https://juicebox.center";
@@ -18,6 +21,7 @@ const origin = "https://beep.example", secondOrigin = "https://money.example";
 const owner = privateKeyToAccount(`0x${"31".repeat(32)}`), browser = privateKeyToAccount(`0x${"32".repeat(32)}`), other = privateKeyToAccount(`0x${"33".repeat(32)}`);
 const accountId = `eip155:8453:${owner.address.toLowerCase()}`;
 let admin: Pool, pool: Pool;
+let trustedAuthority: TrustedWalletAuthorityFixture;
 const children: Array<{ child: ChildProcess; url: string; backendPid: number }> = [];
 const configuration = (origins = [origin, secondOrigin]) => ({ version: "center-wallet-policy-v1" as const,
   applications: origins.map(value => ({ origin: value, walletCallbacks: [`${value}/callback`] })) });
@@ -62,7 +66,7 @@ async function foreignAccount() {
     VALUES($1,$2,8453,'','',NULL,1,1)`, [id, other.address.toLowerCase()]);
   return id;
 }
-async function signed(value: WalletAppGrant, options: { wallet?: typeof browser; origin?: string | null; audience?: string;
+async function signed(value: Pick<WalletAppGrant, "id" | "origin">, options: { wallet?: typeof browser; origin?: string | null; audience?: string;
   target?: string; payload?: unknown; changes?: Partial<RequestClaims> } = {}) {
   const wallet = options.wallet ?? browser, target = options.target ?? "/api/v1/accounts/me";
   const body = options.payload === undefined ? new Uint8Array() : new TextEncoder().encode(JSON.stringify(options.payload));
@@ -117,8 +121,8 @@ suite("real signed app requests across two PostgreSQL HTTP replicas", () => {
     await new PostgresWalletPolicyStore(pool).activate({ expectedRevision: 0, nextRevision: 1, configuration: configuration() });
     await pool.query(`INSERT INTO rest_accounts(id,owner_address,authority_chain_id,display_name,bio,avatar_uri,created_at,updated_at)
       VALUES($1,$2,8453,'','',NULL,1,1)`, [accountId, owner.address.toLowerCase()]);
-    // Trusted local fixture state; canonical authority initialization/login remains a separate producer.
-    await pool.query("INSERT INTO rest_wallet_authority(account_id,authority_epoch,session_epoch,updated_at) VALUES($1,1,1,1)", [accountId]);
+    // Synthetic readiness isolates signed-request/nonce behavior. It is not canonical producer or login proof.
+    trustedAuthority = await seedTrustedWalletAuthority(pool, accountId);
   });
 
   it("authenticates the same app incarnation through both actual service processes", async () => {
@@ -134,6 +138,75 @@ suite("real signed app requests across two PostgreSQL HTTP replicas", () => {
     expect(results.map(result => result.status).sort()).toEqual([200, 409]);
     expect(results.find(result => result.status === 409)?.body.code).toBe("REPLAY");
     expect(await nonceCount(request.claims.nonce)).toBe(1);
+  });
+
+  it("preserves genuine legacy bot authentication without wallet readiness or wallet authority", async () => {
+    const requestedAccount = await foreignAccount(), id = randomUUID(), current = await now();
+    await new PostgresAccountStore(pool).registerBot({ id, accountId: requestedAccount, botAddress: browser.address,
+      scopes: ["read"], label: "legacy bot", createdAt: current, expiresAt: current + 600, revokedAt: null });
+    expect((await pool.query("SELECT count(*)::int AS count FROM rest_wallet_authority WHERE account_id=$1", [requestedAccount])).rows[0].count).toBe(0);
+    for (const replica of [0, 1]) {
+      const request = await signed({ id, origin }, { origin: null, changes: { accountId: requestedAccount } });
+      expect(await send(replica, request)).toEqual({ status: 200, body: { isOwner: false,
+        principalId: `bot:${id}`, grantId: id, scopes: ["read"] } });
+      expect(await nonceCount(request.claims.nonce, requestedAccount)).toBe(1);
+    }
+  });
+
+  it("rejects an expired verified wallet readiness snapshot before consuming a signed nonce", async () => {
+    const value = await grant();
+    const expired = structuredClone(trustedAuthority.snapshot), observedAtMs = await trustedAuthorityNow(pool);
+    expired.updatedAtMs = observedAtMs; expired.validUntilMs = observedAtMs + 200;
+    expired.latestObservation!.observedAtMs = observedAtMs; expired.latestObservation!.validUntilMs = expired.validUntilMs;
+    await writeTrustedWalletAuthoritySnapshot(pool, expired);
+    await pool.query("SELECT pg_sleep(GREATEST(0,$1::double precision/1000-extract(epoch FROM clock_timestamp())::double precision+0.03))", [expired.validUntilMs]);
+    const request = await signed(value);
+    expect(await send(1, request)).toMatchObject({ status: 403, body: { code: "FORBIDDEN" } });
+    expect(await nonceCount(request.claims.nonce)).toBe(0);
+  });
+
+  it.each(["unknown", "changed", "fenced"] as const)("rejects %s wallet readiness before consuming a signed nonce", async readiness => {
+    const value = await grant();
+    // Preserve captured epochs in a validated synthetic state so this isolates readiness admission.
+    const snapshot = unreadyTrustedWalletAuthority(trustedAuthority.snapshot, readiness, await trustedAuthorityNow(pool));
+    await writeTrustedWalletAuthoritySnapshot(pool, snapshot);
+    const request = await signed(value);
+    expect(await send(1, request)).toMatchObject({ status: 403, body: { code: "FORBIDDEN" } });
+    expect(await nonceCount(request.claims.nonce)).toBe(0);
+  });
+
+  it("rejects epoch-only wallet authority before consuming a signed nonce", async () => {
+    const requestedAccount = await foreignAccount(), id = randomUUID(), current = await now();
+    // Trusted historical app grant on migration020's initial epoch-only authority shape.
+    // This raw fixture write is deliberately separate from production grant admission.
+    await pool.query("INSERT INTO rest_wallet_authority(account_id,authority_epoch,session_epoch,updated_at) VALUES($1,1,1,$2)", [requestedAccount, current]);
+    await pool.query(`INSERT INTO rest_wallet_app_grants(id,account_id,signer_address,origin,callback_uri,audience,
+      app_generation,authority_epoch,session_epoch,created_at,expires_at,retain_until)
+      VALUES($1,$2,$3,$4,$5,$6,1,1,1,$7,$8,$9)`, [id, requestedAccount, browser.address.toLowerCase(),
+      origin, `${origin}/callback`, audience, current, current + 600, current + 87000]);
+    const request = await signed({ id, origin }, { changes: { accountId: requestedAccount } });
+    expect(await send(1, request)).toMatchObject({ status: 403, body: { code: "FORBIDDEN" } });
+    expect(await nonceCount(request.claims.nonce, requestedAccount)).toBe(0);
+  });
+
+  it.each(["revoked", "replaced"])("rejects a %s live wallet binding before consuming a signed nonce", async change => {
+    const value = await grant(), binding = trustedAuthority.binding;
+    if (change === "revoked") await new PostgresSmartAccountRegistry(pool).revoke(accountId, binding.id);
+    else {
+      const replacement = structuredClone(binding), client = await pool.connect();
+      replacement.authorization.digest = keccak256(new TextEncoder().encode(`replacement:${randomUUID()}`));
+      replacement.authorization.nonce = keccak256(new TextEncoder().encode(`replacement-nonce:${randomUUID()}`));
+      try {
+        await client.query("BEGIN"); await client.query("SELECT id FROM rest_accounts WHERE id=$1 FOR UPDATE", [accountId]);
+        // Trusted synthetic setup input exercises the existing account-locked binding writer only.
+        await bindSmartAccountInTransaction(client, replacement, await now()); await client.query("COMMIT");
+      } finally { await client.query("ROLLBACK"); client.release(); }
+      expect((await new PostgresSmartAccountRegistry(pool).get(accountId, binding.id))?.authorization.digest)
+        .toBe(replacement.authorization.digest);
+    }
+    const request = await signed(value);
+    expect(await send(1, request)).toMatchObject({ status: 403, body: { code: "FORBIDDEN" } });
+    expect(await nonceCount(request.claims.nonce)).toBe(0);
   });
 
   it("returns a controlled conflict when a legacy bot registration reuses an app UUID", async () => {
@@ -187,10 +260,15 @@ suite("real signed app requests across two PostgreSQL HTTP replicas", () => {
     } finally { await lock.query("ROLLBACK"); lock.release(); await pending; await isolated.end(); }
   });
 
-  it.each(["grant", "request"])("rolls back the signed request nonce when its %s expires during nonce cleanup", async boundary => {
+  it.each(["grant", "request", "readiness"])("rolls back the signed request nonce when its %s expires during nonce cleanup", async boundary => {
     const current = await now(), expiresAt = current + 3;
     const value = await grant(origin, boundary === "grant" ? { expiresAt } : {});
     const request = await signed(value, boundary === "request" ? { changes: { expiresAt } } : {});
+    if (boundary === "readiness") {
+      const snapshot = structuredClone(trustedAuthority.snapshot);
+      snapshot.validUntilMs = expiresAt * 1000; snapshot.latestObservation!.validUntilMs = snapshot.validUntilMs;
+      await writeTrustedWalletAuthoritySnapshot(pool, snapshot);
+    }
     const oldNonce = `0x${randomUUID().replaceAll("-", "").repeat(2)}` as Hex;
     await pool.query("INSERT INTO rest_request_nonces(account_id,nonce,expires_at) VALUES($1,$2,$3)", [accountId, oldNonce, current - 1]);
     const lock = await pool.connect(); let pending: ReturnType<typeof send> | undefined;
@@ -204,7 +282,7 @@ suite("real signed app requests across two PostgreSQL HTTP replicas", () => {
       expect(await now()).toBeLessThan(expiresAt);
       await lock.query("SELECT pg_sleep(GREATEST(0,$1::double precision-extract(epoch FROM clock_timestamp())::double precision+0.05))", [expiresAt]);
       await lock.query("ROLLBACK");
-      expect(await pending).toMatchObject(boundary === "grant"
+      expect(await pending).toMatchObject(boundary !== "request"
         ? { status: 403, body: { code: "FORBIDDEN" } } : { status: 401, body: { code: "AUTH_REQUIRED" } });
       expect(await nonceCount(request.claims.nonce)).toBe(0); expect(await nonceCount(oldNonce)).toBe(1);
     } finally { await lock.query("ROLLBACK"); lock.release(); await pending?.catch(() => {}); }

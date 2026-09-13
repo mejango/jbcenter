@@ -7,7 +7,7 @@ import type { RelayPolicy } from "../transactions/types.js";
 import { prepareWalletDeploymentTemplate, validateSignedWalletDeployment, verifyWalletDeploymentProof,
   walletDeploymentDocument, type WalletDeploymentApproval, type WalletDeploymentTemplate } from "./deployment.js";
 import { enrollmentDigest, type WalletEnrollment } from "./enrollment.js";
-import { lockWalletEnrollmentInTransaction, PostgresWalletEnrollmentStore } from "./enrollmentPostgres.js";
+import { currentWalletCredentialInTransaction, lockWalletEnrollmentInTransaction, PostgresWalletEnrollmentStore } from "./enrollmentPostgres.js";
 import { lockWalletCeremonyAdmission, PostgresWalletCeremonyStore, walletCeremonyDatabaseNow } from "./ceremoniesPostgres.js";
 import { walletCeremonyRetentionMs } from "./ceremonies.js";
 import type { WalletAssertion } from "./webauthn.js";
@@ -512,13 +512,7 @@ export class PostgresWalletDeploymentStore {
         (before.template !== null && enrollmentDigest(before.template) !== enrollmentDigest(current.template))) conflict();
   }
   private async currentCredential(client: PoolClient, enrollment: WalletEnrollment): Promise<void> {
-    const candidate = enrollment.candidate!, receipt = enrollment.receipt!;
-    const row = (await client.query<{ rp_id: string; enrollment_id: string; account_id: string; user_handle: string;
-      public_key_x: string; public_key_y: string; backup_eligible: boolean; superseded_at: string | null }>(
-    "SELECT * FROM rest_wallet_credentials WHERE rp_id=$1 AND credential_id=$2 FOR UPDATE", [enrollment.intent.rpId, candidate.credentialId])).rows[0];
-    if (!row || row.enrollment_id !== enrollment.intent.id || row.account_id !== receipt.accountId || row.user_handle !== candidate.userHandle ||
-        row.public_key_x !== candidate.publicKey.x || row.public_key_y !== candidate.publicKey.y || row.backup_eligible !== candidate.backupEligible ||
-        row.superseded_at !== null) conflict();
+    if (!await currentWalletCredentialInTransaction(client, enrollment)) conflict();
   }
   private async transaction<T>(run: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();

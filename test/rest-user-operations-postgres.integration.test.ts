@@ -13,6 +13,8 @@ import { getUserOperationHash } from '../src/rest/userOperations/codec.js';
 import { PostgresWalletPolicyStore } from '../src/rest/wallet/policyPostgres.js';
 import { PostgresWalletAppGrantStore } from '../src/rest/wallet/appGrantsPostgres.js';
 import { walletAppPrincipalId } from '../src/rest/wallet/appGrants.js';
+import { refreshTrustedWalletAuthority, seedTrustedWalletAuthority, trustedAuthorityNow,
+  writeTrustedWalletAuthoritySnapshot } from './fixtures/wallet-authority-readiness.js';
 import { PostgresSessionStore } from '../src/rest/sessions/postgres.js';
 import { recoveryCursor, type UserOperationRecord } from '../src/rest/userOperations/store.js';
 import type { RestActor } from '../src/rest/core.js';
@@ -184,31 +186,36 @@ suite('PostgreSQL UserOperation persistence', () => {
       store.create({ ...value.record, inputHash: h('changed') }, Date.now()),
     ).rejects.toMatchObject({ code: 'USER_OPERATION_CONFLICT' });
   });
-  it('rolls back app preparation when its grant expires while waiting for the plan lock', async () => {
-    const appOwner = await enroll(8453), origin = 'https://app.example';
-    const wallet = structuredClone(bindings.get(appOwner.accountId)!);
-    wallet.wallet.chainId = wallet.state.chainId = wallet.state.evidence.chainId = 8453;
-    wallet.id = fingerprint({ ownerAccountId: appOwner.accountId, wallet: safe, chainId: 8453 });
-    wallet.authorization.nonce = h('app-base-binding-nonce');
-    wallet.authorization.digest = h('app-base-binding');
-    await registry.bind(wallet);
+  it.each(['grant', 'authority readiness'] as const)('rolls back app preparation when its %s expires while waiting for the plan lock', async expiry => {
+    const appAccountId = `eip155:8453:${safe}`, appOwner = { accountId: appAccountId, principalId: `owner:${appAccountId}` }, origin = 'https://app.example';
+    // Trusted synthetic verified-readiness/live-binding fixture; this proves durable expiry handling,
+    // not passkey enrollment, setup signatures or canonical authority production.
+    await pool.query(`INSERT INTO rest_accounts(id,owner_address,authority_chain_id,display_name,bio,avatar_uri,created_at,updated_at)
+      VALUES($1,$2,8453,'','',NULL,1,1) ON CONFLICT(id) DO NOTHING`, [appAccountId, safe]);
+    const exists = (await pool.query('SELECT 1 FROM rest_wallet_authority WHERE account_id=$1', [appAccountId])).rowCount;
+    const trusted = exists ? await refreshTrustedWalletAuthority(pool, appAccountId) : await seedTrustedWalletAuthority(pool, appAccountId);
+    const wallet = trusted.binding;
+    if (expiry === 'authority readiness') {
+      // A shorter observation window stays within the production maximum of 30 seconds.
+      trusted.snapshot.validUntilMs = trusted.snapshot.latestObservation!.validUntilMs = await trustedAuthorityNow(pool) + 4000;
+      await writeTrustedWalletAuthoritySnapshot(pool, trusted.snapshot);
+    }
     await new PostgresWalletPolicyStore(pool).activate({ expectedRevision: 0, nextRevision: 1,
       configuration: { version: 'center-wallet-policy-v1', applications: [{ origin, walletCallbacks: [`${origin}/callback`] }] } });
-    // Trusted local fixture initialization; issuance and canonical epoch production are separate boundaries.
-    await pool.query('INSERT INTO rest_wallet_authority(account_id,authority_epoch,session_epoch,updated_at) VALUES($1,1,1,1)', [appOwner.accountId]);
     const lock = await pool.connect();
     let pending: Promise<unknown> | undefined;
     try {
       const grant = await new PostgresWalletAppGrantStore(pool).insert({ accountId: appOwner.accountId,
         signerAddress: target, origin, callbackUri: `${origin}/callback`, audience: 'https://juicebox.center',
         expectedAppGeneration: 1, expectedAuthorityEpoch: '1', expectedSessionEpoch: '1',
-        expiresAt: await dbSeconds(lock) + 4 });
+        expiresAt: await dbSeconds(lock) + (expiry === 'grant' ? 4 : 60) });
       const appActor = { accountId: appOwner.accountId, principalId: walletAppPrincipalId(grant) };
-      const value = plan('app-plan-wait-expiry', appActor, wallet, Date.now());
+      const id = `app-plan-wait-${expiry.replaceAll(' ', '-')}-expiry`;
+      const value = plan(id, appActor, wallet, Date.now());
       value.smartAccount!.chainId = 8453;
       value.draft.calls.forEach(call => { call.chainId = 8453; });
-      await plans.create(value, { key: 'app-plan-wait-expiry', operation: 'prepare', requestHash: h('app-plan-wait-expiry') }, Date.now());
-      const operation = record(value, 9003n);
+      await plans.create(value, { key: id, operation: 'prepare', requestHash: h(id) }, Date.now());
+      const operation = record(value, expiry === 'grant' ? 9003n : 9004n);
       operation.chainId = 8453;
       operation.operationHash = getUserOperationHash(operation.operation, operation.entryPoint, 8453);
       await lock.query('BEGIN');
@@ -219,12 +226,14 @@ suite('PostgreSQL UserOperation persistence', () => {
       expect(await waitUntilBlocked(lock, pid)).toEqual(expect.arrayContaining([
         expect.stringMatching(/^SELECT document FROM rest_transaction_plans .*FOR UPDATE$/),
       ]));
-      expect(await dbSeconds(lock)).toBeLessThan(grant.expiresAt);
+      const expiresAtMs = expiry === 'grant' ? grant.expiresAt * 1000 : trusted.snapshot.validUntilMs!;
+      expect(await trustedAuthorityNow(lock)).toBeLessThan(expiresAtMs);
       await lock.query(
         'SELECT pg_sleep(GREATEST(0,$1::double precision-extract(epoch FROM clock_timestamp())::double precision+0.005))',
-        [grant.expiresAt],
+        [expiresAtMs / 1000],
       );
-      expect(await dbSeconds(lock)).toBeGreaterThanOrEqual(grant.expiresAt);
+      expect(await trustedAuthorityNow(lock)).toBeGreaterThanOrEqual(expiresAtMs);
+      if (expiry === 'authority readiness') expect(await dbSeconds(lock)).toBeLessThan(grant.expiresAt);
       await lock.query('ROLLBACK');
       expect(await pending).toMatchObject({ error: { code: 'FORBIDDEN', status: 403 } });
       expect(await store.get(appActor, operation.id)).toBeUndefined();
@@ -237,6 +246,30 @@ suite('PostgreSQL UserOperation persistence', () => {
       await pending;
     }
   }, 12000);
+  it('denies an actual app UserOperation claim after its live setup binding is revoked', async () => {
+    const accountId = `eip155:8453:${safe}`, origin = 'https://app.example';
+    // Trusted synthetic readiness only; the existing claim path must enforce its live binding.
+    await pool.query(`INSERT INTO rest_accounts(id,owner_address,authority_chain_id,display_name,bio,avatar_uri,created_at,updated_at)
+      VALUES($1,$2,8453,'','',NULL,1,1) ON CONFLICT(id) DO NOTHING`, [accountId, safe]);
+    const exists = (await pool.query('SELECT 1 FROM rest_wallet_authority WHERE account_id=$1', [accountId])).rowCount;
+    const trusted = exists ? await refreshTrustedWalletAuthority(pool, accountId) : await seedTrustedWalletAuthority(pool, accountId);
+    await new PostgresWalletPolicyStore(pool).activate({ expectedRevision: 0, nextRevision: 1,
+      configuration: { version: 'center-wallet-policy-v1', applications: [{ origin, walletCallbacks: [`${origin}/callback`] }] } });
+    const grant = await new PostgresWalletAppGrantStore(pool).insert({ accountId, signerAddress: target, origin,
+      callbackUri: `${origin}/callback`, audience: 'https://juicebox.center', expectedAppGeneration: 1,
+      expectedAuthorityEpoch: '1', expectedSessionEpoch: '1', expiresAt: Math.floor(await trustedAuthorityNow(pool) / 1000) + 60 });
+    const appActor = { accountId, principalId: walletAppPrincipalId(grant) }, id = 'app-revoked-binding-claim';
+    const value = plan(id, appActor, trusted.binding, Date.now());
+    value.smartAccount!.chainId = 8453; value.draft.calls.forEach(call => { call.chainId = 8453; });
+    await plans.create(value, { key: id, operation: 'prepare', requestHash: h(id) }, Date.now());
+    const operation = record(value, 9005n); operation.chainId = 8453;
+    operation.operationHash = getUserOperationHash(operation.operation, operation.entryPoint, 8453);
+    const prepared = await store.create(operation, Date.now());
+    await registry.revoke(accountId, trusted.binding.id);
+    expect(await trustedAuthorityNow(pool)).toBeLessThan(trusted.snapshot.validUntilMs!);
+    await expect(store.claim(claim(prepared, Date.now()))).rejects.toMatchObject({ code: 'FORBIDDEN', status: 403 });
+    await expectUnclaimed({ plan: value, record: prepared });
+  });
   it('dispatches once across replicas and never blindly resubmits an ambiguous durable operation', async () => {
     const value = await prepare('submit', 2n);
     const input = claim(value.record, Date.now());

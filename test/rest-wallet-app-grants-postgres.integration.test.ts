@@ -7,6 +7,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { walletAppPrincipalId, type WalletAppGrant } from "../src/rest/wallet/appGrants.js";
 import { assertWalletAppGrantActiveInTransaction, getWalletAppGrantInTransaction, PostgresWalletAppGrantStore } from "../src/rest/wallet/appGrantsPostgres.js";
 import { PostgresWalletPolicyStore } from "../src/rest/wallet/policyPostgres.js";
+import { refreshTrustedWalletAuthority, seedTrustedWalletAuthority, trustedAuthorityNow, unreadyTrustedWalletAuthority,
+  writeTrustedWalletAuthoritySnapshot } from "./fixtures/wallet-authority-readiness.js";
 
 const connectionString = process.env.TEST_DATABASE_URL;
 const suite = connectionString ? describe : describe.skip;
@@ -35,7 +37,8 @@ async function seedAccount(id = accountId) {
 }
 async function seedAuthority(id = accountId, authorityEpoch = "1", sessionEpoch = "1") {
   await seedAccount(id);
-  await pool.query("INSERT INTO rest_wallet_authority(account_id,authority_epoch,session_epoch,updated_at) VALUES($1,$2,$3,1)", [id, authorityEpoch, sessionEpoch]);
+  // Trusted synthetic verified-readiness/live-binding state; these tests isolate grant storage.
+  return seedTrustedWalletAuthority(pool, id, { authorityEpoch, sessionEpoch });
 }
 async function input(changes: Partial<Insert> = {}): Promise<Insert> {
   return { accountId, signerAddress, origin, callbackUri: `${origin}/wallet/callback`, audience,
@@ -124,6 +127,8 @@ suite("PostgreSQL typed app-grant storage (trusted fixture; no browser authentic
       VALUES($1,$2,$3,ARRAY['read'],'legacy',1,9007199254740991)`, [legacyId, accountId, signerAddress]);
     await pool.query(await readFile(new URL("../src/db/migrations/017_rest_wallet_policy.sql", import.meta.url), "utf8"));
     await pool.query(await readFile(new URL("../src/db/migrations/019_rest_wallet_app_grants.sql", import.meta.url), "utf8"));
+    for (const filename of ["007_rest_smart_accounts.sql", "012_rest_smart_account_onboarding.sql", "014_rest_passkey_onboarding.sql", "020_rest_wallet_authority.sql"])
+      await pool.query(await readFile(new URL(`../src/db/migrations/${filename}`, import.meta.url), "utf8"));
     backfilled = (await pool.query("SELECT id,kind,account_id FROM rest_grant_ids WHERE id=$1", [legacyId])).rows;
     await pool.query("CREATE TABLE wallet_app_claims(id uuid PRIMARY KEY,principal_id text NOT NULL)");
     store = new PostgresWalletAppGrantStore(pool);
@@ -163,6 +168,21 @@ suite("PostgreSQL typed app-grant storage (trusted fixture; no browser authentic
     expect((await pool.query("SELECT account_id FROM rest_wallet_authority")).rows).toEqual([{ account_id: accountId }]);
     expect((await counts()).apps).toBe(0);
   });
+  it("rejects an epoch-only authority row before app grant insertion", async () => {
+    await seedAccount(otherAccount);
+    await pool.query("INSERT INTO rest_wallet_authority(account_id,authority_epoch,session_epoch,updated_at) VALUES($1,1,1,1)", [otherAccount]);
+    await expect(store.insert(await input({ accountId: otherAccount }))).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
+    expect((await counts()).apps).toBe(0);
+  });
+  it.each(["unknown", "changed", "fenced"] as const)("rejects %s readiness without relying on an epoch change", async readiness => {
+    const grant = await store.insert(await input());
+    const row = (await pool.query("SELECT snapshot FROM rest_wallet_authority WHERE account_id=$1", [accountId])).rows[0];
+    const snapshot = unreadyTrustedWalletAuthority(row.snapshot, readiness, await trustedAuthorityNow(pool));
+    await writeTrustedWalletAuthoritySnapshot(pool, snapshot);
+    await expect(guard(grant)).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
+    await expect(store.insert(await input())).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
+    expect(await counts()).toEqual({ apps: 1, bots: 0, registry: 1 });
+  });
   it("rejects caller-selected IDs and malformed authority/lifetime fields before insertion", async () => {
     for (const changes of [{ id: randomUUID() }, { incarnation: "1" }, { signerAddress: owner }, { scopes: ["read"] },
       { expectedAuthorityEpoch: "01" }, { expectedSessionEpoch: "0" }, { expectedAuthorityEpoch: 1 },
@@ -195,11 +215,14 @@ suite("PostgreSQL typed app-grant storage (trusted fixture; no browser authentic
     expect(await store.advanceEpochs({ accountId, expectedAuthorityEpoch: "1", expectedSessionEpoch: "2", kind: "authority" }))
       .toMatchObject({ authorityEpoch: "2", sessionEpoch: "3" });
     await expect(store.insert(await input())).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(store.insert(await input({ expectedAuthorityEpoch: "2", expectedSessionEpoch: "3" }))).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await refreshTrustedWalletAuthority(pool, accountId);
     await expect(store.insert(await input({ expectedAuthorityEpoch: "2", expectedSessionEpoch: "3" }))).resolves.toMatchObject({ authorityEpoch: "2", sessionEpoch: "3" });
   });
   it("preserves epochs and incarnation beyond Number.MAX_SAFE_INTEGER and rejects epoch overflow", async () => {
     const large = "9007199254740993";
     await pool.query("UPDATE rest_wallet_authority SET authority_epoch=$2,session_epoch=$2 WHERE account_id=$1", [accountId, large]);
+    await refreshTrustedWalletAuthority(pool, accountId);
     await pool.query("SELECT setval(pg_get_serial_sequence('rest_wallet_app_grants','incarnation'),$1::bigint,false)", [large]);
     const grant = await store.insert(await input({ expectedAuthorityEpoch: large, expectedSessionEpoch: large }));
     expect(grant.incarnation).toBe(large); expect(grant.authorityEpoch).toBe(large); expect(grant.sessionEpoch).toBe(large);
