@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { rename, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { compile, root } from './compiler.mjs';
+import { verifyBootstrap } from './bootstrap/verify.mjs';
 
 const forge = process.env.FORGE_BINARY ?? 'forge';
 const foundryCommit = 'f83bad912a9dba7bf0371def1e70bb1896048356';
@@ -45,12 +46,13 @@ for (const name of ['safeMessageVerificationGas', 'safeMessageSignatureBytes', '
   if (!(measurements[name] > 0)) throw new Error(`Required passkey gas/calldata observation missing: ${name}`);
 }
 if (fuzzRuns < 256) throw new Error('Required passkey cryptographic fuzz suite is missing.');
+const bootstrap = await verifyBootstrap();
 const report = {
   schemaVersion: 1, profile: 'experimental-unreleased',
   scope: 'Local EVM with actual pinned FCL/signers/Safe7579/EntryPoint; simulated authenticator; no device, production deployment, precompile or provider claim.',
   sourceCommit: 'dfd3b05966e727dbb7a2fdeef52e4b230f63304e',
-  suites: [{ name: expectedSuite, passed, failed: 0, skipped: 0, total: passed }],
-  fuzzRuns, measurements,
+  suites: [{ name: expectedSuite, passed, failed: 0, skipped: 0, total: passed }, ...bootstrap.suites],
+  fuzzRuns, measurements, bootstrap,
 };
 if (process.env.CENTER_PASSKEY_REPORT) {
   const reportPath = resolve(process.env.CENTER_PASSKEY_REPORT);
@@ -58,5 +60,5 @@ if (process.env.CENTER_PASSKEY_REPORT) {
   await writeFile(temporary, `${JSON.stringify(report, null, 2)}\n`);
   await rename(temporary, reportPath);
 }
-console.log(`Passkey compatibility: ${passed} actual stack tests passed; ${fuzzRuns} fuzz runs; zero skips.`);
+console.log(`Passkey compatibility: ${passed + bootstrap.suites[0].passed} actual stack tests passed; ${fuzzRuns} fuzz runs; zero skips.`);
 console.log(`FCL UserOperation: ${measurements.userOperationSignatureBytes} signature bytes; ${measurements.userOperationActualGasUsed} actual gas used in the local receipt.`);

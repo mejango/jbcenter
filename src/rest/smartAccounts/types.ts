@@ -33,6 +33,10 @@ export interface PasskeyOwnerState {
   };
   recoveryOwner: { address: Address; kind: "ecdsa" };
 }
+export interface PasskeyCreationProfile {
+  version: "center-passkey-bootstrap-v1";
+  multiSend: ContractPin;
+}
 /** Server-owned reviewed deployment configuration. Never accepted from HTTP request bodies. */
 export interface SmartAccountManifest {
   id: string;
@@ -52,6 +56,7 @@ export interface SmartAccountManifest {
   /** Pin the adapter that enumerates validators/executors/hooks/fallbacks/attesters. */
   moduleInspectorId: string;
   ownerProfile?: PasskeyOwnerProfile;
+  creationProfile?: PasskeyCreationProfile;
 }
 export interface SmartSnapshot {
   evidence: RestBlockEvidence;

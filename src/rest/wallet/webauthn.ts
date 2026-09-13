@@ -71,7 +71,7 @@ export function deriveWalletAuthenticationChallenge(context: {
 /** The initial browser profile supports flat scalar fields, including Chrome's extra-field
  * sentinel. A bounded scanner rejects duplicate decoded keys; JSON.parse alone loses them.
  * Unsupported nested fields fail explicitly, without rewriting any signed bytes. */
-function readClientData(json: string): Record<string, unknown> {
+export function readWalletClientData(json: string): Record<string, unknown> {
   const fields: Record<string, unknown> = Object.create(null);
   const stringToken = /"(?:[^"\\\u0000-\u001f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/y;
   const scalarToken = /(?:true|false|null|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)/y;
@@ -100,6 +100,17 @@ function readClientData(json: string): Record<string, unknown> {
   }
   if (offset !== json.length) return invalid();
   return fields;
+}
+
+/** Shared exact-host RP policy. Expected values always come from server configuration. */
+export function validateWalletRpConfiguration(expected: { origin: string; rpId: string }): void {
+  let origin: URL;
+  try { origin = new URL(expected.origin); } catch { return invalid("Invalid wallet RP configuration"); }
+  if (origin.origin !== expected.origin || origin.hostname !== expected.rpId ||
+      expected.rpId.length > 253 || expected.rpId.endsWith(".") ||
+      (origin.protocol !== "https:" && !(origin.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname)))) {
+    return invalid("Invalid wallet RP configuration");
+  }
 }
 
 /** Strict DER ECDSA, with no long-form lengths, negative/redundantly padded integers or trailer.
@@ -136,13 +147,7 @@ export function verifyWalletAssertion(assertion: WalletAssertion, expected: Wall
   if (!assertion || !expected || !expected.credential || !PURPOSES.includes(expected.purpose) ||
       typeof expected.requireUserHandle !== "boolean") return invalid();
   const challenge = bytes32(expected.challenge);
-  let origin: URL;
-  try { origin = new URL(expected.origin); } catch { return invalid("Invalid wallet RP configuration"); }
-  if (origin.origin !== expected.origin || origin.hostname !== expected.rpId ||
-      expected.rpId.length > 253 || expected.rpId.endsWith(".") ||
-      (origin.protocol !== "https:" && !(origin.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname)))) {
-    return invalid("Invalid wallet RP configuration");
-  }
+  validateWalletRpConfiguration(expected);
   const credentialId = base64url(assertion.credentialId, 1023);
   const storedCredentialId = base64url(expected.credential.id, 1023);
   if (credentialId.length !== storedCredentialId.length || !timingSafeEqual(credentialId, storedCredentialId)) return invalid();
@@ -167,7 +172,7 @@ export function verifyWalletAssertion(assertion: WalletAssertion, expected: Wall
   catch { return invalid("Invalid wallet client data encoding"); }
   const prefix = `{"type":"webauthn.get","challenge":"${challenge.toString("base64url")}",`;
   if (!json.startsWith(prefix) || !json.endsWith("}")) return invalid("Unsupported wallet client data encoding or challenge");
-  const fields = readClientData(json);
+  const fields = readWalletClientData(json);
   if (fields.type !== "webauthn.get" || fields.challenge !== challenge.toString("base64url") ||
       fields.origin !== expected.origin || (Object.hasOwn(fields, "crossOrigin") && fields.crossOrigin !== false) ||
       Object.hasOwn(fields, "topOrigin")) return invalid("Invalid wallet client data");

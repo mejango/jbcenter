@@ -10,6 +10,8 @@ node src/rest/smartAccounts/stack/passkey/verify.mjs
 
 The existing execution gate installs Solidity 0.8.26 through its current Pimlico compiler project. `CENTER_PASSKEY_SOLC` can select an already installed binary; verification requires an exact official macOS/Linux checksum. `FORGE_BINARY` selects the pinned Foundry v1.7.0 executable. `CENTER_PASSKEY_REPORT` optionally selects an atomic JSON observation file.
 
+The same mandatory command also runs the [atomic bootstrap compatibility proof](bootstrap/README.md), independently reproducing the pinned MultiSend artifact and requiring its ten additional tests. Its Solidity 0.7.6 compiler is installed through Foundry when absent and checksum-verified before use. Both suites appear separately in the atomic report; these local proofs do not activate a production bootstrap profile.
+
 The verifier checks the vendored source closure, audit comparison record, existing stack artifact hashes and exact compiler binary. It freshly rebuilds the upstream contracts, compares complete ABI/bytecode/compiler metadata to the reviewed artifacts, then requires every Foundry test to pass with at least 256 real P256 fuzz cases. It never regenerates reviewed artifacts during verification. To deliberately rebuild artifacts for review:
 
 ```sh

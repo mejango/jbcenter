@@ -21,8 +21,10 @@ import { RestError, type RestRpc } from "../core.js";
 import {
   SAFE_CREATION_ABI,
   SAFE_SETUP_ABI,
+  validatePasskeyCreationManifest,
   verifySafe7579CreationCall,
 } from "./creation.js";
+import { inspectPasskeyOwnerProfile } from "./passkeyProfile.js";
 import { fingerprint } from "./service.js";
 import {
   LEGACY_SESSION_PARAMETERS,
@@ -283,6 +285,7 @@ interface Header {
   parentHash: Hex;
   number: bigint;
   transactions: Hex[];
+  timestamp?: string;
 }
 interface Provenance {
   creationBlock: bigint;
@@ -346,6 +349,9 @@ export function createSafe7579Inspector(
       manifest: m,
       snapshot,
     }): Promise<ModuleStateEvidence> {
+      if (m.creationProfile) validatePasskeyCreationManifest(m);
+      const bootstrapPins = m.creationProfile ? [m.creationProfile.multiSend,
+        m.ownerProfile!.signerFactory, m.ownerProfile!.signerSingleton, m.ownerProfile!.p256Verifier] : [];
       if (
         m.moduleInspectorId !== SAFE7579_INSPECTOR_ID ||
         m.safe7579.source.commit !== SAFE7579_STORAGE_SOURCE.commit ||
@@ -405,6 +411,7 @@ export function createSafe7579Inspector(
           parentHash: raw.parentHash,
           number: n,
           transactions: raw.transactions as Hex[],
+          ...(m.creationProfile ? { timestamp: String(quantity(raw.timestamp)) } : {}),
         };
         headers.set(n, result);
         if (headers.size > 64) headers.delete(headers.keys().next().value!);
@@ -565,7 +572,12 @@ export function createSafe7579Inspector(
         }
         return result;
       }
-      const key = `${m.chainId}:${account.toLowerCase()}:${m.revision}:${options.utility.runtimeCodeHash}`;
+      // Keep existing checkpoint namespaces byte-for-byte; the new profile cannot borrow old
+      // history or history certified for different pins, even if a manifest revision is reused.
+      const profileCommitment = m.creationProfile ? fingerprint({
+        profile: "safe7579-f22a194-passkey-bootstrap-v1", manifest: m, utility: options.utility,
+      }) : m.revision;
+      const key = `${m.chainId}:${account.toLowerCase()}:${profileCommitment}:${options.utility.runtimeCodeHash}`;
       const candidates: Provenance[] = [];
       const cached = cache.get(key);
       if (cached) candidates.push(cached);
@@ -701,6 +713,7 @@ export function createSafe7579Inspector(
           m.smartSessions,
           m.entryPoint,
           options.utility,
+          ...bootstrapPins,
         ].map(async pin => {
           const code = hex(
             await rpc("eth_getCode", [
@@ -714,6 +727,12 @@ export function createSafe7579Inspector(
               "Creation did not use the reviewed immutable stack.",
             );
         }));
+        if (m.creationProfile) {
+          const tag = { blockHash: h.hash, requireCanonical: true as const };
+          await inspectPasskeyOwnerProfile({ manifest: m, owners: prepared.owners, threshold: prepared.threshold,
+            snapshot: { tag, evidence: { chainId: m.chainId, blockHash: h.hash, blockNumber: String(creationBlock),
+              timestamp: h.timestamp!, source: "onchain" }, request: (method, params) => rpc(method, [...params, tag]) } });
+        }
         history = {
           creationBlock,
           creationHash: h.hash,
@@ -726,6 +745,7 @@ export function createSafe7579Inspector(
             chainId: m.chainId,
             factory: m.factory.address.toLowerCase(),
             initializerHash: prepared.initializerHash,
+            ...(m.creationProfile ? { creationProfile: profileCommitment } : {}),
           }),
           lifecycleChanges: 0,
           sessionAdministration: {
@@ -1043,7 +1063,9 @@ export function createSafe7579Inspector(
                 : {}),
             };
           }
-          function visit(value: unknown, depth: number) {
+          const bootstrap = prepared && "bootstrap" in prepared ? prepared.bootstrap : undefined;
+          let bootstrapMultiSend = 0, bootstrapLaunch = 0;
+          function visit(value: unknown, depth: number, insideBootstrap = false) {
             if (++frames > limits.frames || depth > 128)
               fail(
                 "SMART_HISTORY_LIMIT",
@@ -1121,26 +1143,47 @@ export function createSafe7579Inspector(
               );
             if (fromSafe && type === "DELEGATECALL") {
               const target = String(frame.to);
+              const multiSend = bootstrap !== undefined && m.creationProfile !== undefined &&
+                same(target, m.creationProfile.multiSend.address) && same(txHash, history!.creationTransaction) &&
+                same(hex(frame.input), bootstrap.multiSendData);
               const launch =
                 same(target, m.launchpad.address) &&
                 same(txHash, history!.creationTransaction) &&
                 prepared !== undefined &&
                 same(
                   hex(frame.input),
-                  decodeFunctionData({
+                  bootstrap?.launchpadData ?? decodeFunctionData({
                     abi: SAFE_SETUP_ABI,
                     data: prepared.initializer,
                   }).args[3],
                 );
+              if (multiSend) {
+                // The reviewed batch is exactly CALL createSigner, then DELEGATECALL launchpad.
+                // Requiring both direct frames also rejects a truncated creation trace.
+                const children = frame.calls as Record<string, unknown>[] | undefined;
+                const expected = [
+                  { type: "CALL", to: m.ownerProfile!.signerFactory.address, data: bootstrap!.signerFactoryData },
+                  { type: "DELEGATECALL", to: m.launchpad.address, data: bootstrap!.launchpadData },
+                ];
+                if (++bootstrapMultiSend !== 1 || insideBootstrap || !children || children.length !== 2 ||
+                  children.some((child, index) => !child || child.error !== undefined ||
+                    child.type !== expected[index]!.type || typeof child.from !== "string" || !same(child.from, account) ||
+                    typeof child.to !== "string" || !same(child.to, expected[index]!.to) ||
+                    !same(hex(child.input), expected[index]!.data) || quantity(child.value) !== 0n))
+                  fail("SMART_CREATION_TRACE_INVALID", "Atomic passkey creation requires its exact two successful bootstrap calls.");
+              }
+              if (launch && bootstrap && (!insideBootstrap || ++bootstrapLaunch !== 1))
+                fail("SMART_CREATION_TRACE_INVALID", "The passkey launchpad must execute once inside its reviewed creation batch.");
               if (
                 !same(target, m.singleton.address) &&
                 !same(target, options.utility.address) &&
-                !launch
+                !launch && !multiSend
               )
                 fail(
                   "SMART_AUTHORITY_HISTORY_UNSUPPORTED",
                   "An unreviewed owner delegatecall can hide module authority and blocks execution.",
                 );
+              insideBootstrap ||= multiSend;
             }
             if (
               fromSafe &&
@@ -1244,9 +1287,11 @@ export function createSafe7579Inspector(
               }
             }
             for (const child of (frame.calls ?? []) as unknown[])
-              visit(child, depth + 1);
+              visit(child, depth + 1, insideBootstrap);
           }
           visit(traced, 0);
+          if (bootstrap && same(txHash, history.creationTransaction) && (bootstrapMultiSend !== 1 || bootstrapLaunch !== 1))
+            fail("SMART_CREATION_TRACE_INVALID", "The complete atomic passkey creation trace is required.");
         }
         history.lastBlock = n;
         history.lastHash = h.hash;
@@ -1268,6 +1313,7 @@ export function createSafe7579Inspector(
         m.smartSessions,
         m.entryPoint,
         options.utility,
+        ...bootstrapPins,
       ].map(async pin => {
         const code = hex(await snapshot.request("eth_getCode", [pin.address]));
         if (code === "0x" || !same(keccak256(code), pin.runtimeCodeHash))
@@ -1455,6 +1501,7 @@ export function createSafe7579Inspector(
         inspector: SAFE7579_INSPECTOR_ID,
         account: account.toLowerCase(),
         manifestRevision: m.revision,
+        ...(m.creationProfile ? { creationProfile: { version: m.creationProfile.version, configurationHash: profileCommitment } } : {}),
         validators: validators.map((a) => a.toLowerCase()),
         executors: [],
         hooks: [],

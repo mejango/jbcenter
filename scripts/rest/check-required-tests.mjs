@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -35,6 +35,10 @@ export const requiredVitestSuites = [
   "test/rest-passkey-profile-evm.test.ts",
   "test/rest-passkey-onboarding.test.ts",
   "test/rest-passkey-user-operations.test.ts",
+  "test/rest-passkey-creation.test.ts",
+  "test/rest-passkey-creation-evm.test.ts",
+  "test/rest-wallet-registration.test.ts",
+  "test/rest-wallet-browser.test.ts",
 ];
 
 export function validateRuntime(version, databaseUrl) {
@@ -135,12 +139,61 @@ export async function captureSourceSnapshot(projectRoot) {
     return result.stdout;
   };
   const revision = git(["rev-parse", "HEAD"]).trim();
-  const status = git(["status", "--porcelain"]);
-  const hash = createHash("sha256").update(revision).update(git(["diff", "HEAD", "--binary"]));
-  for (const path of git(["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean).sort()) {
-    hash.update(path).update("\0").update(await readFile(resolve(projectRoot, path)));
+  const objectFormat = git(["rev-parse", "--show-object-format"]).trim();
+  if (objectFormat !== "sha1" && objectFormat !== "sha256") throw new Error("Unsupported Git object format for source attribution.");
+  const entries = args => git(args).split("\0").filter(Boolean).map(entry => {
+    const separator = entry.indexOf("\t");
+    if (separator < 0) throw new Error("Invalid Git source inventory.");
+    return { path: entry.slice(separator + 1), metadata: entry.slice(0, separator).split(" ") };
+  });
+  const committed = new Map();
+  for (const { path, metadata: [mode, type, object] } of entries(["ls-tree", "-r", "-z", "--full-tree", revision])) {
+    if (type !== "blob") throw new Error("Git submodule source requires its own attribution evidence.");
+    committed.set(path, { mode, object });
   }
-  return { revision, dirty: !!status.trim(), fingerprint: hash.digest("hex") };
+  const indexed = new Map();
+  for (const { path, metadata } of entries(["ls-files", "--stage", "-z"])) {
+    if (metadata[0] === "160000") throw new Error("Git submodule source requires its own attribution evidence.");
+    indexed.set(path, [...(indexed.get(path) ?? []), metadata]);
+  }
+  const untracked = git(["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean);
+  const paths = [...new Set([...committed.keys(), ...indexed.keys(), ...untracked])].sort();
+  const readSource = async path => {
+    let location = projectRoot;
+    const components = path.split("/");
+    for (const [index, component] of components.entries()) {
+      location = resolve(location, component);
+      let stat;
+      try { stat = await lstat(location); }
+      catch (error) {
+        if (error.code === "ENOENT" || error.code === "ENOTDIR") return { mode: "missing", bytes: null };
+        throw error;
+      }
+      const last = index === components.length - 1;
+      if (stat.isSymbolicLink()) return { mode: last ? "120000" : "symlink-parent", bytes: await readlink(location, { encoding: "buffer" }) };
+      if (!last && !stat.isDirectory()) return { mode: "non-directory-parent", bytes: null };
+      if (last) {
+        if (stat.isFile()) return { mode: stat.mode & 0o111 ? "100755" : "100644", bytes: await readFile(location) };
+        if (stat.isDirectory()) return { mode: "040000", bytes: null };
+        throw new Error("Cannot attribute a non-regular source file.");
+      }
+    }
+  };
+  // Like MCP source evidence, read actual bytes: index flags and clean filters can hide executable changes.
+  // Git blob framing compares those bytes to HEAD without invoking a clean filter or one Git process per file.
+  let dirty = false;
+  const hash = createHash("sha256").update(revision);
+  for (const path of paths) {
+    const { mode, bytes } = await readSource(path);
+    const head = committed.get(path);
+    const index = indexed.get(path) ?? [];
+    const object = bytes === null ? null : createHash(objectFormat).update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+    if (!head || head.mode !== mode || head.object !== object || index.length !== 1 ||
+      index[0][0] !== head.mode || index[0][1] !== head.object || index[0][2] !== "0") dirty = true;
+    const contentHash = bytes === null ? null : createHash("sha256").update(bytes).digest("hex");
+    hash.update(JSON.stringify([path, mode, contentHash, index])).update("\n");
+  }
+  return { revision, dirty, fingerprint: hash.digest("hex") };
 }
 
 export async function runStep(name, binary, args, { directory, observation, cwd, env, save, timeoutMs = 10 * 60_000 }) {

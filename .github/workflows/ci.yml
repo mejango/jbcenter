@@ -48,6 +48,8 @@ jobs:
           cache: false
       - run: npm ci --ignore-scripts
       - run: npm --prefix mcp ci --ignore-scripts
+      - name: Install pinned Chromium for WebAuthn producer checks
+        run: npx playwright install --with-deps --only-shell chromium
       - name: Verify artifacts, run Foundry and Anvil tests, and check application
         run: npm run check
       - run: npm audit --omit=dev --audit-level=high

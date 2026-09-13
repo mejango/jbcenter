@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,7 +39,8 @@ describe("release check cannot silently omit required verification", () => {
       .filter((file): file is string => file !== null).sort();
     expect(inventory).toEqual(expected);
     for (const file of [...inventory, "rest-wallet-webauthn.test.ts", "rest-passkey-signatures.test.ts", "rest-wallet-passkey-evm.test.ts",
-      "rest-passkey-profile-evm.test.ts", "rest-passkey-onboarding.test.ts", "rest-passkey-user-operations.test.ts"]) {
+      "rest-passkey-profile-evm.test.ts", "rest-passkey-onboarding.test.ts", "rest-passkey-user-operations.test.ts",
+      "rest-passkey-creation.test.ts", "rest-passkey-creation-evm.test.ts", "rest-wallet-registration.test.ts", "rest-wallet-browser.test.ts"]) {
       expect(requiredVitestSuites).toContain(`test/${file}`);
     }
   });
@@ -149,6 +150,87 @@ describe("release check cannot silently omit required verification", () => {
     expect(after.dirty).toBe(true);
     expect(before.fingerprint).not.toBe(after.fingerprint);
     expect(JSON.stringify(after)).not.toContain("second change");
+  });
+
+  it.each(["assume-unchanged", "skip-worktree", "clean-filter"])("attributes actual bytes hidden by %s", async (concealment) => {
+    const directory = await mkdtemp(join(tmpdir(), "center-hidden-source-"));
+    directories.push(directory);
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: directory, encoding: "utf8" });
+    git("init", "-q");
+    await writeFile(join(directory, "source.txt"), "initial\n");
+    if (concealment === "clean-filter") {
+      await writeFile(join(directory, ".gitattributes"), "source.txt filter=hide\n");
+      git("config", "filter.hide.clean", "sed 's/changed executable source bytes/initial/'");
+    }
+    git("add", ".");
+    git("-c", "user.name=Local check", "-c", "user.email=local-check@example.invalid", "commit", "-qm", "fixture");
+    if (concealment !== "clean-filter") git("update-index", `--${concealment}`, "source.txt");
+    const before = await captureSourceSnapshot(directory);
+    expect(before.dirty).toBe(false);
+    await writeFile(join(directory, "source.txt"), "changed executable source bytes\n");
+    if (concealment === "clean-filter") git("add", "source.txt");
+    expect(git("status", "--porcelain")).toBe("");
+    const after = await captureSourceSnapshot(directory);
+    expect(after.dirty).toBe(true);
+    expect(after.fingerprint).not.toBe(before.fingerprint);
+  });
+
+  it("attributes actual modes, missing tracked files, new index files and untracked bytes", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "center-source-paths-"));
+    directories.push(directory);
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: directory, stdio: "ignore" });
+    git("init", "-q");
+    await writeFile(join(directory, "source.txt"), "initial");
+    git("add", ".");
+    git("-c", "user.name=Local check", "-c", "user.email=local-check@example.invalid", "commit", "-qm", "fixture");
+    git("update-index", "--assume-unchanged", "source.txt");
+    const baseline = await captureSourceSnapshot(directory);
+    await chmod(join(directory, "source.txt"), 0o755);
+    const executable = await captureSourceSnapshot(directory);
+    expect(executable.dirty).toBe(true);
+    expect(executable.fingerprint).not.toBe(baseline.fingerprint);
+    await rm(join(directory, "source.txt"));
+    const missing = await captureSourceSnapshot(directory);
+    expect(missing.dirty).toBe(true);
+    expect(missing.fingerprint).not.toBe(executable.fingerprint);
+    await writeFile(join(directory, "new.txt"), "staged");
+    git("add", "new.txt");
+    git("update-index", "--assume-unchanged", "new.txt");
+    const staged = await captureSourceSnapshot(directory);
+    await writeFile(join(directory, "new.txt"), "actual unstaged bytes");
+    const unstaged = await captureSourceSnapshot(directory);
+    expect(unstaged.dirty).toBe(true);
+    expect(unstaged.fingerprint).not.toBe(staged.fingerprint);
+    await writeFile(join(directory, "untracked.txt"), "untracked bytes");
+    const untracked = await captureSourceSnapshot(directory);
+    expect(untracked.dirty).toBe(true);
+    expect(untracked.fingerprint).not.toBe(unstaged.fingerprint);
+  });
+
+  it("hashes symlink text without reading its target", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "center-source-link-"));
+    const outside = await mkdtemp(join(tmpdir(), "center-source-outside-"));
+    directories.push(directory, outside);
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: directory, stdio: "ignore" });
+    git("init", "-q");
+    const target = join(outside, "external.txt");
+    await writeFile(target, "outside bytes");
+    await symlink(target, join(directory, "source"));
+    git("add", ".");
+    git("-c", "user.name=Local check", "-c", "user.email=local-check@example.invalid", "commit", "-qm", "fixture");
+    const before = await captureSourceSnapshot(directory);
+    expect(before.dirty).toBe(false);
+    await writeFile(target, "different outside bytes");
+    expect(await captureSourceSnapshot(directory)).toEqual(before);
+    await rm(join(directory, "source"));
+    await symlink(join(outside, "missing-target"), join(directory, "source"));
+    const after = await captureSourceSnapshot(directory);
+    expect(after.dirty).toBe(true);
+    expect(after.fingerprint).not.toBe(before.fingerprint);
+    await symlink(join(outside, "untracked-target"), join(directory, "untracked-link"));
+    const untracked = await captureSourceSnapshot(directory);
+    await writeFile(join(outside, "untracked-target"), "outside untracked target bytes");
+    expect(await captureSourceSnapshot(directory)).toEqual(untracked);
   });
 
   it("terminates a timed-out process and its hung descendants", async () => {

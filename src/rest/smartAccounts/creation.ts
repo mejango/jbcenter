@@ -8,12 +8,16 @@ import {
   isAddress,
   keccak256,
   parseAbi,
+  sliceHex,
+  toHex,
   zeroAddress,
   type Address,
   type Hex,
 } from "viem";
 import { RestError } from "../core.js";
 import type { SmartAccountManifest } from "./types.js";
+import { predictPasskeySignerAddress } from "./passkeyCreation.js";
+export { validatePasskeyCreationManifest } from "./passkeyCreation.js";
 
 /** Official Safe 1.4.1 artifact, safe-contracts bf943f80fec5ac647159d26161446ac5d716a294.
  * Keeping the creation bytes here makes address prediction browser-safe and independent of RPC. */
@@ -29,6 +33,17 @@ export const SAFE_SETUP_ABI = parseAbi([
 export const SAFE7579_LAUNCH_SETUP_ABI = parseAbi([
   "function addSafe7579(address safe7579,(address module,bytes initData,uint256 moduleType)[] modules,address[] attesters,uint8 threshold)",
 ]);
+const MULTI_SEND_ABI = parseAbi(["function multiSend(bytes transactions)"]);
+const SIGNER_FACTORY_ABI = parseAbi(["function createSigner(uint256 x,uint256 y,uint176 verifiers) returns(address)"]);
+export interface PasskeyCreationBootstrap {
+  version: "center-passkey-bootstrap-v1";
+  signerAddress: Address;
+  publicKey: { x: Hex; y: Hex };
+  verifiers: Hex;
+  multiSendData: Hex;
+  launchpadData: Hex;
+  signerFactoryData: Hex;
+}
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 function invalid(): never {
   throw new RestError(
@@ -38,13 +53,13 @@ function invalid(): never {
   );
 }
 
-/** Pure preparation only. The owner signs and funds the factory transaction in their wallet. */
-export function prepareSafe7579Creation(input: {
+type CreationInput = {
   manifest: SmartAccountManifest;
   owners: readonly Address[];
   threshold: number;
   saltNonce: string;
-}) {
+};
+function validateCreationInput(input: CreationInput) {
   const { manifest: m } = input;
   if (
     m.safeVersion !== "1.4.1" ||
@@ -70,8 +85,9 @@ export function prepareSafe7579Creation(input: {
     BigInt(input.saltNonce) >= 1n << 256n
   )
     invalid();
-  const owners = input.owners.map((a) => getAddress(a));
-  const adapterSetup = encodeFunctionData({
+}
+function launchpadSetup(m: SmartAccountManifest) {
+  return encodeFunctionData({
     abi: SAFE7579_LAUNCH_SETUP_ABI,
     functionName: "addSafe7579",
     args: [
@@ -81,14 +97,19 @@ export function prepareSafe7579Creation(input: {
       0,
     ],
   });
+}
+
+function assembleCreation(input: CreationInput, setupTarget: Address, setupData: Hex) {
+  validateCreationInput(input);
+  const m = input.manifest, owners = input.owners.map((a) => getAddress(a));
   const initializer = encodeFunctionData({
     abi: SAFE_SETUP_ABI,
     functionName: "setup",
     args: [
       owners,
       BigInt(input.threshold),
-      m.launchpad.address,
-      adapterSetup,
+      setupTarget,
+      setupData,
       m.safe7579.address,
       zeroAddress,
       0n,
@@ -142,6 +163,40 @@ export function prepareSafe7579Creation(input: {
   };
 }
 
+/** Pure preparation only. The owner signs and funds the factory transaction in their wallet. */
+export function prepareSafe7579Creation(input: CreationInput) {
+  // Never silently produce the legacy initializer for an opted-in atomic passkey manifest.
+  if (input.manifest.creationProfile !== undefined) invalid();
+  validateCreationInput(input);
+  return assembleCreation(input, input.manifest.launchpad.address, launchpadSetup(input.manifest));
+}
+
+/** Creates the immutable signer before setting up its Safe in the same reverting transaction. */
+export function preparePasskeySafe7579Creation(input: {
+  manifest: SmartAccountManifest;
+  publicKey: { x: Hex; y: Hex };
+  recoveryOwner: Address;
+  saltNonce: string;
+}) {
+  const m = input.manifest, signerAddress = predictPasskeySignerAddress(input);
+  const verifiers = toHex(BigInt(m.ownerProfile!.p256Verifier.address), { size: 22 });
+  const signerFactoryData = encodeFunctionData({ abi: SIGNER_FACTORY_ABI, functionName: "createSigner",
+    args: [BigInt(input.publicKey.x), BigInt(input.publicKey.y), BigInt(verifiers)] });
+  const launchpadData = launchpadSetup(m);
+  const call = (operation: 0 | 1, to: Address, data: Hex) => concatHex([
+    toHex(operation, { size: 1 }), to.toLowerCase() as Address, toHex(0n, { size: 32 }),
+    toHex((data.length - 2) / 2, { size: 32 }), data,
+  ]);
+  const multiSendData = encodeFunctionData({ abi: MULTI_SEND_ABI, functionName: "multiSend", args: [concatHex([
+    call(0, m.ownerProfile!.signerFactory.address, signerFactoryData), call(1, m.launchpad.address, launchpadData),
+  ])] });
+  const bootstrap: PasskeyCreationBootstrap = { version: "center-passkey-bootstrap-v1", signerAddress,
+    publicKey: { x: toHex(BigInt(input.publicKey.x), { size: 32 }), y: toHex(BigInt(input.publicKey.y), { size: 32 }) },
+    verifiers, multiSendData, launchpadData, signerFactoryData };
+  return { ...assembleCreation({ manifest: m, owners: [signerAddress, input.recoveryOwner], threshold: 1, saltNonce: input.saltNonce },
+    m.creationProfile!.multiSend.address, multiSendData), bootstrap };
+}
+
 /** Canonical round-trip validation rejects arbitrary launchpad init data, hidden calls and payments. */
 export function verifySafe7579CreationCall(
   manifest: SmartAccountManifest,
@@ -149,6 +204,7 @@ export function verifySafe7579CreationCall(
   data: Hex,
 ) {
   try {
+    if (manifest.creationProfile !== undefined && data.length > 32_770) invalid();
     const factory = decodeFunctionData({ abi: SAFE_CREATION_ABI, data });
     if (
       factory.functionName !== "createProxyWithNonce" ||
@@ -159,12 +215,21 @@ export function verifySafe7579CreationCall(
       abi: SAFE_SETUP_ABI,
       data: factory.args[1],
     });
-    const prepared = prepareSafe7579Creation({
-      manifest,
-      owners: setup.args[0],
-      threshold: Number(setup.args[1]),
-      saltNonce: String(factory.args[2]),
-    });
+    let prepared: ReturnType<typeof prepareSafe7579Creation> & { bootstrap?: PasskeyCreationBootstrap };
+    if (manifest.creationProfile !== undefined) {
+      // The first fixed call is createSigner(uint256,uint256,uint176). Reconstructing the complete
+      // factory input below validates both packed entries, all offsets/padding and every setup field.
+      const packed = decodeFunctionData({ abi: MULTI_SEND_ABI, data: setup.args[3] }).args[0];
+      if (BigInt(sliceHex(packed, 53, 85)) !== 100n) invalid();
+      const signer = decodeFunctionData({ abi: SIGNER_FACTORY_ABI, data: sliceHex(packed, 85, 185) });
+      if (setup.args[0].length !== 2) invalid();
+      prepared = preparePasskeySafe7579Creation({ manifest,
+        publicKey: { x: toHex(signer.args[0], { size: 32 }), y: toHex(signer.args[1], { size: 32 }) },
+        recoveryOwner: setup.args[0][1]!, saltNonce: String(factory.args[2]) });
+    } else {
+      prepared = prepareSafe7579Creation({ manifest, owners: setup.args[0],
+        threshold: Number(setup.args[1]), saltNonce: String(factory.args[2]) });
+    }
     if (
       !same(prepared.address, account) ||
       !same(prepared.transaction.data, data)

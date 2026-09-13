@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
+import { findCachedSolc } from './solc-cache.mjs';
 
 export const root = dirname(fileURLToPath(import.meta.url));
 const digest = (data) => createHash('sha256').update(data).digest('hex');
@@ -31,8 +31,8 @@ export async function compile({ update = false } = {}) {
     if (digest(data) !== expected) throw new Error(`Vendored passkey source hash differs: ${path}`);
     if (path.endsWith('.sol')) sources[path.replace('modules/passkey/', '')] = { content: data.toString('utf8') };
   }
-  const solc = process.env.CENTER_PASSKEY_SOLC ?? resolve(
-    process.env.SVM_HOME ?? resolve(homedir(), '.svm'), '0.8.26/solc-0.8.26');
+  const solc = await findCachedSolc('0.8.26', process.env.CENTER_PASSKEY_SOLC);
+  if (!solc) throw new Error('Solidity 0.8.26 is unavailable; run check:execution first or set CENTER_PASSKEY_SOLC to its pinned binary.');
   const binary = await readFile(solc);
   if (!Object.values(manifest.compilerBinaries).some((pin) => pin.sha256 === `0x${digest(binary)}`)) {
     throw new Error('Safe passkey compilation requires the exact officially pinned Solidity0.8.26 binary.');

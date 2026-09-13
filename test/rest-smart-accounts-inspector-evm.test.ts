@@ -417,6 +417,9 @@ describe.skipIf(!available)(
           String(port),
           "--chain-id",
           "31337",
+          // Match the pinned stack's execution target; Anvil's moving latest default changes mining work.
+          "--hardfork",
+          "cancun",
           // Retain enough archive state for the fixtures without writing every dormant block to disk.
           "--prune-history",
           "512",
