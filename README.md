@@ -13,8 +13,8 @@ plans are separate immutable records with durable execution progress.
 ## V6 REST API
 
 Start at [the API directory](https://juicebox.center/api), [OpenAPI](https://juicebox.center/api/v1/openapi.json),
-or the [signed-request quickstart](docs/rest/QUICKSTART.md). Wallet owners enroll at
-[Accounts](https://juicebox.center/accounts), then register client-generated bot keys with explicit
+or the [signed-request quickstart](docs/rest/QUICKSTART.md). Select **Sign in** at
+[Accounts](https://juicebox.center/accounts) with email, phone, social login, or an existing wallet, then create API connections with explicit
 read, plan, and relay scopes. Every live API request carries a short-lived EIP-712 signature binding
 its audience, account, signer, method, exact path/query, raw body, nonce, and idempotency key.
 Private keys stay with the client. API grants never substitute for onchain signing authority.
@@ -30,14 +30,14 @@ wallet, chains, destinations, calldata, values, dependencies, evidence, and expi
 idempotency, and transport reservations prevent conflicting submissions. A receipt confirms one
 transaction; operation effects and cross-chain settlement have separate evidence.
 Fund movement requires fresh owner consent unless an installed smart-account session already
-authorizes that exact action within an explicit spending allocation. Direct EOA and Relayr dispatch
+authorizes that exact action within an explicit spending allocation. Direct and prepaid dispatch
 require a fresh signed owner request or an additional owner approval attached to the bot submission.
 An old wallet transaction signature is insufficient.
 
 Read [authentication](docs/rest/AUTHENTICATION.md), [contracts](docs/rest/CONTRACTS.md),
 [indexed reads](docs/rest/INDEXER.md), [transactions](docs/rest/TRANSACTIONS.md),
 [omnichain projects](docs/rest/OMNICHAIN.md), [sponsorship](docs/rest/SPONSORSHIP.md), and
-[AI integration](docs/rest/AI_GUIDE.md). Relayr supports externally funded gas for eligible exact
+[AI integration](docs/rest/AI_GUIDE.md). Prepaid execution supports externally funded gas for eligible exact
 owner-signed calls, with independent destination verification. Hosted ERC-4337 execution supports
 reviewed Safe accounts, exact owner-signed bundles, and seven- or thirty-day bot sessions with
 onchain spending and gas limits. The browser facilitates account creation, binding, activation,
@@ -326,6 +326,8 @@ The remaining controls are environment variables:
 - `RPC_PUBLIC_SITE_LIMIT_PER_MINUTE` — shared keyless RPC budget across untrusted origins; default `5000`.
 - `MAX_INTENTS_PER_CLIENT` — lifetime intent count per client; default `10000`.
 - `MAX_STORAGE_BYTES_PER_CLIENT` — lifetime stored envelope bytes per client; default 1 GiB.
+- `PARA_API_KEY` — public browser API key for account sign-in; authorize the Center origin in the Para dashboard. No Para server secret is used.
+- `PARA_ENVIRONMENT` — `BETA` (default) or `PROD`, matching the public key.
 - `METRICS_TOKEN` — required 32-character bearer token for `GET /metrics`.
 - `FILEBASE_RPC_TOKEN` — bucket-scoped bearer token for Filebase's IPFS RPC API; never expose it to
   a browser.

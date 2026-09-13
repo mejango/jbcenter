@@ -1,8 +1,66 @@
-# Smart accounts and bounded sessions
+# Optional transaction wallets
 
-A **smart wallet** is an account controlled by code and its owners. A **binding** links a verified wallet to a Center API account. A **session** permits a bot to repeat specific wallet actions within owner-approved limits and an expiry. Linking a wallet grants no permission to spend. See the [glossary](https://juicebox.center/api#glossary).
+Start with **Sign in** and **API access** on [Accounts](/accounts). Add a
+transaction wallet when you want to:
 
-Center prepares exact session policies and owner-approved activation or revocation plans, then independently checks the installed policy. Sessions require verified deployed contracts, a configured submission service (**bundler**) and gas sponsor (**paymaster**), and verified owner-approved activation onchain. Direct transactions and Relayr retain their own approval rules. Center never silently replaces a linked wallet with its owner's directly controlled account (**EOA**).
+- Keep funds for transactions in a separate account that you choose how much to fund.
+- Use sponsored transaction fees on supported chains when sponsorship is available.
+- Share approvals with other owners, requiring a chosen number of their signatures.
+- Give a bot narrowly limited wallet permissions, only when the required contracts
+  are deployed, supported and verified, and you approve activation onchain.
+
+Center supports verified **Safe7579** wallets with the configured contract and
+module setup. It cannot link an arbitrary Safe. A supported Safe can have one
+owner and require one signature; a **multisig** has multiple owners and a chosen
+approval threshold. Shared approval is optional. Creating or funding a wallet
+requires its own reviewed transaction; sponsored execution does not imply free
+wallet creation or funding.
+
+Read [capabilities](/api/v1/capabilities) before setup. `userOperations` reports
+current sponsored-execution availability; `sessions` reports whether recurring
+bot permissions can be activated. An API grant alone authorizes no spending.
+
+A **smart wallet** is an account controlled by code and its owners. A **binding**
+links a verified wallet to a Center API account. A **session** permits a bot to
+repeat specific wallet actions within owner-approved limits and an expiry.
+Linking a wallet grants no permission to spend. See the
+[glossary](https://juicebox.center/api#glossary).
+
+## Set up and use several networks
+
+On [Accounts](/accounts), select the networks where your wallet should be
+available. Center prepares the same owners, approval threshold and wallet address
+across compatible networks. Review the combined setup, then approve each network's
+creation. The page keeps each network's transaction hash and confirmation status
+separate. A submitted transaction is not yet a connected wallet: Center checks
+the deployed code and ownership before you approve its connection.
+
+Your Center API account and registered bots stay the same when execution switches
+networks. Previously connected wallets are listed by address and network. Choose
+one to prepare an action, then add its reviewed operation to the transaction list.
+You can review and send operations for several networks together and follow each
+result independently. An unknown submission must be checked using its saved
+operation ID before attempting a replacement.
+
+Matching addresses have separate balances, transaction histories and permissions
+on each network. Setup fees are paid on each network. A transaction that confirms
+on one network is not undone by a failure on another, and this workflow does not
+bridge funds between networks.
+
+For unattended spending, activate a bot permission on each wallet you want it to
+use. Specify the allowed action and recipient, per-payment and total limits, call
+count and expiry. Once activation confirms, the bot signs payments within those
+limits using its own key, without further owner prompts. API relay access alone
+does not activate that permission. See the [worker example](./CLIENT.md#run-payments-without-another-owner-prompt)
+and [session lifecycle](./SESSIONS.md).
+
+Center prepares exact session policies and owner-approved activation or
+revocation plans, then independently checks the installed policy. Sessions
+require verified deployed contracts, a configured submission service
+(**bundler**) and gas sponsor (**paymaster**), and verified owner-approved
+activation onchain. Direct and prepaid transactions retain their own approval
+rules. Center never silently replaces a linked wallet with its owner's directly
+controlled account (**EOA**).
 
 `createSmartAccountService`, `createSessionPolicyReviewer`, `createLegacySessionCompiler`, and `createInstalledSessionVerifier` are exported from `src/rest/smartAccounts/index.ts`. Runtime configuration owns deployment manifests, module inspectors, reviewed targets/assets and paymasters. HTTP callers cannot supply those trust inputs. Missing configuration fails explicitly; source artifacts do not constitute a live deployment.
 
@@ -36,7 +94,7 @@ The session review input contains `bindingId`, `grantId`, positive decimal-strin
 
 ## Policy and budget constraints
 
-Every review binds the API account, wallet, bot grant/key, execution chain, generation, nonce, validity window, distinct salt, full policy hash and deployment revision. It forces restricted actions, disables arbitrary signing and excludes wildcard, Orchestrator, claim and crosschain-permit fallback. Empty/general transaction permissions are not an accepted policy. These choices are required because the SDK's permissive defaults otherwise allow substantially broader execution. [Rhinestone session overview](https://docs.rhinestone.dev/smart-wallet/smart-sessions/overview).
+Every review binds the API account, wallet, bot grant/key, execution chain, generation, nonce, validity window, distinct salt, full policy hash and deployment revision. It forces restricted actions, disables arbitrary signing and excludes wildcard, Orchestrator, claim and crosschain-permit fallback. Empty/general transaction permissions are not an accepted policy. These choices are required because the SDK's permissive defaults otherwise allow substantially broader execution. [Session contract overview](https://docs.rhinestone.dev/smart-wallet/smart-sessions/overview).
 
 Allocation groups state an explicit total and concrete `(allocationId,chainId,asset,limit)` entries. Amounts are exact base-unit decimal strings. Every entry must match server-reviewed asset identity and decimals on its chain; a group mixing identities or decimals fails. These values cannot come from caller symbols or decimal claims. Entries then sum within the owner-approved total; duplicate asset/chain allocations fail. An action uses the bound wallet's chain, and independent action caps sharing an allocation must also sum within that allocation. The service does not infer crosschain asset equivalence, reuse pending revoked allocations, or reset previously consumed limits.
 
@@ -76,7 +134,7 @@ The lifecycle service additionally binds the inspector's complete session-admini
 
 Deploy the exact reviewed guard artifact matching the selected paymaster, configure and verify its address, and configure the hosted bundler/paymaster URL, credentials, provider billing and sponsorship policy for each selected chain. Both guard artifacts are undeployed in the repository. Preserve the matching gas-only paymaster runtime/profile; another contract or charging mode is not equivalent. The operator RPC must support canonical reads and the required complete account-history traces. A wallet owner then reviews and signs the exact creation/binding/activation steps. Canonical installed-state verification is required before delegation, and financial actions outside the approved budget retain fresh owner approval. Selecting a different provider profile does not migrate existing onchain sessions.
 
-`readRestExecutionConfiguration` reads the optional server-only `REST_ERC4337_CONFIG` JSON. Its shape is `{chains:[{chainId,bundlerUrl,paymasterUrl,paymasterPolicyId,paymasterProfile?,simulationBundlerAddress?,sessionGuardAddress?,sessionGuardVersion?,confirmations?,gas}]}`. URLs must be fixed HTTPS endpoints without userinfo or fragments; query-string API keys remain private server configuration. `paymasterPolicyId` is passed to Pimlico as `context.sponsorshipPolicyId`. The profile and guard version default to the legacy pair. Current sessions require explicit `paymasterProfile:"pimlico-v7-current-flags"`, `sessionGuardVersion:"current-v2"` and the verified guard address; a version without an address or a mismatched profile fails startup. Each `gas` object must explicitly supply decimal-string `maximumCallGas`, `maximumVerificationGas`, `maximumPreVerificationGas`, `maximumPaymasterVerificationGas`, `maximumPaymasterPostOpGas`, `maximumFeePerGas`, `maximumPriorityFeePerGas`, and `maximumCost`. These admission ceilings for individual operations are separate from provider policy caps and owner-approved onchain budgets. Hosted operations require sponsorship; confirmations default to one and may be configured from one through 1024. Unknown fields, unsupported/duplicate chains, missing ceilings, malformed integers and invalid URLs fail startup without echoing credentials. See [execution operations](EXECUTION_OPERATIONS.md) for the four-chain example, provider billing, policy caps and versioned deployment verification.
+`readRestExecutionConfiguration` reads the optional server-only `REST_ERC4337_CONFIG` JSON. Its shape is `{chains:[{chainId,bundlerUrl,paymasterUrl,paymasterPolicyId,paymasterProfile?,simulationBundlerAddress?,sessionGuardAddress?,sessionGuardVersion?,confirmations?,gas}]}`. URLs must be fixed HTTPS endpoints without userinfo or fragments; query-string API keys remain private server configuration. `paymasterPolicyId` is passed to the configured sponsor as `context.sponsorshipPolicyId`. The profile and guard version default to the legacy pair. Current sessions require explicit `paymasterProfile:"pimlico-v7-current-flags"`, `sessionGuardVersion:"current-v2"` and the verified guard address; a version without an address or a mismatched profile fails startup. Each `gas` object must explicitly supply decimal-string `maximumCallGas`, `maximumVerificationGas`, `maximumPreVerificationGas`, `maximumPaymasterVerificationGas`, `maximumPaymasterPostOpGas`, `maximumFeePerGas`, `maximumPriorityFeePerGas`, and `maximumCost`. These admission ceilings for individual operations are separate from provider policy caps and owner-approved onchain budgets. Hosted operations require sponsorship; confirmations default to one and may be configured from one through 1024. Unknown fields, unsupported/duplicate chains, missing ceilings, malformed integers and invalid URLs fail startup without echoing credentials. See [execution operations](EXECUTION_OPERATIONS.md) for the four-chain example, provider billing, policy caps and versioned deployment verification.
 
 `simulationBundlerAddress` is an optional nonzero address accepted only for the current paymaster profile, and becomes required for exact signed preflight when final sponsor flags are `0x00`. At the same canonical block, the service rechecks the pinned paymaster runtime, empty code at that EOA and its paymaster allowlist membership, authenticates the exact sponsor signature through `getHash(0, ...)`, EIP-191 recovery and `signers`, then simulates unchanged `handleOps` from that origin without state overrides. This address is server configuration used only for simulation; its allowance does not establish that the hosted bundler currently uses it. Current unsigned preparation estimates each final sponsor quote and permits at most three quotes to fit gas within operator and session ceilings, with a 5% margin only on underestimated fields. Once accepted, the quoted operation stays unchanged for wallet signing and exact preflight.
 

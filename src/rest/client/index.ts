@@ -16,6 +16,8 @@ export type TypedDocument = ReturnType<typeof buildRequestTypedData> | ReturnTyp
 export * from "./smartAccounts.js";
 export type RestSigner = {
   address: Address;
+  /** Required only for locally signing operations under an activated bot wallet permission. */
+  signMessage?(input: { message: { raw: Hex } }): Promise<Hex>;
   signTypedData: {
     (document: ReturnType<typeof buildRequestTypedData>): Promise<Hex>;
     (document: ReturnType<typeof buildBotProofTypedData>): Promise<Hex>;
@@ -182,7 +184,21 @@ export class SignedRestClient {
     const bytes = documentBytes(options);
     if (retries && !["GET", "HEAD"].includes(bytes.method) && !options.idempotencyKey) return invalid("Mutation retries require an idempotency key");
     for (let attempt = 0; ; attempt++) {
-      const prepared = await signBytes(this.config, options, bytes);
+      let prepared: PreparedRequest;
+      try { prepared = await signBytes(this.config, options, bytes); }
+      catch (error) {
+        // A later retry may follow an unknown send. Only the first signing failure proves no dispatch.
+        const failure = error instanceof RestClientError
+          ? new RestClientError(error.code, error.message, error.status)
+          : new Error(error instanceof Error ? error.message : "The API request could not be signed.");
+        if (error && typeof error === "object") {
+          if ("name" in error && typeof error.name === "string") failure.name = error.name;
+          if ("code" in error && ["number", "string"].includes(typeof error.code))
+            Object.defineProperty(failure, "code", { value: error.code, enumerable: true });
+        }
+        Object.defineProperty(failure, "requestNotSent", { value: attempt === 0, enumerable: true });
+        throw failure;
+      }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
@@ -245,3 +261,6 @@ export function parseBotRegistration(value: unknown): BotRegistration {
     registration: { botAddress: getAddress(r.botAddress), scopes: [...r.scopes], expiresAt: Number(r.expiresAt), label: r.label, proofSignature: r.proofSignature as Hex },
   };
 }
+
+export { CenterClient, type Plan, type ActionSigner, type TransactionSubmission, type PrepaidPreparation, type PrepaidSubmission } from "./center.js";
+export { parseConnection, connectionForBot, type BotConnection } from "./connection.js";

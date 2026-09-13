@@ -5,6 +5,7 @@ import Busboy from "busboy";
 import { Readable, Transform } from "node:stream";
 import { isHex, size, verifyMessage, type Hex } from "viem";
 import { authenticate } from "./auth.js";
+import { FAVICON_SVG } from "./branding.js";
 import {
   DeploymentVerificationError,
   type DeploymentVerifier,
@@ -366,6 +367,11 @@ export function createApp(
   if (options.rest) mountRestSite(app, options.rest);
 
   app.get("/", (c) => c.html(HOMEPAGE_HTML, 200, HOMEPAGE_HEADERS));
+  app.get("/favicon.svg", (c) => c.body(FAVICON_SVG, 200, {
+    "Content-Type": "image/svg+xml; charset=utf-8",
+    "Cache-Control": "public, max-age=300",
+    "X-Content-Type-Options": "nosniff",
+  }));
   app.get("/llms.txt", (c) => c.text(llmsIndex(options.rest?.audience), 200, {
     "Cache-Control": "public, max-age=300",
     "X-Content-Type-Options": "nosniff",

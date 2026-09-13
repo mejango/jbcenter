@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { BRAND_CSS, BRAND_ICON, FAVICON_LINK } from "./branding.js";
 import { HOMEPAGE_JS } from "./directoryClient.js";
 import {
   journeyNodes,
@@ -17,7 +18,7 @@ export const HOMEPAGE_JS_PATH = "/directory.js";
 export const HOMEPAGE_HEADERS = {
   "Cache-Control": "public, max-age=300",
   "Content-Security-Policy":
-    "default-src 'none'; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+    "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "X-Content-Type-Options": "nosniff",
 };
@@ -257,6 +258,7 @@ function renderJourney(view: JourneyView): string {
 }
 
 export const HOMEPAGE_CSS = `
+${BRAND_CSS}
 :root {
   color-scheme: light;
   --paper: #f5f4ef;
@@ -416,6 +418,7 @@ export const HOMEPAGE_HTML = `<!doctype html>
   <script defer src="${HOMEPAGE_JS_PATH}?v=${createHash("sha256").update(HOMEPAGE_JS).digest("hex").slice(0, 12)}"></script>
   <meta name="theme-color" content="#f5f4ef">
   <title>Juicebox Center</title>
+  ${FAVICON_LINK}
   <link rel="canonical" href="https://juicebox.center/">
   <link rel="stylesheet" href="${HOMEPAGE_CSS_PATH}?v=${createHash("sha256").update(HOMEPAGE_CSS).digest("hex").slice(0, 12)}">
 </head>
@@ -423,7 +426,7 @@ export const HOMEPAGE_HTML = `<!doctype html>
   <a class="skip-link" href="#main">Skip to directory</a>
   <div class="page">
     <header>
-      <a class="wordmark" href="/">juicebox.center</a>
+      <a class="wordmark" href="/">${BRAND_ICON} juicebox.center</a>
       <span class="edition">V6</span>
     </header>
     <main id="main">

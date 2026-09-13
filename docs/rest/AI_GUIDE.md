@@ -24,7 +24,7 @@ Start with the public [OpenAPI document](/api/v1/openapi.json) and
 [capabilities](/api/v1/capabilities). Capabilities report the authentication
 audience (the service URL to sign for), supported chains, limits, submission
 methods, confirmation requirements, and sponsorship on each chain. Supported
-methods include wallet-signed transactions, prepaid Relayr publication, and
+methods include wallet-signed transactions, prepaid publication, and
 reviewed smart-wallet requests through EntryPoint v0.7.
 Check `userOperations.providers`, preparation/relay flags, and
 `sessions.activationReady` for actual runtime availability. A reviewed account
@@ -189,12 +189,13 @@ return `complete:false` with `stoppedAt` and `remainingStepIndices` at HTTP 202.
 Neither a bundle nor an omnichain journey is atomic. Resume only the remaining
 authorized work after checking existing hashes and dependencies.
 
-## Relayr publication and funding
+## prepaid publication and funding
 
-Use this path only when current sponsorship capabilities enable
-`relayr-prepaid-erc2771` for the required chains. Prepare with `POST
+Use this path only when current `sponsorship` capabilities report configured
+prepaid execution for the required chains. Prepare with `POST
 /sponsorships` and `{planId,stepIndexes?}` using the source plan's principal.
-Select at most four independently executable steps and one call per chain.
+Select ready steps within Center’s 32-step plan capacity. Multiple calls on
+one chain execute in plan order. Complete prerequisites before preparing.
 Review each returned domain, message, source evidence, implementation identity,
 gas, native value and deadline before asking the owner to sign `ForwardRequest`.
 The default forwarding validity can be much longer than the source plan's

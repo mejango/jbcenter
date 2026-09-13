@@ -36,7 +36,7 @@ export class RelayrProvider {
         method: "POST",
         body: JSON.stringify({
           transactions: entries,
-          virtual_nonce_mode: "ChainIndependent",
+          virtual_nonce_mode: "Multichain",
         }),
       },
       signal,
@@ -65,7 +65,7 @@ export class RelayrProvider {
           new RestError(
             504,
             "RELAYR_TIMEOUT",
-            "Relayr did not answer before the deadline. A submitted bundle may exist.",
+            "The execution service did not answer before the deadline. A submitted bundle may exist.",
           ),
         );
         controller.abort();
@@ -102,7 +102,7 @@ export class RelayrProvider {
       if (!response.ok)
         fail(
           "RELAYR_UNAVAILABLE",
-          "Relayr rejected or could not answer the request. Provider response details are not exposed.",
+          "The execution service rejected or could not answer the request. Provider response details are not exposed.",
           502,
         );
       const length = response.headers.get("content-length");
@@ -113,13 +113,13 @@ export class RelayrProvider {
       )
         fail(
           "RELAYR_RESPONSE_LIMIT",
-          "Relayr response exceeds the byte limit.",
+          "The execution service response exceeds the byte limit.",
           502,
         );
       if (!response.body)
         fail(
           "RELAYR_INVALID_RESPONSE",
-          "Relayr returned no JSON response body.",
+          "The execution service returned no JSON response body.",
           502,
         );
       reader = response.body.getReader();
@@ -132,7 +132,7 @@ export class RelayrProvider {
         if (bytes > RELAYR_LIMITS.maximumBytes)
           fail(
             "RELAYR_RESPONSE_LIMIT",
-            "Relayr response exceeds the byte limit.",
+            "The execution service response exceeds the byte limit.",
             502,
           );
         chunks.push(chunk.value);
@@ -146,7 +146,7 @@ export class RelayrProvider {
       } catch {
         return fail(
           "RELAYR_INVALID_RESPONSE",
-          "Relayr returned invalid JSON.",
+          "The execution service returned invalid JSON.",
           502,
         );
       }
@@ -157,7 +157,7 @@ export class RelayrProvider {
       if (error instanceof RestError) throw error;
       return fail(
         "RELAYR_UNAVAILABLE",
-        "Relayr could not be reached. A submitted bundle may exist.",
+        "The execution service could not be reached. A submitted bundle may exist.",
         502,
       );
     } finally {
@@ -187,7 +187,7 @@ function deadlineSeconds(value: unknown): bigint {
   }
   return fail(
     "RELAYR_INVALID_QUOTE",
-    "Relayr returned an invalid payment deadline.",
+    "The execution service returned an invalid payment deadline.",
     502,
   );
 }
@@ -216,7 +216,7 @@ function parsePaymentBinding(
   )
     fail(
       "RELAYR_INVALID_QUOTE",
-      "Relayr returned an unsupported payment chain, contract or token.",
+      "The execution service returned an unsupported payment chain, contract or token.",
       502,
     );
   let amount: bigint;
@@ -225,7 +225,7 @@ function parsePaymentBinding(
   } catch {
     return fail(
       "RELAYR_INVALID_QUOTE",
-      "Relayr returned an invalid funding amount.",
+      "The execution service returned an invalid funding amount.",
       502,
     );
   }
@@ -286,7 +286,7 @@ export function parseQuoteBinding(
   )
     fail(
       "RELAYR_INVALID_QUOTE",
-      "Relayr did not return a bounded prepaid bundle.",
+      "The execution service did not return a bounded prepaid bundle.",
       502,
     );
   const ids = value.tx_uuids ?? value.txn_uuids;
@@ -297,7 +297,7 @@ export function parseQuoteBinding(
   )
     fail(
       "RELAYR_INVALID_QUOTE",
-      "Relayr returned conflicting transaction identifiers.",
+      "The execution service returned conflicting transaction identifiers.",
       502,
     );
   if (
@@ -308,7 +308,7 @@ export function parseQuoteBinding(
   )
     fail(
       "RELAYR_INVALID_QUOTE",
-      "Relayr must bind each exact transaction to a unique identifier.",
+      "The execution service must bind each exact transaction to a unique identifier.",
       502,
     );
   const payments = value.payment_info.map((payment) =>
@@ -319,7 +319,7 @@ export function parseQuoteBinding(
   )
     fail(
       "RELAYR_INVALID_QUOTE",
-      "Relayr returned duplicate payment chains.",
+      "The execution service returned duplicate payment chains.",
       502,
     );
   const quote = {
@@ -359,7 +359,7 @@ export function parseStatus(
   )
     fail(
       "RELAYR_INVALID_STATUS",
-      "Relayr status does not match the stored bundle.",
+      "The execution service status does not match the stored bundle.",
       502,
     );
   const observed = new Set<string>();
@@ -373,7 +373,7 @@ export function parseStatus(
     )
       fail(
         "RELAYR_INVALID_STATUS",
-        "Relayr returned malformed or duplicate transaction records.",
+        "The execution service returned malformed or duplicate transaction records.",
         502,
       );
     observed.add(item.tx_uuid);
@@ -409,14 +409,14 @@ export function parseStatus(
     )
       fail(
         "RELAYR_INVALID_STATUS",
-        "Relayr returned conflicting destination hashes.",
+        "The execution service returned conflicting destination hashes.",
         502,
       );
     const txHash = details.hash ?? nested;
     if (txHash !== undefined && !hash(txHash))
       fail(
         "RELAYR_INVALID_STATUS",
-        "Relayr returned an invalid destination hash.",
+        "The execution service returned an invalid destination hash.",
         502,
       );
     return {

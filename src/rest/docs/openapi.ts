@@ -93,7 +93,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
     "RateLimit-Limit": { schema: uint(), description: "Account request quota where applied." },
     "RateLimit-Remaining": { schema: uint(), description: "Remaining account quota where applied." },
   };
-  const problemResponse = { description: "RFC 9457 problem details. Branch on code and retryable; preserve requestId. Never parse the human detail string for control flow.",
+  const problemResponse = { description: "RFC 9457 problem details. Branch on code and retryable; preserve `requestId`. Never parse the human detail string for control flow.",
     headers: responseHeaders, content: { "application/problem+json": { schema: ref("Problem") } } };
   const document: OpenApiDocument = {
     openapi: "3.1.2", jsonSchemaDialect: "https://json-schema.org/draft/2020-12/schema",
@@ -109,7 +109,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
       { name: "Projects", description: "Project and omnichain views with explicit source selection." },
       { name: "Operations", description: "Semantic reads and preparations generated from the shared operation descriptors." },
       { name: "Transactions", description: "Durable reviewed plans, simulation, exact signed transaction relay and reconciliation." },
-      { name: "Sponsorship", description: "Prepaid Relayr waves, explicit owner forwarding consent, reviewed funding plans and exact destination execution evidence." },
+      { name: "Sponsorship", description: "Prepaid transaction bundles, explicit owner forwarding consent, reviewed funding plans and exact destination execution evidence." },
       { name: "Wallets", description: "Reviewed Safe creation calldata, owner-threshold binding and smart-account transaction plans. Availability depends on current verified manifests." },
       { name: "Sessions", description: "Immutable seven- or thirty-day policies, owner activation/revocation plans and canonical onchain quota observations." },
       { name: "UserOperations", description: "Reviewed EntryPoint v0.7 preparation, external owner or session-key signatures, one-time provider publication and reconciliation." },
@@ -233,7 +233,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
   add("/indexer/status", "GET", "getIndexerStatus", "Inspect indexer progress for a network", "Indexer", "read", { parameters: [network], result: ref("IndexerStatus") });
   add("/indexer/{entity}", "GET", "listIndexerEntity", "List a supported versioned indexer entity", "Indexer", "read", {
     parameters: [pathParameter("entity", { ...text, enum: catalog.entities.filter((item) => item.supported).map((item) => item.name) }), ...listParameters], result: ref("IndexerPage"),
-    description: "Use nextCursor until null. Keep network, scope, fields, filters and order unchanged between pages. Pages are not a block-hash snapshot; concurrent indexing can change results. V6 is enforced server-side.",
+    description: "Use `nextCursor` until null. Keep network, scope, fields, filters and order unchanged between pages. Pages are not a block-hash snapshot; concurrent indexing can change results. V6 is enforced server-side.",
   });
   add("/indexer/{entity}/record", "GET", "readIndexerEntity", "Read one exact indexer record", "Indexer", "read", {
     parameters: [pathParameter("entity", { ...text, enum: [...catalog.entities.filter((item) => item.supported).map((item) => item.name), "_meta"] }), ...indexerScope,
@@ -303,35 +303,35 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
   });
   add("/plans/{id}/steps/{step}/submissions", "POST", "submitSignedTransactionStep", "Relay the exact wallet-signed transaction for one plan step", "Transactions", "relay", {
     parameters: stepParameters, body: ref("SignedTransactionSubmission"), result: ref("SubmissionResult"), status: 202, idempotent: true,
-    description: "Requires a separate valid transaction signature from the plan wallet and fresh owner consent for each new dispatch. Bots include ownerApproval. Destination, calldata, native value, chain, sender and nonce are checked against the immutable call. A step permanently binds one transaction hash. Reconcile unknown broadcast results before retrying identical bytes.",
+    description: "Requires a separate valid transaction signature from the plan wallet and fresh owner consent for each new dispatch. Bots include `ownerApproval`. Destination, calldata, native value, chain, sender and nonce are checked against the immutable call. A step permanently binds one transaction hash. Reconcile unknown broadcast results before retrying identical bytes.",
     extra: ownerApproval("TransactionApproval"),
   });
   add("/plans/{id}/submissions", "POST", "submitSignedTransactionBundle", "Process an explicit ordered set of signed plan steps", "Transactions", "relay", {
     parameters: [pathParameter("id", { type: "string", format: "uuid" })], body: ref("BundleSubmission"), result: ref("BundleResult"), status: 202, idempotent: true,
-    description: "Stops at the first blocked step and returns partial progress. Each bot-dispatched entry needs its own fresh ownerApproval. complete means all supplied submissions were processed, not confirmed. Resume remaining ready steps later. Multi-call and multi-chain journeys are not atomic.",
+    description: "Stops at the first blocked step and returns partial progress. Each bot-dispatched entry needs its own fresh `ownerApproval`. complete means all supplied submissions were processed, not confirmed. Resume remaining ready steps later. Multi-call and multi-chain journeys are not atomic.",
     extra: ownerApproval("TransactionApproval"),
   });
 
-  add("/sponsorships", "POST", "createRelayrPreparation", "Prepare exact owner forwarding authorizations from a stored plan", "Sponsorship", "plan", {
+  add("/sponsorships", "POST", "createSponsorshipPreparation", "Prepare exact owner forwarding authorizations from a stored plan", "Sponsorship", "plan", {
     body: ref("CreateSponsorship"), result: ref("Sponsorship"), status: 201, idempotent: true,
-    description: "Requires configured prepaid Relayr support and the source plan's creating principal. Choose at most four independently executable calls, one per configured mainnet chain. The owner reviews each exact ForwardRequest and its deadline; source-plan expiry only limits publication.",
+    description: "Requires configured prepaid execution and the source plan's creating principal. Choose ready calls from the source plan. Multiple calls per chain are supported in plan order, within Center’s 32-step plan capacity. The owner reviews each exact ForwardRequest and its deadline; source-plan expiry only limits publication.",
   });
-  add("/sponsorships/{id}", "GET", "getRelayrPreparation", "Read or reconcile a prepaid execution wave", "Sponsorship", "read", {
+  add("/sponsorships/{id}", "GET", "getSponsorshipPreparation", "Read or reconcile a prepaid execution wave", "Sponsorship", "read", {
     parameters: [pathParameter("id", ref("ResourceId")), queryParameter("refresh", { type: "boolean", default: false })], result: ref("Sponsorship"),
     description: "refresh=true verifies destination execution using canonical chain evidence; provider status is only a hint. A funding quote does not establish whether the bundle has been paid. Reconcile the source plan independently for its full dependency state.",
   });
-  add("/sponsorships/{id}/submissions", "POST", "publishRelayrAuthorizations", "Publish exact owner-signed forward requests once", "Sponsorship", "relay", {
+  add("/sponsorships/{id}/submissions", "POST", "publishSponsorshipAuthorizations", "Publish exact owner-signed forward requests once", "Sponsorship", "relay", {
     parameters: [pathParameter("id", ref("ResourceId"))], body: ref("SubmitSponsorship"), result: ref("Sponsorship"), status: 202, idempotent: true,
     description: "Supply signatures in authorization order. Bot publication additionally requires fresh CenterSponsorshipApproval bound to the exact submission hash. The adapter never repeats an uncertain provider POST; submission_unknown is not permission to publish again. Long forwarding validity does not create a reusable session.",
     extra: ownerApproval("SponsorshipApproval"),
   });
-  add("/sponsorships/{id}/funding-plans", "POST", "createRelayrFundingPlan", "Persist a reviewed plan for one authenticated native funding quote", "Sponsorship", "plan", {
+  add("/sponsorships/{id}/funding-plans", "POST", "createSponsorshipFundingPlan", "Persist a reviewed plan for one authenticated native funding quote", "Sponsorship", "plan", {
     parameters: [pathParameter("id", ref("ResourceId"))], body: ref("CreateSponsorshipFundingPlan"), result: ref("Plan"), status: 201, idempotent: true,
     description: "Payer must equal the API owner's wallet. Returns an unsigned durable plan for separate review, signature and submission. Center never signs or funds. Check existing funding before paying; funding confirmation does not prove destination execution, economic completion or bridge settlement.",
   });
 
   add("/smart-accounts/capabilities", "GET", "getSmartAccountCapabilities", "Discover reviewed wallet manifests and remaining execution requirements", "Wallets", "public", {
-    result: ref("SmartAccountCapabilities"), description: "Runtime manifests and inspectors are operator-owned. Check top-level capabilities.userOperations for current provider availability and capabilities.sessions for activation readiness. Implemented routes or historical research do not prove deployed guard or account execution support; an empty deployment list supplies no usable manifest.",
+    result: ref("SmartAccountCapabilities"), description: "Runtime manifests and inspectors are operator-owned. Check top-level `capabilities.userOperations` for current provider availability and `capabilities.sessions` for activation readiness. Implemented routes or historical research do not prove deployed guard or account execution support; an empty deployment list supplies no usable manifest.",
   });
   add("/smart-accounts/binding-challenges", "POST", "createSmartBindingChallenge", "Inspect an existing reviewed Safe and prepare owner-threshold binding data", "Wallets", "owner", {
     body: ref("SmartBindingChallengeInput"), result: ref("SmartBindingChallenge"),
@@ -342,7 +342,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
     description: "Rechecks current owner/module state and verifies exactly the required threshold of packed EOA owner signatures in ascending address order. The API owner must be one current owner. Binding nonces cannot restore an unlinked or superseded authorization.",
   });
   add("/smart-accounts/bindings", "GET", "listSmartAccountBindings", "List stored wallet association snapshots for this API account", "Wallets", "read", {
-    result: ref("SmartBindingList"), description: "Stored snapshots are not fresh chain verification. Read an individual binding to recheck its current state. executionVerified remains false.",
+    result: ref("SmartBindingList"), description: "Stored snapshots are not fresh chain verification. Read an individual binding to recheck its current state. `executionVerified` remains false.",
   });
   add("/smart-accounts/bindings/{id}", "GET", "getSmartAccountBinding", "Recheck a wallet binding against current canonical state", "Wallets", "read", {
     parameters: [pathParameter("id", ref("Hash"))], result: ref("SmartAccountBinding"),
@@ -372,7 +372,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
   });
   add("/smart-accounts/sessions", "GET", "listSmartAccountSessions", "List immutable sessions visible to the owner or exact bound bot", "Sessions", "read", {
     parameters: [queryParameter("limit", { type: "integer", minimum: 1, maximum: 100, default: 25 }), queryParameter("cursor", ref("ResourceId"))],
-    result: ref("SessionPage"), description: "Ordered by session UUID. Follow optional nextCursor unchanged. The owner can inspect account sessions; a bot sees only the session's exact grant. Listing does not refresh chain evidence.",
+    result: ref("SessionPage"), description: "Ordered by session UUID. Follow optional `nextCursor` unchanged. The owner can inspect account sessions; a bot sees only the session's exact grant. Listing does not refresh chain evidence.",
   });
   add("/smart-accounts/sessions/{id}", "GET", "getSmartAccountSession", "Read or refresh exact installed-policy and counter evidence", "Sessions", "read", {
     parameters: [pathParameter("id", ref("ResourceId")), queryParameter("refresh", { type: "boolean", default: true })], result: ref("StoredSession"),
@@ -385,7 +385,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
   for (const kind of ["activation", "revocation"] as const) add(`/smart-accounts/sessions/{id}/${kind}-plans`, "POST",
     kind === "activation" ? "createSessionActivationPlan" : "createSessionRevocationPlan", `Prepare the owner's exact session ${kind} plan`, "Sessions", "owner", {
       parameters: [pathParameter("id", ref("ResourceId"))], body: ref("SessionPlanInput"), result: ref("SessionPlanResult"), status: 201, idempotent: true, extra: sessionAvailability,
-      description: "Only the API owner can request this plan, acknowledging the exact compiledHash. Separately prepare a UserOperation from the returned plan, obtain the current Safe-owner threshold signatures, submit and refresh the session. Only the currently admitted lifecycle plan may execute. An expired plan with no admitted transport or attempt can be replaced with fresh owner consent and a new idempotency key, preserving up to 32 superseded approvals. Replacement cannot reinitialize an observed active generation. Only one generation per physical wallet may remain admitted, across keys, grants, assets and time windows. Release requires finalized disabled state with an advanced enable nonce; API revocation, unlinking or expiry alone cannot release it.",
+      description: "Only the API owner can request this plan, acknowledging the exact `compiledHash`. Separately prepare a UserOperation from the returned plan, obtain the current Safe-owner threshold signatures, submit and refresh the session. Only the currently admitted lifecycle plan may execute. An expired plan with no admitted transport or attempt can be replaced with fresh owner consent and a new idempotency key, preserving up to 32 superseded approvals. Replacement cannot reinitialize an observed active generation. Only one generation per physical wallet may remain admitted, across keys, grants, assets and time windows. Release requires finalized disabled state with an advanced enable nonce; API revocation, unlinking or expiry alone cannot release it.",
     });
   add("/user-operations", "POST", "prepareUserOperation", "Prepare exact EntryPoint v0.7 bytes and the appropriate signing payload", "UserOperations", "plan", {
     body: ref("PrepareUserOperation"), result: ref("UserOperation"), status: 201, idempotent: true,
@@ -470,7 +470,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
     ])),
       Object.keys(entity.singleArgs).filter((key) => !["version", "chainId", "projectId"].includes(key)));
     const supportsShorthand = Object.keys(entity.singleArgs).filter((key) => !["version", "chainId", "projectId"].includes(key)).length <= 1;
-    const keyDescription = "version is fixed to numeric 6. Supply every remaining primary key in this closed object or via the chainId/projectId query scope. A scalar string is accepted only when exactly one key remains after scope and version injection; it supplies that remaining key regardless of its name. Scope and key identities must agree; chainId must belong to the selected network.";
+    const keyDescription = "version is fixed to numeric 6. Supply every remaining primary key in this closed object or via the `chainId`/`projectId` query scope. A scalar string is accepted only when exactly one key remains after scope and version injection; it supplies that remaining key regardless of its name. Scope and key identities must agree; `chainId` must belong to the selected network.";
     schemas[`IndexerKey_${entity.name}`] = { ...(supportsShorthand ? { anyOf: [text, exactIds] } : exactIds), description: keyDescription };
     schemas[`IndexerPage_${entity.name}`] = object({ ...((schemas.IndexerPage!.properties as Record<string, Schema>)), entity: { type: "string", const: entity.name }, items: array(ref(`IndexerRow_${entity.name}`), { maxItems: 50 }) });
     schemas[`IndexerRecord_${entity.name}`] = object({ ...((schemas.IndexerRecord!.properties as Record<string, Schema>)), entity: { type: "string", const: entity.name }, item: nullable(ref(`IndexerRow_${entity.name}`)) });

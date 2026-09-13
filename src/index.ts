@@ -46,7 +46,10 @@ const pinning = filebaseRpcToken && pinataJwt
   : undefined;
 const mcp = createCenterMcp(store, { rpc, rpcSiteLimitPerMinute, ...(pinning ? { pinning } : {}) });
 const metrics = new Metrics();
+const paraEnvironment = process.env.PARA_ENVIRONMENT ?? "BETA";
+if (paraEnvironment !== "BETA" && paraEnvironment !== "PROD") throw new Error("PARA_ENVIRONMENT must be BETA or PROD");
 const rest = await createRestRuntime({
+  ...(process.env.PARA_API_KEY ? { para: { apiKey: process.env.PARA_API_KEY, environment: paraEnvironment } } : {}),
   pool, store, services: mcp.services, config: mcp.config, upstreams: rpcUpstreams, rpcSiteLimitPerMinute, metrics,
   ...(process.env.REST_PUBLIC_ORIGIN ? { audience: process.env.REST_PUBLIC_ORIGIN } : {}),
   executionConfiguration: await readRestExecutionConfiguration(process.env),

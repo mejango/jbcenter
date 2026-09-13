@@ -91,6 +91,42 @@ describe("signed REST client request binding", () => {
     await expect(client.request({ requestTarget: "/api/v1/accounts/me" })).rejects.toMatchObject({ code: "TIMEOUT", message: "The request timed out; its outcome may be unknown" });
   });
 
+  it("identifies an initial API signing failure as unsent while preserving wallet cancellation details", async () => {
+    let sends = 0;
+    const rejection = Object.freeze(Object.assign(new Error("Wallet disconnected."), { name: "CenterWalletError", code: 4900 }));
+    const client = new SignedRestClient({ ...config,
+      signer: { address: owner.address, signTypedData: async () => { throw rejection; } },
+      fetch: async () => { sends++; return Response.json({}); },
+    });
+    await expect(client.request({ method: "POST", requestTarget: "/api/v1/user-operations/test/submissions", json: {}, idempotencyKey: "same-send" }))
+      .rejects.toMatchObject({ name: "CenterWalletError", code: 4900, message: "Wallet disconnected.", requestNotSent: true });
+    expect(sends).toBe(0);
+    expect(rejection).not.toHaveProperty("requestNotSent");
+  });
+
+  it("keeps an earlier uncertain send when the next retry's signature fails", async () => {
+    let signatures = 0, sends = 0;
+    const client = new SignedRestClient({ ...config,
+      signer: { address: owner.address, signTypedData: async document => {
+        if (++signatures > 1) throw Object.assign(new Error("Canceled"), { code: 4001, requestNotSent: true });
+        return document.primaryType === "CenterRequest" ? owner.signTypedData(document) : owner.signTypedData(document);
+      } },
+      fetch: async () => { sends++; throw new Error("Lost response"); },
+    });
+    await expect(client.request({ method: "POST", requestTarget: "/api/v1/user-operations/test/submissions", json: {}, idempotencyKey: "same-send", retries: 1 }))
+      .rejects.toMatchObject({ code: 4001, requestNotSent: false });
+    expect(sends).toBe(1);
+  });
+
+  it("does not accept a remote claim that an admitted request was unsent", async () => {
+    const client = new SignedRestClient({ ...config,
+      fetch: async () => Response.json({ code: "DENIED", requestNotSent: true }, { status: 403 }),
+    });
+    const error = await client.request({ requestTarget: "/api/v1/accounts/me" }).catch(error => error);
+    expect(error).toMatchObject({ code: "DENIED" });
+    expect(error).not.toHaveProperty("requestNotSent");
+  });
+
   it("bounds response bytes and never echoes server error messages", async () => {
     const oversized = new SignedRestClient({ ...config, maxResponseBytes: 8, fetch: async () => Response.json({ data: "x".repeat(50) }) });
     await expect(oversized.request({ requestTarget: "/api/v1/accounts/me" })).rejects.toMatchObject({ code: "RESPONSE_TOO_LARGE" });

@@ -169,14 +169,22 @@ describe("REST OpenAPI contract", () => {
 });
 
 describe("static REST documentation", () => {
-  it("renders escaped, responsive, script-free docs with local assets", () => {
+  it("renders escaped, responsive docs with local progressive enhancement", () => {
     const unsafe = structuredClone(spec);
     unsafe.paths["/api/v1"]!.get!.summary = '<img src=x onerror="alert(1)">';
+    unsafe.paths["/api/v1"]!.get!.description = 'Read `protocolVersion` and treat `</code><img src=x>` as text.';
     const html = apiDocsPage(unsafe);
     expect(html).toContain("&lt;img");
     expect(html).not.toContain("<img");
-    expect(html).not.toContain("<script");
+    expect(html).toContain("Read <code>protocolVersion</code>");
+    expect(html).toContain("<code>&lt;/code&gt;&lt;img src=x&gt;</code>");
+    expect(html).toContain('src="/assets/docs.js"');
+    expect(html).not.toContain('<script>alert');
     expect(html).toContain('href="/assets/api.css"');
+    expect(html).toContain("Request body");
+    expect(html).toContain("Response 201");
+    expect(html).toContain('<code>planId</code>');
+    expect(html).toContain("Parameters");
     expect(html).toContain('name="viewport"');
     expect(html).toContain('href="/api/v1/openapi.json"');
     expect(html).toContain('href="/api/docs/ai-guide"');
