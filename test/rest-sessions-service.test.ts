@@ -745,6 +745,9 @@ for (const kind of ["memory", "postgres"] as const) {
           "007_rest_smart_accounts.sql",
           "008_rest_user_operations.sql",
           "009_rest_sessions.sql",
+          // Current bot authentication uses the shared grant namespace.
+          "017_rest_wallet_policy.sql",
+          "019_rest_wallet_app_grants.sql",
         ])
           await pool.query(
             await readFile(
