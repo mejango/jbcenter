@@ -94,6 +94,52 @@ async function browserRequest(input: OnboardingRecord, now = NOW): Promise<Signe
 }
 
 describe("atomic memory account onboarding", () => {
+  function passkeyRecord(n = 1): OnboardingRecord {
+    const input = record(n), address = input.binding.wallet.address, signer = "0x9999999999999999999999999999999999999999";
+    input.account.id = accountIdFor(address, 8453);
+    input.account.ownerAddress = address;
+    input.grant.accountId = input.account.id;
+    input.binding.ownerAccountId = input.account.id;
+    input.binding.ownerAddress = address;
+    input.binding.id = fingerprint({ ownerAccountId: input.account.id, wallet: address, chainId: 8453 });
+    input.binding.authorization.method = "safe-passkey-owner-threshold-and-api-grant";
+    input.binding.state.owners = [signer, owner];
+    input.binding.state.ownerProfile = { version: "center-passkey-v1", signer: { address: signer, kind: "contract",
+      x: hex(1), y: hex(2), verifiers: `0x${"11".repeat(22)}`, runtimeCodeHash: hex(3) }, recoveryOwner: { address: owner, kind: "ecdsa" } };
+    return input;
+  }
+
+  it("atomically sets up the Safe principal with a separate non-owner browser grant", async () => {
+    const test = fixture(), input = passkeyRecord();
+    const results = await Promise.all(Array.from({ length: 12 }, () => test.store.finalize(input)));
+    expect(results.every((value) => value.account.id === accountIdFor(input.binding.wallet.address, 8453))).toBe(true);
+    expect(await test.accounts.listBots(input.account.id)).toEqual([input.grant]);
+    const principal = await test.auth.authenticate(await browserRequest(input));
+    expect(principal).toMatchObject({ account: input.account, grantId: input.grant.id, isOwner: false });
+    await expect(test.auth.assertActive(principal, "relay", true)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    input.binding.authorization.digest = hex(1000);
+    await expect(test.store.finalize(input)).rejects.toThrow();
+  });
+
+  it("rejects passkey/legacy method substitution and inconsistent Safe-principal authority before persistence", async () => {
+    for (const mutate of [
+      (r: OnboardingRecord) => { r.binding.authorization.method = "safe-current-owner-threshold-and-api-grant"; },
+      (r: OnboardingRecord) => { delete r.binding.state.ownerProfile; },
+      (r: OnboardingRecord) => { r.account.ownerAddress = owner; r.binding.ownerAddress = owner; },
+      (r: OnboardingRecord) => { r.account.authorityChainId = 1; },
+      (r: OnboardingRecord) => { r.binding.state.owners = [owner]; },
+      (r: OnboardingRecord) => { r.binding.authorization.setup!.initializerHash = hex(600); },
+    ]) {
+      const test = fixture(), input = passkeyRecord(); mutate(input);
+      await expect(test.store.finalize(input)).rejects.toThrow();
+      expect(await test.accounts.getAccount(input.account.id)).toBeNull();
+      expect(await test.registry.list(input.account.id)).toEqual([]);
+    }
+    const test = fixture(), legacy = record();
+    legacy.binding.authorization.method = "safe-passkey-owner-threshold-and-api-grant";
+    await expect(test.store.finalize(legacy)).rejects.toThrow();
+  });
+
   it("saves the exact account, binding and browser UUID in ordinary stores and authenticates recovery after consent expires", async () => {
     const test = fixture(), input = record();
     expect(await test.store.finalize(input)).toEqual(input);

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -71,9 +71,15 @@ console.log("Session gas estimation: complete storage layout matches the source-
 const targetSolc = process.env.CENTER_TARGET_SOLC ?? resolve(
   process.env.SVM_HOME ?? resolve(homedir(), ".svm"), "0.8.28/solc-0.8.28",
 );
-run(process.execPath, ["--import", "tsx", "--test",
-  resolve(root, "src/rest/smartAccounts/targets-evidence/verify.test.mjs")], false,
+const targetTests = run(process.execPath, ["--import", "tsx", "--test", "--test-reporter=tap",
+  resolve(root, "src/rest/smartAccounts/targets-evidence/verify.test.mjs")], true,
   { CENTER_TARGET_SOLC: targetSolc });
+process.stdout.write(targetTests);
+const targetCount = label => Number(targetTests.match(new RegExp(`^# ${label} (\\d+)$`, "m"))?.[1] ?? NaN);
+if (targetCount("tests") < 5 || targetCount("pass") !== targetCount("tests") ||
+  ["fail", "cancelled", "skipped", "todo"].some(label => targetCount(label) !== 0)) {
+  throw new Error("Required target execution evidence is missing, failed or skipped.");
+}
 
 const suites = JSON.parse(run(forge, ["test", "--root", stack, "--json"], true));
 const requiredSuites = {
@@ -120,3 +126,14 @@ for (const [suite, output] of Object.entries(currentSuites)) {
   }
 }
 console.log(`Current Pimlico: ${currentPassed} Foundry tests passed with independently reproduced paymaster and guard; zero skips`);
+
+if (process.env.CENTER_EXECUTION_REPORT) {
+  const summarize = (prefix, results) => Object.entries(results).map(([name, result]) => ({
+    name: `${prefix}/${name}`, total: Object.keys(result.test_results).length,
+    passed: Object.keys(result.test_results).length, failed: 0, skipped: 0,
+  }));
+  await writeFile(process.env.CENTER_EXECUTION_REPORT, `${JSON.stringify({ suites: [
+    { name: "execution/target-evidence", total: targetCount("tests"), passed: targetCount("pass"), failed: 0, skipped: 0 },
+    ...summarize("execution/legacy", suites), ...summarize("execution/current-pimlico", currentSuites),
+  ] }, null, 2)}\n`, { mode: 0o600 });
+}

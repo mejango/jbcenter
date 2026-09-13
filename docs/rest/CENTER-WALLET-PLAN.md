@@ -1,6 +1,6 @@
 # Center shared wallet: implementation strategy
 
-Reviewed 2026-09-13 against Center `109cb0e`. This is the implementation-ready strategy for [the shared-wallet specification](CENTER-WALLET-SPEC.md). This revision changes planning documents only. Implementation begins with the bounded feasibility gate below; production readiness is a later measured result.
+Reviewed 2026-09-13 against Center `109cb0e`. This is the implementation strategy for [the shared-wallet specification](CENTER-WALLET-SPEC.md). Implementation began from reconciled main `d5ec4af`; [the implementation record](CENTER-WALLET-IMPLEMENTATION.md) distinguishes working foundations from the remaining gates. Production readiness is a later measured result.
 
 ## Decisions carried forward
 
@@ -150,7 +150,7 @@ New-wallet release requires source-reviewed crypto/authority changes, addressed 
 
 Rollout controls can stop enrollment, app admission and sponsorship. They cannot undo onchain ownership or already valid signatures. Preserve account discovery, unknown-operation reconciliation and exit while rolling back. No production credential creation, funded migration or contract deployment is implied by this planning update.
 
-The first implementation task is W0/W1: prepare a feature worktree, verify the existing test preflight, then write the failing contract-owner and cross-purpose signature vectors against the pinned stack. Deliver a short compatibility report before choosing production schemas or building the full UI. No further product clarification is needed to begin this bounded work.
+The first implementation checkpoint is W0/W1: an isolated feature worktree, required test observations, and contract-owner and cross-purpose signature vectors against the pinned stack. See the implementation record for evidence and the next unresolved dependency. No further product clarification is needed for bounded local experiments; production origin, recovery and provider acceptance retain their explicit gates above.
 
 Planning estimate remains roughly 1–2 weeks for architecture evidence, 6–10 weeks for the web/recovery/two-app slice, and 4–8 weeks for native completion, pressure, migration and review remediation with 2–3 experienced engineers; external review scheduling is additional. Re-estimate after Gate A from demonstrated compatibility and the consumer recovery choice.
 

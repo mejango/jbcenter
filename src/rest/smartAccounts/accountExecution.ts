@@ -323,7 +323,7 @@ export function safe7579OwnerSigningPayload(input: Safe7579OwnerSigningInput) {
 
 const SECP256K1_ORDER =
   0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
-function ecdsaSignature(value: Hex): Hex {
+export function canonicalEoaSignature(value: Hex): Hex {
   const signature = hex(value, "ECDSA signature", 65, 65);
   const r = BigInt(sliceHex(signature, 0, 32));
   const s = BigInt(sliceHex(signature, 32, 64));
@@ -353,7 +353,7 @@ export function encodeSafe7579OwnerSignature(input: {
   if (size(signatures) % 65 !== 0)
     fail("Owner signatures must be exact 65-byte entries.");
   for (let offset = 0; offset < size(signatures); offset += 65)
-    ecdsaSignature(sliceHex(signatures, offset, offset + 65));
+    canonicalEoaSignature(sliceHex(signatures, offset, offset + 65));
   return concatHex([
     toHex(after, { size: 6 }),
     toHex(until, { size: 6 }),
@@ -398,7 +398,7 @@ export async function verifySafe7579OwnerSignature(
   const recovered: Address[] = [];
   let previous = 0n;
   for (let i = 0; i < input.threshold; i++) {
-    const signature = ecdsaSignature(
+    const signature = canonicalEoaSignature(
       sliceHex(signatures, 12 + i * 65, 12 + (i + 1) * 65),
     );
     let signer: Address;
@@ -467,7 +467,7 @@ export async function verifyLegacySessionSignature(
   const envelope = decodeLegacyUseSignature(input.operation.signature);
   if (envelope.permissionId !== payload.permissionId)
     fail("The signature selects a different compiled permission.");
-  const signature = ecdsaSignature(envelope.signature);
+  const signature = canonicalEoaSignature(envelope.signature);
   let signer: Address;
   try {
     signer = await recoverAddress({ hash: payload.digest, signature });

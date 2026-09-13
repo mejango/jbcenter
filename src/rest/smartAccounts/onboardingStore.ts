@@ -7,6 +7,7 @@ import {
 import { RestError } from "../core.js";
 import type { OnboardingStore } from "./onboarding.js";
 import { fingerprint, stable } from "./service.js";
+import { assertPasskeyOnboardingState, validatePasskeyOnboardingInput } from "./passkeyOnboarding.js";
 
 export type OnboardingRecord = Parameters<OnboardingStore["finalize"]>[0];
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -18,7 +19,8 @@ export function assertOnboardingRecord({ account, binding, grant }: OnboardingRe
   assertAccount(account);
   assertGrant(grant);
   const auth = binding.authorization;
-  const setup = auth.method === "safe-current-owner-threshold-and-api-grant" ? auth.setup : undefined;
+  const passkey = auth.method === "safe-passkey-owner-threshold-and-api-grant";
+  const setup = auth.method === "safe-current-owner-threshold-and-api-grant" || passkey ? auth.setup : undefined;
   if (!setup || Buffer.byteLength(stable(binding)) > 60_000
     || binding.id !== fingerprint({ ownerAccountId: account.id, wallet: binding.wallet.address, chainId: binding.wallet.chainId })
     || binding.ownerAccountId !== account.id || grant.accountId !== account.id
@@ -35,13 +37,26 @@ export function assertOnboardingRecord({ account, binding, grant }: OnboardingRe
     || stable(setup.scopes) !== stable(grant.scopes) || setup.grantExpiresAt !== grant.expiresAt || setup.label !== grant.label) {
     throw new RestError(400, "SMART_ONBOARDING_INVALID", "The verified setup binding and browser API grant are inconsistent.");
   }
+  if (passkey) {
+    const observed = assertPasskeyOnboardingState(binding.state);
+    validatePasskeyOnboardingInput({ profile: observed.profile.version, address: binding.wallet.address,
+      manifestId: binding.manifestId, nonce: auth.nonce, issuedAt: setup.issuedAt, expiresAt: auth.expiresAt,
+      grant: { id: grant.id, botAddress: grant.botAddress, scopes: grant.scopes, expiresAt: grant.expiresAt, label: grant.label } }, setup.issuedAt);
+    if (account.authorityChainId !== 8453 || binding.wallet.chainId !== 8453
+      || account.id !== `eip155:8453:${binding.wallet.address.toLowerCase()}` || !same(account.ownerAddress, binding.wallet.address)
+      || !same(setup.initializerHash, observed.initializerHash)
+      || binding.state.owners.some((owner) => same(owner, grant.botAddress)))
+      throw new RestError(400, "SMART_ONBOARDING_INVALID", "Passkey setup must retain the Base Safe identity and a distinct nonspending browser key.");
+  } else if (binding.state.ownerProfile || same(account.ownerAddress, binding.wallet.address)) {
+    throw new RestError(400, "SMART_ONBOARDING_INVALID", "Legacy owner setup cannot enroll the Safe itself or a passkey owner profile.");
+  }
 }
 
 /** PostgreSQL calls this with its shared database clock both before writes and before commit. */
 export function assertOnboardingLive({ binding, grant }: OnboardingRecord, now: number): void {
   assertTime(now);
   const auth = binding.authorization;
-  if (auth.method !== "safe-current-owner-threshold-and-api-grant" || !auth.setup
+  if ((auth.method !== "safe-current-owner-threshold-and-api-grant" && auth.method !== "safe-passkey-owner-threshold-and-api-grant") || !auth.setup
     || auth.setup.issuedAt > now + 30 || auth.expiresAt <= now || grant.expiresAt <= now) {
     throw new RestError(409, "SMART_ONBOARDING_EXPIRED", "The owner setup authorization or browser API grant expired.");
   }

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "profile": "experimental-unreleased",
+  "scope": "Local EVM with actual pinned FCL/signers/Safe7579/EntryPoint; simulated authenticator; no device, production deployment, precompile or provider claim.",
+  "sourceCommit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+  "suites": [
+    {
+      "name": "test/PasskeyStack.t.sol:PasskeyStackTest",
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0,
+      "total": 24
+    }
+  ],
+  "fuzzRuns": 256,
+  "measurements": {
+    "maxUserOperationActualGasUsed": 455878,
+    "maxUserOperationSignatureBytes": 2349,
+    "maxAssertionVerificationGas": 218996,
+    "maxAssertionSignatureBytes": 2240,
+    "safeMessageVerificationGas": 238198,
+    "safeMessageSignatureBytes": 437,
+    "entryPointHandleOpsGas": 387921,
+    "userOperationSignatureBytes": 429,
+    "userOperationCalldataBytes": 1088,
+    "userOperationActualGasUsed": 433964
+  },
+  "evidenceInputsSha256": {
+    "manifest.json": "4a87d3f3d0fcdeeebfa1ad56df56a5b73128261bc89b5c29be39f62c1381f9b3",
+    "test/PasskeyStack.t.sol": "0a6a5a26dd8887c099c4adb902b524d58d2e728e4943f8a4369b874f1eb308c0",
+    "compiler.mjs": "8cccf88bc54d0e7bc71c30e37af65f479fe5bc4d89d9f33fa78ee792fba2f2fe",
+    "verify.mjs": "06a164ee208c8428c7327359d1e47d21286e5f8122fd3ee9315e31decc3c3ea2"
+  },
+  "proof": "Real pinned contracts and FCL, simulated public authenticator keys, native-value payment using prefunded Safe/EntryPoint. No production address or provider/device observation."
+}

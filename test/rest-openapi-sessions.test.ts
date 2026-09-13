@@ -148,4 +148,25 @@ describe("session and UserOperation machine-readable contracts", () => {
     validate("SessionCapabilities", sessions.capabilities());
     expect(sessions.capabilities().activationReady).toBe(false);
   });
+
+  it("validates the actual passkey profile view while keeping legacy owner schemas strict", async () => {
+    const storedPlan = plan(randomUUID(), actor, wallet, now), record = preparation(storedPlan);
+    record.id = randomUUID(); record.chainId = 8453;
+    const service = new UserOperationService({ policies: [], now: () => now,
+      rpc: { request: async () => { throw new Error("A stored signing view must not perform RPC"); } },
+      provider: { capabilities: () => [] }, store: { get: async () => record }, transactionStore: { get: async () => storedPlan },
+      manifestForPlan: () => ({ safe7579: { address: target }, ownerProfile: { version: "center-passkey-v1" } }),
+    } as unknown as UserOperationServiceDependencies);
+    const response = await service.get(principal, record.id);
+    validate("UserOperation", response);
+    expect(accepts("SafeOwnerUserOperationSigning", response.signing)).toBe(false);
+    expect(response.signing).toHaveProperty("ownerProfile", "center-passkey-v1");
+    expect(response.signing).toHaveProperty("signedData");
+    const { signedData: _signedData, ownerProfile: _profile, ...legacy } = response.signing as unknown as Record<string, unknown>;
+    validate("SafeOwnerUserOperationSigning", legacy);
+    expect(accepts("UserOperation", { ...response, signing: { ...legacy, ownerProfile: "center-passkey-v1" } })).toBe(false);
+    expect(accepts("UserOperation", { ...response, signing: { ...response.signing, ownerProfile: "center-passkey-v2" } })).toBe(false);
+    expect(accepts("UserOperation", { ...response, signing: { ...response.signing, signedData: h("wrong-length") } })).toBe(false);
+    expect(accepts("UserOperation", { ...response, signing: { ...response.signing, privateKey: h("unexpected") } })).toBe(false);
+  });
 });

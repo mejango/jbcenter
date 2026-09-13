@@ -20,7 +20,13 @@ import { exactObject } from "../protocol/abi.js";
 import { rpcHex } from "../protocol/code.js";
 import { SMART_ACCOUNT_RESEARCH } from "./observations.js";
 import { prepareSafe7579Creation } from "./creation.js";
+import { inspectPasskeyOwnerProfile } from "./passkeyProfile.js";
 import { onboardingDocument, validateOnboardingInput, verifyOnboardingSignatures, type OnboardingFinalizationInput } from "./onboarding.js";
+import {
+  passkeyOnboardingDocument, passkeyOnboardingSigningPayload, validatePasskeyOnboardingInput,
+  verifyPasskeyOnboardingSignatures, type PasskeyOnboardingFinalizationInput,
+} from "./passkeyOnboarding.js";
+import { createPasskeyContractSignatureVerifier } from "./passkeyContractVerifier.js";
 import type {
   SmartAccountBinding,
   SmartAccountDependencies,
@@ -340,8 +346,12 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
       owners.some((entry) => same(entry, zeroAddress))
     )
       fail("SMART_ACCOUNT_OWNERS_INVALID", "Invalid Safe owner set.");
-    // V1 proves the current EOA-owner threshold directly. Contract/delegated owners need another reviewed verifier.
-    for (const address of owners)
+    const passkey = m.ownerProfile ? await inspectPasskeyOwnerProfile({
+      manifest: m, owners, threshold: Number(thresholdRaw), snapshot: snap,
+    }) : undefined;
+    if (passkey) codeHashes.push(...passkey.codeHashes);
+    // An absent profile preserves the legacy EOA-only authority and state hash exactly.
+    for (const address of passkey ? [] : owners)
       if (
         rpcHex(await snap.request("eth_getCode", [address]), "owner code") !==
         "0x"
@@ -388,6 +398,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
       fallback,
       guard,
       modules: modules?.stateHash ?? null,
+      ...(passkey ? { ownerProfile: { pins: m.ownerProfile, state: passkey.ownerProfile } } : {}),
     });
     return {
       chainId: m.chainId,
@@ -403,6 +414,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
       modules,
       moduleConfigurationVerified: modules !== null,
       executionVerified: false,
+      ...(passkey ? { ownerProfile: passkey.ownerProfile } : {}),
     };
   }
   async function challenge(
@@ -589,6 +601,56 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
     const timestamp = Number(state.evidence.timestamp);
     if (!Number.isSafeInteger(timestamp) || timestamp < current - 300 || timestamp > current + 30)
       fail("SMART_EVIDENCE_STALE", "Account setup requires a recent canonical wallet observation.", 409);
+  }
+  /** Explicit v2 setup of a deployed passkey pilot. It does not enroll a credential or submit a deployment. */
+  async function passkeyOnboardingChallenge(input: unknown, signal?: AbortSignal) {
+    if (!options.onboarding) fail("SMART_ONBOARDING_UNAVAILABLE", "Account setup is not configured.", 503);
+    const value = validatePasskeyOnboardingInput(input, Math.floor(now() / 1000));
+    const state = await inspect({ manifestId: value.manifestId, address: value.address }, signal);
+    const typedData = passkeyOnboardingDocument(options.audience, value, state);
+    await snapshot(state.chainId, signal, state.evidence);
+    const current = Math.floor(now() / 1000);
+    validatePasskeyOnboardingInput(value, current);
+    requireFreshOnboardingState(state, current);
+    signal?.throwIfAborted();
+    return { state, typedData, digest: hashTypedData(typedData), signingPayload: passkeyOnboardingSigningPayload(typedData) };
+  }
+  /** Fresh current-owner approval and browser possession commit through the existing atomic setup store. */
+  async function finalizePasskeyOnboarding(input: unknown, signal?: AbortSignal) {
+    if (!options.onboarding) fail("SMART_ONBOARDING_UNAVAILABLE", "Account setup is not configured.", 503);
+    const signed = structuredClone(input) as PasskeyOnboardingFinalizationInput;
+    const value = validatePasskeyOnboardingInput(signed, Math.floor(now() / 1000), true);
+    const state = await inspect({ manifestId: value.manifestId, address: value.address }, signal);
+    const document = passkeyOnboardingDocument(options.audience, value, state);
+    if (!same(signed.stateHash, state.stateHash) || !same(signed.manifestRevision, state.manifestRevision)
+      || !same(signed.initializerHash, document.message.initializerHash))
+      fail("SMART_ACCOUNT_CHANGED", "The wallet configuration changed since setup review.", 409);
+    await verifyPasskeyOnboardingSignatures(document, state, signed.signature, signed.proofSignature,
+      createPasskeyContractSignatureVerifier({ state, manifest: manifest(value.manifestId), rpc: options.rpc, now,
+        ...(signal ? { signal } : {}) }));
+    // The backup EOA path must recheck canonicality too, even though it did not call a contract signer.
+    await snapshot(state.chainId, signal, state.evidence);
+    const current = Math.floor(now() / 1000);
+    validatePasskeyOnboardingInput(signed, current, true);
+    requireFreshOnboardingState(state, current);
+    signal?.throwIfAborted();
+    const accountId = document.message.accountId;
+    const binding: SmartAccountBinding = {
+      id: fingerprint({ ownerAccountId: accountId, wallet: state.address, chainId: state.chainId }),
+      ownerAccountId: accountId, ownerAddress: state.address, wallet: { chainId: state.chainId, address: state.address }, manifestId: value.manifestId,
+      authorization: { digest: hashTypedData(document), nonce: value.nonce, expiresAt: value.expiresAt,
+        method: "safe-passkey-owner-threshold-and-api-grant",
+        setup: { manifestRevision: state.manifestRevision, initializerHash: document.message.initializerHash, issuedAt: value.issuedAt,
+          grantId: value.grant.id, botAddress: value.grant.botAddress, scopes: [...value.grant.scopes], grantExpiresAt: value.grant.expiresAt, label: value.grant.label } },
+      state,
+    };
+    return options.onboarding.finalize({
+      account: { id: accountId, ownerAddress: state.address, authorityChainId: 8453,
+        profile: { displayName: "", bio: "", avatarUri: null }, createdAt: current, updatedAt: current },
+      binding,
+      grant: { id: value.grant.id, accountId, botAddress: value.grant.botAddress, scopes: [...value.grant.scopes], label: value.grant.label,
+        createdAt: current, expiresAt: value.grant.expiresAt, revokedAt: null },
+    });
   }
   async function bind(
     principal: RestPrincipal,
@@ -826,6 +888,8 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
     prepareCreation,
     challenge,
     onboardingChallenge,
+    passkeyOnboardingChallenge,
+    finalizePasskeyOnboarding,
     finalizeOnboarding,
     bind,
     current,

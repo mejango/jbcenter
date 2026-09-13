@@ -13,6 +13,26 @@ export interface ContractPin {
     artifactSha256: string;
   };
 }
+/** Explicit opt-in; the legacy EOA profile remains the default for existing manifests. */
+export interface PasskeyOwnerProfile {
+  version: "center-passkey-v1";
+  signerFactory: ContractPin;
+  signerSingleton: ContractPin;
+  /** Reviewed Solidity FCL verifier only. No implicit chain precompile assumption. */
+  p256Verifier: ContractPin;
+}
+export interface PasskeyOwnerState {
+  version: "center-passkey-v1";
+  signer: {
+    address: Address;
+    kind: "contract";
+    x: Hex;
+    y: Hex;
+    verifiers: Hex;
+    runtimeCodeHash: Hex;
+  };
+  recoveryOwner: { address: Address; kind: "ecdsa" };
+}
 /** Server-owned reviewed deployment configuration. Never accepted from HTTP request bodies. */
 export interface SmartAccountManifest {
   id: string;
@@ -31,6 +51,7 @@ export interface SmartAccountManifest {
   policies: readonly ContractPin[];
   /** Pin the adapter that enumerates validators/executors/hooks/fallbacks/attesters. */
   moduleInspectorId: string;
+  ownerProfile?: PasskeyOwnerProfile;
 }
 export interface SmartSnapshot {
   evidence: RestBlockEvidence;
@@ -71,6 +92,7 @@ export interface SmartAccountState {
   modules: ModuleStateEvidence | null;
   moduleConfigurationVerified: boolean;
   executionVerified: boolean;
+  ownerProfile?: PasskeyOwnerState;
 }
 export interface SmartAccountBinding {
   id: Hex;
@@ -82,7 +104,7 @@ export interface SmartAccountBinding {
     digest: Hex;
     nonce: Hex;
     expiresAt: number;
-    method: "safe-current-owner-threshold" | "safe-current-owner-threshold-and-api-grant";
+    method: "safe-current-owner-threshold" | "safe-current-owner-threshold-and-api-grant" | "safe-passkey-owner-threshold-and-api-grant";
     setup?: {
       manifestRevision: Hex; initializerHash: Hex; issuedAt: number; grantId: string;
       botAddress: Address; scopes: BotScope[]; grantExpiresAt: number; label: string;

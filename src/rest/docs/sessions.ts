@@ -18,6 +18,14 @@ const operationFields = {
   paymaster: ref("Address"), paymasterVerificationGasLimit: quantity(16), paymasterPostOpGasLimit: quantity(16), paymasterData: ref("HexBytes"),
   signature: { type: "string", const: "0x", description: "Public preparations and reads always omit submitted account signature bytes." },
 };
+const ownerSigningFields = {
+  scheme: { type: "string", const: "eip712-safe7579-owner" }, digest: ref("Hash"),
+  validAfter: decimalString(281474976710655), validUntil: decimalString(281474976710655), typedData: object({
+    domain: object({ chainId: chain, verifyingContract: ref("Address") }), types: { type: "object", const: SAFE7579_OWNER_TYPES },
+    primaryType: { type: "string", const: "SafeOp" }, message: object({ safe: ref("Address"), nonce: ref("Uint256"), initCode: ref("HexBytes"), callData: ref("HexBytes"),
+      verificationGasLimit: ref("Uint256"), callGasLimit: ref("Uint256"), preVerificationGas: ref("Uint256"), maxPriorityFeePerGas: ref("Uint256"), maxFeePerGas: ref("Uint256"),
+      paymasterAndData: ref("HexBytes"), validAfter: decimalString(281474976710655), validUntil: decimalString(281474976710655), entryPoint: ref("Address") }) }),
+};
 
 export function sessionSchemas(): Record<string, Schema> {
   return {
@@ -91,12 +99,12 @@ export function sessionSchemas(): Record<string, Schema> {
       dependentRequired: { factory: ["factoryData"], factoryData: ["factory"], paymaster: ["paymasterVerificationGasLimit", "paymasterPostOpGasLimit", "paymasterData"],
         paymasterVerificationGasLimit: ["paymaster"], paymasterPostOpGasLimit: ["paymaster"], paymasterData: ["paymaster"] },
       description: "Unpacked EntryPoint v0.7 operation. RPC integers are hexadecimal quantities; reviewed policy amounts use decimal strings. No v0.8 or EIP-7702 extensions." },
-    SafeOwnerUserOperationSigning: object({ scheme: { type: "string", const: "eip712-safe7579-owner" }, digest: ref("Hash"),
-      validAfter: decimalString(281474976710655), validUntil: decimalString(281474976710655), typedData: object({
-        domain: object({ chainId: chain, verifyingContract: ref("Address") }), types: { type: "object", const: SAFE7579_OWNER_TYPES },
-        primaryType: { type: "string", const: "SafeOp" }, message: object({ safe: ref("Address"), nonce: ref("Uint256"), initCode: ref("HexBytes"), callData: ref("HexBytes"),
-          verificationGasLimit: ref("Uint256"), callGasLimit: ref("Uint256"), preVerificationGas: ref("Uint256"), maxPriorityFeePerGas: ref("Uint256"), maxFeePerGas: ref("Uint256"),
-          paymasterAndData: ref("HexBytes"), validAfter: decimalString(281474976710655), validUntil: decimalString(281474976710655), entryPoint: ref("Address") }) }) }),
+    SafeOwnerUserOperationSigning: object(ownerSigningFields),
+    PasskeyOwnerUserOperationSigning: { ...object({ ...ownerSigningFields,
+      ownerProfile: { type: "string", const: "center-passkey-v1" },
+      signedData: { type: "string", pattern: "^0x1901[0-9a-fA-F]{128}$",
+        description: "Exact 66-byte SafeOp EIP-712 preimage supplied to the Safe contract owner's legacy bytes selector; its keccak256 is digest." },
+    }), description: "Explicit opt-in owner signature encoding. This field does not establish a production deployment, configured provider, or successful execution. Passkey contract bodies are bounded to 2,240 bytes and complete owner envelopes to 2,349 bytes; the independent recovery EOA can sign the same digest." },
     SessionUserOperationSigning: object({ scheme: { type: "string", const: "eip191-legacy-ownable-user-operation" }, operationHash: ref("Hash"), digest: ref("Hash"),
       message: object({ raw: ref("Hash") }), permissionId: ref("Hash"), signaturePrefix: { type: "string", pattern: "^0x00[0-9a-fA-F]{64}$" } }),
     SubmitUserOperation: object({ signature: { type: "string", pattern: "^0x(?:[0-9a-fA-F]{2}){1,16384}$",
@@ -108,7 +116,7 @@ export function sessionSchemas(): Record<string, Schema> {
       operation: ref("UserOperationV07"), operationHash: ref("Hash"), commitment: ref("Hash"), accountBindingId: ref("Hash"), accountStateHash: ref("Hash"),
       session: ref("UserOperationSessionBinding"), gasPolicyId: text, providerId: text, createdAt: ref("UnixMilliseconds"), expiresAt: ref("UnixMilliseconds"), revision: integer,
       state: { type: "string", enum: ["prepared", "submitting", "submission_unknown", "pending", "unknown", "confirming", "confirmed", "reverted"] },
-      signing: { oneOf: [ref("SafeOwnerUserOperationSigning"), ref("SessionUserOperationSigning")] },
+      signing: { oneOf: [ref("SafeOwnerUserOperationSigning"), ref("PasskeyOwnerUserOperationSigning"), ref("SessionUserOperationSigning")] },
       submission: object({ commitment: ref("Hash"), startedAt: ref("UnixMilliseconds") }), observation: ref("UserOperationObservation"),
     }, ["id", "planId", "planCommitment", "stepIndexes", "chainId", "entryPoint", "operation", "operationHash", "commitment", "accountBindingId", "accountStateHash", "gasPolicyId", "providerId", "createdAt", "expiresAt", "revision", "state", "signing"]),
   };

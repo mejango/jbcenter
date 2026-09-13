@@ -11,8 +11,10 @@
     "test": "vitest run",
     "load:test": "node scripts/load-test.mjs",
     "typecheck": "npm run build:mcp && tsc --noEmit",
-    "check": "npm run check:execution && npm --prefix mcp run check && npm run typecheck && npm test && npm run build",
+    "check": "node scripts/rest/check-required-tests.mjs",
+    "check:preflight": "node scripts/rest/check-required-tests.mjs --preflight",
     "check:execution": "node scripts/rest/check-execution.mjs",
+    "check:wallet-compatibility": "node src/rest/smartAccounts/stack/passkey/verify.mjs",
     "verify:execution-artifacts": "node src/rest/smartAccounts/stack/verify-artifacts.mjs",
     "migrate": "node --env-file-if-exists=.env --import tsx src/db/migrate-cli.ts",
     "build:web": "node scripts/rest/build-web.mjs",
@@ -20,7 +22,7 @@
     "build:client": "node scripts/rest/build-client.mjs"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.16.0"
   },
   "dependencies": {
     "@farcaster/miniapp-sdk": "0.1.10",

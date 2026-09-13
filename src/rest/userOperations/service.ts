@@ -51,6 +51,10 @@ import {
 import { observeUserOperation } from "./execution.js";
 import { UserOperationProvider } from "./provider.js";
 import { createSessionGasEstimation } from "./estimation.js";
+import { passkeyDummySignature, passkeyEstimateProvider } from "./passkeyEstimation.js";
+import { userOperationPasskeyProfile, verifyPasskeyUserOperation } from "./passkeyVerification.js";
+import { safe7579PasskeyOwnerSigningPayload } from "../smartAccounts/passkeySignatures.js";
+import { createPasskeyContractSignatureVerifier } from "../smartAccounts/passkeyContractVerifier.js";
 import { finalizeUserOperationSponsorship } from "./sponsorship.js";
 import {
   digest,
@@ -338,6 +342,9 @@ export class UserOperationService {
       }
     }
     const { binding, manifest } = await this.account(plan, signal);
+    const passkeyProfile = userOperationPasskeyProfile(binding, manifest);
+    if (passkeyProfile && input.sessionId)
+      fail("USER_OPERATION_PASSKEY_SESSION_UNAVAILABLE", "The passkey pilot requires fresh owner approval for every operation.", 422);
     const policy = this.policy(binding.wallet.chainId);
     if (input.sessionId && input.sponsorAuthorization !== undefined)
       fail('SPONSOR_OWNER_REQUIRED', 'Application sponsorship requires fresh owner approval.', 403);
@@ -420,6 +427,9 @@ export class UserOperationService {
     const dummy = (expiry = expiresAt) =>
       session
         ? encodeLegacyUseSignature(session.permissionId, dummySignature)
+        : passkeyProfile
+        ? passkeyDummySignature({ signer: passkeyProfile.signer.address,
+            validAfter: String(Math.floor(createdAt / 1000)), validUntil: String(Math.floor(expiry / 1000)) })
         : encodeSafe7579OwnerSignature({
             validAfter: String(Math.floor(createdAt / 1000)),
             validUntil: String(Math.floor(expiry / 1000)),
@@ -450,7 +460,8 @@ export class UserOperationService {
     if (gasEstimation && !stub?.isFinal)
       operation = gasEstimation.fit(operation);
     gasEstimation?.assert(operation);
-    const estimate = await provider.estimate(
+    const estimateProvider = passkeyProfile ? passkeyEstimateProvider(provider) : provider;
+    const estimate = await estimateProvider.estimate(
       binding.wallet.chainId,
       { ...operation, signature: dummy() },
       signal,
@@ -478,7 +489,7 @@ export class UserOperationService {
         profile: providerConfig.paymasterPolicy?.profile,
         expiresAt,
         dummySignature: dummy,
-        provider,
+        provider: estimateProvider,
         sessionGas: gasEstimation,
         signal,
       });
@@ -597,6 +608,9 @@ export class UserOperationService {
     const plan = await this.plan(actor, record.planId, true);
     await this.options.sessions?.assertOwnerPlan(principal, plan);
     const { binding, manifest } = await this.account(plan, signal);
+    const passkeyProfile = userOperationPasskeyProfile(binding, manifest);
+    if (passkeyProfile && record.session)
+      fail("USER_OPERATION_PASSKEY_SESSION_UNAVAILABLE", "The passkey pilot requires fresh owner approval for every operation.", 422);
     const policy = this.policy(record.chainId);
     const provider = this.providerForRecord(record);
     if (
@@ -632,6 +646,11 @@ export class UserOperationService {
       });
       validAfter = Math.max(validAfter, fresh.record.compiled.validAfter);
       validUntil = Math.min(validUntil, fresh.record.compiled.validUntil);
+    } else if (passkeyProfile) {
+      await verifyPasskeyUserOperation({ operation, binding, manifest, chain: this.chain(signal),
+        validAfter: String(validAfter), validUntil: String(validUntil),
+        verifyContractSignature: createPasskeyContractSignatureVerifier({ state: binding.state, manifest,
+          rpc: this.options.rpc, now: this.now, ...(signal ? { signal } : {}) }) });
     } else {
       await verifySafe7579OwnerSignature({
         operation,
@@ -643,6 +662,16 @@ export class UserOperationService {
         owners: binding.state.owners,
         threshold: binding.state.threshold,
       });
+    }
+    if (passkeyProfile) {
+      // The dummy margin covers ordinary calldata bytes, not Base L1 compression fees
+      // or every FCL verification path. Check the exact signed operation before claim.
+      // This is point-in-time provider evidence; later fee changes still remain possible.
+      const signedEstimate = await provider.estimate(record.chainId, operation, signal);
+      for (const [field, amount] of Object.entries(signedEstimate))
+        if (BigInt(amount) > BigInt(operation[field as keyof UserOperationV07] ?? "0x0"))
+          fail("USER_OPERATION_SIGNED_GAS_CHANGED",
+            "The exact signed operation requires more gas than was approved. Prepare and approve a fresh operation.");
     }
     const execution = this.execution(record, operation, plan, manifest);
     const preflight = await this.chain(signal).preflight(
@@ -909,6 +938,15 @@ export class UserOperationService {
           smartSessions: manifest.smartSessions.address,
           permissionId: record.session.permissionId,
         })
+      : manifest.ownerProfile?.version === "center-passkey-v1"
+      ? { ...safe7579PasskeyOwnerSigningPayload({
+          operation: record.operation,
+          chainId: record.chainId,
+          entryPoint: record.entryPoint,
+          safe7579: manifest.safe7579.address,
+          validAfter: String(Math.floor(record.createdAt / 1000)),
+          validUntil: String(Math.floor(record.expiresAt / 1000)),
+        }), ownerProfile: manifest.ownerProfile.version }
       : safe7579OwnerSigningPayload({
           operation: record.operation,
           chainId: record.chainId,

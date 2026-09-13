@@ -74,6 +74,23 @@ async function usage(accountId: string) {
   return result.rows[0];
 }
 
+function passkeyRecord(n: number, walletAddress = address(100 + n)) {
+  const input = record(n), signer = address(9000), accountId = `eip155:8453:${walletAddress.toLowerCase()}`;
+  input.account = { ...input.account, id: accountId, ownerAddress: walletAddress, authorityChainId: 8453 };
+  input.grant.accountId = accountId;
+  input.binding.ownerAccountId = accountId;
+  input.binding.ownerAddress = walletAddress;
+  input.binding.wallet = { chainId: 8453, address: walletAddress };
+  input.binding.id = fingerprint({ ownerAccountId: accountId, wallet: walletAddress, chainId: 8453 });
+  input.binding.authorization.method = "safe-passkey-owner-threshold-and-api-grant";
+  input.binding.state = { ...input.binding.state, chainId: 8453, address: walletAddress, owners: [signer, owner],
+    evidence: { ...input.binding.state.evidence, chainId: 8453, timestamp: String(now) },
+    ownerProfile: { version: "center-passkey-v1", signer: { address: signer, kind: "contract", x: nonce(1), y: nonce(2),
+      verifiers: `0x${"11".repeat(22)}`, runtimeCodeHash: nonce(3) }, recoveryOwner: { address: owner, kind: "ecdsa" } } };
+  input.binding.state.modules!.details = { sessions: { permissionIds: [] }, provenance: { initializerHash: input.binding.authorization.setup!.initializerHash } };
+  return input;
+}
+
 suite("atomic PostgreSQL smart account onboarding", () => {
   beforeAll(async () => {
     admin = new Pool({ connectionString });
@@ -94,6 +111,46 @@ suite("atomic PostgreSQL smart account onboarding", () => {
       await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
       await admin.end();
     }
+  });
+
+  it("commits the versioned Safe identity once across concurrent store instances and preserves it after owner rotation", async () => {
+    const input = passkeyRecord(1), peer = new PostgresOnboardingStore(pool);
+    const results = await Promise.all(Array.from({ length: 12 }, (_, n) => (n % 2 ? peer : store).finalize(input)));
+    expect(results.every((result) => result.account.id === input.account.id && result.grant.id === input.grant.id)).toBe(true);
+    expect(await usage(input.account.id)).toEqual({ accounts: 1, bindings: 1, nonces: 1, grants: 1 });
+    const next = passkeyRecord(2, input.binding.wallet.address);
+    next.binding.state.ownerProfile!.recoveryOwner.address = otherOwner;
+    next.binding.state.owners = [next.binding.state.ownerProfile!.signer.address, otherOwner];
+    const rotated = await peer.finalize(next);
+    expect(rotated.account).toEqual(results[0]!.account);
+    expect(rotated.binding.id).toBe(input.binding.id);
+    expect(rotated.binding.state.ownerProfile!.recoveryOwner.address).toBe(otherOwner);
+    await expect(store.finalize(input)).rejects.toThrow();
+    await expect(accounts.assertActive({ accountId: input.account.id, signer: next.grant.botAddress,
+      grantId: next.grant.id, requiredScopes: ["read", "plan", "relay"], ownerOnly: true, now })).rejects.toThrow();
+    expect(await usage(input.account.id)).toEqual({ accounts: 1, bindings: 1, nonces: 2, grants: 2 });
+  });
+
+  it("serializes conflicting passkey setup digests and never restores a revoked browser grant", async () => {
+    const first = passkeyRecord(1), second = passkeyRecord(2, first.binding.wallet.address);
+    second.binding.authorization.nonce = first.binding.authorization.nonce;
+    const outcomes = await Promise.allSettled([store.finalize(first), new PostgresOnboardingStore(pool).finalize(second)]);
+    expect(outcomes.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const winner = outcomes[0]!.status === "fulfilled" ? first : second;
+    expect(await usage(first.account.id)).toEqual({ accounts: 1, bindings: 1, nonces: 1, grants: 1 });
+    await accounts.revokeBot(winner.account.id, winner.grant.id, now);
+    await expect(store.finalize(winner)).rejects.toThrow();
+  });
+
+  it("enforces the new profile and Safe principal in the database independently of service validation", async () => {
+    const input = passkeyRecord(1);
+    await store.finalize(input);
+    for (const [path, value] of [
+      [["state", "ownerProfile", "version"], "legacy-eoa"], [["ownerAddress"], owner],
+      [["state", "chainId"], 1], [["state", "address"], otherOwner],
+    ] as const) await expect(pool.query("UPDATE rest_smart_account_bindings SET document=jsonb_set(document,$2::text[],$3::jsonb) WHERE id=$1",
+      [input.binding.id, path, JSON.stringify(value)])).rejects.toMatchObject({ code: "23514" });
+    expect(await registry.get(input.account.id, input.binding.id)).toEqual(input.binding);
   });
 
   it("commits concurrent identical finalizations once and returns the same exact grant", async () => {

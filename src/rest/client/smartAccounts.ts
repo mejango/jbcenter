@@ -16,6 +16,7 @@ import {
   safe7579OwnerSigningPayload,
   type Safe7579OwnerSigningInput,
 } from "../smartAccounts/accountExecution.js";
+import type { safe7579PasskeyOwnerSigningPayload } from "../smartAccounts/passkeySignatures.js";
 import type {
   SessionPolicyInput,
   SmartAccountBinding,
@@ -84,6 +85,13 @@ export type WalletCreationPreparation = ReturnType<
 export type OwnerSigningPayload = ReturnType<
   typeof safe7579OwnerSigningPayload
 >;
+/** Contract owners sign this exact SafeOp digest using a WebAuthn assertion; its dynamic
+ * envelope is distinct from the EOA-only ownerOperationSignature packing helper below.
+ * The profile field describes the prepared encoding, not deployment or provider readiness.
+ */
+export type PasskeyOwnerSigningPayload = ReturnType<
+  typeof safe7579PasskeyOwnerSigningPayload
+> & { ownerProfile: "center-passkey-v1" };
 export type SessionSigningPayload = ReturnType<
   typeof legacySessionSigningPayload
 >;
@@ -105,7 +113,7 @@ export type PreparedUserOperation = Omit<
   UserOperationRecord,
   "actor" | "sender" | "submission" | "preparationKey" | "inputHash"
 > & {
-  signing: OwnerSigningPayload | SessionSigningPayload;
+  signing: OwnerSigningPayload | PasskeyOwnerSigningPayload | SessionSigningPayload;
   submission?: { commitment: Hex; startedAt: number };
 };
 const prefix = "/api/v1";
@@ -592,6 +600,9 @@ export async function packOwnerSignatures(input: {
   return concatHex(signatures.map(({ signature }) => signature));
 }
 
+/** EOA signing view, also usable by the passkey profile's independent recovery EOA.
+ * Passkey callers use PreparedUserOperation.signing's explicit profile and signedData.
+ */
 export function ownerOperationSigning(
   input: Safe7579OwnerSigningInput & {
     record: PreparedUserOperation;
@@ -630,6 +641,7 @@ export function ownerOperationSigning(
   return payload;
 }
 
+/** Packs EOA signatures only. WebAuthn assertions require the profile's dynamic contract envelope. */
 export async function ownerOperationSignature(
   payload: OwnerSigningPayload,
   binding: SmartAccountBinding,

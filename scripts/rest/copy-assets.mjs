@@ -12,6 +12,10 @@ for (const [from, to] of [
     "dist/src/rest/smartAccounts/stack/artifacts",
   ],
   [
+    "src/rest/smartAccounts/stack/passkey/artifacts",
+    "dist/src/rest/smartAccounts/stack/passkey/artifacts",
+  ],
+  [
     "src/rest/smartAccounts/targets-evidence",
     "dist/src/rest/smartAccounts/targets-evidence",
   ],
