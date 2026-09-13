@@ -10,12 +10,14 @@ Start with Base, the existing V6 payment path, and the existing Safe execution i
 
 The first release does not build an MPC service, replace fiat onramps, introduce default delegated spending, or require every existing-wallet customer to create a Center wallet. Existing Para and external-wallet paths continue during migration.
 
+Authentication decision: new Center wallets use passkeys for creation, sign-in and exact payment approval. No email address, phone number or messaging verification is required for this first-release journey. Recovery still requires the independently enrolled authority described below. WhatsApp is a possible later integration for verified contact details, account discovery or notifications; it is not a launch dependency or a selected provider. Email and SMS verification are outside the first-release scope. Any future contact channel must not become unilateral wallet recovery authority.
+
 ## Responsibilities
 
 | Capability | Center | Application |
 | --- | --- | --- |
 | Account identity | Stable wallet record, verified chain accounts, credential and authority changes | Store the shared account reference |
-| Authentication | Passkey registration/authentication and optional account discovery | Initiate a connection and resume its own journey |
+| Authentication | Passkey registration and sign-in; contact verification deferred | Initiate a connection and resume its own journey |
 | Authorization | Allowlist-based connection, app-bound API sessions, isolated transaction review, fresh spending signatures | Use standard connection capabilities and show the intended action |
 | Execution | Account deployment, binding, simulation, relay, canonical operation status | Construct product intent and independently verify fulfillment |
 | Sponsorship | Shared admission machinery, separate app budgets and quotas | Own its budget and attest product eligibility |
@@ -73,7 +75,7 @@ Maintain per-app, per-account, and global sponsorship limits with atomic reserva
 
 Initial recovery candidate: a second independently controlled credential or external-wallet owner, with explicit enrollment and owner approval. Two credentials synced through the same provider are not an independent recovery guarantee. State clearly what happens if all user-controlled recovery factors are lost.
 
-Email, SMS, support staff, app administrators, and Center database edits cannot unilaterally replace wallet authority. Social recovery or delayed guardian recovery requires a separately specified threshold, delay, cancellation path, implementation review, and tests before launch; it is not implied by an email sign-in screen.
+Email, SMS, WhatsApp, support staff, app administrators, and Center database edits cannot unilaterally replace wallet authority. Social recovery or delayed guardian recovery requires a separately specified threshold, delay, cancellation path, implementation review, and tests before launch; it is not implied by a contact-verification screen.
 
 Passkeys generally do not provide private-key export. Portability therefore means reconstructing the account and changing/using its owners through a tested compatible client. Before real deposits, provide a user-held account descriptor and a tested alternate-client withdrawal path using independent recovery authority. The test must work with Center's API and wallet domain unavailable, including a way to pay gas without Center sponsorship. Merely open-sourcing a UI is insufficient because the original passkey remains RP-scoped.
 

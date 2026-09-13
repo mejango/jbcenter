@@ -8,6 +8,8 @@ A customer creates one user-controlled wallet through Center, pays a Beep invoic
 
 Preserve today's Para and external-wallet integrations during delivery. Reuse Center's client, account execution, PostgreSQL, quotas, and receipt recovery. Do not introduce a second execution gateway or an MPC service.
 
+First-release authentication is passkeys: creation, returning sign-in and payment approval must work without an email address, phone number or messaging-provider credentials. Add this complete journey to acceptance tests. Keep independent backup enrollment and recovery as deposit gates. WhatsApp is a possible later contact-verification/discovery/notification integration, with its purpose and provider to be decided later; email/SMS verification and messaging infrastructure are not part of these implementation slices. Contact verification never grants wallet recovery authority by itself.
+
 ## Baseline before implementation
 
 1. Review and commit the current Center work separately from this plan. Preserve existing source changes and record the exact tested revision. The current-work commit is `215b132`; the plan commit is `a849e29`. Reconcile both with the recorded upstream `ca099d5` using an ordinary merge, never a reset or force push.
