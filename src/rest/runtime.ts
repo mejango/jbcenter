@@ -46,6 +46,7 @@ import { createSessionTargetResolver } from "./smartAccounts/targets.js";
 import { createSafe7579Inspector } from "./smartAccounts/inspector.js";
 import { FactoryHistoryIndex, loadFactoryHistorySeed } from "./smartAccounts/factoryHistory.js";
 import { PostgresSafe7579CheckpointStore } from "./smartAccounts/checkpoints.js";
+import { PostgresOnboardingStore } from "./smartAccounts/onboardingPostgres.js";
 import {
   readRestExecutionConfiguration,
   type RestExecutionConfiguration,
@@ -255,6 +256,7 @@ export async function createRestRuntime(options: {
     rpc,
     audience: auth.audience,
     registry: new PostgresSmartAccountRegistry(options.pool),
+    onboarding: new PostgresOnboardingStore(options.pool),
     manifests: activeManifests,
     retainedManifests,
     moduleInspectors,

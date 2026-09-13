@@ -65,14 +65,14 @@ async function lockedAccount(client: PoolClient, id: string): Promise<Account> {
   return accountFromRow(result.rows[0]);
 }
 
-async function getGrant(client: PoolClient, id: string | null): Promise<BotGrant | null> {
+export async function getGrant(client: PoolClient, id: string | null): Promise<BotGrant | null> {
   if (id === null) return null;
   const result = await client.query<GrantRow>(`${selectGrant} WHERE id = $1`, [id]);
   return result.rows[0] ? grantFromRow(result.rows[0]) : null;
 }
 
 /** A shared database clock prevents application instances from disagreeing on replay expiry. */
-async function databaseNow(client: Pool | PoolClient): Promise<number> {
+export async function databaseNow(client: Pool | PoolClient): Promise<number> {
   const result = await client.query<{ now: string }>("SELECT floor(extract(epoch FROM clock_timestamp()))::text AS now");
   return Number(result.rows[0]!.now);
 }
@@ -88,6 +88,65 @@ export async function assertRestActorActive(client: PoolClient, actor: RestActor
   const account = await lockedAccount(client, actor.accountId);
   const grant = await getGrant(client, grantId);
   assertActorAuthority(account, grant, actor, scopes, await databaseNow(client));
+}
+
+/** The caller owns the transaction; enrollment takes the shared lock before its account row lock. */
+export async function enrollAccountInTransaction(client: PoolClient, account: Account, limits: AccountStoreLimits): Promise<Account> {
+  assertAccount(account);
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('rest-account-enrollment'))");
+  const existing = await client.query<AccountRow>(`${selectAccount} WHERE id = $1 FOR UPDATE`, [account.id]);
+  let value: Account;
+  if (existing.rows[0]) {
+    value = accountFromRow(existing.rows[0]);
+    if (value.ownerAddress.toLowerCase() !== account.ownerAddress.toLowerCase()
+      || value.authorityChainId !== account.authorityChainId) {
+      throw new RestAuthError("FORBIDDEN", 403, "Account identity does not match its owner");
+    }
+  } else {
+    const owner = await client.query("SELECT 1 FROM rest_accounts WHERE authority_chain_id = $1 AND owner_address = $2", [
+      account.authorityChainId, account.ownerAddress.toLowerCase(),
+    ]);
+    if (owner.rowCount) throw new RestAuthError("FORBIDDEN", 403, "Account identity does not match its owner");
+    const usage = await client.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM (SELECT 1 FROM rest_accounts LIMIT $1) bounded", [limits.maxAccounts],
+    );
+    if (Number(usage.rows[0]!.count) >= limits.maxAccounts) {
+      throw new RestAuthError("STORAGE_LIMIT", 429, "Account storage limit exceeded");
+    }
+    const createdAt = await databaseNow(client);
+    const inserted = await client.query<AccountRow>(
+      `INSERT INTO rest_accounts (id, owner_address, authority_chain_id, display_name, bio, avatar_uri, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [account.id, account.ownerAddress.toLowerCase(), account.authorityChainId, account.profile.displayName,
+        account.profile.bio, account.profile.avatarUri, createdAt, createdAt],
+    );
+    value = accountFromRow(inserted.rows[0]!);
+  }
+  return value;
+}
+
+/** The caller already holds the account row lock and owns the transaction. */
+export async function registerBotInTransaction(client: PoolClient, grant: BotGrant, limits: AccountStoreLimits): Promise<BotGrant> {
+  assertGrant(grant);
+  const existing = await getGrant(client, grant.id);
+  if (existing) throw new RestAuthError("REPLAY", 409, "Bot grant identifier already exists");
+  const usage = await client.query<{ count: string }>(
+    "SELECT count(*)::text AS count FROM rest_bot_grants WHERE account_id = $1", [grant.accountId],
+  );
+  if (Number(usage.rows[0]!.count) >= limits.maxGrantsPerAccount) {
+    throw new RestAuthError("STORAGE_LIMIT", 429, "Account bot grant storage limit exceeded");
+  }
+  const createdAt = await databaseNow(client);
+  if (grant.expiresAt <= createdAt || grant.expiresAt - createdAt > 365 * 86_400) {
+    throw new RestAuthError("FORBIDDEN", 403, "Bot grant expiry must be within one year");
+  }
+  const result = await client.query<GrantRow>(
+    `INSERT INTO rest_bot_grants (id, account_id, bot_address, scopes, label, created_at, expires_at, revoked_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NULL) ON CONFLICT (id) DO NOTHING RETURNING *`,
+    [grant.id, grant.accountId, grant.botAddress.toLowerCase(), grant.scopes, grant.label, createdAt, grant.expiresAt],
+  );
+  if (!result.rows[0]) throw new RestAuthError("REPLAY", 409, "Bot grant identifier already exists");
+  return grantFromRow(result.rows[0]);
 }
 
 export class PostgresAccountStore implements AccountStore {
@@ -107,40 +166,11 @@ export class PostgresAccountStore implements AccountStore {
     assertAccount(account);
     assertRequest(request);
     return this.transaction(async (client) => {
-      // A shared, bounded enrollment lock also makes the global account quota atomic.
-      await client.query("SELECT pg_advisory_xact_lock(hashtext('rest-account-enrollment'))");
       if (request.accountId !== account.id || request.grantId !== null
         || request.signer.toLowerCase() !== account.ownerAddress.toLowerCase()) {
         throw new RestAuthError("FORBIDDEN", 403, "Only the owner can enroll an account");
       }
-      const existing = await client.query<AccountRow>(`${selectAccount} WHERE id = $1 FOR UPDATE`, [account.id]);
-      let value: Account;
-      if (existing.rows[0]) {
-        value = accountFromRow(existing.rows[0]);
-        if (value.ownerAddress.toLowerCase() !== account.ownerAddress.toLowerCase()
-          || value.authorityChainId !== account.authorityChainId) {
-          throw new RestAuthError("FORBIDDEN", 403, "Account identity does not match its owner");
-        }
-      } else {
-        const owner = await client.query("SELECT 1 FROM rest_accounts WHERE authority_chain_id = $1 AND owner_address = $2", [
-          account.authorityChainId, account.ownerAddress.toLowerCase(),
-        ]);
-        if (owner.rowCount) throw new RestAuthError("FORBIDDEN", 403, "Account identity does not match its owner");
-        const usage = await client.query<{ count: string }>(
-          "SELECT count(*)::text AS count FROM (SELECT 1 FROM rest_accounts LIMIT $1) bounded", [this.limits.maxAccounts],
-        );
-        if (Number(usage.rows[0]!.count) >= this.limits.maxAccounts) {
-          throw new RestAuthError("STORAGE_LIMIT", 429, "Account storage limit exceeded");
-        }
-        const createdAt = await databaseNow(client);
-        const inserted = await client.query<AccountRow>(
-          `INSERT INTO rest_accounts (id, owner_address, authority_chain_id, display_name, bio, avatar_uri, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-          [account.id, account.ownerAddress.toLowerCase(), account.authorityChainId, account.profile.displayName,
-            account.profile.bio, account.profile.avatarUri, createdAt, createdAt],
-        );
-        value = accountFromRow(inserted.rows[0]!);
-      }
+      const value = await enrollAccountInTransaction(client, account, this.limits);
       const currentRequest = { ...request, now: await databaseNow(client) };
       assertRequest(currentRequest);
       principalFor(value, null, currentRequest);
@@ -210,25 +240,7 @@ export class PostgresAccountStore implements AccountStore {
     assertGrant(grant);
     return this.transaction(async (client) => {
       await lockedAccount(client, grant.accountId);
-      const existing = await getGrant(client, grant.id);
-      if (existing) throw new RestAuthError("REPLAY", 409, "Bot grant identifier already exists");
-      const usage = await client.query<{ count: string }>(
-        "SELECT count(*)::text AS count FROM rest_bot_grants WHERE account_id = $1", [grant.accountId],
-      );
-      if (Number(usage.rows[0]!.count) >= this.limits.maxGrantsPerAccount) {
-        throw new RestAuthError("STORAGE_LIMIT", 429, "Account bot grant storage limit exceeded");
-      }
-      const createdAt = await databaseNow(client);
-      if (grant.expiresAt <= createdAt || grant.expiresAt - createdAt > 365 * 86_400) {
-        throw new RestAuthError("FORBIDDEN", 403, "Bot grant expiry must be within one year");
-      }
-      const result = await client.query<GrantRow>(
-        `INSERT INTO rest_bot_grants (id, account_id, bot_address, scopes, label, created_at, expires_at, revoked_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NULL) ON CONFLICT (id) DO NOTHING RETURNING *`,
-        [grant.id, grant.accountId, grant.botAddress.toLowerCase(), grant.scopes, grant.label, createdAt, grant.expiresAt],
-      );
-      if (!result.rows[0]) throw new RestAuthError("REPLAY", 409, "Bot grant identifier already exists");
-      return grantFromRow(result.rows[0]);
+      return registerBotInTransaction(client, grant, this.limits);
     });
   }
 

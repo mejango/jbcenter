@@ -1,5 +1,7 @@
 import type { Address, Hex } from "viem";
 import type { RestBlockEvidence, RestRpc } from "../core.js";
+import type { BotScope } from "../auth/store.js";
+import type { OnboardingStore } from "./onboarding.js";
 
 export interface ContractPin {
   address: Address;
@@ -80,7 +82,11 @@ export interface SmartAccountBinding {
     digest: Hex;
     nonce: Hex;
     expiresAt: number;
-    method: "safe-current-owner-threshold";
+    method: "safe-current-owner-threshold" | "safe-current-owner-threshold-and-api-grant";
+    setup?: {
+      manifestRevision: Hex; initializerHash: Hex; issuedAt: number; grantId: string;
+      botAddress: Address; scopes: BotScope[]; grantExpiresAt: number; label: string;
+    };
   };
   state: SmartAccountState;
 }
@@ -109,6 +115,7 @@ export interface SmartAccountDependencies {
   /** Source-pinned older manifests retained for existing bindings and receipt reconciliation. */
   retainedManifests?: readonly SmartAccountManifest[];
   registry: VerifiedSmartAccountRegistry;
+  onboarding?: OnboardingStore;
   audience: string;
   moduleInspectors?: readonly SmartModuleInspector[];
   bundler?: SmartBundler;

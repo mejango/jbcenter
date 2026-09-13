@@ -98,7 +98,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
   const document: OpenApiDocument = {
     openapi: "3.1.2", jsonSchemaDialect: "https://json-schema.org/draft/2020-12/schema",
     info: { title: "Juicebox Center REST API", version: "1.0.0", summary: "V6 contract, project, indexer, account and transaction access",
-      description: "Public discovery and catalogs; independently EIP-712 signed live reads and writes. Request authentication is a custom multi-header scheme described by required header parameters and x-auth. Wallet transaction signatures remain separate. Success bodies are route-specific JSON, not a universal wrapper.",
+      description: "Public discovery and catalogs; independently EIP-712 signed live reads and writes. Request authentication is a custom multi-header scheme described by required header parameters and x-auth. Account onboarding instead requires purpose-specific body signatures described by x-body-approval. Wallet transaction signatures remain separate. Success bodies are route-specific JSON, not a universal wrapper.",
       contact: { url: "https://github.com/mejango/jbcenter" } },
     servers: [{ url: origin }],
     tags: [
@@ -336,6 +336,18 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
   add("/smart-accounts/binding-challenges", "POST", "createSmartBindingChallenge", "Inspect an existing reviewed Safe and prepare owner-threshold binding data", "Wallets", "owner", {
     body: ref("SmartBindingChallengeInput"), result: ref("SmartBindingChallenge"),
     description: "Requires the API owner and a configured exact manifest. Returns a distinct BindSmartAccount EIP-712 document after canonical owner/runtime checks. Sign the returned domain and message exactly. This is API wallet association, not session installation or spending authority.",
+  });
+  add("/smart-accounts/onboarding-challenges", "POST", "createSmartOnboardingChallenge", "Review sole-owner Base wallet binding and one-hour browser API access", "Wallets", "public", {
+    body: ref("SmartOnboardingChallengeInput"), result: ref("SmartOnboardingChallenge"),
+    description: "Bounded public canonical read for a deployed, configured sole-owner Base Safe without spending sessions. Returns the exact SetupAccount document and digest without enrollment, nonce consumption or generic signed-request headers. The browser selects the grant UUID/key before review. Requires configured onboarding storage and a complete current dependency/module inspection; missing support fails explicitly.",
+  });
+  add("/smart-accounts/onboarding", "POST", "finalizeSmartOnboarding", "Finalize account identity, wallet binding and exact browser API grant with one owner approval", "Wallets", "public", {
+    body: ref("SmartOnboardingInput"), result: ref("SmartOnboardingResult"), status: 201,
+    description: "Requires the current sole owner's SetupAccount signature and the distinct browser key's CenterSetupProof over the setup digest. No generic CenterRequest headers are needed. Rechecks fresh canonical deployment state, then atomically enrolls if absent, binds and creates the exact grant. Replay may return the existing current result; revoked, changed or superseded authority is never restored. Persist the grant UUID/key, document and signatures before dispatch. Recover a lost successful response with the saved grant and an ordinary grant-signed binding GET. Deployment and each payment retain separate owner approval; this route authorizes no transaction or onchain session.",
+    extra: { "x-body-approval": { scheme: "eip712-purpose-signatures", required: true,
+      owner: { field: "signature", primaryType: "SetupAccount", signerRole: "current-sole-wallet-owner" },
+      browser: { field: "proofSignature", primaryType: "CenterSetupProof", signedFields: ["setupDigest"], signerRole: "exact-grant-browser-key" },
+      maximumAuthorizationSeconds: 300, maximumGrantSeconds: 3600, transactionAuthority: false, onchainSessionAuthority: false } },
   });
   add("/smart-accounts/bindings", "POST", "bindSmartAccount", "Link a reviewed Safe using its current EOA-owner threshold signatures", "Wallets", "owner", {
     body: ref("SmartBindingInput"), result: ref("SmartAccountBinding"), status: 201,

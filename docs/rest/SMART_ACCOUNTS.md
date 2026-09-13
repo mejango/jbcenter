@@ -76,13 +76,95 @@ A binding challenge commits to service audience, execution chain, wallet, API ac
 
 `PostgresSmartAccountRegistry` and migration `007_rest_smart_accounts.sql` persist links under the API account. Account row locks serialize nonce claims, renewals and unlinking. A revoked or superseded authorization cannot restore a link. The database checks its own clock, isolates accounts, bounds documents and limits each account to sixteen wallet records and 256 live binding nonces. The memory registry is for tests/development. API unlinking does not revoke any installed onchain session.
 
+## Minimal checkout setup on Base
+
+A checkout can combine API enrollment, wallet binding and one hour of browser API
+access into one owner approval **after canonical deployment**. The intended new
+wallet journey has two setup approvals: the separate exact deployment approval,
+then this finalization approval. An existing supported wallet needs only
+finalization; an already connected wallet with valid browser access can reuse that
+access. Each payment still requires its own exact owner signature. These are
+logical approvals; phone/email authentication and any credential review required
+by the wallet provider remain separate.
+
+This path supports only Base (`8453`), a current sole EOA owner with threshold one,
+and a configured Safe7579 wallet with complete canonical dependency and module
+evidence and no spending sessions. Setup rejects evidence more than five minutes
+old or more than 30 seconds ahead of server time with `409 SMART_EVIDENCE_STALE`.
+It cannot deploy or fund the wallet, authorize
+a transaction, install an onchain session or change its owners. API `read`, `plan`
+and `relay` scopes permit API requests and submission of separately authorized
+transactions; they give the browser no owner signing authority.
+
+1. In the browser, choose a lowercase grant UUID v4, generate a distinct API key and select a
+   nonzero random setup nonce. Send `owner`, wallet `address`, `manifestId`,
+   `nonce`, integer Unix-second `issuedAt` and `expiresAt`, and
+   `grant:{id,botAddress,scopes,expiresAt,label}` to
+   `POST /api/v1/smart-accounts/onboarding-challenges`. Every field is required;
+   the grant scopes must be exactly `["read","plan","relay"]` in that order.
+   The setup expires within five minutes of `issuedAt`; the grant expires after
+   setup and within one hour of `issuedAt`. Owner, wallet and API key addresses
+   must all be distinct. Labels have a 120 UTF-8-byte limit and no control
+   characters. This bounded public read neither enrolls an account nor consumes
+   the nonce.
+2. Review and sign the returned `SetupAccount` EIP-712 document with the current
+   sole owner. Its domain is `Juicebox Center Account Setup`, version `1`, chain
+   `8453`, the wallet as `verifyingContract`, and
+   `keccak256(UTF8(service audience))` as salt. It binds the API account, owner,
+   manifest ID/revision, initializer hash, current state hash, nonce, times and
+   every selected grant field. Typed-data `issuedAt`, `expiresAt` and
+   `grantExpiresAt` are decimal strings in the JSON response; request timestamps
+   are JSON integers. The browser key separately signs the same domain with
+   `primaryType:"CenterSetupProof"`,
+   `types:{CenterSetupProof:[{name:"setupDigest",type:"bytes32"}]}` and
+   `message:{setupDigest:challenge.digest}`. Both signatures are direct 65-byte
+   EOA signatures with `v=27` or `v=28`.
+3. Persist the grant UUID, browser key, exact reviewed document and both signatures
+   locally before dispatch. POST the original input plus `manifestRevision`,
+   `initializerHash`, `stateHash`, owner `signature` and browser `proofSignature`
+   to `/api/v1/smart-accounts/onboarding`. No generic `CenterRequest` signature
+   or signed-request headers are needed on either onboarding endpoint. The body
+   approval is required for finalization. Center freshly verifies canonical state
+   and signatures, then atomically enrolls the API identity if absent, claims the
+   binding nonce, saves the binding and inserts the exact signed grant UUID.
+   HTTP `201` returns `{account,binding,grant}`. Existing account profiles are
+   preserved.
+
+The new binding authorization method is
+`safe-current-owner-threshold-and-api-grant`; its required `setup` fields retain
+the manifest revision, initializer hash, issuance time and exact grant fields.
+The existing `safe-current-owner-threshold` method and threshold binding route
+remain available. Neither method grants spending permission.
+
+Keep the API private key in browser-controlled storage appropriate to the
+checkout's recovery lifetime. Center receives only its address and proof, never
+the private key, wallet credentials or signing session. Do not put keys,
+credentials or signatures in URLs, logs or analytics. A checkout must retain
+enough local state to recover after switching apps without asking for the same
+approval again.
+
+If the finalization response is lost, use the saved grant UUID/key to make an
+ordinary grant-signed `GET /api/v1/smart-accounts/bindings/:id`; the binding ID is
+deterministic for the API account and wallet. A grant-signed binding list can
+recover the ID if it was not saved. A successfully committed result remains
+recoverable after the five-minute setup approval expires, while its grant is
+still active and its binding is current. Replaying the same unexpired
+nonce/digest can return the existing result, but cannot restore a revoked grant
+or an unlinked, changed or superseded binding. If nothing committed before
+expiry, fresh owner approval is required. Unknown network status is not proof of
+failure or permission to replace a grant or submit a payment again.
+
 ## HTTP interfaces
 
-Routes are mounted under `/api/v1` and use the normal signed-request authentication and request bounds.
+Routes are mounted under `/api/v1` and share request bounds. Capabilities and the
+onboarding challenge are public. Onboarding finalization requires the dedicated
+body signatures above; other routes use normal signed-request authentication.
 
 | Method and path                           | Input / result                                                                                                      |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `GET /smart-accounts/capabilities`        | Configured manifests, observed deployment research, inspector/provider requirements and explicit execution status.  |
+| `POST /smart-accounts/onboarding-challenges` | Public canonical review for a sole-owner Base wallet and exact one-hour browser API grant; returns `{state,typedData,digest}`. |
+| `POST /smart-accounts/onboarding`        | Purpose-signed finalization; atomically enrolls, binds and creates the exact API grant. HTTP `201`: `{account,binding,grant}`. |
 | `POST /smart-accounts/binding-challenges` | Owner-only `{manifestId,address,nonce,expiresAt}`; returns observed state, EIP-712 typed data and digest.           |
 | `POST /smart-accounts/bindings`           | Owner-only challenge fields plus `{stateHash,signature}`; rechecks state and verifies the owner threshold.          |
 | `GET /smart-accounts/bindings`            | Account-isolated stored binding summaries.                                                                          |

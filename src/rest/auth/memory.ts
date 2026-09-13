@@ -1,4 +1,13 @@
 import type { Hex } from "viem";
+import { RestError } from "../core.js";
+import type { MemorySmartAccountRegistry } from "../smartAccounts/registry.js";
+import { stable } from "../smartAccounts/service.js";
+import {
+  assertOnboardingLive,
+  assertOnboardingRecord,
+  sameOnboardingGrant,
+  type OnboardingRecord,
+} from "../smartAccounts/onboardingStore.js";
 import {
   accountStoreLimits,
   actorGrantId,
@@ -132,25 +141,54 @@ export class MemoryAccountStore implements AccountStore {
         || request.signer.toLowerCase() !== account.ownerAddress.toLowerCase()) {
         throw new RestAuthError("FORBIDDEN", 403, "Only the owner can enroll an account");
       }
-      const ownerKey = `${account.authorityChainId}:${account.ownerAddress.toLowerCase()}`;
-      const ownerAccount = this.owners.get(ownerKey);
-      const existing = this.accounts.get(account.id);
-      if ((ownerAccount && ownerAccount !== account.id) || (existing
-        && (existing.ownerAddress.toLowerCase() !== account.ownerAddress.toLowerCase()
-          || existing.authorityChainId !== account.authorityChainId))) {
-        throw new RestAuthError("FORBIDDEN", 403, "Account identity does not match its owner");
-      }
-      if (!existing && this.accounts.size >= this.limits.maxAccounts) {
-        throw new RestAuthError("STORAGE_LIMIT", 429, "Account storage limit exceeded");
-      }
-      const value = existing ?? { ...structuredClone(account), ownerAddress: account.ownerAddress.toLowerCase() as Account["ownerAddress"] };
+      const value = this.enrollmentAccount(account);
       const principal = principalFor(value, null, currentRequest);
       this.consumeNonce(currentRequest);
-      if (!existing) {
-        this.accounts.set(value.id, value);
-        this.owners.set(ownerKey, value.id);
-      }
+      this.saveEnrollment(value);
       return principal;
+    }));
+  }
+
+  /** The service has verified the setup consent and browser proof, never a fabricated API request. */
+  async finalizeOnboarding(
+    input: OnboardingRecord,
+    registry: MemorySmartAccountRegistry,
+    now: () => number,
+  ): Promise<OnboardingRecord> {
+    const record = structuredClone(input);
+    assertOnboardingRecord(record);
+    return this.locks.run("enrollment", () => this.locks.run(`account:${record.account.id}`, () => {
+      const currentTime = now();
+      assertOnboardingLive(record, currentTime);
+      const account = this.enrollmentAccount({ ...record.account, createdAt: currentTime, updatedAt: currentTime });
+      const binding = registry.currentOnboardingBinding(record.binding);
+      const existingGrant = this.bots.get(record.grant.id);
+      if (binding) {
+        if (!this.accounts.has(account.id) || !existingGrant
+          || !sameOnboardingGrant(existingGrant, record.grant, currentTime)
+          || stable(binding.authorization) !== stable(record.binding.authorization)) {
+          throw new RestError(409, "SMART_ONBOARDING_REPLAY", "A missing, changed, expired or revoked browser API grant cannot be restored by a previous setup approval.");
+        }
+        return structuredClone({ account, binding, grant: existingGrant });
+      }
+      if (existingGrant) throw new RestAuthError("REPLAY", 409, "Bot grant identifier already exists");
+      const ids = this.accountBots.get(account.id) ?? new Set<string>();
+      if (ids.size >= this.limits.maxGrantsPerAccount) {
+        throw new RestError(429, "SMART_ONBOARDING_GRANT_LIMIT", "Account browser API grant history limit exceeded.");
+      }
+      const grant = {
+        ...record.grant,
+        botAddress: record.grant.botAddress.toLowerCase() as BotGrant["botAddress"],
+        createdAt: currentTime,
+      };
+      const result = structuredClone({ account, binding: record.binding, grant });
+      // All fallible checks and copies precede the synchronous commit, while both account locks are held.
+      registry.bindOnboarding(record.binding);
+      this.saveEnrollment(account);
+      this.bots.set(grant.id, grant);
+      ids.add(grant.id);
+      this.accountBots.set(account.id, ids);
+      return result;
     }));
   }
 
@@ -252,6 +290,27 @@ export class MemoryAccountStore implements AccountStore {
     const account = this.accounts.get(id);
     if (!account) throw new RestAuthError("ACCOUNT_NOT_FOUND", 404, "Account not found");
     return account;
+  }
+
+  private enrollmentAccount(account: Account): Account {
+    const ownerKey = `${account.authorityChainId}:${account.ownerAddress.toLowerCase()}`;
+    const ownerAccount = this.owners.get(ownerKey);
+    const existing = this.accounts.get(account.id);
+    if ((ownerAccount && ownerAccount !== account.id) || (existing
+      && (existing.ownerAddress.toLowerCase() !== account.ownerAddress.toLowerCase()
+        || existing.authorityChainId !== account.authorityChainId))) {
+      throw new RestAuthError("FORBIDDEN", 403, "Account identity does not match its owner");
+    }
+    if (!existing && this.accounts.size >= this.limits.maxAccounts) {
+      throw new RestAuthError("STORAGE_LIMIT", 429, "Account storage limit exceeded");
+    }
+    return existing ?? { ...structuredClone(account), ownerAddress: account.ownerAddress.toLowerCase() as Account["ownerAddress"] };
+  }
+
+  private saveEnrollment(account: Account): void {
+    if (this.accounts.has(account.id)) return;
+    this.accounts.set(account.id, account);
+    this.owners.set(`${account.authorityChainId}:${account.ownerAddress.toLowerCase()}`, account.id);
   }
 
   private grant(id: string | null): BotGrant | null {

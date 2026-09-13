@@ -20,6 +20,7 @@ import { exactObject } from "../protocol/abi.js";
 import { rpcHex } from "../protocol/code.js";
 import { SMART_ACCOUNT_RESEARCH } from "./observations.js";
 import { prepareSafe7579Creation } from "./creation.js";
+import { onboardingDocument, validateOnboardingInput, verifyOnboardingSignatures, type OnboardingFinalizationInput } from "./onboarding.js";
 import type {
   SmartAccountBinding,
   SmartAccountDependencies,
@@ -541,6 +542,54 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
       deploymentConfirmed: false,
     };
   }
+  /** Public canonical read; it neither enrolls an identity nor grants authority. */
+  async function onboardingChallenge(input: unknown, signal?: AbortSignal) {
+    if (!options.onboarding) fail("SMART_ONBOARDING_UNAVAILABLE", "Account setup is not configured.", 503);
+    const value = validateOnboardingInput(input, Math.floor(now() / 1000));
+    const state = await inspect({manifestId:value.manifestId,address:value.address}, signal);
+    const current = Math.floor(now() / 1000);
+    validateOnboardingInput(value, current);
+    requireFreshOnboardingState(state, current);
+    signal?.throwIfAborted();
+    const typedData = onboardingDocument(options.audience, value, state);
+    return {state,typedData,digest:hashTypedData(typedData)};
+  }
+  /** The one purpose-specific signature is not a generic owner REST credential. */
+  async function finalizeOnboarding(input: unknown, signal?: AbortSignal) {
+    if (!options.onboarding) fail("SMART_ONBOARDING_UNAVAILABLE", "Account setup is not configured.", 503);
+    const value = validateOnboardingInput(input, Math.floor(now() / 1000), true);
+    const signed = input as OnboardingFinalizationInput;
+    const state = await inspect({manifestId:value.manifestId,address:value.address}, signal);
+    const document = onboardingDocument(options.audience, value, state);
+    if (!same(signed.stateHash, state.stateHash) || !same(signed.manifestRevision, state.manifestRevision)
+      || !same(signed.initializerHash, document.message.initializerHash))
+      fail("SMART_ACCOUNT_CHANGED", "The wallet configuration changed since setup review.", 409);
+    await verifyOnboardingSignatures(document, signed.signature, signed.proofSignature);
+    const current = Math.floor(now() / 1000);
+    validateOnboardingInput(input, current, true);
+    requireFreshOnboardingState(state, current);
+    signal?.throwIfAborted();
+    const accountId = document.message.accountId;
+    const binding: SmartAccountBinding = {
+      id: fingerprint({ownerAccountId:accountId,wallet:state.address,chainId:state.chainId}),
+      ownerAccountId:accountId,ownerAddress:value.owner,wallet:{chainId:state.chainId,address:state.address},manifestId:value.manifestId,
+      authorization:{digest:hashTypedData(document),nonce:value.nonce,expiresAt:value.expiresAt,method:"safe-current-owner-threshold-and-api-grant",
+        setup:{manifestRevision:state.manifestRevision,initializerHash:document.message.initializerHash,issuedAt:value.issuedAt,
+          grantId:value.grant.id,botAddress:value.grant.botAddress,scopes:[...value.grant.scopes],grantExpiresAt:value.grant.expiresAt,label:value.grant.label}},
+      state,
+    };
+    return options.onboarding.finalize({
+      account:{id:accountId,ownerAddress:value.owner,authorityChainId:8453,profile:{displayName:"",bio:"",avatarUri:null},createdAt:current,updatedAt:current},
+      binding,
+      grant:{id:value.grant.id,accountId,botAddress:value.grant.botAddress,scopes:[...value.grant.scopes],label:value.grant.label,
+        createdAt:current,expiresAt:value.grant.expiresAt,revokedAt:null},
+    });
+  }
+  function requireFreshOnboardingState(state: SmartAccountState, current: number) {
+    const timestamp = Number(state.evidence.timestamp);
+    if (!Number.isSafeInteger(timestamp) || timestamp < current - 300 || timestamp > current + 30)
+      fail("SMART_EVIDENCE_STALE", "Account setup requires a recent canonical wallet observation.", 409);
+  }
   async function bind(
     principal: RestPrincipal,
     input: BindingChallengeInput & { stateHash: Hex; signature: Hex },
@@ -776,6 +825,8 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
     inspect,
     prepareCreation,
     challenge,
+    onboardingChallenge,
+    finalizeOnboarding,
     bind,
     current,
     currentAt: (

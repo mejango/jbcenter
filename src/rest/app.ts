@@ -185,7 +185,8 @@ function indexerInput(params: URLSearchParams): IndexerReadInput {
   return value as unknown as IndexerReadInput;
 }
 
-/** Mount at /api/v1. Every live read and transaction request is independently signed. */
+/** Mount at /api/v1. Owner and grant requests are signed; bounded public setup
+ * inspection cannot mutate authority and finalization has its own exact proof. */
 export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
   const app = new Hono<RestEnv>();
   const descriptors = operationDescriptors(deps.operations);
@@ -1040,6 +1041,16 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
         context.get("restSignal"),
       ),
     );
+  });
+  app.post("/smart-accounts/onboarding-challenges", async (context) => {
+    query(context, []);
+    const input = await readSignedRequest(context.req.raw, requestTarget(context), REST_LIMITS.bodyBytes);
+    return response(context, await smartAccounts().onboardingChallenge(jsonBody(input), context.get("restSignal")));
+  });
+  app.post("/smart-accounts/onboarding", async (context) => {
+    query(context, []);
+    const input = await readSignedRequest(context.req.raw, requestTarget(context), REST_LIMITS.bodyBytes);
+    return response(context, await smartAccounts().finalizeOnboarding(jsonBody(input), context.get("restSignal")), 201);
   });
   app.post("/smart-accounts/bindings", async (context) => {
     query(context, []);
