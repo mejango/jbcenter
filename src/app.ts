@@ -44,32 +44,10 @@ import type { JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
 import { llmsIndex } from "./llms.js";
 import { JUICESCAN } from "./journeyGraph.js";
+import { originsForEnvironment } from "./firstParty.js";
+export { originsForEnvironment } from "./firstParty.js";
 
 const MAX_BODY_BYTES = 16_800_000;
-const PRODUCTION_ORIGINS = [
-  "https://juicebox.money",
-  "https://revnet.money",
-  "https://eth.shop",
-  "https://succulent.money",
-  "https://homerun.money",
-  "https://beep.biz",
-] as const;
-const DEV_ORIGINS = [
-  "https://dev.juicebox.money",
-  "https://dev.revnet.money",
-  "http://localhost:3001",
-  "http://localhost:3002",
-  "https://dev.eth.shop",
-  "http://localhost:3003",
-  "https://dev.succulent.money",
-  "http://localhost:3004",
-  "http://localhost:3010",
-  "http://localhost:3014",
-] as const;
-
-export function originsForEnvironment(environment = process.env.RAILWAY_ENVIRONMENT_NAME) {
-  return environment === "dev" ? DEV_ORIGINS : PRODUCTION_ORIGINS;
-}
 
 export const ALLOWED_ORIGINS = originsForEnvironment();
 const PIN_WINDOW_SECONDS = 10 * 60;

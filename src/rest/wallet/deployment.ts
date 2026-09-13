@@ -22,7 +22,7 @@ export interface WalletDeploymentFees {
   nonce: string;
   gas: string;
   maxFeePerGas: string;
-  /** Positive for this relay profile. The shared validator rejects viem's omitted canonical zero field. */
+  /** Positive by this deployment relay profile's fee policy. */
   maxPriorityFeePerGas: string;
 }
 export interface WalletDeploymentTemplate {

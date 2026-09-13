@@ -59,7 +59,9 @@ async function assertLive(client: PoolClient, record: Pick<WalletEnrollment, "in
   if (record.intent.expiresAt <= now) throw new RestError(410, "WALLET_ENROLLMENT_EXPIRED", "Enrollment expired; its existing verified receipt remains recoverable.");
   return now;
 }
-async function locked(client: PoolClient, id: string): Promise<WalletEnrollment> {
+/** Internal compound-workflow loader; the caller owns transaction and parent lock ordering. */
+export async function lockWalletEnrollmentInTransaction(client: PoolClient, id: string): Promise<WalletEnrollment> {
+  validId(id);
   const row = (await client.query<EnrollmentRow>("SELECT * FROM rest_wallet_enrollments WHERE id=$1 FOR UPDATE", [id])).rows[0];
   return row ? recordOf(row) : missing();
 }
@@ -119,7 +121,7 @@ export class PostgresWalletEnrollmentStore {
     return this.transaction(async client => {
       // Issuance admission always precedes enrollment and ceremony rows, including retries.
       await lockWalletCeremonyAdmission(client);
-      const current = await locked(client, id);
+      const current = await lockWalletEnrollmentInTransaction(client, id);
       if (enrollmentDigest(current.intent) !== enrollmentDigest(before.intent)) conflict();
       if (current.candidateDigest !== null) {
         if (current.candidateDigest !== prepared.candidateDigest) conflict();
@@ -150,7 +152,7 @@ export class PostgresWalletEnrollmentStore {
     // Expensive parsing/crypto precede row locks. The locked snapshot must remain byte-for-byte equal.
     const verified = await verifyWalletEnrollmentProof(before, proof);
     return this.transaction(async client => {
-      const current = await locked(client, id);
+      const current = await lockWalletEnrollmentInTransaction(client, id);
       if (enrollmentDigest([current.intent, current.candidate, current.creation, current.possession])
         !== enrollmentDigest([before.intent, before.candidate, before.creation, before.possession])) conflict();
       if (current.state === "verified") {

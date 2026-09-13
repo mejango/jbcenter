@@ -7,7 +7,7 @@ import {
 } from "viem";
 import { RestError } from "../core.js";
 import { rpcHex } from "../protocol/code.js";
-import type { ContractPin, PasskeyOwnerState, SmartAccountManifest, SmartSnapshot } from "./types.js";
+import type { ContractPin, PasskeyOwnerProfile, PasskeyOwnerState, SmartAccountManifest, SmartSnapshot } from "./types.js";
 
 const SOURCE = "https://github.com/safe-fndn/safe-modules";
 const COMMIT = "dfd3b05966e727dbb7a2fdeef52e4b230f63304e";
@@ -60,17 +60,10 @@ function requirePin(pin: ContractPin, name: ArtifactName, expectedRuntime: Hex) 
     invalid("The passkey profile needs the exact reviewed source, artifact and runtime pins.");
 }
 
-/** Only accepts an opt-in server manifest and owners already read from the Safe at this snapshot.
- * Exactly one immutable passkey plus one independent EOA is the pilot's complete authority set.
- */
-export async function inspectPasskeyOwnerProfile(input: {
-  manifest: SmartAccountManifest; owners: readonly Address[]; threshold: number; snapshot: SmartSnapshot;
-}): Promise<{ ownerProfile: PasskeyOwnerState; codeHashes: { address: Address; runtimeCodeHash: Hex }[] }> {
-  const { manifest, snapshot, owners } = input, profile = manifest.ownerProfile;
+async function inspectDependencies(manifest: SmartAccountManifest, snapshot: SmartSnapshot) {
+  const profile = manifest.ownerProfile;
   if (!profile || profile.version !== "center-passkey-v1" || manifest.chainId !== 8453 || snapshot.evidence.chainId !== 8453)
     invalid("The experimental passkey owner profile requires its explicit version on Base.");
-  if (input.threshold !== 1 || owners.length !== 2 || owners.some((a) => !isAddress(a) || BigInt(a) <= 1n) || same(owners[0]!, owners[1]!))
-    unsupported("The passkey pilot requires exactly one passkey signer and one independent EOA, with threshold one.");
   const a = await artifacts();
   if (!isAddress(profile.signerSingleton?.address)) invalid("A pinned passkey singleton is required.");
   requirePin(profile.signerFactory, "SafeWebAuthnSignerFactory", runtime(a.SafeWebAuthnSignerFactory, { "16": BigInt(profile.signerSingleton.address) }));
@@ -92,6 +85,56 @@ export async function inspectPasskeyOwnerProfile(input: {
   }
   if (!same(String(await read(profile.signerFactory.address, "SINGLETON")), profile.signerSingleton.address))
     unsupported("The signer factory uses a different singleton.");
+  return { a, profile, codeHashes, read };
+}
+
+function signerIdentity(a: Record<ArtifactName, Artifact>, profile: PasskeyOwnerProfile, x: bigint, y: bigint, verifiers: bigint) {
+  if (x < 0n || x >= PRIME || y < 0n || y >= PRIME ||
+    (y * y - x * x * x + 3n * x - B) % PRIME !== 0n || verifiers !== BigInt(profile.p256Verifier.address))
+    unsupported("The signer must contain a valid P256 point and exactly the reviewed FCL verifier.");
+  const expectedRuntime = runtime(a.SafeWebAuthnSignerProxy, { "226": BigInt(profile.signerSingleton.address), "229": x, "232": y, "236": verifiers });
+  const predicted = getContractAddress({ from: profile.signerFactory.address, opcode: "CREATE2", salt: zeroHash,
+    bytecode: concatHex([a.SafeWebAuthnSignerProxy.bytecode, encodeAbiParameters(
+      [{ type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint176" }],
+      [profile.signerSingleton.address, x, y, verifiers])]) });
+  return { expectedRuntime, predicted };
+}
+
+/** Transaction-free predeployment check. An absent signer is predicted from reviewed artifacts;
+ * an existing signer must have the exact immutable key/runtime. This proves no Safe ownership.
+ */
+export async function inspectPasskeyCreationSigner(input: {
+  manifest: SmartAccountManifest; publicKey: { x: Hex; y: Hex }; snapshot: SmartSnapshot;
+}): Promise<{ address: Address; deployed: boolean }> {
+  const { a, profile, read } = await inspectDependencies(input.manifest, input.snapshot);
+  if (!input.publicKey || !/^0x[0-9a-fA-F]{64}$/.test(input.publicKey.x) || !/^0x[0-9a-fA-F]{64}$/.test(input.publicKey.y))
+    unsupported("A canonical enrolled P256 key is required.");
+  const x = BigInt(input.publicKey.x), y = BigInt(input.publicKey.y), verifiers = BigInt(profile.p256Verifier.address);
+  const { expectedRuntime, predicted } = signerIdentity(a, profile, x, y, verifiers);
+  if (!same(String(await read(profile.signerFactory.address, "getSigner", [x, y, verifiers])), predicted))
+    unsupported("The signer factory does not return the reviewed CREATE2 address.");
+  const code = rpcHex(await input.snapshot.request("eth_getCode", [predicted]), "prospective signer code", 49_152);
+  if (code !== "0x") {
+    const config = await read(predicted, "getConfiguration");
+    if (!same(code, expectedRuntime) || !Array.isArray(config) || config.length !== 3 ||
+      config[0] !== x || config[1] !== y || config[2] !== verifiers)
+      unsupported("The deployed signer does not match the enrolled key and exact immutable runtime.");
+  }
+  return { address: predicted, deployed: code !== "0x" };
+}
+
+/** Only accepts an opt-in server manifest and owners already read from the Safe at this snapshot.
+ * Exactly one immutable passkey plus one independent EOA is the pilot's complete authority set.
+ */
+export async function inspectPasskeyOwnerProfile(input: {
+  manifest: SmartAccountManifest; owners: readonly Address[]; threshold: number; snapshot: SmartSnapshot;
+}): Promise<{ ownerProfile: PasskeyOwnerState; codeHashes: { address: Address; runtimeCodeHash: Hex }[] }> {
+  const { manifest, snapshot, owners } = input;
+  if (!manifest.ownerProfile || manifest.ownerProfile.version !== "center-passkey-v1" || manifest.chainId !== 8453 || snapshot.evidence.chainId !== 8453)
+    invalid("The experimental passkey owner profile requires its explicit version on Base.");
+  if (input.threshold !== 1 || owners.length !== 2 || owners.some((a) => !isAddress(a) || BigInt(a) <= 1n) || same(owners[0]!, owners[1]!))
+    unsupported("The passkey pilot requires exactly one passkey signer and one independent EOA, with threshold one.");
+  const { a, profile, codeHashes, read } = await inspectDependencies(manifest, snapshot);
   const observed = await Promise.all(owners.map(async (address) => ({ address: getAddress(address),
     code: rpcHex(await snapshot.request("eth_getCode", [address]), "owner code") })));
   const eoa = observed.filter((o) => o.code === "0x"), contracts = observed.filter((o) => o.code !== "0x");
@@ -102,14 +145,7 @@ export async function inspectPasskeyOwnerProfile(input: {
   if (!Array.isArray(config) || config.length !== 3 || config.some((v) => typeof v !== "bigint"))
     unsupported("The signer configuration is malformed.");
   const [x, y, verifiers] = config as [bigint, bigint, bigint];
-  if (x < 0n || x >= PRIME || y < 0n || y >= PRIME ||
-    (y * y - x * x * x + 3n * x - B) % PRIME !== 0n || verifiers !== BigInt(profile.p256Verifier.address))
-    unsupported("The signer must contain a valid P256 point and exactly the reviewed FCL verifier.");
-  const expectedRuntime = runtime(a.SafeWebAuthnSignerProxy, { "226": BigInt(profile.signerSingleton.address), "229": x, "232": y, "236": verifiers });
-  const predicted = getContractAddress({ from: profile.signerFactory.address, opcode: "CREATE2", salt: zeroHash,
-    bytecode: concatHex([a.SafeWebAuthnSignerProxy.bytecode, encodeAbiParameters(
-      [{ type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint176" }],
-      [profile.signerSingleton.address, x, y, verifiers])]) });
+  const { expectedRuntime, predicted } = signerIdentity(a, profile, x, y, verifiers);
   if (!same(signer.code, expectedRuntime) || !same(signer.address, predicted) ||
     !same(String(await read(profile.signerFactory.address, "getSigner", [x, y, verifiers])), predicted))
     unsupported("The passkey signer differs from the canonical factory address or immutable runtime.");

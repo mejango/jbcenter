@@ -8,6 +8,7 @@ import { Pool } from "pg";
 import { chromium, type Browser, type CDPSession, type Page } from "playwright";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createWalletEnrollmentIntent, walletEnrollmentDocument, type WalletEnrollment } from "../src/rest/wallet/enrollment.js";
+import { prepareWalletDeploymentApproval, verifyWalletDeploymentProof } from "../src/rest/wallet/deployment.js";
 import { enrollmentBackupAccount, enrollmentManifest, signBackupProof } from "./fixtures/wallet-enrollment-crypto.js";
 
 const connectionString = process.env.TEST_DATABASE_URL;
@@ -172,17 +173,18 @@ suite("real browser enrollment through two HTTP replicas and PostgreSQL", () => 
     return candidates[0]!.body as WalletEnrollment;
   }
 
-  async function assertion(record: WalletEnrollment, userVerification: "required" | "discouraged" = "required") {
-    return page.evaluate(async ({ record, userVerification }) => {
+  async function assertion(record: WalletEnrollment, userVerification: "required" | "discouraged" = "required",
+    challenge = record.possession!.ceremony.challenge) {
+    return page.evaluate(async ({ record, userVerification, challenge }) => {
       const decode = (value: string) => Uint8Array.from(atob(value.replaceAll("-", "+").replaceAll("_", "/")), c => c.charCodeAt(0));
       const encode = (value: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(value))).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
       const credential = await navigator.credentials.get({ publicKey: {
-        rpId: record.intent.rpId, challenge: decode(record.possession!.ceremony.challenge), userVerification, timeout: 5_000,
+        rpId: record.intent.rpId, challenge: decode(challenge), userVerification, timeout: 5_000,
       } }) as PublicKeyCredential;
       const proof = credential.response as AuthenticatorAssertionResponse;
       return { credentialId: credential.id, authenticatorData: encode(proof.authenticatorData), clientDataJSON: encode(proof.clientDataJSON),
         signature: encode(proof.signature), userHandle: proof.userHandle ? encode(proof.userHandle) : null };
-    }, { record, userVerification });
+    }, { record, userVerification, challenge });
   }
 
   it("keeps one enrollment and original receipt when a committed browser response is lost", async () => {
@@ -233,5 +235,31 @@ suite("real browser enrollment through two HTTP replicas and PostgreSQL", () => 
       proof: { assertion: await assertion(record), backupSignature } });
     expect(accepted.status).toBe(200); expect(accepted.body.replayed).toBe(false);
     expect(accepted.body.record.state).toBe("verified"); expect(pageErrors).toEqual([]);
+  }, 30_000);
+
+  it("requires a separate browser assertion for deployment of the same verified wallet", async () => {
+    const candidate = await register(), registration = await assertion(candidate);
+    const completed = await browserRequest("/replica/0/finalize", { id: candidate.intent.id, proof: {
+      assertion: registration, backupSignature: await signBackupProof(walletEnrollmentDocument(candidate)),
+    } });
+    expect(completed.status).toBe(200);
+    const record = completed.body.record as WalletEnrollment, issuedAt = Date.now();
+    const approval = prepareWalletDeploymentApproval(record, { issuedAt, expiresAt: issuedAt + 120_000 });
+    const decode = (wire: typeof registration) => ({ ...wire,
+      authenticatorData: Buffer.from(wire.authenticatorData, "base64url"), clientDataJSON: Buffer.from(wire.clientDataJSON, "base64url"),
+      signature: Buffer.from(wire.signature, "base64url") });
+    expect(approval.ceremony.challenge).not.toBe(record.possession!.ceremony.challenge);
+    expect(() => verifyWalletDeploymentProof(record, approval, decode(registration), Date.now())).toThrow();
+    const fresh = await assertion(record, "required", approval.ceremony.challenge);
+    expect(fresh.credentialId).toBe(registration.credentialId); expect(fresh.userHandle).toBe(registration.userHandle);
+    expect(verifyWalletDeploymentProof(record, approval, decode(fresh), Date.now()).verificationDigest).toMatch(/^[0-9a-f]{64}$/);
+    // The pure deployment proof does not mutate identity, allocate a nonce, or authorize a session.
+    expect((await browserRequest("/replica/1/get", { id: record.intent.id })).body).toEqual(record);
+    const crossPurposeReplay = await browserRequest("/replica/1/finalize", { id: record.intent.id, proof: {
+      assertion: fresh, backupSignature: await signBackupProof(walletEnrollmentDocument(record)),
+    } });
+    expect(crossPurposeReplay.status).toBe(403);
+    expect((await pool!.query("SELECT count(*)::int AS count FROM rest_wallet_credentials")).rows[0].count).toBe(1);
+    expect(pageErrors).toEqual([]);
   }, 30_000);
 });

@@ -43,6 +43,12 @@ export const requiredVitestSuites = [
   "test/rest-wallet-enrollment-browser.test.ts",
   "test/rest-wallet-enrollment-pressure.test.ts",
   "test/rest-wallet-deployment.test.ts",
+  "test/rest-wallet-deployment-postgres.integration.test.ts",
+  "test/rest-wallet-deployment-chain.test.ts",
+  "test/rest-wallet-deployment-chain-evm.test.ts",
+  "test/rest-wallet-policy.test.ts",
+  "test/rest-wallet-policy-postgres.integration.test.ts",
+  "test/rest-signed-transaction.test.ts",
 ];
 
 export function validateRuntime(version, databaseUrl) {

@@ -2,6 +2,7 @@ import {
   keccak256,
   parseTransaction,
   recoverTransactionAddress,
+  serializeTransaction,
   type AccessList,
   type Hex,
   type TransactionSerialized,
@@ -11,6 +12,26 @@ import type { RelayPolicy, SignedAttempt } from "./types.js";
 
 const SECP256K1_ORDER =
   0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+
+function validateAccessList(value: unknown): void {
+  if (value === undefined) return;
+  const invalid = () => new RestError(400, "INVALID_SIGNED_TRANSACTION", "Access lists must contain addresses and 32-byte storage keys.");
+  const bound = () => new RestError(422, "ACCESS_LIST_BOUND", "The signed access list exceeds relay policy.");
+  if (!Array.isArray(value)) throw invalid();
+  if (value.length > 256) throw bound();
+  let keyCount = 0;
+  for (const item of value) {
+    if (!item || typeof item !== "object" || typeof item.address !== "string" ||
+      !/^0x[0-9a-fA-F]{40}$/.test(item.address) || !Array.isArray(item.storageKeys)) throw invalid();
+    keyCount += item.storageKeys.length;
+    if (keyCount > 1024) throw bound();
+    for (const key of item.storageKeys) {
+      // A nested RLP list can survive parsing, serialization and signer recovery.
+      // Enforce byte-string types independently of those codec operations.
+      if (typeof key !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(key)) throw invalid();
+    }
+  }
+}
 export type ValidatedSignedTransaction = Omit<
   SignedAttempt,
   "reservedAt" | "leaseToken" | "leaseUntil" | "dispatchCount"
@@ -28,8 +49,9 @@ export async function validateSignedTransaction(
   policy: RelayPolicy,
 ): Promise<ValidatedSignedTransaction> {
   if (
-    !/^0x(?:[0-9a-fA-F]{2})+$/.test(raw) ||
-    (raw.length - 2) / 2 > policy.maximumRawBytes
+    typeof raw !== "string" ||
+    (raw.length - 2) / 2 > policy.maximumRawBytes ||
+    !/^0x(?:[0-9a-fA-F]{2})+$/.test(raw)
   ) {
     throw new RestError(
       400,
@@ -67,8 +89,10 @@ export async function validateSignedTransaction(
     );
   }
   if (
-    !tx.r ||
-    !tx.s ||
+    typeof tx.r !== "string" ||
+    typeof tx.s !== "string" ||
+    !/^0x(?:[0-9a-fA-F]{2}){1,32}$/.test(tx.r) ||
+    !/^0x(?:[0-9a-fA-F]{2}){1,32}$/.test(tx.s) ||
     BigInt(tx.r) <= 0n ||
     BigInt(tx.r) >= SECP256K1_ORDER ||
     BigInt(tx.s) <= 0n ||
@@ -79,6 +103,17 @@ export async function validateSignedTransaction(
       "INVALID_TRANSACTION_SIGNATURE",
       "A canonical low-s transaction signature is required.",
     );
+  }
+  if ("accessList" in tx) validateAccessList(tx.accessList);
+  try {
+    // Parsing and signer recovery can canonicalize malformed RLP. Check the original
+    // signed envelope before any asynchronous recovery or later durable nonce claim.
+    const canonical = tx.type === "legacy"
+      ? serializeTransaction(tx, { r: tx.r, s: tx.s, v: tx.v! })
+      : serializeTransaction(tx, { r: tx.r, s: tx.s, yParity: tx.yParity! });
+    if (canonical.toLowerCase() !== raw.toLowerCase()) throw new Error("Noncanonical bytes");
+  } catch {
+    throw new RestError(400, "INVALID_SIGNED_TRANSACTION", "The signed transaction must use canonical encoding.");
   }
   let sender: Awaited<ReturnType<typeof recoverTransactionAddress>>;
   try {
@@ -105,12 +140,13 @@ export async function validateSignedTransaction(
     );
   }
   const gas = tx.gas ?? 0n;
+  // Canonical RLP encodes integer zero as empty bytes. The parser represents those
+  // fee fields as undefined; exact roundtrip above distinguishes zero from malformed encoding.
   const maximumFeePerGas =
-    tx.type === "eip1559" ? tx.maxFeePerGas : tx.gasPrice;
+    (tx.type === "eip1559" ? tx.maxFeePerGas : tx.gasPrice) ?? 0n;
   if (
     gas <= 0n ||
     gas > policy.maximumGas ||
-    maximumFeePerGas === undefined ||
     maximumFeePerGas < 0n ||
     maximumFeePerGas > policy.maximumFeePerGas
   ) {
@@ -120,28 +156,15 @@ export async function validateSignedTransaction(
       "The signed gas limit or fee cap exceeds relay policy.",
     );
   }
+  const priorityFeePerGas = tx.type === "eip1559" ? tx.maxPriorityFeePerGas ?? 0n : undefined;
   if (
     tx.type === "eip1559" &&
-    (tx.maxPriorityFeePerGas === undefined ||
-      tx.maxPriorityFeePerGas < 0n ||
-      tx.maxPriorityFeePerGas > maximumFeePerGas)
+    (priorityFeePerGas! < 0n || priorityFeePerGas! > maximumFeePerGas)
   ) {
     throw new RestError(
       400,
       "INVALID_FEE_ENVELOPE",
       "The priority fee must not exceed the signed maximum fee.",
-    );
-  }
-  if (
-    "accessList" in tx &&
-    tx.accessList &&
-    (tx.accessList.length > 256 ||
-      tx.accessList.reduce((n, item) => n + item.storageKeys.length, 0) > 1024)
-  ) {
-    throw new RestError(
-      422,
-      "ACCESS_LIST_BOUND",
-      "The signed access list exceeds relay policy.",
     );
   }
   const maximumCost = (tx.value ?? 0n) + gas * maximumFeePerGas;
@@ -162,8 +185,8 @@ export async function validateSignedTransaction(
     maximumFeePerGas: maximumFeePerGas.toString(),
     maximumCost: maximumCost.toString(),
     ...(tx.type === "eip1559"
-      ? { priorityFeePerGas: tx.maxPriorityFeePerGas! }
-      : { gasPrice: tx.gasPrice! }),
+      ? { priorityFeePerGas: priorityFeePerGas! }
+      : { gasPrice: maximumFeePerGas }),
     ...("accessList" in tx && tx.accessList
       ? { accessList: tx.accessList }
       : {}),
