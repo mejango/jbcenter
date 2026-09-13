@@ -1,5 +1,6 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { isIP } from 'node:net';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Hex } from 'viem';
@@ -55,6 +56,23 @@ function defaultPasskeyName(): string {
   const second = ['birch', 'brook', 'cloud', 'dawn', 'fern', 'field', 'forest', 'garden', 'hill', 'lake', 'leaf', 'meadow', 'moon', 'river', 'sky', 'willow'];
   return `Juicebox test ${first[words[0]! % first.length]} ${second[words[1]! % second.length]}`;
 }
+function remoteConfiguration(value: unknown): { origin: string; rpId: string; authorization: Buffer } | undefined {
+  if (value === undefined) return;
+  const invalid = (): never => { throw new Error('Invalid remote probe options'); };
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return invalid();
+  const configuration = value as Record<string, unknown>;
+  if (Object.keys(configuration).length !== 2 || typeof configuration.origin !== 'string'
+    || typeof configuration.accessToken !== 'string') return invalid();
+  let url: URL; try { url = new URL(configuration.origin); } catch { return invalid(); }
+  const host = url.hostname;
+  if (url.protocol !== 'https:' || url.origin !== configuration.origin || url.port || url.username || url.password
+    || host.length > 253 || !host.includes('.') || isIP(host) || host === 'juicebox.center' || host.endsWith('.juicebox.center')
+    || !host.split('.').every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))
+    || !/^[A-Za-z0-9_-]{43}$/.test(configuration.accessToken)) return invalid();
+  const token = Buffer.from(configuration.accessToken, 'base64url');
+  if (token.length !== 32 || token.toString('base64url') !== configuration.accessToken) return invalid();
+  return { origin: url.origin, rpId: host, authorization: Buffer.from(`Bearer ${configuration.accessToken}`) };
+}
 function bytes(value: unknown, max: number): Buffer {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value) || value.length > Math.ceil(max * 4 / 3))
     return fail(400, 'PROBE_INPUT_INVALID');
@@ -90,20 +108,29 @@ function json(request: IncomingMessage): Promise<unknown> {
 
 const browserScript = String.raw`
 (() => {
+  const remote = document.documentElement.dataset.remote === 'true';
+  let accessToken = null;
+  if (remote) {
+    const fragment = location.hash.slice(1);
+    history.replaceState(null, '', location.pathname + location.search);
+    if (/^[A-Za-z0-9_-]{43}$/.test(fragment)) accessToken = fragment;
+  }
   const status = document.querySelector('#status'), statusLabel = document.querySelector('#status-label'), statusMessage = document.querySelector('#status-message');
   const create = document.querySelector('#create'), nameInput = document.querySelector('#passkey-name');
   const verify = document.querySelector('#verify'), cancel = document.querySelector('#cancel'), reset = document.querySelector('#reset');
   let id = null, testLabel = '', candidate = false, busy = false, generation = 0, controller = null;
   const decode = value => Uint8Array.from(atob(value.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0));
   const encode = value => btoa(String.fromCharCode(...new Uint8Array(value))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-  function render() { create.disabled = busy || candidate; verify.disabled = busy || !candidate;
-    cancel.disabled = !busy || !controller; reset.disabled = busy; nameInput.disabled = busy || candidate; }
+  function render() { const locked = remote && !accessToken;
+    create.disabled = locked || busy || candidate; verify.disabled = locked || busy || !candidate;
+    cancel.disabled = locked || !busy || !controller; reset.disabled = locked || busy; nameInput.disabled = locked || busy || candidate; }
   function show(state, text) { status.dataset.state = state;
     statusLabel.textContent = { ready: 'Ready', working: 'Working', registered: 'Created', verified: 'Success', error: 'Not verified', cancelled: 'Cancelled' }[state];
     statusMessage.textContent = text; render(); }
   async function api(path, body) {
     const abort = new AbortController(), timer = setTimeout(() => abort.abort(), 8_000);
-    try { const response = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-center-device-probe': '1' },
+    try { const response = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-center-device-probe': '1',
+      ...(remote ? { authorization: 'Bearer ' + accessToken } : {}) },
       body: JSON.stringify(body), signal: abort.signal });
       const result = await response.json(); if (!response.ok) { const error = new Error('Local verification failed'); error.code = result.code; error.diagnostic = result.diagnostic; throw error; }
       return result;
@@ -112,7 +139,7 @@ const browserScript = String.raw`
   async function run(kind) {
     if (busy) return;
     const turn = ++generation; controller = new AbortController(); busy = true;
-    show('working', kind === 'create' ? 'Create a localhost test passkey in the browser prompt.' : 'Choose "' + testLabel + '" and verify with your device.');
+    show('working', kind === 'create' ? 'Create a test passkey for this site in the browser prompt.' : 'Choose "' + testLabel + '" and verify with your device.');
     try {
       if (!window.PublicKeyCredential || !navigator.credentials) throw new Error('Unavailable');
       if (kind === 'create') {
@@ -154,7 +181,7 @@ const browserScript = String.raw`
         USER_HANDLE_MISMATCH: 'The passkey user handle did not match this test. Choose "' + testLabel + '" or start over.',
         USER_HANDLE_REQUIRED: 'The browser did not return a discoverable passkey user handle. Try Verify passkey again or start over.',
         AUTHENTICATOR_FLAGS_INVALID: 'The device did not return the required verification flags. Unlock your device and try Verify passkey again.',
-        RP_MISMATCH: 'The passkey response was for a different site. Keep this localhost page open and try Verify passkey again.',
+        RP_MISMATCH: 'The passkey response was for a different site. Keep this test page open and try Verify passkey again.',
         CHALLENGE_OR_CLIENT_DATA_INVALID: 'The browser response did not match the fresh challenge or supported format. Try Verify passkey again.',
         CLIENT_DATA_INVALID: 'The browser response did not match this page or the supported format. Try Verify passkey again.',
         SIGNATURE_INVALID: 'The passkey signature could not be verified. Try Verify passkey again or start over.',
@@ -165,6 +192,7 @@ const browserScript = String.raw`
       show('error', error.name === 'NotAllowedError' || error.name === 'AbortError'
         ? 'Passkey request cancelled or not allowed. Try again.'
         : error.code === 'PROBE_NAME_INVALID' ? 'Enter a visible passkey name of up to 64 UTF-8 bytes, without control or direction-formatting characters.'
+        : error.code === 'PROBE_ACCESS_INVALID' ? 'This test link is invalid or expired. Reopen the current private test link.'
         : error.code === 'PROBE_EXPIRED' ? 'This local test expired. Start over to try again.'
           : diagnostic || 'Passkey verification failed or is unavailable in this browser. Try again or start over.');
     } finally { if (turn === generation) { busy = false; controller = null; render(); } }
@@ -179,15 +207,16 @@ const browserScript = String.raw`
   }
   create.addEventListener('click', () => run('create')); verify.addEventListener('click', () => run('verify'));
   cancel.addEventListener('click', () => clear(true)); reset.addEventListener('click', () => clear(false));
-  render();
+  if (remote && !accessToken) show('error', 'Open the private test link to enable this temporary test.');
+  else render();
 })();`;
-function page(nonce: string) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Center local passkey device test</title><style nonce="${nonce}">
+function page(nonce: string, rpId: string, remote: boolean) {
+  return `<!doctype html><html lang="en" data-remote="${remote}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Center passkey device test</title><style nonce="${nonce}">
 :root{color-scheme:light dark}*{box-sizing:border-box}body{font:16px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;max-width:720px;margin:48px auto;padding:24px}h1{font-size:1.6rem;line-height:1.2}button,input{font:inherit;border:1px solid currentColor;border-radius:0;padding:10px 14px;background:transparent;color:inherit}button{cursor:pointer}button:disabled,input:disabled{opacity:.45;cursor:default}button:focus-visible,input:focus-visible{outline:3px solid;outline-offset:3px}label{display:block;margin-bottom:6px}input{display:block;width:100%}.name-field{margin:24px 0}.actions{display:flex;gap:10px;flex-wrap:wrap}#status{margin:28px 0;min-height:110px;overflow-wrap:anywhere;cursor:auto}#status-label{display:block;margin-bottom:6px}#status[data-state=verified] #status-label{color:#166534}#status[data-state=error] #status-label{color:#b3261e}small{font-size:.85rem}@media(prefers-color-scheme:dark){#status[data-state=verified] #status-label{color:#86efac}#status[data-state=error] #status-label{color:#ffaba6}}@media(max-width:500px){body{margin:12px auto;padding:20px}.actions button{flex:1 1 45%}}
 </style></head><body><p>JUICEBOX CENTER / DEVICE TEST</p><h1>Test your passkey</h1>
-<p><strong>Local test only.</strong> No wallet, login, or payment is created.</p>
-<p>Create a passkey for localhost, then prove possession with a second device prompt. The test passkey may remain or sync in Passwords; you can remove it afterward.</p>
+<p><strong>${remote ? 'Temporary test only.' : 'Local test only.'}</strong> No wallet, login, or payment is created.</p>
+<p>Create a passkey for ${rpId}, then prove possession with a second device prompt. The test passkey may remain or sync in Passwords; you can remove it afterward.</p>
 <div class="name-field"><label for="passkey-name">Passkey name</label><input id="passkey-name" name="name" type="text" value="${defaultPasskeyName()}" maxlength="64" autocomplete="off" spellcheck="false" aria-describedby="name-help" required><small id="name-help">Choose a name you will recognize. Up to 64 UTF-8 bytes.</small></div>
 <div class="actions"><button id="create" type="button">Create test passkey</button><button id="verify" type="button" disabled>Verify passkey</button><button id="cancel" type="button" disabled>Cancel</button><button id="reset" type="button">Start over</button></div>
 <div id="status" role="status" aria-live="polite" aria-atomic="true" data-state="ready"><strong id="status-label">Ready</strong><span id="status-message">Create a test passkey, then verify it.</span></div>
@@ -195,13 +224,15 @@ function page(nonce: string) {
 <script nonce="${nonce}">${browserScript}</script></body></html>`;
 }
 
-/** Local manual observation only. No database, production RP, wallet/account, grant or deployment. */
+/** Manual device observation only. No database, production RP, wallet/account, grant or deployment. */
 export async function startWalletDeviceProbe(options: {
   port?: number; challengeTtlMs?: number; lifetimeMs?: number; maxProbes?: number;
+  remoteTest?: { origin: string; accessToken: string };
   onEvent?: (event: 'started' | 'registered' | 'verified' | 'cancelled' | 'expired' | 'rejected', diagnostic?: ProbeDiagnostic) => void;
 } = {}) {
   const port = options.port ?? 0, ttl = options.challengeTtlMs ?? 180_000;
   const lifetime = options.lifetimeMs ?? 900_000, max = options.maxProbes ?? 8;
+  const remote = remoteConfiguration(options.remoteTest), rpId = remote?.rpId ?? 'localhost';
   if (!Number.isSafeInteger(port) || port < 0 || port > 65535
     || !Number.isSafeInteger(ttl) || ttl < 100 || ttl > 300_000
     || !Number.isSafeInteger(lifetime) || lifetime < 100 || lifetime > 900_000
@@ -228,10 +259,14 @@ export async function startWalletDeviceProbe(options: {
         || (header(request, 'origin') !== undefined && header(request, 'origin') !== origin)
         || ['cross-site', 'same-site'].includes(header(request, 'sec-fetch-site') ?? '')) fail(403, 'PROBE_ORIGIN_INVALID');
       if (request.url === '/' && request.method === 'GET') {
-        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); response.end(page(scriptNonce)); return;
+        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); response.end(page(scriptNonce, rpId, !!remote)); return;
+      }
+      if (remote) {
+        const supplied = Buffer.from(header(request, 'authorization') ?? '');
+        if (supplied.length !== remote.authorization.length || !timingSafeEqual(supplied, remote.authorization)) fail(403, 'PROBE_ACCESS_INVALID');
       }
       if (request.url === '/status' && request.method === 'GET') {
-        expire(); reply(200, { testOnly: true, rpId: 'localhost', startedAt: new Date(startedAt).toISOString(),
+        expire(); reply(200, { testOnly: true, rpId, startedAt: new Date(startedAt).toISOString(),
           stopsAt: new Date(startedAt + lifetime).toISOString(), pending: probes.size, counts: { ...counts } }); return;
       }
       if (request.method !== 'POST') fail(405, 'PROBE_METHOD_INVALID');
@@ -246,7 +281,7 @@ export async function startWalletDeviceProbe(options: {
         const id = randomBytes(32).toString('base64url'), challenge = nonce(), userHandle = randomBytes(32).toString('base64url');
         probes.set(id, { expiresAt: Date.now() + ttl, challenge, userHandle });
         event('started');
-        reply(200, { id, publicKey: { rp: { id: 'localhost', name: 'Center local device test' },
+        reply(200, { id, publicKey: { rp: { id: rpId, name: remote ? 'Center temporary device test' : 'Center local device test' },
           // WebAuthn account display metadata, not a credential identity or a provider-owned nickname.
           user: { id: userHandle, name, displayName: name },
           challenge: encoded(challenge), pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
@@ -265,7 +300,7 @@ export async function startWalletDeviceProbe(options: {
         if (value.type !== 'public-key' || typeof value.credentialId !== 'string') fail(400, 'PROBE_INPUT_INVALID');
         try { probe.candidate = parseWalletRegistration({ type: 'public-key', credentialId: value.credentialId as string,
           rawId: bytes(value.rawId, 1023), clientDataJSON: bytes(value.clientDataJSON, 2048), attestationObject: bytes(value.attestationObject, 2048) },
-        { challenge: probe.challenge, rpId: 'localhost', origin, userHandle: probe.userHandle }); }
+        { challenge: probe.challenge, rpId, origin, userHandle: probe.userHandle }); }
         catch { fail(403, 'PROBE_PROOF_INVALID'); }
         if (probe.expiresAt <= Date.now()) fail(410, 'PROBE_EXPIRED');
         probes.set(id, probe); event('registered'); reply(200, { status: 'registered' }); return;
@@ -273,7 +308,7 @@ export async function startWalletDeviceProbe(options: {
       if (!probe.candidate) fail(409, 'PROBE_STATE_INVALID');
       if (request.url === '/challenge') {
         probe.possessionChallenge = nonce();
-        reply(200, { publicKey: { rpId: 'localhost', challenge: encoded(probe.possessionChallenge), userVerification: 'required', timeout: 90_000 } }); return;
+        reply(200, { publicKey: { rpId, challenge: encoded(probe.possessionChallenge), userVerification: 'required', timeout: 90_000 } }); return;
       }
       const challenge = probe.possessionChallenge; delete probe.possessionChallenge;
       if (!challenge) fail(409, 'PROBE_STATE_INVALID');
@@ -286,7 +321,7 @@ export async function startWalletDeviceProbe(options: {
         if (value.userHandle !== probe.userHandle) throw new ProbeError(403, 'PROBE_PROOF_INVALID', 'USER_HANDLE_MISMATCH');
         verifyWalletAssertion({ credentialId: value.credentialId as string, authenticatorData: bytes(value.authenticatorData, 37),
         clientDataJSON: bytes(value.clientDataJSON, 2048), signature: bytes(value.signature, 72), userHandle: value.userHandle as string | null },
-      { purpose: 'registration', challenge: challenge!, rpId: 'localhost', origin,
+      { purpose: 'registration', challenge: challenge!, rpId, origin,
         credential: { id: probe.candidate!.credentialId, publicKey: probe.candidate!.publicKey, userHandle: probe.userHandle,
           backupEligible: probe.candidate!.backupEligible }, requireUserHandle: true }); }
       catch (error) { throw new ProbeError(403, 'PROBE_PROOF_INVALID', proofDiagnostic(error)); }
@@ -307,7 +342,8 @@ export async function startWalletDeviceProbe(options: {
   });
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Local probe could not start');
-  origin = `http://localhost:${address.port}`;
+  const localOrigin = `http://localhost:${address.port}`;
+  origin = remote?.origin ?? localOrigin;
   let closing: Promise<void> | undefined;
   const sweep = setInterval(expire, Math.min(ttl, 10_000)); sweep.unref();
   const deadline = setTimeout(() => { void close(); }, lifetime); deadline.unref();
@@ -321,7 +357,7 @@ export async function startWalletDeviceProbe(options: {
     });
     return closing;
   }
-  return { origin, close };
+  return { origin, localOrigin, close };
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

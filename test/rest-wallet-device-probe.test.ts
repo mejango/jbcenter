@@ -7,11 +7,12 @@ import { startWalletDeviceProbe } from '../scripts/rest/wallet-device-probe.js';
 
 let probe: Awaited<ReturnType<typeof startWalletDeviceProbe>> | undefined;
 afterEach(async () => { await probe?.close(); probe = undefined; });
-async function send(path: string, options: { method?: string; headers?: Record<string, string>; body?: string; omitOrigin?: boolean } = {}) {
+async function send(path: string, options: { method?: string; headers?: Record<string, string | string[]>; body?: string; omitOrigin?: boolean } = {}) {
   const origin = new URL(probe!.origin), method = options.method ?? 'POST';
+  const localOrigin = new URL(probe!.localOrigin);
   return new Promise<{ status: number; headers: Record<string, unknown>; text: string; json: Record<string, any> }>((resolve, reject) => {
     const body = options.body ?? (path === '/begin' ? JSON.stringify({ name: 'Juicebox HTTP test' }) : '{}');
-    const req = request({ host: '127.0.0.1', port: origin.port, path, method,
+    const req = request({ host: '127.0.0.1', port: localOrigin.port, path, method,
       headers: { host: origin.host, ...(method === 'POST' ? { ...(options.omitOrigin ? {} : { origin: origin.origin }), 'content-type': 'application/json', 'x-center-device-probe': '1' } : {}), ...options.headers } }, res => {
       const chunks: Buffer[] = []; res.on('data', chunk => chunks.push(chunk));
       res.on('end', () => { const text = Buffer.concat(chunks).toString();
@@ -204,5 +205,160 @@ describe('local device probe HTTP boundary', () => {
     const fresh = signGet({ ...context, challenge: hex(next), credentialId: registration.credentialId, key: registration.key });
     expect((await send('/verify', { body: JSON.stringify({ id: initial.id, response: wire(fresh) }) })).json)
       .toEqual({ status: 'verified', userVerified: true, userHandleMatched: true });
+  });
+});
+
+describe('remote device probe HTTP boundary', () => {
+  const origin = 'https://device-probe.example.test';
+  const accessToken = Buffer.alloc(32, 0x6a).toString('base64url');
+  const remoteTest = { origin, accessToken };
+  const authorized = { authorization: `Bearer ${accessToken}` };
+
+  it('rejects unsafe remote configuration before retaining a listening server', async () => {
+    const invalidOrigins = [
+      'http://device-probe.example.test', 'https://127.0.0.1', 'https://[::1]', 'https://localhost',
+      'https://juicebox.center', 'https://probe.juicebox.center', 'https://juicebox.center.',
+      'https://device-probe.example.test:8443', 'https://device-probe.example.test/',
+      'https://device-probe.example.test/path', 'https://device-probe.example.test?token=x',
+      'https://device-probe.example.test#token', 'https://user:pass@device-probe.example.test',
+      'https://device-probe.example.test.', 'HTTPS://device-probe.example.test',
+    ];
+    const invalidTokens = ['', 'x'.repeat(42), 'x'.repeat(44), `${accessToken}=`,
+      'x'.repeat(43), `${accessToken.slice(0, 42)}+`, ` ${accessToken}`, `${accessToken}\n`];
+    for (const value of [
+      ...invalidOrigins.map(value => ({ origin: value, accessToken })),
+      ...invalidTokens.map(value => ({ origin, accessToken: value })),
+    ]) {
+      const options = { remoteTest: value, lifetimeMs: 100 };
+      const result = await startWalletDeviceProbe(options).then(
+        server => ({ server, rejected: false }), () => ({ server: undefined, rejected: true }),
+      );
+      await result.server?.close();
+      expect(result.rejected, 'Invalid remote configuration must fail closed').toBe(true);
+    }
+  });
+
+  it('serves a token-free public shell and exposes only authenticated sanitized status', async () => {
+    const events: Array<{ event: string; diagnostic?: string }> = [];
+    probe = await startWalletDeviceProbe({ remoteTest, onEvent: (...args: [string, string?]) =>
+      events.push({ event: args[0], ...(args[1] ? { diagnostic: args[1] } : {}) }) });
+    expect(probe.origin).toBe(origin);
+    const localOrigin = new URL(probe.localOrigin);
+    expect(localOrigin.protocol).toBe('http:'); expect(localOrigin.hostname).toBe('localhost');
+    expect(Number(localOrigin.port)).toBeGreaterThan(0);
+    const page = await send('/', { method: 'GET' });
+    expect(page.status).toBe(200);
+    expect(page.text).not.toContain(accessToken);
+    expect(page.headers['cache-control']).toBe('no-store');
+    expect(page.headers['referrer-policy']).toBe('no-referrer');
+    expect(page.headers['content-security-policy']).toContain("frame-ancestors 'none'");
+    expect((await send('/status', { method: 'GET' })).status).toBe(403);
+    const empty = await send('/status', { method: 'GET', headers: authorized });
+    expect(empty.status).toBe(200); expect(empty.json).toMatchObject({ pending: 0, counts: { started: 0 } });
+    const privateName = 'Remote personal test 漢';
+    const begun = await send('/begin', { headers: authorized, body: JSON.stringify({ name: privateName }) });
+    expect(begun.status).toBe(200);
+    const status = await send('/status', { method: 'GET', headers: authorized });
+    expect(status.json).toMatchObject({ testOnly: true, rpId: new URL(origin).hostname, pending: 1,
+      counts: { started: 1, registered: 0, verified: 0, cancelled: 0, expired: 0, rejected: 1 } });
+    expect(Object.keys(status.json).sort()).toEqual(['counts', 'pending', 'rpId', 'startedAt', 'stopsAt', 'testOnly']);
+    await send('/cancel', { headers: authorized, body: JSON.stringify({ id: begun.json.id }) });
+    expect(events).toEqual([{ event: 'rejected' }, { event: 'started' }, { event: 'cancelled' }]);
+    for (const value of [accessToken, privateName, begun.json.id, begun.json.publicKey.challenge, begun.json.publicKey.user.id]) {
+      expect(status.text).not.toContain(value); expect(JSON.stringify(events)).not.toContain(value);
+      expect(page.text).not.toContain(value);
+    }
+  });
+
+  it('requires one exact bearer on every private route before reading or allocating from a body', async () => {
+    probe = await startWalletDeviceProbe({ remoteTest, maxProbes: 1 });
+    const invalidHeaders = [{}, { authorization: 'Bearer wrong' },
+      { authorization: [`Bearer ${accessToken}`, `Bearer ${accessToken}`] },
+      { authorization: `Basic ${accessToken}` }, { authorization: `Bearer ${accessToken}, Bearer ${accessToken}` }];
+    for (const path of ['/begin', '/register', '/challenge', '/verify', '/cancel', '/status']) {
+      for (const headers of invalidHeaders) {
+        const denied = await send(path, { method: path === '/status' ? 'GET' : 'POST', headers, body: '{' });
+        expect(denied.status).toBe(403);
+        expect(denied.json).toEqual({ code: Array.isArray(headers.authorization) ? 'PROBE_ORIGIN_INVALID' : 'PROBE_ACCESS_INVALID' });
+        expect(denied.text).not.toContain(accessToken);
+      }
+    }
+    expect((await send('/begin', { body: 'x'.repeat(16_385) })).status).toBe(403);
+    const local = new URL(probe.localOrigin);
+    const earlyStatus = await new Promise<number>((resolve, reject) => {
+      const pending = request({ host: '127.0.0.1', port: local.port, path: '/begin', method: 'POST',
+        headers: { host: new URL(probe!.origin).host, origin: probe!.origin, 'content-type': 'application/json',
+          'x-center-device-probe': '1', 'content-length': '100' } }, response => {
+        response.resume(); resolve(response.statusCode!); pending.destroy();
+      });
+      pending.setTimeout(1500, () => pending.destroy(new Error('Unauthenticated request awaited its body')));
+      pending.on('error', reject); pending.flushHeaders();
+    });
+    expect(earlyStatus).toBe(403);
+    const status = await send('/status', { method: 'GET', headers: authorized });
+    expect(status.json).toMatchObject({ pending: 0, counts: { started: 0 } });
+    expect((await send('/begin', { headers: authorized })).status).toBe(200);
+  });
+
+  it('pins external Host and POST Origin without trusting forwarded substitutions', async () => {
+    probe = await startWalletDeviceProbe({ remoteTest, maxProbes: 1 });
+    const local = new URL(probe.localOrigin);
+    for (const headers of [
+      { host: local.host }, { host: `${new URL(origin).host}:443` }, { host: 'other.example.test' },
+      { origin: local.origin }, { origin: `${origin}/` }, { origin: 'null' },
+      { origin: [origin, origin] }, { 'sec-fetch-site': 'cross-site' },
+      { host: 'other.example.test', 'x-forwarded-host': new URL(origin).host,
+        forwarded: `host=${new URL(origin).host};proto=https` },
+      { origin: 'https://other.example.test', 'x-forwarded-proto': 'https', 'x-forwarded-host': new URL(origin).host },
+    ]) expect((await send('/begin', { headers: { ...authorized, ...headers } })).status).toBe(403);
+    expect((await send('/begin', { headers: authorized, omitOrigin: true })).status).toBe(403);
+    expect((await send('/', { method: 'GET', headers: { host: local.host } })).status).toBe(403);
+    expect((await send('/status', { method: 'GET', headers: { ...authorized, host: local.host } })).status).toBe(403);
+    const begun = await send('/begin', { headers: { ...authorized, forwarded: 'host=untrusted.example;proto=http',
+      'x-forwarded-host': 'untrusted.example', 'x-forwarded-proto': 'http' } });
+    expect(begun.status).toBe(200);
+    expect(begun.json.publicKey.rp.id).toBe(new URL(origin).hostname);
+  });
+
+  it('verifies registration and fresh possession only for the configured remote RP', async () => {
+    probe = await startWalletDeviceProbe({ remoteTest });
+    const initial = await send('/begin', { headers: authorized });
+    expect(initial.status).toBe(200);
+    expect(initial.json.publicKey).toMatchObject({ rp: { id: new URL(origin).hostname },
+      authenticatorSelection: { residentKey: 'required', userVerification: 'required' }, attestation: 'none' });
+    const { id, publicKey } = initial.json;
+    const context = { rpId: new URL(origin).hostname, origin, userHandle: publicKey.user.id as string };
+    const hex = (value: string): Hex => `0x${Buffer.from(value, 'base64url').toString('hex')}`;
+    const registration = createRegistration({ ...context, challenge: hex(publicKey.challenge) });
+    const registered = await send('/register', { headers: authorized, body: JSON.stringify({ id, response: {
+      ...registration.response, rawId: Buffer.from(registration.response.rawId).toString('base64url'),
+      clientDataJSON: Buffer.from(registration.response.clientDataJSON).toString('base64url'),
+      attestationObject: Buffer.from(registration.response.attestationObject).toString('base64url'),
+    } }) });
+    expect(registered.status).toBe(200);
+    const first = await send('/challenge', { headers: authorized, body: JSON.stringify({ id }) });
+    expect(first.json.publicKey).toMatchObject({ rpId: context.rpId, userVerification: 'required' });
+    expect(first.json.publicKey).not.toHaveProperty('allowCredentials');
+    const wire = (value: ReturnType<typeof signGet>) => ({ ...value,
+      authenticatorData: Buffer.from(value.authenticatorData).toString('base64url'),
+      clientDataJSON: Buffer.from(value.clientDataJSON).toString('base64url'),
+      signature: Buffer.from(value.signature).toString('base64url') });
+    const wrongRp = signGet({ ...context, rpId: 'localhost', challenge: hex(first.json.publicKey.challenge),
+      credentialId: registration.credentialId, key: registration.key });
+    const rejected = await send('/verify', { headers: authorized, body: JSON.stringify({ id, response: wire(wrongRp) }) });
+    expect(rejected.status).toBe(403);
+    expect(rejected.json).toEqual({ code: 'PROBE_PROOF_INVALID', diagnostic: 'RP_MISMATCH' });
+    const fresh = await send('/challenge', { headers: authorized, body: JSON.stringify({ id }) });
+    expect(fresh.json.publicKey.challenge).not.toBe(first.json.publicKey.challenge);
+    const assertion = signGet({ ...context, challenge: hex(fresh.json.publicKey.challenge),
+      credentialId: registration.credentialId, key: registration.key });
+    expect((await send('/cancel', { body: JSON.stringify({ id }) })).status).toBe(403);
+    const proofBody = JSON.stringify({ id, response: wire(assertion) });
+    const verified = await send('/verify', { headers: authorized, body: proofBody });
+    expect(verified.status).toBe(200);
+    expect(verified.json).toEqual({ status: 'verified', userVerified: true, userHandleMatched: true });
+    expect((await send('/verify', { headers: authorized, body: proofBody })).status).toBe(410);
+    expect((await send('/status', { method: 'GET', headers: authorized })).json)
+      .toMatchObject({ pending: 0, counts: { started: 1, registered: 1, verified: 1, rejected: 3 } });
   });
 });

@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { request as httpRequest } from "node:http";
 import { chromium, type Browser, type CDPSession, type Page } from "playwright";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { startWalletDeviceProbe } from "../scripts/rest/wallet-device-probe.js";
@@ -61,6 +62,64 @@ describe("local device probe with a real Chromium virtual authenticator", () => 
       return { status: response.status, body: await response.json() };
     }, { path, body });
   }
+
+  it("uses an explicit routed HTTPS test origin and a fragment capability for the real browser roundtrip", async () => {
+    const origin = "https://device-probe.test", accessToken = Buffer.alloc(32, 37).toString("base64url");
+    const remote = await startWalletDeviceProbe({ remoteTest: { origin, accessToken } });
+    const context = await browser!.newContext();
+    try {
+      expect(remote.origin).toBe(origin);
+      const local = new URL(remote.localOrigin), requests: { path: string; authorized: boolean; tokenInUrl: boolean }[] = [];
+      // Browser origin/RP behavior is real; this route supplies the local HTTP response, not public TLS evidence.
+      await context.route(`${origin}/**`, async route => {
+        const incoming = route.request(), url = new URL(incoming.url());
+        requests.push({ path: url.pathname, authorized: incoming.headers().authorization === `Bearer ${accessToken}`,
+          tokenInUrl: incoming.url().includes(accessToken) });
+        const response = await new Promise<{ status: number; headers: Record<string, string>; body: Buffer }>((resolve, reject) => {
+          const forwarded = httpRequest({ host: "127.0.0.1", port: local.port, path: url.pathname + url.search,
+            method: incoming.method(), headers: { ...incoming.headers(), host: new URL(origin).host } }, result => {
+            const chunks: Buffer[] = []; result.on("data", chunk => chunks.push(chunk));
+            result.on("end", () => resolve({ status: result.statusCode!, body: Buffer.concat(chunks),
+              headers: Object.fromEntries(Object.entries(result.headers).filter(([name, value]) => typeof value === "string"
+                && !["connection", "content-length", "transfer-encoding"].includes(name))) as Record<string, string> }));
+          });
+          forwarded.setTimeout(3_000, () => forwarded.destroy(new Error("Routed probe timed out")));
+          forwarded.on("error", reject); forwarded.end(incoming.postDataBuffer());
+        });
+        await route.fulfill(response);
+      });
+      const remotePage = await context.newPage(); remotePage.setDefaultTimeout(3_000);
+      await remotePage.goto(origin);
+      expect(await remotePage.locator("#create").isDisabled()).toBe(true);
+      expect(await remotePage.locator("#status").getAttribute("data-state")).toBe("error");
+      await remotePage.goto("about:blank");
+      await remotePage.goto(`${origin}/#${accessToken}`);
+      expect(await remotePage.evaluate(() => location.hash)).toBe("");
+      expect(await remotePage.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
+      const remoteCdp = await context.newCDPSession(remotePage);
+      await remoteCdp.send("WebAuthn.enable");
+      await remoteCdp.send("WebAuthn.addVirtualAuthenticator", { options: {
+        protocol: "ctap2", ctap2Version: "ctap2_1", transport: "internal", hasResidentKey: true,
+        hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true,
+      } });
+      await remotePage.getByLabel("Passkey name", { exact: true }).fill("Juicebox iOS route test");
+      const issued = remotePage.waitForResponse(response => new URL(response.url()).pathname === "/begin");
+      void issued.catch(() => {});
+      await remotePage.locator("#create").click();
+      await expect.poll(() => remotePage.locator("#status").getAttribute("data-state")).toBe("registered");
+      expect((await (await issued).json()).publicKey.rp.id).toBe("device-probe.test");
+      const challenged = remotePage.waitForResponse(response => new URL(response.url()).pathname === "/challenge");
+      void challenged.catch(() => {});
+      await remotePage.locator("#verify").click();
+      await expect.poll(() => remotePage.locator("#status").getAttribute("data-state")).toBe("verified");
+      const challenge = await (await challenged).json();
+      expect(challenge.publicKey.rpId).toBe("device-probe.test");
+      expect(challenge.publicKey).not.toHaveProperty("allowCredentials");
+      expect(requests.filter(item => item.path !== "/").every(item => item.authorized)).toBe(true);
+      expect(requests.every(item => !item.tokenInUrl)).toBe(true);
+      expect(requests.filter(item => item.path === "/").every(item => !item.authorized)).toBe(true);
+    } finally { await context.close(); await remote.close(); }
+  }, 20_000);
 
   it("completes the actual button roundtrip with a fresh discoverable UV possession proof", async () => {
     await state("ready");
