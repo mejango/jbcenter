@@ -51,6 +51,7 @@ import {
   encodeSafe7579Execution,
 } from "../src/rest/smartAccounts/accountExecution.js";
 import { packUserOperation } from "../src/rest/userOperations/codec.js";
+import { RestError } from "../src/rest/core.js";
 import { privateKeyToAccount } from "viem/accounts";
 
 type Artifact = {
@@ -416,6 +417,9 @@ describe.skipIf(!available)(
           String(port),
           "--chain-id",
           "31337",
+          // Retain enough archive state for the fixtures without writing every dormant block to disk.
+          "--prune-history",
+          "512",
           "--silent",
         ],
         { stdio: ["ignore", "ignore", "pipe"] },
@@ -916,6 +920,59 @@ describe.skipIf(!available)(
       expect((await inspect(subject)).complete).toBe(true);
       expect(pages).toBeGreaterThan(3);
     });
+    it.each([
+      { failure: "rpc", code: "SMART_HISTORY_RPC_UNAVAILABLE" },
+      { failure: "deadline", code: "SMART_HISTORY_TIMEOUT" },
+      { failure: "quota", code: "RPC_RATE_LIMITED" },
+    ])("preserves the canonical checkpoint when a history page fails: $failure", async ({ failure, code }) => {
+      const checkpointStore = new MemorySafe7579CheckpointStore();
+      const checkpointKey = `${manifest.chainId}:${account.toLowerCase()}:${manifest.revision}:${utility.runtimeCodeHash}`;
+      await inspect(createSafe7579Inspector({
+        rpc: transport,
+        utility: pin(utility),
+        checkpointStore,
+        inspectSessions: createInstalledSessionVerifier({ rpc: transport }).inspectAllAt,
+      }));
+      const retained = await checkpointStore.get(checkpointKey);
+      await rpc("anvil_mine", [toHex(8)]);
+      const unavailableBlock = BigInt(retained[0]!.lastBlock) + 3n;
+      const failedRanges: [bigint, bigint][] = [];
+      const quotaError = new RestError(429, "RPC_RATE_LIMITED", "The RPC quota is exhausted.");
+      const failing = {
+        request: async (chain: number, method: string, params: readonly unknown[], signal?: AbortSignal) => {
+          if (method === "eth_getLogs") {
+            const filter = params[0] as { address: string; fromBlock: Hex; toBlock: Hex };
+            const from = BigInt(filter.fromBlock), to = BigInt(filter.toBlock);
+            if (filter.address.toLowerCase() === account.toLowerCase() && from <= unavailableBlock && to >= unavailableBlock) {
+              failedRanges.push([from, to]);
+              if (failure === "quota") throw quotaError;
+              if (failure === "deadline") await new Promise<never>((_, reject) => {
+                const abort = () => reject(signal?.reason ?? new Error("History request aborted."));
+                if (signal?.aborted) abort();
+                else signal?.addEventListener("abort", abort, { once: true });
+              });
+              throw new Error("Provider cannot serve this block.");
+            }
+          }
+          return transport.request(chain, method, params);
+        },
+      };
+      const subject = createSafe7579Inspector({
+        rpc: failing,
+        utility: pin(utility),
+        checkpointStore,
+        maxLogRangeBlocks: 2,
+        timeoutMs: 1000,
+        inspectSessions: createInstalledSessionVerifier({ rpc: failing }).inspectAllAt,
+      });
+      const inspection = inspect(subject);
+      if (failure === "quota") await expect(inspection).rejects.toBe(quotaError);
+      else await expect(inspection).rejects.toMatchObject({ code });
+      expect(failedRanges.length).toBeGreaterThan(0);
+      if (failure === "rpc") expect(failedRanges.at(-1)).toEqual([unavailableBlock, unavailableBlock]);
+      if (failure === "quota") expect(failedRanges).toHaveLength(1);
+      expect(await checkpointStore.get(checkpointKey)).toEqual(retained);
+    }, 20000);
     it("proves a dormant month's account history with candidate traces and still catches later hidden code changes", async () => {
       // A month of idle time and more elapsed blocks than this inspector's two-active-block
       // budget. Small local block counts keep this test independent of Anvil archive pruning.
@@ -1214,5 +1271,79 @@ describe.skipIf(!available)(
       }) as [Hex, bigint, bigint, Hex];
       expect(keccak256(result[0])).toBe(payload.digest);
     });
+    // Last: this gap intentionally exceeds the fixture node's retained historical state.
+    it("covers a dormant checkpoint's 32,000 blocks in concurrent 500-block pages", async () => {
+      const checkpointStore = new MemorySafe7579CheckpointStore();
+      const checkpointKey = `${manifest.chainId}:${account.toLowerCase()}:${manifest.revision}:${utility.runtimeCodeHash}`;
+      const before = await inspect(createSafe7579Inspector({
+        rpc: transport,
+        utility: pin(utility),
+        checkpointStore,
+        inspectSessions: createInstalledSessionVerifier({ rpc: transport }).inspectAllAt,
+      }));
+      const [retained] = await checkpointStore.get(checkpointKey);
+      await rpc("anvil_mine", [toHex(32000)]);
+      const streams = [account, adapter.address, entry.address].map(address => address.toLowerCase());
+      const ranges = new Map<string, [bigint, bigint][]>();
+      const active = new Map<string, number>();
+      const peak = new Map<string, number>();
+      let totalActive = 0, totalPeak = 0;
+      let release!: () => void;
+      const firstBatch = new Promise<void>(resolve => { release = resolve; });
+      const concurrent = {
+        request: async (chain: number, method: string, params: readonly unknown[], signal?: AbortSignal) => {
+          if (method !== "eth_getLogs") return transport.request(chain, method, params);
+          const filter = params[0] as { address: string; fromBlock: Hex; toBlock: Hex };
+          const stream = filter.address.toLowerCase();
+          ranges.set(stream, [...(ranges.get(stream) ?? []), [BigInt(filter.fromBlock), BigInt(filter.toBlock)]]);
+          active.set(stream, (active.get(stream) ?? 0) + 1);
+          peak.set(stream, Math.max(peak.get(stream) ?? 0, active.get(stream)!));
+          totalPeak = Math.max(totalPeak, ++totalActive);
+          // A serial loop leaves one request per stream waiting until its deadline.
+          // Real RPC latency is irrelevant: all twelve first pages must be in flight.
+          if (streams.every(address => active.get(address) === 4)) release();
+          let abort!: () => void;
+          try {
+            await Promise.race([
+              firstBatch,
+              new Promise<never>((_, reject) => {
+                abort = () => reject(signal?.reason ?? new Error("History request aborted."));
+                if (signal?.aborted) abort();
+                else signal?.addEventListener("abort", abort, { once: true });
+              }),
+            ]);
+            return await transport.request(chain, method, params);
+          } finally {
+            signal?.removeEventListener("abort", abort);
+            active.set(stream, active.get(stream)! - 1);
+            totalActive--;
+          }
+        },
+      };
+      const proof = await inspect(createSafe7579Inspector({
+        rpc: concurrent,
+        utility: pin(utility),
+        checkpointStore,
+        maxLogRangeBlocks: 500,
+        timeoutMs: 3000,
+        inspectSessions: createInstalledSessionVerifier({ rpc: concurrent }).inspectAllAt,
+      }));
+      expect(proof.complete).toBe(true);
+      expect(proof.stateHash).toBe(before.stateHash);
+      expect(totalPeak).toBe(12);
+      expect(totalActive).toBe(0);
+      expect([...ranges.keys()].sort()).toEqual([...streams].sort());
+      const expected = Array.from({ length: 64 }, (_, page) => [
+        BigInt(retained!.lastBlock) + BigInt(page * 500) + 1n,
+        BigInt(retained!.lastBlock) + BigInt((page + 1) * 500),
+      ]);
+      for (const stream of streams) {
+        expect(peak.get(stream)).toBe(4);
+        expect(ranges.get(stream)!.sort((a, b) => Number(a[0] - b[0]))).toEqual(expected);
+      }
+      expect((await checkpointStore.get(checkpointKey))[0]!.lastBlock).toBe(
+        String(BigInt(retained!.lastBlock) + 32000n),
+      );
+    }, 120000);
   },
 );

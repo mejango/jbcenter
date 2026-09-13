@@ -412,6 +412,25 @@ export function createSafe7579Inspector(
       }
       let logRequests = 0;
       let logBytes = 0;
+      let completedLogPages = 0;
+      let splitLogPages = 0;
+      let logFailure: unknown;
+      let firstLogRpcError: { code: string; rpcCode?: number } | undefined;
+      const logStarted = performance.now();
+      function failLogs(code: string, message: string): never {
+        const error = new RestError(503, code, message, {
+          stage: "log-history", requests: logRequests, completedPages: completedLogPages,
+          splitPages: splitLogPages, bytes: logBytes, elapsedMs: Math.ceil(performance.now() - logStarted),
+          deadlineExceeded: deadline.aborted, ...(firstLogRpcError ? { rpcFailure: firstLogRpcError } : {}),
+        });
+        logFailure ??= error;
+        throw logFailure;
+      }
+      function checkLogRead() {
+        if (logFailure !== undefined) throw logFailure;
+        if (deadline.aborted)
+          failLogs("SMART_HISTORY_TIMEOUT", "Complete account history could not be read within the inspection deadline.");
+      }
       async function logs(
         address: Address,
         topics: (Hex | Hex[] | null)[],
@@ -419,18 +438,15 @@ export function createSafe7579Inspector(
         to: bigint,
       ) {
         const result: Record<string, unknown>[] = [];
-        const pending = from <= to ? [{ start: from, finish: to }] : [];
-        while (pending.length) {
-          let { start, finish } = pending.pop()!;
-          const pageEnd = start + BigInt(limits.logRange) - 1n;
-          if (finish > pageEnd) { pending.push({start:pageEnd+1n,finish}); finish=pageEnd; }
+        async function readRange(start: bigint, finish: bigint): Promise<void> {
+          checkLogRead();
           if (++logRequests > limits.logs)
-            fail(
+            failLogs(
               "SMART_HISTORY_LIMIT",
               "Complete module history exceeds the configured log budget.",
-              503,
             );
           let page: unknown;
+          let rpcFailed = false;
           try {
             page = await rpc("eth_getLogs", [
               {
@@ -440,33 +456,45 @@ export function createSafe7579Inspector(
                 toBlock: toHex(finish),
               },
             ]);
-          } catch {
+          } catch (error) {
+            checkLogRead();
+            // A quota or caller cancellation cannot be repaired by splitting the same read.
+            if ((error instanceof RestError && error.status === 429)
+              || (error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name))) throw error;
+            const rpcCode = (error as { rpcCode?: unknown } | null)?.rpcCode;
+            firstLogRpcError ??= {
+              code: error instanceof RestError ? error.code : "RPC_ERROR",
+              ...(typeof rpcCode === "number" && Number.isSafeInteger(rpcCode) ? { rpcCode } : {}),
+            };
+            rpcFailed = true;
             page = undefined;
           }
+          checkLogRead();
           if (!Array.isArray(page) || page.length >= 10000) {
-            if (start === finish || deadline.aborted)
-              fail(
-                "SMART_HISTORY_INCOMPLETE",
-                "Log history is unavailable or may have been truncated.",
-                503,
+            if (start === finish)
+              failLogs(
+                rpcFailed ? "SMART_HISTORY_RPC_UNAVAILABLE" : "SMART_HISTORY_INCOMPLETE",
+                rpcFailed ? "The configured RPC could not supply a complete account history page."
+                  : "Log history is unavailable or may have been truncated.",
               );
             const middle = (start + finish) / 2n;
-            pending.push(
-              { start: middle + 1n, finish },
-              { start, finish: middle },
-            );
-            continue;
+            splitLogPages++;
+            page = undefined;
+            // A split stays within its worker, so truncation never increases concurrency.
+            await readRange(start, middle);
+            await readRange(middle + 1n, finish);
+            return;
           }
+          completedLogPages++;
           for (const v of page) {
             const log = record(v);
             logBytes += new TextEncoder().encode(
               JSON.stringify(log),
             ).byteLength;
             if (logBytes > limits.logBytes)
-              fail(
+              failLogs(
                 "SMART_HISTORY_LIMIT",
                 "Complete module history exceeds the configured log byte budget.",
-                503,
               );
             if (
               typeof log.address !== "string" ||
@@ -492,20 +520,36 @@ export function createSafe7579Inspector(
                       : same(filter, (log.topics as Hex[])[index]!))),
               )
             )
-              fail(
+              failLogs(
                 "SMART_HISTORY_INCOMPLETE",
                 "RPC logs do not match the requested complete history.",
-                503,
               );
             result.push(log);
             if (result.length > 10000)
-              fail(
+              failLogs(
                 "SMART_HISTORY_LIMIT",
                 "Module history exceeds the configured event budget.",
-                503,
               );
           }
         }
+        let next = from;
+        async function worker() {
+          try {
+            while (next <= to) {
+              checkLogRead();
+              const start = next, pageEnd = start + BigInt(limits.logRange) - 1n;
+              const finish = pageEnd < to ? pageEnd : to;
+              next = finish + 1n;
+              await readRange(start, finish);
+            }
+          } catch (error) {
+            logFailure ??= error;
+            throw logFailure;
+          }
+        }
+        // Four pages per ingress stream, at most twelve total. All streams retain
+        // the same shared request/byte caps and must finish before any checkpoint advances.
+        await Promise.all(Array.from({ length: 4 }, worker));
         result.sort((a, b) =>
           Number(
             quantity(a.blockNumber) - quantity(b.blockNumber) ||
@@ -516,7 +560,7 @@ export function createSafe7579Inspector(
         for (const log of result) {
           const key = `${log.blockHash}:${log.logIndex}`;
           if (seen.has(key))
-            fail("SMART_HISTORY_INCOMPLETE", "Duplicate history log.", 503);
+            failLogs("SMART_HISTORY_INCOMPLETE", "Duplicate history log.");
           seen.add(key);
         }
         return result;
