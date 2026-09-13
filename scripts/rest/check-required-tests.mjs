@@ -39,6 +39,10 @@ export const requiredVitestSuites = [
   "test/rest-passkey-creation-evm.test.ts",
   "test/rest-wallet-registration.test.ts",
   "test/rest-wallet-browser.test.ts",
+  "test/rest-wallet-enrollment-postgres.integration.test.ts",
+  "test/rest-wallet-enrollment-browser.test.ts",
+  "test/rest-wallet-enrollment-pressure.test.ts",
+  "test/rest-wallet-deployment.test.ts",
 ];
 
 export function validateRuntime(version, databaseUrl) {

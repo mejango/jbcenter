@@ -16,9 +16,14 @@ const recordOf = (row: CeremonyRow): WalletCeremony => ({
   createdAt: Number(row.created_at), expiresAt: Number(row.expires_at), retainUntil: Number(row.retain_until),
   consumedAt: row.consumed_at === null ? null : Number(row.consumed_at), proofDigest: row.proof_digest, resultId: row.result_id,
 });
-async function databaseNow(client: PoolClient) {
+export async function walletCeremonyDatabaseNow(client: PoolClient) {
   return Number((await client.query<{ now: string }>(`SELECT ${nowSql} AS now`)).rows[0]!.now);
 }
+/** Compound workflows acquire admission before their own rows and then ceremony rows. */
+export async function lockWalletCeremonyAdmission(client: PoolClient): Promise<void> {
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':wallet-ceremonies', 0))");
+}
+
 function conflict(): never {
   throw new RestError(409, "WALLET_CEREMONY_CONFLICT", "Wallet ceremony does not match the trusted context.");
 }
@@ -66,7 +71,14 @@ export class PostgresWalletCeremonyStore {
     return this.issueAdmitted(input, trustedExistingWallet);
   }
 
-  private async issueAdmitted(input: WalletCeremonyDraft, trustedExistingWallet: TrustedWalletControlAdmission | null): Promise<WalletCeremony> {
+  private issueAdmitted(input: WalletCeremonyDraft, trustedExistingWallet: TrustedWalletControlAdmission | null): Promise<WalletCeremony> {
+    const request = structuredClone(input), admission = structuredClone(trustedExistingWallet);
+    return this.transaction(client => this.issueInTransaction(client, request, admission));
+  }
+
+  /** Internal SQL helper: caller owns BEGIN/COMMIT and must acquire admission before other rows.
+   * Never call ordinary issue() inside another transaction: it obtains another pool connection. */
+  async issueInTransaction(client: PoolClient, input: WalletCeremonyDraft, trustedExistingWallet: TrustedWalletControlAdmission | null): Promise<WalletCeremony> {
     const request = structuredClone(input);
     const admission = structuredClone(trustedExistingWallet);
     assertWalletCeremonyDraft(request);
@@ -74,21 +86,18 @@ export class PostgresWalletCeremonyStore {
       || admission.accountId !== request.accountId || admission.contextDigest !== request.contextDigest
       || typeof admission.verifiedProofDigest !== "string" || !/^[0-9a-f]{64}$/.test(admission.verifiedProofDigest)
       || !["login", "rotate"].includes(request.purpose))) invalidWalletCeremony();
-    const client = await this.pool.connect();
     try {
-      await client.query("BEGIN");
       // ponytail: a global issuance lock caps unauthenticated storage; shard admission counters if measured contention warrants it.
-      await client.query("SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':wallet-ceremonies', 0))");
+      await lockWalletCeremonyAdmission(client);
       await this.cleanupInTransaction(client, 100);
       const prior = (await client.query<CeremonyRow>("SELECT * FROM rest_wallet_ceremonies WHERE id=$1 FOR UPDATE", [request.id])).rows[0];
       if (prior) {
         const record = recordOf(prior);
         if (!sameWalletCeremony(record, request)) conflict();
-        if (record.retainUntil <= await databaseNow(client)) expired();
-        await client.query("COMMIT");
+        if (record.retainUntil <= await walletCeremonyDatabaseNow(client)) expired();
         return record;
       }
-      const now = await databaseNow(client);
+      const now = await walletCeremonyDatabaseNow(client);
       if (request.expiresAt <= now) expired();
       if (request.expiresAt > now + walletCeremonyMaxLifetimeMs) invalidWalletCeremony();
       const counts = (await client.query<{ total: number; account: number }>(
@@ -104,14 +113,12 @@ export class PostgresWalletCeremonyStore {
          VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
         [request.id, request.accountId, request.purpose, request.contextDigest, request.challenge, now, request.expiresAt, request.expiresAt + walletCeremonyRetentionMs],
       )).rows[0]!;
-      if (request.expiresAt <= await databaseNow(client)) expired();
-      await client.query("COMMIT");
+      if (request.expiresAt <= await walletCeremonyDatabaseNow(client)) expired();
       return recordOf(row);
     } catch (error) {
-      await client.query("ROLLBACK");
       if (error && typeof error === "object" && "code" in error && error.code === "23505") conflict();
       throw error;
-    } finally { client.release(); }
+    }
   }
 
   async get(input: Pick<WalletCeremonyDraft, "id" | "accountId">): Promise<WalletCeremony | null> {
@@ -124,36 +131,32 @@ export class PostgresWalletCeremonyStore {
     return row ? recordOf(row) : null;
   }
 
-  async consume(input: WalletCeremonyConsume): Promise<{ record: WalletCeremony; replayed: boolean }> {
+  consume(input: WalletCeremonyConsume): Promise<{ record: WalletCeremony; replayed: boolean }> {
+    const request = structuredClone(input);
+    return this.transaction(client => this.consumeInTransaction(client, request));
+  }
+
+  /** Internal SQL helper. No transaction boundary, pool acquisition, authentication or external effect. */
+  async consumeInTransaction(client: PoolClient, input: WalletCeremonyConsume): Promise<{ record: WalletCeremony; replayed: boolean }> {
     const request = structuredClone(input);
     assertWalletCeremonyDraft(request, true);
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-      const row = (await client.query<CeremonyRow>("SELECT * FROM rest_wallet_ceremonies WHERE id=$1 FOR UPDATE", [request.id])).rows[0];
-      if (!row || Number(row.retain_until) <= await databaseNow(client))
-        throw new RestError(404, "WALLET_CEREMONY_NOT_FOUND", "Wallet ceremony receipt is unavailable.");
-      const record = recordOf(row);
-      if (!sameWalletCeremony(record, request)) conflict();
-      if (record.consumedAt !== null) {
-        if (record.proofDigest !== request.proofDigest || record.resultId !== request.resultId)
-          throw new RestError(409, "WALLET_CEREMONY_REPLAY", "Wallet ceremony was consumed by a different proof or operation.");
-        await client.query("COMMIT");
-        return { record, replayed: true };
-      }
-      const updated = (await client.query<CeremonyRow>(
-        `UPDATE rest_wallet_ceremonies SET consumed_at=${nowSql}, proof_digest=$2, result_id=$3
-         WHERE id=$1 AND expires_at > ${nowSql} RETURNING *`, [request.id, request.proofDigest, request.resultId],
-      )).rows[0];
-      if (!updated || request.expiresAt <= await databaseNow(client)) expired();
-      // The final live check uses the DB wall clock immediately before COMMIT, with no application I/O in between.
-      // PostgreSQL cannot make the network/commit interval zero: consumption is not a claim of later execution freshness.
-      await client.query("COMMIT");
-      return { record: recordOf(updated), replayed: false };
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally { client.release(); }
+    const row = (await client.query<CeremonyRow>("SELECT * FROM rest_wallet_ceremonies WHERE id=$1 FOR UPDATE", [request.id])).rows[0];
+    if (!row || Number(row.retain_until) <= await walletCeremonyDatabaseNow(client))
+      throw new RestError(404, "WALLET_CEREMONY_NOT_FOUND", "Wallet ceremony receipt is unavailable.");
+    const record = recordOf(row);
+    if (!sameWalletCeremony(record, request)) conflict();
+    if (record.consumedAt !== null) {
+      if (record.proofDigest !== request.proofDigest || record.resultId !== request.resultId)
+        throw new RestError(409, "WALLET_CEREMONY_REPLAY", "Wallet ceremony was consumed by a different proof or operation.");
+      return { record, replayed: true };
+    }
+    const updated = (await client.query<CeremonyRow>(
+      `UPDATE rest_wallet_ceremonies SET consumed_at=${nowSql}, proof_digest=$2, result_id=$3
+       WHERE id=$1 AND expires_at > ${nowSql} RETURNING *`, [request.id, request.proofDigest, request.resultId],
+    )).rows[0];
+    if (!updated || request.expiresAt <= await walletCeremonyDatabaseNow(client)) expired();
+    // The compound caller repeats the DB live check after its remaining writes and before COMMIT.
+    return { record: recordOf(updated), replayed: false };
   }
 
   async cleanup(limit = 1_000): Promise<number> {
@@ -164,6 +167,19 @@ export class PostgresWalletCeremonyStore {
       const deleted = await this.cleanupInTransaction(client, limit);
       await client.query("COMMIT");
       return deleted;
+    } catch (error) { await client.query("ROLLBACK"); throw error; }
+    finally { client.release(); }
+  }
+
+  private async transaction<T>(run: (client: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await run(client);
+      // Helpers check the DB wall clock just before returning; no application I/O precedes COMMIT.
+      // PostgreSQL cannot make that finite commit interval zero or establish later execution freshness.
+      await client.query("COMMIT");
+      return result;
     } catch (error) { await client.query("ROLLBACK"); throw error; }
     finally { client.release(); }
   }

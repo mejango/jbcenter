@@ -1,0 +1,70 @@
+# Shared prepaid wallet deployment
+
+W4 moves the narrow prepaid SafeFactory deployment journey into Center. The first slice implements only pure approval, template and signed-envelope validation in `src/rest/wallet/deployment.ts`. Durable pools, operation claims, signing, broadcasting, reconciliation and routes remain planned. No production manifest, treasury key, funding or deployment is enabled by these helpers.
+
+## Authority and implemented boundary
+
+W3's verified enrollment proves possession of the passkey and configured EOA backup and freezes the manifest, key, recovery owner, salt, predicted Safe and atomic initializer. The user's independent storage and recovery experience still need acceptance. Its registration proof grants no deployment or session authority. W4 accepts only that internal durable record, never a request-supplied receipt or a fabricated REST EOA principal. Reconstructing and hashing a record checks consistency; it cannot establish that an arbitrary object was durably verified.
+
+`prepareWalletDeploymentApproval` issues a fresh `deploy` document under the separate `Juicebox Center Wallet Deployment` EIP712 domain. The document commits to a fresh approval ID/nonce, the entire verified enrollment, manifest revision, predicted Safe, factory, initializer, creation/calldata commitments, zero native value, trusted RP/origin and an admission window of at most five minutes. Enrollment expiry does not change wallet identity: a new deployment approval can reference the same verified record later. An initial combined registration/create UX would require explicit combined document semantics; registration proof is never relabeled.
+
+`verifyWalletDeploymentProof` verifies the fresh assertion against the enrolled credential, public key, user handle, trusted RP/origin and required authenticator policy. It returns a semantic proof digest. Verification is pure and repeatable; future storage must consume it once atomically. The local clock check is preliminary: database time must decide claim admission after external reads and again before committing. Ordinary EIP1559 has no execution deadline. Once an approval is durably accepted, recovery of that same immutable deployment can continue after approval expiry; expiry cannot cancel signed bytes.
+
+`prepareWalletDeploymentTemplate` reconstructs the fixed factory call and freezes the server's sender, nonce, gas limit, fee cap and priority fee. `validateSignedWalletDeployment` reuses the existing local signed-transaction validator for low-s recovery, exact sender/call and gas-policy bounds, then requires canonical EIP1559, the exact frozen nonce/gas/fees, zero native value and an empty access list. Canonical reserialization with the original signature is a validation check only: return and eventually send the original stored bytes. Installed viem accepts some malformed RLP while canonicalizing during recovery, so recovery alone is insufficient. This initial profile requires a positive priority fee because the shared validator rejects viem's omitted canonical zero field; it leaves legacy validation unchanged.
+
+These helpers do not inspect live code, reserve a sender nonce or funds, or grant signing authority. `maximumExecutionCost` is gas limit multiplied by maximum execution fee; it excludes Base L1 data and operator charges. It is not a total-fee guarantee or prepaid allocation.
+
+## Planned reuse
+
+| Existing component | Reuse | Required boundary |
+| --- | --- | --- |
+| Beep `src/deployment-service.ts` | Inspect, prepare, sign, persist exact bytes, send and reconcile journey | Its process-local busy flag, SQLite sequencing and pending nonce cannot coordinate Center replicas. |
+| Beep `src/sponsorship-budget.ts` | Idempotent allocation and retention of unknown liabilities | Its demo USD ledger is not a native Base fee oracle or a Center treasury ledger. |
+| Center `smartAccounts/creation.ts` | Reconstruct the pinned atomic signer/MultiSend/Safe7579 initializer and full factory calldata | Exact two owners, threshold one, fixed enrollment salt/key/recovery owner; no arbitrary call or hosted initCode. |
+| Center `transactions/signed.ts` | Pure canonical-signature, sender/call and execution-gas bounds | Deployment additionally freezes every envelope field and rejects noncanonical RLP. |
+| Center transaction/nonce PostgreSQL stores | DB time, consistent locking, immutable attempts, permanent nonce uniqueness and lease CAS | Their current plan/REST-actor or ERC2771 authority models cannot be reused as undeployed-wallet authority. |
+| Center wallet ceremony PostgreSQL store | One-use exact context/proof/result binding | Approval consumption, operation claim, enrollment check, pool lane and nonce must use one database transaction via transaction-local helpers. |
+| Center bounded chain/execution helpers | Deadlines, cancellation, canonical block anchors, runtime pins, exact receipts and logs | Deployment needs its own factory/bootstrap semantics and fixed configured transport. |
+
+The existing Para flow, externally signed relay, hosted UserOperation provider and Relayr sponsorship retain their authority models. W4 is one direct SafeFactory relay, not a second general execution gateway.
+
+## Planned records and budget
+
+Two dedicated tables suffice for the first single-lane pilot:
+
+- A permanent pool record binds Base, an exclusive sender, fixed native prepaid allocation, immutable policy commitment and current lane operation. Allocate the entire pool once; retries, expiry, failures, unknown outcomes and reorgs never create or release an allocation. No automatic refill. Balance is availability evidence, not allocation authority.
+- An operation record binds verified enrollment, fresh consumed approval/context/proof, exact creation, pool/sender, canonical nonce anchor and immutable unsigned template. It later stores the winning raw signed bytes/hash, lease/revision, dispatch attempts, canonical receipt/finality, wallet inspection and known fee evidence. Unique `(chain, sender, nonce)` remains permanent even after completion; these records are the nonce journal.
+
+Keep one unresolved transaction per sender lane and at most one active operation per enrollment. All signing with that key must share this authority. Fee estimates are bounded admission evidence within the fixed allocation, not guaranteed total Base fees. Installed OP fee estimates include L1/L2/operator estimates, but some helpers substitute unsigned stub fields and current receipt formatting lacks complete operator-fee evidence. Missing fee components remain unknown. They never justify releasing global allocation.
+
+## Planned two-process state machine
+
+`prepared → claimed → signed → dispatching → pending/unknown → confirming → finalized`
+
+| Boundary | Durable rule and recovery |
+| --- | --- |
+| Before claim | Bounded canonical runtime/factory/account inspection and exact creation simulation; bounded balance, confirmed nonce, pending-activity signal and fee observations. No locks across RPC calls. |
+| Claim | Fixed pool/enrollment/operation/ceremony lock order. Recheck DB expiry, immutable context, proof, policy and empty lane; consume approval, reserve permanent nonce and bind complete unsigned template atomically. Lost commit response requires read-back before any new action. |
+| Signing | DB-clock lease permits work on the frozen template only. A crash before signed-byte persistence resumes that same template. A signer may produce nondeterministic signatures; CAS selects one durable winner, and losers discard their own bytes. |
+| Persist bytes | Validate every field, then persist raw bytes/hash with signing lease/revision CAS before publication. An uncertain persistence response requires read-back. Only durable winning bytes may be dispatched. |
+| Dispatch | Claim a fenced DB-clock lease, record the attempt before a fixed configured `eth_sendRawTransaction`, and validate stored bytes again. A stale RPC response may update only its matching lease/revision. |
+| Lost response/retry | Preserve bytes, hash, nonce, lane, approval result and allocation as unknown. Timeout, already-known and nonce-too-low are not final receipt evidence. Reconcile first, then bounded exact-byte rebroadcast. Never reprice, replace, assign a new nonce or reconsume approval. |
+| Finalize | Verify exact transaction identity, canonical receipt/finality, factory event, predicted Safe and pinned signer/owners/modules. Track deployment readiness separately from treasury transaction outcome and fee evidence. Reverts spend fees. Release the lane only with the pilot's required finality evidence. |
+
+A stale process can finish an already-started network send despite a DB lock. Identical admissible bytes permit duplicate physical broadcasts with one transaction effect; the implementation must not claim exactly-once network delivery. Immutable underpriced transactions can stall. Fixing that liveness limit requires an explicit replacement policy outside this slice.
+
+Use canonical confirmed sender nonce for an empty exclusive lane; pending nonce is advisory. Unexpected sender activity or a consumed nonce with no proven expected receipt pauses issuance for bounded reconciliation. Reorgs retain the original nonce journal and signed bytes. Never fill a rewound gap with a different transaction. Restoring an older database snapshot requires a sender/journal reconciliation fence before signing resumes.
+
+A third party may deploy the exact deterministic wallet first. Its verified readiness does not finalize an older treasury transaction, which may still execute or revert and cost fees. Missing initialization evidence is not success even with a successful factory receipt.
+
+For the smallest pilot, release the sender lane only after verified finalized chain evidence. Wallet readiness may be observed earlier, but sender issuance throughput is then bounded by finality. Releasing after a few confirmations requires retained recent history, reorg-aware reconciliation of multiple nonces and an expanded invariant. Additional prepaid lanes or a nonce pipeline require separate pressure evidence; the single-lane pilot does not establish a deployments-per-second target.
+
+## Remaining implementation and observations
+
+1. Two-process PostgreSQL tests: same/different approval races, one lane and allocation, blocked locks crossing expiry, atomic ceremony consumption, unique nonce, lost claim/persist responses and signing-lease CAS. No signer or broadcast in this slice.
+2. Pure signing adapter: only the frozen type2 template and configured sender; public test keys only. Exercise timeouts, nondeterministic signatures, stale workers and losing CAS signatures.
+3. Bounded dispatcher/reconciler with the actual local pinned Anvil stack and an RPC fault proxy. Kill either process before signing, after byte commit, after provider acceptance and before response persistence; resume through the other process. Capture identical outbound bytes, one factory effect, permanent nonce and unchanged allocation.
+4. Pressure and failure tests: RPC deadlines at each stage, malformed receipts, reorgs, occupied nonce, underpricing, balance changes, existing deterministic wallet, stale policy and older DB restore. Bound calls, bytes, history, retry count, recovery batches and lease waits. Report offered/admitted/completed rates and stage latency separately.
+5. Narrow prepare/approve/status integration after those gates, with required PostgreSQL/Foundry/browser checks and legacy regressions. Live provider compatibility, finality and real devices remain separate acceptance evidence.
+
+Observe operation ID, state/revision, public transaction hash, lane age, lease expiry, RPC outcome class, canonical/finality lag and estimate/fee completeness. Distinguish prepared, approved, signed, attempted, accepted, canonical, wallet-verified and finalized. Do not log keys, raw signed bytes, assertions, resume secrets, cookies or credential-bearing URLs. Unknown is neither success nor zero fee.
