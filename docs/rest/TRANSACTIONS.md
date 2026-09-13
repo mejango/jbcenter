@@ -72,3 +72,14 @@ UserOperation publication is attempted once after durable nonce and transport re
 ## Verification
 
 `test/rest-transactions.test.ts` exercises local signature recovery, exact calldata/value/chain checks, fee bounds, nonce readiness, unsupported envelopes, response-loss recovery, duplicate dispatch, receipt reorgs, semantic dependency blocking, bundle partial completion, and expiry/revocation. No test contacts a live chain. Store tests cover actor isolation, idempotency, concurrent nonce claims, leases, and shared revocation locks; PostgreSQL integration tests use a dedicated disposable database through `TEST_DATABASE_URL`.
+
+
+## Application-specific sponsorship
+
+Center retains its default per-chain paymaster policy. An operator can add `REST_ERC4337_SPONSOR_ROUTES`, a JSON array of `{id, chainId, policyId, authorizationKey}`. Each route reuses that chain's reviewed provider and private Pimlico endpoints; provider keys never go to the application. The authorization key is a separate 32-byte lowercase hex secret shared with the trusted application backend. Do not expose it to browsers.
+
+An owner may supply `sponsorAuthorization` on `POST /api/v1/user-operations`. This is a base64url-encoded JSON payload followed by a dot and the lowercase hex HMAC-SHA256 of the exact encoded payload. The payload has exactly `routeId`, `accountId`, `planId`, `chainId`, `stepIndexes`, `idempotencyKey`, `issuedAt`, and `expiresAt`. Timestamps are Unix seconds, with a maximum 300-second lifetime. The owner, immutable plan, ordered steps and request idempotency key must all match. The trusted issuer must validate the invoice and exact Center plan and reserve its sponsorship budget before issuing a voucher. A client-selected policy ID or browser Origin is not authorization.
+
+Application sponsorship requires fresh owner signing and cannot be combined with a session. Selection persists through the operation's provider identity for submission and receipt recovery. Removing a route or changing its policy invalidates old preparations; ambiguous submissions are not retried. Requests without a voucher keep the default policy. Existing request signatures, account binding, nonce reservations, gas checks and canonical receipt verification remain required.
+
+This mechanism selects a policy; it does not fund account creation or enforce an application's USD budget by itself. Configure provider limits and application-side durable reservations before enabling a route. Beep's initial route uses Base policy `sp_soft_trish_tilby`; do not replace the shared `sp_wide_mastermind` policy.

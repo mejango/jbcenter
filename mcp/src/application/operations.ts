@@ -76,6 +76,13 @@ const referencesSchema = z
   .array(z.object({ step: z.number().int().min(0).max(31), hash: hashSchema }).strict())
   .max(32);
 const payShape = {
+  memo: z
+    .string()
+    .refine(
+      (value) => new TextEncoder().encode(value).length <= 256,
+      'Use at most 256 UTF-8 bytes.',
+    )
+    .optional(),
   project: projectSchema,
   account: addressSchema,
   token: addressSchema,

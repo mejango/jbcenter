@@ -16,6 +16,33 @@ export class MemorySmartAccountRegistry
     private readonly maximumNonces = 10000,
   ) {}
   async bind(record: SmartAccountBinding) {
+    return this.bindOnboarding(record);
+  }
+
+  /** Synchronous so onboarding can commit the shared account, binding and grant without yielding. */
+  bindOnboarding(record: SmartAccountBinding): SmartAccountBinding {
+    const current = this.currentOnboardingBinding(record);
+    if (current) return current;
+    const key = `${record.ownerAccountId}:${record.id}`;
+    const nonce = `${record.ownerAccountId}:${record.authorization.nonce.toLowerCase()}`;
+    if (
+      (!this.records.has(key) && this.records.size >= this.maximumBindings) ||
+      this.nonces.size >= this.maximumNonces
+    )
+      throw new RestError(
+        503,
+        "SMART_REGISTRY_CAPACITY",
+        "The bounded development registry is full.",
+      );
+    const stored = structuredClone(record);
+    const result = structuredClone(stored);
+    this.nonces.set(nonce, record.authorization.digest);
+    this.records.set(key, stored);
+    return result;
+  }
+
+  /** Check replay before onboarding inserts its exact grant; this never changes authority. */
+  currentOnboardingBinding(record: SmartAccountBinding): SmartAccountBinding | undefined {
     const key = `${record.ownerAccountId}:${record.id}`;
     const nonce = `${record.ownerAccountId}:${record.authorization.nonce.toLowerCase()}`;
     const used = this.nonces.get(nonce);
@@ -38,18 +65,7 @@ export class MemorySmartAccountRegistry
         );
       return structuredClone(current);
     }
-    if (
-      (!this.records.has(key) && this.records.size >= this.maximumBindings) ||
-      this.nonces.size >= this.maximumNonces
-    )
-      throw new RestError(
-        503,
-        "SMART_REGISTRY_CAPACITY",
-        "The bounded development registry is full.",
-      );
-    this.nonces.set(nonce, record.authorization.digest);
-    this.records.set(key, structuredClone(record));
-    return structuredClone(record);
+    return undefined;
   }
   async get(ownerAccountId: string, id: Hex) {
     const record = this.records.get(`${ownerAccountId}:${id}`);

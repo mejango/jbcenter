@@ -10,12 +10,14 @@ Preserve today's Para and external-wallet integrations during delivery. Reuse Ce
 
 ## Baseline before implementation
 
-1. Review and commit the current Center work separately from this plan. Preserve existing source changes and record the exact tested revision. Local `main` is behind `chore/router-gateway-rollout`; use a reviewed fast-forward, never a reset or force push.
-2. Reconcile the baseline with Beep's deployed Center integration. The inspected checkout and `/private/tmp/beep-center-onboarding` are different branches: verify which onboarding, sponsored-deployment, API-grant and receipt fixes are already included. Do not implement against an assumed combined state or overwrite those fixes.
+1. Review and commit the current Center work separately from this plan. Preserve existing source changes and record the exact tested revision. The current-work commit is `215b132`; the plan commit is `a849e29`. Reconcile both with the recorded upstream `ca099d5` using an ordinary merge, never a reset or force push.
+2. Reconcile the baseline with Beep's deployed Center integration. Upstream `ca099d5` includes the onboarding, sponsorship-route and receipt fixes from the Beep integration. Preserve these when reconciling the current-work commit and verify the resulting combined baseline before implementation. Sponsored deployment remains a capability to inventory rather than infer from sponsorship-route availability.
 3. Run `npm run check`, then all PostgreSQL-dependent tests against a disposable database with zero database skips. Inventory browser/device and hosted-provider coverage separately.
 4. Pin the account stack and candidate passkey/recovery dependencies. Record source revisions, licenses, compiler inputs and runtime hashes. Choose the stable Center wallet origin/RP ID before registering any durable credentials.
 
 Exit: a reproducible, committed starting point and an explicit compatibility ledger. A passing current Para suite is not a passkey-wallet acceptance result.
+
+Baseline verification on 2026-09-13: the combined current-work and upstream `ca099d5` tree passed `npm run check` with a disposable PostgreSQL database: 1,731 service tests, 397 MCP tests, and 53 pinned-stack Foundry tests; no database or execution skips. Type checks, client/web builds, artifact checks and catalog checks passed. The real-EVM 32,000-block history test completed in about 109 seconds. These results establish the existing baseline, not the proposed passkey wallet or the pressure targets below.
 
 ## Development rule
 

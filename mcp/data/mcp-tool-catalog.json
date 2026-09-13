@@ -2454,6 +2454,9 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "memo": {
+            "type": "string"
+          },
           "project": {
             "type": "object",
             "properties": {
@@ -2684,6 +2687,9 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "memo": {
+            "type": "string"
+          },
           "project": {
             "type": "object",
             "properties": {

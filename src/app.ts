@@ -52,6 +52,7 @@ const PRODUCTION_ORIGINS = [
   "https://eth.shop",
   "https://succulent.money",
   "https://homerun.money",
+  "https://beep.biz",
 ] as const;
 const DEV_ORIGINS = [
   "https://dev.juicebox.money",

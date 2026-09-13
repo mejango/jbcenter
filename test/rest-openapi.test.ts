@@ -123,6 +123,13 @@ describe("REST OpenAPI contract", () => {
     expect(spec.paths["/api/v1/plans"]!.post!.responses).toHaveProperty("201");
     expect(spec.paths["/api/v1/plans/{id}/submissions"]!.post!.responses).toHaveProperty("202");
     expect(spec.paths["/api/v1/accounts/enroll"]!.post!.responses).toHaveProperty("200");
+    const onboarding = spec.paths["/api/v1/smart-accounts/onboarding"]!.post!;
+    expect(onboarding["x-auth"]).toMatchObject({ scheme: "public", idempotencyRequired: false });
+    expect(onboarding["x-body-approval"]).toMatchObject({ required: true,
+      owner: { field: "signature", primaryType: "SetupAccount" },
+      browser: { field: "proofSignature", primaryType: "CenterSetupProof" },
+      transactionAuthority: false, onchainSessionAuthority: false });
+    expect(onboarding.responses).toHaveProperty("201");
     expect(JSON.stringify(spec)).not.toMatch(/"(?:bearer|oauth2|apiKey)"/);
   });
 

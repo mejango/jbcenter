@@ -269,10 +269,12 @@ export interface Safe7579InspectorOptions {
   maxHistoryBlocks?: number;
   maxHistoryTransactions?: number;
   maxLogRequests?: number;
+  maxLogRangeBlocks?: number;
   maxLogBytes?: number;
   maxTraceFramesPerBlock?: number;
   maxCachedAccounts?: number;
   timeoutMs?: number;
+  creationLogs?: (chainId: number, factory: Address, account: Address, end: bigint, signal?: AbortSignal) => Promise<Record<string, unknown>[] | undefined>;
   /** Retained server-verified history; never populated from an HTTP request or client assertion. */
   checkpointStore?: Safe7579CheckpointStore;
 }
@@ -305,6 +307,7 @@ export function createSafe7579Inspector(
     history: options.maxHistoryBlocks ?? 4096,
     transactions: options.maxHistoryTransactions ?? 10000,
     logs: options.maxLogRequests ?? 2048,
+    logRange: options.maxLogRangeBlocks ?? 50000,
     logBytes: options.maxLogBytes ?? 16 * 1024 * 1024,
     frames: options.maxTraceFramesPerBlock ?? 100000,
     cache: options.maxCachedAccounts ?? 256,
@@ -321,6 +324,7 @@ export function createSafe7579Inspector(
     limits.history > 100000 ||
     limits.transactions > 100000 ||
     limits.logs > 10000 ||
+    limits.logRange > 50000 ||
     limits.logBytes > 64 * 1024 * 1024 ||
     limits.frames > 1000000 ||
     limits.cache > 10000 ||
@@ -408,6 +412,25 @@ export function createSafe7579Inspector(
       }
       let logRequests = 0;
       let logBytes = 0;
+      let completedLogPages = 0;
+      let splitLogPages = 0;
+      let logFailure: unknown;
+      let firstLogRpcError: { code: string; rpcCode?: number } | undefined;
+      const logStarted = performance.now();
+      function failLogs(code: string, message: string): never {
+        const error = new RestError(503, code, message, {
+          stage: "log-history", requests: logRequests, completedPages: completedLogPages,
+          splitPages: splitLogPages, bytes: logBytes, elapsedMs: Math.ceil(performance.now() - logStarted),
+          deadlineExceeded: deadline.aborted, ...(firstLogRpcError ? { rpcFailure: firstLogRpcError } : {}),
+        });
+        logFailure ??= error;
+        throw logFailure;
+      }
+      function checkLogRead() {
+        if (logFailure !== undefined) throw logFailure;
+        if (deadline.aborted)
+          failLogs("SMART_HISTORY_TIMEOUT", "Complete account history could not be read within the inspection deadline.");
+      }
       async function logs(
         address: Address,
         topics: (Hex | Hex[] | null)[],
@@ -415,16 +438,15 @@ export function createSafe7579Inspector(
         to: bigint,
       ) {
         const result: Record<string, unknown>[] = [];
-        const pending = from <= to ? [{ start: from, finish: to }] : [];
-        while (pending.length) {
-          const { start, finish } = pending.pop()!;
+        async function readRange(start: bigint, finish: bigint): Promise<void> {
+          checkLogRead();
           if (++logRequests > limits.logs)
-            fail(
+            failLogs(
               "SMART_HISTORY_LIMIT",
               "Complete module history exceeds the configured log budget.",
-              503,
             );
           let page: unknown;
+          let rpcFailed = false;
           try {
             page = await rpc("eth_getLogs", [
               {
@@ -434,33 +456,45 @@ export function createSafe7579Inspector(
                 toBlock: toHex(finish),
               },
             ]);
-          } catch {
+          } catch (error) {
+            checkLogRead();
+            // A quota or caller cancellation cannot be repaired by splitting the same read.
+            if ((error instanceof RestError && error.status === 429)
+              || (error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name))) throw error;
+            const rpcCode = (error as { rpcCode?: unknown } | null)?.rpcCode;
+            firstLogRpcError ??= {
+              code: error instanceof RestError ? error.code : "RPC_ERROR",
+              ...(typeof rpcCode === "number" && Number.isSafeInteger(rpcCode) ? { rpcCode } : {}),
+            };
+            rpcFailed = true;
             page = undefined;
           }
+          checkLogRead();
           if (!Array.isArray(page) || page.length >= 10000) {
-            if (start === finish || deadline.aborted)
-              fail(
-                "SMART_HISTORY_INCOMPLETE",
-                "Log history is unavailable or may have been truncated.",
-                503,
+            if (start === finish)
+              failLogs(
+                rpcFailed ? "SMART_HISTORY_RPC_UNAVAILABLE" : "SMART_HISTORY_INCOMPLETE",
+                rpcFailed ? "The configured RPC could not supply a complete account history page."
+                  : "Log history is unavailable or may have been truncated.",
               );
             const middle = (start + finish) / 2n;
-            pending.push(
-              { start: middle + 1n, finish },
-              { start, finish: middle },
-            );
-            continue;
+            splitLogPages++;
+            page = undefined;
+            // A split stays within its worker, so truncation never increases concurrency.
+            await readRange(start, middle);
+            await readRange(middle + 1n, finish);
+            return;
           }
+          completedLogPages++;
           for (const v of page) {
             const log = record(v);
             logBytes += new TextEncoder().encode(
               JSON.stringify(log),
             ).byteLength;
             if (logBytes > limits.logBytes)
-              fail(
+              failLogs(
                 "SMART_HISTORY_LIMIT",
                 "Complete module history exceeds the configured log byte budget.",
-                503,
               );
             if (
               typeof log.address !== "string" ||
@@ -486,20 +520,36 @@ export function createSafe7579Inspector(
                       : same(filter, (log.topics as Hex[])[index]!))),
               )
             )
-              fail(
+              failLogs(
                 "SMART_HISTORY_INCOMPLETE",
                 "RPC logs do not match the requested complete history.",
-                503,
               );
             result.push(log);
             if (result.length > 10000)
-              fail(
+              failLogs(
                 "SMART_HISTORY_LIMIT",
                 "Module history exceeds the configured event budget.",
-                503,
               );
           }
         }
+        let next = from;
+        async function worker() {
+          try {
+            while (next <= to) {
+              checkLogRead();
+              const start = next, pageEnd = start + BigInt(limits.logRange) - 1n;
+              const finish = pageEnd < to ? pageEnd : to;
+              next = finish + 1n;
+              await readRange(start, finish);
+            }
+          } catch (error) {
+            logFailure ??= error;
+            throw logFailure;
+          }
+        }
+        // Four pages per ingress stream, at most twelve total. All streams retain
+        // the same shared request/byte caps and must finish before any checkpoint advances.
+        await Promise.all(Array.from({ length: 4 }, worker));
         result.sort((a, b) =>
           Number(
             quantity(a.blockNumber) - quantity(b.blockNumber) ||
@@ -510,7 +560,7 @@ export function createSafe7579Inspector(
         for (const log of result) {
           const key = `${log.blockHash}:${log.logIndex}`;
           if (seen.has(key))
-            fail("SMART_HISTORY_INCOMPLETE", "Duplicate history log.", 503);
+            failLogs("SMART_HISTORY_INCOMPLETE", "Duplicate history log.");
           seen.add(key);
         }
         return result;
@@ -579,7 +629,7 @@ export function createSafe7579Inspector(
       if (!history) {
         // The indexed proxy topic identifies the first and only CREATE2 deployment by this immutable
         // factory. This rules out destroyed/recreated accounts retaining old adapter mapping state.
-        const creations = await logs(
+        const creations = await options.creationLogs?.(m.chainId, m.factory.address, account, end, deadline) ?? await logs(
           m.factory.address,
           [creationTopic, padHex(account, { size: 32 })],
           0n,
@@ -643,7 +693,7 @@ export function createSafe7579Inspector(
             "Creation uses another Safe singleton.",
           );
         prepared = verifySafe7579CreationCall(m, account, hex(tx.input));
-        for (const pin of [
+        await Promise.all([
           m.factory,
           m.singleton,
           m.safe7579,
@@ -651,7 +701,7 @@ export function createSafe7579Inspector(
           m.smartSessions,
           m.entryPoint,
           options.utility,
-        ]) {
+        ].map(async pin => {
           const code = hex(
             await rpc("eth_getCode", [
               pin.address,
@@ -663,7 +713,7 @@ export function createSafe7579Inspector(
               "SMART_HISTORY_CODE_MISMATCH",
               "Creation did not use the reviewed immutable stack.",
             );
-        }
+        }));
         history = {
           creationBlock,
           creationHash: h.hash,
@@ -695,19 +745,11 @@ export function createSafe7579Inspector(
       // replacement: an outer revert that removes that log also removes all inner state effects.
       // With only this adapter installed and no handlers/hooks, the only additional authority
       // ingress is initialization (adapter event) or EntryPoint validation (sender event).
-      const safeEvents = await logs(account, [], start, end);
-      const initializationEvents = await logs(
-        m.safe7579.address,
-        [initializedTopic, padHex(account, { size: 32 })],
-        start,
-        end,
-      );
-      const userOperationEvents = await logs(
-        ENTRY_POINT,
-        [userOperationTopic, null, padHex(account, { size: 32 })],
-        start,
-        end,
-      );
+      const [safeEvents, initializationEvents, userOperationEvents] = await Promise.all([
+        logs(account, [], start, end),
+        logs(m.safe7579.address, [initializedTopic, padHex(account, { size: 32 })], start, end),
+        logs(ENTRY_POINT, [userOperationTopic, null, padHex(account, { size: 32 })], start, end),
+      ]);
       const candidatesByBlock = new Map<bigint, Map<Hex, Hex>>();
       let candidateTransactions = 0;
       function addCandidate(n: bigint, txHash: Hex, blockHash: Hex) {
@@ -1218,7 +1260,7 @@ export function createSafe7579Inspector(
           503,
         );
 
-      for (const pin of [
+      await Promise.all([
         m.factory,
         m.singleton,
         m.safe7579,
@@ -1226,14 +1268,14 @@ export function createSafe7579Inspector(
         m.smartSessions,
         m.entryPoint,
         options.utility,
-      ]) {
+      ].map(async pin => {
         const code = hex(await snapshot.request("eth_getCode", [pin.address]));
         if (code === "0x" || !same(keccak256(code), pin.runtimeCodeHash))
           fail(
             "SMART_INSPECTION_CODE_MISMATCH",
             "The current stack no longer matches its reviewed code identity.",
           );
-      }
+      }));
 
       async function call(
         name:
@@ -1317,8 +1359,7 @@ export function createSafe7579Inspector(
           "Module enumeration exceeds the supported bound.",
         );
       }
-      const validators = await list(2),
-        executors = await list(3);
+      const [validators, executors] = await Promise.all([list(2), list(3)]);
       if (
         validators.length !== 1 ||
         !same(validators[0]!, m.smartSessions.address) ||
@@ -1328,16 +1369,15 @@ export function createSafe7579Inspector(
           "SMART_MODULE_CONFIGURATION_UNSUPPORTED",
           "Only the reviewed SmartSession validator and no executors may be installed.",
         );
-      const hooks = [
-        await call("getActiveHook"),
-        await call("getPrevalidationHook", [9n]),
-        await call("getPrevalidationHook", [8n]),
-      ] as Address[];
+      const [hooks, hookStorage] = await Promise.all([
+        Promise.all([call("getActiveHook"), call("getPrevalidationHook", [9n]), call("getPrevalidationHook", [8n])]) as Promise<Address[]>,
+        Promise.all([5, 7, 8].map(slot => storage(safe7579MappingSlot(account, slot)))),
+      ]);
       for (let i = 0; i < 3; i++)
         if (
           !same(
             hooks[i]!,
-            await storage(safe7579MappingSlot(account, [5, 7, 8][i]!)),
+            hookStorage[i]!,
           ) ||
           !same(hooks[i]!, zeroAddress)
         )
@@ -1345,12 +1385,13 @@ export function createSafe7579Inspector(
             "SMART_MODULE_CONFIGURATION_UNSUPPORTED",
             "Global and prevalidation hooks must be absent.",
           );
-      if (!same(await storage(safe7579MappingSlot(account, 0)), zeroAddress))
+      const [registryAddress, adapterEntryPoint] = await Promise.all([storage(safe7579MappingSlot(account, 0)), call("entryPoint")]);
+      if (!same(registryAddress, zeroAddress))
         fail(
           "SMART_REGISTRY_STATE_UNSUPPORTED",
           "This source revision does not enforce or configure registry attesters; unexpected registry storage is unsupported.",
         );
-      if (!same(String(await call("entryPoint")), ENTRY_POINT))
+      if (!same(String(adapterEntryPoint), ENTRY_POINT))
         fail(
           "SMART_ENTRYPOINT_MISMATCH",
           "The adapter EntryPoint differs from its reviewed immutable source.",

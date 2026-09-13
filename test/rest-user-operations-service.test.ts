@@ -92,7 +92,7 @@ function gate() {
 }
 
 /** Real signatures, services, codecs and stores; only upstream chain/provider I/O is synthetic. */
-async function fixture(useSession = false, currentProfile = false) {
+async function fixture(useSession = false, currentProfile = false, useSponsorRoute = false) {
   let now = 1_800_000_000_000;
   const blockTimestamp = now / 1000;
   let linked = true;
@@ -555,9 +555,12 @@ async function fixture(useSession = false, currentProfile = false) {
       ),
     executionBinding,
   } as unknown as SessionService;
+  const routeProvider = new UserOperationProvider([{...provider.configuration(1), providerId:'beep-provider', bundlerUrl:'https://bundler.example/beep'}],fetcher,1000,()=>now);
+  const sponsorRoutes = {authorize:vi.fn(()=>routeProvider),stored:vi.fn(()=>routeProvider)};
   service = new UserOperationService({
     rpc: { request: rpc },
     provider,
+    ...(useSponsorRoute ? {sponsorRoutes} : {}),
     store,
     transactionStore,
     transactions,
@@ -595,6 +598,7 @@ async function fixture(useSession = false, currentProfile = false) {
         planId: id,
         stepIndexes: Array.from({ length: steps }, (_, index) => index),
         ...(sessionId ? { sessionId } : {}),
+        ...(useSponsorRoute ? {sponsorAuthorization:"fixture-voucher"} : {}),
       },
       id,
       h(id),
@@ -620,6 +624,7 @@ async function fixture(useSession = false, currentProfile = false) {
     });
   }
   return {
+    sponsorRoutes,
     service,
     prepare,
     sign,
@@ -665,6 +670,26 @@ async function fixture(useSession = false, currentProfile = false) {
 }
 
 describe("UserOperationService integration", () => {
+  it("uses the authorized route for preparation, submission and receipt recovery", async () => {
+    const f=await fixture(false,false,true);
+    const prepared=await f.prepare();
+    expect(prepared.providerId).toBe('beep-provider');
+    expect(f.sponsorRoutes.authorize).toHaveBeenCalledWith('fixture-voucher',{
+      accountId:f.activeActor.accountId,planId:'service-plan',chainId:1,stepIndexes:[0],idempotencyKey:'service-plan',
+    });
+    await f.service.submit(f.principal,prepared.id,await f.sign(prepared),'route-submit');
+    await f.service.recoverPending();
+    expect(f.sponsorRoutes.stored).toHaveBeenCalledWith('beep-provider');
+    const dispatch=f.fetcher.mock.calls.find(([,options])=>JSON.parse(String(options?.body)).method==='eth_sendUserOperation');
+    expect(String(dispatch?.[0])).toBe('https://bundler.example/beep');
+    expect(f.state.sends).toBe(1);
+  });
+  it("does not let application vouchers broaden session authority", async () => {
+    const f=await fixture(true,false,true);
+    await expect(f.prepare()).rejects.toMatchObject({code:'SPONSOR_OWNER_REQUIRED'});
+    expect(f.sponsorRoutes.authorize).not.toHaveBeenCalled();
+    expect(f.state.sends).toBe(0);
+  });
   it("retains sampled submission age during silent provider outages and uncertain receipts, then clears confirmed work", async () => {
     const f = await fixture();
     const prepared = await f.prepare();

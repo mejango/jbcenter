@@ -13,6 +13,82 @@ type Row = QueryResultRow & {
 };
 const error = (code: string, message: string, status = 409) =>
   new RestError(status, code, message);
+/** The caller holds the API account row lock and owns the transaction; the record is already verified. */
+export async function bindSmartAccountInTransaction(
+  client: PoolClient,
+  record: SmartAccountBinding,
+  now: number,
+): Promise<{ binding: SmartAccountBinding; replayed: boolean }> {
+  const encoded = stable(record);
+  await client.query(
+    "DELETE FROM rest_smart_account_binding_nonces WHERE account_id=$1 AND expires_at<=$2",
+    [record.ownerAccountId, now],
+  );
+  const used = await client.query<{ digest: string }>(
+    "SELECT digest FROM rest_smart_account_binding_nonces WHERE account_id=$1 AND nonce=$2",
+    [record.ownerAccountId, record.authorization.nonce.toLowerCase()],
+  );
+  const existing = await client.query<Row>(
+    "SELECT document,revoked_at FROM rest_smart_account_bindings WHERE account_id=$1 AND id=$2",
+    [record.ownerAccountId, record.id],
+  );
+  if (used.rows[0]) {
+    if (used.rows[0].digest !== record.authorization.digest)
+      throw error(
+        "SMART_BINDING_NONCE_REPLAY",
+        "The binding nonce was used for another authorization.",
+      );
+    const row = existing.rows[0];
+    if (
+      !row ||
+      row.revoked_at !== null ||
+      row.document.authorization.digest !== record.authorization.digest
+    )
+      throw error(
+        "SMART_BINDING_REVOKED",
+        "A revoked or superseded signature cannot restore the wallet binding.",
+      );
+    return { binding: row.document, replayed: true };
+  }
+  const counts = await client.query<{ bindings: string; nonces: string }>(
+    "SELECT (SELECT count(*) FROM rest_smart_account_bindings WHERE account_id=$1)::text AS bindings,(SELECT count(*) FROM rest_smart_account_binding_nonces WHERE account_id=$1)::text AS nonces",
+    [record.ownerAccountId],
+  );
+  if (
+    (!existing.rows[0] && Number(counts.rows[0]!.bindings) >= 16) ||
+    Number(counts.rows[0]!.nonces) >= 256
+  )
+    throw error(
+      "SMART_REGISTRY_CAPACITY",
+      "The account exceeds its bounded wallet or live binding-authorization limit.",
+      429,
+    );
+  await client.query(
+    "INSERT INTO rest_smart_account_binding_nonces(account_id,nonce,digest,expires_at) VALUES($1,$2,$3,$4)",
+    [
+      record.ownerAccountId,
+      record.authorization.nonce.toLowerCase(),
+      record.authorization.digest,
+      record.authorization.expiresAt,
+    ],
+  );
+  await client.query(
+    `INSERT INTO rest_smart_account_bindings(account_id,id,chain_id,wallet_address,authorization_digest,created_at,updated_at,document)
+    VALUES($1,$2,$3,$4,$5,$6,$6,$7::jsonb)
+    ON CONFLICT(account_id,id) DO UPDATE SET authorization_digest=EXCLUDED.authorization_digest,updated_at=EXCLUDED.updated_at,document=EXCLUDED.document,revoked_at=NULL`,
+    [
+      record.ownerAccountId,
+      record.id,
+      record.wallet.chainId,
+      record.wallet.address.toLowerCase(),
+      record.authorization.digest,
+      now,
+      encoded,
+    ],
+  );
+  return { binding: structuredClone(record), replayed: false };
+}
+
 /** Durable owner-isolated registry. Account row locks serialize nonce claims, binding changes and revocation. */
 export class PostgresSmartAccountRegistry
   implements VerifiedSmartAccountRegistry
@@ -87,73 +163,7 @@ export class PostgresSmartAccountRegistry
           "SMART_BINDING_EXPIRED",
           "Owner account binding authorization expired or exceeds fifteen minutes.",
         );
-      await client.query(
-        "DELETE FROM rest_smart_account_binding_nonces WHERE account_id=$1 AND expires_at<=$2",
-        [record.ownerAccountId, locked.now],
-      );
-      const used = await client.query<{ digest: string }>(
-        "SELECT digest FROM rest_smart_account_binding_nonces WHERE account_id=$1 AND nonce=$2",
-        [record.ownerAccountId, record.authorization.nonce.toLowerCase()],
-      );
-      const existing = await client.query<Row>(
-        "SELECT document,revoked_at FROM rest_smart_account_bindings WHERE account_id=$1 AND id=$2",
-        [record.ownerAccountId, record.id],
-      );
-      if (used.rows[0]) {
-        if (used.rows[0].digest !== record.authorization.digest)
-          throw error(
-            "SMART_BINDING_NONCE_REPLAY",
-            "The binding nonce was used for another authorization.",
-          );
-        const row = existing.rows[0];
-        if (
-          !row ||
-          row.revoked_at !== null ||
-          row.document.authorization.digest !== record.authorization.digest
-        )
-          throw error(
-            "SMART_BINDING_REVOKED",
-            "A revoked or superseded signature cannot restore the wallet binding.",
-          );
-        return row.document;
-      }
-      const counts = await client.query<{ bindings: string; nonces: string }>(
-        "SELECT (SELECT count(*) FROM rest_smart_account_bindings WHERE account_id=$1)::text AS bindings,(SELECT count(*) FROM rest_smart_account_binding_nonces WHERE account_id=$1)::text AS nonces",
-        [record.ownerAccountId],
-      );
-      if (
-        (!existing.rows[0] && Number(counts.rows[0]!.bindings) >= 16) ||
-        Number(counts.rows[0]!.nonces) >= 256
-      )
-        throw error(
-          "SMART_REGISTRY_CAPACITY",
-          "The account exceeds its bounded wallet or live binding-authorization limit.",
-          429,
-        );
-      await client.query(
-        "INSERT INTO rest_smart_account_binding_nonces(account_id,nonce,digest,expires_at) VALUES($1,$2,$3,$4)",
-        [
-          record.ownerAccountId,
-          record.authorization.nonce.toLowerCase(),
-          record.authorization.digest,
-          record.authorization.expiresAt,
-        ],
-      );
-      await client.query(
-        `INSERT INTO rest_smart_account_bindings(account_id,id,chain_id,wallet_address,authorization_digest,created_at,updated_at,document)
-        VALUES($1,$2,$3,$4,$5,$6,$6,$7::jsonb)
-        ON CONFLICT(account_id,id) DO UPDATE SET authorization_digest=EXCLUDED.authorization_digest,updated_at=EXCLUDED.updated_at,document=EXCLUDED.document,revoked_at=NULL`,
-        [
-          record.ownerAccountId,
-          record.id,
-          record.wallet.chainId,
-          record.wallet.address.toLowerCase(),
-          record.authorization.digest,
-          locked.now,
-          encoded,
-        ],
-      );
-      return structuredClone(record);
+      return (await bindSmartAccountInTransaction(client, record, locked.now)).binding;
     });
   }
   async get(ownerAccountId: string, id: Hex) {

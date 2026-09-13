@@ -1,3 +1,4 @@
+import type {UserOperationSponsorRoutes} from './sponsorRoutes.js';
 import { randomUUID } from "node:crypto";
 import { toHex, type Hex } from "viem";
 import type { RestPrincipal } from "../auth/store.js";
@@ -72,6 +73,7 @@ export interface UserOperationChainPolicy {
 export interface UserOperationServiceDependencies {
   rpc: RestRpc;
   provider: UserOperationProvider;
+  sponsorRoutes?: Pick<UserOperationSponsorRoutes, "authorize" | "stored">;
   store: UserOperationStore;
   transactionStore: TransactionStore;
   transactions: TransactionService;
@@ -104,6 +106,7 @@ export interface UserOperationServiceDependencies {
   now?: () => number;
 }
 export interface UserOperationPreparationInput {
+  sponsorAuthorization?: string;
   planId: string;
   stepIndexes: number[];
   sessionId?: string;
@@ -267,7 +270,7 @@ export class UserOperationService {
       );
     exactObject(
       input,
-      ["planId", "stepIndexes", "sessionId"],
+      ["planId", "stepIndexes", "sessionId", "sponsorAuthorization"],
       "user operation",
     );
     if (
@@ -336,6 +339,13 @@ export class UserOperationService {
     }
     const { binding, manifest } = await this.account(plan, signal);
     const policy = this.policy(binding.wallet.chainId);
+    if (input.sessionId && input.sponsorAuthorization !== undefined)
+      fail('SPONSOR_OWNER_REQUIRED', 'Application sponsorship requires fresh owner approval.', 403);
+    const provider = input.sponsorAuthorization === undefined ? this.options.provider :
+      this.options.sponsorRoutes?.authorize(input.sponsorAuthorization, {
+        accountId: actor.accountId, planId: plan.id, chainId: binding.wallet.chainId,
+        stepIndexes: input.stepIndexes, idempotencyKey: key,
+      }) ?? fail('SPONSOR_ROUTE_UNAVAILABLE', 'Application sponsorship is not configured.', 403);
     let session: UserOperationSessionBinding | undefined;
     let gasSession: StoredSession | undefined;
     if (input.sessionId) {
@@ -357,7 +367,7 @@ export class UserOperationService {
       }
     }
     const chain = this.chain(signal);
-    await this.options.provider.readiness(binding.wallet.chainId, signal);
+    await provider.readiness(binding.wallet.chainId, signal);
     const nonceKey = session
       ? BigInt(safe7579NonceKey(manifest.smartSessions.address))
       : 0n;
@@ -415,7 +425,7 @@ export class UserOperationService {
             validUntil: String(Math.floor(expiry / 1000)),
             signatures: `0x${dummySignature.slice(2).repeat(binding.state.threshold)}`,
           });
-    const providerConfig = this.options.provider.configuration(
+    const providerConfig = provider.configuration(
       binding.wallet.chainId,
     );
     const sponsored = Boolean(providerConfig.paymasterPolicy);
@@ -430,7 +440,7 @@ export class UserOperationService {
       : undefined;
     if (gasEstimation) operation = gasEstimation.fit(operation, true);
     const stub = sponsored
-      ? await this.options.provider.stub(
+      ? await provider.stub(
           binding.wallet.chainId,
           operation,
           signal,
@@ -440,7 +450,7 @@ export class UserOperationService {
     if (gasEstimation && !stub?.isFinal)
       operation = gasEstimation.fit(operation);
     gasEstimation?.assert(operation);
-    const estimate = await this.options.provider.estimate(
+    const estimate = await provider.estimate(
       binding.wallet.chainId,
       { ...operation, signature: dummy() },
       signal,
@@ -468,7 +478,7 @@ export class UserOperationService {
         profile: providerConfig.paymasterPolicy?.profile,
         expiresAt,
         dummySignature: dummy,
-        provider: this.options.provider,
+        provider,
         sessionGas: gasEstimation,
         signal,
       });
@@ -588,10 +598,11 @@ export class UserOperationService {
     await this.options.sessions?.assertOwnerPlan(principal, plan);
     const { binding, manifest } = await this.account(plan, signal);
     const policy = this.policy(record.chainId);
+    const provider = this.providerForRecord(record);
     if (
       record.expiresAt <= this.now() ||
       record.gasPolicyId !== policy.gas.id ||
-      this.options.provider.configuration(record.chainId).providerId !==
+      provider.configuration(record.chainId).providerId !==
         record.providerId
     )
       fail(
@@ -637,7 +648,7 @@ export class UserOperationService {
     const preflight = await this.chain(signal).preflight(
       execution,
       policy.gas,
-      this.options.provider,
+      provider,
     );
     await this.options.currentBindingAt(
       actor.accountId,
@@ -680,7 +691,7 @@ export class UserOperationService {
     // Admission permanently reserves both plan transport and nonce before the only publication attempt.
     let state: "pending" | "submission_unknown" = "pending";
     try {
-      await this.options.provider.send(record.chainId, operation, signal);
+      await provider.send(record.chainId, operation, signal);
     } catch {
       state = "submission_unknown";
     }
@@ -726,6 +737,11 @@ export class UserOperationService {
     };
   }
 
+  private providerForRecord(record: UserOperationRecord) {
+    if (this.options.provider.configuration(record.chainId).providerId === record.providerId) return this.options.provider;
+    return this.options.sponsorRoutes?.stored(record.providerId) ?? fail('SPONSOR_ROUTE_UNAVAILABLE', 'The stored sponsorship route is unavailable.');
+  }
+
   private async refresh(record: UserOperationRecord, signal?: AbortSignal) {
     if (!record.submission) return record;
     const plan = await this.plan(record.actor, record.planId, false);
@@ -757,7 +773,7 @@ export class UserOperationService {
       if (!retain)
         transactionHash =
           (
-            await this.options.provider.receipt(
+            await this.providerForRecord(record).receipt(
               record.chainId,
               record.operationHash,
               signal,

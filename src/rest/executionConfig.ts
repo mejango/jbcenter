@@ -1,3 +1,4 @@
+import {UserOperationSponsorRoutes} from './userOperations/sponsorRoutes.js';
 import { getAddress, isAddress, type Address } from "viem";
 import { RestError } from "./core.js";
 import { createConfiguredSmartAccountStack } from "./smartAccounts/stack/config.js";
@@ -36,6 +37,7 @@ type ConfiguredStack = Awaited<
   ReturnType<typeof createConfiguredSmartAccountStack>
 >;
 export interface RestExecutionConfiguration {
+  sponsorRoutes?: UserOperationSponsorRoutes;
   stacks: ConfiguredStack[];
   providers: UserOperationProviderConfig[];
   policies: UserOperationChainPolicy[];
@@ -281,6 +283,7 @@ export async function readRestExecutionConfiguration(
   return {
     stacks: CHAIN_IDS.map((chainId) => stacks.get(chainId)!),
     providers,
+    sponsorRoutes: new UserOperationSponsorRoutes(providers, typeof envOrJson === "string" ? undefined : envOrJson.REST_ERC4337_SPONSOR_ROUTES),
     policies,
     paymasters,
   };

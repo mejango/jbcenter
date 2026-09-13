@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 for (const [from, to] of [
+  ["src/rest/smartAccounts/factory-history", "dist/src/rest/smartAccounts/factory-history"],
   ["src/db/migrations", "dist/src/db/migrations"],
   ["src/rest/contracts/data", "dist/src/rest/contracts/data"],
   [

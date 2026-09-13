@@ -20,6 +20,18 @@ const gasBudget = { paymaster: ref("Address"), maxGasPerOperation: positive128, 
   maxPriorityFeePerGas: uint128, totalGasLimit: positive128, totalSponsoredCostLimit: ref("PositiveUint256"),
   maxPaymasterDataLength: { type: "integer", const: 130 } };
 const pinFields = { address: ref("Address"), runtimeCodeHash: ref("Hash"), source: object({ repository: text, commit: text, artifactSha256: ref("Sha256") }) };
+const setupAddress = { allOf: [ref("Address"), { not: { enum: [`0x${"0".repeat(40)}`, `0x${"0".repeat(39)}1`] } }] };
+const setupScopes = { type: "array", const: ["read", "plan", "relay"] };
+const setupGrantId = { type: "string", format: "uuid", pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" };
+const setupLabel = { type: "string", pattern: "^[^\\u0000-\\u001f\\u007f]*$", "x-maxUtf8Bytes": 120 };
+const setupFields = { owner: setupAddress, address: setupAddress, manifestId: { type: "string", pattern: "^[a-zA-Z0-9:_-]{1,192}$" }, nonce,
+  issuedAt: { ...ref("UnixSeconds"), description: "No more than 30 seconds ahead of server time." },
+  expiresAt: { ...ref("UnixSeconds"), description: "Future Unix seconds, after issuedAt and no more than 300 seconds later." },
+  grant: ref("SmartOnboardingGrant") };
+const setupSignature = { type: "string", pattern: "^0x[0-9a-fA-F]{128}(?:1[bBcC])$",
+  description: "One direct 65-byte EIP-712 EOA signature with v=27 or v=28." };
+const setupTime = { ...decimalString(Number.MAX_SAFE_INTEGER), description: "Typed-data uint64 serialized as a decimal string. Request timestamps use JSON integers in Unix seconds." };
+const bindingAuthorization = { digest: ref("Hash"), nonce, expiresAt: ref("UnixSeconds") };
 
 export function smartAccountSchemas(): Record<string, Schema> {
   return {
@@ -58,9 +70,38 @@ export function smartAccountSchemas(): Record<string, Schema> {
       types: { type: "object", const: { BindSmartAccount: [{ name: "accountId", type: "string" }, { name: "owner", type: "address" }, { name: "stateHash", type: "bytes32" }, { name: "nonce", type: "bytes32" }, { name: "expiresAt", type: "uint64" }] } },
       message: object({ accountId: ref("AccountId"), owner: ref("Address"), stateHash: ref("Hash"), nonce, expiresAt: { ...decimalString(Number.MAX_SAFE_INTEGER), description: "Uint64 typed-data value serialized as a decimal string. Challenge request `expiresAt` uses a JSON integer in Unix seconds." } }),
     }) }),
+    SmartOnboardingGrant: { ...object({ id: setupGrantId, botAddress: setupAddress, scopes: setupScopes,
+      expiresAt: { ...ref("UnixSeconds"), description: "After the setup authorization expires and no more than 3600 seconds after its issuedAt." }, label: setupLabel }),
+      description: "Browser-selected lowercase UUID v4 and distinct browser API key. Scopes must be exactly read, plan, relay in that order; no onchain signing or spending authority." },
+    SmartOnboardingChallengeInput: { ...object(setupFields), description: "Public read for one canonically deployed sole-owner Base Safe without spending sessions. Owner, wallet and browser key must be distinct. All fields are required; unknown fields are rejected. This read neither enrolls an account nor consumes the nonce." },
+    SmartOnboardingInput: { ...object({ ...setupFields, manifestRevision: ref("Hash"), initializerHash: ref("Hash"), stateHash: ref("Hash"),
+      signature: { ...setupSignature, description: "Current sole owner's signature over the exact returned SetupAccount document." },
+      proofSignature: { ...setupSignature, description: "Browser key's CenterSetupProof signature over {setupDigest: challenge.digest}, using the SetupAccount domain. This is not a CenterBotProof signature." } }),
+      description: "Purpose-signed body; no generic CenterRequest signature is needed. Rechecks canonical state and atomically enrolls the API identity if absent, binds the wallet and creates the exact signed grant. Authorizes no transaction, onchain session or broader API grant." },
+    SmartOnboardingChallenge: object({ state: ref("SmartAccountState"), digest: ref("Hash"), typedData: object({
+      domain: object({ name: { type: "string", const: "Juicebox Center Account Setup" }, version: { type: "string", const: "1" },
+        chainId: { type: "integer", const: 8453 }, verifyingContract: ref("Address"), salt: ref("Hash") }),
+      primaryType: { type: "string", const: "SetupAccount" },
+      types: { type: "object", const: { SetupAccount: [
+        { name: "accountId", type: "string" }, { name: "owner", type: "address" }, { name: "manifestId", type: "string" },
+        { name: "manifestRevision", type: "bytes32" }, { name: "initializerHash", type: "bytes32" }, { name: "stateHash", type: "bytes32" },
+        { name: "nonce", type: "bytes32" }, { name: "issuedAt", type: "uint64" }, { name: "expiresAt", type: "uint64" },
+        { name: "grantId", type: "string" }, { name: "botAddress", type: "address" }, { name: "scopes", type: "string[]" },
+        { name: "grantExpiresAt", type: "uint64" }, { name: "label", type: "string" },
+      ] } },
+      message: object({ accountId: ref("AccountId"), owner: setupAddress, manifestId: setupFields.manifestId,
+        manifestRevision: ref("Hash"), initializerHash: ref("Hash"), stateHash: ref("Hash"), nonce, issuedAt: setupTime, expiresAt: setupTime,
+        grantId: setupGrantId, botAddress: setupAddress, scopes: setupScopes, grantExpiresAt: setupTime, label: setupLabel }),
+    }) }),
     SmartAccountBinding: object({ id: ref("Hash"), ownerAccountId: ref("AccountId"), ownerAddress: ref("Address"), wallet, manifestId: text,
-      authorization: object({ digest: ref("Hash"), nonce, expiresAt: ref("UnixSeconds"), method: { type: "string", const: "safe-current-owner-threshold" } }), state: ref("SmartAccountState"),
+      authorization: { oneOf: [
+        object({ ...bindingAuthorization, method: { type: "string", const: "safe-current-owner-threshold" } }),
+        object({ ...bindingAuthorization, method: { type: "string", const: "safe-current-owner-threshold-and-api-grant" },
+          setup: object({ manifestRevision: ref("Hash"), initializerHash: ref("Hash"), issuedAt: ref("UnixSeconds"), grantId: setupGrantId,
+            botAddress: setupAddress, scopes: setupScopes, grantExpiresAt: ref("UnixSeconds"), label: setupLabel }) }),
+      ] }, state: ref("SmartAccountState"),
     }),
+    SmartOnboardingResult: object({ account: ref("Account"), binding: ref("SmartAccountBinding"), grant: ref("BotGrant") }),
     SmartBindingList: object({ items: array(object({ id: ref("Hash"), wallet, manifestId: text, stateHash: ref("Hash"), evidence: ref("BlockEvidence"),
       moduleConfigurationVerified: boolean, executionVerified: no, observation: { type: "string", const: "stored-binding-snapshot" } })) }),
     SmartBindingUnlinked: object({ id: ref("Hash"), status: { type: "string", const: "unlinked" }, onchainSessionRevoked: no, reason: text }),
