@@ -3,10 +3,10 @@ import {
   buildBotProofTypedData, buildRequestTypedData, newRequestNonce, parseAccountId,
   REST_AUTH_HEADERS as H, validateAudience, type BotProof, type RequestClaims,
 } from "../auth/signatures.js";
-import { isCanonicalGrantScopes, type BotScope } from "../auth/store.js";
+import { isCanonicalGrantScopes, type BotScope } from "../auth/shared.js";
 
 export { accountIdFor, newRequestNonce, REST_AUTH_HEADERS } from "../auth/signatures.js";
-export { isCanonicalGrantScopes } from "../auth/store.js";
+export { isCanonicalGrantScopes } from "../auth/shared.js";
 export {
   buildTransactionApprovalTypedData, buildSponsorshipApprovalTypedData, sponsorshipSubmissionHash,
   type TransactionApproval, type TransactionApprovalBinding, type TransactionApprovalClaims,

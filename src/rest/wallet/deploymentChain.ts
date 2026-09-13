@@ -1,14 +1,19 @@
-import { encodeAbiParameters, getAddress, isAddress, keccak256, serializeTransaction, toHex, type Address, type Hex } from "viem";
+import { decodeEventLog, encodeAbiParameters, getAddress, isAddress, keccak256, padHex, parseTransaction, serializeTransaction,
+  stringToHex, toHex, type Address, type Hex } from "viem";
 import { isProxy } from "node:util/types";
 import { RestError, type RestBlockEvidence, type RestRpc } from "../core.js";
 import type { ContractPin, SmartAccountManifest } from "../smartAccounts/types.js";
-import { validatePasskeyCreationManifest, verifySafe7579CreationCall } from "../smartAccounts/creation.js";
+import { SAFE_CREATION_ABI, validatePasskeyCreationManifest, verifySafe7579CreationCall } from "../smartAccounts/creation.js";
 import { inspectPasskeyCreationSigner } from "../smartAccounts/passkeyProfile.js";
-import { SAFE7579_INSPECTOR_ID, SAFE7579_STORAGE_SOURCE } from "../smartAccounts/inspector.js";
+import { createSafe7579Inspector, SAFE7579_INSPECTOR_ID, SAFE7579_STORAGE_SOURCE } from "../smartAccounts/inspector.js";
+import { createSmartAccountService, stable } from "../smartAccounts/service.js";
+import { createInstalledSessionVerifier } from "../smartAccounts/installed.js";
+import { MemorySmartAccountRegistry } from "../smartAccounts/registry.js";
 import { rpcHex } from "../protocol/code.js";
 import type { RelayPolicy } from "../transactions/types.js";
-import { prepareWalletDeploymentTemplate, walletDeploymentDocument, type WalletDeploymentApproval, type WalletDeploymentTemplate } from "./deployment.js";
-import type { WalletDeploymentAdmission, WalletDeploymentPoolConfiguration } from "./deploymentPostgres.js";
+import { prepareWalletDeploymentTemplate, validateSignedWalletDeployment, walletDeploymentDocument, type WalletDeploymentApproval, type WalletDeploymentTemplate } from "./deployment.js";
+import type { WalletDeploymentAdmission, WalletDeploymentOperation, WalletDeploymentPoolConfiguration } from "./deploymentPostgres.js";
+import { assertWalletDeploymentObservation, type WalletDeploymentObservation } from "./deploymentObservation.js";
 import { enrollmentDigest, type WalletEnrollment } from "./enrollment.js";
 
 export interface WalletDeploymentChainOptions {
@@ -19,6 +24,8 @@ export interface WalletDeploymentChainOptions {
   now?: () => number;
   /** Host-owned overrides may only reduce the hard request bounds. */
   limits?: { rpcCalls?: number; rpcTimeoutMs?: number; totalTimeoutMs?: number; responseBytes?: number };
+  /** Separate read-only recovery budget. It does not increase fresh preflight limits. */
+  observationLimits?: { rpcCalls?: number; rpcTimeoutMs?: number; totalTimeoutMs?: number; responseBytes?: number };
 }
 export interface WalletDeploymentPreflight {
   admission: WalletDeploymentAdmission;
@@ -38,6 +45,7 @@ export interface WalletDeploymentPreflight {
 }
 
 const bounds = Object.freeze({ rpcCalls: 64, rpcTimeoutMs: 3000, totalTimeoutMs: 15_000, responseBytes: 2 * 1024 * 1024 });
+const observationBounds = Object.freeze({ rpcCalls: 256, rpcTimeoutMs: 3000, totalTimeoutMs: 30_000, responseBytes: 8 * 1024 * 1024 });
 const maxUint256 = (1n << 256n) - 1n;
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 function fail(code: string, message: string, status = 422): never { throw new RestError(status, code, message); }
@@ -57,7 +65,7 @@ function clock(value: number): boolean { return Number.isSafeInteger(value) && v
 
 /** A single read-only operation owns all calls, response bytes and cancellation, including helper
  * reads. Promise races also bound transports that fail to honor their AbortSignal. */
-function operationRpc(rpc: RestRpc, limits: Record<keyof typeof bounds, number>, signal?: AbortSignal) {
+function operationRpc(rpc: RestRpc, limits: Record<keyof typeof bounds, number>, signal?: AbortSignal, observation = false) {
   const controller = new AbortController();
   const operationDeadline = performance.now() + limits.totalTimeoutMs;
   let failure: RestError | undefined, remaining = limits.rpcCalls, remainingBytes = limits.responseBytes;
@@ -75,17 +83,18 @@ function operationRpc(rpc: RestRpc, limits: Record<keyof typeof bounds, number>,
       stop(new RestError(504, "WALLET_DEPLOYMENT_RPC_TIMEOUT", "The configured RPC did not answer within its deadline."));
     if (failure) throw failure;
   };
-  function checkedResponse(value: unknown): unknown {
+  function checkedResponse(value: unknown, trace: boolean): unknown {
     // Build only the bounded sanitized copy. Do not clone sparse arrays, invoke proxies/accessors,
     // allocate every descriptor, or serialize an unbounded property name before admission.
     let nodes = 0, bytes = 0;
+    const maxNodes = trace ? 32_768 : 4096, maxDepth = trace ? 64 : 8, maxBytes = trace ? 1_048_576 : 524_288;
     const stringBytes = (value: string) => {
-      if (Buffer.byteLength(value, "utf8") > remainingBytes || value.length > 524_288)
+      if (value.length > maxBytes || Buffer.byteLength(value, "utf8") > remainingBytes)
         fail("WALLET_DEPLOYMENT_RPC_BYTES", "Deployment observation exhausted its response-byte budget.", 429);
       return Buffer.byteLength(JSON.stringify(value), "utf8");
     };
     function visit(item: unknown, depth: number): unknown {
-      if (++nodes > 4096 || depth > 8) fail("WALLET_DEPLOYMENT_RPC_BYTES", "The provider response exceeds its structural bound.", 429);
+      if (++nodes > maxNodes || depth > maxDepth) fail("WALLET_DEPLOYMENT_RPC_BYTES", "The provider response exceeds its structural bound.", 429);
       let result: unknown = item;
       if (typeof item === "string") {
         bytes += stringBytes(item);
@@ -95,9 +104,9 @@ function operationRpc(rpc: RestRpc, limits: Record<keyof typeof bounds, number>,
       else if (item && typeof item === "object" && !isProxy(item) &&
         (Array.isArray(item) || Object.getPrototypeOf(item) === Object.prototype || Object.getPrototypeOf(item) === null)) {
         const array = Array.isArray(item);
-        if (array && item.length > 4096) fail("WALLET_DEPLOYMENT_RPC_BYTES", "The provider array exceeds its structural bound.", 429);
+        if (array && item.length > maxNodes) fail("WALLET_DEPLOYMENT_RPC_BYTES", "The provider array exceeds its structural bound.", 429);
         const keys = Reflect.ownKeys(item);
-        if (keys.length > 4096 || (array && keys.length !== item.length + 1))
+        if (keys.length > maxNodes || (array && keys.length !== item.length + 1))
           fail("WALLET_DEPLOYMENT_RPC_BYTES", "The provider object exceeds its structural bound.", 429);
         const copy: Record<string, unknown> | unknown[] = array ? [] : Object.create(null) as Record<string, unknown>;
         bytes += 2;
@@ -112,7 +121,7 @@ function operationRpc(rpc: RestRpc, limits: Record<keyof typeof bounds, number>,
         }
         result = copy;
       } else fail("WALLET_DEPLOYMENT_RPC_INVALID", "Expected ordinary provider JSON.", 502);
-      if (bytes > remainingBytes || bytes > 524_288) fail("WALLET_DEPLOYMENT_RPC_BYTES", "Deployment observation exhausted its response-byte budget.", 429);
+      if (bytes > remainingBytes || bytes > maxBytes) fail("WALLET_DEPLOYMENT_RPC_BYTES", "Deployment observation exhausted its response-byte budget.", 429);
       return result;
     }
     const result = visit(value, 0); remainingBytes -= bytes;
@@ -123,18 +132,27 @@ function operationRpc(rpc: RestRpc, limits: Record<keyof typeof bounds, number>,
     close() { clearTimeout(deadline); signal?.removeEventListener("abort", cancel); controller.abort(); },
     async request(method: string, params: readonly unknown[]): Promise<unknown> {
       check();
+      const trace = observation && method === "debug_traceTransaction";
+      if (trace && (params.length !== 2 || !word(params[0]) || stable(params[1]) !== stable({
+        tracer: "callTracer", timeout: "10s", tracerConfig: { onlyTopCall: false },
+      }))) fail("WALLET_DEPLOYMENT_RPC_INVALID", "Only the fixed complete transaction tracer is allowed.", 500);
+      const timeoutMs = trace ? Math.min(12_000, limits.totalTimeoutMs) : limits.rpcTimeoutMs;
       if (--remaining < 0) {
         stop(new RestError(429, "WALLET_DEPLOYMENT_RPC_BUDGET", "Deployment observation exhausted its RPC call budget.")); check();
       }
       const call = new AbortController();
-      const callDeadline = performance.now() + limits.rpcTimeoutMs;
+      const callDeadline = performance.now() + timeoutMs;
       const abort = () => call.abort();
       controller.signal.addEventListener("abort", abort, { once: true });
       const interrupted = new Promise<never>((_, reject) => call.signal.addEventListener("abort", () => reject(failure), { once: true }));
-      const timer = setTimeout(() => stop(new RestError(504, "WALLET_DEPLOYMENT_RPC_TIMEOUT", "The configured RPC did not answer within its deadline.")), limits.rpcTimeoutMs);
+      const timer = setTimeout(() => stop(new RestError(504, "WALLET_DEPLOYMENT_RPC_TIMEOUT", "The configured RPC did not answer within its deadline.")), timeoutMs);
       try {
-        const result = await Promise.race([rpc.request(8453, method, structuredClone(params), call.signal), interrupted]);
-        check(callDeadline); const checked = checkedResponse(result); check(callDeadline); return checked;
+        // Attach both race handlers before invoking a transport that may throw synchronously.
+        const response = Promise.resolve().then(() => {
+          check(callDeadline); return rpc.request(8453, method, structuredClone(params), call.signal);
+        });
+        const result = await Promise.race([response, interrupted]);
+        check(callDeadline); const checked = checkedResponse(result, trace); check(callDeadline); return checked;
       } catch (error) {
         stop(error instanceof RestError ? error : new RestError(502, "WALLET_DEPLOYMENT_RPC_UNAVAILABLE", "The configured RPC could not verify the exact deployment."));
         check(); throw error;
@@ -146,12 +164,16 @@ function operationRpc(rpc: RestRpc, limits: Record<keyof typeof bounds, number>,
 /** Server-only observation, not authorization, nonce reservation or dispatch. Enrollment and
  * approval must be loaded from the durable store; matching JSON cannot prove that provenance. */
 export function createWalletDeploymentChain(options: WalletDeploymentChainOptions) {
-  for (const value of [options.configuration, options.manifest, options.utility, options.limits ?? {}]) enrollmentDigest(value);
+  for (const value of [options.configuration, options.manifest, options.utility, options.limits ?? {}, options.observationLimits ?? {}]) enrollmentDigest(value);
   const config = structuredClone(options.configuration), manifest = structuredClone(options.manifest), utility = structuredClone(options.utility);
   const limits = { ...bounds, ...options.limits }, now = options.now ?? Date.now, transport = options.rpc;
+  const recoveryLimits = { ...observationBounds, ...options.observationLimits };
   if (Object.keys(limits).some(key => !(key in bounds)) || Object.entries(limits).some(([key, value]) =>
     !Number.isSafeInteger(value) || value < 1 || value > bounds[key as keyof typeof bounds]))
     fail("WALLET_DEPLOYMENT_CONFIG_INVALID", "RPC overrides may only reduce the reviewed hard bounds.", 500);
+  if (Object.keys(recoveryLimits).some(key => !(key in observationBounds)) || Object.entries(recoveryLimits).some(([key, value]) =>
+    !Number.isSafeInteger(value) || value < 1 || value > observationBounds[key as keyof typeof observationBounds]))
+    fail("WALLET_DEPLOYMENT_CONFIG_INVALID", "Observation overrides may only reduce the reviewed hard bounds.", 500);
   validatePasskeyCreationManifest(manifest);
   if (config.chainId !== 8453 || !isAddress(config.sender) || BigInt(config.sender) <= 1n ||
     manifest.mode !== "execution-candidate" || manifest.moduleInspectorId !== SAFE7579_INSPECTOR_ID ||
@@ -168,6 +190,200 @@ export function createWalletDeploymentChain(options: WalletDeploymentChainOption
   const policy: RelayPolicy = { planTtlMs: 300_000, maximumPlanTtlMs: 300_000, leaseMs: 15_000, rpcTimeoutMs: limits.rpcTimeoutMs,
     maximumRawBytes: config.policy.maximumRawBytes, maximumGas, maximumFeePerGas, maximumTransactionCost, confirmations: 1, allowedChainIds: [8453] };
   return {
+    async observeSigned(input: { enrollment: WalletEnrollment; operation: WalletDeploymentOperation },
+      signal?: AbortSignal): Promise<WalletDeploymentObservation> {
+      enrollmentDigest(input);
+      const { enrollment, operation } = structuredClone(input), observedAt = now();
+      // Recovery validates the durable winner without requiring its old approval to remain live.
+      if (!clock(observedAt) || operation.state !== "signed" || !operation.signed || !operation.template || !operation.admission ||
+        operation.id !== operation.approval.id || operation.enrollmentId !== enrollment.intent.id || operation.poolId !== config.id ||
+        operation.poolConfigurationDigest !== enrollmentDigest(config) || enrollmentDigest(enrollment.intent.manifest) !== enrollmentDigest(manifest) ||
+        !same(operation.template.sender, sender))
+        fail("WALLET_DEPLOYMENT_OBSERVATION_CONTEXT", "Observation requires the immutable configured signed operation.", 400);
+      const signed = await validateSignedWalletDeployment({ enrollment, approval: operation.approval, template: operation.template,
+        rawTransaction: operation.signed.rawTransaction, policy });
+      if (!same(signed.hash, operation.signed.hash) || signed.templateCommitment !== operation.templateCommitment ||
+        signed.maximumExecutionCost !== operation.signed.maximumExecutionCost)
+        fail("WALLET_DEPLOYMENT_OBSERVATION_CONTEXT", "The signed artifact differs from its durable winner.", 400);
+      const parsed = parseTransaction(signed.rawTransaction), template = operation.template.transaction, creation = enrollment.creation!;
+      const empty: WalletDeploymentObservation = { version: "center-wallet-deployment-observation-v1", operationId: operation.id,
+        templateCommitment: signed.templateCommitment, transactionHash: signed.hash, observedAt, head: null,
+        transaction: { state: "unknown", reason: "observation-unavailable", receipt: null, conflict: null, nonce: null },
+        finality: { state: "unknown", evidence: null }, wallet: { state: "unknown", address: creation.address.toLowerCase() as Address,
+          initializerHash: creation.initializerHash, stateHash: null, evidence: null, creationTransaction: null, reason: "wallet-state-unavailable" },
+        fees: { executionWei: null, l1Wei: null, operatorWei: null, totalWei: null }, dispatchEligible: false };
+      const output = structuredClone(empty), rpc = operationRpc(transport, recoveryLimits, signal, true);
+      const anchors = new Map<string, RestBlockEvidence>();
+      function invalid(): never { return fail("WALLET_DEPLOYMENT_OBSERVATION_INVALID", "The provider did not prove the exact canonical deployment.", 502); }
+      function anchor(raw: unknown): RestBlockEvidence {
+        if (!object(raw) || !word(raw.hash)) return invalid();
+        const evidence: RestBlockEvidence = { chainId: 8453, blockNumber: String(quantity(raw.number)), blockHash: raw.hash.toLowerCase() as Hex,
+          timestamp: String(quantity(raw.timestamp)), source: "onchain" };
+        const prior = anchors.get(evidence.blockNumber);
+        if (prior && stable(prior) !== stable(evidence)) return invalid();
+        anchors.set(evidence.blockNumber, evidence); return evidence;
+      }
+      const tag = (at: RestBlockEvidence) => ({ blockHash: at.blockHash, requireCanonical: true as const });
+      function position(tx: Record<string, unknown>, at: RestBlockEvidence, index: bigint) {
+        if (!word(tx.blockHash) || !same(tx.blockHash, at.blockHash) || quantity(tx.blockNumber) !== BigInt(at.blockNumber) ||
+          quantity(tx.transactionIndex) !== index) invalid();
+      }
+      function blockTransactions(block: unknown): Hex[] {
+        if (!object(block) || !Array.isArray(block.transactions) || block.transactions.length > 4096 || !block.transactions.every(word)) return invalid();
+        return block.transactions;
+      }
+      function exactTransaction(value: unknown): Record<string, unknown> {
+        if (!object(value) || !word(value.hash) || !same(value.hash, signed.hash) ||
+          typeof value.from !== "string" || !same(value.from, sender) || typeof value.to !== "string" || !same(value.to, template.to) ||
+          typeof value.input !== "string" || !same(value.input, template.data) || quantity(value.chainId) !== 8453n || quantity(value.type) !== 2n ||
+          quantity(value.nonce) !== BigInt(template.nonce) || quantity(value.gas) !== BigInt(template.gas) || quantity(value.value) !== 0n ||
+          quantity(value.maxFeePerGas) !== BigInt(template.maxFeePerGas) || quantity(value.maxPriorityFeePerGas) !== BigInt(template.maxPriorityFeePerGas) ||
+          !Array.isArray(value.accessList) || value.accessList.length !== 0 ||
+          BigInt(rpcHex(value.r, "transaction r", 32)) !== BigInt(parsed.r!) || BigInt(rpcHex(value.s, "transaction s", 32)) !== BigInt(parsed.s!) ||
+          quantity(value.v) !== BigInt(parsed.yParity!) || (value.yParity !== undefined && quantity(value.yParity) !== BigInt(parsed.yParity!))) return invalid();
+        return value;
+      }
+      async function canonical() {
+        for (const evidence of anchors.values()) {
+          const current = await rpc.request("eth_getBlockByNumber", [toHex(BigInt(evidence.blockNumber)), false]);
+          if (stable(anchor(current)) !== stable(evidence)) invalid();
+        }
+        rpc.check();
+      }
+      async function inspectWallet(head: RestBlockEvidence) {
+        const code = rpcHex(await rpc.request("eth_getCode", [creation.address, tag(head)]), "observed Safe runtime", 49_152);
+        if (code === "0x") {
+          output.wallet = { ...output.wallet, state: "undeployed", evidence: head, reason: null }; return;
+        }
+        const scoped: RestRpc = { request: (chainId, method, params) => {
+          if (chainId !== 8453) return Promise.reject(new RestError(502, "WALLET_DEPLOYMENT_CHAIN_MISMATCH", "Observation requires Base."));
+          return rpc.request(method, params);
+        } };
+        // Disposable instances omit BOTH persistence and creation-log callbacks. No index sync,
+        // checkpoint write, receipt-only history shortcut or fabricated REST principal is used.
+        const accountService = createSmartAccountService({ rpc: scoped, manifests: [manifest], registry: new MemorySmartAccountRegistry(),
+          audience: enrollment.intent.origin, now, moduleInspectors: [createSafe7579Inspector({ rpc: scoped, utility,
+            inspectSessions: createInstalledSessionVerifier({ rpc: scoped }).inspectAllAt })] });
+        try {
+          const state = await accountService.inspect({ manifestId: manifest.id, address: creation.address }, signal, head);
+          const details = state.modules?.details;
+          if (!object(details) || !object(details.provenance) || !object(details.sessions) ||
+            !Array.isArray(details.sessions.permissionIds) || details.sessions.permissionIds.length !== 0 ||
+            !state.moduleConfigurationVerified || !state.ownerProfile || state.threshold !== 1 || state.owners.length !== 2 ||
+            !same(state.ownerProfile.signer.address, creation.bootstrap.signerAddress) ||
+            !same(state.ownerProfile.signer.x, enrollment.candidate!.publicKey.x) || !same(state.ownerProfile.signer.y, enrollment.candidate!.publicKey.y) ||
+            !same(state.ownerProfile.recoveryOwner.address, enrollment.intent.recoveryOwner) ||
+            details.provenance.initializerHash !== creation.initializerHash || !word(details.provenance.creationTransaction) ||
+            (output.transaction.state === "canonical-success" && !same(details.provenance.creationTransaction, signed.hash))) {
+            output.wallet.reason = "enrolled-authority-or-creation-changed"; return;
+          }
+          output.wallet = { ...output.wallet, state: "verified", stateHash: state.stateHash, evidence: head,
+            creationTransaction: details.provenance.creationTransaction.toLowerCase() as Hex, reason: null };
+        } catch {
+          // RPC failures are latched: without a final canonical recheck the WHOLE new observation
+          // stays unknown. A semantic unsupported-wallet result alone may preserve treasury facts.
+          rpc.check(); output.wallet.reason = "full-wallet-history-unavailable";
+        }
+      }
+      try {
+        const [chainId, transaction, receipt, headRaw] = await Promise.all([
+          rpc.request("eth_chainId", []), rpc.request("eth_getTransactionByHash", [signed.hash]),
+          rpc.request("eth_getTransactionReceipt", [signed.hash]), rpc.request("eth_getBlockByNumber", ["latest", false]),
+        ]);
+        if (quantity(chainId) !== 8453n) invalid();
+        const head = anchor(headRaw); output.head = head;
+        if (BigInt(head.timestamp) + 300n < BigInt(Math.floor(observedAt / 1000)) || BigInt(head.timestamp) > BigInt(Math.floor(observedAt / 1000) + 30)) invalid();
+        const tx = transaction === null ? null : exactTransaction(transaction);
+        if (receipt !== null) {
+          if (!tx || !object(receipt) || !word(receipt.transactionHash) || !same(receipt.transactionHash, signed.hash) ||
+            typeof receipt.from !== "string" || !same(receipt.from, sender) || typeof receipt.to !== "string" || !same(receipt.to, template.to)) invalid();
+          const number = quantity(receipt.blockNumber), index = quantity(receipt.transactionIndex), status = quantity(receipt.status);
+          const block = await rpc.request("eth_getBlockByNumber", [toHex(number), false]), at = anchor(block);
+          if (number !== BigInt(at.blockNumber) || number > BigInt(head.blockNumber) || (status !== 0n && status !== 1n)) invalid();
+          position(tx!, at, index); position(receipt, at, index);
+          if (blockTransactions(block)[Number(index)]?.toLowerCase() !== signed.hash) invalid();
+          const gasUsed = quantity(receipt.gasUsed), effectiveGasPrice = quantity(receipt.effectiveGasPrice);
+          const baseFee = quantity((block as Record<string, unknown>).baseFeePerGas), feeCap = BigInt(template.maxFeePerGas),
+            currentPrice = baseFee + BigInt(template.maxPriorityFeePerGas);
+          if (!gasUsed || gasUsed > BigInt(template.gas) || feeCap < baseFee || effectiveGasPrice !== (currentPrice < feeCap ? currentPrice : feeCap)) invalid();
+          if (!Array.isArray(receipt.logs) || receipt.logs.length > 512 || (status === 0n && receipt.logs.length !== 0)) invalid();
+          let previous = -1n, expectedCreations = 0;
+          for (const item of receipt.logs) {
+            if (!object(item) || typeof item.address !== "string" || !isAddress(item.address) || !Array.isArray(item.topics) || item.topics.length > 4 ||
+              !item.topics.every((topic: unknown) => typeof topic === "string" && /^0x[0-9a-fA-F]{64}$/.test(topic)) || item.removed !== false ||
+              !word(item.transactionHash) || !same(item.transactionHash, signed.hash)) invalid();
+            position(item, at, index); const logIndex = quantity(item.logIndex);
+            if (previous >= 0n && logIndex !== previous + 1n) invalid(); previous = logIndex;
+            const data = rpcHex(item.data, "receipt log data", 131_072);
+            if (same(item.address, manifest.factory.address) && item.topics[0] === keccak256(stringToHex("ProxyCreation(address,address)"))) {
+              const decoded = decodeEventLog({ abi: SAFE_CREATION_ABI, data, topics: item.topics as [Hex, ...Hex[]] });
+              if (item.topics.length !== 2 || item.topics[1].toLowerCase() !== padHex(creation.address, { size: 32 }).toLowerCase() ||
+                !same(decoded.args.proxy, creation.address) || !same(decoded.args.singleton, manifest.singleton.address) ||
+                !same(data, encodeAbiParameters([{ type: "address" }], [manifest.singleton.address]))) invalid();
+              expectedCreations++;
+            }
+          }
+          if (status === 1n && expectedCreations !== 1) invalid();
+          output.transaction = { ...output.transaction, state: status === 1n ? "canonical-success" : "canonical-revert", reason: null,
+            receipt: { block: at, transactionIndex: String(index), status: status === 1n ? "success" : "reverted", gasUsed: String(gasUsed),
+              effectiveGasPrice: String(effectiveGasPrice), logCount: receipt.logs.length, logsHash: keccak256(stringToHex(stable(receipt.logs))) } };
+          output.fees.executionWei = String(gasUsed * effectiveGasPrice);
+          const finalized = anchor(await rpc.request("eth_getBlockByNumber", ["finalized", false]));
+          if (BigInt(finalized.blockNumber) > BigInt(head.blockNumber)) invalid();
+          output.finality = { state: BigInt(finalized.blockNumber) >= number ? "finalized" : "unfinalized", evidence: finalized };
+        } else {
+          const [confirmedRaw, pendingRaw] = await Promise.all([rpc.request("eth_getTransactionCount", [sender, tag(head)]),
+            rpc.request("eth_getTransactionCount", [sender, "pending"])]);
+          const confirmed = quantity(confirmedRaw), pending = quantity(pendingRaw), nonce = BigInt(template.nonce);
+          if (pending < confirmed || confirmed > BigInt(Number.MAX_SAFE_INTEGER) || pending > BigInt(Number.MAX_SAFE_INTEGER)) invalid();
+          output.transaction.nonce = { confirmed: String(confirmed), pending: String(pending) };
+          if (tx && (tx.blockHash !== null || tx.blockNumber !== null || tx.transactionIndex !== null)) {
+            if (tx.blockHash === null || tx.blockNumber === null || tx.transactionIndex === null) invalid();
+            output.transaction.reason = "receipt-unavailable";
+          } else if (confirmed === nonce) {
+            output.transaction.state = tx ? "pending" : "not-observed"; output.transaction.reason = null;
+          } else if (confirmed < nonce || BigInt(head.blockNumber) < BigInt(operation.admission.blockNumber)) {
+            output.transaction.state = "reorged"; output.transaction.reason = "provider-before-reserved-nonce";
+          } else {
+            output.transaction.reason = "nonce-history-unavailable";
+            const start = BigInt(operation.admission.blockNumber), end = BigInt(head.blockNumber);
+            // Only a complete small canonical window can locate a conflicting sender/nonce.
+            // An unavailable/older window is unknown, never proof that the signed bytes were dropped.
+            if (end - start <= 15n) {
+              let transactions = 0;
+              for (let n = start; n <= end && !output.transaction.conflict; n++) {
+                const block = await rpc.request("eth_getBlockByNumber", [toHex(n), false]), at = anchor(block);
+                if (n === start && !same(at.blockHash, operation.admission.blockHash)) {
+                  output.transaction.state = "reorged"; output.transaction.reason = "admission-anchor-reorged"; break;
+                }
+                const hashes = blockTransactions(block); transactions += hashes.length;
+                if (transactions > 64) break;
+                for (const [index, hash] of hashes.entries()) {
+                  const candidate = await rpc.request("eth_getTransactionByHash", [hash]);
+                  if (!object(candidate) || !word(candidate.hash) || !same(candidate.hash, hash)) invalid();
+                  position(candidate, at, BigInt(index));
+                  if (typeof candidate.from === "string" && same(candidate.from, sender) && quantity(candidate.nonce) === nonce && !same(hash, signed.hash)) {
+                    const conflict = await rpc.request("eth_getTransactionReceipt", [hash]);
+                    if (!object(conflict) || !word(conflict.transactionHash) || !same(conflict.transactionHash, hash) ||
+                      typeof conflict.from !== "string" || !same(conflict.from, sender) || ![0n, 1n].includes(quantity(conflict.status))) invalid();
+                    position(conflict, at, BigInt(index));
+                    output.transaction.state = "nonce-conflict"; output.transaction.reason = "canonical-conflicting-transaction";
+                    output.transaction.conflict = { transactionHash: hash.toLowerCase() as Hex, block: at, transactionIndex: String(index) }; break;
+                  }
+                }
+              }
+            }
+          }
+        }
+        await inspectWallet(head);
+        await canonical();
+        const observation = assertWalletDeploymentObservation(output); rpc.check(); return observation;
+      } catch {
+        // Preserve prior durable evidence rather than promote a partial read after a latched
+        // transport/budget failure or an incomplete final canonicality check.
+        return assertWalletDeploymentObservation(empty);
+      } finally { rpc.close(); }
+    },
     async preflight(input: WalletEnrollment, inputApproval: WalletDeploymentApproval,
       signal?: AbortSignal): Promise<WalletDeploymentPreflight> {
       enrollmentDigest(input); enrollmentDigest(inputApproval);

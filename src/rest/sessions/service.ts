@@ -104,6 +104,7 @@ const actorOf = (p: RestPrincipal): RestActor => ({
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 function owner(p: RestPrincipal): void {
   if (
+    p.kind === "wallet-app" ||
     !p.isOwner ||
     p.grantId !== null ||
     p.principalId !== `owner:${p.account.id}`
@@ -115,6 +116,12 @@ function owner(p: RestPrincipal): void {
     );
 }
 function scope(p: RestPrincipal, required: "read" | "plan" | "relay"): void {
+  if (p.kind === "wallet-app")
+    throw new RestError(
+      403,
+      "SESSION_APP_UNAVAILABLE",
+      "Wallet app access does not include onchain session authority.",
+    );
   if (!p.scopes.includes(required))
     throw new RestError(
       403,

@@ -5,7 +5,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { z } from "zod";
 import { DomainError, type PlanDraft, type ProtocolOperation, type ProtocolOperations } from "@juicebox/mcp/host";
 import { createRestApp, type RestDependencies } from "../src/rest/app.js";
-import { createRestAuth, MemoryAccountStore, type BotScope, type BotGrant } from "../src/rest/auth/index.js";
+import { createRestAuth, MemoryAccountStore, type BotScope, type BotGrant, type RestPrincipal } from "../src/rest/auth/index.js";
 import {
   accountIdFor, createBotRegistration, newRequestNonce, prepareSignedRequest,
   type ClientOptions, type PreparedRequest, type RequestOptions,
@@ -28,6 +28,14 @@ const target = "0x1111111111111111111111111111111111111111" as Address;
 const blockHash = `0x${"ab".repeat(32)}` as Hex;
 const block = { hash: blockHash, number: "0x64", timestamp: `0x${now.toString(16)}`, baseFeePerGas: "0x1" };
 const ownerActor: RestActor = { accountId, principalId: `owner:${accountId}` };
+const appPrincipal = (): RestPrincipal & { kind: "wallet-app" } => ({
+  kind: "wallet-app", principalId: "app:11111111-1111-4111-8111-111111111111:1",
+  walletApp: { origin: "https://beep.biz", audience, incarnation: "1" },
+  account: { id: accountIdFor(target, 8453), ownerAddress: target, authorityChainId: 8453,
+    profile: { displayName: "", bio: "", avatarUri: null }, createdAt: now, updatedAt: now },
+  signer: bot.address, grantId: "11111111-1111-4111-8111-111111111111", isOwner: false,
+  scopes: ["read", "plan", "relay"], requestNonce: newRequestNonce(), idempotencyKey: null,
+});
 
 function descriptor(id: string, transaction: boolean): ProtocolOperation {
   return {
@@ -184,6 +192,35 @@ describe("mounted signed REST API", () => {
     const revoked = await f.send({ method: "DELETE", requestTarget: `/api/v1/accounts/me/bots/${grant.id}` });
     expect(revoked.status).toBe(200);
     expect(revoked.headers.get("ratelimit-remaining")).not.toBe("0");
+  });
+
+  it("keeps app quota stable across grant renewal and separate by account/origin without bypassing the site cap", async () => {
+    const f = await fixture(), principal = appPrincipal(), appAccountId = principal.account.id;
+    // The auth boundary is tested independently; observe the real mounted HTTP quota behavior here.
+    vi.spyOn(f.auth, "authenticate").mockImplementation(async () => principal);
+    const read = () => f.send({ requestTarget: "/api/v1/projects/1/1?source=onchain" });
+    f.quotas.set(`rest:account:${appAccountId}:bots`, 300);
+    expect((await read()).status).toBe(200);
+    const bucket = [...f.quotas.keys()].find(key => key.includes(appAccountId) && !key.endsWith(":bots"))!;
+    expect(bucket).toContain("https://beep.biz");
+    f.quotas.set(bucket, 300);
+    principal.grantId = "22222222-2222-4222-8222-222222222222";
+    principal.principalId = `app:${principal.grantId}:2`; principal.walletApp.incarnation = "2";
+    expect((await read()).status).toBe(429);
+    principal.walletApp.origin = "https://juicebox.money";
+    expect((await read()).status).toBe(200);
+    principal.account = { ...principal.account, id: accountIdFor(outsider.address, 8453), ownerAddress: outsider.address };
+    expect((await read()).status).toBe(200);
+    f.quotas.set("rest:site", 100_000);
+    expect((await read()).status).toBe(429);
+  });
+
+  it("rejects app session review before invoking the session policy path", async () => {
+    const f = await fixture();
+    vi.spyOn(f.auth, "authenticate").mockResolvedValue(appPrincipal());
+    const result = await f.send({ method: "POST", requestTarget: "/api/v1/smart-accounts/session-reviews", json: {} });
+    expect(result.status).toBe(403);
+    expect(await result.json()).toMatchObject({ code: "SESSION_APP_UNAVAILABLE" });
   });
 
   it("requires explicit project source and never retries a failed source as another source", async () => {

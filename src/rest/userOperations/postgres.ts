@@ -172,6 +172,8 @@ export class PostgresUserOperationStore implements UserOperationStore {
           JSON.stringify(record),
         ],
       );
+      // Plan and insert waits must not outlive the authority that admitted this preparation.
+      await assertRestActorActive(client, record.actor, ['plan'], Math.floor(now / 1000));
       return clone(record);
     });
   }

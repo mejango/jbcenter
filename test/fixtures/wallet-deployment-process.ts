@@ -25,6 +25,7 @@ const server = createServer(async (request, response) => {
             || (body.barrier === "after-operation" && /^UPDATE rest_wallet_deployments SET /.test(sql) && /template/.test(sql))
             || (body.barrier === "after-lane" && /^UPDATE rest_wallet_deployment_pools SET /.test(sql) && /active_operation_id/.test(sql))
             || (body.barrier === "after-signed" && /^UPDATE rest_wallet_deployments SET /.test(sql) && /raw_transaction/.test(sql))
+            || (body.barrier === "after-observation" && /^UPDATE rest_wallet_deployments SET /.test(sql) && /observation/.test(sql))
             || (body.barrier === "after-commit" && sql === "COMMIT");
           if (matched) {
             process.send?.({ kind: "barrier", pid: process.pid });
@@ -50,6 +51,8 @@ const server = createServer(async (request, response) => {
         signature: decode(body.input.assertion.signature) } })
       : body.action === "lease" ? await store.leaseSigning(body.operationId, body.leaseDurationMs)
       : body.action === "persist" ? await store.persistSigned(body.input)
+      : body.action === "observe" ? await store.saveObservation(body.input)
+      : body.action === "unresolved" ? await store.listUnresolved(body.input)
       : body.action === "cleanup" ? await store.cleanup(body.limit)
       : body.action === "get" ? await store.get(body.operationId) : null;
     response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(result));

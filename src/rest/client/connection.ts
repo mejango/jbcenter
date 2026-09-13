@@ -1,7 +1,8 @@
 import { isAddress, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { parseAccountId } from "../auth/signatures.js";
-import { isCanonicalGrantScopes, type BotScope, type BotGrant } from "../auth/store.js";
+import { isCanonicalGrantScopes, type BotScope } from "../auth/shared.js";
+import type { BotGrant } from "../auth/store.js";
 import { clientAudience, RestClientError } from "./index.js";
 
 /** Local secret. Never send this document to Center or put it in a URL. */

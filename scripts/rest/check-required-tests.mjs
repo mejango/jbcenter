@@ -46,8 +46,18 @@ export const requiredVitestSuites = [
   "test/rest-wallet-deployment-postgres.integration.test.ts",
   "test/rest-wallet-deployment-chain.test.ts",
   "test/rest-wallet-deployment-chain-evm.test.ts",
+  "test/rest-wallet-deployment-observation.test.ts",
+  "test/rest-wallet-deployment-observation-evm.test.ts",
+  "test/rest-wallet-deployment-fees.test.ts",
+  "test/rest-wallet-deployment-fees-anvil.test.ts",
   "test/rest-wallet-policy.test.ts",
   "test/rest-wallet-policy-postgres.integration.test.ts",
+  "test/rest-wallet-app-grants.test.ts",
+  "test/rest-wallet-app-grants-postgres.integration.test.ts",
+  "test/rest-wallet-app-authority.test.ts",
+  "test/rest-wallet-app-auth-postgres.integration.test.ts",
+  "test/rest-wallet-app-dispatch.test.ts",
+  "test/rest-wallet-app-sessions.test.ts",
   "test/rest-signed-transaction.test.ts",
 ];
 

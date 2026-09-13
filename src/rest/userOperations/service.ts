@@ -135,6 +135,13 @@ function exactActor(actor: RestActor, record: { actor: RestActor }) {
       404,
     );
 }
+function appOperation(principal: RestPrincipal, chainId: number, hasSession: boolean): void {
+  if (principal.kind !== "wallet-app") return;
+  if (hasSession)
+    fail("USER_OPERATION_APP_SESSION_UNAVAILABLE", "Apps require fresh wallet owner approval for each operation.", 403);
+  if (chainId !== 8453 || principal.account.authorityChainId !== 8453)
+    fail("USER_OPERATION_APP_CHAIN_UNAVAILABLE", "App wallet operations are available only on Base.", 403);
+}
 
 /** Prepares, verifies and relays externally signed operations. It never holds a signing key. */
 export class UserOperationService {
@@ -277,6 +284,7 @@ export class UserOperationService {
       ["planId", "stepIndexes", "sessionId", "sponsorAuthorization"],
       "user operation",
     );
+    appOperation(principal, principal.account.authorityChainId, Object.hasOwn(input, "sessionId"));
     if (
       Object.hasOwn(input, "sessionId") &&
       (typeof input.sessionId !== "string" ||
@@ -292,8 +300,12 @@ export class UserOperationService {
     const actor = actorOf(principal),
       inputHash = uoHash(requestHash, "request hash");
     const existing = await this.options.store.find(actor, key, inputHash);
-    if (existing) return this.view(existing);
+    if (existing) {
+      appOperation(principal, existing.chainId, existing.session !== undefined);
+      return this.view(existing);
+    }
     const plan = await this.plan(actor, input.planId, true);
+    appOperation(principal, plan.smartAccount!.chainId, false);
     await this.options.sessions?.assertOwnerPlan(principal, plan);
     if (
       !Array.isArray(input.stepIndexes) ||
@@ -550,6 +562,7 @@ export class UserOperationService {
     signal?: AbortSignal,
     evidence?: RestBlockEvidence,
   ) {
+    appOperation(principal, principal.account.authorityChainId, true);
     if (!this.options.sessions)
       return fail(
         "SESSIONS_UNAVAILABLE",
@@ -580,6 +593,7 @@ export class UserOperationService {
         404,
       );
     exactActor(actor, record);
+    appOperation(principal, record.chainId, record.session !== undefined);
     const operation = normalizeUserOperation({
       ...record.operation,
       signature,
@@ -742,6 +756,7 @@ export class UserOperationService {
     const record =
       (await this.options.store.get(actorOf(principal), id)) ??
       fail("USER_OPERATION_NOT_FOUND", "The UserOperation was not found.", 404);
+    appOperation(principal, record.chainId, record.session !== undefined);
     return this.view(
       record.submission ? await this.refresh(record, signal) : record,
     );

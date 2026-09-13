@@ -16,6 +16,7 @@ import {
 } from "./approvals.js";
 import type { StoredPlan } from "./transactions/types.js";
 import type { SponsorshipRecord } from "./sponsorship/types.js";
+import { parseWalletAppPrincipalId } from "./wallet/appGrants.js";
 
 export type DispatchApprovalWindow = Readonly<{
   issuedAt: number;
@@ -35,7 +36,7 @@ function mismatch(): never {
     "Dispatch requires the authenticated principal that owns this preparation",
   );
 }
-function currentAuthority(actor: RestActor) {
+function currentAuthority(actor: RestActor, audience: string) {
   const context = restRequest();
   if (!context?.authority)
     throw new RestError(
@@ -68,7 +69,20 @@ function currentAuthority(actor: RestActor) {
     (claims.grantId || null) !== principal.grantId
   )
     return mismatch();
-  if (principal.isOwner) {
+  if (principal.kind === "wallet-app") {
+    const app = parseWalletAppPrincipalId(actor.principalId);
+    if (
+      principal.isOwner || !app || !principal.walletApp ||
+      app.id !== principal.grantId ||
+      app.incarnation !== principal.walletApp.incarnation ||
+      owner.authorityChainId !== 8453 ||
+      principal.walletApp.audience !== audience ||
+      input.headers.get("origin") !== principal.walletApp.origin
+    )
+      return mismatch();
+  } else if (principal.walletApp !== undefined) {
+    return mismatch();
+  } else if (principal.isOwner) {
     if (
       principal.grantId !== null ||
       actor.principalId !== `owner:${actor.accountId}` ||
@@ -284,7 +298,8 @@ export function createTransactionDispatchAuthorizer(
     stepIndex: number,
     transactionHash: Hex,
   ): Promise<DispatchApprovalWindow> => {
-    const authority = currentAuthority(plan.actor);
+    const authority = currentAuthority(plan.actor, options.audience);
+    if (authority.principal.kind === "wallet-app") return mismatch();
     const binding = {
       accountId: plan.actor.accountId,
       principalId: plan.actor.principalId,
@@ -322,7 +337,8 @@ export function createSponsorshipDispatchAuthorizer(
     record: SponsorshipRecord,
     submissionHash: Hex,
   ): Promise<DispatchApprovalWindow> => {
-    const authority = currentAuthority(record.actor);
+    const authority = currentAuthority(record.actor, options.audience);
+    if (authority.principal.kind === "wallet-app") return mismatch();
     const binding = {
       accountId: record.actor.accountId,
       principalId: record.actor.principalId,
@@ -360,7 +376,7 @@ export function createUserOperationRequestAuthorizer(
     id: string,
     signature: Hex,
   ): Promise<DispatchApprovalWindow> => {
-    const authority = currentAuthority(actor);
+    const authority = currentAuthority(actor, options.audience);
     const body = requestBody(authority);
     if (
       authority.claims.requestTarget !==
@@ -391,7 +407,7 @@ export function createSessionPlanAuthorizer(
     kind: "activation" | "revocation",
     compiledHash: Hex,
   ) => {
-    const authority = currentAuthority(actor);
+    const authority = currentAuthority(actor, options.audience);
     const body = requestBody(authority);
     if (
       !authority.principal.isOwner ||

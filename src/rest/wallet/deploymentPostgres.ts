@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isProxy } from "node:util/types";
 import type { Pool, PoolClient } from "pg";
 import { getAddress, hashTypedData, isAddress, type Address, type Hex } from "viem";
 import { RestError } from "../core.js";
@@ -10,6 +11,7 @@ import { lockWalletEnrollmentInTransaction, PostgresWalletEnrollmentStore } from
 import { lockWalletCeremonyAdmission, PostgresWalletCeremonyStore, walletCeremonyDatabaseNow } from "./ceremoniesPostgres.js";
 import { walletCeremonyRetentionMs } from "./ceremonies.js";
 import type { WalletAssertion } from "./webauthn.js";
+import { assertWalletDeploymentObservation, type WalletDeploymentObservation } from "./deploymentObservation.js";
 
 export interface WalletDeploymentPoolConfiguration {
   id: string;
@@ -66,7 +68,24 @@ export interface WalletDeploymentOperation {
   templateCommitment: Hex | null;
   signingLease: { token: string; until: number } | null;
   signed: { rawTransaction: Hex; hash: Hex; maximumExecutionCost: string } | null;
+  observation: WalletDeploymentObservation | null;
+  observationSavedAt: number | null;
+  /** Retained receipt evidence only; never a claim that it is still canonical or finalized. */
+  historicalCanonicalObservation: WalletDeploymentObservation | null;
+  /** Provider-head high watermark only; it does not establish current canonical chain truth. */
+  highestObservedHead: string | null;
   revision: number;
+}
+export interface WalletDeploymentObservationCommit {
+  operationId: string;
+  expectedRevision: number;
+  signedHash: Hex;
+  observation: WalletDeploymentObservation;
+}
+export interface WalletDeploymentRecoveryCursor { createdAt: number; operationId: string }
+export interface WalletDeploymentRecoveryPage {
+  items: { id: string; createdAt: number; revision: number; state: "claimed" | "signed"; signedHash: Hex | null }[];
+  nextCursor: WalletDeploymentRecoveryCursor | null;
 }
 export interface WalletDeploymentClaim {
   operationId: string;
@@ -97,6 +116,50 @@ function fields(value: unknown, names: readonly string[]): void {
       Object.keys(value).some(key => !names.includes(key))) invalid();
 }
 function positiveTime(value: number): boolean { return Number.isSafeInteger(value) && value > 0; }
+function ownFields(value: unknown, required: readonly string[], optional: readonly string[] = []): Record<string, unknown> {
+  if (!value || typeof value !== "object" || isProxy(value) || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) invalid();
+  const keys = Reflect.ownKeys(value), output: Record<string, unknown> = {};
+  if (required.some(key => !keys.includes(key)) || keys.some(key => typeof key !== "string" || ![...required, ...optional].includes(key))) invalid();
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
+    if (!("value" in descriptor) || !descriptor.enumerable) invalid();
+    output[key as string] = descriptor.value;
+  }
+  return output;
+}
+function canonicalObservation(value: WalletDeploymentObservation): boolean {
+  return value.transaction.state === "canonical-success" || value.transaction.state === "canonical-revert";
+}
+function advanceObservation(current: WalletDeploymentOperation, observation: WalletDeploymentObservation): {
+  historical: WalletDeploymentObservation | null; highestHead: string | null;
+} {
+  if (current.observation && observation.observedAt < current.observation.observedAt) conflict();
+  const canonical = canonicalObservation(observation);
+  const positive = canonical || observation.wallet.state === "verified" || observation.finality.state === "finalized";
+  if (positive && current.highestObservedHead !== null && (!observation.head ||
+      BigInt(observation.head.blockNumber) < BigInt(current.highestObservedHead))) conflict();
+  let historical = current.historicalCanonicalObservation;
+  if (historical?.finality.state === "finalized" && observation.transaction.state === "nonce-conflict") conflict();
+  if (canonical) {
+    if (historical?.finality.state === "finalized") {
+      // A finalized receipt cannot silently become a different inclusion, status or receipt body.
+      // Reorg/unknown observations remain admissible as latest evidence while retaining history.
+      if (enrollmentDigest(observation.transaction.receipt) !== enrollmentDigest(historical.transaction.receipt) ||
+          observation.finality.state === "unfinalized") conflict();
+      if (observation.finality.state === "finalized") {
+        const next = observation.finality.evidence!, prior = historical.finality.evidence!;
+        if (BigInt(next.blockNumber) < BigInt(prior.blockNumber) ||
+            (next.blockNumber === prior.blockNumber && enrollmentDigest(next) !== enrollmentDigest(prior))) conflict();
+        historical = observation;
+      }
+      // Missing finality does not erase the retained finalized receipt.
+    } else historical = observation;
+  }
+  let highestHead = current.highestObservedHead;
+  if (observation.head && (highestHead === null || BigInt(observation.head.blockNumber) > BigInt(highestHead)))
+    highestHead = observation.head.blockNumber;
+  return { historical, highestHead };
+}
 function quantity(value: string, positive = false, maximum = maxUint256): bigint {
   if (typeof value !== "string" || value.length > 78 || !/^(0|[1-9][0-9]*)$/.test(value)) invalid();
   const number = BigInt(value);
@@ -172,7 +235,8 @@ type OperationRow = { id: string; pool_id: string; enrollment_id: string; pool_c
   state: WalletDeploymentOperation["state"]; created_at: string; retain_until: string; claimed_at: string | null; proof_digest: string | null;
   admission: WalletDeploymentAdmission | null; template: WalletDeploymentTemplate | null; template_commitment: Hex | null;
   signing_lease_token: string | null; signing_lease_until: string | null; raw_transaction: Hex | null; transaction_hash: Hex | null;
-  maximum_execution_cost: string | null; revision: string };
+  maximum_execution_cost: string | null; revision: string; observation: WalletDeploymentObservation | null;
+  observation_saved_at: string | null; historical_canonical_observation: WalletDeploymentObservation | null; highest_observed_head: string | null };
 function operationOf(row: OperationRow): WalletDeploymentOperation {
   return { id: row.id, poolId: row.pool_id, enrollmentId: row.enrollment_id, poolConfigurationDigest: row.pool_configuration_digest,
     approval: row.approval, state: row.state, createdAt: Number(row.created_at), retainUntil: Number(row.retain_until),
@@ -180,6 +244,8 @@ function operationOf(row: OperationRow): WalletDeploymentOperation {
     template: row.template, templateCommitment: row.template_commitment,
     signingLease: row.signing_lease_token === null ? null : { token: row.signing_lease_token, until: Number(row.signing_lease_until) },
     signed: row.raw_transaction === null ? null : { rawTransaction: row.raw_transaction, hash: row.transaction_hash!, maximumExecutionCost: row.maximum_execution_cost! },
+    observation: row.observation ?? null, observationSavedAt: row.observation_saved_at == null ? null : Number(row.observation_saved_at),
+    historicalCanonicalObservation: row.historical_canonical_observation ?? null, highestObservedHead: row.highest_observed_head ?? null,
     revision: Number(row.revision) };
 }
 
@@ -365,6 +431,63 @@ export class PostgresWalletDeploymentStore {
   async cleanup(limit = 1_000): Promise<number> {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10_000) invalid();
     return this.transaction(client => this.cleanupInTransaction(client, limit));
+  }
+  /** Trusted observer output only; observations are neither broadcast nor settlement authority.
+   * RPC is completed by the caller before these bounded database locks are acquired. */
+  async saveObservation(input: WalletDeploymentObservationCommit): Promise<{ operation: WalletDeploymentOperation; replayed: boolean }> {
+    const v = ownFields(input, ["operationId", "expectedRevision", "signedHash", "observation"]);
+    const operationId = v.operationId as string, expectedRevision = v.expectedRevision as number, signedHash = v.signedHash as Hex;
+    id(operationId);
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || typeof signedHash !== "string" || !word.test(signedHash)) invalid();
+    const observation = assertWalletDeploymentObservation(v.observation), digest = enrollmentDigest(observation);
+    if (observation.operationId !== operationId || observation.transactionHash !== signedHash) conflict();
+    const before = await this.required(operationId);
+    if (before.state !== "signed" || before.signed?.hash !== signedHash) conflict();
+    return this.transaction(async client => {
+      const pool = await this.poolRecord(before.poolId, client);
+      const enrollment = await lockWalletEnrollmentInTransaction(client, before.enrollmentId);
+      const current = await this.required(operationId, client);
+      this.sameContext(before, current, enrollment, pool);
+      if (current.state !== "signed" || current.signed?.hash !== signedHash || pool.activeOperationId !== current.id ||
+          !current.template || commitment(current.template) !== current.templateCommitment ||
+          observation.templateCommitment !== current.templateCommitment || observation.wallet.address !== current.template.predictedSafe.toLowerCase() ||
+          observation.wallet.initializerHash !== current.template.initializerHash) conflict();
+      // Lost-response retries read the exact durable winner without renewing time or revision.
+      if (current.observation && enrollmentDigest(current.observation) === digest) return { operation: current, replayed: true };
+      if (current.revision !== expectedRevision) conflict();
+      const savedAt = await walletCeremonyDatabaseNow(client);
+      if (observation.observedAt > savedAt) conflict();
+      const { historical, highestHead } = advanceObservation(current, observation);
+      const row = (await client.query<OperationRow>(`UPDATE rest_wallet_deployments SET observation=$4::jsonb,
+        observation_digest=$5,observation_saved_at=$6,historical_canonical_observation=$7::jsonb,
+        highest_observed_head=$8,revision=revision+1 WHERE id=$1 AND revision=$2 AND transaction_hash=$3 RETURNING *`,
+      [operationId, expectedRevision, signedHash, JSON.stringify(observation), digest, savedAt,
+        historical === null ? null : JSON.stringify(historical), highestHead])).rows[0];
+      if (!row) conflict();
+      return { operation: operationOf(row), replayed: false };
+    });
+  }
+  /** Stable keyset sweep. Restart without a cursor after nextCursor=null; durable unresolved
+   * work is never hidden by recent observations, expired approvals or a stale signing lease. */
+  async listUnresolved(input: { cursor?: WalletDeploymentRecoveryCursor; limit?: number } = {}): Promise<WalletDeploymentRecoveryPage> {
+    const v = ownFields(input, [], ["cursor", "limit"]);
+    const limit = v.limit === undefined ? 10 : v.limit as number;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) invalid();
+    let cursor: WalletDeploymentRecoveryCursor | null = null;
+    if (v.cursor !== undefined) {
+      const c = ownFields(v.cursor, ["createdAt", "operationId"]);
+      id(c.operationId as string);
+      if (!positiveTime(c.createdAt as number)) invalid();
+      cursor = { createdAt: c.createdAt as number, operationId: c.operationId as string };
+    }
+    const rows = (await this.pool.query<Pick<OperationRow, "id" | "created_at" | "revision" | "state" | "transaction_hash">>(
+      `SELECT id,created_at,revision,state,transaction_hash FROM rest_wallet_deployments
+       WHERE state IN ('claimed','signed')${cursor ? " AND (created_at,id)>($2::bigint,$3::uuid)" : ""}
+       ORDER BY created_at,id LIMIT $1`, cursor ? [limit + 1, cursor.createdAt, cursor.operationId] : [limit + 1])).rows;
+    const items = rows.slice(0, limit).map(row => ({ id: row.id, createdAt: Number(row.created_at), revision: Number(row.revision),
+      state: row.state as "claimed" | "signed", signedHash: row.transaction_hash }));
+    const last = items.at(-1);
+    return { items, nextCursor: rows.length > limit && last ? { createdAt: last.createdAt, operationId: last.id } : null };
   }
   private async cleanupInTransaction(client: PoolClient, limit: number): Promise<number> {
     const result = await client.query(`DELETE FROM rest_wallet_deployments WHERE id IN

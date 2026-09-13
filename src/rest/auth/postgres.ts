@@ -1,5 +1,6 @@
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type { Address } from "viem";
+import { assertWalletAppGrantActiveInTransaction, getWalletAppGrantInTransaction } from "../wallet/appGrantsPostgres.js";
 import {
   accountStoreLimits,
   actorGrantId,
@@ -20,6 +21,7 @@ import {
   type AccountStoreLimits,
   type AccountStoreOptions,
   type ActiveAuthority,
+  type AuthorizationGrant,
   type BotGrant,
   type BotScope,
   type Profile,
@@ -71,6 +73,35 @@ export async function getGrant(client: PoolClient, id: string | null): Promise<B
   return result.rows[0] ? grantFromRow(result.rows[0]) : null;
 }
 
+/** The UUID registry separates app rows from the legacy bot table, including for old binaries. */
+export async function getAuthorizationGrant(client: PoolClient, id: string | null): Promise<AuthorizationGrant | null> {
+  if (id === null) return null;
+  assertIdentifier(id);
+  const entry = (await client.query<{ kind: string; account_id: string }>(
+    "SELECT kind, account_id FROM rest_grant_ids WHERE id=$1", [id],
+  )).rows[0];
+  if (!entry) return null;
+  if (entry.kind === "bot") {
+    const grant = await getGrant(client, id);
+    if (grant && grant.accountId === entry.account_id) return { kind: "bot", grant };
+  } else if (entry.kind === "wallet-app") {
+    const grant = await getWalletAppGrantInTransaction(client, id);
+    if (grant && grant.accountId === entry.account_id) return grant;
+  }
+  throw new RestAuthError("FORBIDDEN", 403, "API grant identity is unavailable or inconsistent");
+}
+
+async function assertAppRequestActive(client: PoolClient, grant: AuthorizationGrant | null, request: VerifiedRequest): Promise<void> {
+  if (grant?.kind !== "wallet-app") return;
+  // The requested account is already locked. Reject cross-account metadata before the app
+  // helper locks its grant's account, so malformed requests cannot invert account lock order.
+  if (grant.accountId !== request.accountId || grant.id !== request.grantId)
+    throw new RestAuthError("FORBIDDEN", 403, "API grant does not belong to the authenticated account");
+  await assertWalletAppGrantActiveInTransaction(client, grant, request.principalId !== undefined
+    ? { kind: "actor", principalId: request.principalId, ...(request.audience !== undefined ? { audience: request.audience } : {}) }
+    : { kind: "request", audience: request.audience ?? "", origin: request.origin ?? null, expiresAt: request.expiresAt });
+}
+
 /** A shared database clock prevents application instances from disagreeing on replay expiry. */
 export async function databaseNow(client: Pool | PoolClient): Promise<number> {
   const result = await client.query<{ now: string }>("SELECT floor(extract(epoch FROM clock_timestamp()))::text AS now");
@@ -86,7 +117,12 @@ export async function assertRestActorActive(client: PoolClient, actor: RestActor
   const grantId = actorGrantId(actor);
   assertTime(now);
   const account = await lockedAccount(client, actor.accountId);
-  const grant = await getGrant(client, grantId);
+  const grant = await getAuthorizationGrant(client, grantId);
+  if (grant?.kind === "wallet-app") {
+    if (grant.accountId !== actor.accountId)
+      throw new RestAuthError("FORBIDDEN", 403, "API grant does not belong to the authenticated account");
+    await assertWalletAppGrantActiveInTransaction(client, grant, { kind: "actor", principalId: actor.principalId });
+  }
   assertActorAuthority(account, grant, actor, scopes, await databaseNow(client));
 }
 
@@ -144,7 +180,12 @@ export async function registerBotInTransaction(client: PoolClient, grant: BotGra
     `INSERT INTO rest_bot_grants (id, account_id, bot_address, scopes, label, created_at, expires_at, revoked_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, NULL) ON CONFLICT (id) DO NOTHING RETURNING *`,
     [grant.id, grant.accountId, grant.botAddress.toLowerCase(), grant.scopes, grant.label, createdAt, grant.expiresAt],
-  );
+  ).catch((error: unknown) => {
+    if (error && typeof error === "object" && "code" in error && error.code === "23505"
+      && "constraint" in error && error.constraint === "rest_grant_ids_pkey")
+      throw new RestAuthError("REPLAY", 409, "API grant identifier already exists");
+    throw error;
+  });
   if (!result.rows[0]) throw new RestAuthError("REPLAY", 409, "Bot grant identifier already exists");
   return grantFromRow(result.rows[0]);
 }
@@ -187,13 +228,15 @@ export class PostgresAccountStore implements AccountStore {
     assertRequest(request);
     return this.transaction(async (client) => {
       const account = await lockedAccount(client, request.accountId);
-      const grant = await getGrant(client, request.grantId);
+      const grant = await getAuthorizationGrant(client, request.grantId);
       const currentRequest = { ...request, now: await databaseNow(client) };
       assertRequest(currentRequest);
+      await assertAppRequestActive(client, grant, currentRequest);
       principalFor(account, grant, currentRequest);
       await this.consumeNonce(client, currentRequest);
       const completedRequest = { ...request, now: await databaseNow(client) };
       assertRequest(completedRequest);
+      await assertAppRequestActive(client, grant, completedRequest);
       return principalFor(account, grant, completedRequest);
     });
   }
@@ -202,12 +245,21 @@ export class PostgresAccountStore implements AccountStore {
     const request = authorityRequest(authority);
     await this.transaction(async (client) => {
       const account = await lockedAccount(client, authority.accountId);
-      const grant = await getGrant(client, authority.grantId);
-      principalFor(account, grant, { ...request, now: await databaseNow(client) });
+      const grant = await getAuthorizationGrant(client, authority.grantId);
+      if (grant?.kind === "wallet-app" && !authority.principalId)
+        throw new RestAuthError("FORBIDDEN", 403, "App authority rechecks require the original actor incarnation");
+      const current = { ...request, now: await databaseNow(client) };
+      await assertAppRequestActive(client, grant, current);
+      principalFor(account, grant, { ...current, now: await databaseNow(client) });
     });
   }
 
   async withActiveActor<T>(actor: RestActor, scopes: BotScope[], now: number, operation: () => Promise<T>): Promise<T> {
+    actorGrantId(actor);
+    // This legacy callback cannot share or roll back a caller's independent write.
+    // App claims must use assertRestActorActive inside the claim's own transaction.
+    if (actor.principalId.startsWith("app:"))
+      throw new RestAuthError("FORBIDDEN", 403, "App claims require transaction-local authority checks");
     return this.transaction(async (client) => {
       await assertRestActorActive(client, actor, scopes, now);
       return operation();

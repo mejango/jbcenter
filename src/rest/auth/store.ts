@@ -1,6 +1,8 @@
 import type { Address, Hex } from "viem";
+import { parseWalletAppPrincipalId, validateWalletAppGrant, walletAppPrincipalId, type WalletAppGrant } from "../wallet/appGrants.js";
+import { ALL_BOT_SCOPES, isCanonicalGrantScopes, RestAuthError, type BotScope } from "./shared.js";
+export { ALL_BOT_SCOPES, isCanonicalGrantScopes, RestAuthError, type BotScope } from "./shared.js";
 
-export type BotScope = "read" | "plan" | "relay";
 export type Profile = { displayName: string; bio: string; avatarUri: string | null };
 export type Account = {
   id: string;
@@ -20,7 +22,8 @@ export type BotGrant = {
   expiresAt: number;
   revokedAt: number | null;
 };
-export type RestPrincipal = {
+export type AuthorizationGrant = { kind: "bot"; grant: BotGrant } | WalletAppGrant;
+type RestPrincipalFields = {
   principalId: string;
   account: Account;
   signer: Address;
@@ -30,12 +33,19 @@ export type RestPrincipal = {
   requestNonce: Hex;
   idempotencyKey: string | null;
 };
+export type RestPrincipal = RestPrincipalFields & (
+  | { kind?: "owner" | "bot"; walletApp?: never }
+  | { kind: "wallet-app"; walletApp: { origin: string; audience: string; incarnation: string } }
+);
 export type ActiveAuthority = {
   accountId: string;
   signer: Address;
   grantId: string | null;
   requiredScopes: BotScope[];
   ownerOnly?: boolean;
+  /** Required for app authority rechecks; an old incarnation is never replaced silently. */
+  principalId?: string;
+  audience?: string;
   now: number;
 };
 /** Server-created identity from a previously authenticated request, never client-supplied authority. */
@@ -55,6 +65,11 @@ export type VerifiedRequest = {
   idempotencyKey: string | null;
   requiredScopes: BotScope[];
   ownerOnly: boolean;
+  /** Server-owned request routing context. Neither field changes the signed v1 wire format. */
+  audience?: string;
+  origin?: string | null;
+  /** Present only for already authenticated authority checks, never trusted from a request header. */
+  principalId?: string;
   now: number;
 };
 
@@ -74,20 +89,12 @@ export interface AccountStore {
   cleanupExpiredNonces(now: number, limit?: number): Promise<number>;
 }
 
-export class RestAuthError extends Error {
-  constructor(readonly code: string, readonly status: number, message: string) {
-    super(message);
-    this.name = "RestAuthError";
-  }
-}
-
 export type AccountStoreOptions = {
   maxAccounts?: number;
   maxNoncesPerAccount?: number;
   maxGrantsPerAccount?: number;
 };
 export type AccountStoreLimits = Required<AccountStoreOptions>;
-export const ALL_BOT_SCOPES: readonly BotScope[] = ["read", "plan", "relay"];
 /** Reserved within the default 1000 outstanding nonce slots so bots cannot block owner recovery. */
 export const OWNER_NONCE_RESERVE = 32;
 
@@ -167,12 +174,8 @@ function validScopes(scopes: BotScope[], allowEmpty: boolean): boolean {
 }
 
 /** Grant profiles are cumulative and ordered; validation never expands or sorts the signed list. */
-export function isCanonicalGrantScopes(scopes: unknown): scopes is BotScope[] {
-  return Array.isArray(scopes) && scopes.length >= 1 && scopes.length <= ALL_BOT_SCOPES.length
-    && ALL_BOT_SCOPES.slice(0, scopes.length).every((scope, index) => scopes[index] === scope);
-}
-
 export function assertGrant(grant: BotGrant): void {
+  if ("kind" in grant) throw new RestAuthError("FORBIDDEN", 403, "Typed app authority cannot be stored as a bot grant");
   assertIdentifier(grant.id);
   assertIdentifier(grant.accountId);
   assertAddress(grant.botAddress);
@@ -202,7 +205,32 @@ export function assertRequest(request: VerifiedRequest): void {
 }
 
 /** Authorization is checked again while the storage implementation holds the account lock. */
-export function principalFor(account: Account, grant: BotGrant | null, request: VerifiedRequest): RestPrincipal {
+export function principalFor(account: Account, input: BotGrant | AuthorizationGrant | null, request: VerifiedRequest): RestPrincipal {
+  if (input && "kind" in input && input.kind === "wallet-app") {
+    let grant: WalletAppGrant;
+    try { grant = validateWalletAppGrant(input); }
+    catch { throw new RestAuthError("FORBIDDEN", 403, "Wallet app authority is invalid"); }
+    const principalId = walletAppPrincipalId(grant);
+    if (request.ownerOnly || account.authorityChainId !== 8453 || request.accountId !== account.id ||
+      grant.accountId !== account.id || grant.id !== request.grantId ||
+      grant.signerAddress.toLowerCase() !== request.signer.toLowerCase() ||
+      grant.revokedAt !== null || grant.expiresAt <= request.now || grant.createdAt > request.now ||
+      !request.requiredScopes.every(scope => grant.scopes.includes(scope)) ||
+      (request.principalId !== undefined
+        ? request.principalId !== principalId || (request.audience !== undefined && request.audience !== grant.audience)
+        : request.audience !== grant.audience || request.origin !== grant.origin)) {
+      throw new RestAuthError("FORBIDDEN", 403, "Wallet app authority is missing, changed or expired");
+    }
+    return { kind: "wallet-app", principalId, account: structuredClone(account), signer: request.signer,
+      grantId: grant.id, scopes: [...grant.scopes], isOwner: false, requestNonce: request.nonce,
+      idempotencyKey: request.idempotencyKey,
+      walletApp: { origin: grant.origin, audience: grant.audience, incarnation: grant.incarnation } };
+  }
+  const grant = input && "kind" in input ? (input.kind === "bot" ? input.grant : null) : input;
+  if (input && "kind" in input && (input.kind !== "bot" || !grant))
+    throw new RestAuthError("FORBIDDEN", 403, "Unknown API grant authority");
+  if (grant && "kind" in grant)
+    throw new RestAuthError("FORBIDDEN", 403, "Typed app authority cannot be wrapped as a bot grant");
   const isOwner = request.grantId === null
     && account.ownerAddress.toLowerCase() === request.signer.toLowerCase();
   if (request.accountId !== account.id || (!isOwner && (request.ownerOnly || !grant
@@ -216,8 +244,11 @@ export function principalFor(account: Account, grant: BotGrant | null, request: 
   if (!request.requiredScopes.every((scope) => scopes.includes(scope))) {
     throw new RestAuthError("FORBIDDEN", 403, "Bot grant does not permit this operation");
   }
+  const principalId = isOwner ? `owner:${account.id}` : `bot:${grant!.id}`;
+  if (request.principalId !== undefined && request.principalId !== principalId)
+    throw new RestAuthError("FORBIDDEN", 403, "Authenticated actor identity changed");
   return {
-    principalId: isOwner ? `owner:${account.id}` : `bot:${grant!.id}`,
+    principalId,
     account: structuredClone(account),
     signer: request.signer,
     grantId: request.grantId,
@@ -233,6 +264,7 @@ export function authorityRequest(authority: ActiveAuthority): VerifiedRequest {
   assertAddress(authority.signer);
   if (authority.grantId !== null) assertIdentifier(authority.grantId);
   assertTime(authority.now);
+  if (authority.principalId !== undefined) actorGrantId({ accountId: authority.accountId, principalId: authority.principalId });
   if (!validScopes(authority.requiredScopes, true)
     || (authority.ownerOnly !== undefined && typeof authority.ownerOnly !== "boolean")) {
     throw new RestAuthError("FORBIDDEN", 403, "Invalid required authority");
@@ -250,6 +282,8 @@ export function authorityRequest(authority: ActiveAuthority): VerifiedRequest {
 export function actorGrantId(actor: RestActor): string | null {
   assertIdentifier(actor.accountId);
   if (actor.principalId === `owner:${actor.accountId}`) return null;
+  const app = parseWalletAppPrincipalId(actor.principalId);
+  if (app) return app.id;
   if (typeof actor.principalId === "string" && actor.principalId.startsWith("bot:")) {
     const id = actor.principalId.slice(4);
     assertIdentifier(id);
@@ -258,16 +292,21 @@ export function actorGrantId(actor: RestActor): string | null {
   throw new RestAuthError("FORBIDDEN", 403, "Invalid authenticated actor");
 }
 
-export function assertActorAuthority(account: Account, grant: BotGrant | null, actor: RestActor, scopes: BotScope[], now: number): void {
+export function assertActorAuthority(account: Account, grant: BotGrant | AuthorizationGrant | null, actor: RestActor, scopes: BotScope[], now: number): void {
   const grantId = actorGrantId(actor);
+  const signer = grant && "kind" in grant
+    ? grant.kind === "wallet-app" ? grant.signerAddress : grant.grant.botAddress
+    : grant?.botAddress;
   const request = authorityRequest({
     accountId: actor.accountId,
-    signer: grantId === null ? account.ownerAddress : grant?.botAddress ?? account.ownerAddress,
+    signer: grantId === null ? account.ownerAddress : signer ?? account.ownerAddress,
     grantId,
+    principalId: actor.principalId,
     requiredScopes: scopes,
     now,
   });
-  principalFor(account, grant, request);
+  if (principalFor(account, grant, request).principalId !== actor.principalId)
+    throw new RestAuthError("FORBIDDEN", 403, "Authenticated actor identity changed");
 }
 
 export function cleanupLimit(value = 1_000): number {

@@ -34,6 +34,7 @@ describe("release check cannot silently omit required verification", () => {
       "rest-wallet-enrollment-postgres.integration.test.ts", "rest-wallet-enrollment-browser.test.ts",
       "rest-wallet-enrollment-pressure.test.ts",
       "rest-wallet-deployment-postgres.integration.test.ts", "rest-wallet-policy-postgres.integration.test.ts",
+      "rest-wallet-app-grants-postgres.integration.test.ts", "rest-wallet-app-auth-postgres.integration.test.ts",
     ].sort();
     const testDirectory = new URL(".", import.meta.url);
     const files = await readdir(testDirectory);
@@ -45,6 +46,10 @@ describe("release check cannot silently omit required verification", () => {
       "rest-passkey-profile-evm.test.ts", "rest-passkey-onboarding.test.ts", "rest-passkey-user-operations.test.ts",
       "rest-passkey-creation.test.ts", "rest-passkey-creation-evm.test.ts", "rest-wallet-registration.test.ts", "rest-wallet-browser.test.ts",
       "rest-wallet-deployment.test.ts", "rest-wallet-deployment-chain.test.ts", "rest-wallet-deployment-chain-evm.test.ts",
+      "rest-wallet-deployment-observation.test.ts", "rest-wallet-deployment-observation-evm.test.ts",
+      "rest-wallet-deployment-fees.test.ts", "rest-wallet-deployment-fees-anvil.test.ts",
+      "rest-wallet-app-grants.test.ts", "rest-wallet-app-authority.test.ts",
+      "rest-wallet-app-dispatch.test.ts", "rest-wallet-app-sessions.test.ts",
       "rest-wallet-policy.test.ts", "rest-signed-transaction.test.ts"]) {
       expect(requiredVitestSuites).toContain(`test/${file}`);
     }

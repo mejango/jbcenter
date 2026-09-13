@@ -268,9 +268,12 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
     principal: RestPrincipal,
     context: Context,
   ): Promise<void> => {
-    // Bots cannot spend the owner's separate capacity to revoke their grants.
+    // Grant renewal must not reset an app's budget or spend owner/bot capacity.
+    const bucket = principal.kind === "wallet-app"
+      ? `app:${principal.walletApp.origin}`
+      : principal.isOwner ? "owner" : "bots";
     const budget = await deps.quota.consumeRequest(
-      `rest:account:${principal.account.id}:${principal.isOwner ? "owner" : "bots"}`,
+      `rest:account:${principal.account.id}:${bucket}`,
       REST_LIMITS.requestsPerMinute,
       60,
     );
@@ -1102,6 +1105,8 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
   app.post("/smart-accounts/session-reviews", async (context) => {
     query(context, []);
     const { input, principal } = await authenticate(context, ["plan"]);
+    if (principal.kind === "wallet-app")
+      throw new RestError(403, "SESSION_APP_UNAVAILABLE", "Apps require fresh wallet owner approval for each operation");
     if (!deps.sessionReviewer)
       throw new RestError(
         503,

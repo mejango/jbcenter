@@ -2,10 +2,13 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { decodeAbiParameters, decodeFunctionData, encodeFunctionResult, keccak256, parseAbi, size, sliceHex, toHex, type Address, type Hex } from "viem";
 import { MemoryAccountStore } from "../src/rest/auth/memory.js";
+import type { RestPrincipal } from "../src/rest/auth/store.js";
+import { privateKeyToAccount } from "viem/accounts";
 import { type RestRpc } from "../src/rest/core.js";
 import { encodeSafe7579PasskeyOwnerSignature } from "../src/rest/smartAccounts/passkeySignatures.js";
 import type { SmartAccountManifest } from "../src/rest/smartAccounts/types.js";
 import { MemoryTransactionStore } from "../src/rest/transactions/memory.js";
+import type { ActiveActorGuard } from "../src/rest/transactions/store.js";
 import { TransactionService } from "../src/rest/transactions/service.js";
 import { MemoryTransportReservations } from "../src/rest/transactions/transport-reservations.js";
 import { ENTRY_POINT_V07_ABI } from "../src/rest/userOperations/chain.js";
@@ -31,7 +34,7 @@ const gas: UserOperationGasPolicy = {
 
 // Real service, storage, codecs and EOA signatures; RPC/provider I/O is synthetic here.
 // The separate pinned-Anvil suite establishes actual passkey/FCL execution compatibility.
-async function fixture(options: { legacy?: boolean; sponsored?: boolean; maximumPreVerificationGas?: bigint } = {}) {
+async function fixture(options: { app?: boolean; legacy?: boolean; sponsored?: boolean; maximumPreVerificationGas?: bigint } = {}) {
   const apiAccount = account(now, 8453);
   if (!options.legacy) { apiAccount.id = `eip155:8453:${safe}`; apiAccount.ownerAddress = safe; }
   const actor = owner(apiAccount), wallet = binding(apiAccount, now);
@@ -56,18 +59,30 @@ async function fixture(options: { legacy?: boolean; sponsored?: boolean; maximum
       signerFactory: pin(target), signerSingleton: pin(target), p256Verifier: pin(target) } } : {}),
   };
   const authority = new MemoryAccountStore();
-  const principal = await authority.enroll(apiAccount, {
+  const enrolled = await authority.enroll(apiAccount, {
     accountId: apiAccount.id, signer: apiAccount.ownerAddress, grantId: null,
     nonce: h("enroll"), issuedAt: now / 1000, expiresAt: now / 1000 + 60,
     idempotencyKey: null, requiredScopes: [], ownerOnly: true, now: now / 1000,
   });
+  const requestKey = privateKeyToAccount(`0x${"44".repeat(32)}`);
+  const grantId = "11111111-1111-4111-8111-111111111111";
+  const principal: RestPrincipal = options.app ? { ...enrolled, kind: "wallet-app",
+    principalId: `app:${grantId}:9007199254740993`, grantId, isOwner: false, signer: requestKey.address,
+    walletApp: { origin: "https://beep.biz", audience: "https://juicebox.center", incarnation: "9007199254740993" },
+  } : enrolled;
+  actor.principalId = principal.principalId;
+  // App authority requires PostgreSQL and is independently tested there. This isolated service
+  // fixture admits only its exact actor so the real owner-signature/operation boundary is exercised.
+  const actorGuard: ActiveActorGuard = options.app ? { async withActiveActor(actual, _scopes, _clock, work) {
+    expect(actual).toEqual(actor); return work();
+  } } : authority;
   const transports = new MemoryTransportReservations();
-  const transactionStore = new MemoryTransactionStore(authority, transports);
+  const transactionStore = new MemoryTransactionStore(actorGuard, transports);
   const preparedPlan = plan("passkey-plan", actor, wallet, now);
   preparedPlan.smartAccount!.chainId = 8453;
   for (const call of preparedPlan.draft.calls) call.chainId = 8453;
   await transactionStore.create(preparedPlan, { key: "plan", requestHash: h("plan"), operation: "fixture" }, now);
-  const store = new MemoryUserOperationStore(authority, transports, {
+  const store = new MemoryUserOperationStore(actorGuard, transports, {
     now: () => now, assertBindingAndSession: (record, clock) => assertPlan(record, preparedPlan, clock * 1000),
   });
   const state = {
@@ -147,8 +162,69 @@ async function fixture(options: { legacy?: boolean; sponsored?: boolean; maximum
   const signature = (view: Awaited<ReturnType<typeof prepare>>, body: Hex = "0x1234") => encodeSafe7579PasskeyOwnerSignature({
     validAfter: String(view.createdAt / 1000), validUntil: String(view.expiresAt / 1000), signatures: [{ kind: "contract", owner: signer, signature: body }],
   });
-  return { service, prepare, signature, state, wallet, manifest, principal, rpc, provider, currentBindingAt, store, actor };
+  return { service, prepare, signature, state, wallet, manifest, principal, rpc, provider, currentBindingAt, store, actor, requestKey, preparedPlan, transactionStore };
 }
+
+describe("app UserOperation owner boundary", () => {
+  const ownerSignature = async (view: Awaited<ReturnType<Awaited<ReturnType<typeof fixture>>["prepare"]>>, key = ownerKey) =>
+    encodeSafe7579PasskeyOwnerSignature({ validAfter: String(view.createdAt / 1000), validUntil: String(view.expiresAt / 1000),
+      signatures: [{ kind: "ecdsa", owner: ownerKey.address, signature: await key.sign({ hash: view.signing.digest }) }] });
+
+  it("allows the app to publish a separately signed exact Base owner operation", async () => {
+    const f = await fixture({ app: true }), view = await f.prepare();
+    expect((await f.service.submit(f.principal, view.id, await ownerSignature(view), "submit")).state).toBe("pending");
+    expect(f.state.sends).toBe(1);
+  });
+
+  it("rejects the app request key as spending authorization before claim or send", async () => {
+    const f = await fixture({ app: true }), view = await f.prepare();
+    await expect(f.service.submit(f.principal, view.id, await ownerSignature(view, f.requestKey), "submit"))
+      .rejects.toMatchObject({ code: "SMART_OWNER_SIGNATURE_INVALID" });
+    expect((await f.store.get(f.actor, view.id))!.submission).toBeUndefined();
+    expect(f.state.sends).toBe(0);
+  });
+
+  it("rejects app session selection before any cached preparation lookup", async () => {
+    const f = await fixture({ app: true }); await f.prepare();
+    const lookup = vi.spyOn(f.store, "find");
+    await expect(f.prepare({ sessionId: "22222222-2222-4222-8222-222222222222" }))
+      .rejects.toMatchObject({ code: "USER_OPERATION_APP_SESSION_UNAVAILABLE" });
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it.each(["session", "chain"])("rejects cached app preparation and reads with unsupported %s authority", async variant => {
+    const f = await fixture({ app: true }), view = await f.prepare();
+    const record = (await f.store.get(f.actor, view.id))!;
+    if (variant === "session") record.session = {} as NonNullable<typeof record.session>;
+    else record.chainId = 1;
+    vi.spyOn(f.store, "find").mockResolvedValue(record);
+    vi.spyOn(f.store, "get").mockResolvedValue(record);
+    await expect(f.prepare()).rejects.toMatchObject({ code: variant === "session" ? "USER_OPERATION_APP_SESSION_UNAVAILABLE" : "USER_OPERATION_APP_CHAIN_UNAVAILABLE" });
+    await expect(f.service.get(f.principal, view.id)).rejects.toMatchObject({ code: variant === "session" ? "USER_OPERATION_APP_SESSION_UNAVAILABLE" : "USER_OPERATION_APP_CHAIN_UNAVAILABLE" });
+    expect(f.state.sends).toBe(0);
+  });
+
+  it.each(["session", "chain"])("rejects cached app submission retries with unsupported %s authority", async variant => {
+    const f = await fixture({ app: true }), view = await f.prepare(), signature = await ownerSignature(view);
+    await f.service.submit(f.principal, view.id, signature, "submit");
+    const record = (await f.store.get(f.actor, view.id))!;
+    if (variant === "session") record.session = {} as NonNullable<typeof record.session>;
+    else record.chainId = 1;
+    vi.spyOn(f.store, "get").mockResolvedValue(record);
+    await expect(f.service.submit(f.principal, view.id, signature, "submit"))
+      .rejects.toMatchObject({ code: variant === "session" ? "USER_OPERATION_APP_SESSION_UNAVAILABLE" : "USER_OPERATION_APP_CHAIN_UNAVAILABLE" });
+    expect(f.state.sends).toBe(1);
+  });
+
+  it("rejects a non-Base app plan before account/provider work", async () => {
+    const f = await fixture({ app: true });
+    // Stored plans are immutable in production; return an unsupported plan at the service boundary.
+    f.preparedPlan.smartAccount!.chainId = 1;
+    vi.spyOn(f.transactionStore, "get").mockResolvedValue(f.preparedPlan);
+    await expect(f.prepare()).rejects.toMatchObject({ code: "USER_OPERATION_APP_CHAIN_UNAVAILABLE" });
+    expect(f.rpc).not.toHaveBeenCalled(); expect(f.state.sends).toBe(0);
+  });
+});
 
 describe("passkey UserOperation estimation", () => {
   it("uses the maximum accepted real WebAuthn shape and nonzero in-range FCL scalars", async () => {

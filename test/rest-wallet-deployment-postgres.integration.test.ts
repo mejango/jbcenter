@@ -14,6 +14,8 @@ import { prepareWalletDeploymentApproval, prepareWalletDeploymentTemplate, verif
 import { PostgresWalletDeploymentStore, type WalletDeploymentAdmission, type WalletDeploymentOperation,
   type WalletDeploymentPoolConfiguration } from "../src/rest/wallet/deploymentPostgres.js";
 import type { WalletAssertion } from "../src/rest/wallet/webauthn.js";
+import type { WalletDeploymentObservation } from "../src/rest/wallet/deploymentObservation.js";
+import type { RestBlockEvidence } from "../src/rest/core.js";
 import type { RelayPolicy } from "../src/rest/transactions/types.js";
 import { createRegistration, enrollmentBackupAccount, enrollmentManifest, signBackupProof, signGet } from "./fixtures/wallet-enrollment-crypto.js";
 
@@ -78,6 +80,48 @@ function signableTransaction(operation: WalletDeploymentOperation, changes: Part
 function signedTransaction(operation: WalletDeploymentOperation, changes: Partial<TransactionSerializableEIP1559> = {}) {
   return relay.signTransaction(signableTransaction(operation, changes));
 }
+async function signedOperation() {
+  const value = await prepared(), claimed = await store.claim(value.input), lease = await store.leaseSigning(value.operation.id, 15000);
+  const { operation } = await store.persistSigned({ operationId: value.operation.id, leaseToken: lease.leaseToken!,
+    revision: lease.revision, rawTransaction: await signedTransaction(claimed.operation) });
+  return { ...value, operation };
+}
+function evidence(blockNumber = "105", blockHash: Hex = `0x${"05".repeat(32)}`): RestBlockEvidence {
+  return { chainId: 8453, blockNumber, blockHash, timestamp: "1700000000", source: "onchain" };
+}
+// Synthetic internal observer output, not proof of provider provenance or chain truth.
+async function pendingObservation(operation: WalletDeploymentOperation): Promise<WalletDeploymentObservation> {
+  return { version: "center-wallet-deployment-observation-v1", operationId: operation.id,
+    templateCommitment: operation.templateCommitment!, transactionHash: operation.signed!.hash,
+    observedAt: await databaseNow(), head: evidence(),
+    transaction: { state: "pending", reason: null, receipt: null, conflict: null, nonce: { confirmed: "1", pending: "2" } },
+    finality: { state: "unknown", evidence: null }, wallet: { state: "unknown", address: operation.template!.predictedSafe.toLowerCase() as Hex,
+      initializerHash: operation.template!.initializerHash, stateHash: null, evidence: null, creationTransaction: null,
+      reason: "wallet-state-unavailable" },
+    fees: { executionWei: null, l1Wei: null, operatorWei: null, totalWei: null }, dispatchEligible: false };
+}
+async function canonicalObservation(operation: WalletDeploymentOperation, finalized = false): Promise<WalletDeploymentObservation> {
+  const observation = await pendingObservation(operation);
+  return { ...observation, transaction: { ...observation.transaction, state: "canonical-success", nonce: { confirmed: "2", pending: "2" },
+    receipt: { block: evidence("104", `0x${"04".repeat(32)}`), transactionIndex: "0", status: "success",
+      gasUsed: "1000000", effectiveGasPrice: "1000000000", logCount: 1, logsHash: `0x${"ac".repeat(32)}` } },
+    finality: finalized ? { state: "finalized", evidence: observation.head } : { state: "unknown", evidence: null },
+    wallet: { ...observation.wallet, state: "verified", stateHash: `0x${"ca".repeat(32)}`,
+      evidence: observation.head, creationTransaction: operation.signed!.hash, reason: null },
+    fees: { ...observation.fees, executionWei: "1000000000000000" } };
+}
+async function uncertainObservation(operation: WalletDeploymentOperation, state: "unknown" | "reorged"): Promise<WalletDeploymentObservation> {
+  const observation = await pendingObservation(operation);
+  return { ...observation, head: null, transaction: { ...observation.transaction, state, reason: state === "unknown" ? "rpc-unavailable" : "receipt-reorged",
+    nonce: null } };
+}
+function observationInput(operation: WalletDeploymentOperation, observation: WalletDeploymentObservation) {
+  return { operationId: operation.id, expectedRevision: operation.revision, signedHash: operation.signed!.hash, observation };
+}
+function authorityFields(operation: WalletDeploymentOperation) {
+  const { observation, observationSavedAt, historicalCanonicalObservation, highestObservedHead, revision, ...authority } = operation;
+  return authority;
+}
 async function counts() {
   return (await pool.query(`SELECT
     (SELECT count(*)::int FROM rest_wallet_deployment_pools) AS pools,
@@ -120,7 +164,7 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
   beforeAll(async () => {
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 4 });
-    for (const name of ["013_rest_wallet_ceremonies.sql", "015_rest_wallet_enrollment.sql", "016_rest_wallet_deployments.sql"])
+    for (const name of ["013_rest_wallet_ceremonies.sql", "015_rest_wallet_enrollment.sql", "016_rest_wallet_deployments.sql", "018_rest_wallet_deployment_observations.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     store = new PostgresWalletDeploymentStore(pool); enrollments = new PostgresWalletEnrollmentStore(pool);
   });
@@ -334,6 +378,8 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
     expect(await store.claim(value.input)).toEqual({ operation: claimed.operation, replayed: true });
     expect(await store.cleanup(100)).toBe(0);
     expect(await store.get(value.operation.id)).toEqual(claimed.operation);
+    expect((await store.listUnresolved()).items).toEqual([{ id: claimed.operation.id, createdAt: claimed.operation.createdAt,
+      revision: claimed.operation.revision, state: "claimed", signedHash: null }]);
     expect(await counts()).toEqual({ pools: 1, assigned: 1, consumed: 0, lanes: 1 });
   });
 
@@ -524,5 +570,214 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
     const recovered = await b.request({ action: "persist", input });
     expect(recovered.status).toBe(200); expect(recovered.body.replayed).toBe(barrierName === "after-commit");
     expect(recovered.body.operation.signed).toMatchObject({ rawTransaction, hash: keccak256(rawTransaction) });
+  });
+
+  it("persists a bound pending observation without changing signing or deployment authority", async () => {
+    const { operation } = await signedOperation(), observation = await pendingObservation(operation);
+    const saved = await store.saveObservation(observationInput(operation, observation));
+    expect(saved.replayed).toBe(false); expect(saved.operation.observation).toEqual(observation);
+    expect(saved.operation.observationSavedAt).toBeGreaterThanOrEqual(observation.observedAt);
+    expect(saved.operation.historicalCanonicalObservation).toBeNull(); expect(saved.operation.highestObservedHead).toBe("105");
+    expect(saved.operation.revision).toBe(operation.revision + 1);
+    expect(authorityFields(saved.operation)).toEqual(authorityFields(operation));
+    expect(await store.get(operation.id)).toEqual(saved.operation);
+    expect(await counts()).toEqual({ pools: 1, assigned: 1, consumed: 1, lanes: 1 });
+  });
+
+  it("lists an unresolved claimed job while excluding older prepared approvals", async () => {
+    const config = configuration(); await prepared(config);
+    const value = await prepared(config), { operation } = await store.claim(value.input);
+    const page = await store.listUnresolved({ limit: 1 });
+    expect(page.items).toEqual([{ id: operation.id, createdAt: operation.createdAt, revision: operation.revision,
+      state: "claimed", signedHash: null }]);
+    const after = await store.listUnresolved({ limit: 1, cursor: { createdAt: operation.createdAt, operationId: operation.id } });
+    expect(after).toEqual({ items: [], nextCursor: null });
+  });
+
+  it("replays an identical observation without changing its revision or saved clock", async () => {
+    const { operation } = await signedOperation(), observation = await pendingObservation(operation), input = observationInput(operation, observation);
+    const first = await store.saveObservation(input);
+    expect(await store.saveObservation({ ...input, expectedRevision: 1 })).toEqual({ operation: first.operation, replayed: true });
+    await expect(store.saveObservation({ ...input, observation: { ...observation, head: evidence("106", `0x${"06".repeat(32)}`) } }))
+      .rejects.toMatchObject({ status: 409 });
+    observation.transaction.reason = "caller-mutated";
+    expect((await store.get(operation.id))?.observation?.transaction.reason).toBeNull();
+    expect(await store.get(operation.id)).toEqual(first.operation);
+  });
+
+  it("CAS-saves one competing observation across two actual one-connection processes", async () => {
+    const { operation } = await signedOperation(), first = await pendingObservation(operation);
+    const second = { ...first, head: evidence("106", `0x${"06".repeat(32)}`) }, [a, b] = await Promise.all([worker(), worker()]);
+    const inputs = [observationInput(operation, first), observationInput(operation, second)] as const;
+    const results = await Promise.all([a.request({ action: "observe", input: inputs[0] }), b.request({ action: "observe", input: inputs[1] })]);
+    expect(results.map(result => result.status).sort()).toEqual([200, 409]);
+    const winnerIndex = results[0].status === 200 ? 0 : 1, winner = results[winnerIndex].body.operation;
+    expect(winner.observation).toEqual(inputs[winnerIndex].observation); expect(winner.revision).toBe(operation.revision + 1);
+    expect(await b.request({ action: "observe", input: inputs[winnerIndex] })).toEqual({ status: 200, body: { operation: winner, replayed: true } });
+    expect((await a.request({ action: "observe", input: inputs[1 - winnerIndex] })).status).toBe(409);
+    expect(await store.get(operation.id)).toEqual(winner); expect(authorityFields(winner)).toEqual(authorityFields(operation));
+  });
+
+  it.each(["after-observation", "after-commit"])("recovers observation persistence at the %s process crash barrier", async barrierName => {
+    const { operation } = await signedOperation(), input = observationInput(operation, await pendingObservation(operation));
+    const [a, b] = await Promise.all([worker(), worker()]), barrier = message(a.child, "barrier");
+    const lost = a.request({ action: "observe", input, barrier: barrierName }).catch(() => null);
+    await barrier; await kill(a.child); await lost;
+    const durable = (await store.get(operation.id))!;
+    expect(durable.observation).toEqual(barrierName === "after-commit" ? input.observation : null);
+    expect(durable.revision).toBe(operation.revision + (barrierName === "after-commit" ? 1 : 0));
+    const recovered = await b.request({ action: "observe", input });
+    expect(recovered.status).toBe(200); expect(recovered.body.replayed).toBe(barrierName === "after-commit");
+    expect(recovered.body.operation.observation).toEqual(input.observation);
+    expect(recovered.body.operation.revision).toBe(operation.revision + 1);
+    expect(authorityFields(recovered.body.operation)).toEqual(authorityFields(operation));
+  });
+
+  it("retains historical receipt evidence through unknown and reorg observations without resolving the lane", async () => {
+    const { operation } = await signedOperation(), canonical = await canonicalObservation(operation);
+    let current = (await store.saveObservation(observationInput(operation, canonical))).operation;
+    expect(current.historicalCanonicalObservation).toEqual(canonical);
+    expect((await store.listUnresolved()).items).toEqual([{ id: current.id, createdAt: current.createdAt,
+      revision: current.revision, state: "signed", signedHash: current.signed!.hash }]);
+    for (const state of ["unknown", "reorged"] as const) {
+      const observation = await uncertainObservation(current, state);
+      current = (await store.saveObservation(observationInput(current, observation))).operation;
+      expect(current.observation).toEqual(observation); expect(current.historicalCanonicalObservation).toEqual(canonical);
+      expect(current.highestObservedHead).toBe("105"); expect(authorityFields(current)).toEqual(authorityFields(operation));
+    }
+    expect(await store.cleanup(1)).toBe(0);
+    const [a, b] = await Promise.all([worker(), worker()]);
+    for (const child of [a, b]) {
+      const result = await child.request({ action: "unresolved", input: { limit: 1 } });
+      expect(result.status).toBe(200); expect(result.body.items).toEqual([{ id: current.id, createdAt: current.createdAt,
+        revision: current.revision, state: "signed", signedHash: current.signed!.hash }]);
+      expect(JSON.stringify(result.body)).not.toContain(current.signed!.rawTransaction);
+    }
+    expect(await counts()).toEqual({ pools: 1, assigned: 1, consumed: 1, lanes: 1 });
+  });
+
+  it("rejects lower-head canonical or verified evidence after a newer uncertain observation", async () => {
+    const { operation } = await signedOperation(), canonical = await canonicalObservation(operation);
+    let current = (await store.saveObservation(observationInput(operation, canonical))).operation;
+    const newer = { ...await uncertainObservation(current, "unknown"), head: evidence("110", `0x${"10".repeat(32)}`) };
+    current = (await store.saveObservation(observationInput(current, newer))).operation;
+    const lowerCanonical = await canonicalObservation(current), lowerVerified = await pendingObservation(current);
+    lowerVerified.wallet = { ...lowerCanonical.wallet, creationTransaction: `0x${"bb".repeat(32)}` };
+    for (const observation of [lowerCanonical, lowerVerified])
+      await expect(store.saveObservation(observationInput(current, observation))).rejects.toMatchObject({ status: 409 });
+    const lowerUnknown = { ...await uncertainObservation(current, "unknown"), head: evidence("100", `0x${"01".repeat(32)}`) };
+    current = (await store.saveObservation(observationInput(current, lowerUnknown))).operation;
+    expect(current.observation).toEqual(lowerUnknown); expect(current.highestObservedHead).toBe("110");
+    expect(current.historicalCanonicalObservation).toEqual(canonical);
+  });
+
+  it("requires explicit uncertainty for contradictions to retained finalized receipt evidence", async () => {
+    const { operation } = await signedOperation(), finalized = await canonicalObservation(operation, true);
+    let current = (await store.saveObservation(observationInput(operation, finalized))).operation;
+    const contradiction = await canonicalObservation(current, true);
+    contradiction.transaction.state = "canonical-revert"; contradiction.transaction.receipt!.status = "reverted";
+    contradiction.transaction.receipt!.logCount = 0;
+    contradiction.wallet = (await pendingObservation(current)).wallet;
+    await expect(store.saveObservation(observationInput(current, contradiction))).rejects.toMatchObject({ status: 409 });
+    const changedLogs = await canonicalObservation(current, true);
+    changedLogs.transaction.receipt!.logsHash = `0x${"dd".repeat(32)}`;
+    await expect(store.saveObservation(observationInput(current, changedLogs))).rejects.toMatchObject({ status: 409 });
+    const missingFinality = { ...await canonicalObservation(current), observedAt: await databaseNow() };
+    current = (await store.saveObservation(observationInput(current, missingFinality))).operation;
+    expect(current.historicalCanonicalObservation).toEqual(finalized);
+    current = (await store.saveObservation(observationInput(current, await uncertainObservation(current, "reorged")))).operation;
+    expect(current.observation?.transaction.state).toBe("reorged"); expect(current.historicalCanonicalObservation).toEqual(finalized);
+    expect(authorityFields(current)).toEqual(authorityFields(operation));
+  });
+
+  it("rejects mismatched observation bindings and stale revisions without altering the signed winner", async () => {
+    const { operation } = await signedOperation(), observation = await pendingObservation(operation), input = observationInput(operation, observation);
+    const wrongHash: Hex = `0x${"77".repeat(32)}`;
+    for (const request of [
+      { ...input, signedHash: wrongHash }, { ...input, expectedRevision: 0 }, { ...input, expectedRevision: operation.revision + 1 },
+      { ...input, observation: { ...observation, operationId: randomUUID() } },
+      { ...input, observation: { ...observation, templateCommitment: wrongHash } },
+      { ...input, observation: { ...observation, transactionHash: wrongHash } },
+      { ...input, observation: { ...observation, wallet: { ...observation.wallet, address: relay.address.toLowerCase() as Hex } } },
+      { ...input, observation: { ...observation, wallet: { ...observation.wallet, initializerHash: wrongHash } } },
+      { ...input, observation: { ...observation, observedAt: Number.MAX_SAFE_INTEGER } },
+    ]) await expect(store.saveObservation(request)).rejects.toThrow();
+    expect(await store.get(operation.id)).toEqual(operation);
+  });
+
+  it("rejects observations until the exact signed bytes have been durably committed", async () => {
+    const value = await prepared(), { operation } = await store.claim(value.input), rawTransaction = await signedTransaction(operation);
+    const signed = { ...operation, signed: { rawTransaction, hash: keccak256(rawTransaction), maximumExecutionCost: "3000000000000000" } };
+    await expect(store.saveObservation(observationInput(signed, await pendingObservation(signed)))).rejects.toThrow();
+    expect(await store.get(operation.id)).toEqual(operation); expect((await store.get(operation.id))?.signed).toBeNull();
+  });
+
+  it("rejects backwards observation clocks while allowing an exact old retry", async () => {
+    const { operation } = await signedOperation(), initial = await pendingObservation(operation);
+    const current = (await store.saveObservation(observationInput(operation, initial))).operation;
+    const older = { ...await uncertainObservation(current, "unknown"), observedAt: initial.observedAt - 1 };
+    await expect(store.saveObservation(observationInput(current, older))).rejects.toMatchObject({ status: 409 });
+    expect(await store.saveObservation(observationInput(operation, initial))).toEqual({ operation: current, replayed: true });
+  });
+
+  it("enforces observation bindings and retained evidence at the SQL boundary", async () => {
+    const { operation } = await signedOperation(), canonical = await canonicalObservation(operation);
+    const current = (await store.saveObservation(observationInput(operation, canonical))).operation;
+    for (const patch of ["observation=observation-'operationId'", "observation=jsonb_set(observation,'{dispatchEligible}','true')",
+      "historical_canonical_observation=NULL", "highest_observed_head=104", "observation=NULL,observation_digest=NULL,observation_saved_at=NULL"]) {
+      await expect(pool.query(`UPDATE rest_wallet_deployments SET ${patch},revision=revision+1 WHERE id=$1`, [operation.id]))
+        .rejects.toMatchObject({ code: "23514" });
+    }
+    expect(await store.get(operation.id)).toEqual(current);
+  });
+
+  it("rejects missing finalized anchors and contradictory receipt classification in direct SQL", async () => {
+    const { operation } = await signedOperation(), finalized = await canonicalObservation(operation, true);
+    const current = (await store.saveObservation(observationInput(operation, finalized))).operation;
+    const missingNumber = { ...finalized.finality.evidence! } as Partial<RestBlockEvidence>;
+    delete missingNumber.blockNumber;
+    const classification = structuredClone(finalized);
+    classification.transaction.state = "canonical-revert";
+    for (const malformed of [...[null, {}, missingNumber].map(anchor => ({ ...finalized,
+      finality: { state: "finalized", evidence: anchor } })), classification]) {
+      const next = { ...malformed, observedAt: await databaseNow() };
+      await expect(pool.query(`UPDATE rest_wallet_deployments SET observation=$2::jsonb,
+        observation_digest=$3,observation_saved_at=$4,historical_canonical_observation=$2::jsonb,revision=revision+1
+        WHERE id=$1`, [operation.id, JSON.stringify(next), enrollmentDigest(next), await databaseNow()]))
+        .rejects.toMatchObject({ code: "23514" });
+    }
+    expect(await store.get(operation.id)).toEqual(current);
+  });
+
+  it("requires explicit uncertainty for a competing nonce after retained finality", async () => {
+    const { operation } = await signedOperation(), finalized = await canonicalObservation(operation, true);
+    const current = (await store.saveObservation(observationInput(operation, finalized))).operation;
+    const conflicting = await pendingObservation(current);
+    conflicting.transaction = { ...conflicting.transaction, state: "nonce-conflict", reason: "nonce-occupied",
+      conflict: { transactionHash: `0x${"dd".repeat(32)}`, block: conflicting.head!, transactionIndex: "1" } };
+    await expect(store.saveObservation(observationInput(current, conflicting))).rejects.toMatchObject({ status: 409 });
+    await expect(pool.query(`UPDATE rest_wallet_deployments SET observation=$2::jsonb,observation_digest=$3,
+      observation_saved_at=$4,revision=revision+1 WHERE id=$1`,
+    [operation.id, JSON.stringify(conflicting), enrollmentDigest(conflicting), await databaseNow()]))
+      .rejects.toMatchObject({ code: "23514" });
+    expect(await store.get(operation.id)).toEqual(current);
+  });
+
+  it.each([false, true])("rejects resetting or advancing signed revision without a new observation (observed=%s)", async observed => {
+    const { operation } = await signedOperation();
+    const current = observed ? (await store.saveObservation(observationInput(operation, await pendingObservation(operation)))).operation : operation;
+    for (const revision of [current.revision - 1, current.revision + 1])
+      await expect(pool.query("UPDATE rest_wallet_deployments SET revision=$2 WHERE id=$1", [operation.id, revision]))
+        .rejects.toMatchObject({ code: "23514" });
+    expect(await store.get(operation.id)).toEqual(current);
+  });
+
+  it("validates recovery bounds and cursor identity without including prepared work", async () => {
+    await prepared(); expect(await store.listUnresolved()).toEqual({ items: [], nextCursor: null });
+    for (const input of [{ limit: 0 }, { limit: 51 }, { limit: 1.5 }, { limit: Number.MAX_SAFE_INTEGER },
+      { cursor: { createdAt: -1, operationId: randomUUID() } }, { cursor: { createdAt: 1, operationId: "invalid" } },
+      { cursor: { createdAt: Number.MAX_SAFE_INTEGER + 1, operationId: randomUUID() } }])
+      await expect(store.listUnresolved(input)).rejects.toMatchObject({ status: 400 });
+    expect(await store.listUnresolved({ limit: 50 })).toEqual({ items: [], nextCursor: null });
   });
 });

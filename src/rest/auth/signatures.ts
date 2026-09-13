@@ -9,7 +9,7 @@ import {
   type Address,
   type Hex,
 } from "viem";
-import { RestAuthError, type BotScope } from "./store.js";
+import { RestAuthError, type BotScope } from "./shared.js";
 
 export const REST_AUTH_HEADERS = {
   account: "X-Juicebox-Account",

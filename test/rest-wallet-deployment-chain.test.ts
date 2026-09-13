@@ -2,12 +2,12 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { decodeFunctionData, encodeAbiParameters, encodeFunctionResult, getAddress, hashTypedData, keccak256, parseAbi,
-  toHex, type Address, type Hex } from "viem";
+  padHex, parseTransaction, stringToHex, toHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { RestRpc } from "../src/rest/core.js";
 import { createWalletDeploymentChain, type WalletDeploymentChainOptions } from "../src/rest/wallet/deploymentChain.js";
-import { prepareWalletDeploymentApproval } from "../src/rest/wallet/deployment.js";
-import type { WalletDeploymentPoolConfiguration } from "../src/rest/wallet/deploymentPostgres.js";
+import { prepareWalletDeploymentApproval, validateSignedWalletDeployment } from "../src/rest/wallet/deployment.js";
+import type { WalletDeploymentOperation, WalletDeploymentPoolConfiguration } from "../src/rest/wallet/deploymentPostgres.js";
 import { createWalletEnrollmentIntent, enrollmentDigest, prepareWalletEnrollmentCandidate, verifyWalletEnrollmentProof,
   walletEnrollmentDocument, type WalletEnrollment } from "../src/rest/wallet/enrollment.js";
 import type { ContractPin, SmartAccountManifest } from "../src/rest/smartAccounts/types.js";
@@ -73,7 +73,8 @@ function fixture(override?: Override, options: Partial<Omit<WalletDeploymentChai
     calls.push({ method, params: structuredClone(params), ...(signal ? { signal } : {}) });
     let result: unknown;
     if (method === "eth_chainId") result = "0x2105";
-    else if (method === "eth_getBlockByNumber") result = { number: "0x64", hash: blockHash, timestamp: toHex(BigInt(now / 1000)), baseFeePerGas: "0x3b9aca00" };
+    else if (method === "eth_getBlockByNumber") result = { number: "0x64", hash: blockHash, timestamp: toHex(BigInt(now / 1000)), baseFeePerGas: "0x3b9aca00", transactions: [] };
+    else if (method === "eth_getTransactionByHash" || method === "eth_getTransactionReceipt") result = null;
     else if (method === "eth_getCode") result = codes.get(String(params[0]).toLowerCase()) ?? "0x";
     else if (method === "eth_getTransactionCount") result = "0x1";
     else if (method === "eth_getBalance") result = toHex(100_000_000_000_000_000n);
@@ -280,5 +281,85 @@ describe("provider-owned deployment preflight without dispatch authority", () =>
   it("performs no RPC for an already cancelled operation", async () => {
     const controller = new AbortController(); controller.abort(); const f = fixture();
     await expect(f.preflight(controller.signal)).rejects.toMatchObject({ code: "WALLET_DEPLOYMENT_CANCELLED" }); expect(f.calls).toHaveLength(0);
+  });
+});
+
+async function signedFixture(override?: Override, options: Partial<Omit<WalletDeploymentChainOptions, "rpc">> = {}) {
+  const f = fixture(override, options), prepared = await f.preflight(), tx = prepared.template.transaction;
+  const rawTransaction = await privateKeyToAccount(`0x${"22".repeat(32)}`).signTransaction({ ...tx, nonce: Number(tx.nonce), gas: BigInt(tx.gas),
+    value: 0n, maxFeePerGas: BigInt(tx.maxFeePerGas), maxPriorityFeePerGas: BigInt(tx.maxPriorityFeePerGas) });
+  const validated = await validateSignedWalletDeployment({ enrollment: f.record, approval: f.approval, template: prepared.template, rawTransaction,
+    policy: { ...f.config.policy, maximumGas: BigInt(f.config.policy.maximumGas), maximumFeePerGas: BigInt(f.config.policy.maximumFeePerGas),
+      maximumTransactionCost: BigInt(f.config.policy.maximumTransactionCost), planTtlMs: 300_000, maximumPlanTtlMs: 300_000,
+      leaseMs: 15_000, rpcTimeoutMs: 3000, confirmations: 1, allowedChainIds: [8453] } });
+  const operation = { id: f.approval.id, poolId: f.config.id, enrollmentId: f.record.intent.id, poolConfigurationDigest: enrollmentDigest(f.config),
+    approval: f.approval, state: "signed", createdAt: now + 2, retainUntil: now + 300_000, claimedAt: now + 3,
+    proofDigest: "aa".repeat(32), admission: prepared.admission, template: prepared.template, templateCommitment: validated.templateCommitment,
+    signingLease: null, signed: { rawTransaction, hash: validated.hash, maximumExecutionCost: validated.maximumExecutionCost }, revision: 2,
+    observation: null, historicalCanonicalObservation: null, highestObservedHead: null, observationSavedAt: null } as WalletDeploymentOperation;
+  const parsed = parseTransaction(rawTransaction);
+  const wire = { hash: validated.hash, from: sender, to: tx.to, input: tx.data, type: "0x2", chainId: "0x2105", nonce: toHex(Number(tx.nonce)),
+    gas: toHex(BigInt(tx.gas)), value: "0x0", maxFeePerGas: toHex(BigInt(tx.maxFeePerGas)), maxPriorityFeePerGas: toHex(BigInt(tx.maxPriorityFeePerGas)),
+    accessList: [], r: parsed.r!, s: parsed.s!, v: toHex(parsed.yParity!), blockNumber: null as Hex | null,
+    blockHash: null as Hex | null, transactionIndex: null as Hex | null };
+  f.calls.length = 0;
+  return { ...f, operation, wire, observe: (signal?: AbortSignal) => f.chain.observeSigned({ enrollment: f.record, operation }, signal) };
+}
+
+async function minedFixture() {
+  let tx: unknown = null, receipt: Record<string, unknown> | null = null, expectedHash: Hex | null = null;
+  const f = await signedFixture((method, _params, result) => method === "eth_getTransactionByHash" ? tx : method === "eth_getTransactionReceipt" ? receipt :
+    method === "eth_getBlockByNumber" && expectedHash ? { ...result as object, transactions: [expectedHash] } : result);
+  expectedHash = f.operation.signed!.hash;
+  tx = { ...f.wire, blockNumber: "0x64", blockHash, transactionIndex: "0x0" };
+  receipt = { transactionHash: expectedHash, from: sender, to: f.wire.to, blockNumber: "0x64", blockHash, transactionIndex: "0x0",
+    status: "0x0", gasUsed: "0x5208", effectiveGasPrice: toHex(1_001_000_000n), logs: [] };
+  const log = { address: manifest.factory.address, topics: [keccak256(stringToHex("ProxyCreation(address,address)")),
+    padHex(f.record.creation!.address, { size: 32 })], data: encodeAbiParameters([{ type: "address" }], [manifest.singleton.address]),
+    removed: false, transactionHash: expectedHash, blockNumber: "0x64", blockHash, transactionIndex: "0x0", logIndex: "0x0" };
+  return { ...f, receipt, log };
+}
+
+describe("read-only signed deployment observation", () => {
+  it("reconciles an unobserved signed hash after original approval expiry without selecting a new nonce or sending", async () => {
+    let clock = now + 3; const f = await signedFixture(undefined, { now: () => clock }); clock = now + 60_000;
+    const observation = await f.observe();
+    expect(observation).toMatchObject({ transactionHash: f.operation.signed!.hash, templateCommitment: f.operation.templateCommitment,
+      transaction: { state: "not-observed", receipt: null, nonce: { confirmed: "1", pending: "1" } },
+      wallet: { state: "undeployed" }, dispatchEligible: false, fees: { executionWei: null, l1Wei: null, operatorWei: null, totalWei: null } });
+    expect(f.calls.every(call => !/send|sign|estimate|anvil/i.test(call.method))).toBe(true);
+  });
+  it("recognizes only the exact pending signed envelope", async () => {
+    let tx: unknown = null; const f = await signedFixture((method, _params, result) => method === "eth_getTransactionByHash" ? tx : result);
+    tx = f.wire; expect((await f.observe()).transaction.state).toBe("pending");
+  });
+  it.each(["from", "nonce", "gas", "input", "r", "accessList", "pending position"])("rejects a pending provider transaction with changed %s", async field => {
+    let tx: unknown = null; const f = await signedFixture((method, _params, result) => method === "eth_getTransactionByHash" ? tx : result);
+    tx = { ...f.wire, ...(field === "pending position" ? { transactionIndex: "0x0" } :
+      { [field]: field === "from" ? enrollmentBackupAccount.address : field === "accessList" ? "invalid" : "0x01" }) };
+    expect((await f.observe()).transaction.state).toBe("unknown");
+  });
+  it.each(["hash", "raw", "template", "configuration"])("rejects changed stored %s identity before any provider request", async field => {
+    const f = await signedFixture();
+    if (field === "hash") f.operation.signed!.hash = `0x${"ab".repeat(32)}`;
+    if (field === "raw") f.operation.signed!.rawTransaction = "0x02";
+    if (field === "template") f.operation.template!.transaction.nonce = "2";
+    if (field === "configuration") f.operation.poolConfigurationDigest = "ab".repeat(32);
+    await expect(f.observe()).rejects.toThrow(); expect(f.calls).toHaveLength(0);
+  });
+  it("keeps canonical treasury revert, explicit finality and execution fees separate from an undeployed wallet", async () => {
+    const f = await minedFixture();
+    const result = await f.observe();
+    expect(result).toMatchObject({ transaction: { state: "canonical-revert", receipt: { status: "reverted", gasUsed: "21000" } },
+      finality: { state: "finalized" }, wallet: { state: "undeployed" }, fees: { executionWei: "21021000000000", totalWei: null }, dispatchEligible: false });
+  });
+  it.each(["reverted logs", "omitted intermediate log"])("rejects %s before using receipt evidence for further reads", async mutation => {
+    const f = await minedFixture();
+    f.receipt.logs = mutation === "reverted logs" ? [f.log] : [f.log, { ...f.log, address: sender, topics: [], data: "0x", logIndex: "0x2" }];
+    if (mutation === "omitted intermediate log") f.receipt.status = "0x1";
+    const result = await f.observe();
+    expect(result).toMatchObject({ head: null, transaction: { state: "unknown", receipt: null }, finality: { state: "unknown" },
+      wallet: { state: "unknown" }, fees: { executionWei: null } });
+    expect(f.calls.some(call => call.method === "eth_getBlockByNumber" && call.params[0] === "finalized")).toBe(false);
   });
 });

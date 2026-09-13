@@ -75,6 +75,7 @@ export function createRestAuth(options: RestAuthOptions) {
 
   async function verify(input: SignedRequestInput, requiredScopes: BotScope[], ownerOnly: boolean): Promise<VerifiedRequest> {
     const { claims, signature } = readRequestClaims(input);
+    const origin = input.headers.get("origin");
     const current = now();
     if (!Number.isSafeInteger(current) || claims.expiresAt <= current || claims.issuedAt > current + 30 ||
       claims.expiresAt <= claims.issuedAt || claims.expiresAt > claims.issuedAt + 300) {
@@ -96,6 +97,8 @@ export function createRestAuth(options: RestAuthOptions) {
       idempotencyKey: claims.idempotencyKey || null,
       requiredScopes,
       ownerOnly,
+      audience,
+      origin,
       now: verifiedAt,
     };
   }
@@ -116,6 +119,8 @@ export function createRestAuth(options: RestAuthOptions) {
       accountId: principal.account.id,
       signer: principal.signer,
       grantId: principal.grantId,
+      principalId: principal.principalId,
+      audience,
       requiredScopes: [scope],
       ownerOnly,
       now: now(),

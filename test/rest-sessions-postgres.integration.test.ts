@@ -136,6 +136,9 @@ suite("PostgreSQL session lifecycle", () => {
     // Lifecycle plan replacement additionally exercises the actual shared execution transport tables.
     for (const filename of ["005_rest_transactions.sql", "006_rest_sponsorship.sql", "008_rest_user_operations.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${filename}`, import.meta.url), "utf8"));
+    // Current bot authority uses the shared grant namespace; preserve migration009's isolation above.
+    for (const filename of ["017_rest_wallet_policy.sql", "019_rest_wallet_app_grants.sql"])
+      await pool.query(await readFile(new URL(`../src/db/migrations/${filename}`, import.meta.url), "utf8"));
     store = new PostgresSessionStore(pool);
     await seedAccount(owner);
   });

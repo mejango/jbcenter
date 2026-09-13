@@ -5,9 +5,14 @@ import { migrate } from '../src/db/migrate.js';
 import { createPool } from '../src/db/postgres.js';
 import { PostgresAccountStore, assertRestActorActive } from '../src/rest/auth/postgres.js';
 import { PostgresSmartAccountRegistry } from '../src/rest/smartAccounts/postgres.js';
+import { fingerprint } from '../src/rest/smartAccounts/service.js';
 import { PostgresTransactionStore } from '../src/rest/transactions/postgres.js';
 import { claimPostgresTransport } from '../src/rest/transactions/transport-reservations.js';
 import { PostgresUserOperationStore } from '../src/rest/userOperations/postgres.js';
+import { getUserOperationHash } from '../src/rest/userOperations/codec.js';
+import { PostgresWalletPolicyStore } from '../src/rest/wallet/policyPostgres.js';
+import { PostgresWalletAppGrantStore } from '../src/rest/wallet/appGrantsPostgres.js';
+import { walletAppPrincipalId } from '../src/rest/wallet/appGrants.js';
 import { PostgresSessionStore } from '../src/rest/sessions/postgres.js';
 import { recoveryCursor, type UserOperationRecord } from '../src/rest/userOperations/store.js';
 import type { RestActor } from '../src/rest/core.js';
@@ -179,6 +184,59 @@ suite('PostgreSQL UserOperation persistence', () => {
       store.create({ ...value.record, inputHash: h('changed') }, Date.now()),
     ).rejects.toMatchObject({ code: 'USER_OPERATION_CONFLICT' });
   });
+  it('rolls back app preparation when its grant expires while waiting for the plan lock', async () => {
+    const appOwner = await enroll(8453), origin = 'https://app.example';
+    const wallet = structuredClone(bindings.get(appOwner.accountId)!);
+    wallet.wallet.chainId = wallet.state.chainId = wallet.state.evidence.chainId = 8453;
+    wallet.id = fingerprint({ ownerAccountId: appOwner.accountId, wallet: safe, chainId: 8453 });
+    wallet.authorization.nonce = h('app-base-binding-nonce');
+    wallet.authorization.digest = h('app-base-binding');
+    await registry.bind(wallet);
+    await new PostgresWalletPolicyStore(pool).activate({ expectedRevision: 0, nextRevision: 1,
+      configuration: { version: 'center-wallet-policy-v1', applications: [{ origin, walletCallbacks: [`${origin}/callback`] }] } });
+    // Trusted local fixture initialization; issuance and canonical epoch production are separate boundaries.
+    await pool.query('INSERT INTO rest_wallet_authority(account_id,authority_epoch,session_epoch,updated_at) VALUES($1,1,1,1)', [appOwner.accountId]);
+    const lock = await pool.connect();
+    let pending: Promise<unknown> | undefined;
+    try {
+      const grant = await new PostgresWalletAppGrantStore(pool).insert({ accountId: appOwner.accountId,
+        signerAddress: target, origin, callbackUri: `${origin}/callback`, audience: 'https://juicebox.center',
+        expectedAppGeneration: 1, expectedAuthorityEpoch: '1', expectedSessionEpoch: '1',
+        expiresAt: await dbSeconds(lock) + 4 });
+      const appActor = { accountId: appOwner.accountId, principalId: walletAppPrincipalId(grant) };
+      const value = plan('app-plan-wait-expiry', appActor, wallet, Date.now());
+      value.smartAccount!.chainId = 8453;
+      value.draft.calls.forEach(call => { call.chainId = 8453; });
+      await plans.create(value, { key: 'app-plan-wait-expiry', operation: 'prepare', requestHash: h('app-plan-wait-expiry') }, Date.now());
+      const operation = record(value, 9003n);
+      operation.chainId = 8453;
+      operation.operationHash = getUserOperationHash(operation.operation, operation.entryPoint, 8453);
+      await lock.query('BEGIN');
+      await lock.query("SET LOCAL statement_timeout='7000ms'");
+      await lock.query('SELECT id FROM rest_transaction_plans WHERE id=$1 FOR UPDATE', [value.id]);
+      const pid = Number((await lock.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]!.pid);
+      pending = store.create(operation, Date.now()).then(result => ({ result }), (error: unknown) => ({ error }));
+      expect(await waitUntilBlocked(lock, pid)).toEqual(expect.arrayContaining([
+        expect.stringMatching(/^SELECT document FROM rest_transaction_plans .*FOR UPDATE$/),
+      ]));
+      expect(await dbSeconds(lock)).toBeLessThan(grant.expiresAt);
+      await lock.query(
+        'SELECT pg_sleep(GREATEST(0,$1::double precision-extract(epoch FROM clock_timestamp())::double precision+0.005))',
+        [grant.expiresAt],
+      );
+      expect(await dbSeconds(lock)).toBeGreaterThanOrEqual(grant.expiresAt);
+      await lock.query('ROLLBACK');
+      expect(await pending).toMatchObject({ error: { code: 'FORBIDDEN', status: 403 } });
+      expect(await store.get(appActor, operation.id)).toBeUndefined();
+      expect(await store.find(appActor, operation.preparationKey, operation.inputHash)).toBeUndefined();
+      expect(await transportRows(value.id)).toEqual([]);
+      expect((await pool.query('SELECT 1 FROM rest_user_operation_nonces WHERE user_operation_id=$1', [operation.id])).rowCount).toBe(0);
+      expect(await plans.get(appActor, value.id)).toEqual(value);
+    } finally {
+      await lock.query('ROLLBACK'); lock.release();
+      await pending;
+    }
+  }, 12000);
   it('dispatches once across replicas and never blindly resubmits an ambiguous durable operation', async () => {
     const value = await prepare('submit', 2n);
     const input = claim(value.record, Date.now());
