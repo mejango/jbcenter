@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Ajv2020 } from 'ajv/dist/2020.js';
@@ -138,25 +138,28 @@ describe('one-shot operator Relayr publication journal', () => {
     const directory = join(root, 'attempt');
     const observations = await Promise.all(WALLET_DEPENDENCY_CHAINS.map(async chainId =>
       inspectWalletDependencyChain({ chainId, rpc: (await fixture(chainId)).rpc, now: () => clock })));
-    const body = (await prepareWalletDependencyBundle(observations, clock)).body;
+    const bundle = await prepareWalletDependencyBundle(observations, clock), body = bundle.body;
+    const source = { revision: 'a'.repeat(40), fingerprint: 'b'.repeat(64) };
+    const journal = join(directory, bundle.bodyHash.slice(2));
     const id = randomUUID(), deadline = clock / 1000 + 300;
     const response = { bundle_uuid: id, tx_uuids: body.transactions.map(() => randomUUID()), payment_info: [{
       chain: 8453, token: RELAYR_NATIVE_TOKEN, target: RELAYR_PAYMENT_ADDRESS, amount: '1234',
       calldata: RELAYR_PAYMENT_SELECTOR + id.replaceAll('-', '').padEnd(64, '0') + deadline.toString(16).padStart(64, '0'),
       payment_deadline: new Date(deadline * 1000).toISOString(),
     }] };
-    const record = async () => JSON.parse(await readFile(join(directory, 'publication.json'), 'utf8'));
+    const record = async () => JSON.parse(await readFile(join(journal, 'publication.json'), 'utf8'));
     const status = vi.fn(async () => ({ bundle_uuid: id, transactions: body.transactions.map((entry, index) => ({
       tx_uuid: response.tx_uuids[index], request: entry, status: { state: 'Pending' },
     })) }));
-    return { directory, observations, response, body, record, status };
+    return { directory, journal, source, observations, response, body, record, status };
   }
-  it('persists exact bytes before publication and retains the quote binding without enabling funding', async () => {
+  it('persists the reviewed source and exact transaction fields before publication and retains the quote binding without enabling funding', async () => {
     const f = await publication();
     const provider = { status: f.status, createIndependent: vi.fn(async entries => {
       const before = await f.record();
       expect(before.state).toBe('submission-unknown');
       expect(before.body).toEqual(f.body);
+      expect(before.source).toEqual(f.source);
       expect(entries).toEqual(before.body.transactions);
       return f.response;
     }) };
@@ -199,7 +202,34 @@ describe('one-shot operator Relayr publication journal', () => {
     status.transactions[0]!.request = { ...status.transactions[0]!.request, value: '1' };
     const provider = { createIndependent: vi.fn(async () => f.response), status: vi.fn(async () => status) };
     await expect(publishWalletDependencyQuote({ ...f, provider, now: () => clock })).rejects.toThrow();
-    expect(await f.record()).toMatchObject({ state: 'quote-bound', fundingEnabled: false,
+    expect(await f.record()).toMatchObject({ state: 'status-received', statusResponse: status, fundingEnabled: false,
       quote: { bundleUuid: f.response.bundle_uuid } });
   });
+  it('returns the recovery UUID on disk failure after POST without repeating the submission', async () => {
+    const f = await publication();
+    const provider = { status: f.status, createIndependent: vi.fn(async () => {
+      // Force rename failure after the response arrives, while preserving the pre-POST record.
+      await rename(join(f.journal, 'publication.json'), join(f.journal, 'before.json'));
+      await mkdir(join(f.journal, 'publication.json'));
+      return { ...f.response, unsafeDetail: 'do not put provider text in an error' };
+    }) };
+    await expect(publishWalletDependencyQuote({ ...f, provider, now: () => clock })).rejects.toMatchObject({
+      code: 'WALLET_DEPENDENCY_JOURNAL_WRITE_FAILED', recoveryBundleUuid: f.response.bundle_uuid,
+    });
+    const before = JSON.parse(await readFile(join(f.journal, 'before.json'), 'utf8'));
+    expect(before.state).toBe('submission-unknown');
+    expect(before.source).toEqual(f.source);
+    expect(provider.createIndependent).toHaveBeenCalledTimes(1);
+    expect(provider.status).not.toHaveBeenCalled();
+    await expect(publishWalletDependencyQuote({ ...f, provider, now: () => clock })).rejects.toMatchObject({ code: 'EEXIST' });
+    expect(provider.createIndependent).toHaveBeenCalledTimes(1);
+  });
+  it('rejects missing or malformed source attribution before publication', async () => {
+    const f = await publication(), provider = { status: f.status, createIndependent: vi.fn(async () => f.response) };
+    for (const source of [undefined, { revision: 'x', fingerprint: 'b'.repeat(64) }, { ...f.source, fingerprint: '' }]) {
+      await expect(publishWalletDependencyQuote({ ...f, source: source as typeof f.source, provider, now: () => clock })).rejects.toThrow();
+    }
+    expect(provider.createIndependent).not.toHaveBeenCalled();
+  });
+
 });

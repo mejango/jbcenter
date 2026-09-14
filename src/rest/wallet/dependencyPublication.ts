@@ -2,23 +2,37 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, open, rename } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { RestError } from '../core.js';
+import { uuid } from '../sponsorship/validation.js';
 import { parseQuoteBinding, parseStatus, type RelayrProvider } from '../sponsorship/provider.js';
 import { prepareWalletDependencyBundle, type inspectWalletDependencyChain } from './dependencyBundle.js';
 
 type Observation = Awaited<ReturnType<typeof inspectWalletDependencyChain>>;
 
-/** Exclusive operator journal, separate from application and user-wallet authority. A new
- * directory is a one-shot publication attempt. Never reuse or automatically replace it. */
+export class WalletDependencyJournalError extends RestError {
+  constructor(readonly recoveryBundleUuid: string | null) {
+    super(500, 'WALLET_DEPENDENCY_JOURNAL_WRITE_FAILED',
+      'The provider answered but the journal write failed. Recover the existing bundle; never resubmit.');
+  }
+}
+
+/** One body-hash claim within the operator's fixed journal root. Never remove a claim
+ * or switch roots to bypass an uncertain prior publication. No payment authority. */
 export async function publishWalletDependencyQuote(options: {
   observations: Observation[]; directory: string;
+  source: { revision: string; fingerprint: string };
   provider: Pick<RelayrProvider, 'createIndependent' | 'status'>;
   now?: () => number; signal?: AbortSignal;
 }) {
+  const source = structuredClone(options.source);
+  if (!source || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(source.revision) || !/^[0-9a-f]{64}$/.test(source.fingerprint))
+    throw new RestError(400, 'WALLET_DEPENDENCY_SOURCE_INVALID', 'Reviewed source attribution is required.');
   const now = options.now ?? Date.now;
   const bundle = await prepareWalletDependencyBundle(options.observations, now());
   if (!bundle.body.transactions.length) throw new RestError(409, 'WALLET_DEPENDENCIES_PRESENT', 'Every dependency is already present.');
-  const directory = resolve(options.directory), path = join(directory, 'publication.json');
-  // mkdir is the cross-process claim. If a prior attempt exists, fail without contacting Relayr.
+  const root = resolve(options.directory);
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  const directory = join(root, bundle.bodyHash.slice(2)), path = join(directory, 'publication.json');
+  // mkdir is the cross-process claim keyed by semantic request hash, independent of run IDs.
   await mkdir(directory, { mode: 0o700 });
   const parent = await open(resolve(directory, '..'), 'r');
   try { await parent.sync(); } finally { await parent.close(); }
@@ -33,23 +47,32 @@ export async function publishWalletDependencyQuote(options: {
   }
   const attempt = { version: 'center-wallet-dependency-publication-v1',
     state: 'submission-unknown', startedAt: now(), bodyHash: bundle.bodyHash,
-    body: bundle.body, observations: bundle.observations };
+    body: bundle.body, observations: bundle.observations, source };
   await save(attempt);
   // Recheck freshness after filesystem waits and immediately before the sole network write.
-  await prepareWalletDependencyBundle(bundle.observations, now());
+  const refreshed = await prepareWalletDependencyBundle(bundle.observations, now());
+  if (refreshed.bodyHash !== bundle.bodyHash)
+    throw new RestError(409, 'WALLET_DEPENDENCY_REQUEST_CHANGED', 'Dependency request changed before publication.');
   options.signal?.throwIfAborted();
   const response = await options.provider.createIndependent(bundle.body.transactions, options.signal);
   // Preserve even a malformed response (including any recovery UUID) before policy parsing.
   const received = { ...attempt, state: 'response-received', responseReceivedAt: now(), response };
-  await save(received);
+  try { await save(received); }
+  catch {
+    const id = response !== null && typeof response === 'object' ? (response as Record<string, unknown>).bundle_uuid : null;
+    // A validated UUID survives disk failures through the CLI's stderr; never echo provider text.
+    throw new WalletDependencyJournalError(uuid(id) ? id : null);
+  }
   const quote = parseQuoteBinding(response, bundle.body.transactions, now());
   const bound = { ...received, state: 'quote-bound', quote, fundingEnabled: false as const };
   await save(bound);
   const status = await options.provider.status(quote.bundleUuid, options.signal);
   // A UUID list alone does not echo the requested calls. Require the provider's
   // stored bundle to contain the exact targets, calldata, values and nonce fields.
+  const statusReceived = { ...bound, state: 'status-received', statusResponse: status };
+  await save(statusReceived);
   const providerStatus = parseStatus(status, quote);
-  const record = { ...bound, state: 'quoted', providerStatus };
+  const record = { ...statusReceived, state: 'quoted', providerStatus };
   await save(record);
   return { record, path };
 }
