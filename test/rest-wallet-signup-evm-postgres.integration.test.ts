@@ -53,7 +53,7 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
     if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
   });
 
-  it("takes three users through signup and fresh login, including browser cancellation, lost replies and cookie recovery", async () => {
+  it("takes four users through signup and fresh login, including saved recovery kits, cancellation, lost replies and cookie recovery", async () => {
     const enrollments = new PostgresWalletEnrollmentStore(pool), deployments = new PostgresWalletDeploymentStore(pool);
     const settlement = createLocalAnvilWalletDeploymentSettlement(fixture);
     await fixture.rpc("anvil_setBalance", [fixture.sender, toHex(BigInt(fixture.configuration.allocationWei))]);
@@ -160,6 +160,9 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
     expect((await deployments.listUnresolved()).items).toEqual([]);
     expect(await fixture.rpc<Hex>("eth_getTransactionCount", [fixture.sender, "latest"])).toBe("0x4");
     await exerciseSignupBrowser({ pool, fixture, enrollments, deployments, settlement, execution, smart, authority,
+      registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id });
+    await exerciseSignupBrowser({ pool, fixture, enrollments, deployments, settlement, execution, smart, authority,
+      recoveryMode: 'kit', expectedNextNonce: '6',
       registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id });
   }, 60_000);
 });

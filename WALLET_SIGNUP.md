@@ -5,10 +5,25 @@ fresh sign-in services into one resumable browser journey at `/wallet/create`.
 This checkpoint supports the unforked local pilot. It does not enable production
 Base deployment or replace a lost passkey.
 
-The browser lets the user name a discoverable P-256 passkey. An independent EOA
-recovery wallet must separately sign the exact enrollment. The threshold-one Safe
+The browser lets the user name a discoverable P-256 passkey. First-time users can
+create a recovery kit without connecting an existing wallet. The browser generates
+a 256-bit BIP39 phrase and derives its independent EOA at `m/44'/60'/0'/0/0`, with
+no additional BIP39 passphrase. Users with a wallet can select the existing-wallet
+option. The independent EOA separately signs the exact enrollment. The threshold-one Safe
 has two full owners: the passkey signer and that EOA. Neither an email address nor
 a browser API key substitutes for either owner.
+
+The kit contains the words, recovery-owner address, original Safe address,
+initializer hash, explicit derivation path and local-test network designation.
+The Safe cannot be reconstructed from these words alone; preserving its address
+is necessary. Before deployment review, the kit path requires downloading and
+reopening the saved file against that exact wallet. A kit from another wallet is
+rejected. Reloading requires restoring the kit or words; the phrase is never
+stored in localStorage, sessionStorage, a cookie, URL or server request. The only
+durable secret export is the user's explicit download. Anyone who has that file
+can control the wallet. Browser JavaScript cannot guarantee deterministic secret
+erasure; DOM text and references are cleared after verification and on pagehide.
+These local-test kits must not be used for real funds.
 
 ## Sequence and recovery
 
@@ -35,11 +50,14 @@ one. Verified enrollment can resume after its original deadline. Expired,
 unverified enrollment cannot be renewed; the explicit restart action only clears
 that expired continuation and requires a new registration.
 
-This is **signup continuation**, not lost-passkey recovery. Owner replacement
-still requires immutable replacement lineage, a new-key possession proof,
-independent recovery-owner approval, canonical Safe owner-rotation evidence and
-invalidation of old credentials, sessions and grants. The original genesis must
-remain unchanged.
+Signup continuation remains separate from lost-passkey replacement. The internal
+recovery proof store now records a purpose-bound new-key proof and independent
+owner signature tied to the original Safe, enrollment, current credential and
+binding. Intake is bounded, continuation secrets are hashed, accepted records are
+immutable, and concurrent/lost-response retries return the original receipt.
+It is not mounted in HTTP and does not rotate an owner or credential. Replacement
+still needs canonical owner-rotation evidence, immutable credential lineage and
+atomic invalidation of old credentials, sessions and grants. Genesis remains unchanged.
 
 ## Composition and observation
 
@@ -70,12 +88,14 @@ Run `npm run check` with Node 22.23.1, PostgreSQL 16 via `TEST_DATABASE_URL`, th
 pinned browser installation, and Foundry available. The required catalog includes
 the signup PostgreSQL, HTTP-boundary and joined EVM/browser suites.
 
-The joined suite uses three distinct users, real HTTP handlers, PostgreSQL,
+The joined suite uses four distinct users, real HTTP handlers, PostgreSQL,
 unforked Anvil, a virtual browser authenticator and an independent test EOA. It
 checks prompt cancellation, lost registration/setup responses, cookie loss,
 continuation rotation, unchanged wallet identity, canonical deployment/setup,
-fresh login, and a 320px viewport. Sanitized results and screenshots are written
-to `.generated/wallet-observations/signup-browser/`; release evidence is written
+fresh login, an existing recovery wallet, a generated recovery kit, wrong-kit
+rejection, kit restoration after reload, absence of the phrase from storage and
+requests, and a 320px viewport. Sanitized results and screenshots are written
+to `.generated/wallet-observations/signup-browser/` and `signup-browser-kit/`; release evidence is written
 to `.generated/checks/<run-id>/summary.json` with a source fingerprint.
 
 Production testing still needs a qualified Base fee/settlement provider,

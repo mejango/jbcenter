@@ -19,10 +19,13 @@ import type { startWalletDeploymentAnvil } from './wallet-deployment-anvil.js';
  * authenticator and independent test recovery wallet are simulated. */
 export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDependencies, 'flows'> & {
   pool: Pool; fixture: Awaited<ReturnType<typeof startWalletDeploymentAnvil>>;
+  recoveryMode?: 'wallet' | 'kit'; expectedNextNonce?: string;
 }) {
   let app = new Hono(), lostRegistration = false, lostSetup = false;
+  const kitMode = options.recoveryMode === 'kit', requestBodies: string[] = [];
   const observed: { path: string; status: number }[] = [];
   const server = serve({ port: 0, hostname: '127.0.0.1', fetch: async request => {
+    if (kitMode && request.method === 'POST') requestBodies.push(await request.clone().text());
     const response = await app.fetch(request), path = new URL(request.url).pathname;
     observed.push({ path, status: response.status });
     if (response.ok && ((path === '/wallet/signup/register' && !lostRegistration) || (path === '/wallet/signup/setup/complete' && !lostSetup))) {
@@ -49,6 +52,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
   page.on('pageerror', error => errors.push(error.name));
   page.setDefaultTimeout(15000);
   await page.exposeFunction('recoveryTestRequest', async (input: { method: string; params?: unknown[] }) => {
+    if (kitMode) throw new Error('First-time signup must not request an external wallet.');
     if (input.method === 'eth_requestAccounts') return [enrollmentBackupAccount.address];
     if (input.method === 'eth_signTypedData_v4') {
       expect(input.params?.[0]).toBe(enrollmentBackupAccount.address);
@@ -65,12 +69,13 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal', hasResidentKey: true,
     hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true,
   } });
-  const out = new URL('../../.generated/wallet-observations/signup-browser/', import.meta.url);
+  const out = new URL(`../../.generated/wallet-observations/signup-browser${kitMode ? '-kit' : ''}/`, import.meta.url);
   const contains = async (text: string) => expect.poll(() => page.locator('#wallet-status').textContent()).toContain(text);
   try {
     await page.goto(origin + '/wallet/create');
     await page.getByLabel('Passkey name').fill('Juicebox test');
-    await page.getByRole('button', { name: 'Connect recovery wallet' }).click();
+    if (!kitMode) await page.getByLabel('Use my existing wallet').check();
+    await page.getByRole('button', { name: kitMode ? 'Create passkey wallet' : 'Connect recovery wallet' }).click();
     await contains('Create your named passkey');
     await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
     await page.getByRole('button', { name: 'Create passkey', exact: true }).click();
@@ -84,6 +89,33 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await page.getByRole('button', { name: 'Verify both owners' }).click();
     await contains('Review and approve');
     const originalAddress = await page.locator('#signup-address').textContent();
+    if (kitMode) {
+      expect(await page.getByRole('button', { name: 'Review wallet creation' }).isDisabled()).toBe(true);
+      const downloaded = page.waitForEvent('download');
+      await page.getByRole('button', { name: 'Download recovery kit' }).click();
+      const stream = await (await downloaded).createReadStream(), chunks = [];
+      if (!stream) throw new Error('No recovery download.');
+      for await (const chunk of stream) chunks.push(chunk);
+      const encoded = Buffer.concat(chunks).toString('utf8'), kit = JSON.parse(encoded);
+      expect(kit.walletAddress.toLowerCase()).toBe(originalAddress?.toLowerCase());
+      expect(kit.mnemonic.split(' ')).toHaveLength(24);
+      const wrong = JSON.stringify({ ...kit, walletAddress: '0x' + '44'.repeat(20) });
+      await page.getByLabel('Verify your saved recovery kit').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(wrong) });
+      await contains('does not match');
+      expect(await page.getByRole('button', { name: 'Review wallet creation' }).isDisabled()).toBe(true);
+      await page.reload();
+      await contains('Review and approve');
+      expect(await page.locator('#recovery-phrase').textContent()).toBe('');
+      await page.setViewportSize({ width: 320, height: 844 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.getByLabel('Verify your saved recovery kit').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(encoded) });
+      await contains('Recovery kit verified');
+      expect(await page.locator('#recovery-phrase').textContent()).toBe('');
+      const persisted = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
+      expect(persisted.includes(kit.mnemonic)).toBe(false);
+      expect(requestBodies.some(body => body.includes(kit.mnemonic))).toBe(false);
+      await page.setViewportSize({ width: 1000, height: 850 });
+    }
     await page.getByRole('button', { name: 'Review wallet creation' }).click();
     await page.getByRole('button', { name: 'Approve wallet creation' }).click();
     await contains('Creating your test wallet');
@@ -115,9 +147,10 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await contains('You are signed in');
     expect((await page.locator('#wallet-address').textContent())?.toLowerCase()).toBe(originalAddress?.toLowerCase());
     expect(errors).toEqual([]); expect(lostRegistration && lostSetup).toBe(true);
-    expect((await options.deployments.getSettlement(deploymentId))?.nextNonce).toBe('5');
+    expect((await options.deployments.getSettlement(deploymentId))?.nextNonce).toBe(options.expectedNextNonce ?? '5');
     await writeFile(new URL('summary.json', out), JSON.stringify({ passed: true, browser: browser.version(),
       evidence: 'real HTTP, PostgreSQL, unforked Anvil; virtual authenticator and test EOA',
+      recoveryMode: options.recoveryMode ?? 'wallet', ...(kitMode ? { savedKitRestored: true, wrongKitRejected: true, phraseAbsentFromStorageAndRequests: true } : {}),
       cancelledPrompt: true, lostRegistrationReplyRecovered: lostRegistration, lostSetupReplyRecovered: lostSetup,
       cookieLossResumedSameWallet: true, separateFreshLogin: true, mobileWidth: 320, pageErrors: errors, requests: observed }, null, 2));
   } finally { await signup.stop(); await browser.close(); await new Promise<void>(resolve => server.close(() => resolve())); }

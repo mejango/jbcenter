@@ -1,6 +1,8 @@
-import { getAddress, isAddress, type Address, type Hex, type TypedDataDefinition } from 'viem';
+import { getAddress, hashTypedData, isAddress, type Address, type Hex, type TypedDataDefinition } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import type { createLocalWalletSignup } from '../wallet/signup.js';
+import { createWalletRecoverySecret, readWalletRecoveryKit, recoveryAccountFromPhrase, serializeWalletRecoveryKit,
+  type WalletRecoveryKitIdentity, type WalletRecoverySecret } from './walletRecoveryKit.js';
 
 type Signup = ReturnType<typeof createLocalWalletSignup>;
 type View = Awaited<ReturnType<Signup['status']>>;
@@ -15,6 +17,13 @@ let pending: { path: string; body: unknown; csrf: string } | null = null;
 let deployment: Awaited<ReturnType<Signup['prepareDeployment']>> | null = null;
 let setup: Awaited<ReturnType<Signup['prepareSetup']>> | null = null;
 let disposed = false, pollCount = 0;
+let recoverySecret: WalletRecoverySecret | null = null, kitVerifiedWallet: string | null = null;
+const downloadUrls = new Set<string>();
+const kitMode = () => el<HTMLFieldSetElement>('recovery-method').querySelector<HTMLInputElement>('input:checked')?.value === 'kit';
+function kitIdentity(): WalletRecoveryKitIdentity {
+  if (!view?.walletAddress || !view.initializerHash) throw new Error('Create your passkey before saving the complete recovery kit.');
+  return { network: 'local-test', chainId: 8453, walletAddress: view.walletAddress, recoveryOwner: view.recoveryOwner, initializerHash: view.initializerHash };
+}
 const steps: Record<View['phase'], string> = {
   awaiting_registration: 'Create your named passkey.', awaiting_possession: 'Prove access to your passkey and recovery wallet.',
   awaiting_deployment_approval: 'Review and approve creation of your test wallet.', deploying: 'Creating your test wallet. Keep this page open, or resume later with your passkey.',
@@ -52,12 +61,23 @@ function accept(result: { view: View | null; csrfToken?: string }) {
   }
   view = result.view; known = true;
   if (result.csrfToken) { if (decode(result.csrfToken).length !== 32) throw new Error('Invalid signup context.'); csrf = result.csrfToken; }
-  message(view ? steps[view.phase] : 'Name your passkey and connect a recovery wallet to begin.');
+  message(view ? steps[view.phase] : 'Name your passkey and choose how to recover your wallet.');
   if (view?.phase === 'ready_to_sign_in') sessionStorage.removeItem('center:signup:browser:' + view.enrollmentId);
+  if (view?.phase === 'ready_to_sign_in' || (view?.phase === 'awaiting_deployment_approval' && kitVerifiedWallet === view.walletAddress)) recoverySecret = null;
 }
 function render() {
   form.hidden = !known || !!view; form.querySelector('button')!.disabled = busy;
   name.disabled = busy; details.hidden = !view;
+  const recoveryPhase = !view || ['awaiting_registration', 'awaiting_possession', 'awaiting_deployment_approval'].includes(view.phase);
+  el<HTMLFieldSetElement>('recovery-method').hidden = !known || !recoveryPhase;
+  el<HTMLFieldSetElement>('recovery-method').disabled = busy;
+  el('signup-begin').textContent = kitMode() ? 'Create passkey wallet' : 'Connect recovery wallet';
+  el('recovery-kit').hidden = !view || !recoveryPhase || !kitMode() || (kitVerifiedWallet !== null && kitVerifiedWallet === view.walletAddress);
+  el('recovery-phrase').textContent = recoverySecret?.mnemonic ?? '';
+  el<HTMLButtonElement>('recovery-download').disabled = busy || !recoverySecret || !view?.walletAddress;
+  el<HTMLInputElement>('recovery-file').disabled = busy || !view?.walletAddress;
+  el<HTMLTextAreaElement>('recovery-words').disabled = busy;
+  el<HTMLButtonElement>('recovery-restore').disabled = busy;
   el('signup-name').textContent = view?.passkeyName ?? ''; el('signup-recovery').textContent = view?.recoveryOwner ?? '';
   el('signup-address').textContent = view?.walletAddress ?? 'Not created yet';
   const label = view?.phase === 'awaiting_registration' ? 'Create passkey' : view?.phase === 'awaiting_possession' ? 'Verify both owners'
@@ -65,6 +85,7 @@ function render() {
     : view?.phase === 'awaiting_setup' ? setup ? 'Approve browser setup' : 'Review browser setup'
     : view?.phase === 'expired' ? 'Start a new registration' : null;
   next.hidden = !label || !!pending; next.textContent = label; next.disabled = busy;
+  if (view?.phase === 'awaiting_deployment_approval' && kitMode() && kitVerifiedWallet !== view.walletAddress) next.disabled = true;
   resume.hidden = busy || !!pending || view?.phase === 'ready_to_sign_in';
   check.hidden = !view && !pending && known; check.disabled = busy;
   cancel.hidden = !native; signIn.hidden = view?.phase !== 'ready_to_sign_in';
@@ -136,11 +157,25 @@ async function advance() {
     await send('register', { type: 'public-key', credentialId: encode(value.rawId), rawId: encode(value.rawId),
       clientDataJSON: encode(value.response.clientDataJSON), attestationObject: encode(value.response.attestationObject) });
   } else if (view.phase === 'awaiting_possession' && view.possession) {
-    const owner = await recoveryOwner(view.recoveryOwner), document = view.possession.document;
-    const backupSignature = await provider().request({ method: 'eth_signTypedData_v4', params: [owner, JSON.stringify(document)] });
+    const document = view.possession.document, value = document.message;
+    if (document.domain.name !== 'Juicebox Center Wallet Enrollment' || document.domain.version !== '1' || document.domain.chainId !== 8453
+      || document.primaryType !== 'WalletEnrollment' || value.purpose !== 'registration' || value.enrollmentId !== view.enrollmentId
+      || value.origin !== location.origin || value.rpId !== location.hostname || value.initializerHash !== view.initializerHash
+      || getAddress(value.recoveryOwner) !== getAddress(view.recoveryOwner) || getAddress(value.predictedSafe) !== getAddress(view.walletAddress!)
+      || getAddress(document.domain.verifyingContract) !== getAddress(view.walletAddress!)
+      || hashTypedData(document) !== view.possession.challenge || BigInt(value.expiresAtMs) <= BigInt(Date.now())) throw new Error('The wallet enrollment review changed.');
+    let backupSignature: unknown;
+    if (kitMode()) {
+      if (!recoverySecret) throw new Error('Restore your recovery words or saved kit before verifying this signup.');
+      backupSignature = await recoveryAccountFromPhrase(recoverySecret.mnemonic, view.recoveryOwner).signTypedData(document);
+    } else {
+      const owner = await recoveryOwner(view.recoveryOwner);
+      backupSignature = await provider().request({ method: 'eth_signTypedData_v4', params: [owner, JSON.stringify(document)] });
+    }
     const proof = await assertion(view.possession.challenge, view.rpId, view.possession.credentialId);
     await send('prove', { assertion: proof, backupSignature });
   } else if (view.phase === 'awaiting_deployment_approval') {
+    if (kitMode() && kitVerifiedWallet !== view.walletAddress) throw new Error('Download and verify your saved recovery kit before creating the wallet.');
     if (!deployment) {
       deployment = await request('deployment/review', {});
       if (deployment!.walletAddress.toLowerCase() !== view.walletAddress?.toLowerCase() || deployment!.recoveryOwner.toLowerCase() !== view.recoveryOwner.toLowerCase() || deployment!.initializerHash !== view.initializerHash) {
@@ -166,8 +201,36 @@ async function advance() {
   }
 }
 form.addEventListener('submit', event => { event.preventDefault(); void run(async () => {
-  const passkeyName = name.value.trim(), owner = await recoveryOwner();
+  const passkeyName = name.value.trim();
+  if (kitMode() && !recoverySecret) recoverySecret = createWalletRecoverySecret();
+  const owner = kitMode() ? recoverySecret!.recoveryOwner : await recoveryOwner();
   await send('begin', { recoveryOwner: owner, passkeyName });
+}); });
+el('recovery-method').addEventListener('change', render);
+el('recovery-download').addEventListener('click', () => { void run(async () => {
+  if (!recoverySecret) throw new Error('Restore your recovery words first.');
+  const encoded = serializeWalletRecoveryKit(recoverySecret, kitIdentity());
+  const url = URL.createObjectURL(new Blob([encoded], { type: 'application/json' })); downloadUrls.add(url);
+  const link = document.createElement('a'); link.href = url; link.download = 'juicebox-local-test-recovery.json';
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(() => { URL.revokeObjectURL(url); downloadUrls.delete(url); }, 1000);
+  message('Open the recovery kit you just saved to verify it before continuing.');
+}); });
+el<HTMLInputElement>('recovery-file').addEventListener('change', event => { void run(async () => {
+  const input = event.target as HTMLInputElement, file = input.files?.[0]; input.value = '';
+  if (!file || file.size > 8192) throw new Error('Choose the recovery kit you saved for this wallet.');
+  const kit = readWalletRecoveryKit(await file.text(), kitIdentity());
+  recoverySecret = view?.phase === 'awaiting_possession' || view?.phase === 'awaiting_registration'
+    ? { mnemonic: kit.mnemonic, recoveryOwner: kit.recoveryOwner } : null;
+  kitVerifiedWallet = view!.walletAddress; el<HTMLTextAreaElement>('recovery-words').value = '';
+  message('Recovery kit verified. You can review creation of your wallet.');
+}); });
+el('recovery-restore').addEventListener('click', () => { void run(async () => {
+  if (!view) throw new Error('Resume your signup first.');
+  const input = el<HTMLTextAreaElement>('recovery-words'), mnemonic = input.value; input.value = '';
+  const account = recoveryAccountFromPhrase(mnemonic, view.recoveryOwner);
+  recoverySecret = { mnemonic: mnemonic.trim().toLowerCase().replace(/\s+/g, ' '), recoveryOwner: account.address };
+  message('Recovery words restored. Save the complete kit with your wallet address before creating the wallet.');
 }); });
 next.addEventListener('click', () => { void run(advance); });
 check.addEventListener('click', () => { void run(observe); });
@@ -180,7 +243,11 @@ resume.addEventListener('click', () => { void run(async () => {
 const timer = setInterval(() => {
   if (!busy && !pending && view?.phase === 'deploying' && !document.hidden && navigator.onLine && pollCount++ < 60) void run(observe);
 }, 2000);
-window.addEventListener('pagehide', () => { disposed = true; native?.abort(); clearInterval(timer); }, { once: true });
+window.addEventListener('pagehide', () => {
+  disposed = true; native?.abort(); clearInterval(timer); recoverySecret = null;
+  el('recovery-phrase').textContent = ''; el<HTMLTextAreaElement>('recovery-words').value = '';
+  for (const url of downloadUrls) URL.revokeObjectURL(url); downloadUrls.clear();
+}, { once: true });
 void run(async () => {
   const url = new URL(location.href);
   if (url.hash || url.searchParams.size > 1 || [...url.searchParams].some(([key, value]) => key === 'intent' ? !/^[A-Za-z0-9_-]{43}$/.test(value)

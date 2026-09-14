@@ -41,6 +41,7 @@ describe('signup HTTP authority boundary', () => {
     expect((await app.fetch(post('begin', body))).status).toBe(409);
     expect((await app.fetch(post('begin', body, { ...fresh, origin: 'https://homerun.test' }))).status).toBe(403);
     expect((await app.fetch(post('begin', { ...body, rpId: 'attacker.test' }, fresh))).status).toBe(400);
+    expect((await app.fetch(post('begin', { ...body, mnemonic: 'a secret must not be accepted' }, fresh))).status).toBe(400);
     expect(signup.begin).toHaveBeenCalledTimes(1);
   });
   it('rejects missing CSRF, duplicate cookies and client authority fields before mutation', async () => {
