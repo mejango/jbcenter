@@ -1,7 +1,9 @@
 import { paymentProjectionFixture } from './fixtures/wallet-payment-projection.js';
 import { describe, expect, it, vi } from 'vitest';
 import { createWalletSite, type WalletSiteOptions } from '../src/rest/wallet/site.js';
-import { walletCsrfToken, walletFlowCookie, walletSessionCookie } from '../src/rest/wallet/http.js';
+import { walletCsrfToken, walletFlowCookie, walletSessionCookie, walletLaunchCookie } from '../src/rest/wallet/http.js';
+import { privateKeyToAccount } from 'viem/accounts';
+import { walletHandoffLaunchDocument } from '../src/rest/wallet/handoff.js';
 import type { WalletCentralSession } from '../src/rest/wallet/login.js';
 import { Hono } from 'hono';
 import { mountRestSite, type RestSite } from '../src/rest/site.js';
@@ -11,7 +13,9 @@ const origin='https://wallet.example.test', appOrigin='https://beep.example.test
 const flow=Buffer.alloc(32,7).toString('base64url'), token=Buffer.alloc(32,8).toString('base64url');
 const accountId='eip155:8453:0x0000000000000000000000000000000000000003';
 const loginId='11111111-1111-4111-8111-111111111111';
+const appKey=privateKeyToAccount(`0x${'35'.repeat(32)}`);
 function setup(overrides: Partial<WalletSiteOptions> = {}) {
+  const started=Date.now();
   // HTTP controller evidence only: storage/crypto correctness has separate real-PG/EVM suites.
   const session={id:'22222222-2222-4222-8222-222222222222',accountId,expiresAtMs:Date.now()+3_600_000,
     credentialId:'private-credential-metadata',userHandle:'private-user-handle'} as WalletCentralSession;
@@ -20,7 +24,9 @@ function setup(overrides: Partial<WalletSiteOptions> = {}) {
       identifyCompletion:vi.fn(async()=>({accountId})),complete:vi.fn(async()=>({session,sessionToken:token,replayed:false})),
       identifySession:vi.fn(async()=>({accountId})),readSession:vi.fn(async()=>session),logout:vi.fn(async()=>({loggedOut:true as const,replayed:false}))},
     handoff:{prepare:vi.fn(async()=>({id:loginId,state:'prepared' as const,createdAtMs:Date.now(),expiresAtMs:Date.now()+180_000,request:{} as never})),
-      getIntent:vi.fn(async()=>({id:loginId,state:'prepared' as const,createdAtMs:Date.now(),expiresAtMs:Date.now()+180_000,request:{} as never})),
+      getIntent:vi.fn(async()=>({id:flow,state:'prepared' as const,createdAtMs:started,expiresAtMs:started+180_000,request:{version:'center-wallet-handoff-request-v1' as const,
+        issuer:origin,origin:appOrigin,callbackUri:appOrigin+'/center/callback',audience,appGeneration:1,requestKey:appKey.address,state:token,codeChallenge:flow,
+        nonce:`0x${'09'.repeat(32)}` as const,issuedAtMs:started,expiresAtMs:started+180_000}})),
       issue:vi.fn(async()=>({code:flow,state:token,issuer:origin,callbackUri:appOrigin+'/center/callback'})),identifyExchange:vi.fn(async()=>({accountId})),exchange:vi.fn(async()=>({grant:{id:'public-grant'} as never,replayed:false}))},
     policy:{readActivePolicy:vi.fn(async()=>({revision:1,configurationHash:'a'.repeat(64),configuration:{version:'center-wallet-policy-v1' as const,applications:[{origin:appOrigin,walletCallbacks:[appOrigin+'/center/callback']}]},activatedAt:1,apps:[{origin:appOrigin,walletCallbacks:[appOrigin+'/center/callback'],generation:1,enabled:true}]}))},
     refresh:{request:vi.fn(async()=>({status:'queued'})),tick:vi.fn(async()=>({}))},onEvent:vi.fn()};
@@ -106,6 +112,15 @@ describe('central payment approval HTTP boundary',()=>{
 });
 
 describe('dedicated Center wallet HTTP journey',()=>{
+  it('rejects a leaked intent URL without a browser launch claim before session or account work',async()=>{
+    const {app,options}=setup();
+    const response=await app.fetch(request('/wallet/authorize/issue',{intentId:flow},{cookie:`${walletSessionCookie}=${token}`,'x-center-wallet-csrf':walletCsrfToken(token)}));
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.code).toBe('WALLET_HANDOFF_UNCLAIMED');
+    expect(options.handoff.issue).not.toHaveBeenCalled();
+    expect(options.login.readSession).not.toHaveBeenCalled();
+    expect(options.refresh.request).not.toHaveBeenCalled();
+  });
   it('serves a dedicated passkey page with self-only scripts and no Para policy',async()=>{
     const {app}=setup();const response=await app.fetch(new Request(origin+'/wallet'));
     expect(response.status).toBe(200);expect(await response.text()).toContain('Sign in with a passkey');
@@ -146,10 +161,37 @@ describe('dedicated Center wallet HTTP journey',()=>{
     expect(response.status).toBe(403);expect(options.handoff.issue).not.toHaveBeenCalled();
   });
   it('issues the callback only through the cookie-authenticated central action',async()=>{
-    const {app,options}=setup();const response=await app.fetch(request('/wallet/authorize/issue',{intentId:loginId},{cookie:`${walletSessionCookie}=${token}`,'x-center-wallet-csrf':walletCsrfToken(token)}));
-    expect(response.status).toBe(200);expect(options.handoff.issue).toHaveBeenCalledWith(loginId,'22222222-2222-4222-8222-222222222222');
+    const {app,options}=setup();
+    const intent=await options.handoff.getIntent(flow), signature=await appKey.signTypedData(walletHandoffLaunchDocument({request:intent.request,intentId:flow}));
+    const response=await app.fetch(request('/wallet/authorize/issue',{intentId:flow},{cookie:`${walletSessionCookie}=${token}; ${walletLaunchCookie}=${flow}.${signature}`,'x-center-wallet-csrf':walletCsrfToken(token)}));
+    expect(response.status).toBe(200);expect(options.handoff.issue).toHaveBeenCalledWith(flow,'22222222-2222-4222-8222-222222222222',signature);
+    expect(response.headers.get('set-cookie')).toContain(`${walletLaunchCookie}=; Path=/; Max-Age=0`);
     const result=await response.json();const callback=new URL(result.redirectUri);expect(callback.origin).toBe(appOrigin);
     expect(callback.searchParams.get('code')).toBe(flow);expect(callback.searchParams.get('state')).toBe(token);expect(callback.searchParams.get('iss')).toBe(origin);
+  });
+  it('sets a short HttpOnly launch claim only after an exact app-origin document POST and separate proof',async()=>{
+    const {app,options}=setup(), intent=await options.handoff.getIntent(flow);
+    const signature=await appKey.signTypedData(walletHandoffLaunchDocument({request:intent.request,intentId:flow}));
+    const body=new URLSearchParams({intentId:flow,signature}).toString();
+    const headers={origin:appOrigin,'content-type':'application/x-www-form-urlencoded','sec-fetch-mode':'navigate','sec-fetch-dest':'document'};
+    for(const changed of [{origin:'https://attacker.test'}, {origin:'null'}, {'sec-fetch-dest':'iframe'}, {'sec-fetch-dest':'empty'}, {'sec-fetch-mode':'cors'}, {'content-type':'application/json'}]) {
+      const result=await app.fetch(new Request(origin+'/wallet/launch',{method:'POST',headers:{...headers,...changed},body}));
+      expect(result.status).toBeGreaterThanOrEqual(400);expect(result.headers.get('set-cookie')).toBeNull();
+    }
+    for(const invalid of [body+'&intentId='+flow, body+'&extra=1',body.replace(signature,'0x'+'00'.repeat(65)), 'x'.repeat(513)]) {
+      const result=await app.fetch(new Request(origin+'/wallet/launch',{method:'POST',headers,body:invalid}));
+      expect(result.status).toBeGreaterThanOrEqual(400);expect(result.headers.get('set-cookie')).toBeNull();
+    }
+    const result=await app.fetch(new Request(origin+'/wallet/launch',{method:'POST',headers,body}));
+    expect(result.status).toBe(303);expect(result.headers.get('location')).toBe(origin+'/wallet?intent='+flow);
+    expect(result.headers.get('location')).not.toContain(signature);
+    expect(result.headers.get('set-cookie')).toContain(`${walletLaunchCookie}=${flow}.${signature}; Path=/; Max-Age=`);
+    expect(result.headers.get('set-cookie')).toContain('Secure; HttpOnly; SameSite=Lax');
+    expect(result.headers.get('cache-control')).toBe('no-store');
+    expect(options.login.readSession).not.toHaveBeenCalled();expect(options.handoff.issue).not.toHaveBeenCalled();
+    const errorPage=await app.fetch(new Request(origin+'/wallet/launch',{method:'POST',headers:{...headers,origin:'null'},body}));
+    expect(errorPage.headers.get('content-type')).toContain('text/html');
+    expect(await errorPage.text()).toContain('Return to the app and connect again.');
   });
   it('allows credentialless exchange only for the active configured app origin',async()=>{
     const {app,options}=setup();const response=await app.fetch(request('/wallet/handoff/exchange',{intentId:loginId},{origin:appOrigin}));

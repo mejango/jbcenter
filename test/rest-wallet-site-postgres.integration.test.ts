@@ -16,7 +16,7 @@ import { PostgresWalletAuthorityRefreshQueue } from "../src/rest/wallet/authorit
 import { createWalletAuthorityRefresh } from "../src/rest/wallet/authorityRefresh.js";
 import { walletAuthorityContextDigest, walletAuthorityExpectedAnchor } from "../src/rest/wallet/authority.js";
 import { walletHandoffCodeHash, walletHandoffExchangeDocument, walletHandoffPkceChallenge,
-  walletHandoffRequestDocument, type WalletHandoffRequest } from "../src/rest/wallet/handoff.js";
+  walletHandoffRequestDocument, walletHandoffLaunchDocument, type WalletHandoffRequest } from "../src/rest/wallet/handoff.js";
 import { walletAppPrincipalId } from "../src/rest/wallet/appGrants.js";
 import { createRestAuth } from "../src/rest/auth/service.js";
 import { PostgresAccountStore } from "../src/rest/auth/postgres.js";
@@ -74,7 +74,7 @@ class CookieJar {
     if (!saved || saved.expiresAt <= Date.now() + clockOffsetMs) { this.cookies.delete(name); return null; }
     return saved.value;
   }
-  header() { return [walletFlowCookie, walletSessionCookie].flatMap(name => this.value(name) ? [`${name}=${this.value(name)}`] : []).join("; "); }
+  header() { return [walletFlowCookie, walletSessionCookie, '__Host-center-wallet-launch'].flatMap(name => this.value(name) ? [`${name}=${this.value(name)}`] : []).join("; "); }
 }
 async function listen(server: Server) {
   servers.push(server);
@@ -172,6 +172,9 @@ async function start() {
     body: JSON.stringify(body), signal: AbortSignal.timeout(15000) }, dropBody);
   const getSession = (jar: CookieJar) => httpFetch(base + "/wallet/session", {
     headers: { host: new URL(issuer).host, cookie: jar.header() }, signal: AbortSignal.timeout(15000) });
+  const launch = (intentId: string, signature: string) => httpFetch(base + '/wallet/launch', {
+    method:'POST', headers:{host:new URL(issuer).host,origin:appOrigin,'sec-fetch-mode':'navigate','sec-fetch-dest':'document','content-type':'application/x-www-form-urlencoded'},
+    body:new URLSearchParams({intentId,signature}).toString(), signal:AbortSignal.timeout(15000) });
   async function begin(jar: CookieJar) {
     const response = await post("/wallet/login/begin", {}, jar); expect(response.status, JSON.stringify(transports)).toBe(201); jar.accept(response);
     const body = await response.json();
@@ -182,7 +185,7 @@ async function start() {
       clientDataJSON: Buffer.from(assertion.clientDataJSON).toString("base64url"), signature: Buffer.from(assertion.signature).toString("base64url") } };
     return { input, csrf: body.csrfToken as string, expiresAtMs: body.expiresAtMs as number };
   }
-  return { setup, post, getSession, begin, events, api, refresh,
+  return { setup, post, getSession, begin, events, api, refresh, launch,
     observe: () => observations, outage: (value: boolean) => { observerAvailable = !value; } };
 }
 
@@ -220,6 +223,10 @@ suite("real wallet HTTP sign-in, PostgreSQL handoff and signed app requests", ()
     const prepared = await value.post("/wallet/handoff/prepare", { request, signature: await appKey.signTypedData(walletHandoffRequestDocument(request)) },
       undefined, { origin: appOrigin, "sec-fetch-site": "cross-site" });
     expect(prepared.status).toBe(201); const intent = await prepared.json();
+    const unclaimed = await value.post('/wallet/authorize/issue',{intentId:intent.id},jar,{'x-center-wallet-csrf':login.csrfToken});
+    expect(unclaimed.status).toBe(403);expect((await unclaimed.json()).error.code).toBe('WALLET_HANDOFF_UNCLAIMED');
+    const launched = await value.launch(intent.id, await appKey.signTypedData(walletHandoffLaunchDocument({request,intentId:intent.id})));
+    expect(launched.status).toBe(303);jar.accept(launched);
     const issued = await value.post("/wallet/authorize/issue", { intentId: intent.id }, jar, { "x-center-wallet-csrf": login.csrfToken });
     expect(issued.status).toBe(200); const redirect = new URL((await issued.json()).redirectUri);
     expect(redirect.origin + redirect.pathname).toBe(request.callbackUri); expect(redirect.searchParams.get("state")).toBe(request.state);

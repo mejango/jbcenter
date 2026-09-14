@@ -4,6 +4,7 @@ import { buildSync } from "esbuild";
 import { hashTypedData, keccak256, stringToHex, toHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it } from "vitest";
+import * as handoff from '../src/rest/wallet/handoff.js';
 import { validateWalletHandoffRequest, validateWalletHandoffToken, verifyWalletHandoffExchange,
   verifyWalletHandoffExchangeSignature, verifyWalletHandoffRequestSignature, walletHandoffCallback,
   walletHandoffCodeHash, walletHandoffExchangeDocument, walletHandoffFutureClockAllowanceMs,
@@ -22,6 +23,22 @@ const request = (): WalletHandoffRequest => ({ version: "center-wallet-handoff-r
   origin: "https://beep.biz", callbackUri: "https://beep.biz/wallet/callback", audience: "https://juicebox.center",
   appGeneration: 1, requestKey: key.address, state: token(1), codeChallenge: challenge, nonce: `0x${"03".repeat(32)}`,
   issuedAtMs: 1_800_000_000_000, expiresAtMs: 1_800_000_300_000 });
+
+describe('browser-bound handoff launch proof', () => {
+  it('requires a separate app-key proof for the exact intent and request', async () => {
+    const input = { request: request(), intentId };
+    const document = handoff.walletHandoffLaunchDocument(input);
+    const signature = await key.signTypedData(document);
+    await expect(handoff.verifyWalletHandoffLaunchSignature(input, signature)).resolves.toBeUndefined();
+    expect(document.primaryType).toBe('WalletHandoffLaunch');
+    expect(document.message.requestDigest).toBe(hashTypedData(walletHandoffRequestDocument(input.request)));
+    for (const changed of [{...input, intentId: token(6)}, {...input, request: {...input.request, callbackUri:'https://beep.biz/another'}}])
+      await expect(handoff.verifyWalletHandoffLaunchSignature(changed, signature)).rejects.toMatchObject(badSignature);
+    for (const wrong of [await otherKey.signTypedData(document), await key.signTypedData(walletHandoffRequestDocument(input.request)),
+      await key.signTypedData(walletHandoffExchangeDocument({...input, codeHash:walletHandoffCodeHash(code)}))])
+      await expect(handoff.verifyWalletHandoffLaunchSignature(input, wrong)).rejects.toMatchObject(badSignature);
+  });
+});
 async function exchange(): Promise<WalletHandoffExchangeInput> {
   const value = { request: request(), intentId, code, verifier };
   return { ...value, signature: await key.signTypedData(walletHandoffExchangeDocument({ request: value.request,

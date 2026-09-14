@@ -9,8 +9,9 @@ import { walletAppAudience, walletAppFields } from './appGrants.js';
 import { validateWalletPolicyOrigin } from './policy.js';
 import { validateWalletRpConfiguration } from './webauthn.js';
 import type { WalletCentralSession } from './login.js';
-import type { WalletHandoffExchangeInput, WalletHandoffRequest } from './handoff.js';
+import { verifyWalletHandoffLaunchSignature, type WalletHandoffExchangeInput, type WalletHandoffRequest } from './handoff.js';
 import { assertWalletHttpHost, assertWalletHttpRequest, assertWalletCsrf, readWalletCookie,
+  readWalletLaunchForm, walletLaunchClaim, walletLaunchCookie,
   readWalletJson, walletCookie, walletCsrfToken, walletFlowCookie, walletSessionCookie, walletHttpAssertion as assertion, walletPageHeaders as pageHeaders } from './http.js';
 import type { PostgresWalletLoginStore } from './loginPostgres.js';
 import type { PostgresWalletHandoffStore } from './handoffPostgres.js';
@@ -88,6 +89,8 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     const status = known && error.status >= 400 && error.status <= 599 ? error.status : 503;
     const code = known && /^[A-Z0-9_]{1,80}$/.test(error.code) ? error.code : 'WALLET_UNAVAILABLE';
     emit('request', status >= 500 ? 'unavailable' : 'rejected', code);
+    if (c.req.path === '/wallet/launch' && c.req.header('Sec-Fetch-Mode') === 'navigate')
+      return c.html('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connection unavailable</title><link rel="stylesheet" href="/wallet/assets/wallet.css"></head><body><main><h1>Connection unavailable</h1><p>This connection expired or could not be verified. Return to the app and connect again.</p></main></body></html>', status as ContentfulStatusCode);
     return c.json({ error: { code, message: status >= 500 ? 'Wallet service is temporarily unavailable. Try again.' : 'Wallet request could not be completed. Try again or start over.' } }, status as ContentfulStatusCode);
   });
   const central = (c: Context) => assertWalletHttpRequest(c.req.raw, origin, 'central');
@@ -249,12 +252,30 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     return c.json(publicWalletPaymentCentralReview(view));
   });
   app.get('/wallet/authorize/:id', async c => c.json(await handoff.getIntent(c.req.param('id'))));
+  app.post('/wallet/launch', async c => {
+    const claim = await readWalletLaunchForm(c.req.raw);
+    const intent = await handoff.getIntent(claim.intentId);
+    if (c.req.header('Origin') !== intent.request.origin || intent.state !== 'prepared') reject(403, 'WALLET_HANDOFF_UNCLAIMED');
+    await verifyWalletHandoffLaunchSignature({ request: intent.request, intentId: intent.id }, claim.signature);
+    const remaining = Math.floor((intent.expiresAtMs - Date.now()) / 1000);
+    if (remaining < 1) reject(410, 'WALLET_HANDOFF_EXPIRED');
+    c.header('Set-Cookie', walletCookie(walletLaunchCookie, `${claim.intentId}.${claim.signature}`, Math.min(330, remaining)), { append: true });
+    emit('handoff_launch', 'ok');
+    return c.redirect(origin + '/wallet?intent=' + intent.id, 303);
+  });
   app.post('/wallet/authorize/issue', async c => {
     central(c); const token = cookie(c, walletSessionCookie);
     const body = fields(await readWalletJson(c.req.raw), ['intentId']);
     if (typeof body.intentId !== 'string') reject();
+    const bearer = readWalletCookie(c.req.raw, walletLaunchCookie);
+    if (!bearer) reject(403, 'WALLET_HANDOFF_UNCLAIMED');
+    const claim = walletLaunchClaim(bearer);
+    if (claim.intentId !== body.intentId) reject(403, 'WALLET_HANDOFF_UNCLAIMED');
+    const intent = await handoff.getIntent(claim.intentId);
+    await verifyWalletHandoffLaunchSignature({ request: intent.request, intentId: intent.id }, claim.signature);
     const session = await sessionFor(token); if (!session) reject(403, 'WALLET_HTTP_SESSION');
-    const issued = await handoff.issue(body.intentId, session.id);
+    const issued = await handoff.issue(body.intentId, session.id, claim.signature);
+    c.header('Set-Cookie', walletCookie(walletLaunchCookie, null, 0), { append: true });
     if (issued.issuer !== origin) reject(503, 'WALLET_UNAVAILABLE');
     const callback = new URL(issued.callbackUri);
     callback.searchParams.set('code', issued.code); callback.searchParams.set('state', issued.state); callback.searchParams.set('iss', issued.issuer);

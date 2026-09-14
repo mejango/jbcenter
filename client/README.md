@@ -31,7 +31,15 @@ configured Center passkey service. It requires fixed `issuer`, `audience` and ex
 `callbackUri` values plus an activated Center allowlist entry. Nothing is activated
 by importing it. Runtime integration alone does not enable a public deployment.
 
-Call `prepareConnection()` and navigate to its `authorizationUrl`. On the registered
+Call `prepareConnection()` and then call the returned `launch()` method in the same
+app tab. It submits a short signed launch proof by form POST; its public
+`authorizationUrl` alone cannot connect a wallet. Allow the configured wallet
+origin in CSP `form-action` and use `Referrer-Policy: strict-origin` on pages that
+start or resume a connection, including the callback. This sends only the app
+origin, without the page path or query. A `no-referrer` or `same-origin` policy makes browsers send
+`Origin: null`, which Center rejects. One browser launch is active at a time: a
+newer tab replaces the older claim, and the older tab must start again from its app.
+On the registered
 callback page, call `completeConnection()`; it removes callback parameters before
 any exchange and validates the issuer, state and locally retained request key.
 `retryConnection()` recovers the same pending exchange after an uncertain response.

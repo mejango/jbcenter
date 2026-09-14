@@ -8,7 +8,7 @@ import { hashTypedData, keccak256, toHex } from "viem";
 import { migrate } from "../src/db/migrate.js";
 import { PostgresWalletPolicyStore } from "../src/rest/wallet/policyPostgres.js";
 import { validateWalletHandoffRequest, walletHandoffCodeHash, walletHandoffExchangeDocument, walletHandoffPkceChallenge,
-  walletHandoffRequestDocument, type WalletHandoffExchangeInput, type WalletHandoffRequest } from "../src/rest/wallet/handoff.js";
+  walletHandoffRequestDocument, walletHandoffLaunchDocument, type WalletHandoffExchangeInput, type WalletHandoffRequest } from "../src/rest/wallet/handoff.js";
 import { PostgresWalletHandoffStore, type WalletHandoffStoreOptions } from "../src/rest/wallet/handoffPostgres.js";
 import { PostgresWalletAppGrantStore } from "../src/rest/wallet/appGrantsPostgres.js";
 import { PostgresWalletLoginStore } from "../src/rest/wallet/loginPostgres.js";
@@ -119,8 +119,10 @@ async function issuedHandoff(extra: Options = {}, readinessLifetimeMs = 30_000, 
   const login = await completeWalletLoginFixture(pool, { lifetimeMs: readinessLifetimeMs });
   const target = new PostgresWalletHandoffStore(pool, options(extra));
   const input = await request({ expiresAtMs: await nowMs() + requestLifetimeMs });
-  const prepared = await target.prepare({ request: input.request, signature: input.signature }, origin), issued = await target.issue(prepared.id, login.session.id);
-  return { login, target, input, prepared, issued,
+  const prepared = await target.prepare({ request: input.request, signature: input.signature }, origin);
+  const launchSignature = await appKey.signTypedData(walletHandoffLaunchDocument({request:input.request,intentId:prepared.id}));
+  const issued = await target.issue(prepared.id, login.session.id, launchSignature);
+  return { login, target, input, prepared, issued, launchSignature,
     exchange: await exchangeInput(input.request, prepared.id, issued.code, input.verifier) };
 }
 async function handoffRow(id: string) {
@@ -172,6 +174,19 @@ suite("PostgreSQL wallet handoff with genuine request-key proofs and credentiall
     expect(await counts()).toEqual({ handoffs: 1, consumed: 0, grants: 0, grantIds: 0 });
     const row = (await pool.query("SELECT session_id,code_hash,grant_document FROM rest_wallet_handoffs WHERE id=$1", [prepared.id])).rows[0];
     expect(row).toEqual({ session_id: null, code_hash: null, grant_document: null });
+  });
+  it('keeps a copied intent prepared when the caller has no matching launch proof',async()=>{
+    const login=await completeWalletLoginFixture(pool,{lifetimeMs:30000}), input=await request();
+    const prepared=await store.prepare({request:input.request,signature:input.signature},origin);
+    await expect(store.issue(prepared.id,login.session.id,undefined as never)).rejects.toMatchObject({code:'WALLET_HANDOFF_UNCLAIMED'});
+    await expect(store.issue(prepared.id,login.session.id,input.signature)).rejects.toMatchObject({code:'WALLET_HANDOFF_SIGNATURE_INVALID'});
+    const proof=walletHandoffLaunchDocument({request:input.request,intentId:prepared.id});
+    await expect(store.issue(prepared.id,login.session.id,await otherKey.signTypedData(proof))).rejects.toMatchObject({code:'WALLET_HANDOFF_SIGNATURE_INVALID'});
+    expect(await handoffRow(prepared.id)).toMatchObject({state:'prepared',session_id:null,code_hash:null});
+    const signature=await appKey.signTypedData(proof);
+    const issued=await store.issue(prepared.id,login.session.id,signature);
+    expect(issued.callbackUri).toBe(input.request.callbackUri);
+    await expect(store.issue(prepared.id,login.session.id,signature)).rejects.toMatchObject({code:'WALLET_HANDOFF_CONFLICT'});
   });
 
   it("reports handoff-specific validation errors for malformed preparation and configuration", async () => {
@@ -297,7 +312,7 @@ suite("PostgreSQL wallet handoff with genuine request-key proofs and credentiall
     expect(metadata).not.toHaveProperty("sessionId"); expect(metadata).not.toHaveProperty("code");
     expect(value.issued).toEqual({ code: value.issued.code, state: value.input.request.state, issuer,
       callbackUri: value.input.request.callbackUri });
-    await expect(value.target.issue(value.prepared.id, value.login.session.id)).rejects.toMatchObject({ status: 409 });
+    await expect(value.target.issue(value.prepared.id, value.login.session.id, value.launchSignature)).rejects.toMatchObject({ status: 409 });
     const result = await process.request({ action: "exchange", input: value.exchange });
     expect(result.status).toBe(200); expect(result.body.replayed).toBe(false);
     expect(result.body.grant).toMatchObject({ kind: "wallet-app", accountId: value.login.accountId,

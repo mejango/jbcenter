@@ -4,7 +4,7 @@ import { canonicalEoaSignature } from "../smartAccounts/accountExecution.js";
 import { walletAppAudience, walletAppFields } from "./appGrants.js";
 import { validateWalletPolicyCallback, validateWalletPolicyOrigin } from "./policy.js";
 import * as shared from "./sharedHandoff.js";
-import type { WalletHandoffExchangeDocumentInput, WalletHandoffRequest } from "./sharedHandoff.js";
+import type { WalletHandoffExchangeDocumentInput, WalletHandoffLaunchDocumentInput, WalletHandoffRequest } from "./sharedHandoff.js";
 export type { WalletHandoffExchangeDocumentInput, WalletHandoffRequest } from "./sharedHandoff.js";
 
 export const walletHandoffMaximumLifetimeMs = 300_000;
@@ -76,6 +76,14 @@ export function walletHandoffExchangeDocument(input: WalletHandoffExchangeDocume
   const value = fields(input, ["request", "intentId", "codeHash"]);
   return shared.walletHandoffExchangeDocument({ request: validateWalletHandoffRequest(value.request),
     intentId: validateWalletHandoffToken(value.intentId), codeHash: bytes32(value.codeHash) });
+}
+export function walletHandoffLaunchDocument(input: WalletHandoffLaunchDocumentInput) {
+  const value = fields(input, ['request', 'intentId']);
+  return shared.walletHandoffLaunchDocument({ request: validateWalletHandoffRequest(value.request), intentId: validateWalletHandoffToken(value.intentId) });
+}
+export async function verifyWalletHandoffLaunchSignature(input: WalletHandoffLaunchDocumentInput, signature: Hex): Promise<void> {
+  const request = validateWalletHandoffRequest(input.request);
+  await verifySignature(hashTypedData(walletHandoffLaunchDocument(input)), request.requestKey, signature);
 }
 async function verifySignature(hash: Hex, requestKey: string, input: unknown): Promise<void> {
   try {

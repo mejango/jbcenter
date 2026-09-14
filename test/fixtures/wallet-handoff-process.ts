@@ -125,7 +125,7 @@ async function main(): Promise<void> {
       if (body.action === "prepare") result = await store.prepare(body.input, origin);
       else if (body.action === "get") result = await store.getIntent(body.id);
       // The parent supplies a session created by a completed login, as the trusted central HTTP handler would.
-      else if (body.action === "issue") result = await store.issue(body.intentId, body.sessionId);
+      else if (body.action === "issue") result = await store.issue(body.intentId, body.sessionId, body.launchSignature);
       else if (body.action === "identify-exchange") result = await store.identifyExchange(body.input, origin);
       else if (body.action === "exchange") result = await store.exchange(body.input, origin);
       else if (body.action === "cleanup") result = await store.cleanup(body.limit);

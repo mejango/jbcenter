@@ -88,7 +88,7 @@ suite("real browser shared-wallet connection with PostgreSQL (synthetic chain re
     audience = await listen(apiServer, "127.0.0.1");
     appServer = createServer((request, response) => {
       if (request.url === "/app.js") { response.writeHead(200, { "content-type": "text/javascript" }); response.end(appScript); return; }
-      response.writeHead(200, { "content-type": "text/html", "cache-control": "no-store", "referrer-policy": "no-referrer" });
+      response.writeHead(200, { "content-type": "text/html", "cache-control": "no-store", "referrer-policy": "strict-origin" });
       response.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
         <meta name="wallet-issuer" content="${issuer}"><meta name="wallet-audience" content="${audience}"><title>Local shared wallet acceptance</title><script type="module" src="/app.js"></script></head>
         <body><main><h1>Local shared wallet acceptance</h1><p>Chromium virtual authenticator. Real browser, HTTP and PostgreSQL. Synthetic chain readiness.</p>
@@ -256,4 +256,48 @@ suite("real browser shared-wallet connection with PostgreSQL (synthetic chain re
       originalSessionRecovered: true, nativeLoginAssertions: counters[0], completionPosts: 1, resultCounts: counts,
       syntheticChainReadiness: true, physicalDeviceObserved: false, fundedPaymentObserved: false }, null, 2), { mode: 0o600 });
   }, 25_000);
+  it('rejects a copied intent in a different signed-in browser and preserves the original app connection', async () => {
+    await page.goto(appOrigin); await appState('ready');await page.locator('#app-connect').click();await uiState('ready');
+    const copied=page.url(), intentId=new URL(copied).searchParams.get('intent');
+    const attacker=await createWalletLoginSetup(pool,{origin:issuer,rpId:'localhost',lifetimeMs:30000});
+    expect(attacker.accountId).not.toBe(accountId);
+    const context=await browser.newContext();
+    try {
+      const other=await context.newPage(), control=await context.newCDPSession(other);
+      await control.send('WebAuthn.enable');
+      const {authenticatorId:otherId}=await control.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',ctap2Version:'ctap2_1',transport:'internal',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
+      await control.send('WebAuthn.addCredential',{authenticatorId:otherId,credential:{credentialId:encode(attacker.credential.credentialId),
+        privateKey:attacker.credential.key.export({format:'der',type:'pkcs8'}).toString('base64'),userHandle:encode(attacker.credential.userHandle),rpId:'localhost',isResidentCredential:true,signCount:0,
+        backupEligibility:attacker.record.candidate!.backupEligible,backupState:attacker.record.candidate!.backedUp}});
+      await other.goto(issuer+'/wallet');
+      await expect.poll(()=>other.locator('#wallet-status').getAttribute('data-state')).toBe('ready');
+      await other.locator('#wallet-signin').click();
+      await expect.poll(()=>other.locator('#wallet-status').getAttribute('data-state')).toBe('signed-in');
+      await other.goto(copied);
+      await expect.poll(()=>transport.filter(x=>x.path==='/wallet/authorize/issue').at(-1)?.status).toBe(403);
+      expect((await pool.query('SELECT state,session_id,code_hash FROM rest_wallet_handoffs WHERE id=$1',[intentId])).rows[0]).toEqual({state:'prepared',session_id:null,code_hash:null});
+      expect((await pool.query('SELECT count(*)::int AS n FROM rest_wallet_app_grants')).rows[0].n).toBe(0);
+    } finally {await context.close();}
+    await page.locator('#wallet-signin').click(); await finish();
+    const account=(await pool.query('SELECT account_id FROM rest_wallet_app_grants')).rows[0].account_id;
+    expect(account).toBe(accountId);
+  },25000);
+
+  it('keeps the older tab unclaimed after a newer tab replaces the single browser launch',async()=>{
+    await page.goto(appOrigin);await appState('ready');await page.locator('#app-connect').click();await uiState('ready');
+    const originalId=new URL(page.url()).searchParams.get('intent');
+    const newer=await page.context().newPage();
+    try {
+      await newer.goto(appOrigin);await expect.poll(()=>newer.locator('#app-status').getAttribute('data-state')).toBe('ready');
+      await newer.locator('#app-connect').click();await expect.poll(()=>newer.locator('#wallet-status').getAttribute('data-state')).toBe('ready');
+      const newerId=new URL(newer.url()).searchParams.get('intent');expect(newerId).not.toBe(originalId);
+      await page.locator('#wallet-signin').click();
+      await expect.poll(()=>transport.filter(x=>x.path==='/wallet/authorize/issue').at(-1)?.status).toBe(403);
+      expect((await pool.query('SELECT state,session_id FROM rest_wallet_handoffs WHERE id=$1',[originalId])).rows[0]).toEqual({state:'prepared',session_id:null});
+      await newer.reload();await expect.poll(()=>new URL(newer.url()).origin).toBe(appOrigin);
+      await expect.poll(()=>newer.locator('#app-status').getAttribute('data-state')).toBe('connected');
+      expect((await pool.query('SELECT state FROM rest_wallet_handoffs WHERE id=$1',[newerId])).rows[0].state).toBe('consumed');
+      expect((await pool.query('SELECT count(*)::int AS n FROM rest_wallet_app_grants')).rows[0].n).toBe(1);
+    } finally {await newer.close();}
+  },25000);
 });

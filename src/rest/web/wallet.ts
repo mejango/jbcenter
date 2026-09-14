@@ -19,7 +19,7 @@ let nativePrompt: AbortController | null = null, retryAction: (() => Promise<voi
 let nextRetry: () => Promise<void> = load;
 
 class InvalidResponse extends Error {}
-class HttpFailure extends Error { constructor(readonly status: number) { super("Wallet request failed"); } }
+class HttpFailure extends Error { constructor(readonly status: number, readonly code?: string) { super("Wallet request failed"); } }
 function record(value: unknown): Json {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new InvalidResponse();
   return value as Json;
@@ -64,7 +64,14 @@ async function request(path: string, body?: unknown, csrfToken?: string): Promis
       ...(body === undefined ? {} : { method: "POST", body: JSON.stringify(body), headers: {
         "content-type": "application/json", "x-center-wallet-request": "1", ...(csrfToken ? { "x-center-wallet-csrf": csrfToken } : {}),
       } }) });
-    if (!response.ok) throw new HttpFailure(response.status);
+    if (!response.ok) {
+      let code: string | undefined;
+      if (path === '/wallet/authorize/issue' && response.status === 403) {
+        const body = await response.json().catch(() => null);
+        if (body?.error?.code === 'WALLET_HANDOFF_UNCLAIMED') code = 'WALLET_HANDOFF_UNCLAIMED';
+      }
+      throw new HttpFailure(response.status, code);
+    }
     return record(await response.json());
   } finally { clearTimeout(timer); }
 }
@@ -92,7 +99,9 @@ async function run(action: () => Promise<void>) {
   busy = true; retryAction = null; render();
   try { await action(); }
   catch (error) {
-    if (error instanceof DOMException && ["NotAllowedError", "AbortError"].includes(error.name) && nativePrompt) {
+    if (error instanceof HttpFailure && error.code === 'WALLET_HANDOFF_UNCLAIMED') {
+      setStatus('error', 'This connection belongs to another tab or has expired. Return to the app and connect again.');
+    } else if (error instanceof DOMException && ["NotAllowedError", "AbortError"].includes(error.name) && nativePrompt) {
       setStatus("ready", "Sign-in cancelled. You can try your passkey again.");
     } else if (error instanceof InvalidResponse) {
       setStatus("error", "This wallet request could not be verified. Return to the app and start again.");

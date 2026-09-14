@@ -10,7 +10,7 @@ import { assertWalletCentralSessionActiveInTransaction, assertWalletCentralSessi
 import { validateWalletPolicyOrigin } from "./policy.js";
 import { assertWalletPolicyCallbackInTransaction } from "./policyPostgres.js";
 import { validateWalletHandoffRequest, validateWalletHandoffToken, verifyWalletHandoffRequestSignature,
-  verifyWalletHandoffExchange, walletHandoffRequestDocument, walletHandoffCodeHash,
+  verifyWalletHandoffExchange, verifyWalletHandoffLaunchSignature, walletHandoffRequestDocument, walletHandoffCodeHash,
   walletHandoffFutureClockAllowanceMs, type WalletHandoffRequest, type WalletHandoffExchangeInput } from "./handoff.js";
 
 export interface WalletHandoffIntent {
@@ -131,8 +131,13 @@ export class PostgresWalletHandoffStore {
       await policy(client, result.request, result.expiresAtMs); return result;
     });
   }
-  async issue(inputId: string, inputSessionId: string): Promise<WalletHandoffIssuedCode> {
+  async issue(inputId: string, inputSessionId: string, launchSignature: Hex): Promise<WalletHandoffIssuedCode> {
     const id = validateWalletHandoffToken(inputId);
+    if (typeof launchSignature !== 'string' || !/^0x[0-9a-f]{130}$/.test(launchSignature))
+      throw new RestError(403, 'WALLET_HANDOFF_UNCLAIMED', 'Return to the app and start the wallet connection again.');
+    const hinted = await this.getIntent(id);
+    await verifyWalletHandoffLaunchSignature({ request: hinted.request, intentId: id }, launchSignature);
+    const claimedDigest = hashTypedData(walletHandoffRequestDocument(hinted.request));
     if (!walletAppUuid(inputSessionId)) invalid();
     const sessionId = inputSessionId;
     const code = randomBytes(32).toString("base64url"), codeHash = walletHandoffCodeHash(code);
@@ -140,7 +145,7 @@ export class PostgresWalletHandoffStore {
       // Session guard owns account→enrollment→authority→credential→session before code/policy.
       const session = await assertWalletCentralSessionActiveInTransaction(client, sessionId);
       const row = (await client.query<HandoffRow>("SELECT * FROM rest_wallet_handoffs WHERE id=$1 FOR UPDATE", [id])).rows[0];
-      if (!row) inactive();
+      if (!row || row.request_digest !== claimedDigest) inactive();
       const request = intent(row).request; this.configured(request);
       const time = await now(client); this.liveRequest(request, time);
       if (row.state !== "prepared") conflict();

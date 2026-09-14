@@ -18,7 +18,7 @@ function connected(value: CenterWalletConnection) {
 function failed() { retry.hidden = false; state("retry", "Connection interrupted. Retry the saved request."); }
 connect.addEventListener("click", () => {
   connect.disabled = true;
-  void helper.prepareConnection().then(value => location.assign(value.authorizationUrl)).catch(() => { connect.disabled = false; failed(); });
+  void helper.prepareConnection().then(value => value.launch()).catch(() => { connect.disabled = false; failed(); });
 });
 retry.addEventListener("click", () => {
   retry.disabled = true;

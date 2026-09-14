@@ -13,7 +13,7 @@ import { PostgresUserOperationStore } from "../src/rest/userOperations/postgres.
 import { getUserOperationHash } from "../src/rest/userOperations/codec.js";
 import { PostgresWalletPolicyStore } from "../src/rest/wallet/policyPostgres.js";
 import { PostgresWalletHandoffStore } from "../src/rest/wallet/handoffPostgres.js";
-import { walletHandoffRequestDocument, walletHandoffExchangeDocument, walletHandoffCodeHash,
+import { walletHandoffRequestDocument, walletHandoffExchangeDocument, walletHandoffCodeHash, walletHandoffLaunchDocument,
   walletHandoffPkceChallenge, type WalletHandoffRequest } from "../src/rest/wallet/handoff.js";
 import { walletAppPrincipalId } from "../src/rest/wallet/appGrants.js";
 import { completeWalletLoginFixture, walletLoginFixtureOrigin, walletLoginFixtureRpId } from "./fixtures/wallet-login-setup.js";
@@ -53,7 +53,8 @@ async function appContext(readinessLifetimeMs = 30_000, existingLogin?: Awaited<
     codeChallenge: walletHandoffPkceChallenge(verifier), nonce: hash(randomUUID()), issuedAtMs, expiresAtMs: issuedAtMs + 120_000 };
   const handoff = new PostgresWalletHandoffStore(pool, { issuer, audience });
   const intent = await handoff.prepare({ request, signature: await appKey.signTypedData(walletHandoffRequestDocument(request)) }, origin);
-  const issued = await handoff.issue(intent.id, login.session.id);
+  const issued = await handoff.issue(intent.id, login.session.id,
+    await appKey.signTypedData(walletHandoffLaunchDocument({request,intentId:intent.id})));
   const { grant } = await handoff.exchange({ request, intentId: intent.id, code: issued.code, verifier,
     signature: await appKey.signTypedData(walletHandoffExchangeDocument({ request, intentId: intent.id,
       codeHash: walletHandoffCodeHash(issued.code) })) }, origin);

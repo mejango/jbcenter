@@ -5,7 +5,7 @@ import { CenterClient } from './center.js';
 import { createCenterWalletPaymentClient } from './walletPayments.js';
 import {
   validateWalletHandoffToken, walletHandoffPkceChallenge, walletHandoffCodeHash,
-  walletHandoffRequestDocument, walletHandoffExchangeDocument, type WalletHandoffRequest,
+  walletHandoffRequestDocument, walletHandoffExchangeDocument, walletHandoffLaunchDocument, type WalletHandoffRequest,
 } from '../wallet/sharedHandoff.js';
 import type { WalletAppGrant } from '../wallet/appGrants.js';
 
@@ -40,8 +40,10 @@ export interface CenterWalletConnection {
 }
 export interface CenterWalletPreparedConnection {
   readonly intentId: string;
+  /** Public locator only. Use launch() to establish browser continuity before navigation. */
   readonly authorizationUrl: string;
   readonly expiresAtMs: number;
+  readonly launch: () => void;
 }
 interface Intent {
   id: string;
@@ -254,8 +256,27 @@ export function createCenterWalletClient(options: CenterWalletClientOptions) {
       return fail('WALLET_NETWORK_ERROR', 'The wallet request could not complete. Retry the pending connection.');
     } finally { clearTimeout(timer); }
   }
-  function prepared(intent: Intent): CenterWalletPreparedConnection {
-    return Object.freeze({ intentId: intent.id, authorizationUrl: issuer + '/wallet?intent=' + intent.id, expiresAtMs: intent.expiresAtMs });
+  async function prepared(intent: Intent): Promise<CenterWalletPreparedConnection> {
+    const pending = read();
+    if (!pending?.value.intent || pending.value.intent.id !== intent.id || pending.value.exchange || pending.value.grant)
+      fail('WALLET_HANDOFF_CHANGED', 'This tab changed its wallet connection. Start again from the app.');
+    const signature = await privateKeyToAccount(pending.value.key).signTypedData(walletHandoffLaunchDocument({request:intent.request,intentId:intent.id}));
+    if (raw() !== pending.encoded) fail('WALLET_HANDOFF_CHANGED', 'This tab changed its wallet connection. Start again from the app.');
+    return Object.freeze({ intentId: intent.id, authorizationUrl: issuer + '/wallet?intent=' + intent.id, expiresAtMs: intent.expiresAtMs,
+      launch() {
+        if (raw() !== pending.encoded || intent.expiresAtMs <= clock())
+          fail('WALLET_HANDOFF_CHANGED', 'This tab changed or expired its wallet connection. Start again from the app.');
+        if (globalThis.location?.origin !== origin || !globalThis.document?.body)
+          fail('WALLET_LAUNCH_UNAVAILABLE', 'Open the wallet connection from its original app tab.');
+        const form = document.createElement('form');
+        form.method = 'POST'; form.action = issuer + '/wallet/launch'; form.target = '_self'; form.hidden = true;
+        for (const [name, value] of Object.entries({intentId:intent.id, signature})) {
+          const input = document.createElement('input'); input.type = 'hidden'; input.name = name; input.value = value; form.append(input);
+        }
+        try { document.body.append(form); HTMLFormElement.prototype.submit.call(form); }
+        catch { fail('WALLET_LAUNCH_UNAVAILABLE', 'The wallet connection could not open. Try again from the app.'); }
+        finally { form.remove(); }
+      } });
   }
   function connection(saved: Saved): CenterWalletConnection {
     const grant = saved.grant!;

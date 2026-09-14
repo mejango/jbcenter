@@ -1,4 +1,4 @@
-import { hexToBytes, keccak256, sha256, stringToHex, toHex, type Address, type Hex } from "viem";
+import { hashTypedData, hexToBytes, keccak256, sha256, stringToHex, toHex, type Address, type Hex } from "viem";
 
 /** Browser-safe wire contract. Server admission additionally validates exact public fields and policy. */
 export interface WalletHandoffRequest {
@@ -20,6 +20,7 @@ export interface WalletHandoffExchangeDocumentInput {
   readonly intentId: string;
   readonly codeHash: Hex;
 }
+export interface WalletHandoffLaunchDocumentInput { readonly request: WalletHandoffRequest; readonly intentId: string }
 
 const requestMessageTypes = [
   { name: "version", type: "string" },
@@ -41,6 +42,9 @@ const exchangeMessageTypes = [...requestMessageTypes,
 for (const field of exchangeMessageTypes) Object.freeze(field);
 const requestTypes = Object.freeze({ WalletHandoffRequest: Object.freeze(requestMessageTypes) });
 const exchangeTypes = Object.freeze({ WalletHandoffExchange: Object.freeze(exchangeMessageTypes) });
+const launchTypes = Object.freeze({ WalletHandoffLaunch: Object.freeze([
+  Object.freeze({ name: 'intentId', type: 'bytes32' }), Object.freeze({ name: 'requestDigest', type: 'bytes32' }),
+]) });
 
 function base64url(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
@@ -75,4 +79,9 @@ export function walletHandoffRequestDocument(request: WalletHandoffRequest) {
 export function walletHandoffExchangeDocument(input: WalletHandoffExchangeDocumentInput) {
   return { domain: domain(input.request), types: exchangeTypes, primaryType: "WalletHandoffExchange" as const,
     message: { ...message(input.request), intentId: tokenHex(input.intentId), codeHash: input.codeHash } };
+}
+/** Sent only by a top-level form POST; never placed in the navigation URL. */
+export function walletHandoffLaunchDocument(input: WalletHandoffLaunchDocumentInput) {
+  return { domain: domain(input.request), types: launchTypes, primaryType: 'WalletHandoffLaunch' as const,
+    message: { intentId: tokenHex(input.intentId), requestDigest: hashTypedData(walletHandoffRequestDocument(input.request)) } };
 }
