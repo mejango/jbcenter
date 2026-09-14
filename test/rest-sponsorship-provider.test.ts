@@ -400,6 +400,14 @@ describe("Relayr status is bound to stored exact entries", () => {
 });
 
 describe("bounded fixed-origin Relayr transport", () => {
+  it("uses Disabled ordering only for the explicit independent-deployment method", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => Response.json({ observed: true }));
+    const provider = new RelayrProvider(fetcher);
+    await provider.createIndependent(entries());
+    await provider.create(entries());
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toEqual({ transactions: entries(), virtual_nonce_mode: 'Disabled' });
+    expect(JSON.parse(fetcher.mock.calls[1]![1]!.body as string).virtual_nonce_mode).toBe('MultiChain');
+  });
   it("uses only the fixed origin, exact create body and canonical status path with redirects disabled", async () => {
     const fetcher = vi.fn<typeof fetch>(async () =>
       Response.json({ observed: true }),

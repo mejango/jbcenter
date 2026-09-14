@@ -30,13 +30,20 @@ export class RelayrProvider {
       fail("INVALID_SPONSORSHIP_POLICY", "Invalid provider timeout.", 500);
   }
   async create(entries: RelayrEntry[], signal?: AbortSignal): Promise<unknown> {
+    return this.createWithMode(entries, "MultiChain", signal);
+  }
+  /** Operator-only independent contract deployments have no forwarding nonce dependencies. */
+  async createIndependent(entries: RelayrEntry[], signal?: AbortSignal): Promise<unknown> {
+    return this.createWithMode(entries, "Disabled", signal);
+  }
+  private async createWithMode(entries: RelayrEntry[], mode: "MultiChain" | "Disabled", signal?: AbortSignal): Promise<unknown> {
     return this.json(
       "/v1/bundle/prepaid",
       {
         method: "POST",
         body: JSON.stringify({
           transactions: entries,
-          virtual_nonce_mode: "MultiChain",
+          virtual_nonce_mode: mode,
         }),
       },
       signal,

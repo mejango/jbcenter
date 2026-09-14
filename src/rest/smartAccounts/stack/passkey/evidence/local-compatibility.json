@@ -10,6 +10,13 @@
       "failed": 0,
       "skipped": 0,
       "total": 24
+    },
+    {
+      "name": "test/Bootstrap.t.sol:PasskeyBootstrapTest",
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "total": 10
     }
   ],
   "fuzzRuns": 256,
@@ -25,11 +32,41 @@
     "userOperationCalldataBytes": 1088,
     "userOperationActualGasUsed": 433964
   },
+  "bootstrap": {
+    "schemaVersion": 1,
+    "profile": "bootstrap-experiment-not-activated",
+    "suites": [
+      {
+        "name": "test/Bootstrap.t.sol:PasskeyBootstrapTest",
+        "passed": 10,
+        "failed": 0,
+        "skipped": 0,
+        "total": 10
+      }
+    ],
+    "measurements": {
+      "bootstrapActualGasUsed": 897029,
+      "bootstrapInitCodeBytes": 1304,
+      "bootstrapPackedUserOperationBytes": 2400,
+      "directFactoryExecutionGas": 481707
+    },
+    "limits": [
+      "Required local execution evidence; no hosted bundler or production deployment claim.",
+      "The canonical 500,000 verification-gas limit explicitly rejects this EntryPoint bootstrap.",
+      "The extra signer CREATE2 conflicts with current factory canonical mempool restrictions.",
+      "Initial UserOperation uses a prefunded EntryPoint deposit; direct factory uses test caller gas."
+    ]
+  },
   "evidenceInputsSha256": {
     "manifest.json": "4a87d3f3d0fcdeeebfa1ad56df56a5b73128261bc89b5c29be39f62c1381f9b3",
     "test/PasskeyStack.t.sol": "0a6a5a26dd8887c099c4adb902b524d58d2e728e4943f8a4369b874f1eb308c0",
-    "compiler.mjs": "8cccf88bc54d0e7bc71c30e37af65f479fe5bc4d89d9f33fa78ee792fba2f2fe",
-    "verify.mjs": "06a164ee208c8428c7327359d1e47d21286e5f8122fd3ee9315e31decc3c3ea2"
-  },
-  "proof": "Real pinned contracts and FCL, simulated public authenticator keys, native-value payment using prefunded Safe/EntryPoint. No production address or provider/device observation."
+    "compiler.mjs": "10b2f972d9f923c16659d7b082031463d2088a2118b9fa2de0b1c645b0798f54",
+    "verify.mjs": "822cdf52c3a9abcd32f4993934f0703b5efe1dc3c95fd7b64d13d7c0ac5acca5",
+    "solc-cache.mjs": "09585cf68e617dc292587f0b2c35db3acc3f8ba40643784815b804be60e1e056",
+    "foundry.toml": "20c4aaf378ac12c751ff8ccb39bb8091d387b8289f339edff526762d27a54850",
+    "bootstrap/manifest.json": "fc835390cb8203e78e1a6d584d589300cec32c5f1ad9180c5ab2c9c5ca81272e",
+    "bootstrap/verify.mjs": "a2c4b9ffeb24cfe07f83c306536475dd03bfe03896b0a12ad906142fe5c8adc7",
+    "bootstrap/foundry.toml": "cef667b2698ccd5d10cb09dfaccb511165edaafeea9f4afc8fd34e93857d7a45",
+    "bootstrap/test/Bootstrap.t.sol": "c57b944709cc17be2953bee169dec11b48c77851485df8777546969dafc25211"
+  }
 }

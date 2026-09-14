@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { rename, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { readFile, rename, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { compile, root } from './compiler.mjs';
 import { verifyBootstrap } from './bootstrap/verify.mjs';
@@ -47,12 +48,16 @@ for (const name of ['safeMessageVerificationGas', 'safeMessageSignatureBytes', '
 }
 if (fuzzRuns < 256) throw new Error('Required passkey cryptographic fuzz suite is missing.');
 const bootstrap = await verifyBootstrap();
+const evidenceInputsSha256 = Object.fromEntries(await Promise.all([
+  'manifest.json', 'test/PasskeyStack.t.sol', 'compiler.mjs', 'verify.mjs', 'solc-cache.mjs',
+  'foundry.toml', 'bootstrap/manifest.json', 'bootstrap/verify.mjs', 'bootstrap/foundry.toml', 'bootstrap/test/Bootstrap.t.sol',
+].map(async path => [path, createHash('sha256').update(await readFile(resolve(root, path))).digest('hex')])));
 const report = {
   schemaVersion: 1, profile: 'experimental-unreleased',
   scope: 'Local EVM with actual pinned FCL/signers/Safe7579/EntryPoint; simulated authenticator; no device, production deployment, precompile or provider claim.',
   sourceCommit: 'dfd3b05966e727dbb7a2fdeef52e4b230f63304e',
   suites: [{ name: expectedSuite, passed, failed: 0, skipped: 0, total: passed }, ...bootstrap.suites],
-  fuzzRuns, measurements, bootstrap,
+  fuzzRuns, measurements, bootstrap, evidenceInputsSha256,
 };
 if (process.env.CENTER_PASSKEY_REPORT) {
   const reportPath = resolve(process.env.CENTER_PASSKEY_REPORT);

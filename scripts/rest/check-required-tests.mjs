@@ -32,6 +32,7 @@ export const requiredVitestSuites = [
   "test/rest-wallet-webauthn.test.ts",
   "test/rest-wallet-production-stack.test.ts",
   "test/rest-wallet-dependency-bundle.test.ts",
+  "test/rest-passkey-evidence.test.ts",
   "test/rest-passkey-signatures.test.ts",
   "test/rest-wallet-passkey-evm.test.ts",
   "test/rest-passkey-profile-evm.test.ts",

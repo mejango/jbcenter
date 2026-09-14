@@ -15,6 +15,7 @@ try {
   await writeFile(output, JSON.stringify(observation, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
   console.log(JSON.stringify({ status: observation.status, manifestId: observation.manifest.id,
     manifestRevision: observation.manifest.revision, evidence: observation.evidence,
+    dependencies: observation.manifest.ownerProfile,
     missing: observation.missing.map(({ name, address, estimatedGas }) => ({ name, address, estimatedGas })),
     dispatchEnabled: observation.dispatchEnabled, output }));
 } catch (error) {

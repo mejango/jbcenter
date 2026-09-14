@@ -118,10 +118,12 @@ export async function prepareWalletDependencyBundle(input: Awaited<ReturnType<ty
           runtimeCodeHash: deployment.pin.runtimeCodeHash, initCodeHash: deployment.initCodeHash,
           transaction: deployment.transaction, estimatedGas: missing.estimatedGas })) invalid('The planned deployment bytes or estimate differ.');
       transactions.push({ chain, target: deployment.transaction.to, data: deployment.transaction.data,
-        value: '0', virtual_nonce: index });
+        value: '0', virtual_nonce: 0 });
     });
   }
-  const body = { transactions, virtual_nonce_mode: 'MultiChain' as const };
+  // Neither constructor depends on the other deployment. A failure on one chain
+  // must not block independent calls elsewhere in the same prepaid bundle.
+  const body = { transactions, virtual_nonce_mode: 'Disabled' as const };
   return { version: 'center-wallet-dependency-bundle-v1', preparedAt: now,
     audit: { status: 'pending' as const }, publicationEnabled: false as const, walletActivationChains: [],
     recipe, observations, body, bodyHash: fingerprint(body),
