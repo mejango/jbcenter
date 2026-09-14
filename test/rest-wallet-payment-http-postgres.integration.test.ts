@@ -8,6 +8,8 @@ import { Hono } from "hono";
 import { Pool } from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { keccak256, toHex } from "viem";
+import { privateKeyToAccount } from 'viem/accounts';
+import { walletHandoffLaunchDocument } from '../src/rest/wallet/handoff.js';
 import { migrate } from "../src/db/migrate.js";
 import { PostgresStore } from "../src/db/postgres.js";
 import { createRestApp, type RestDependencies } from "../src/rest/app.js";
@@ -20,7 +22,7 @@ import { TransactionService } from "../src/rest/transactions/service.js";
 import { PostgresTransactionStore } from "../src/rest/transactions/postgres.js";
 import { createCenterWalletClient } from "../src/rest/client/index.js";
 import { createWalletSite } from "../src/rest/wallet/site.js";
-import { walletFlowCookie, walletSessionCookie } from "../src/rest/wallet/http.js";
+import { walletFlowCookie, walletSessionCookie, walletLaunchCookie } from "../src/rest/wallet/http.js";
 import { PostgresWalletLoginStore } from "../src/rest/wallet/loginPostgres.js";
 import { PostgresWalletHandoffStore } from "../src/rest/wallet/handoffPostgres.js";
 import { PostgresWalletPolicyStore } from "../src/rest/wallet/policyPostgres.js";
@@ -55,7 +57,7 @@ class CookieJar {
     }
   }
   value(name: string) { return this.values.get(name) ?? null; }
-  header() { return [walletFlowCookie, walletSessionCookie].flatMap(name => this.values.has(name) ? [`${name}=${this.values.get(name)}`] : []).join("; "); }
+  header() { return [walletFlowCookie, walletSessionCookie, walletLaunchCookie].flatMap(name => this.values.has(name) ? [`${name}=${this.values.get(name)}`] : []).join("; "); }
 }
 /** Native HTTP preserves the configured TLS proxy Host. Cookie/Origin headers are explicit
  * in this fixture; Chromium separately proves browser behavior. Dropped bodies destroy the
@@ -176,6 +178,13 @@ async function start() {
       storage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => { storage.set(key, value); }, removeItem: key => { storage.delete(key); } },
       location: { href: () => location, replace: value => { location = value; } } });
     const prepared = await wallet.prepareConnection();
+    // Native HTTP models the form transport; real Chromium covers the SDK's DOM launch.
+    const pending = JSON.parse([...storage.values()][0]!);
+    const signature = await privateKeyToAccount(pending.key).signTypedData(walletHandoffLaunchDocument({request:pending.request,intentId:prepared.intentId}));
+    const launched = await httpFetch(central+'/wallet/launch',{method:'POST',headers:{host:new URL(issuer).host,origin,
+      'sec-fetch-mode':'navigate','sec-fetch-dest':'document','content-type':'application/x-www-form-urlencoded'},
+      body:new URLSearchParams({intentId:prepared.intentId,signature}).toString()});
+    expect(launched.status).toBe(303);session.jar.accept(launched);
     const issued = await post("/wallet/authorize/issue", { intentId: prepared.intentId }, session.jar, { "x-center-wallet-csrf": session.csrf });
     expect(issued.status).toBe(200); const redirect = (await issued.json()).redirectUri as string;
     location = redirect; const connection = await wallet.completeConnection(redirect);

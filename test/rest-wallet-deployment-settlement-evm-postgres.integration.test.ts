@@ -82,7 +82,7 @@ suite("real PostgreSQL and unforked Anvil sequential deployment settlement", () 
   }
   async function sent() {
     const context = await claimed(), process = await worker(), result = await process.request(wire(context.operation.id));
-    expect(result.status).toBe(200); expect(result.body.dispatch).toBe("accepted");
+    expect(result.status, JSON.stringify(result.body)).toBe(200); expect(result.body.dispatch).toBe("accepted");
     expect((await store.getDispatch(context.operation.id))!.admission.version).toBe("center-wallet-deployment-local-admission-v2");
     return { context: await store.loadExecutionContext(context.operation.id), process };
   }
