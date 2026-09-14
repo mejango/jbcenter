@@ -36,7 +36,7 @@ try {
     error !== null && typeof error === 'object' && 'code' in error &&
     typeof error.code === 'string' && /^(?:E[A-Z0-9_]{1,40})$/.test(error.code) ? error.code : 'WALLET_DEPENDENCY_QUOTE_FAILED';
   console.error(JSON.stringify({ code, ...(error instanceof WalletDependencyJournalError ?
-    { recoveryBundleUuid: error.recoveryBundleUuid } : {}), ...(error instanceof RelayrResponseError ? {
+    { recoveryBundleUuid: error.recoveryBundleUuid, httpResponse: error.httpResponse } : {}), ...(error instanceof RelayrResponseError ? {
       httpStatus: error.responseDetails.status, detail: error.responseDetails.body.slice(0, 240),
       recoveryBundleUuid: recoveryBundleUuid(error.responseDetails.body),
       complete: error.responseDetails.complete, truncated: error.responseDetails.truncated } : {}) }));

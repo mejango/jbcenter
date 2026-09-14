@@ -1,15 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, open, rename } from 'node:fs/promises';
+import { mkdir, open, readFile, rename } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { RestError } from '../core.js';
-import { uuid } from '../sponsorship/validation.js';
-import { parseIndependentQuoteBinding, parseStatus, RelayrResponseError, type RelayrProvider } from '../sponsorship/provider.js';
+import { object, uuid } from '../sponsorship/validation.js';
+import { parseIndependentQuoteBinding, parseStatus, RelayrResponseError, type RelayrResponseDetails, type RelayrProvider } from '../sponsorship/provider.js';
 import { prepareWalletDependencyBundle, type inspectWalletDependencyChain, type WalletDependencyFamily } from './dependencyBundle.js';
 
 type Observation = Awaited<ReturnType<typeof inspectWalletDependencyChain>>;
 
 export class WalletDependencyJournalError extends RestError {
-  constructor(readonly recoveryBundleUuid: string | null) {
+  constructor(readonly recoveryBundleUuid: string | null, readonly httpResponse?: Omit<RelayrResponseDetails, 'body'>) {
     super(500, 'WALLET_DEPENDENCY_JOURNAL_WRITE_FAILED',
       'The provider answered but the journal write failed. Recover the existing bundle; never resubmit.');
   }
@@ -35,34 +35,59 @@ export async function publishWalletDependencyQuote(options: {
   await mkdir(root, { recursive: true, mode: 0o700 });
   const directory = join(root, bundle.bodyHash.slice(2)), path = join(directory, 'publication.json');
   // mkdir is the cross-process claim keyed by semantic request hash, independent of run IDs.
-  await mkdir(directory, { mode: 0o700 });
+  let previousAttemptId: string | null = null;
+  try { await mkdir(directory, { mode: 0o700 }); }
+  catch (error) {
+    // Only a durable proof that the POST never started permits another invocation.
+    // A permanent claim keyed to the previous attempt prevents concurrent/stale readers
+    // from admitting more than one successor, without deleting any history or locks.
+    let previous: unknown;
+    try { previous = JSON.parse(await readFile(path, 'utf8')); } catch { throw error; }
+    if (!object(previous) || previous.state !== 'not-submitted' || !uuid(previous.attemptId)
+      || previous.bodyHash !== bundle.bodyHash || previous.family !== bundle.family) throw error;
+    await mkdir(join(directory, `retry-${previous.attemptId}`), { mode: 0o700 });
+    const folder = await open(directory, 'r');
+    try { await folder.sync(); } finally { await folder.close(); }
+    previousAttemptId = previous.attemptId;
+  }
   const parent = await open(resolve(directory, '..'), 'r');
   try { await parent.sync(); } finally { await parent.close(); }
-  async function save(record: unknown) {
+  async function save(record: unknown, name = 'publication.json') {
     const temporary = join(directory, `${randomUUID()}.tmp`);
     const file = await open(temporary, 'wx', 0o600);
     try { await file.writeFile(JSON.stringify(record, null, 2) + '\n'); await file.sync(); }
     finally { await file.close(); }
-    await rename(temporary, path);
+    await rename(temporary, join(directory, name));
     const folder = await open(directory, 'r');
     try { await folder.sync(); } finally { await folder.close(); }
   }
   const attempt = { version: 'center-wallet-dependency-publication-v2', family: bundle.family,
-    state: 'submission-unknown', startedAt: now(), bodyHash: bundle.bodyHash,
+    state: 'submission-unknown', attemptId: randomUUID(), previousAttemptId, startedAt: now(), bodyHash: bundle.bodyHash,
     body: bundle.body, observations: plan.observations, source };
   await save(attempt);
   // Recheck freshness after filesystem waits and immediately before the sole network write.
-  const refreshed = await prepareWalletDependencyBundle(plan.observations, now());
-  if (refreshed.bundles.find(item => item.family === bundle.family)?.bodyHash !== bundle.bodyHash)
-    throw new RestError(409, 'WALLET_DEPENDENCY_REQUEST_CHANGED', 'Dependency request changed before publication.');
-  options.signal?.throwIfAborted();
+  try {
+    const refreshed = await prepareWalletDependencyBundle(plan.observations, now());
+    if (refreshed.bundles.find(item => item.family === bundle.family)?.bodyHash !== bundle.bodyHash)
+      throw new RestError(409, 'WALLET_DEPENDENCY_REQUEST_CHANGED', 'Dependency request changed before publication.');
+    options.signal?.throwIfAborted();
+  } catch (error) {
+    const stopped = { ...attempt, state: 'not-submitted', stoppedAt: now(),
+      errorCode: error instanceof RestError ? error.code : 'WALLET_DEPENDENCY_PREFLIGHT_FAILED' };
+    await save(stopped, `not-submitted-${attempt.attemptId}.json`);
+    await save(stopped);
+    throw error;
+  }
   async function receive(work: () => Promise<unknown>, previous: object, phase: 'quote' | 'status', knownBundleUuid: string | null = null) {
     try { return await work(); }
     catch (error) {
       if (error instanceof RelayrResponseError) {
         try { await save({ ...previous, state: phase === 'quote' ? 'response-received' : 'status-received',
           responseReceivedAt: now(), errorCode: error.code, httpResponse: error.responseDetails }); }
-        catch { throw new WalletDependencyJournalError(knownBundleUuid ?? recoveryBundleUuid(error.responseDetails.body)); }
+        catch {
+          const { status, complete, truncated } = error.responseDetails;
+          throw new WalletDependencyJournalError(knownBundleUuid ?? recoveryBundleUuid(error.responseDetails.body), { status, complete, truncated });
+        }
       }
       throw error;
     }
@@ -92,6 +117,6 @@ export async function publishWalletDependencyQuote(options: {
 
 /** Error text is untrusted; only a complete parsed top-level UUID is a recovery locator. */
 export function recoveryBundleUuid(body: string): string | null {
-  try { const value = JSON.parse(body); return value && uuid(value.bundle_uuid) ? value.bundle_uuid : null; }
+  try { const value = JSON.parse(body); return object(value) && uuid(value.bundle_uuid) ? value.bundle_uuid : null; }
   catch { return null; }
 }
