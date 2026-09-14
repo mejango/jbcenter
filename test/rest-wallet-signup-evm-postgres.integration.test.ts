@@ -31,6 +31,7 @@ import { walletLoginTestMigrations } from "./fixtures/wallet-login-setup.js";
 import { PostgresWalletSignupStore } from "../src/rest/wallet/signupPostgres.js";
 import { createLocalWalletSignup } from "../src/rest/wallet/signup.js";
 import { exerciseSignupBrowser } from "./fixtures/wallet-signup-browser.js";
+import { exerciseWalletRecoveryEvm } from "./fixtures/wallet-recovery-evm.js";
 
 const connectionString = process.env.TEST_DATABASE_URL;
 const suite = connectionString ? describe : describe.skip;
@@ -44,7 +45,8 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 5 });
     for (const name of [...new Set([...walletLoginTestMigrations, "016_rest_wallet_deployments.sql",
-      "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "027_wallet_signup.sql"])].sort())
+      "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "027_wallet_signup.sql",
+      "028_wallet_recovery.sql", "029_wallet_recovery_mapping.sql"])].sort())
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     fixture = await startWalletDeploymentAnvil();
   }, 30_000);
@@ -74,6 +76,7 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
     const signup = createLocalWalletSignup({ flows, enrollments, deployments, settlement, execution, smart, authority,
       registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id });
     const accounts: string[] = [], receipts: string[] = [];
+    let recoveryTarget: Pick<Parameters<typeof exerciseWalletRecoveryEvm>[0], 'enrollment' | 'originalKey' | 'originalSessionToken'> | null = null;
     for (let index = 0; index < 2; index++) {
       const begunFlow = await signup.begin({ recoveryOwner: enrollmentBackupAccount.address, passkeyName: "Juicebox test" });
       const flowToken = begunFlow.flowToken;
@@ -155,10 +158,12 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       expect(await login.readSession(loggedIn.sessionToken)).toEqual(loggedIn.session);
       expect(await login.readSession(begun.flowToken)).toBeNull();
       expect(await count("rest_wallet_deployment_settlements")).toBe(index + 1);
+      recoveryTarget = { enrollment: record, originalKey: credential, originalSessionToken: loggedIn.sessionToken };
     }
     expect(new Set(accounts).size).toBe(2); expect(new Set(receipts).size).toBe(2);
     expect((await deployments.listUnresolved()).items).toEqual([]);
     expect(await fixture.rpc<Hex>("eth_getTransactionCount", [fixture.sender, "latest"])).toBe("0x4");
+    await exerciseWalletRecoveryEvm({ pool, fixture, smart, authority, ...recoveryTarget!, audience: 'https://juicebox.center' });
     await exerciseSignupBrowser({ pool, fixture, enrollments, deployments, settlement, execution, smart, authority,
       registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id });
     await exerciseSignupBrowser({ pool, fixture, enrollments, deployments, settlement, execution, smart, authority,

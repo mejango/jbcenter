@@ -1,23 +1,28 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { RestError } from '../core.js';
+import { validateAudience } from '../auth/signatures.js';
 import { stable } from '../smartAccounts/service.js';
-import { validateWalletAuthorityContext, type WalletAuthorityContext } from './authority.js';
+import { validateWalletAuthorityContext, validateWalletAuthorityObservation, type WalletAuthorityContext, type WalletAuthorityObservation } from './authority.js';
 import { loadWalletAuthorityContextInTransaction, PostgresWalletAuthorityStore } from './authorityPostgres.js';
 import { enrollmentDigest } from './enrollment.js';
 import { copyWalletEnrollmentProof, copyWalletEnrollmentRegistration } from './enrollmentPostgres.js';
 import { lockWalletCeremonyAdmission, PostgresWalletCeremonyStore, walletCeremonyDatabaseNow } from './ceremoniesPostgres.js';
-import { createWalletRecoveryIntent, prepareWalletRecoveryCandidate, verifyWalletRecoveryProof,
+import { createWalletRecoveryIntent, createWalletRecoveryMapping, prepareWalletRecoveryCandidate, verifyWalletRecoveryProof,
   type WalletRecoveryIntent, type WalletRecoveryCandidate, type WalletRecoveryProof } from './recovery.js';
 import type { WalletRegistrationResponse } from './registration.js';
-import { validateWalletRpConfiguration } from './webauthn.js';
+import { validateWalletRpConfiguration, verifyWalletAssertion, type WalletAssertion } from './webauthn.js';
+import { copyWalletSignupAssertion } from './signupPostgres.js';
+import { passkeyOnboardingSigningPayload } from '../smartAccounts/passkeyOnboarding.js';
+import type { WalletCredentialRecovery } from './credentialRecovery.js';
 
 export interface WalletRecoveryRecord {
   intent: WalletRecoveryIntent; candidate: WalletRecoveryCandidate | null; proof: WalletRecoveryProof | null;
+  activation: WalletCredentialRecovery | null;
 }
-interface Row { id: string; token_hash: string; intent: WalletRecoveryIntent; candidate: WalletRecoveryCandidate | null; proof: WalletRecoveryProof | null }
+interface Row { id: string; token_hash: string; intent: WalletRecoveryIntent; candidate: WalletRecoveryCandidate | null; proof: WalletRecoveryProof | null; activation?: WalletCredentialRecovery | null }
 const sqlNow = 'floor(extract(epoch FROM clock_timestamp())*1000)::bigint';
-const recordOf = (row: Row): WalletRecoveryRecord => ({ intent: row.intent, candidate: row.candidate, proof: row.proof });
+const recordOf = (row: Row): WalletRecoveryRecord => ({ intent: row.intent, candidate: row.candidate, proof: row.proof, activation: row.activation ?? null });
 const hashToken = (value: string) => createHash('sha256').update('center-wallet-recovery-flow-v1:' + value).digest('hex');
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const token = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value)
@@ -27,20 +32,28 @@ function unauthorized(): never { throw new RestError(403, 'WALLET_RECOVERY_UNAUT
 function conflict(): never { throw new RestError(409, 'WALLET_RECOVERY_CONFLICT', 'Recovery or the current wallet identity changed.'); }
 function expired(): never { throw new RestError(410, 'WALLET_RECOVERY_EXPIRED', 'Prepare a fresh recovery proof. The previous deadline cannot be extended.'); }
 const captured = (context: WalletAuthorityContext) => stable({ enrollment: context.enrollment, credential: context.credential, binding: context.binding });
+type ActivationObserver = { audience: string; observe(context: WalletAuthorityContext): Promise<WalletAuthorityObservation> };
 
-/** Trusted durable proof intake only. HTTP must supply origin/CSRF/cookie boundaries.
- * Accepted proof does not change owners, replace a credential, issue access or submit a transaction. */
+/** Trusted durable recovery workflow. HTTP must supply origin/CSRF/cookie boundaries.
+ * Proof intake creates no authority. Activation requires a configured canonical observer
+ * and fresh replacement-key setup proof; it submits no transaction and creates no session. */
 export class PostgresWalletRecoveryStore {
   private readonly policy: { rpId: string; origin: string; lifetimeMs: number; maxRecords: number; maxAccountRecords: number };
   private readonly authority: PostgresWalletAuthorityStore;
   private readonly ceremonies: PostgresWalletCeremonyStore;
-  constructor(private readonly pool: Pool, options: { rpId: string; origin: string; lifetimeMs?: number; maxRecords?: number; maxAccountRecords?: number }) {
+  private readonly activationObserver?: ActivationObserver;
+  constructor(private readonly pool: Pool, options: { rpId: string; origin: string; lifetimeMs?: number; maxRecords?: number; maxAccountRecords?: number },
+    activationObserver?: ActivationObserver) {
     enrollmentDigest(options);
     if (Object.keys(options).some(key => !['rpId', 'origin', 'lifetimeMs', 'maxRecords', 'maxAccountRecords'].includes(key))) invalid();
     this.policy = { lifetimeMs: 300000, maxRecords: 100000, maxAccountRecords: 256, ...structuredClone(options) };
     validateWalletRpConfiguration(this.policy);
-    for (const [value, maximum] of [[this.policy.lifetimeMs, 300000], [this.policy.maxRecords, 1000000], [this.policy.maxAccountRecords, 10000]])
-      if (!Number.isSafeInteger(value) || value! < 1 || value! > maximum!) invalid();
+    for (const [value, maximum] of [[this.policy.lifetimeMs, 300000], [this.policy.maxRecords, 1000000], [this.policy.maxAccountRecords, 10000]] as const)
+      if (!Number.isSafeInteger(value) || value < 1 || value > maximum) invalid();
+    if (activationObserver) {
+      if (typeof activationObserver.observe !== 'function') invalid();
+      this.activationObserver = { audience: validateAudience(activationObserver.audience), observe: activationObserver.observe.bind(activationObserver) };
+    }
     this.authority = new PostgresWalletAuthorityStore(pool); this.ceremonies = new PostgresWalletCeremonyStore(pool);
   }
   async begin(accountId: string): Promise<{ record: WalletRecoveryRecord; flowToken: string }> {
@@ -111,6 +124,72 @@ export class PostgresWalletRecoveryStore {
       const accepted = { ...proof, verifiedAtMs: await this.live(client, row.intent) };
       const updated = (await client.query<Row>('UPDATE rest_wallet_recoveries SET proof=$2 WHERE id=$1 RETURNING *', [id, accepted])).rows[0]!;
       await this.live(client, row.intent); return { record: recordOf(updated), replayed: false };
+    });
+  }
+  /** Internal capability boundary. The configured producer must verify complete canonical
+   * history and the replacement setup anchor. HTTP must never supply an observation. */
+  async activate(id: string, flowToken: string, input: WalletAssertion): Promise<{ receipt: WalletCredentialRecovery; replayed: boolean }> {
+    if (!this.activationObserver) throw new RestError(503, 'WALLET_RECOVERY_UNAVAILABLE', 'Canonical recovery activation is not configured.');
+    const assertion = copyWalletSignupAssertion(input), before = await this.required(id, flowToken);
+    if (before.activation) return this.transaction(async client => {
+      const current = await loadWalletAuthorityContextInTransaction(client, before.intent.accountId), row = await this.lock(client, id, flowToken);
+      if (!row.activation || stable(row.activation) !== stable(before.activation) || stable(current.credential.recovery) !== stable(row.activation)) conflict();
+      return { receipt: row.activation, replayed: true };
+    });
+    const raw = await this.transaction(client => loadWalletAuthorityContextInTransaction(client, before.intent.accountId));
+    const prepared = createWalletRecoveryMapping(before, raw, await this.now(), this.activationObserver.audience), expected = stable(raw);
+    verifyWalletAssertion(assertion, { purpose: 'session', challenge: passkeyOnboardingSigningPayload(prepared.setupDocument).digest,
+      rpId: prepared.receipt.rpId, origin: prepared.receipt.origin, requireUserHandle: true,
+      credential: { id: prepared.context.credential.credentialId, userHandle: prepared.context.credential.userHandle,
+        publicKey: prepared.context.credential.publicKey, backupEligible: prepared.context.credential.backupEligible } });
+    const observation = validateWalletAuthorityObservation(await this.activationObserver.observe(prepared.context), prepared.context);
+    const fresh = (now: number) => {
+      const head = observation.head, anchor = prepared.receipt.anchor;
+      if (observation.eligibility !== 'matched' || !head || !observation.identity || observation.identity.stateHash !== prepared.context.binding.state.stateHash
+        || observation.validUntilMs === null || BigInt(head.blockNumber) < BigInt(anchor.blockNumber)
+        || (head.blockNumber === anchor.blockNumber && stable(head) !== stable(anchor)))
+        throw new RestError(403, 'WALLET_RECOVERY_CANONICAL_REQUIRED', 'Complete canonical replacement-owner evidence is required.');
+      if (now < observation.observedAtMs || now >= observation.validUntilMs || now >= prepared.context.binding.authorization.expiresAt * 1000
+        || BigInt(now) >= BigInt(head.timestamp) * 1000n + 300000n)
+        throw new RestError(410, 'WALLET_RECOVERY_OBSERVATION_EXPIRED', 'Refresh the original replacement setup and canonical observation.');
+    };
+    fresh(await this.now());
+    return this.transaction(async client => {
+      const current = await loadWalletAuthorityContextInTransaction(client, before.intent.accountId), row = await this.lock(client, id, flowToken);
+      if (stable(row.candidate) !== stable(before.candidate) || stable(row.proof) !== stable(before.proof)) conflict();
+      if (row.activation) {
+        if (stable(current.credential.recovery) !== stable(row.activation)) conflict();
+        return { receipt: row.activation, replayed: true };
+      }
+      if (stable(current) !== expected) conflict();
+      const now = await walletCeremonyDatabaseNow(client), seconds = Math.floor(now / 1000), setup = prepared.context.binding.authorization.setup!;
+      fresh(now);
+      const grant = (await client.query<{ account_id: string; bot_address: string; scopes: string[]; expires_at: string; revoked_at: string | null }>(
+        'SELECT account_id,bot_address,scopes,expires_at,revoked_at FROM rest_bot_grants WHERE id=$1 FOR UPDATE', [setup.grantId])).rows[0];
+      if (!grant || grant.account_id !== current.accountId || grant.bot_address !== setup.botAddress.toLowerCase()
+        || stable(grant.scopes) !== stable(setup.scopes) || Number(grant.expires_at) !== setup.grantExpiresAt
+        || Number(grant.expires_at) <= seconds || grant.revoked_at !== null) conflict();
+      // One account-locked commit switches identity and fences every old authority generation.
+      const superseded = await client.query(`UPDATE rest_wallet_credentials SET superseded_at=$3
+        WHERE rp_id=$1 AND credential_id=$2 AND superseded_at IS NULL`, [current.credential.rpId, current.credential.credentialId, now]);
+      if (superseded.rowCount !== 1) conflict();
+      const next = prepared.context.credential;
+      await client.query(`INSERT INTO rest_wallet_credentials(rp_id,credential_id,enrollment_id,account_id,user_handle,
+        public_key_x,public_key_y,backup_eligible,verified_at,recovery_receipt) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [next.rpId, next.credentialId, next.enrollmentId, next.accountId, next.userHandle, next.publicKey.x, next.publicKey.y,
+        next.backupEligible, next.verifiedAtMs, prepared.receipt]);
+      await client.query('UPDATE rest_bot_grants SET revoked_at=GREATEST(created_at,$3) WHERE account_id=$1 AND id<>$2 AND revoked_at IS NULL',
+        [next.accountId, setup.grantId, seconds]);
+      await client.query('UPDATE rest_wallet_app_grants SET revoked_at=GREATEST(created_at,$2) WHERE account_id=$1 AND revoked_at IS NULL', [next.accountId, seconds]);
+      if (current.prior) {
+        const fenced = await client.query(`UPDATE rest_wallet_authority SET authority_epoch=authority_epoch+1,session_epoch=session_epoch+1,
+          updated_at=GREATEST(updated_at,$2) WHERE account_id=$1 AND authority_epoch=$3 AND session_epoch=$4 AND revision=$5`,
+        [next.accountId, seconds, current.prior.authorityEpoch, current.prior.sessionEpoch, current.prior.revision]);
+        if (fenced.rowCount !== 1) conflict();
+      } else await client.query('INSERT INTO rest_wallet_authority(account_id,authority_epoch,session_epoch,updated_at) VALUES($1,1,1,$2)', [next.accountId, seconds]);
+      await client.query('UPDATE rest_wallet_recoveries SET activation=$2 WHERE id=$1', [id, prepared.receipt]);
+      fresh(await walletCeremonyDatabaseNow(client));
+      return { receipt: prepared.receipt, replayed: false };
     });
   }
   private async current(intent: WalletRecoveryIntent): Promise<string> {

@@ -49,7 +49,7 @@ function credentialOf(row: CurrentWalletCredentialRow): WalletAuthorityCredentia
   return { accountId: row.account_id, enrollmentId: row.enrollment_id, rpId: row.rp_id,
     credentialId: row.credential_id, userHandle: row.user_handle,
     publicKey: { x: row.public_key_x, y: row.public_key_y }, backupEligible: row.backup_eligible,
-    verifiedAtMs: Number(row.verified_at), supersededAtMs: null };
+    verifiedAtMs: Number(row.verified_at), supersededAtMs: null, ...(row.recovery_receipt ? { recovery: row.recovery_receipt } : {}) };
 }
 
 async function lockAccount(client: PoolClient, accountId: string): Promise<void> {

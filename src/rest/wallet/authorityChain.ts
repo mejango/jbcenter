@@ -92,6 +92,14 @@ export function createWalletAuthorityChain(options: WalletAuthorityChainOptions)
           (context.prior?.highestObservedBlock !== null && context.prior?.highestObservedBlock !== undefined &&
             BigInt(context.prior.highestObservedBlock) > BigInt(head.blockNumber))) invalid();
         output.head = head;
+        if (context.credential.recovery) {
+          // Replacement identity retains its canonical setup anchor as durable provenance.
+          // A reorg cannot silently rewrite that anchor or restore a superseded credential.
+          const saved = context.credential.recovery.anchor;
+          if (BigInt(saved.blockNumber) > BigInt(head.blockNumber)) invalid();
+          const observed = anchor(await rpc.request('eth_getBlockByNumber', [toHex(BigInt(saved.blockNumber)), false]), saved.blockNumber);
+          if (stable(saved) !== stable(observed)) invalid();
+        }
         if (expected) {
           const observed = anchor(await rpc.request("eth_getBlockByNumber", [toHex(BigInt(expected.blockNumber)), false]), expected.blockNumber);
           if (same(observed.blockHash, expected.blockHash) && observed.timestamp !== expected.timestamp) invalid();
@@ -122,7 +130,7 @@ export function createWalletAuthorityChain(options: WalletAuthorityChainOptions)
           sessionAdministration: { epoch: details.sessionAdministration.epoch as string, hash: details.sessionAdministration.hash as Hex },
           creationTransaction: details.provenance.creationTransaction.toLowerCase() as Hex });
         const enrolled = context.enrollment;
-        output.eligibility = same(inspected.profile.signer.address, enrolled.creation!.bootstrap.signerAddress) &&
+        output.eligibility = same(inspected.profile.signer.address, context.credential.recovery?.signerAddress ?? enrolled.creation!.bootstrap.signerAddress) &&
           same(inspected.profile.signer.x, context.credential.publicKey.x) && same(inspected.profile.signer.y, context.credential.publicKey.y) &&
           same(inspected.profile.recoveryOwner.address, enrolled.intent.recoveryOwner) && state.stateHash === context.binding.state.stateHash ? "matched" : "changed";
         output.reason = output.eligibility === "matched" ? null : "enrolled-authority-or-binding-changed";

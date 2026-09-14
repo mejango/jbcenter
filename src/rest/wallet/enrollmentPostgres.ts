@@ -9,6 +9,7 @@ import { walletCeremonyRetentionMs } from "./ceremonies.js";
 import type { WalletRegistrationResponse } from "./registration.js";
 import type { WalletAssertion } from "./webauthn.js";
 import type { Hex } from "viem";
+import type { WalletCredentialRecovery } from "./credentialRecovery.js";
 
 type EnrollmentRow = {
   state: WalletEnrollment["state"]; created_at: string; intent: WalletEnrollmentIntent;
@@ -69,14 +70,25 @@ export async function lockWalletEnrollmentInTransaction(client: PoolClient, id: 
 export interface CurrentWalletCredentialRow {
   rp_id: string; credential_id: string; enrollment_id: string; account_id: string; user_handle: string;
   public_key_x: Hex; public_key_y: Hex; backup_eligible: boolean; verified_at: string; superseded_at: string | null;
+  recovery_receipt?: WalletCredentialRecovery | null;
 }
 /** The caller owns transaction and lock order. This preserves W4's exact current-mapping check;
  * it acquires no account lock and performs no proof verification or external reads. */
 export async function currentWalletCredentialInTransaction(client: PoolClient, enrollment: WalletEnrollment): Promise<CurrentWalletCredentialRow | null> {
   const candidate = enrollment.candidate!, receipt = enrollment.receipt!;
   const row = (await client.query<CurrentWalletCredentialRow>(
-    "SELECT * FROM rest_wallet_credentials WHERE rp_id=$1 AND credential_id=$2 FOR UPDATE", [enrollment.intent.rpId, candidate.credentialId])).rows[0];
-  if (!row || row.enrollment_id !== enrollment.intent.id || row.account_id !== receipt.accountId || row.user_handle !== candidate.userHandle ||
+    "SELECT * FROM rest_wallet_credentials WHERE account_id=$1 AND superseded_at IS NULL FOR UPDATE", [receipt.accountId])).rows[0];
+  if (!row || row.enrollment_id !== enrollment.intent.id || row.account_id !== receipt.accountId || row.user_handle !== candidate.userHandle || row.rp_id !== enrollment.intent.rpId) return null;
+  // Bounded metadata only under locks. Full immutable lineage validation runs in the
+  // authority loader after release; a receipt's JSON shape is never provenance.
+  if (row.recovery_receipt) {
+    const r = row.recovery_receipt;
+    return r.accountId === row.account_id && r.enrollmentId === row.enrollment_id && r.rpId === row.rp_id
+      && r.credential?.credentialId === row.credential_id && r.credential.userHandle === row.user_handle
+      && r.credential.publicKey?.x === row.public_key_x && r.credential.publicKey.y === row.public_key_y
+      && r.credential.backupEligible === row.backup_eligible && r.verifiedAtMs === Number(row.verified_at) ? row : null;
+  }
+  if (row.credential_id !== candidate.credentialId ||
       row.public_key_x !== candidate.publicKey.x || row.public_key_y !== candidate.publicKey.y || row.backup_eligible !== candidate.backupEligible ||
       row.superseded_at !== null) return null;
   return row;

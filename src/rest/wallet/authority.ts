@@ -4,7 +4,8 @@ import { RestError, type RestBlockEvidence } from "../core.js";
 import type { SmartAccountBinding } from "../smartAccounts/types.js";
 import { fingerprint } from "../smartAccounts/service.js";
 import { assertPasskeyOnboardingState, validatePasskeyOnboardingInput } from "../smartAccounts/passkeyOnboarding.js";
-import { assertVerifiedWalletEnrollment, enrollmentDigest, type WalletEnrollment } from "./enrollment.js";
+import { enrollmentDigest, type WalletEnrollment } from "./enrollment.js";
+import { assertWalletAuthorityCredential, type WalletCredentialRecovery } from "./credentialRecovery.js";
 
 export const walletAuthorityMaximumAgeMs = 30_000;
 export const walletAuthorityMaximumHeadAgeMs = 300_000;
@@ -22,6 +23,7 @@ export interface WalletAuthorityCredential {
   backupEligible: boolean;
   verifiedAtMs: number;
   supersededAtMs: null;
+  recovery?: WalletCredentialRecovery;
 }
 /** Trusted database bundle. The loader must prove the binding is currently live. */
 export interface WalletAuthorityContext {
@@ -250,14 +252,10 @@ function snapshotShape(v: WalletAuthoritySnapshot): void {
 function contextShape(v: WalletAuthorityContext): void {
   fields(v, ["version", "accountId", "enrollment", "credential", "binding", "prior"]);
   if (v.version !== "center-wallet-authority-context-v1") invalid();
-  account(v.accountId); assertVerifiedWalletEnrollment(v.enrollment);
-  const e = v.enrollment, c = v.credential, b = v.binding, candidate = e.candidate!, receipt = e.receipt!;
-  fields(c, ["accountId", "enrollmentId", "rpId", "credentialId", "userHandle", "publicKey", "backupEligible", "verifiedAtMs", "supersededAtMs"]);
-  fields(c.publicKey, ["x", "y"]);
-  if (receipt.accountId !== v.accountId || c.accountId !== v.accountId || c.enrollmentId !== e.intent.id ||
-    c.rpId !== e.intent.rpId || c.credentialId !== candidate.credentialId || c.userHandle !== candidate.userHandle ||
-    !equal(c.publicKey, candidate.publicKey) || c.backupEligible !== candidate.backupEligible ||
-    c.verifiedAtMs !== receipt.verifiedAt || c.supersededAtMs !== null) invalid();
+  account(v.accountId);
+  const e = v.enrollment, c = v.credential, b = v.binding, receipt = e.receipt!;
+  assertWalletAuthorityCredential(c, e);
+  if (receipt.accountId !== v.accountId || c.accountId !== v.accountId) invalid();
   fields(b, ["id", "ownerAccountId", "ownerAddress", "wallet", "manifestId", "authorization", "state"]);
   fields(b.wallet, ["chainId", "address"]); fields(b.authorization, ["digest", "nonce", "expiresAt", "method", "setup"]);
   const a = b.authorization, setup = a.setup!;
@@ -270,8 +268,8 @@ function contextShape(v: WalletAuthorityContext): void {
     b.state.manifestRevision !== e.intent.manifest.revision || a.method !== "safe-passkey-owner-threshold-and-api-grant" ||
     setup.manifestRevision !== e.intent.manifest.revision || setup.initializerHash !== e.creation!.initializerHash) invalid();
   const observed = assertPasskeyOnboardingState(b.state);
-  if (observed.initializerHash !== e.creation!.initializerHash || !equal({ x: observed.profile.signer.x, y: observed.profile.signer.y }, candidate.publicKey) ||
-    observed.profile.signer.address.toLowerCase() !== e.creation!.bootstrap.signerAddress.toLowerCase() ||
+  if (observed.initializerHash !== e.creation!.initializerHash || !equal({ x: observed.profile.signer.x, y: observed.profile.signer.y }, c.publicKey) ||
+    observed.profile.signer.address.toLowerCase() !== (c.recovery?.signerAddress ?? e.creation!.bootstrap.signerAddress).toLowerCase() ||
     observed.profile.recoveryOwner.address.toLowerCase() !== e.intent.recoveryOwner.toLowerCase()) invalid();
   validatePasskeyOnboardingInput({ profile: "center-passkey-v1", address: b.wallet.address, manifestId: b.manifestId,
     nonce: a.nonce, issuedAt: setup.issuedAt, expiresAt: a.expiresAt,

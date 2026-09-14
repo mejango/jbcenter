@@ -169,8 +169,11 @@ export function createWalletPaymentReviewDraft(inputContext: WalletPaymentReview
     const operation = normalizeUserOperation({ ...r.operation, signature: "0x" });
     const expiresAtMs = Math.min(Math.floor(r.expiresAt / 1000) * 1000, g.expiresAt * 1000, options.createdAtMs + walletPaymentReviewMaximumLifetimeMs);
     if (expiresAtMs <= options.createdAtMs) invalid();
+    // Authority identity commits the full validated lineage. The approval proof keeps
+    // its original bounded key fields; current context and epochs are rechecked at admission.
+    const { recovery: _recovery, ...proofCredential } = a.credential;
     const base: Omit<WalletPaymentReviewDraft, "ceremony"> = { version: "center-wallet-payment-review-v1", ...options,
-      issuer: c.issuer, grant: g, authority: { accountId: a.accountId, enrollmentId: a.enrollment.intent.id, credential: a.credential,
+      issuer: c.issuer, grant: g, authority: { accountId: a.accountId, enrollmentId: a.enrollment.intent.id, credential: proofCredential,
         authorityIdentityDigest: walletAuthorityIdentityDigest(identity), authorityEpoch: current.authorityEpoch, sessionEpoch: current.sessionEpoch,
         bindingId: b.id, bindingAuthorizationDigest: b.authorization.digest, stateHash: b.state.stateHash,
         manifestRevision: c.manifest.revision, signer: address(profile.signer.address) },

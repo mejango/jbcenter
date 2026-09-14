@@ -199,7 +199,10 @@ export class PostgresWalletSignupStore {
       // key verification under these locks; every captured locator is rechecked here.
       const current = await lockWalletEnrollmentInTransaction(client, enrollment.intent.id);
       this.sameEnrollment(current, enrollment);
-      if (current.state === "verified" && !await currentWalletCredentialInTransaction(client, current)) unauthorized();
+      if (current.state === "verified") {
+        const credential = await currentWalletCredentialInTransaction(client, current);
+        if (!credential || credential.credential_id !== assertion.credentialId || credential.rp_id !== prior.draft.rpId) unauthorized();
+      }
       const flow = (await client.query<FlowRow>("SELECT * FROM rest_wallet_signup_flows WHERE enrollment_id=$1 FOR UPDATE", [current.intent.id])).rows[0];
       const row = (await client.query<ResumeRow>("SELECT * FROM rest_wallet_signup_resumes WHERE id=$1 FOR UPDATE", [resumeId])).rows[0];
       if (!flow || !row || enrollmentDigest(row.draft) !== enrollmentDigest(prior.draft)) unauthorized();

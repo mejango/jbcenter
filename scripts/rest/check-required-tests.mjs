@@ -46,6 +46,7 @@ export const requiredVitestSuites = [
   "test/rest-wallet-passkey-recovery.test.ts",
   "test/rest-wallet-passkey-recovery-postgres.integration.test.ts",
   "test/rest-wallet-recovery-kit.test.ts",
+  "test/rest-wallet-recovery-lineage.test.ts",
   "test/rest-wallet-enrollment-browser.test.ts",
   "test/rest-wallet-enrollment-pressure.test.ts",
   "test/rest-wallet-deployment.test.ts",

@@ -14,6 +14,9 @@ import { encodeSafe7579Execution } from "../src/rest/smartAccounts/accountExecut
 import { decodeSafe7579PasskeyOwnerSignature, safe7579PasskeyOwnerSigningPayload } from "../src/rest/smartAccounts/passkeySignatures.js";
 import { digest } from "../src/rest/userOperations/store.js";
 import { getUserOperationHash, userOperationCommitment } from "../src/rest/userOperations/codec.js";
+import { createWalletRecoveryIntent, createWalletRecoveryMapping, prepareWalletRecoveryCandidate,
+  verifyWalletRecoveryProof, walletRecoveryDocument } from '../src/rest/wallet/recovery.js';
+import { passkeyOnboardingDocument } from '../src/rest/smartAccounts/passkeyOnboarding.js';
 
 const now = 1_800_000_120_000, issuer = "https://wallet.juicebox.center", rpId = "wallet.juicebox.center";
 const audience = "https://juicebox.center";
@@ -94,6 +97,42 @@ function assertion(draft: ReturnType<typeof createWalletPaymentReviewDraft>, cha
   return signGet({ ...credential, rpId, origin: issuer, challenge: draft.signing.digest, ...changes });
 }
 describe("owner-approved modeled payment review", () => {
+  it('requires a fresh new-key approval after recovery while preserving payment proof format and the Safe', async () => {
+    const c = context(), oldDraft = createWalletPaymentReviewDraft(c, options()), originalSafe = c.operation.sender;
+    const intent = createWalletRecoveryIntent(c.authority, { rpId, origin: issuer, nowMs: now, expiresAtMs: now + 120000 });
+    const nextKey = createRegistration({ rpId, origin: issuer, userHandle: intent.userHandle,
+      challenge: `0x${Buffer.from(intent.registration.challenge, 'base64url').toString('hex')}` });
+    const candidate = prepareWalletRecoveryCandidate(intent, nextKey.response), document = walletRecoveryDocument(candidate);
+    const proof = await verifyWalletRecoveryProof(candidate, { assertion: signGet({ ...nextKey, rpId, origin: issuer,
+      challenge: hashTypedData(document) }), backupSignature: await signBackupProof(document) }, now + 1);
+    const b = c.authority.binding, setup = b.authorization.setup!;
+    b.state.stateHash = digest('recovered state'); b.state.owners = [candidate.signerAddress, intent.recoveryOwner];
+    Object.assign(b.state.ownerProfile!.signer, { address: candidate.signerAddress, ...nextKey.publicKey });
+    b.authorization.nonce = digest('recovered setup nonce'); b.authorization.expiresAt = now / 1000 + 300;
+    setup.issuedAt = now / 1000; setup.grantId = randomUUID(); setup.grantExpiresAt = now / 1000 + 3600;
+    const setupDocument = passkeyOnboardingDocument(audience, { profile: 'center-passkey-v1', address: b.wallet.address,
+      manifestId: b.manifestId, nonce: b.authorization.nonce, issuedAt: setup.issuedAt, expiresAt: b.authorization.expiresAt,
+      grant: { id: setup.grantId, botAddress: setup.botAddress, scopes: setup.scopes, expiresAt: setup.grantExpiresAt, label: setup.label } }, b.state);
+    b.authorization.digest = hashTypedData(setupDocument);
+    c.authority = createWalletRecoveryMapping({ intent, candidate, proof }, c.authority, now + 20, audience).context;
+    const identity = createWalletAuthorityIdentity(c.authority, { stateHash: b.state.stateHash,
+      sessionAdministration: { epoch: '0', hash: digest('administration') }, creationTransaction: digest('creation') });
+    const prior = c.authority.prior!;
+    c.authority.prior = reconcileWalletAuthority(c.authority, { ...prior.latestObservation!, contextDigest: walletAuthorityContextDigest(c.authority),
+      identity, observedAtMs: now + 30, validUntilMs: now + 30030,
+      priorAnchor: { status: 'same', expected: prior.acceptedAnchor!, observed: prior.acceptedAnchor! } }, now + 30);
+    c.grant.id = randomUUID(); c.grant.authorityEpoch = c.authority.prior.authorityEpoch; c.grant.sessionEpoch = c.authority.prior.sessionEpoch;
+    const actor = { accountId: c.grant.accountId, principalId: walletAppPrincipalId(c.grant) };
+    c.plan.actor = actor; c.operation.actor = actor; c.plan.smartAccount!.stateHash = b.state.stateHash;
+    c.operation.accountStateHash = b.state.stateHash; c.plan.createdAt = c.operation.createdAt = now + 35; recommit(c);
+    const reviewed = createWalletPaymentReviewDraft(c, { ...options(), createdAtMs: now + 40 });
+    expect(reviewed.operation.sender).toBe(originalSafe); expect(reviewed.authority.credential).not.toHaveProperty('recovery');
+    expect(() => assertWalletPaymentReviewContext(reviewed, c)).not.toThrow();
+    expect(() => assertWalletPaymentReviewContext(oldDraft, c)).toThrow();
+    expect(() => verifyWalletPaymentReviewProof(reviewed, assertion(reviewed))).toThrow();
+    const approved = verifyWalletPaymentReviewProof(reviewed, signGet({ ...nextKey, rpId, origin: issuer, challenge: reviewed.signing.digest }));
+    expect(decodeSafe7579PasskeyOwnerSignature({ signature: approved.signature, ...reviewed.signing, threshold: 1 })[0]).toMatchObject({ kind: 'contract', owner: candidate.signerAddress });
+  });
   it("keeps the enrolled wallet RP origin distinct from the configured REST audience", () => {
     const c = context(), draft = createWalletPaymentReviewDraft(c, options());
     expect(draft.issuer).toBe("https://wallet.juicebox.center");

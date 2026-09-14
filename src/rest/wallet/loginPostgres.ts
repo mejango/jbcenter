@@ -55,6 +55,7 @@ function sameCaptured(locked: LockedContext, expected: WalletAuthorityContext): 
       c.rp_id !== expected.credential.rpId || c.credential_id !== expected.credential.credentialId || c.user_handle !== expected.credential.userHandle ||
       c.public_key_x !== expected.credential.publicKey.x || c.public_key_y !== expected.credential.publicKey.y ||
       c.backup_eligible !== expected.credential.backupEligible || Number(c.verified_at) !== expected.credential.verifiedAtMs ||
+      stable(c.recovery_receipt ?? null) !== stable(expected.credential.recovery ?? null) ||
       (locked.authority?.authority_epoch ?? null) !== (expected.prior?.authorityEpoch ?? null) ||
       (locked.authority?.session_epoch ?? null) !== (expected.prior?.sessionEpoch ?? null)) inactive();
 }
@@ -247,7 +248,10 @@ export class PostgresWalletLoginStore {
     if (!mapping) unauthorized();
     const context = await this.authority.loadContext(mapping.account_id);
     if (context.credential.credentialId !== input.assertion.credentialId || context.enrollment.intent.id !== mapping.enrollment_id) unauthorized();
-    return { input, draft, context, proof: verifyWalletLoginProof(draft, input.flowToken, context.credential, input.assertion) };
+    // The full context above validates immutable lineage; the possession verifier needs
+    // only the current key. Keep the existing proof format and compare lineage under locks.
+    const { recovery: _recovery, ...proofCredential } = context.credential;
+    return { input, draft, context, proof: verifyWalletLoginProof(draft, input.flowToken, proofCredential, input.assertion) };
   }
   private async lockLogin(client: PoolClient, id: string): Promise<LoginRow> {
     const row = (await client.query<LoginRow>("SELECT * FROM rest_wallet_logins WHERE id=$1 FOR UPDATE", [id])).rows[0];

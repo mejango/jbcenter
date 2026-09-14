@@ -55,9 +55,21 @@ recovery proof store now records a purpose-bound new-key proof and independent
 owner signature tied to the original Safe, enrollment, current credential and
 binding. Intake is bounded, continuation secrets are hashed, accepted records are
 immutable, and concurrent/lost-response retries return the original receipt.
-It is not mounted in HTTP and does not rotate an owner or credential. Replacement
-still needs canonical owner-rotation evidence, immutable credential lineage and
-atomic invalidation of old credentials, sessions and grants. Genesis remains unchanged.
+It is not mounted in HTTP. After an actual owner rotation and new-key browser setup,
+the internal activation store verifies that new setup assertion and calls the
+configured canonical observer. It atomically supersedes the previous credential,
+inserts immutable replacement lineage, revokes old bot/app grants, and advances
+authority and session epochs. The new setup grant is retained. Canonical readiness
+must refresh before a separate fresh login. Exact retries read the original result;
+expiry during SQL rolls all mapping, grant and epoch changes back. Genesis remains unchanged.
+
+The canonical observer rechecks the replacement setup's original block anchor on
+every observation. A chain rollback makes the account unready and cannot undo
+credential supersession or revive previous sessions. Payment approval retains its
+existing proof format; the authority identity commits replacement lineage, and
+fresh approval must verify under the replacement key. The recovery HTTP journey,
+reviewed rotation transport, funding policy and physical-device observations are
+still required before this can be offered as a production recovery flow.
 
 ## Composition and observation
 
@@ -97,6 +109,12 @@ rejection, kit restoration after reload, absence of the phrase from storage and
 requests, and a 320px viewport. Sanitized results and screenshots are written
 to `.generated/wallet-observations/signup-browser/` and `signup-browser-kit/`; release evidence is written
 to `.generated/checks/<run-id>/summary.json` with a source fingerprint.
+
+The joined EVM suite also performs a real backup-owner Safe rotation, replacement
+setup, atomic credential activation, fresh new-key login, old-key/session/resume
+rejection and an actual Anvil rollback. Sanitized evidence is written to
+`.generated/wallet-observations/recovery-evm/summary.json`. Those actions use only
+public fixture keys and synthetic local balances, not a production relay or fee provider.
 
 Production testing still needs a qualified Base fee/settlement provider,
 non-rollback accounting and restore evidence, deployment funding controls,

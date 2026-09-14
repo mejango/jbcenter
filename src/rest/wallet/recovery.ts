@@ -11,6 +11,8 @@ import { parseWalletRegistration, type WalletRegistrationCandidate, type WalletR
 import { validateWalletRpConfiguration, verifyWalletAssertion, type WalletAssertion } from './webauthn.js';
 import { copyWalletEnrollmentRegistration } from './enrollmentPostgres.js';
 import { copyWalletSignupAssertion } from './signupPostgres.js';
+import { assertWalletAuthorityCredential, type WalletCredentialRecovery } from './credentialRecovery.js';
+import { passkeyOnboardingDocument, type PasskeyOnboardingInput } from '../smartAccounts/passkeyOnboarding.js';
 
 /** An internal captured context, not authority to change owners or a login principal. */
 export interface WalletRecoveryIntent {
@@ -152,4 +154,40 @@ export async function verifyWalletRecoveryProof(input: WalletRecoveryCandidate, 
     intentDigest: enrollmentDigest(intent), candidateDigest: enrollmentDigest(value), verifiedAtMs: nowMs };
   const { verifiedAtMs: _verifiedAtMs, ...identity } = result;
   return { ...result, verificationDigest: enrollmentDigest({ ...identity, challenge, verifiedOwner: intent.recoveryOwner }) };
+}
+
+/** A prospective mapping only. The configured observer and atomic storage transaction
+ * must establish canonical provenance, consume current identity and revoke prior access. */
+export function createWalletRecoveryMapping(record: { intent: WalletRecoveryIntent; candidate: WalletRecoveryCandidate | null; proof: WalletRecoveryProof | null },
+  inputContext: WalletAuthorityContext, nowMs: number, setupAudience: string) {
+  enrollmentDigest([record, inputContext]);
+  if (!record.candidate || !record.proof) invalid();
+  const candidate = structuredClone(record.candidate), proof = structuredClone(record.proof), context = structuredClone(inputContext), intent = candidate.intent;
+  assertWalletRecoveryCandidate(candidate); assertWalletAuthorityCredential(context.credential, context.enrollment);
+  fields(proof, ['recoveryId', 'accountId', 'enrollmentId', 'intentDigest', 'candidateDigest', 'verificationDigest', 'verifiedAtMs']);
+  const proofIdentity = { recoveryId: intent.id, accountId: intent.accountId, enrollmentId: intent.enrollmentId,
+    intentDigest: enrollmentDigest(intent), candidateDigest: enrollmentDigest(candidate) };
+  if (enrollmentDigest(record.intent) !== proofIdentity.intentDigest || Object.entries(proofIdentity).some(([key, value]) => proof[key as keyof WalletRecoveryProof] !== value)
+    || proof.verificationDigest !== enrollmentDigest({ ...proofIdentity, challenge: hashTypedData(document(candidate)), verifiedOwner: intent.recoveryOwner })
+    || !Number.isSafeInteger(proof.verifiedAtMs) || proof.verifiedAtMs < intent.issuedAtMs || proof.verifiedAtMs >= intent.expiresAtMs
+    || !Number.isSafeInteger(nowMs) || nowMs < proof.verifiedAtMs || context.accountId !== intent.accountId
+    || enrollmentDigest(context.enrollment) !== intent.enrollmentDigest || enrollmentDigest(context.credential) !== intent.priorCredentialDigest) invalid();
+  const b = context.binding, a = b.authorization, setup = a.setup;
+  if (!setup || a.digest === intent.priorBindingDigest || a.expiresAt * 1000 <= nowMs
+    || setup.issuedAt < Math.floor(proof.verifiedAtMs / 1000) || setup.issuedAt * 1000 > nowMs + 30000) invalid();
+  const input: PasskeyOnboardingInput = { profile: 'center-passkey-v1', address: b.wallet.address, manifestId: b.manifestId,
+    nonce: a.nonce, issuedAt: setup.issuedAt, expiresAt: a.expiresAt,
+    grant: { id: setup.grantId, botAddress: setup.botAddress, scopes: setup.scopes, expiresAt: setup.grantExpiresAt, label: setup.label } };
+  const setupDocument = passkeyOnboardingDocument(setupAudience, input, b.state);
+  if (hashTypedData(setupDocument) !== a.digest) invalid();
+  const receipt: WalletCredentialRecovery = { version: 'center-wallet-credential-recovery-v1', id: intent.id, accountId: intent.accountId,
+    enrollmentId: intent.enrollmentId, enrollmentDigest: intent.enrollmentDigest, priorCredentialDigest: intent.priorCredentialDigest,
+    priorBindingDigest: intent.priorBindingDigest, priorSigner: intent.priorSigner, signerAddress: candidate.signerAddress,
+    credential: candidate.credential, rpId: intent.rpId, origin: intent.origin, initializerHash: intent.initializerHash,
+    proofDigest: proof.verificationDigest, bindingDigest: a.digest, anchor: structuredClone(b.state.evidence),
+    verifiedAtMs: proof.verifiedAtMs, acceptedAtMs: nowMs };
+  context.credential = { accountId: intent.accountId, enrollmentId: intent.enrollmentId, rpId: intent.rpId,
+    credentialId: candidate.credential.credentialId, userHandle: candidate.credential.userHandle, publicKey: candidate.credential.publicKey,
+    backupEligible: candidate.credential.backupEligible, verifiedAtMs: proof.verifiedAtMs, supersededAtMs: null, recovery: receipt };
+  return { context: validateWalletAuthorityContext(context), receipt, setupDocument };
 }
