@@ -1,0 +1,218 @@
+import { Hono, type Context, type MiddlewareHandler } from 'hono';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import type { Hex } from 'viem';
+import { RestError } from '../core.js';
+import { RestAuthError } from '../auth/shared.js';
+import { walletPage, walletCss } from '../web/walletPage.js';
+import { walletAppAudience, walletAppFields } from './appGrants.js';
+import { validateWalletPolicyOrigin } from './policy.js';
+import { validateWalletRpConfiguration, type WalletAssertion } from './webauthn.js';
+import type { WalletCentralSession } from './login.js';
+import type { WalletHandoffExchangeInput, WalletHandoffRequest } from './handoff.js';
+import { assertWalletHttpHost, assertWalletHttpRequest, assertWalletCsrf, readWalletCookie,
+  readWalletJson, walletCookie, walletCsrfToken, walletFlowCookie, walletSessionCookie } from './http.js';
+import type { PostgresWalletLoginStore } from './loginPostgres.js';
+import type { PostgresWalletHandoffStore } from './handoffPostgres.js';
+import type { PostgresWalletPolicyStore } from './policyPostgres.js';
+
+export interface WalletSiteOptions {
+  origin: string;
+  audience: string;
+  browserScript: string;
+  login: Pick<PostgresWalletLoginStore, 'begin' | 'identifyCompletion' | 'complete' | 'identifySession' | 'readSession' | 'logout'>;
+  handoff: Pick<PostgresWalletHandoffStore, 'prepare' | 'getIntent' | 'issue' | 'identifyExchange' | 'exchange'>;
+  policy: Pick<PostgresWalletPolicyStore, 'readActivePolicy'>;
+  refresh: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
+  onEvent?: (event: { action: string; outcome: 'ok' | 'rejected' | 'unavailable'; code?: string }) => void;
+}
+
+const pageHeaders = {
+  'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
+  'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY', 'Permissions-Policy': 'publickey-credentials-get=(self), publickey-credentials-create=(self)',
+};
+function reject(status = 400, code = 'WALLET_HTTP_INVALID'): never {
+  throw new RestError(status, code, 'Wallet request could not be completed.');
+}
+function fields(value: unknown, names: string[]): Record<string, unknown> {
+  try { return walletAppFields(value, names); } catch { return reject(); }
+}
+function bytes(value: unknown, min: number, max = min): Buffer {
+  if (typeof value !== 'string' || value.length > Math.ceil(max * 4 / 3) || !/^[A-Za-z0-9_-]+$/.test(value)) reject();
+  const decoded = Buffer.from(value, 'base64url');
+  if (decoded.length < min || decoded.length > max || decoded.toString('base64url') !== value) reject();
+  return decoded;
+}
+function assertion(value: unknown): WalletAssertion {
+  const a = fields(value, ['credentialId', 'userHandle', 'authenticatorData', 'clientDataJSON', 'signature']);
+  bytes(a.credentialId, 1, 1023);
+  if (a.userHandle !== null) bytes(a.userHandle, 1, 64);
+  return { credentialId: a.credentialId as string, userHandle: a.userHandle as string | null,
+    authenticatorData: bytes(a.authenticatorData, 37), clientDataJSON: bytes(a.clientDataJSON, 1, 2048), signature: bytes(a.signature, 8, 72) };
+}
+function publicSession(session: WalletCentralSession) {
+  return { loginId: session.loginId, accountId: session.accountId, walletAddress: session.accountId.slice('eip155:8453:'.length),
+    chainId: 8453, expiresAtMs: session.expiresAtMs };
+}
+
+/** Dedicated cookie origin. Trusted app CORS applies only to credentialless discovery/handoff;
+ * authority remains in the durable stores, including their final transaction-time checks. */
+export function createWalletSite(options: WalletSiteOptions): Hono {
+  const { login, handoff, policy, refresh, onEvent, browserScript } = options;
+  const origin = validateWalletPolicyOrigin(options.origin), audience = walletAppAudience(options.audience);
+  if (new URL(audience).origin === origin) reject(400, 'WALLET_HTTP_CONFIG');
+  const rpId = new URL(origin).hostname;
+  validateWalletRpConfiguration({ origin, rpId });
+  const app = new Hono();
+  const emit = (action: string, outcome: 'ok' | 'rejected' | 'unavailable', code?: string) => {
+    try { onEvent?.({ action, outcome, ...(code ? { code } : {}) }); } catch { /* Observation cannot undo committed authority. */ }
+  };
+  const protect: MiddlewareHandler = async (c, next) => {
+    for (const [key, value] of Object.entries(pageHeaders)) c.header(key, value);
+    assertWalletHttpHost(c.req.raw, origin);
+    await next();
+  };
+  app.use('/wallet', protect);
+  app.use('/wallet/*', protect);
+  app.use('*', async (c, next) => {
+    // When mounted alongside the legacy site, no Accounts/Para or other app code may
+    // execute on this credential origin and inherit its cookie authority.
+    if (c.req.path !== '/wallet' && !c.req.path.startsWith('/wallet/')
+      && (c.req.header('Host') ?? new URL(c.req.url).host) === new URL(origin).host) {
+      for (const [key, value] of Object.entries(pageHeaders)) c.header(key, value);
+      return c.text('Not found', 404);
+    }
+    await next();
+  });
+  app.onError((error, c) => {
+    const known = error instanceof RestError || error instanceof RestAuthError;
+    const status = known && error.status >= 400 && error.status <= 599 ? error.status : 503;
+    const code = known && /^[A-Z0-9_]{1,80}$/.test(error.code) ? error.code : 'WALLET_UNAVAILABLE';
+    emit('request', status >= 500 ? 'unavailable' : 'rejected', code);
+    return c.json({ error: { code, message: status >= 500 ? 'Wallet service is temporarily unavailable. Try again.' : 'Wallet request could not be completed. Try again or start over.' } }, status as ContentfulStatusCode);
+  });
+  const central = (c: Context) => assertWalletHttpRequest(c.req.raw, origin, 'central');
+  const cookie = (c: Context, name: typeof walletSessionCookie | typeof walletFlowCookie) => {
+    const token = readWalletCookie(c.req.raw, name);
+    if (!token) reject(403, 'WALLET_HTTP_SESSION');
+    assertWalletCsrf(c.req.raw, token); return token;
+  };
+  const demand = async (accountId: string, wait = true) => {
+    // Queue admission follows trusted proof/cookie identity and runs after its SQL locks release.
+    // The worker owns cancellation. A short HTTP wait never cancels shared background work.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await refresh.request(accountId);
+      const work = refresh.tick();
+      if (!wait) { void work.catch(() => emit('refresh', 'unavailable', 'WALLET_REFRESH_UNAVAILABLE')); return; }
+      await Promise.race([work, new Promise<void>(resolve => { timer = setTimeout(resolve, 10_000); })]);
+    } catch { emit('refresh', 'unavailable', 'WALLET_REFRESH_UNAVAILABLE'); }
+    finally { clearTimeout(timer); }
+  };
+  const sessionFor = async (token: string) => {
+    const current = await login.readSession(token);
+    if (current) { void demand(current.accountId, false); return current; }
+    const identity = await login.identifySession(token);
+    if (!identity) return null;
+    await demand(identity.accountId);
+    const session = await login.readSession(token);
+    // Readiness may have expired during an RPC outage. Preserve the valid browser cookie;
+    // a later attempt must recheck identity and fresh authority before returning a session.
+    if (!session) reject(503, 'WALLET_AUTHORITY_CHECKING');
+    return session;
+  };
+  const appOrigin = async (c: Context) => {
+    const candidate = c.req.header('Origin');
+    if (!candidate || c.req.header('Cookie') !== undefined) reject(403, 'WALLET_HTTP_ORIGIN');
+    const snapshot = await policy.readActivePolicy();
+    const entry = snapshot?.apps.find(item => item.origin === candidate && item.enabled && item.walletCallbacks.length > 0);
+    if (!entry) reject(403, 'WALLET_POLICY_INACTIVE');
+    c.header('Vary', 'Origin'); c.header('Access-Control-Allow-Origin', candidate);
+    return entry;
+  };
+  const appPost = async (c: Context) => {
+    const entry = await appOrigin(c);
+    if (c.req.header('x-center-wallet-request') !== '1') reject(403, 'WALLET_HTTP_ORIGIN');
+    if (!/^application\/json(?:; ?charset=utf-8)?$/i.test(c.req.header('Content-Type') ?? '')) reject(415, 'WALLET_HTTP_CONTENT_TYPE');
+    return entry;
+  };
+  app.options('/wallet/*', async c => {
+    const path = c.req.path;
+    const method = path === '/wallet/config' ? 'GET' : ['/wallet/handoff/prepare', '/wallet/handoff/exchange'].includes(path) ? 'POST' : null;
+    if (!method || c.req.header('Access-Control-Request-Method') !== method) reject(403, 'WALLET_HTTP_ORIGIN');
+    const requested = c.req.header('Access-Control-Request-Headers')?.split(',').map(header => header.trim().toLowerCase()) ?? [];
+    if (requested.some(header => !['content-type', 'x-center-wallet-request'].includes(header))) reject(403, 'WALLET_HTTP_ORIGIN');
+    await appOrigin(c);
+    c.header('Access-Control-Allow-Methods', method);
+    c.header('Access-Control-Allow-Headers', 'content-type, x-center-wallet-request');
+    return c.body(null, 204);
+  });
+  app.get('/wallet', c => c.html(walletPage()));
+  app.get('/wallet/', c => c.html(walletPage()));
+  app.get('/wallet/assets/wallet.js', c => c.body(browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
+  app.get('/wallet/assets/wallet.css', c => c.body(walletCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
+  app.get('/wallet/config', async c => {
+    const candidate = c.req.header('Origin');
+    const entry = candidate && candidate !== origin ? await appOrigin(c) : undefined;
+    return c.json({ version: 'center-wallet-v1', issuer: origin, audience, rpId,
+      ...(entry ? { app: { origin: entry.origin, callbackUris: entry.walletCallbacks, generation: entry.generation } } : {}) });
+  });
+  app.post('/wallet/login/begin', async c => {
+    central(c); fields(await readWalletJson(c.req.raw), []);
+    const result = await login.begin();
+    c.header('Set-Cookie', walletCookie(walletFlowCookie, result.flowToken, 3780), { append: true });
+    emit('login_begin', 'ok');
+    return c.json({ loginId: result.login.id, publicKey: { rpId: result.login.rpId,
+      challenge: Buffer.from(result.login.challenge.slice(2), 'hex').toString('base64url'), userVerification: 'required', timeout: 90_000 },
+      expiresAtMs: result.login.expiresAtMs, csrfToken: walletCsrfToken(result.flowToken) }, 201);
+  });
+  app.post('/wallet/login/complete', async c => {
+    central(c); const flowToken = cookie(c, walletFlowCookie);
+    const body = fields(await readWalletJson(c.req.raw), ['loginId', 'assertion']);
+    if (typeof body.loginId !== 'string') reject();
+    const input = { loginId: body.loginId, flowToken, assertion: assertion(body.assertion) };
+    const identity = await login.identifyCompletion(input); await demand(identity.accountId);
+    const result = await login.complete(input);
+    c.header('Set-Cookie', walletCookie(walletSessionCookie, result.sessionToken,
+      Math.max(1, Math.min(3600, Math.floor((result.session.expiresAtMs - Date.now()) / 1000)))), { append: true });
+    c.header('Set-Cookie', walletCookie(walletFlowCookie, null, 0), { append: true });
+    emit('login_complete', 'ok');
+    return c.json({ session: publicSession(result.session), csrfToken: walletCsrfToken(result.sessionToken), replayed: result.replayed });
+  });
+  app.get('/wallet/session', async c => {
+    const token = readWalletCookie(c.req.raw, walletSessionCookie);
+    const session = token ? await sessionFor(token) : null;
+    return c.json(session && token ? { session: publicSession(session), csrfToken: walletCsrfToken(token) } : { session: null });
+  });
+  app.post('/wallet/logout', async c => {
+    central(c); const token = cookie(c, walletSessionCookie); fields(await readWalletJson(c.req.raw), []);
+    const result = await login.logout(token);
+    c.header('Set-Cookie', walletCookie(walletSessionCookie, null, 0), { append: true });
+    c.header('Set-Cookie', walletCookie(walletFlowCookie, null, 0), { append: true });
+    emit('logout', 'ok'); return c.json(result);
+  });
+  app.get('/wallet/authorize/:id', async c => c.json(await handoff.getIntent(c.req.param('id'))));
+  app.post('/wallet/authorize/issue', async c => {
+    central(c); const token = cookie(c, walletSessionCookie);
+    const body = fields(await readWalletJson(c.req.raw), ['intentId']);
+    if (typeof body.intentId !== 'string') reject();
+    const session = await sessionFor(token); if (!session) reject(403, 'WALLET_HTTP_SESSION');
+    const issued = await handoff.issue(body.intentId, session.id);
+    if (issued.issuer !== origin) reject(503, 'WALLET_UNAVAILABLE');
+    const callback = new URL(issued.callbackUri);
+    callback.searchParams.set('code', issued.code); callback.searchParams.set('state', issued.state); callback.searchParams.set('iss', issued.issuer);
+    emit('handoff_issue', 'ok'); return c.json({ redirectUri: callback.href });
+  });
+  app.post('/wallet/handoff/prepare', async c => {
+    const entry = await appPost(c); const body = fields(await readWalletJson(c.req.raw), ['request', 'signature']);
+    const intent = await handoff.prepare({ request: body.request as WalletHandoffRequest, signature: body.signature as Hex }, entry.origin);
+    emit('handoff_prepare', 'ok'); return c.json(intent, 201);
+  });
+  app.post('/wallet/handoff/exchange', async c => {
+    const entry = await appPost(c); const body = await readWalletJson(c.req.raw) as unknown as WalletHandoffExchangeInput;
+    const identity = await handoff.identifyExchange(body, entry.origin); await demand(identity.accountId);
+    const result = await handoff.exchange(body, entry.origin);
+    emit('handoff_exchange', 'ok'); return c.json(result);
+  });
+  return app;
+}

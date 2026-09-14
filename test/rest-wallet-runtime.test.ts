@@ -1,0 +1,183 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Pool } from 'pg';
+import type { Store } from '../src/store.js';
+import { createCenterMcp } from '../src/mcp.js';
+import { createRestRuntime } from '../src/rest/runtime.js';
+import { readRestExecutionConfiguration } from '../src/rest/executionConfig.js';
+import type { ContractPin, SmartAccountManifest, SmartSnapshot } from '../src/rest/smartAccounts/types.js';
+import { PostgresWalletAppGrantStore } from '../src/rest/wallet/appGrantsPostgres.js';
+import { PostgresWalletLoginStore } from '../src/rest/wallet/loginPostgres.js';
+import { PostgresWalletHandoffStore } from '../src/rest/wallet/handoffPostgres.js';
+import { PostgresWalletPolicyStore } from '../src/rest/wallet/policyPostgres.js';
+import { PostgresWalletAuthorityStore } from '../src/rest/wallet/authorityPostgres.js';
+import { PostgresWalletAuthorityRefreshQueue } from '../src/rest/wallet/authorityRefreshPostgres.js';
+import * as authorityChain from '../src/rest/wallet/authorityChain.js';
+import * as walletSite from '../src/rest/wallet/site.js';
+import * as smartAccountService from '../src/rest/smartAccounts/service.js';
+import * as smartAccountInspector from '../src/rest/smartAccounts/inspector.js';
+import { PostgresAccountStore } from '../src/rest/auth/index.js';
+import { TransactionService } from '../src/rest/transactions/service.js';
+import { UserOperationService } from '../src/rest/userOperations/service.js';
+import { SAFE7579_INSPECTOR_ID } from '../src/rest/smartAccounts/inspector.js';
+import type { WalletPolicyActivation } from '../src/rest/wallet/policyPostgres.js';
+import { enrollmentManifest } from './fixtures/wallet-enrollment-crypto.js';
+
+// Real runtime composition with inert assets and closed transports. Storage and browser proof
+// semantics have independent PostgreSQL, browser and EVM suites; no live service is contacted here.
+vi.mock('../src/rest/site.js', async original => ({
+  ...(await original<typeof import('../src/rest/site.js')>()),
+  readRestAssets: async () => ({ accountsScript: '', walletScript: '/* bounded wallet browser fixture */', documents: new Map() }),
+}));
+const origin = 'https://wallet.pilot.example', audience = 'https://juicebox.center';
+const cleanup: Array<() => Promise<void>> = [];
+afterEach(async () => {
+  for (const close of cleanup.splice(0)) await close();
+  vi.useRealTimers(); vi.restoreAllMocks();
+});
+async function fixture(wallet?: { origin: string; manifest: SmartAccountManifest; utility: ContractPin }, startMaintenance = false, smartAccountManifests?: readonly SmartAccountManifest[]) {
+  const pool = new Pool({ connectionString: 'postgresql://fixture@127.0.0.1:1/unused' });
+  cleanup.push(() => pool.end());
+  const query = vi.spyOn(pool, 'query').mockImplementation(() => { throw new Error('Unexpected database request during startup'); });
+  const request = vi.fn(async (): Promise<never> => { throw new Error('Unexpected upstream request during startup'); });
+  const store = { consumeRequest: async () => ({ allowed: true, remaining: 100 }) } as unknown as Store;
+  const mcp = createCenterMcp(store, { rpc: { request, supports: () => true }, env: {
+    MCP_PLAN_SECRET: 'PUBLIC_WALLET_RUNTIME_FIXTURE_SECRET_ONLY', MCP_PUBLIC_ORIGIN: audience,
+  } });
+  const runtime = await createRestRuntime({ pool, store, services: mcp.services, config: mcp.config,
+    upstreams: new Map(), rpc: { request }, executionConfiguration: await readRestExecutionConfiguration({}),
+    startMaintenance, ...(wallet ? { wallet } : {}), ...(smartAccountManifests ? { smartAccountManifests } : {}) });
+  cleanup.unshift(() => runtime.stop());
+  return { runtime, pool, query, request };
+}
+async function walletConfiguration() {
+  const execution = await readRestExecutionConfiguration({});
+  const stack = execution.stacks.find(stack => stack.manifest.chainId === 8453)!;
+  return { origin, manifest: { ...structuredClone(enrollmentManifest), moduleInspectorId: SAFE7579_INSPECTOR_ID, entryPoint: stack.manifest.entryPoint! }, utility: stack.utility };
+}
+
+describe('explicit wallet runtime composition', () => {
+  it('keeps wallet routes, operator handles and policy activation absent by default', async () => {
+    const activate = vi.spyOn(PostgresWalletPolicyStore.prototype, 'activate');
+    const claim = vi.spyOn(PostgresWalletAuthorityRefreshQueue.prototype, 'claim');
+    const f = await fixture();
+    expect(f.runtime).not.toHaveProperty('wallet');
+    expect(f.runtime.site).not.toHaveProperty('wallet');
+    expect(activate).not.toHaveBeenCalled(); expect(claim).not.toHaveBeenCalled();
+    expect(f.query).not.toHaveBeenCalled(); expect(f.request).not.toHaveBeenCalled();
+  });
+
+  it('composes the exact explicit passkey profile and site without activating policy or making startup RPC', async () => {
+    const site = vi.spyOn(walletSite, 'createWalletSite'), chain = vi.spyOn(authorityChain, 'createWalletAuthorityChain');
+    const activate = vi.spyOn(PostgresWalletPolicyStore.prototype, 'activate');
+    const configuration = await walletConfiguration(), f = await fixture(configuration);
+    expect(f.runtime).toHaveProperty('wallet.origin', origin);
+    expect(f.runtime.site).toHaveProperty('wallet');
+    const internal = f.runtime.wallet!;
+    expect(internal.login).toBeInstanceOf(PostgresWalletLoginStore);
+    expect(internal.handoff).toBeInstanceOf(PostgresWalletHandoffStore);
+    expect(internal.policy).toBeInstanceOf(PostgresWalletPolicyStore);
+    expect(internal.authority).toBeInstanceOf(PostgresWalletAuthorityStore);
+    expect(site).toHaveBeenCalledWith(expect.objectContaining({ origin, audience,
+      browserScript: '/* bounded wallet browser fixture */', login: internal.login, handoff: internal.handoff,
+      policy: internal.policy, refresh: internal.refresh }));
+    expect(chain).toHaveBeenCalledWith(expect.objectContaining({ manifest: configuration.manifest,
+      utility: configuration.utility, limits: { totalTimeoutMs: 10_000 } }));
+    expect(activate).not.toHaveBeenCalled(); expect(f.query).not.toHaveBeenCalled(); expect(f.request).not.toHaveBeenCalled();
+  });
+
+  it('isolates the configured passkey manifest and its utility from legacy operation inspection', async () => {
+    const service = vi.spyOn(smartAccountService, 'createSmartAccountService');
+    const inspect = vi.spyOn(smartAccountInspector, 'createSafe7579Inspector').mockImplementation(({ utility }) => ({
+      id: SAFE7579_INSPECTOR_ID, inspect: async () => { throw new Error(`Fixture utility ${utility.address}`); },
+    }));
+    const configuration = await walletConfiguration(), original = structuredClone(configuration.manifest);
+    configuration.utility = { ...configuration.utility, address: '0x8888888888888888888888888888888888888888' };
+    await fixture(configuration);
+    const composed = service.mock.calls[0]![0], configured = composed.manifests.find(m => m.id === original.id)!;
+    expect(configured).toEqual(original);
+    const legacy = composed.manifests.find(m => m.id !== original.id)!;
+    expect(legacy).toBeDefined();
+    const inspector = composed.moduleInspectors!.find(item => item.id === SAFE7579_INSPECTOR_ID)!;
+    configuration.manifest.revision = '0x' + '77'.repeat(32) as `0x${string}`;
+    expect(configured).toEqual(original);
+    const input = { account: '0x9999999999999999999999999999999999999999' as const, snapshot: {} as SmartSnapshot };
+    await expect(inspector.inspect({ ...input, manifest: configured })).rejects.toThrow(`Fixture utility ${configuration.utility.address}`);
+    const legacyUtility = inspect.mock.calls[0]![0].utility.address;
+    expect(legacyUtility).not.toBe(configuration.utility.address);
+    await expect(inspector.inspect({ ...input, manifest: legacy })).rejects.toThrow(`Fixture utility ${legacyUtility}`);
+  });
+
+  it('owns its profile bytes even when the identical manifest is supplied in the custom account list', async () => {
+    const service = vi.spyOn(smartAccountService, 'createSmartAccountService');
+    const configuration = await walletConfiguration(), original = structuredClone(configuration.manifest);
+    await fixture(configuration, false, [configuration.manifest]);
+    configuration.manifest.revision = `0x${'99'.repeat(32)}`;
+    expect(service.mock.calls[0]![0].manifests).toEqual([original]);
+  });
+
+  it('rejects ambiguous profile identity before starting maintenance', async () => {
+    const configuration = await walletConfiguration();
+    const claim = vi.spyOn(PostgresWalletAuthorityRefreshQueue.prototype, 'claim');
+    await expect(fixture(configuration, true, [{ ...configuration.manifest, revision: '0x' + '88'.repeat(32) as `0x${string}` }]))
+      .rejects.toMatchObject({ code: 'WALLET_MANIFEST_CONFLICT' });
+    expect(claim).not.toHaveBeenCalled();
+  });
+
+  it.each(['http://wallet.pilot.example', 'https://wallet.pilot.example/', 'https://wallet.pilot.example?redirect=elsewhere'])
+    ('rejects noncanonical wallet origin %s before startup work', async badOrigin => {
+      const configuration = await walletConfiguration();
+      const claim = vi.spyOn(PostgresWalletAuthorityRefreshQueue.prototype, 'claim');
+      await expect(fixture({ ...configuration, origin: badOrigin }, true)).rejects.toMatchObject({ status: 400 });
+      expect(claim).not.toHaveBeenCalled();
+    });
+
+  it('requires an explicit operator policy transition and preserves its expected revision', async () => {
+    const activate = vi.spyOn(PostgresWalletPolicyStore.prototype, 'activate').mockResolvedValue({ revision: 1,
+      configurationHash: '11'.repeat(32), configuration: { version: 'center-wallet-policy-v1', applications: [] }, activatedAt: 1, apps: [] });
+    const f = await fixture(await walletConfiguration()), internal = f.runtime.wallet!;
+    expect(internal).toBeDefined(); expect(activate).not.toHaveBeenCalled();
+    const input: WalletPolicyActivation = { expectedRevision: 0, nextRevision: 1, configuration: { version: 'center-wallet-policy-v1', applications: [] } };
+    expect(await internal.activatePolicy(input)).toMatchObject({ revision: 1 });
+    expect(activate).toHaveBeenCalledExactlyOnceWith(input);
+    expect(f.query).not.toHaveBeenCalled(); expect(f.request).not.toHaveBeenCalled();
+  });
+
+  it('reclaims bounded expired login and handoff state and publishes only aggregate queue observations', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(PostgresWalletAuthorityRefreshQueue.prototype, 'claim').mockResolvedValue(null);
+    const stats = { tracked: 2, interested: 1, due: 0, inFlight: 1, oldestDueAtMs: null, startsInWindow: 1, maxStartsPerMinute: 30 };
+    vi.spyOn(PostgresWalletAuthorityRefreshQueue.prototype, 'stats').mockResolvedValue(stats);
+    vi.spyOn(PostgresAccountStore.prototype, 'cleanupExpiredNonces').mockResolvedValue(0);
+    vi.spyOn(TransactionService.prototype, 'recoverPending').mockResolvedValue({ oldestPendingAt: null, reconciled: [] } as never);
+    vi.spyOn(UserOperationService.prototype, 'recoverPending').mockResolvedValue({ oldestPendingAt: null, items: [] } as never);
+    const login = vi.spyOn(PostgresWalletLoginStore.prototype, 'cleanup').mockResolvedValue(2);
+    const handoff = vi.spyOn(PostgresWalletHandoffStore.prototype, 'cleanup').mockResolvedValue(3);
+    const grants = vi.spyOn(PostgresWalletAppGrantStore.prototype, 'cleanup').mockResolvedValue(4);
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const f = await fixture(await walletConfiguration(), true);
+    expect(login).not.toHaveBeenCalled(); expect(handoff).not.toHaveBeenCalled(); expect(grants).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(login).toHaveBeenCalledExactlyOnceWith(250);
+    expect(handoff).toHaveBeenCalledExactlyOnceWith(250);
+    expect(grants).toHaveBeenCalledExactlyOnceWith(250);
+    expect(log).toHaveBeenCalledWith(JSON.stringify({ service: 'wallet', action: 'authority_refresh_queue', ...stats }));
+    await f.runtime.stop();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(login).toHaveBeenCalledTimes(1); expect(handoff).toHaveBeenCalledTimes(1); expect(grants).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts and stops the refresh worker only with explicitly enabled maintenance', async () => {
+    vi.useFakeTimers();
+    const claim = vi.spyOn(PostgresWalletAuthorityRefreshQueue.prototype, 'claim').mockResolvedValue(null);
+    const inactive = await fixture(await walletConfiguration());
+    await vi.advanceTimersByTimeAsync(1_000); expect(claim).not.toHaveBeenCalled();
+    await inactive.runtime.stop();
+    const active = await fixture(await walletConfiguration(), true);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(claim).toHaveBeenCalledTimes(3);
+    await active.runtime.stop();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(claim).toHaveBeenCalledTimes(3);
+    expect(active.request).not.toHaveBeenCalled();
+  });
+});

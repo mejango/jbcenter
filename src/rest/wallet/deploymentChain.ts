@@ -57,6 +57,14 @@ function quantity(value: unknown): bigint {
     fail("WALLET_DEPLOYMENT_RPC_INVALID", "The provider returned a noncanonical quantity.", 502);
   return BigInt(value);
 }
+/** RPC clients expose signature integers as either minimal quantities or fixed32-byte DATA.
+ * Accept only those two bounded forms; numerical equality below still binds the original raw signature. */
+function signatureScalar(value: unknown): bigint {
+  if (typeof value !== "string" || value.length > 66 ||
+      (!/^0x[1-9a-fA-F][0-9a-fA-F]{0,63}$/.test(value) && !/^0x[0-9a-fA-F]{64}$/.test(value)) || BigInt(value) === 0n)
+    fail("WALLET_DEPLOYMENT_RPC_INVALID", "The provider returned an invalid signature scalar.", 502);
+  return BigInt(value);
+}
 function word(value: unknown): value is Hex { return typeof value === "string" && /^0x[0-9a-fA-F]{64}$/.test(value) && BigInt(value) !== 0n; }
 function object(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function clock(value: number): boolean { return Number.isSafeInteger(value) && value > 0; }
@@ -139,7 +147,7 @@ export function createWalletDeploymentChain(options: WalletDeploymentChainOption
           quantity(value.nonce) !== BigInt(template.nonce) || quantity(value.gas) !== BigInt(template.gas) || quantity(value.value) !== 0n ||
           quantity(value.maxFeePerGas) !== BigInt(template.maxFeePerGas) || quantity(value.maxPriorityFeePerGas) !== BigInt(template.maxPriorityFeePerGas) ||
           !Array.isArray(value.accessList) || value.accessList.length !== 0 ||
-          BigInt(rpcHex(value.r, "transaction r", 32)) !== BigInt(parsed.r!) || BigInt(rpcHex(value.s, "transaction s", 32)) !== BigInt(parsed.s!) ||
+          signatureScalar(value.r) !== BigInt(parsed.r!) || signatureScalar(value.s) !== BigInt(parsed.s!) ||
           quantity(value.v) !== BigInt(parsed.yParity!) || (value.yParity !== undefined && quantity(value.yParity) !== BigInt(parsed.yParity!))) return invalid();
         return value;
       }

@@ -21,6 +21,7 @@ export const ACCOUNTS_PAGE_HEADERS = {
 
 export interface RestSite {
   app: ReturnType<typeof createRestApp>;
+  wallet?: Hono;
   audience: string;
   para?: { apiKey: string; environment: "BETA" | "PROD" };
   paraScript?: string;
@@ -65,12 +66,14 @@ export async function readRestAssets() {
     documents.set(name.toLowerCase().replaceAll("_", "-"), content);
   }
   const paraScript = await readFile(new URL("../../.generated/rest/para.js", import.meta.url), "utf8");
+  const walletScript = await readFile(new URL("../../.generated/rest/wallet.js", import.meta.url), "utf8");
   const docsScript = await readFile(new URL("../../.generated/rest/docs.js", import.meta.url), "utf8");
   const clientPackage = new Uint8Array(await readFile(new URL("../../.generated/rest/juicebox-center-client-0.1.0.tgz", import.meta.url)));
-  return { accountsScript, paraScript, documents, docsScript, clientPackage };
+  return { accountsScript, paraScript, walletScript, documents, docsScript, clientPackage };
 }
 
 export function mountRestSite(app: Hono<JbcenterEnv>, site: RestSite): void {
+  if (site.wallet) app.route("/", site.wallet);
   app.route("/api/v1", site.app);
   app.get("/accounts", (context) =>
     context.html(

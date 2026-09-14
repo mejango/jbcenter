@@ -264,3 +264,5 @@ export function parseBotRegistration(value: unknown): BotRegistration {
 
 export { CenterClient, type Plan, type ActionSigner, type TransactionSubmission, type PrepaidPreparation, type PrepaidSubmission } from "./center.js";
 export { parseConnection, connectionForBot, type BotConnection } from "./connection.js";
+export { createCenterWalletClient, type CenterWalletClientOptions, type CenterWalletConnection,
+  type CenterWalletPreparedConnection, type CenterWalletStorage } from "./wallet.js";

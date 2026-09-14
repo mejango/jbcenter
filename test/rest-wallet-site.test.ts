@@ -1,0 +1,180 @@
+import { describe, expect, it, vi } from 'vitest';
+import { createWalletSite, type WalletSiteOptions } from '../src/rest/wallet/site.js';
+import { walletCsrfToken, walletFlowCookie, walletSessionCookie } from '../src/rest/wallet/http.js';
+import type { WalletCentralSession } from '../src/rest/wallet/login.js';
+import { Hono } from 'hono';
+import { mountRestSite, type RestSite } from '../src/rest/site.js';
+import { RestError } from '../src/rest/core.js';
+
+const origin='https://wallet.example.test', appOrigin='https://beep.example.test', audience='https://center.example.test/api/v1';
+const flow=Buffer.alloc(32,7).toString('base64url'), token=Buffer.alloc(32,8).toString('base64url');
+const accountId='eip155:8453:0x0000000000000000000000000000000000000003';
+const loginId='11111111-1111-4111-8111-111111111111';
+function setup() {
+  // HTTP controller evidence only: storage/crypto correctness has separate real-PG/EVM suites.
+  const session={id:'22222222-2222-4222-8222-222222222222',accountId,expiresAtMs:Date.now()+3_600_000,
+    credentialId:'private-credential-metadata',userHandle:'private-user-handle'} as WalletCentralSession;
+  const options:WalletSiteOptions={origin,audience,browserScript:'/* local browser entry */',
+    login:{begin:vi.fn(async()=>({login:{id:loginId,rpId:'wallet.example.test',origin,challenge:`0x${'01'.repeat(32)}` as const,expiresAtMs:Date.now()+180_000},flowToken:flow})),
+      identifyCompletion:vi.fn(async()=>({accountId})),complete:vi.fn(async()=>({session,sessionToken:token,replayed:false})),
+      identifySession:vi.fn(async()=>({accountId})),readSession:vi.fn(async()=>session),logout:vi.fn(async()=>({loggedOut:true as const,replayed:false}))},
+    handoff:{prepare:vi.fn(async()=>({id:loginId,state:'prepared' as const,createdAtMs:Date.now(),expiresAtMs:Date.now()+180_000,request:{} as never})),
+      getIntent:vi.fn(async()=>({id:loginId,state:'prepared' as const,createdAtMs:Date.now(),expiresAtMs:Date.now()+180_000,request:{} as never})),
+      issue:vi.fn(async()=>({code:flow,state:token,issuer:origin,callbackUri:appOrigin+'/center/callback'})),identifyExchange:vi.fn(async()=>({accountId})),exchange:vi.fn(async()=>({grant:{id:'public-grant'} as never,replayed:false}))},
+    policy:{readActivePolicy:vi.fn(async()=>({revision:1,configurationHash:'a'.repeat(64),configuration:{version:'center-wallet-policy-v1' as const,applications:[{origin:appOrigin,walletCallbacks:[appOrigin+'/center/callback']}]},activatedAt:1,apps:[{origin:appOrigin,walletCallbacks:[appOrigin+'/center/callback'],generation:1,enabled:true}]}))},
+    refresh:{request:vi.fn(async()=>({status:'queued'})),tick:vi.fn(async()=>({}))},onEvent:vi.fn()};
+  return {app:createWalletSite(options),options};
+}
+function request(path:string,body:unknown,headers:Record<string,string>={}) {
+  return new Request(origin+path,{method:'POST',headers:{origin,'content-type':'application/json','x-center-wallet-request':'1',...headers},body:JSON.stringify(body)});
+}
+
+describe('dedicated Center wallet HTTP journey',()=>{
+  it('serves a dedicated passkey page with self-only scripts and no Para policy',async()=>{
+    const {app}=setup();const response=await app.fetch(new Request(origin+'/wallet'));
+    expect(response.status).toBe(200);expect(await response.text()).toContain('Sign in with a passkey');
+    expect(response.headers.get('content-security-policy')).toContain("script-src 'self';");
+    expect(response.headers.get('content-security-policy')).not.toMatch(/para|capsule|unsafe/);
+    const script=await app.fetch(new Request(origin+'/wallet/assets/wallet.js'));
+    expect(script.status).toBe(200);expect(script.headers.get('content-type')).toContain('application/javascript');
+    expect(await script.text()).toBe('/* local browser entry */');
+    const style=await app.fetch(new Request(origin+'/wallet/assets/wallet.css'));
+    expect(style.status).toBe(200);expect(style.headers.get('content-type')).toContain('text/css');
+  });
+  it('issues a login challenge with an HttpOnly flow cookie and exposes no bearer in JSON',async()=>{
+    const {app}=setup();const response=await app.fetch(request('/wallet/login/begin',{}));
+    expect(response.status).toBe(201);const body=await response.json();
+    expect(body.loginId).toBe(loginId);expect(body.publicKey).toMatchObject({rpId:'wallet.example.test',userVerification:'required'});
+    expect(body.publicKey).not.toHaveProperty('allowCredentials');expect(JSON.stringify(body)).not.toContain(flow);
+    expect(response.headers.get('set-cookie')).toContain(`${walletFlowCookie}=${flow}`);
+    expect(response.headers.get('set-cookie')).toContain('Secure; HttpOnly; SameSite=Lax');
+    expect(response.headers.get('access-control-allow-origin')).toBeNull();
+  });
+  it('rejects cross-app cookie mutations before service work, even for an allowlisted app',async()=>{
+    const {app,options}=setup();const response=await app.fetch(request('/wallet/login/begin',{}, {origin:appOrigin}));
+    expect(response.status).toBe(403);expect(options.login.begin).not.toHaveBeenCalled();
+    expect(response.headers.get('access-control-allow-origin')).toBeNull();
+  });
+  it('completes with the bound flow cookie and CSRF proof, then refreshes only the proof-verified identity',async()=>{
+    const {app,options}=setup();
+    const body={loginId,assertion:{credentialId:flow,userHandle:token,authenticatorData:Buffer.alloc(37).toString('base64url'),clientDataJSON:Buffer.from('{}').toString('base64url'),signature:Buffer.alloc(70).toString('base64url')}};
+    const response=await app.fetch(request('/wallet/login/complete',body,{cookie:`${walletFlowCookie}=${flow}`,'x-center-wallet-csrf':walletCsrfToken(flow)}));
+    expect(response.status).toBe(200);expect(options.refresh.request).toHaveBeenCalledWith(accountId);
+    const result=await response.json();expect(result.session.accountId).toBe(accountId);expect(result.csrfToken).toBe(walletCsrfToken(token));
+    expect(JSON.stringify(result)).not.toContain('private-');expect(JSON.stringify(result)).not.toContain(token);
+    expect(response.headers.get('set-cookie')).toContain(`${walletSessionCookie}=${token}`);
+    expect(response.headers.get('set-cookie')).toContain(`${walletFlowCookie}=; Path=/; Max-Age=0`);
+  });
+  it('cannot issue a code from a session ID sent by the browser or from a cookie without CSRF',async()=>{
+    const {app,options}=setup();const response=await app.fetch(request('/wallet/authorize/issue',{intentId:loginId,sessionId:loginId},{cookie:`${walletSessionCookie}=${token}`}));
+    expect(response.status).toBe(403);expect(options.handoff.issue).not.toHaveBeenCalled();
+  });
+  it('issues the callback only through the cookie-authenticated central action',async()=>{
+    const {app,options}=setup();const response=await app.fetch(request('/wallet/authorize/issue',{intentId:loginId},{cookie:`${walletSessionCookie}=${token}`,'x-center-wallet-csrf':walletCsrfToken(token)}));
+    expect(response.status).toBe(200);expect(options.handoff.issue).toHaveBeenCalledWith(loginId,'22222222-2222-4222-8222-222222222222');
+    const result=await response.json();const callback=new URL(result.redirectUri);expect(callback.origin).toBe(appOrigin);
+    expect(callback.searchParams.get('code')).toBe(flow);expect(callback.searchParams.get('state')).toBe(token);expect(callback.searchParams.get('iss')).toBe(origin);
+  });
+  it('allows credentialless exchange only for the active configured app origin',async()=>{
+    const {app,options}=setup();const response=await app.fetch(request('/wallet/handoff/exchange',{intentId:loginId},{origin:appOrigin}));
+    expect(response.status).toBe(200);expect(response.headers.get('access-control-allow-origin')).toBe(appOrigin);
+    expect(response.headers.get('access-control-allow-credentials')).toBeNull();expect(options.handoff.exchange).toHaveBeenCalledWith({intentId:loginId},appOrigin);
+    const denied=await app.fetch(request('/wallet/handoff/exchange',{intentId:loginId},{origin:'https://untrusted.example.test'}));expect(denied.status).toBe(403);
+    const withCookie=await app.fetch(request('/wallet/handoff/exchange',{intentId:loginId},{origin:appOrigin,cookie:`${walletSessionCookie}=${token}`}));expect(withCookie.status).toBe(403);
+  });
+  it('offers narrow app preflight without allowing cookie endpoints or a claimed Origin header',async()=>{
+    const {app}=setup();
+    const preflight=(path:string,headers='content-type,x-center-wallet-request')=>new Request(origin+path,{method:'OPTIONS',headers:{origin:appOrigin,'access-control-request-method':'POST','access-control-request-headers':headers}});
+    const good=await app.fetch(preflight('/wallet/handoff/exchange'));expect(good.status).toBe(204);expect(good.headers.get('access-control-allow-origin')).toBe(appOrigin);
+    expect((await app.fetch(preflight('/wallet/login/complete'))).status).toBe(403);
+    expect((await app.fetch(preflight('/wallet/handoff/exchange','content-type,authorization'))).status).toBe(403);
+  });
+  it('logs out without refreshing provider authority and sends no sensitive values to events',async()=>{
+    const {app,options}=setup();const response=await app.fetch(request('/wallet/logout',{}, {cookie:`${walletSessionCookie}=${token}`,'x-center-wallet-csrf':walletCsrfToken(token)}));
+    expect(response.status).toBe(200);expect(options.login.logout).toHaveBeenCalledWith(token);expect(options.refresh.request).not.toHaveBeenCalled();
+    const events=JSON.stringify(vi.mocked(options.onEvent!).mock.calls);expect(events).not.toContain(token);expect(events).not.toContain(flow);expect(events).not.toContain(accountId);
+    expect(response.headers.get('cache-control')).toBe('no-store');expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+  });
+  it('mounts the wallet without applying its cookie origin to other Center routes',async()=>{
+    const {app:wallet}=setup(); const app=new Hono();
+    mountRestSite(app as never,{app:new Hono().get('/health',c=>c.text('ok')),audience,accountsScript:'',docsHtml:'docs',docsCss:'',documents:new Map(),wallet} as unknown as RestSite);
+    expect((await app.fetch(new Request(origin+'/wallet/config'))).status).toBe(200);
+    expect((await app.fetch(new Request('https://center.example.test/api/v1/health'))).status).toBe(200);
+    expect((await app.fetch(new Request('https://center.example.test/accounts'))).status).toBe(200);
+    expect((await app.fetch(new Request('https://center.example.test/wallet/config'))).status).toBe(403);
+    // Third-party Accounts scripts must never execute on the passkey cookie origin.
+    expect((await app.fetch(new Request(origin+'/accounts'))).status).toBe(404);
+    expect((await app.fetch(new Request(origin+'/assets/para.js'))).status).toBe(404);
+    expect((await app.fetch(new Request(origin+'/api/v1/health'))).status).toBe(404);
+  });
+  it('preserves the session cookie while authority is being refreshed',async()=>{
+    const {app,options}=setup();vi.mocked(options.login.readSession).mockResolvedValue(null);
+    const response=await app.fetch(new Request(origin+'/wallet/session',{headers:{cookie:`${walletSessionCookie}=${token}`}}));
+    expect(response.status).toBe(503);expect((await response.json()).error.code).toBe('WALLET_AUTHORITY_CHECKING');
+    expect(response.headers.get('set-cookie')).toBeNull();expect(options.refresh.request).toHaveBeenCalledWith(accountId);
+  });
+  it('does not request provider work for an invalid session',async()=>{
+    const {app,options}=setup();vi.mocked(options.login.identifySession).mockResolvedValue(null);vi.mocked(options.login.readSession).mockResolvedValue(null);
+    const response=await app.fetch(new Request(origin+'/wallet/session',{headers:{cookie:`${walletSessionCookie}=${token}`}}));
+    expect(await response.json()).toEqual({session:null});expect(options.refresh.request).not.toHaveBeenCalled();
+  });
+  it('does not expose cookie session responses to an app origin',async()=>{
+    const {app}=setup();const response=await app.fetch(new Request(origin+'/wallet/session',{headers:{origin:appOrigin,cookie:`${walletSessionCookie}=${token}`}}));
+    expect(response.headers.get('access-control-allow-origin')).toBeNull();expect(response.headers.get('access-control-allow-credentials')).toBeNull();
+  });
+  it('rejects browser-supplied session authority even with valid CSRF',async()=>{
+    const {app,options}=setup();const response=await app.fetch(request('/wallet/authorize/issue',{intentId:loginId,sessionId:loginId},{cookie:`${walletSessionCookie}=${token}`,'x-center-wallet-csrf':walletCsrfToken(token)}));
+    expect(response.status).toBe(400);expect(options.handoff.issue).not.toHaveBeenCalled();
+  });
+  it('sanitizes unexpected errors and tolerates a failed observer after a completed mutation',async()=>{
+    const {app,options}=setup();vi.mocked(options.onEvent!).mockImplementation(()=>{throw new Error('observer failed');});
+    expect((await app.fetch(request('/wallet/login/begin',{}))).status).toBe(201);
+    vi.mocked(options.login.begin).mockRejectedValue(new Error('secret '+flow));
+    const response=await app.fetch(request('/wallet/login/begin',{}));expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain(flow);
+  });
+  it('returns only explicitly enabled app discovery and never a credentialed CORS response',async()=>{
+    const {app,options}=setup();const response=await app.fetch(new Request(origin+'/wallet/config',{headers:{origin:appOrigin}}));
+    expect(await response.json()).toMatchObject({issuer:origin,audience,rpId:'wallet.example.test',app:{origin:appOrigin,generation:1,callbackUris:[appOrigin+'/center/callback']}});
+    expect(response.headers.get('access-control-allow-credentials')).toBeNull();vi.mocked(options.policy.readActivePolicy).mockResolvedValue(null);
+    expect((await app.fetch(new Request(origin+'/wallet/config',{headers:{origin:appOrigin}}))).status).toBe(403);
+  });
+  it('rejects invalid proof identity before requesting a refresh',async()=>{
+    const {app,options}=setup();vi.mocked(options.login.identifyCompletion).mockRejectedValue(new RestError(403,'WALLET_LOGIN_UNAUTHORIZED','private proof'));
+    const response=await app.fetch(request('/wallet/login/complete',{loginId,assertion:{credentialId:flow,userHandle:token,authenticatorData:Buffer.alloc(37).toString('base64url'),clientDataJSON:Buffer.from('{}').toString('base64url'),signature:Buffer.alloc(70).toString('base64url')}},{cookie:`${walletFlowCookie}=${flow}`,'x-center-wallet-csrf':walletCsrfToken(flow)}));
+    expect(response.status).toBe(403);expect(await response.text()).not.toContain('private proof');expect(options.refresh.request).not.toHaveBeenCalled();expect(options.login.complete).not.toHaveBeenCalled();
+  });
+  it('keeps the flow cookie long enough to recover a committed login after challenge expiry',async()=>{
+    const {app}=setup(); const response=await app.fetch(request('/wallet/login/begin',{}));
+    // The store rejects new completions after 3min, but an exact committed retry can recover
+    // its original live 1h session. Losing the response must not also erase the recovery bearer.
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=3780;');
+  });
+  it('does not queue authority or issue a grant for a rejected exchange identity',async()=>{
+    const {app,options}=setup();vi.mocked(options.handoff.identifyExchange).mockRejectedValue(new RestError(403,'WALLET_HANDOFF_INACTIVE','private proof'));
+    const response=await app.fetch(request('/wallet/handoff/exchange',{intentId:loginId},{origin:appOrigin}));
+    expect(response.status).toBe(403);expect(options.refresh.request).not.toHaveBeenCalled();expect(options.handoff.exchange).not.toHaveBeenCalled();
+  });
+  it('does not wait on a slow refresh batch when this session is already fresh',async()=>{
+    const {app,options}=setup();let release!:()=>void; const slow=new Promise<void>(resolve=>{release=resolve;});
+    vi.mocked(options.refresh.tick).mockReturnValue(slow);
+    const result=app.fetch(new Request(origin+'/wallet/session',{headers:{cookie:`${walletSessionCookie}=${token}`}}));
+    try {
+      const fast=await Promise.race([Promise.resolve(result).then(response=>response.status),new Promise<number>(resolve=>setTimeout(()=>resolve(0),50))]);
+      expect(fast).toBe(200);
+    } finally {release();await result;}
+    expect(options.refresh.request).toHaveBeenCalledWith(accountId);
+  });
+  it('does not wait for blocked queue admission after proving a fresh session',async()=>{
+    const {app,options}=setup();let release!:()=>void; const slow=new Promise<void>(resolve=>{release=resolve;});
+    vi.mocked(options.refresh.request).mockReturnValue(slow);
+    const result=app.fetch(new Request(origin+'/wallet/session',{headers:{cookie:`${walletSessionCookie}=${token}`}}));
+    try {
+      const fast=await Promise.race([Promise.resolve(result).then(response=>response.status),new Promise<number>(resolve=>setTimeout(()=>resolve(0),50))]);
+      expect(fast).toBe(200);
+    } finally {release();await result;}
+  });
+  it('requires a dedicated credential origin separate from the legacy API and Accounts site',()=>{
+    const {options}=setup();expect(()=>createWalletSite({...options,origin:new URL(audience).origin})).toThrow();
+  });
+});

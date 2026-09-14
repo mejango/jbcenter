@@ -25,3 +25,21 @@ further owner prompts. Activation requires support on each execution network.
 
 Guide: https://juicebox.center/api/docs/quickstart
 Client workflows: https://juicebox.center/api/docs/client
+
+The experimental `createCenterWalletClient` export connects an app to an explicitly
+configured Center passkey service. It requires fixed `issuer`, `audience` and exact
+`callbackUri` values plus an activated Center allowlist entry. Nothing is activated
+by importing it. Runtime integration alone does not enable a public deployment.
+
+Call `prepareConnection()` and navigate to its `authorizationUrl`. On the registered
+callback page, call `completeConnection()`; it removes callback parameters before
+any exchange and validates the issuer, state and locally retained request key.
+`retryConnection()` recovers the same pending exchange after an uncertain response.
+`restoreConnection()` returns a locally stored connection candidate; every API
+request still checks current server authority. The default storage is the current
+tab's `sessionStorage`, which contains an API request key and must be treated as
+sensitive. `disconnect()` clears it and invalidates the helper's existing clients.
+
+The returned connection exposes the Base wallet address and an ordinary
+`CenterClient` with read/plan/relay access. The request key cannot sign payments or
+activate spending sessions. Fresh owner-approved payment review remains separate.

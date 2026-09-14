@@ -36,6 +36,7 @@ import {
   PostgresSmartAccountRegistry,
   CHECKED_SMART_ACCOUNT_BINDING_MANIFESTS,
   type SmartAccountManifest,
+  type ContractPin,
   type SmartModuleInspector,
   type ReviewedSessionTarget,
   type ReviewedSessionAsset,
@@ -44,6 +45,7 @@ import {
 } from "./smartAccounts/index.js";
 import { createSessionTargetResolver } from "./smartAccounts/targets.js";
 import { createSafe7579Inspector } from "./smartAccounts/inspector.js";
+import { stable } from "./smartAccounts/service.js";
 import { FactoryHistoryIndex, loadFactoryHistorySeed } from "./smartAccounts/factoryHistory.js";
 import { PostgresSafe7579CheckpointStore } from "./smartAccounts/checkpoints.js";
 import { PostgresOnboardingStore } from "./smartAccounts/onboardingPostgres.js";
@@ -59,6 +61,35 @@ import { PostgresUserOperationStore } from "./userOperations/postgres.js";
 import { PostgresTransactionStore } from "./transactions/postgres.js";
 import { TransactionService } from "./transactions/service.js";
 
+import { PostgresWalletAppGrantStore } from "./wallet/appGrantsPostgres.js";
+import { PostgresWalletLoginStore } from "./wallet/loginPostgres.js";
+import { PostgresWalletPolicyStore } from "./wallet/policyPostgres.js";
+import { PostgresWalletHandoffStore } from "./wallet/handoffPostgres.js";
+import { PostgresWalletAuthorityStore } from "./wallet/authorityPostgres.js";
+import { createWalletAuthorityChain } from "./wallet/authorityChain.js";
+import { createWalletAuthorityService } from "./wallet/authorityService.js";
+import { createWalletAuthorityRefresh } from "./wallet/authorityRefresh.js";
+import { PostgresWalletAuthorityRefreshQueue } from "./wallet/authorityRefreshPostgres.js";
+import { validateWalletPolicyOrigin } from "./wallet/policy.js";
+import { createWalletSite } from "./wallet/site.js";
+
+export interface RestWalletConfiguration {
+  origin: string;
+  manifest: SmartAccountManifest;
+  utility: ContractPin;
+}
+export interface RestWalletRuntime {
+  origin: string;
+  login: PostgresWalletLoginStore;
+  appGrants: PostgresWalletAppGrantStore;
+  policy: PostgresWalletPolicyStore;
+  handoff: PostgresWalletHandoffStore;
+  authority: PostgresWalletAuthorityStore;
+  refresh: ReturnType<typeof createWalletAuthorityRefresh>;
+  /** Internal operator transition; startup never activates policy. */
+  activatePolicy: PostgresWalletPolicyStore["activate"];
+}
+
 export async function createRestRuntime(options: {
   pool: Pool;
   store: Store;
@@ -67,6 +98,7 @@ export async function createRestRuntime(options: {
   upstreams: RpcUpstreams;
   audience?: string;
   para?: RestSite["para"];
+  wallet?: RestWalletConfiguration;
   rpcSiteLimitPerMinute?: number;
   smartAccountManifests?: readonly SmartAccountManifest[];
   smartAccountModuleInspectors?: readonly SmartModuleInspector[];
@@ -80,6 +112,7 @@ export async function createRestRuntime(options: {
 }): Promise<{
   site: RestSite;
   transactions: TransactionService;
+  wallet?: RestWalletRuntime;
   stop(): Promise<void>;
 }> {
   const contracts = await getContractCatalog();
@@ -129,6 +162,27 @@ export async function createRestRuntime(options: {
         ]),
       ),
   };
+  // Explicit pilot configuration owns private source pins. A caller changing its object after
+  // startup cannot silently change the profile used by either readiness or operation checks.
+  const walletConfiguration = options.wallet ? structuredClone(options.wallet) : undefined;
+  const wallet: RestWalletRuntime | undefined = walletConfiguration ? (() => {
+    const origin = validateWalletPolicyOrigin(walletConfiguration.origin);
+    const chain = createWalletAuthorityChain({ rpc, manifest: walletConfiguration.manifest,
+      utility: walletConfiguration.utility, limits: { totalTimeoutMs: 10_000 } });
+    const login = new PostgresWalletLoginStore(options.pool, { origin, rpId: new URL(origin).hostname });
+    const policy = new PostgresWalletPolicyStore(options.pool);
+    const appGrants = new PostgresWalletAppGrantStore(options.pool);
+    const handoff = new PostgresWalletHandoffStore(options.pool, {
+      grantStore: appGrants, issuer: origin, audience: options.audience ?? options.config.publicOrigin,
+    });
+    const authority = new PostgresWalletAuthorityStore(options.pool);
+    const refresh = createWalletAuthorityRefresh({
+      queue: new PostgresWalletAuthorityRefreshQueue(options.pool),
+      service: createWalletAuthorityService({ store: authority, chain }),
+      onEvent: event => console.info(JSON.stringify({ service: "wallet", action: "authority_refresh", outcome: event })),
+    });
+    return { origin, login, policy, handoff, appGrants, authority, refresh, activatePolicy: policy.activate.bind(policy) };
+  })() : undefined;
   const accountStore = new PostgresAccountStore(options.pool);
   const verifyContractOwner = createContractOwnerVerifier(
     rpc,
@@ -215,9 +269,15 @@ export async function createRestRuntime(options: {
     findCompiled: (chainId, wallet, permissionId) =>
       sessionStore.findCompiled(chainId, wallet, permissionId),
   });
-  const activeManifests =
-    options.smartAccountManifests ??
-    execution.stacks.map((stack) => stack.manifest);
+  const activeManifests = [...(options.smartAccountManifests ??
+    execution.stacks.map((stack) => stack.manifest))];
+  if (walletConfiguration) {
+    const configured = activeManifests.findIndex(manifest => manifest.id === walletConfiguration.manifest.id);
+    if (configured !== -1 && stable(activeManifests[configured]) !== stable(walletConfiguration.manifest))
+      throw new RestError(500, "WALLET_MANIFEST_CONFLICT", "The wallet profile conflicts with a configured account manifest.");
+    if (configured === -1) activeManifests.push(walletConfiguration.manifest);
+    else activeManifests[configured] = walletConfiguration.manifest;
+  }
   // Adding a guard must not invalidate an existing owner-only binding or hide an
   // already-submitted operation. Retain exact source pins without advertising
   // older manifests as the default wallet-creation choices.
@@ -235,7 +295,7 @@ export async function createRestRuntime(options: {
   const manifests = [...activeManifests, ...retainedManifests];
   const factoryHistory = options.upstreams.has(8453) && execution.stacks.length && !options.smartAccountModuleInspectors && !options.smartAccountManifests
     ? new FactoryHistoryIndex(options.pool, rpc, await loadFactoryHistorySeed()) : undefined;
-  const moduleInspectors =
+  let moduleInspectors =
     options.smartAccountModuleInspectors ??
     (options.smartAccountManifests
       ? []
@@ -252,6 +312,23 @@ export async function createRestRuntime(options: {
             }),
           ]
         : []);
+  if (walletConfiguration) {
+    const walletInspector = createSafe7579Inspector({ rpc, utility: walletConfiguration.utility,
+      inspectSessions: installedVerifier.inspectAllAt,
+      checkpointStore: new PostgresSafe7579CheckpointStore(options.pool) });
+    const existing = moduleInspectors.find(inspector => inspector.id === walletInspector.id);
+    // The same reviewed inspector supports both profiles, but each deployment retains its own
+    // exact utility pin. Custom or legacy inspectors still handle their configured manifests.
+    moduleInspectors = [...moduleInspectors.filter(inspector => inspector.id !== walletInspector.id), {
+      id: walletInspector.id,
+      inspect: input => {
+        if (input.manifest.id === walletConfiguration.manifest.id
+          && input.manifest.revision === walletConfiguration.manifest.revision) return walletInspector.inspect(input);
+        if (existing) return existing.inspect(input);
+        throw new RestError(503, "SMART_MODULE_INSPECTOR_UNAVAILABLE", "The account manifest has no configured module inspector.");
+      },
+    }];
+  }
   const smartAccounts = createSmartAccountService({
     rpc,
     audience: auth.audience,
@@ -411,6 +488,11 @@ export async function createRestRuntime(options: {
     openapi,
   });
   const assets = await readRestAssets();
+  const walletSite = wallet ? createWalletSite({ origin: wallet.origin, audience: auth.audience,
+    browserScript: assets.walletScript, login: wallet.login, policy: wallet.policy,
+    handoff: wallet.handoff, refresh: wallet.refresh,
+    onEvent: event => console.info(JSON.stringify({ service: "wallet", ...event })),
+  }) : undefined;
   const metrics = options.metrics ?? new Metrics();
   if (options.startMaintenance !== false) metrics.startRestRecovery();
   let stopped = false;
@@ -433,6 +515,12 @@ export async function createRestRuntime(options: {
         return { oldestPendingAt: result.oldestPendingAt,
           failures: result.items.filter((item) => item.state === "verification-unavailable").length };
       });
+      if (!stopped && wallet) {
+        await wallet.login.cleanup(250);
+        if (!stopped) await wallet.handoff.cleanup(250);
+        if (!stopped) await wallet.appGrants.cleanup(250);
+        if (!stopped) console.info(JSON.stringify({ service: "wallet", action: "authority_refresh_queue", ...await wallet.refresh.stats() }));
+      }
     })()
       .catch(() => {
         // Do not log signed bytes, profile contents, or provider credentials.
@@ -455,9 +543,11 @@ export async function createRestRuntime(options: {
   const timer =
     options.startMaintenance === false ? undefined : setInterval(run, 30_000);
   timer?.unref();
+  if (options.startMaintenance !== false) wallet?.refresh.start();
   return {
     site: {
       ...(options.para ? { para: options.para } : {}),
+      ...(walletSite ? { wallet: walletSite } : {}),
       app,
       audience: auth.audience,
       docsHtml: apiDocsPage(openapi),
@@ -465,11 +555,13 @@ export async function createRestRuntime(options: {
       ...assets,
     },
     transactions,
+    ...(wallet ? { wallet } : {}),
     async stop() {
       stopped = true;
       if (timer) clearInterval(timer);
       if (factoryTimer) clearInterval(factoryTimer);
       shutdownSignal.abort();
+      await wallet?.refresh.stop();
       await factoryHistory?.stop();
       if (maintenance) await maintenance;
     },

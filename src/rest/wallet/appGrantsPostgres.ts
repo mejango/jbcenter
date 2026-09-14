@@ -94,6 +94,11 @@ function databaseError(error: unknown): never {
   throw error;
 }
 
+/** Global admission must precede every account/session/code lock in a composing transaction. */
+export async function lockWalletAppGrantAdmissionInTransaction(client: PoolClient): Promise<void> {
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended('wallet-app-grants:' || 'rest_wallet_app_grants'::regclass::oid::text, 0))");
+}
+
 /** Typed metadata only. Call the guard inside the transaction that commits an authorized effect. */
 export async function getWalletAppGrantInTransaction(client: PoolClient, id: string): Promise<WalletAppGrant | null> {
   if (!walletAppUuid(id)) invalidWalletAppGrant();
@@ -145,31 +150,38 @@ export class PostgresWalletAppGrantStore {
     const request = validateWalletAppGrantAdmission(input), client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      // Global admission precedes account locks. Identity follows the resolved table across search paths.
-      await client.query("SELECT pg_advisory_xact_lock(hashtextextended('wallet-app-grants:' || 'rest_wallet_app_grants'::regclass::oid::text, 0))");
-      await lockAccount(client, request.accountId);
-      const authority = await readAuthority(client, request.accountId);
-      if (authority.authorityEpoch !== request.expectedAuthorityEpoch || authority.sessionEpoch !== request.expectedSessionEpoch)
-        inactiveWalletAppGrant();
-      const createdAt = await now(client);
-      if (request.expiresAt <= createdAt || request.expiresAt - createdAt > walletAppGrantMaximumLifetimeSeconds) invalidWalletAppGrant();
-      await policyGuard(client, { ...request, appGeneration: request.expectedAppGeneration });
-      const count = (await client.query<{ total: string; account: string; origin: string }>(`SELECT count(*)::text AS total,
-        count(*) FILTER (WHERE account_id=$1)::text AS account,
-        count(*) FILTER (WHERE account_id=$1 AND origin=$2)::text AS origin FROM rest_wallet_app_grants`, [request.accountId, request.origin])).rows[0]!;
-      if (BigInt(count.total) >= BigInt(this.maxRecords) || BigInt(count.account) >= BigInt(this.maxAccountRecords)
-        || BigInt(count.origin) >= BigInt(this.maxOriginRecords))
-        throw new RestAuthError("STORAGE_LIMIT", 429, "Wallet application grant storage limit reached.");
-      const row = (await client.query<GrantRow>(`INSERT INTO rest_wallet_app_grants(id,account_id,signer_address,origin,callback_uri,audience,
-        app_generation,authority_epoch,session_epoch,created_at,expires_at,retain_until)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`, [randomUUID(), request.accountId, request.signerAddress,
-        request.origin, request.callbackUri, request.audience, request.expectedAppGeneration, request.expectedAuthorityEpoch,
-        request.expectedSessionEpoch, createdAt, request.expiresAt, request.expiresAt + walletAppGrantRetentionSeconds])).rows[0]!;
-      const grant = grantOf(row);
-      await assertWalletAppGrantActiveInTransaction(client, grant, { kind: "actor", principalId: walletAppPrincipalId(grant), audience: grant.audience });
+      await lockWalletAppGrantAdmissionInTransaction(client);
+      const grant = await this.insertInTransaction(client, request);
       await client.query("COMMIT"); return grant;
     } catch (error) { await client.query("ROLLBACK"); databaseError(error); }
     finally { client.release(); }
+  }
+  /** Caller owns BEGIN/COMMIT and must acquire lockWalletAppGrantAdmissionInTransaction
+   * before account/session/code locks. Preserves the ordinary insertion's authority, policy,
+   * quota and post-write checks without acquiring another pool connection. */
+  async insertInTransaction(client: PoolClient, input: WalletAppGrantAdmission): Promise<WalletAppGrant> {
+    const request = validateWalletAppGrantAdmission(input);
+    await lockAccount(client, request.accountId);
+    const authority = await readAuthority(client, request.accountId);
+    if (authority.authorityEpoch !== request.expectedAuthorityEpoch || authority.sessionEpoch !== request.expectedSessionEpoch)
+      inactiveWalletAppGrant();
+    const createdAt = await now(client);
+    if (request.expiresAt <= createdAt || request.expiresAt - createdAt > walletAppGrantMaximumLifetimeSeconds) invalidWalletAppGrant();
+    await policyGuard(client, { ...request, appGeneration: request.expectedAppGeneration });
+    const count = (await client.query<{ total: string; account: string; origin: string }>(`SELECT count(*)::text AS total,
+      count(*) FILTER (WHERE account_id=$1)::text AS account,
+      count(*) FILTER (WHERE account_id=$1 AND origin=$2)::text AS origin FROM rest_wallet_app_grants`, [request.accountId, request.origin])).rows[0]!;
+    if (BigInt(count.total) >= BigInt(this.maxRecords) || BigInt(count.account) >= BigInt(this.maxAccountRecords)
+      || BigInt(count.origin) >= BigInt(this.maxOriginRecords))
+      throw new RestAuthError("STORAGE_LIMIT", 429, "Wallet application grant storage limit reached.");
+    const row = (await client.query<GrantRow>(`INSERT INTO rest_wallet_app_grants(id,account_id,signer_address,origin,callback_uri,audience,
+      app_generation,authority_epoch,session_epoch,created_at,expires_at,retain_until)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`, [randomUUID(), request.accountId, request.signerAddress,
+      request.origin, request.callbackUri, request.audience, request.expectedAppGeneration, request.expectedAuthorityEpoch,
+      request.expectedSessionEpoch, createdAt, request.expiresAt, request.expiresAt + walletAppGrantRetentionSeconds])).rows[0]!;
+    const grant = grantOf(row);
+    await assertWalletAppGrantActiveInTransaction(client, grant, { kind: "actor", principalId: walletAppPrincipalId(grant), audience: grant.audience });
+    return grant;
   }
   /** Trusted internal revocation primitive; the caller must establish any canonical owner change.
    * No initialization or client-supplied owner observation. Authority changes also invalidate logout generation. */

@@ -12,6 +12,9 @@ import { lockWalletCeremonyAdmission, PostgresWalletCeremonyStore, walletCeremon
 import { walletCeremonyRetentionMs } from "./ceremonies.js";
 import type { WalletAssertion } from "./webauthn.js";
 import { assertWalletDeploymentObservation, type WalletDeploymentObservation } from "./deploymentObservation.js";
+import { assertWalletDeploymentDispatchAdmission, walletDeploymentDispatchLimits } from "./deploymentDispatch.js";
+import type { WalletDeploymentExecutionContext, WalletDeploymentDispatchClaim, WalletDeploymentDispatchJournal,
+  WalletDeploymentDispatchSettlement } from "./deploymentDispatch.js";
 
 export interface WalletDeploymentPoolConfiguration {
   id: string;
@@ -35,7 +38,7 @@ export interface WalletDeploymentPool {
   activeOperationId: string | null;
   revision: number;
 }
-/** Internal future chain-adapter output only. Shape validation cannot prove canonical chain facts. */
+/** Internal trusted chain-adapter output only. Shape validation cannot prove canonical chain facts. */
 export interface WalletDeploymentAdmission {
   version: "center-wallet-deployment-admission-v1";
   chainId: 8453;
@@ -97,6 +100,18 @@ export interface WalletDeploymentSignedCommit {
   leaseToken: string;
   revision: number;
   rawTransaction: Hex;
+}
+interface DispatchRow {
+  operation_id: string; transaction_hash: Hex; template_commitment: Hex; revision: string; attempts: number;
+  status: WalletDeploymentDispatchJournal["status"]; lease_token: string; lease_until: string;
+  admission: WalletDeploymentDispatchJournal["admission"]; admission_digest: string; claimed_at: string;
+  settled_at: string | null; next_attempt_at: string;
+}
+function dispatchOf(row: DispatchRow): WalletDeploymentDispatchJournal {
+  return { operationId: row.operation_id, transactionHash: row.transaction_hash, templateCommitment: row.template_commitment,
+    revision: Number(row.revision), attempts: row.attempts, status: row.status, leaseToken: row.lease_token,
+    leaseUntil: Number(row.lease_until), admission: row.admission, admissionDigest: row.admission_digest,
+    claimedAt: Number(row.claimed_at), settledAt: row.settled_at === null ? null : Number(row.settled_at), nextAttemptAt: Number(row.next_attempt_at) };
 }
 
 const nowSql = "floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint";
@@ -185,6 +200,7 @@ function relayPolicy(config: WalletDeploymentPoolConfiguration): RelayPolicy {
     maximumFeePerGas: BigInt(config.policy.maximumFeePerGas), maximumTransactionCost: BigInt(config.policy.maximumTransactionCost),
     confirmations: 1, allowedChainIds: [8453] };
 }
+export { relayPolicy as walletDeploymentRelayPolicy };
 function copyProof(input: WalletAssertion): WalletAssertion {
   const keys = ["credentialId", "userHandle", "authenticatorData", "clientDataJSON", "signature"];
   if (!input || typeof input !== "object" || Object.keys(input).length !== keys.length ||
@@ -249,7 +265,7 @@ function operationOf(row: OperationRow): WalletDeploymentOperation {
     revision: Number(row.revision) };
 }
 
-/** Internal durable store only. Admission observations must come from the future trusted chain
+/** Internal durable store only. Admission observations must come from the configured trusted chain
  * adapter; this class cannot establish onchain truth, sign, publish or release a sender lane.
  * All public records here are internal: signed bytes must not be returned by a future status route. */
 export class PostgresWalletDeploymentStore {
@@ -316,6 +332,86 @@ export class PostgresWalletDeploymentStore {
     id(operationId);
     const row = (await this.pool.query<OperationRow>("SELECT * FROM rest_wallet_deployments WHERE id=$1", [operationId])).rows[0];
     return row ? operationOf(row) : null;
+  }
+
+  /** Claimed enrollment receipt remains the authority for exact recovery after ceremony expiry or
+   * current-credential replacement. It cannot authorize a new nonce, wallet or transaction. */
+  async loadExecutionContext(operationId: string): Promise<WalletDeploymentExecutionContext> {
+    id(operationId); const before = await this.required(operationId);
+    return this.transaction(async client => {
+      const pool = await this.poolRecord(before.poolId, client), enrollment = await lockWalletEnrollmentInTransaction(client, before.enrollmentId);
+      const operation = await this.required(operationId, client);
+      this.sameContext(before, operation, enrollment, pool);
+      if (operation.state === "prepared" || !operation.template || !operation.claimedAt || pool.activeOperationId !== operation.id) conflict();
+      return { pool, enrollment, operation };
+    });
+  }
+  async getDispatch(operationId: string): Promise<WalletDeploymentDispatchJournal | null> {
+    id(operationId);
+    const row = (await this.pool.query<DispatchRow>("SELECT * FROM rest_wallet_deployment_dispatches WHERE operation_id=$1", [operationId])).rows[0];
+    return row ? dispatchOf(row) : null;
+  }
+  async leaseDispatch(input: WalletDeploymentDispatchClaim): Promise<WalletDeploymentDispatchJournal> {
+    const v = ownFields(input, ["operationId", "expectedRevision", "signedHash", "admission"], ["leaseMs"]);
+    id(v.operationId as string);
+    const operationId = v.operationId as string, expectedRevision = v.expectedRevision as number, signedHash = v.signedHash as Hex;
+    const leaseMs = v.leaseMs === undefined ? walletDeploymentDispatchLimits.leaseMs : v.leaseMs as number;
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || typeof signedHash !== "string" || !word.test(signedHash) ||
+        !Number.isSafeInteger(leaseMs) || leaseMs < 1 || leaseMs > walletDeploymentDispatchLimits.leaseMs) invalid();
+    enrollmentDigest(v.admission); const requestAdmission = structuredClone(v.admission);
+    const before = await this.required(operationId);
+    return this.transaction(async client => {
+      const pool = await this.poolRecord(before.poolId, client), enrollment = await lockWalletEnrollmentInTransaction(client, before.enrollmentId);
+      const operation = await this.required(operationId, client);
+      this.sameContext(before, operation, enrollment, pool);
+      if (operation.revision !== expectedRevision || operation.signed?.hash !== signedHash) conflict();
+      const context = { pool, enrollment, operation }, now = await walletCeremonyDatabaseNow(client);
+      const admission = assertWalletDeploymentDispatchAdmission(requestAdmission, context, now), digest = enrollmentDigest(admission);
+      const prior = (await client.query<DispatchRow>("SELECT * FROM rest_wallet_deployment_dispatches WHERE operation_id=$1 FOR UPDATE", [operationId])).rows[0];
+      if (prior && (Number(prior.next_attempt_at) > now || prior.attempts >= walletDeploymentDispatchLimits.maximumAttempts)) busy();
+      const token = randomUUID(), until = Math.min(now + leaseMs, admission.expiresAt);
+      const row = prior ? (await client.query<DispatchRow>(`UPDATE rest_wallet_deployment_dispatches SET revision=revision+1,
+        attempts=attempts+1,status='in-flight',lease_token=$2,lease_until=$3,admission=$4::jsonb,admission_digest=$5,
+        claimed_at=$6,settled_at=NULL,next_attempt_at=$7 WHERE operation_id=$1 RETURNING *`,
+      [operationId, token, until, JSON.stringify(admission), digest, now, until + walletDeploymentDispatchLimits.cooldownMs])).rows[0]!
+        : (await client.query<DispatchRow>(`INSERT INTO rest_wallet_deployment_dispatches
+        (operation_id,transaction_hash,template_commitment,revision,attempts,status,lease_token,lease_until,admission,admission_digest,claimed_at,next_attempt_at)
+        VALUES($1,$2,$3,1,1,'in-flight',$4,$5,$6::jsonb,$7,$8,$9) RETURNING *`,
+        [operationId, signedHash, operation.templateCommitment, token, until, JSON.stringify(admission), digest, now,
+          until + walletDeploymentDispatchLimits.cooldownMs])).rows[0]!;
+      // Includes index/trigger/write waits. An expired admission or lease rolls the whole claim back.
+      const after = await walletCeremonyDatabaseNow(client);
+      assertWalletDeploymentDispatchAdmission(admission, context, after); if (until <= after) conflict();
+      return dispatchOf(row);
+    });
+  }
+  async settleDispatch(input: WalletDeploymentDispatchSettlement): Promise<{ journal: WalletDeploymentDispatchJournal; replayed: boolean }> {
+    const v = ownFields(input, ["operationId", "expectedRevision", "leaseToken", "signedHash", "status"]);
+    const request = { operationId: v.operationId as string, expectedRevision: v.expectedRevision as number,
+      leaseToken: v.leaseToken as string, signedHash: v.signedHash as Hex, status: v.status as "accepted" | "unknown" };
+    id(request.operationId); id(request.leaseToken);
+    if (!Number.isSafeInteger(request.expectedRevision) || request.expectedRevision < 1 || typeof request.signedHash !== "string" ||
+        !word.test(request.signedHash) || !["accepted", "unknown"].includes(request.status)) invalid();
+    const before = await this.required(request.operationId);
+    return this.transaction(async client => {
+      const pool = await this.poolRecord(before.poolId, client), enrollment = await lockWalletEnrollmentInTransaction(client, before.enrollmentId);
+      const operation = await this.required(request.operationId, client);
+      this.sameContext(before, operation, enrollment, pool);
+      if (operation.signed?.hash !== request.signedHash || pool.activeOperationId !== operation.id) conflict();
+      const prior = (await client.query<DispatchRow>("SELECT * FROM rest_wallet_deployment_dispatches WHERE operation_id=$1 FOR UPDATE", [operation.id])).rows[0];
+      if (!prior || prior.transaction_hash !== request.signedHash || prior.lease_token !== request.leaseToken) conflict();
+      if (prior.status !== "in-flight") {
+        if (Number(prior.revision) !== request.expectedRevision + 1 || prior.status !== request.status) conflict();
+        return { journal: dispatchOf(prior), replayed: true };
+      }
+      const now = await walletCeremonyDatabaseNow(client);
+      if (Number(prior.revision) !== request.expectedRevision || Number(prior.lease_until) <= now) conflict();
+      const row = (await client.query<DispatchRow>(`UPDATE rest_wallet_deployment_dispatches SET revision=revision+1,status=$2,
+        settled_at=$3 WHERE operation_id=$1 AND revision=$4 AND lease_token=$5 AND lease_until>${nowSql} RETURNING *`,
+      [operation.id, request.status, now, request.expectedRevision, request.leaseToken])).rows[0];
+      if (!row || Number(prior.lease_until) <= await walletCeremonyDatabaseNow(client)) conflict();
+      return { journal: dispatchOf(row), replayed: false };
+    });
   }
 
   async claim(input: WalletDeploymentClaim): Promise<{ operation: WalletDeploymentOperation; replayed: boolean }> {

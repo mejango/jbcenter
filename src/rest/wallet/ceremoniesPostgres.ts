@@ -21,7 +21,8 @@ export async function walletCeremonyDatabaseNow(client: PoolClient) {
 }
 /** Compound workflows acquire admission before their own rows and then ceremony rows. */
 export async function lockWalletCeremonyAdmission(client: PoolClient): Promise<void> {
-  await client.query("SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':wallet-ceremonies', 0))");
+  // Different leading search_path schemas can resolve the same table; lock the actual data.
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended('wallet-ceremonies:' || 'rest_wallet_ceremonies'::regclass::oid::text, 0))");
 }
 
 function conflict(): never {
