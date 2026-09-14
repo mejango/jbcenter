@@ -243,10 +243,10 @@ suite('durable replacement-passkey proof intake (canonical state explicitly mode
     const application = `recovery_order_${randomUUID()}`;
     const beginPool = new Pool({ connectionString, options: `-c search_path=${schema}`, application_name: application });
     const selected = new PostgresWalletRecoveryStore(beginPool, policy), locker = await pool.connect();
-    const original = selected.authority.loadContext.bind(selected.authority);
+    const original = PostgresWalletAuthorityStore.prototype.loadContext;
     // A real account lock after the initial snapshot forces begin's transaction to wait.
-    const snapshot = vi.spyOn(selected.authority, 'loadContext').mockImplementationOnce(async id => {
-      const result = await original(id);
+    const snapshot = vi.spyOn(PostgresWalletAuthorityStore.prototype, 'loadContext').mockImplementationOnce(async function (this: PostgresWalletAuthorityStore, id) {
+      const result = await original.call(this, id);
       await locker.query('BEGIN');
       await locker.query('SELECT id FROM rest_accounts WHERE id=$1 FOR UPDATE', [id]);
       return result;
