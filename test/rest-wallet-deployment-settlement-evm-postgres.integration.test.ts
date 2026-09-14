@@ -21,7 +21,9 @@ suite("real PostgreSQL and unforked Anvil sequential deployment settlement", () 
   let admin: Pool, pool: Pool, reader: Pool, store: PostgresWalletDeploymentStore, enrollments: PostgresWalletEnrollmentStore;
   const children: ChildProcess[] = [];
   const producer = () => createLocalAnvilWalletDeploymentSettlement(fixture);
-  const wire = (operationId: string, extra: Record<string, unknown> = {}) => ({ action: "recover", operationId, dispatchLeaseMs: 500,
+  // Settlement needs a successfully acknowledged send. Half a second can expire
+  // during local EVM RPC work; short-lease uncertainty has separate dispatch tests.
+  const wire = (operationId: string, extra: Record<string, unknown> = {}) => ({ action: "recover", operationId, dispatchLeaseMs: 5000,
     localAnvil: { endpoint: fixture.endpoint, expectedGenesisHash: fixture.expectedGenesisHash, utility: fixture.utility }, ...extra });
   const dbNow = async () => Number((await pool.query("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::text AS now")).rows[0].now);
   function message(child: ChildProcess, kind: string): Promise<any> {

@@ -112,8 +112,10 @@ suite("PostgreSQL exact-byte deployment dispatch fencing", () => {
   });
   it("replaces only an expired lease after cooldown and rejects the old process's late response", async () => {
     const context = await signedContext(), a = await worker(), b = await worker();
-    const first = await a.request({ action: "lease-dispatch", input: await claim(context, 100) });
-    expect(first.status).toBe(200);
+    // This first attempt must commit successfully before testing lease takeover.
+    // Use the fixture's normal lease; subsecond expiry is tested separately below.
+    const first = await a.request({ action: "lease-dispatch", input: await claim(context) });
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
     const old = first.body as WalletDeploymentDispatchJournal;
     await waitUntil(old.nextAttemptAt + 10);
     // A retry obtains a fresh observation, just as the production coordinator does after cooldown.
@@ -124,7 +126,7 @@ suite("PostgreSQL exact-byte deployment dispatch fencing", () => {
     expect((await a.request({ action: "settle-dispatch", input: settlement(old, "accepted") })).status).toBe(409);
     expect(await store.getDispatch(context.operation.id)).toEqual(next.body);
     expect(await store.get(context.operation.id)).toEqual(context.operation);
-  });
+  }, 15_000);
   it.each(["after-dispatch", "after-commit"])("recovers a process killed at %s without losing signed bytes or allocation", async barrier => {
     const context = await signedContext(), child = await worker(), reached = message(child.child, "barrier");
     const request = child.request({ action: "lease-dispatch", input: await claim(context), barrier }).catch(() => null);

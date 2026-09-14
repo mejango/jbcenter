@@ -46,7 +46,17 @@ export async function exerciseRecoveryBrowser(options: {
   await page.getByRole('button', { name: 'Check recovery' }).click();
   await contains('Replacing your passkey');
   // Only the host worker may advance retained exact approval; GET merely reconciles.
-  for (let index = 0; index < 4; index++) await recovery.tick();
+  // The real page can poll status while the host progresses the same lane.
+  // Retry only the pre-work busy result, as the scheduled host worker does.
+  const workerDeadline = performance.now() + 20_000;
+  for (let index = 0; index < 4;) {
+    if (performance.now() >= workerDeadline) throw new Error('Recovery fixture worker did not finish within its deadline');
+    try { await recovery.tick(); index++; }
+    catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || error.code !== 'WALLET_RECOVERY_RELAY_BUSY') throw error;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  }
   await page.getByRole('button', { name: 'Check recovery' }).click();
   await contains('Authorize this browser');
   await context.clearCookies({ name: walletRecoveryCookie });
