@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { encodeAbiParameters, type Hex } from "viem";
 import {
   RelayrProvider,
+  RelayrResponseError,
+  parseIndependentQuoteBinding,
   parsePayment,
   parseQuote,
   parseStatus,
@@ -80,6 +82,16 @@ function quoteResponse(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+it('accepts testnet payments only for the operator same-family parser; ordinary app sponsorship stays mainnet-only', () => {
+  const testEntries = entries().map(entry => ({ ...entry, chain: 84532 }));
+  const response = quoteResponse({ payment_info: [payment({ chain: 84532 })] });
+  expect(parseIndependentQuoteBinding(response, testEntries, NOW).payments[0]!.chainId).toBe(84532);
+  expect(() => parseQuote(response, testEntries, NOW, MAXIMUM_VALUE)).toThrow();
+  expect(() => parseIndependentQuoteBinding(response, entries(), NOW)).toThrow();
+  expect(() => parseIndependentQuoteBinding(response, [entries()[0]!, testEntries[1]!], NOW)).toThrow();
+  expect(() => parseIndependentQuoteBinding(response, [], NOW)).toThrow();
+});
 
 function quote(): RelayrQuote {
   return parseQuote(quoteResponse(), entries(), NOW, MAXIMUM_VALUE);
@@ -557,6 +569,7 @@ describe("bounded fixed-origin Relayr transport", () => {
           new ReadableStream({
             start(controller) {
               controller.enqueue(new TextEncoder().encode(PRIVATE_ERROR));
+              controller.close();
             },
             cancel,
           }),
@@ -572,7 +585,38 @@ describe("bounded fixed-origin Relayr transport", () => {
       expect(String(error)).not.toContain(PRIVATE_ERROR);
       expect(JSON.stringify(error)).not.toContain(PRIVATE_ERROR);
     }
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it('keeps bounded HTTP diagnostics private from ordinary error serialization', async () => {
+    const body = JSON.stringify({ error: PRIVATE_ERROR, bundle_uuid: BUNDLE });
+    const error = await caught(new RelayrProvider(async () => new Response(body, { status: 406 })).createIndependent(entries()));
+    expect(error).toBeInstanceOf(RelayrResponseError);
+    expect((error as RelayrResponseError).responseDetails).toEqual({ status: 406, body, complete: true, truncated: false });
+    expect(String(error)).not.toContain(PRIVATE_ERROR);
+    expect(JSON.stringify(error)).not.toContain(PRIVATE_ERROR);
+  });
+
+  it('retains the HTTP status and bounded prefix when an error body exceeds the limit', async () => {
+    const error = await caught(new RelayrProvider(async () => new Response('x'.repeat(RELAYR_LIMITS.maximumBytes + 1), { status: 500 })).createIndependent(entries()));
+    expect(error).toMatchObject({ code: 'RELAYR_RESPONSE_LIMIT' });
+    expect((error as RelayrResponseError).responseDetails).toEqual({ status: 500,
+      body: 'x'.repeat(RELAYR_LIMITS.maximumBytes), complete: false, truncated: true });
+  });
+
+  it('retains the HTTP status and partial body when a rejected response stalls', async () => {
+    vi.useFakeTimers();
+    const cancel = vi.fn();
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode('partial error')); }, cancel,
+    }), { status: 503 }));
+    const result = caught(new RelayrProvider(fetcher, 50).createIndependent(entries()));
+    await vi.advanceTimersByTimeAsync(50);
+    const error = await result;
+    expect(error).toMatchObject({ code: 'RELAYR_TIMEOUT' });
+    expect((error as RelayrResponseError).responseDetails).toEqual({ status: 503, body: 'partial error', complete: false, truncated: false });
     expect(cancel).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledOnce();
   });
 
   it("rejects a response with no body", async () => {

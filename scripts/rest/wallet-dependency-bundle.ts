@@ -33,7 +33,7 @@ try {
   signal.throwIfAborted();
   const bundle = await prepareWalletDependencyBundle(observations);
   await writeFile(output, JSON.stringify(bundle, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
-  console.log(JSON.stringify({ bodyHash: bundle.bodyHash, transactions: bundle.body.transactions.length,
+  console.log(JSON.stringify({ bundles: bundle.bundles.map(({ family, bodyHash, body }) => ({ family, bodyHash, transactions: body.transactions.length })),
     dependencies: bundle.recipe.profile,
     audit: bundle.audit, publicationEnabled: bundle.publicationEnabled, output }));
 } catch {
