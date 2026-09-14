@@ -13,7 +13,7 @@ import { inspectWalletDependencyChain, prepareWalletDependencyBundle, WALLET_DEP
 import type { RelayrIndependentEntry } from '../src/rest/sponsorship/types.js';
 import type { RestRpc } from '../src/rest/core.js';
 import { RelayrProvider } from '../src/rest/sponsorship/provider.js';
-import { publishWalletDependencyQuote, recoveryBundleUuid } from '../src/rest/wallet/dependencyPublication.js';
+import { publishWalletDependencyQuote, reconcileWalletDependencyQuote, recoveryBundleUuid } from '../src/rest/wallet/dependencyPublication.js';
 import { RELAYR_NATIVE_TOKEN, RELAYR_PAYMENT_ADDRESS, RELAYR_PAYMENT_SELECTOR } from '../src/rest/sponsorship/constants.js';
 
 const blockHash = keccak256('0x1234'), clock = 1800000000000;
@@ -194,6 +194,23 @@ describe('one-shot operator Relayr publication journal', () => {
     await expect(publishWalletDependencyQuote({ ...f, provider, now: () => clock })).rejects.toMatchObject({ code: 'EEXIST' });
     expect(provider.createIndependent).toHaveBeenCalledTimes(1);
   });
+  it('recovers provider-reordered UUIDs and hex amounts from the exact GET echo before claiming a bound quote', async () => {
+    const f = await publication(), status = await f.status();
+    f.response.tx_uuids.reverse();
+    f.response.payment_info[0]!.amount = '0x4d2';
+    for (const item of status.transactions) item.request.value = '0x0';
+    const provider = { createIndependent: vi.fn(async () => f.response), status: vi.fn(async () => {
+      expect(await f.record()).toMatchObject({ state: 'quote-received', provisionalQuote: { bundleUuid: f.response.bundle_uuid } });
+      expect(await f.record()).not.toHaveProperty('quote');
+      return status;
+    }) };
+    const result = await publishWalletDependencyQuote({ ...f, provider, now: () => clock });
+    expect(result.record.quote.entries.map(item => item.txUuid)).toEqual(status.transactions.map(item => item.tx_uuid));
+    expect(result.record.quote.payments[0]!.value).toBe('1234');
+    expect(result.record.state).toBe('quoted');
+    expect(result.record.fundingEnabled).toBe(false);
+    expect(provider.createIndependent).toHaveBeenCalledTimes(1);
+  });
   it.each(['mainnet', 'testnet'] as const)('quotes only %s calls and accepts only payment options from that family', async family => {
     const f = await publication(family);
     const provider = { status: f.status, createIndependent: vi.fn(async (entries: RelayrIndependentEntry[]) => {
@@ -221,6 +238,55 @@ describe('one-shot operator Relayr publication journal', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     await expect(publishWalletDependencyQuote({ ...f, provider: new RelayrProvider(fetcher), now: () => clock })).rejects.toMatchObject({ code: 'EEXIST' });
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('reconciles a captured response through GET only without changing the original publication or allowing a new POST', async () => {
+    const f = await publication(), originalStatus = await f.status();
+    f.response.tx_uuids.reverse();
+    f.response.payment_info[0]!.amount = '0x4d2';
+    const provider = { createIndependent: vi.fn(async () => f.response), status: vi.fn(async () => { throw new Error('GET unavailable'); }) };
+    await expect(publishWalletDependencyQuote({ ...f, provider, now: () => clock })).rejects.toThrow('GET unavailable');
+    const before = await readFile(join(f.journal, 'publication.json'), 'utf8');
+    const reconciler = { status: vi.fn(async () => ({ ...originalStatus, payment_received: false })) };
+    const result = await reconcileWalletDependencyQuote({ directory: f.directory, bodyHash: f.journal.split('/').at(-1)!,
+      source: f.source, provider: reconciler, now: () => clock + 3600000 });
+    expect(result.record.state).toBe('reconciled');
+    expect(result.record.fundingEnabled).toBe(false);
+    expect(result.record.providerReportedPayment).toBe('unpaid');
+    expect(result.record.quote.entries.map(item => item.txUuid)).toEqual(originalStatus.transactions.map(item => item.tx_uuid));
+    expect(result.record.quote.payments[0]!.value).toBe('1234');
+    expect(await readFile(join(f.journal, 'publication.json'), 'utf8')).toBe(before);
+    expect(JSON.parse(await readFile(result.path, 'utf8'))).toEqual(result.record);
+    expect(reconciler.status).toHaveBeenCalledTimes(1);
+    await expect(publishWalletDependencyQuote({ ...f, provider, now: () => clock })).rejects.toMatchObject({ code: 'EEXIST' });
+    expect(provider.createIndependent).toHaveBeenCalledTimes(1);
+  });
+  it.each(['body', 'bodyHash', 'source', 'response', 'state', 'oversized'])('refuses a damaged %s journal before a reconciliation GET', async field => {
+    const f = await publication();
+    await publishWalletDependencyQuote({ ...f, provider: { createIndependent: async () => f.response, status: f.status }, now: () => clock });
+    const record = await f.record();
+    if (field === 'body') record.body.transactions[0].value = '1';
+    if (field === 'bodyHash') record.bodyHash = `0x${'c'.repeat(64)}`;
+    if (field === 'source') record.source.revision = 'unreviewed';
+    if (field === 'response') delete record.response;
+    if (field === 'state') record.state = 'submission-unknown';
+    if (field === 'oversized') record.padding = 'x'.repeat(2 * 1024 * 1024);
+    await import('node:fs/promises').then(fs => fs.writeFile(join(f.journal, 'publication.json'), JSON.stringify(record)));
+    const provider = { status: vi.fn(async () => f.status()) };
+    await expect(reconcileWalletDependencyQuote({ directory: f.directory, bodyHash: f.journal.split('/').at(-1)!,
+      source: f.source, provider, now: () => clock + 3600000 })).rejects.toThrow();
+    expect(provider.status).not.toHaveBeenCalled();
+  });
+  it('retains a mismatched GET response before reconciliation rejects and leaves the original journal unchanged', async () => {
+    const f = await publication();
+    await publishWalletDependencyQuote({ ...f, provider: { createIndependent: async () => f.response, status: f.status }, now: () => clock });
+    const before = await readFile(join(f.journal, 'publication.json'), 'utf8'), status = await f.status();
+    status.transactions[0]!.request.data = '0x00';
+    await expect(reconcileWalletDependencyQuote({ directory: f.directory, bodyHash: f.journal.split('/').at(-1)!, source: f.source,
+      provider: { status: async () => status }, now: () => clock + 3600000 })).rejects.toMatchObject({ code: 'RELAYR_INVALID_STATUS' });
+    expect(await readFile(join(f.journal, 'publication.json'), 'utf8')).toBe(before);
+    const files = await import('node:fs/promises').then(fs => fs.readdir(f.journal));
+    const captured = files.find(name => name.startsWith('reconciliation-') && name.endsWith('-response.json'))!;
+    expect(JSON.parse(await readFile(join(f.journal, captured), 'utf8')).statusResponse).toEqual(status);
   });
   it('rejects an unknown network family before claiming or publishing', async () => {
     const f = await publication(), provider = { status: f.status, createIndependent: vi.fn(async () => f.response) };
@@ -261,7 +327,7 @@ describe('one-shot operator Relayr publication journal', () => {
     const provider = { createIndependent: vi.fn(async () => f.response), status: vi.fn(async () => status) };
     await expect(publishWalletDependencyQuote({ ...f, provider, now: () => clock })).rejects.toThrow();
     expect(await f.record()).toMatchObject({ state: 'status-received', statusResponse: status, fundingEnabled: false,
-      quote: { bundleUuid: f.response.bundle_uuid } });
+      provisionalQuote: { bundleUuid: f.response.bundle_uuid } });
   });
   it('returns the recovery UUID on disk failure after POST without repeating the submission', async () => {
     const f = await publication();
@@ -315,7 +381,7 @@ describe('one-shot operator Relayr publication journal', () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(JSON.stringify(f.response)))
       .mockResolvedValueOnce(new Response('status temporarily unavailable', { status: 503 }));
     await expect(publishWalletDependencyQuote({ ...f, provider: new RelayrProvider(fetcher), now: () => clock })).rejects.toMatchObject({ code: 'RELAYR_UNAVAILABLE' });
-    expect(await f.record()).toMatchObject({ state: 'status-received', quote: { bundleUuid: f.response.bundle_uuid }, fundingEnabled: false,
+    expect(await f.record()).toMatchObject({ state: 'status-received', provisionalQuote: { bundleUuid: f.response.bundle_uuid }, fundingEnabled: false,
       errorCode: 'RELAYR_UNAVAILABLE', httpResponse: { status: 503, body: 'status temporarily unavailable', complete: true, truncated: false } });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });

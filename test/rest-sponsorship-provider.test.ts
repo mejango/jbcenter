@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { encodeAbiParameters, type Hex } from "viem";
 import {
   RelayrProvider,
+  bindIndependentQuoteStatus,
   RelayrResponseError,
   parseIndependentQuoteBinding,
   parseIndependentStatus,
@@ -138,6 +139,54 @@ describe("Relayr quote commitments and payment validation", () => {
     ).toBe("0");
   });
 
+  it('normalizes bounded provider hex amounts losslessly, including values above JS safe integers', () => {
+    for (const amount of ['0', '9007199254740993', ((1n << 256n) - 1n).toString()]) {
+      const input = `0x${BigInt(amount).toString(16)}`;
+      expect(parsePayment(payment({ amount: input }), BUNDLE, NOW, (1n << 256n) - 1n).value).toBe(amount);
+    }
+    expect(() => parsePayment(payment({ amount: '0x20000000000001' }), BUNDLE, NOW, 9007199254740992n))
+      .toThrowError(expect.objectContaining({ code: 'RELAYR_FUNDING_LIMIT' }));
+  });
+
+  it('binds unordered provider IDs using every exact independent call, then verifies status normally', () => {
+    const original = parseIndependentQuoteBinding(quoteResponse({ tx_uuids: [...TX_IDS].reverse() }), independentEntries(), NOW);
+    const status = statusResponse();
+    for (const item of status.transactions) Object.assign(item.request, { value: `0x${BigInt(item.request.value).toString(16)}`, virtual_nonce: null });
+    status.transactions.reverse();
+    const bound = bindIndependentQuoteStatus(status, original);
+    expect(bound.entries.map(item => item.txUuid)).toEqual(TX_IDS);
+    expect(bound.entries.map(item => item.entry)).toEqual(independentEntries());
+    expect(bound.commitment).not.toBe(original.commitment);
+    expect(parseIndependentStatus(status, bound).map(item => item.step)).toEqual([1, 0]);
+    expect(original.entries.map(item => item.txUuid)).toEqual([...TX_IDS].reverse());
+    for (const field of ['chain', 'target', 'data', 'value', 'virtual_nonce'] as const) {
+      const changed = structuredClone(status);
+      Object.assign(changed.transactions[0]!.request, { [field]: field === 'virtual_nonce' ? 0 : field === 'chain' ? 1 : field === 'value' ? '0xd' : '0x00' });
+      expect(() => bindIndependentQuoteStatus(changed, original)).toThrow();
+    }
+    for (const invalid of ['0x00', '0Xc', '0x', '-1', '1e2', null, 12, `0x1${'0'.repeat(64)}`]) {
+      const changed = structuredClone(status);
+      Object.assign(changed.transactions[0]!.request, { value: invalid });
+      expect(() => bindIndependentQuoteStatus(changed, original)).toThrow();
+    }
+    const unknown = structuredClone(status); unknown.transactions[0]!.tx_uuid = BUNDLE;
+    expect(() => bindIndependentQuoteStatus(unknown, original)).toThrow();
+    const duplicate = structuredClone(status); duplicate.transactions[1] = structuredClone(duplicate.transactions[0]!);
+    expect(() => bindIndependentQuoteStatus(duplicate, original)).toThrow();
+    const repeatedCall = structuredClone(status); repeatedCall.transactions[1]!.request = structuredClone(repeatedCall.transactions[0]!.request);
+    expect(() => bindIndependentQuoteStatus(repeatedCall, original)).toThrow();
+    expect(() => bindIndependentQuoteStatus({ ...status, bundle_uuid: TX_IDS[0] }, original)).toThrow();
+    expect(() => bindIndependentQuoteStatus({ ...status, transactions: status.transactions.slice(1) }, original)).toThrow();
+  });
+
+  it('accepts exact hexadecimal status values while preserving strict ordered nonces and value equality', () => {
+    const status = statusResponse();
+    for (const item of status.transactions) item.request.value = `0x${BigInt(item.request.value).toString(16)}`;
+    expect(parseStatus(status, quote())).toHaveLength(2);
+    status.transactions[1]!.request.value = '0xd';
+    expect(() => parseStatus(status, quote())).toThrow();
+  });
+
   it.each([
     ["testnet chain", { chain: 84532 }],
     ["string chain", { chain: "8453" }],
@@ -148,7 +197,9 @@ describe("Relayr quote commitments and payment validation", () => {
     ["missing funding token", { token: undefined }],
     ["numeric amount", { amount: 123 }],
     ["exponent amount", { amount: "1e18" }],
-    ["hex amount", { amount: "0x123" }],
+    ["noncanonical hex amount", { amount: "0x0123" }],
+    ["hex overflow", { amount: `0x1${"0".repeat(64)}` }],
+    ["empty hex amount", { amount: "0x" }],
     ["negative amount", { amount: "-1" }],
     ["leading zero amount", { amount: "01" }],
     ["uint256 overflow", { amount: (1n << 256n).toString() }],
@@ -206,6 +257,7 @@ describe("Relayr quote commitments and payment validation", () => {
       DEADLINE.toString(),
       new Date(Number(DEADLINE) * 1000).toISOString(),
       "2026-09-06T21:05:00-03:00",
+      "2026-09-07T00:05:00.960633325Z",
     ]) {
       expect(
         parsePayment(

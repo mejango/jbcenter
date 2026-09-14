@@ -1,9 +1,10 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, rename } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { RestError } from '../core.js';
 import { object, uuid } from '../sponsorship/validation.js';
-import { parseIndependentQuoteBinding, parseIndependentStatus, RelayrResponseError, type RelayrResponseDetails, type RelayrProvider } from '../sponsorship/provider.js';
+import { stable } from '../smartAccounts/service.js';
+import { bindIndependentQuoteStatus, parseIndependentQuoteBinding, parseIndependentStatus, RelayrResponseError, type RelayrResponseDetails, type RelayrProvider } from '../sponsorship/provider.js';
 import { prepareWalletDependencyBundle, type inspectWalletDependencyChain, type WalletDependencyFamily } from './dependencyBundle.js';
 
 type Observation = Awaited<ReturnType<typeof inspectWalletDependencyChain>>;
@@ -52,15 +53,7 @@ export async function publishWalletDependencyQuote(options: {
   }
   const parent = await open(resolve(directory, '..'), 'r');
   try { await parent.sync(); } finally { await parent.close(); }
-  async function save(record: unknown, name = 'publication.json') {
-    const temporary = join(directory, `${randomUUID()}.tmp`);
-    const file = await open(temporary, 'wx', 0o600);
-    try { await file.writeFile(JSON.stringify(record, null, 2) + '\n'); await file.sync(); }
-    finally { await file.close(); }
-    await rename(temporary, join(directory, name));
-    const folder = await open(directory, 'r');
-    try { await folder.sync(); } finally { await folder.close(); }
-  }
+  const save = (record: unknown, name = 'publication.json') => saveRecord(directory, record, name);
   const attempt = { version: 'center-wallet-dependency-publication-v2', family: bundle.family,
     state: 'submission-unknown', attemptId: randomUUID(), previousAttemptId, startedAt: now(), bodyHash: bundle.bodyHash,
     body: bundle.body, observations: plan.observations, source };
@@ -101,16 +94,17 @@ export async function publishWalletDependencyQuote(options: {
     // A validated UUID survives disk failures through the CLI's stderr; never echo provider text.
     throw new WalletDependencyJournalError(uuid(id) ? id : null);
   }
-  const quote = parseIndependentQuoteBinding(response, bundle.body.transactions, now());
-  const bound = { ...received, state: 'quote-bound', quote, fundingEnabled: false as const };
-  await save(bound);
-  const status = await receive(() => options.provider.status(quote.bundleUuid, options.signal), bound, 'status', quote.bundleUuid);
+  const provisionalQuote = parseIndependentQuoteBinding(response, bundle.body.transactions, now());
+  const receivedQuote = { ...received, state: 'quote-received', provisionalQuote, fundingEnabled: false as const };
+  await save(receivedQuote);
+  const status = await receive(() => options.provider.status(provisionalQuote.bundleUuid, options.signal), receivedQuote, 'status', provisionalQuote.bundleUuid);
   // A UUID list alone does not echo the requested calls. Require the provider's
   // stored bundle to contain the exact targets, calldata, values and nonce fields.
-  const statusReceived = { ...bound, state: 'status-received', statusResponse: status };
+  const statusReceived = { ...receivedQuote, state: 'status-received', statusResponse: status };
   await save(statusReceived);
+  const quote = bindIndependentQuoteStatus(status, provisionalQuote);
   const providerStatus = parseIndependentStatus(status, quote);
-  const record = { ...statusReceived, state: 'quoted', providerStatus };
+  const record = { ...statusReceived, state: 'quoted', quote, providerStatus };
   await save(record);
   return { record, path };
 }
@@ -119,4 +113,76 @@ export async function publishWalletDependencyQuote(options: {
 export function recoveryBundleUuid(body: string): string | null {
   try { const value = JSON.parse(body); return object(value) && uuid(value.bundle_uuid) ? value.bundle_uuid : null; }
   catch { return null; }
+}
+
+/** Atomic local evidence writes. Callers retain the permanent publication claim and history. */
+async function saveRecord(directory: string, record: unknown, name: string) {
+  const temporary = join(directory, `${randomUUID()}.tmp`);
+  const file = await open(temporary, 'wx', 0o600);
+  try { await file.writeFile(JSON.stringify(record, null, 2) + '\n'); await file.sync(); }
+  finally { await file.close(); }
+  await rename(temporary, join(directory, name));
+  const folder = await open(directory, 'r');
+  try { await folder.sync(); } finally { await folder.close(); }
+}
+
+/** GET-only recovery of a known quote. Historical observations reconstruct the original
+ * recipe at publication time; they are never fresh funding or deployment evidence. */
+export async function reconcileWalletDependencyQuote(options: {
+  directory: string; bodyHash: string; source: { revision: string; fingerprint: string };
+  provider: Pick<RelayrProvider, 'status'>; now?: () => number; signal?: AbortSignal;
+}) {
+  function invalid(): never { throw new RestError(409, 'WALLET_DEPENDENCY_JOURNAL_INVALID', 'A complete, unchanged publication record is required for read-only reconciliation.'); }
+  const validSource = (value: unknown) => object(value) && typeof value.revision === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value.revision)
+    && typeof value.fingerprint === 'string' && /^[0-9a-f]{64}$/.test(value.fingerprint);
+  if (!/^[0-9a-f]{64}$/.test(options.bodyHash) || !validSource(options.source)) invalid();
+  const directory = join(resolve(options.directory), options.bodyHash), originalPath = join(directory, 'publication.json');
+  const file = await open(originalPath, 'r');
+  let bytes: Buffer;
+  try {
+    const buffer = Buffer.alloc(2 * 1024 * 1024 + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const result = await file.read(buffer, length, buffer.length - length, null);
+      if (!result.bytesRead) break;
+      length += result.bytesRead;
+    }
+    if (length === buffer.length) invalid();
+    bytes = buffer.subarray(0, length);
+  } finally { await file.close(); }
+  const original: unknown = JSON.parse(bytes.toString('utf8'));
+  const now = options.now ?? Date.now;
+  if (!object(original) || original.version !== 'center-wallet-dependency-publication-v2'
+    || !['response-received', 'quote-received', 'quote-bound', 'status-received', 'quoted'].includes(String(original.state))
+    || !validSource(original.source) || !Number.isSafeInteger(original.startedAt) || Number(original.startedAt) > now()
+    || !Number.isSafeInteger(original.responseReceivedAt) || Number(original.responseReceivedAt) < Number(original.startedAt)
+    || !Array.isArray(original.observations) || !object(original.response)
+    || original.bodyHash !== `0x${options.bodyHash}`) invalid();
+  const plan = await prepareWalletDependencyBundle(original.observations as Observation[], Number(original.startedAt));
+  const bundle = plan.bundles.find(item => item.family === original.family);
+  if (!bundle || bundle.bodyHash !== original.bodyHash || stable(bundle.body) !== stable(original.body)) invalid();
+  const provisionalQuote = parseIndependentQuoteBinding(original.response, bundle.body.transactions, Number(original.responseReceivedAt));
+  const evidence = { version: 'center-wallet-dependency-reconciliation-v1', bodyHash: original.bodyHash,
+    publicationSource: original.source, reconciliationSource: structuredClone(options.source),
+    originalSha256: createHash('sha256').update(bytes).digest('hex'), bundleUuid: provisionalQuote.bundleUuid,
+    fundingEnabled: false as const, historicalRecipeOnly: true as const };
+  const name = `reconciliation-${randomUUID()}`;
+  let status: unknown;
+  try { status = await options.provider.status(provisionalQuote.bundleUuid, options.signal); }
+  catch (error) {
+    if (error instanceof RelayrResponseError) await saveRecord(directory,
+      { ...evidence, observedAt: now(), httpResponse: error.responseDetails }, `${name}-response.json`);
+    throw error;
+  }
+  // No parser or status failure can erase this response or the original POST identity.
+  const received = { ...evidence, observedAt: now(), statusResponse: status };
+  await saveRecord(directory, received, `${name}-response.json`);
+  const quote = bindIndependentQuoteStatus(status, provisionalQuote);
+  const providerStatus = parseIndependentStatus(status, quote);
+  const record = { ...received, state: 'reconciled', quote, providerStatus,
+    providerReportedPayment: object(status) && status.payment_received === true ? 'received' :
+      object(status) && status.payment_received === false ? 'unpaid' : 'unknown' };
+  const path = join(directory, `${name}.json`);
+  await saveRecord(directory, record, `${name}.json`);
+  return { record, path };
 }

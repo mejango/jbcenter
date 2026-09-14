@@ -17,6 +17,7 @@ import {
   fail,
   hash,
   object,
+  quantity,
   same,
   uuid,
 } from "./validation.js";
@@ -203,7 +204,7 @@ function deadlineSeconds(value: unknown): bigint {
     return BigInt(value);
   if (
     typeof value === "string" &&
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(
       value,
     )
   ) {
@@ -248,7 +249,7 @@ function parsePaymentBinding(
     );
   let amount: bigint;
   try {
-    amount = decimal(value.amount, "funding amount");
+    amount = providerUint256(value.amount);
   } catch {
     return fail(
       "RELAYR_INVALID_QUOTE",
@@ -287,6 +288,16 @@ function parsePaymentBinding(
     deadline: deadline.toString(),
   };
 }
+/** Relayr serializes U256 as hex; internal request/commitment values remain canonical decimal. */
+function providerUint256(value: unknown): bigint {
+  return typeof value === 'string' && value.startsWith('0x')
+    ? quantity(value, 'provider uint256') : decimal(value, 'provider uint256');
+}
+function sameProviderValue(value: unknown, expected: string): boolean {
+  try { return providerUint256(value) === decimal(expected, 'expected value'); }
+  catch { return false; }
+}
+
 export function parseQuote(
   value: unknown,
   entries: RelayrEntry[],
@@ -395,6 +406,32 @@ export function parseStatus(
 ): { step: number; providerState: string; hash?: Hex }[] {
   return statusBinding(value, quote, false);
 }
+/** POST UUID order is not request order. Establish the bijection from the GET echo,
+ * authenticating the returned UUID set and every requested field before committing it. */
+export function bindIndependentQuoteStatus(value: unknown, provisional: RelayrQuote<RelayrIndependentEntry>): RelayrQuote<RelayrIndependentEntry> {
+  assertIndependentEntries(provisional.entries.map(item => item.entry));
+  if (!object(value) || value.bundle_uuid !== provisional.bundleUuid || !Array.isArray(value.transactions)
+    || value.transactions.length !== provisional.entries.length)
+    fail('RELAYR_INVALID_STATUS', 'The stored bundle does not echo every requested call.', 502);
+  const transactions = value.transactions;
+  const ids = new Set(provisional.entries.map(item => item.txUuid)), used = new Set<string>();
+  const entries = provisional.entries.map(({ entry }) => {
+    const matches = transactions.filter((item: unknown) => object(item) && object(item.request)
+      && item.request.chain === entry.chain && typeof item.request.target === 'string' && same(item.request.target, entry.target)
+      && typeof item.request.data === 'string' && same(item.request.data, entry.data)
+      && sameProviderValue(item.request.value, entry.value) && item.request.virtual_nonce == null);
+    const item: unknown = matches[0];
+    if (matches.length !== 1 || !object(item) || !uuid(item.tx_uuid) || !ids.has(item.tx_uuid) || used.has(item.tx_uuid))
+      fail('RELAYR_INVALID_STATUS', 'Provider identifiers do not uniquely bind the exact requested calls.', 502);
+    used.add(item.tx_uuid);
+    return { txUuid: item.tx_uuid, entry };
+  });
+  const { commitment: _previous, ...metadata } = provisional;
+  const bound = { ...metadata, entries };
+  const quote = { ...bound, commitment: digest(bound) };
+  parseIndependentStatus(value, quote);
+  return quote;
+}
 /** Disabled mode has no nonce; Relayr may represent an absent optional field as null. */
 export function parseIndependentStatus(value: unknown, quote: RelayrQuote<RelayrIndependentEntry>) {
   assertIndependentEntries(quote.entries.map(item => item.entry));
@@ -439,7 +476,7 @@ function statusBinding(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIn
       !same(item.request.target, expected.target) ||
       typeof item.request.data !== "string" ||
       !same(item.request.data, expected.data) ||
-      item.request.value !== expected.value ||
+      !sameProviderValue(item.request.value, expected.value) ||
       (independent ? item.request.virtual_nonce != null : item.request.virtual_nonce !== expected.virtual_nonce) ||
       typeof item.status.state !== "string" ||
       item.status.state.length > 64
