@@ -11,7 +11,7 @@ const assertion = { credentialId: token, userHandle: token, authenticatorData: B
 function setup() {
   const recovery = { begin: vi.fn(async () => ({ flowToken: token, view })), status: vi.fn(async () => view),
     register: vi.fn(async () => view), prove: vi.fn(async () => view), prepareRotation: vi.fn(), approveRotation: vi.fn(async () => view),
-    prepareSetup: vi.fn(), completeSetup: vi.fn(async () => view),
+    prepareSetup: vi.fn(), completeSetup: vi.fn(async () => view), restart: vi.fn(async () => {}),
     beginResume: vi.fn(async () => ({ resumeToken: token, challenge: { id: 'resume', document: { purpose: 'resume' } } })),
     completeResume: vi.fn(async () => ({ flowToken: token, flow: { secret: 'internal-only' }, replayed: true })) };
   const app = new Hono();
@@ -81,5 +81,26 @@ describe('recovery HTTP boundary', () => {
     expect(await (await app.fetch(new Request(origin + '/wallet/recovery/state', { headers }))).json()).toEqual({ view, csrfToken: walletCsrfToken(token) });
     expect(recovery.begin).not.toHaveBeenCalled(); expect(recovery.approveRotation).not.toHaveBeenCalled();
     expect(() => walletCookie(walletRecoveryCookie, token, 86401)).toThrow();
+  });
+  it('clears only an explicitly restartable recovery cookie and makes an already-cleared retry harmless', async () => {
+    const { app, recovery } = setup();
+    recovery.restart.mockRejectedValueOnce(new RestError(409, 'WALLET_RECOVERY_CONFLICT', 'Still active'));
+    const active = await app.fetch(post('restart', {}));
+    expect(active.status).toBe(409); expect(active.headers.get('set-cookie')).toBeNull();
+    const reset = await app.fetch(post('restart', {}));
+    expect(await reset.json()).toEqual({ restarted: true, view: null });
+    expect(reset.headers.get('set-cookie')).toContain(`${walletRecoveryCookie}=;`);
+    expect(reset.headers.get('set-cookie')).toContain('Max-Age=0');
+    expect(reset.headers.get('set-cookie')).not.toContain(walletSessionCookie + '=');
+    const fresh = { ...headers }; delete (fresh as Partial<typeof headers>).cookie;
+    expect((await app.fetch(post('restart', {}, fresh))).status).toBe(200);
+    expect(recovery.restart).toHaveBeenCalledTimes(2); expect(recovery.begin).not.toHaveBeenCalled();
+  });
+  it('rejects restart without the current cookie CSRF and refuses a cross-site reset even without a cookie', async () => {
+    const { app, recovery } = setup();
+    expect((await app.fetch(post('restart', {}, { ...headers, 'x-center-wallet-csrf': '' }))).status).toBe(403);
+    const fresh = { ...headers, origin: 'https://homerun.test' }; delete (fresh as Partial<typeof headers>).cookie;
+    expect((await app.fetch(post('restart', {}, fresh))).status).toBe(403);
+    expect(recovery.restart).not.toHaveBeenCalled();
   });
 });

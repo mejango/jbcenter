@@ -192,6 +192,7 @@ export function createLocalWalletRecovery(options: LocalWalletRecoveryDependenci
     await running?.catch(() => {});
   }
   return { begin, status, register, prove, prepareRotation, approveRotation, prepareSetup, completeSetup, tick, start, stop,
+    restart: (flowToken: string) => flows.assertRestartable(flowToken),
     beginResume: (id: string) => flows.beginResume(id),
     completeResume: (input: Parameters<PostgresWalletRecoveryFlowStore['completeResume']>[0]) => flows.completeResume(input) };
 }

@@ -73,6 +73,48 @@ suite('durable recovery browser continuation (genuine crypto, modeled canonical 
         nonce: `0x${randomBytes(32).toString('hex')}`, issuedAt: current, expiresAt: current + lifetime,
         grant: { id: randomUUID(), botAddress: privateKeyToAccount(`0x${'33'.repeat(32)}`).address, scopes: ['read', 'plan', 'relay'], expiresAt: current + 3600, label: 'Recovery browser' } } };
   }
+  function clockedFlows(at: number | (() => number), afterQuery?: (query: unknown) => void) {
+    const query = async (connection: Pool | import('pg').PoolClient, args: unknown[]) => {
+      const instant = typeof at === 'function' ? at() : at;
+      if (!Number.isSafeInteger(instant) || instant <= 0) throw new Error('Invalid test SQL clock');
+      // Advance every SQL authority clock consistently, including timestamps in
+      // INSERT/UPDATE statements. Constraints, row locks and transactions remain real.
+      const original = args[0];
+      const adjusted = typeof original === 'string' ? original.replace(
+        /floor\(extract\(epoch FROM clock_timestamp\(\)\)\s*\*\s*1000\)::(?:bigint|text)/g, `${instant}::bigint`) : original;
+      const result = await Reflect.apply(connection.query, connection, [adjusted, ...args.slice(1)]);
+      afterQuery?.(original); return result;
+    };
+    return new PostgresWalletRecoveryFlowStore(new Proxy(pool, { get(target, property) {
+      if (property === 'query') return (...args: unknown[]) => query(target, args);
+      if (property === 'connect') return async () => {
+        const client = await target.connect();
+        return new Proxy(client, { get(connection, key) {
+          if (key === 'query') return (...args: unknown[]) => query(connection, args);
+          const value = Reflect.get(connection, key, connection); return typeof value === 'function' ? value.bind(connection) : value;
+        } });
+      };
+      const value = Reflect.get(target, property, target); return typeof value === 'function' ? value.bind(target) : value;
+    } }));
+  }
+  it('allows abandoning only an expired unproved recovery and preserves its complete database history', async () => {
+    const value = await registered({ accepted: false });
+    await expect(flows.assertRestartable(value.begun.flowToken)).rejects.toMatchObject({ status: 409 });
+    const before = (await pool.query('SELECT to_jsonb(r) AS row FROM rest_wallet_recoveries r')).rows;
+    const expiredFlows = clockedFlows(value.record.intent.expiresAtMs);
+    await expect(expiredFlows.assertRestartable(value.begun.flowToken)).resolves.toBeUndefined();
+    await expect(expiredFlows.assertRestartable(value.begun.flowToken)).resolves.toBeUndefined();
+    expect((await pool.query('SELECT to_jsonb(r) AS row FROM rest_wallet_recoveries r')).rows).toEqual(before);
+    expect(await flows.authenticate(value.begun.flowToken)).toEqual(value.flow);
+    await expect(expiredFlows.assertRestartable(value.flow.id)).rejects.toMatchObject({ status: 403 });
+  });
+  it('never abandons an accepted proof after its intake deadline or through a stale continuation', async () => {
+    const value = await registered(), resumed = await flows.completeResume((await resume(value)).input);
+    const expiredFlows = clockedFlows(value.record.intent.expiresAtMs + 1);
+    await expect(expiredFlows.assertRestartable(resumed.flowToken)).rejects.toMatchObject({ status: 409 });
+    await expect(expiredFlows.assertRestartable(value.begun.flowToken)).rejects.toMatchObject({ status: 403 });
+    expect((await recovery.get(value.flow.id, resumed.flowToken))!.proof).toEqual(value.record.proof);
+  });
   it('fixes name and public recovery locator, hashes tokens and refuses initialization by locator alone', async () => {
     const value = await registered(); expect(await flows.authenticate(value.begun.flowToken)).toEqual(value.flow);
     expect(await flows.authenticate(value.flow.id)).toBeNull(); expect(await flows.authenticate(randomBytes(32).toString('base64url'))).toBeNull();
@@ -125,34 +167,37 @@ suite('durable recovery browser continuation (genuine crypto, modeled canonical 
     expect(await flows.authenticate(result.flowToken)).toBeNull(); expect(await flows.authenticate(latest.flowToken)).toEqual(latest.flow);
   });
   it('persists exact setup reviews, rejects stale revisions and cross-wallet substitutions, and replaces only expired reviews', async () => {
-    const value = await registered(), prepared = await setup(value, 1), challenge = await resume(value);
+    const value = await registered(), prepared = await setup(value, 60), challenge = await resume(value);
     const associated = await flows.associateSetup(value.begun.flowToken, value.flow.revision, prepared);
     expect(await flows.associateSetup(value.begun.flowToken, value.flow.revision, prepared)).toEqual(associated);
     await expect(flows.completeResume(challenge.input)).rejects.toMatchObject({ status: 409 });
     const different = await setup(value);
     await expect(flows.associateSetup(value.begun.flowToken, associated.revision, different)).rejects.toMatchObject({ status: 409 });
-    await pool.query('SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.03)', [prepared.input.expiresAt * 1000]);
-    await expect(flows.associateSetup(value.begun.flowToken, value.flow.revision, different)).rejects.toMatchObject({ status: 409 });
-    await expect(flows.associateSetup(value.begun.flowToken, associated.revision, { ...different, initializerHash: `0x${'ff'.repeat(32)}` })).rejects.toMatchObject({ status: 409 });
-    expect((await flows.associateSetup(value.begun.flowToken, associated.revision, different)).setup).toEqual(different);
+    const expiredFlows = clockedFlows(prepared.input.expiresAt * 1000);
+    await expect(expiredFlows.associateSetup(value.begun.flowToken, value.flow.revision, different)).rejects.toMatchObject({ status: 409 });
+    await expect(expiredFlows.associateSetup(value.begun.flowToken, associated.revision, { ...different, initializerHash: `0x${'ff'.repeat(32)}` })).rejects.toMatchObject({ status: 409 });
+    expect((await expiredFlows.associateSetup(value.begun.flowToken, associated.revision, different)).setup).toEqual(different);
   });
   it('resumes an expired cookie after accepted proof but never renews unaccepted proof deadlines', async () => {
-    const short = new PostgresWalletRecoveryFlowStore(pool, { flowLifetimeMs: 200 });
-    const value = await registered({ flowStore: short, lifetimeMs: 1000 }), intent = value.record.intent;
-    await pool.query('SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.03)', [intent.expiresAtMs]);
-    expect(await short.authenticate(value.begun.flowToken)).toBeNull(); const challenge = await resume(value, short);
-    const resumed = await short.completeResume(challenge.input); expect(await short.authenticate(resumed.flowToken)).toEqual(resumed.flow);
+    const value = await registered(), intent = value.record.intent;
+    await pool.query('UPDATE rest_wallet_recovery_flows SET expires_at_ms=created_at_ms+1,revision=revision+1 WHERE id=$1', [value.flow.id]);
+    const expiredFlows = clockedFlows(intent.expiresAtMs + 1);
+    expect(await flows.authenticate(value.begun.flowToken)).toBeNull(); const challenge = await resume(value, expiredFlows);
+    const resumed = await expiredFlows.completeResume(challenge.input); expect(await flows.authenticate(resumed.flowToken)).toEqual(resumed.flow);
     expect((await pool.query('SELECT intent FROM rest_wallet_recoveries WHERE id=$1', [intent.id])).rows[0].intent).toEqual(intent);
-    const pending = await registered({ accepted: false, lifetimeMs: 500 });
-    await pool.query('SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.03)', [pending.record.intent.expiresAtMs]);
-    await expect(flows.beginResume(pending.flow.id)).rejects.toMatchObject({ status: 410 });
+    const pending = await registered({ accepted: false });
+    await expect(clockedFlows(pending.record.intent.expiresAtMs).beginResume(pending.flow.id)).rejects.toMatchObject({ status: 410 });
   });
   it('rolls back token rotation and ceremony consumption when the resume expires during the final database write', async () => {
-    const short = new PostgresWalletRecoveryFlowStore(pool, { resumeLifetimeMs: 1000 }), value = await registered(), challenge = await resume(value, short);
-    await pool.query(`CREATE FUNCTION slow_recovery_resume() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(1.1); RETURN NEW; END $$;
-      CREATE TRIGGER slow_recovery_resume AFTER UPDATE ON rest_wallet_recovery_flows FOR EACH ROW EXECUTE FUNCTION slow_recovery_resume()`);
-    try { await expect(short.completeResume(challenge.input)).rejects.toMatchObject({ status: 410 }); }
-    finally { await pool.query('DROP TRIGGER slow_recovery_resume ON rest_wallet_recovery_flows; DROP FUNCTION slow_recovery_resume()'); }
+    const value = await registered(), challenge = await resume(value);
+    let databaseTime = await now(), crossedExpiry = false;
+    const delayed = clockedFlows(() => databaseTime, query => {
+      if (typeof query === 'string' && query.startsWith('UPDATE rest_wallet_recovery_flows SET token_hash=')) {
+        crossedExpiry = true; databaseTime = challenge.begun.challenge.expiresAtMs;
+      }
+    });
+    await expect(delayed.completeResume(challenge.input)).rejects.toMatchObject({ status: 410 });
+    expect(crossedExpiry).toBe(true);
     expect(await flows.authenticate(value.begun.flowToken)).toEqual(value.flow);
     expect((await pool.query('SELECT completed_at_ms FROM rest_wallet_recovery_resumes WHERE id=$1', [challenge.begun.challenge.id])).rows[0].completed_at_ms).toBeNull();
     expect((await pool.query('SELECT consumed_at FROM rest_wallet_ceremonies WHERE id=$1', [challenge.begun.challenge.id])).rows[0].consumed_at).toBeNull();

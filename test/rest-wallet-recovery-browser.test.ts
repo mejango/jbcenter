@@ -14,6 +14,42 @@ beforeAll(async () => {
 afterAll(async () => { await browser?.close(); });
 
 describe('recovery browser continuation and secret handling with modeled HTTP', () => {
+  it('explicitly restarts an expired unproved attempt, retries a lost reset reply and never auto-creates a replacement', async () => {
+    const context = await browser.newContext(), page = await context.newPage();
+    const secret = createWalletRecoverySecret(); let restarts = 0, begins = 0;
+    let view: Record<string, unknown> | null = { id, passkeyName: 'Old attempt', rpId: 'localhost', origin,
+      expiresAtMs: Date.now() + 3600000, proofExpiresAtMs: Date.now() - 1, walletAddress, recoveryOwner: secret.recoveryOwner,
+      initializerHash, priorSigner: `0x${'55'.repeat(20)}`, replacementSigner: null, transactionHashes: [], phase: 'expired' };
+    await page.route(origin + '/**', async route => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/wallet/recover') return route.fulfill({ contentType: 'text/html', body: walletRecoveryPage() });
+      if (path.endsWith('.js')) return route.fulfill({ contentType: 'text/javascript', body: script });
+      if (path.endsWith('.css')) return route.fulfill({ contentType: 'text/css', body: walletRecoveryCss() });
+      if (path.endsWith('/state')) return route.fulfill({ json: { view, csrfToken: Buffer.alloc(32, 3).toString('base64url') } });
+      if (path.endsWith('/restart')) {
+        restarts++; view = null;
+        return restarts === 1 ? route.fulfill({ status: 503 }) : route.fulfill({ json: { restarted: true, view: null } });
+      }
+      if (path.endsWith('/begin')) begins++;
+      return route.fulfill({ status: 500 });
+    });
+    try {
+      await page.goto(origin + '/wallet/recover');
+      await page.getByRole('button', { name: 'Start again', exact: true }).click();
+      await expect.poll(() => page.locator('#wallet-status').textContent()).toContain('could not be confirmed');
+      expect(await page.getByRole('button', { name: 'Start again', exact: true }).isHidden()).toBe(true);
+      await page.getByRole('button', { name: 'Check recovery', exact: true }).click();
+      await expect.poll(() => page.locator('#wallet-status').textContent()).toContain('Expired recovery closed');
+      expect(await page.evaluate(() => sessionStorage.getItem('center:recovery:reference'))).toBeNull();
+      expect(await page.getByRole('button', { name: 'Start recovery', exact: true }).isVisible()).toBe(true);
+      expect(restarts).toBe(2); expect(begins).toBe(0);
+      view = { id, passkeyName: 'Accepted attempt', rpId: 'localhost', origin, expiresAtMs: Date.now() + 3600000,
+        proofExpiresAtMs: Date.now() - 1, walletAddress, recoveryOwner: secret.recoveryOwner, initializerHash,
+        priorSigner: `0x${'55'.repeat(20)}`, replacementSigner: null, transactionHashes: [], phase: 'awaiting_rotation_approval' };
+      await page.reload(); await expect.poll(() => page.locator('#wallet-status').textContent()).toContain('Review and approve');
+      expect(await page.getByRole('button', { name: 'Start again', exact: true }).isHidden()).toBe(true);
+    } finally { await context.close(); }
+  });
   it('keeps kit words private, checks an unknown begin, cancels the prompt and retries identical registration bytes', async () => {
     const context = await browser.newContext({ viewport: { width: 320, height: 844 } }), page = await context.newPage();
     const secret = createWalletRecoverySecret(), encoded = serializeWalletRecoveryKit(secret, {

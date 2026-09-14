@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Address, Hex } from "viem";
 import { migrate } from "../src/db/migrate.js";
 import { MemoryAccountStore } from "../src/rest/auth/memory.js";
@@ -296,24 +296,41 @@ for (const backend of ["memory", "postgres"] as const) {
     });
 
     it("rechecks request and grant expiry after waiting for the account lock", async () => {
-      await store.enroll(account(), request());
-      const bot = await store.registerBot(grant({ expiresAt: NOW + 2 }));
+      let databaseTime = NOW, monotonic = performance.now();
+      const performanceClock = backend === 'memory' ? vi.spyOn(performance, 'now').mockImplementation(() => monotonic) : undefined;
+      if (backend === 'postgres') store = new PostgresAccountStore(new Proxy(pool!, { get(target, property) {
+        if (property === 'connect') return async () => {
+          const client = await target.connect();
+          return new Proxy(client, { get(connection, key) {
+            if (key === 'query') return (...args: unknown[]) => args[0] === 'SELECT floor(extract(epoch FROM clock_timestamp()))::text AS now'
+              ? connection.query('SELECT $1::text AS now', [databaseTime]) : Reflect.apply(connection.query, connection, args);
+            const value = Reflect.get(connection, key, connection); return typeof value === 'function' ? value.bind(connection) : value;
+          } });
+        };
+        const value = Reflect.get(target, property, target); return typeof value === 'function' ? value.bind(target) : value;
+      } }));
       let release!: () => void;
       let entered!: () => void;
       const enteredPromise = new Promise<void>((resolve) => { entered = resolve; });
       const released = new Promise<void>((resolve) => { release = resolve; });
-      const lock = store.withActiveActor({ accountId: account().id, principalId: `owner:${account().id}` }, ["read"], NOW, async () => {
-        entered();
-        await released;
-      });
-      await enteredPromise;
-      const authentication = expect(store.authorizeAndConsume(request({ nonce: nonce(2), signer: BOT, grantId: bot.id, expiresAt: NOW + 2 })))
-        .rejects.toMatchObject({ code: "AUTH_REQUIRED" });
-      const authority = expect(store.assertActive({ accountId: account().id, signer: BOT, grantId: bot.id, requiredScopes: ["read"], now: NOW }))
-        .rejects.toMatchObject({ code: "FORBIDDEN" });
-      await new Promise((resolve) => setTimeout(resolve, 2_100));
-      release();
-      await Promise.all([lock, authentication, authority]);
+      try {
+        await store.enroll(account(), request());
+        const bot = await store.registerBot(grant({ expiresAt: NOW + 120 }));
+        const lock = store.withActiveActor({ accountId: account().id, principalId: `owner:${account().id}` }, ["read"], NOW, async () => {
+          entered();
+          await released;
+        });
+        await enteredPromise;
+        const authentication = expect(store.authorizeAndConsume(request({ nonce: nonce(2), signer: BOT, grantId: bot.id, expiresAt: NOW + 120 })))
+          .rejects.toMatchObject({ code: "AUTH_REQUIRED" });
+        const authority = expect(store.assertActive({ accountId: account().id, signer: BOT, grantId: bot.id, requiredScopes: ["read"], now: NOW }))
+          .rejects.toMatchObject({ code: "FORBIDDEN" });
+        // The real account lock remains held while the authority clock crosses
+        // expiry. Test scheduling cannot expire setup before the race begins.
+        databaseTime = NOW + 120; monotonic += 120_000;
+        release();
+        await Promise.all([lock, authentication, authority]);
+      } finally { release(); performanceClock?.mockRestore(); }
     });
 
     it("rejects invalid time windows and oversized profile data without mutation", async () => {

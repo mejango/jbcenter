@@ -98,6 +98,8 @@ function render() {
     : view?.phase === 'awaiting_setup' ? setup ? 'Approve browser setup' : 'Review browser setup' : null;
   next.hidden = !label || !!pending; next.textContent = label; next.disabled = busy;
   check.hidden = !known || (!view && !pending); check.disabled = busy; cancel.hidden = !native;
+  el<HTMLButtonElement>('recovery-restart').hidden = view?.phase !== 'expired' || !!pending;
+  el<HTMLButtonElement>('recovery-restart').disabled = busy;
   el('recovery-resume-section').hidden = !known || !recoverable; reference.disabled = busy || !!view; resume.disabled = busy || !!pending;
   signIn.hidden = view?.phase !== 'ready_to_sign_in';
   el('recovery-transactions').hidden = !view?.transactionHashes.length;
@@ -105,7 +107,15 @@ function render() {
 }
 async function send(path: string, body: unknown, proof = csrf) {
   pending = { path, body, csrf: proof };
-  const result = await request(path, body, proof); accept(result); pending = null;
+  const result = await request(path, body, proof);
+  if (path === 'restart') {
+    fields(result, ['restarted', 'view']); if (result.restarted !== true || result.view !== null) invalid();
+    sessionStorage.removeItem(locatorKey); reference.value = ''; wallet.value = '';
+    secret = null; kit = null; selectedWallet = null; csrf = '';
+    el<HTMLTextAreaElement>('recovery-words').value = ''; el<HTMLInputElement>('recovery-file').value = '';
+  }
+  accept(result); pending = null;
+  if (path === 'restart') message('Expired recovery closed. Start again to create a new replacement passkey.');
 }
 async function observe() {
   if (pending?.path === 'begin') {
@@ -295,6 +305,7 @@ el('recovery-restore').addEventListener('click', () => { void run(async () => {
   el('recovery-kit-status').textContent = 'Recovery words loaded in this tab.'; message('Recovery words loaded. Use the original wallet address.');
 }); });
 next.addEventListener('click', () => { void run(advance); }); check.addEventListener('click', () => { void run(observe); });
+el('recovery-restart').addEventListener('click', () => { void run(() => send('restart', {})); });
 resume.addEventListener('click', () => { void run(resumeRecovery); }); cancel.addEventListener('click', () => native?.abort());
 const timer = setInterval(() => {
   if (!busy && !pending && view?.phase === 'rotating' && !document.hidden && navigator.onLine && pollCount++ < 60) void run(observe);

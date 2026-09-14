@@ -95,6 +95,12 @@ resume receipts cannot restore an older continuation. The original proof record
 stays immutable. Setup approval and credential activation still precede a separate
 fresh login; resuming never issues spending authority or a session.
 
+An expired attempt without an accepted proof has an explicit Start again action.
+The server checks expiry using database time while holding the recovery and flow
+locks, refuses accepted proofs and stale continuations, and clears only the browser
+cookie. All recovery records remain intact. A lost reset reply can be retried;
+resetting never starts a new recovery automatically.
+
 ## Composition and observation
 
 `createRestRuntime.localWalletSignup` accepts an explicit host-side factory after
@@ -155,6 +161,13 @@ address. Screenshots and sanitized results are in
 browser storage and observation artifacts. The separate EVM helper also injects a
 lost accepted RPC response and verifies exactly two physical sends and retained
 dispatch history after rollback.
+
+`npm run wallet:client-pilot` separately connects the actual built Homerun and Beep
+clients to real Center handlers, PostgreSQL and a freshly deployed Anvil wallet.
+It requires the explicit local client paths/origin documented in
+`acceptance/shared-wallet/README.md`. Its report distinguishes shared sign-in and
+signed account authorization from project quote and payment evidence. Production
+TLS, funding and fee qualification remain outside this local route bridge.
 
 Production testing still needs a qualified Base fee/settlement provider,
 non-rollback accounting and restore evidence, deployment funding controls,

@@ -31,6 +31,7 @@ export function walletRecoveryPage() {
 <section id="recovery-transactions" hidden aria-label="Recovery transactions"><h2>Recovery transactions</h2><p>These references track the original recovery attempt.</p><ul id="recovery-hashes"></ul></section>
 <div class="actions"><button type="button" id="recovery-next" hidden></button>
 <button type="button" id="recovery-check" class="secondary" hidden>Check recovery</button>
+<button type="button" id="recovery-restart" class="secondary" hidden>Start again</button>
 <button type="button" id="recovery-cancel" class="secondary" hidden>Cancel prompt</button></div>
 <section id="recovery-resume-section" hidden><details><summary>Resume an existing recovery</summary>
 <p>Use the replacement passkey and original recovery owner. Your recovery reference is public and cannot approve recovery.</p>

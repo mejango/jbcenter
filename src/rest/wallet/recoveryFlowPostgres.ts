@@ -128,6 +128,16 @@ export class PostgresWalletRecoveryFlowStore {
       [hashRecoveryFlowToken(flowToken)])).rows[0];
     return row ? flowOf(row) : null;
   }
+  /** Only permits clearing browser state for an expired, unproved attempt. Keep
+   * every row: an accepted proof or signed transaction must never be forgotten. */
+  async assertRestartable(flowToken: string): Promise<void> {
+    const located = await this.authenticate(flowToken); if (!located) unauthorized();
+    await this.transaction(async client => {
+      const recovery = await this.lockRecovery(client, located.id), flow = await this.lockFlow(client, located.id);
+      const now = await walletCeremonyDatabaseNow(client); this.authorizedFlow(flow, flowToken, now);
+      if (recovery.proof || recovery.activation || recovery.intent.expiresAtMs > now) conflict();
+    });
+  }
   async associateSetup(flowToken: string, expectedRevision: number, input: WalletSignupSetup): Promise<WalletRecoveryFlow> {
     fields(input, ['id', 'input', 'stateHash', 'manifestRevision', 'initializerHash']);
     const setup = structuredClone(input);

@@ -11,7 +11,7 @@ import { assertWalletHttpHost, assertWalletHttpRequest, assertWalletCsrf, readWa
 export interface WalletRecoverySiteOptions {
   origin: string; browserScript: string;
   recovery: Pick<ReturnType<typeof createLocalWalletRecovery>, 'begin' | 'status' | 'register' | 'prove' | 'prepareRotation'
-    | 'approveRotation' | 'prepareSetup' | 'completeSetup' | 'beginResume' | 'completeResume'>;
+    | 'approveRotation' | 'prepareSetup' | 'completeSetup' | 'beginResume' | 'completeResume' | 'restart'>;
 }
 function invalid(status = 400): never { throw new RestError(status, 'WALLET_RECOVERY_HTTP_INVALID', 'Check the original recovery and retry its current step.'); }
 /** Dedicated wallet-host capability. App allowlisting never grants access to recovery cookies. */
@@ -50,6 +50,12 @@ export function mountWalletRecovery(app: Hono, options: WalletRecoverySiteOption
     if (readWalletCookie(c.req.raw, walletRecoveryCookie)) invalid(409);
     const begun = await recovery.begin({ walletAddress: input.walletAddress as Address, passkeyName: input.passkeyName as string });
     return c.json(result(c, begun.flowToken, begun.view), 201);
+  });
+  app.post('/wallet/recovery/restart', async c => {
+    await body(c, []);
+    if (readWalletCookie(c.req.raw, walletRecoveryCookie)) await recovery.restart(cookie(c, walletRecoveryCookie));
+    c.header('Set-Cookie', walletCookie(walletRecoveryCookie, null, 0), { append: true });
+    return c.json({ restarted: true, view: null });
   });
   app.post('/wallet/recovery/register', async c => {
     const input = await body(c, ['type', 'credentialId', 'rawId', 'clientDataJSON', 'attestationObject']), token = cookie(c, walletRecoveryCookie);
