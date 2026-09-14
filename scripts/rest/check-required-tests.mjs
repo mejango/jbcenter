@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readlink, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -77,6 +77,22 @@ export const requiredVitestSuites = [
   "test/rest-wallet-site.test.ts",
   "test/rest-wallet-site-postgres.integration.test.ts",
   "test/rest-wallet-connect-browser-postgres.integration.test.ts",
+  "test/rest-wallet-app-refresh-postgres.integration.test.ts",
+  "test/rest-wallet-payment-reviews-postgres.integration.test.ts",
+  "test/rest-wallet-payment-reviews.test.ts",
+  "test/rest-wallet-payment-public.test.ts",
+  "test/rest-wallet-payment-client.test.ts",
+  "test/rest-wallet-payment-browser.test.ts",
+  "test/rest-wallet-payment-http-postgres.integration.test.ts",
+  "test/rest-wallet-pressure-schedule.test.ts",
+  "test/rest-wallet-pressure-postgres.integration.test.ts",
+  "test/rest-user-operations-v6-payment-semantics.test.ts",
+  "test/rest-wallet-deployment-settlement-postgres.integration.test.ts",
+  "test/rest-wallet-deployment-settlement-evm-postgres.integration.test.ts",
+  "test/rest-wallet-deployment-settlement.test.ts",
+  "test/rest-wallet-deployment-settlement-local-anvil.test.ts",
+  "test/rest-wallet-v6-payment-evm.test.ts",
+  "test/rest-v6-payment-fixture.test.ts",
   "test/rest-wallet-http.test.ts",
   "test/rest-wallet-runtime.test.ts",
   "test/rest-wallet-client.test.ts",
@@ -84,6 +100,19 @@ export const requiredVitestSuites = [
   "test/rest-wallet-device-probe-browser.test.ts",
   "test/rest-signed-transaction.test.ts",
 ];
+
+// Reuse the execution fixture's catalog/source/compiler validation without starting an EVM.
+// No local checkout path is implied; its explicit dependency is documented beside the fixture.
+export const v6PaymentSourcePreflight = ["--import", "tsx", "--input-type=module", "--eval", `
+  try {
+    const { loadV6PaymentArtifacts } = await import('./test/fixtures/v6-payment/contracts.ts');
+    const { contracts, verifiedSourceCount } = await loadV6PaymentArtifacts();
+    process.stdout.write(JSON.stringify({ contracts: contracts.size, verifiedSourceCount }) + '\\n');
+  } catch {
+    process.stderr.write('V6 payment source preflight failed. Configure CENTER_V6_SOURCE_ROOT with the pinned source and artifacts documented in test/fixtures/v6-payment/README.md.\\n');
+    process.exitCode = 1;
+  }
+`];
 
 export function validateRuntime(version, databaseUrl) {
   const [major, minor] = version.split(".").map(Number);
@@ -298,6 +327,20 @@ export async function runStep(name, binary, args, { directory, observation, cwd,
   if (step.status !== "passed") throw new Error(`${name} failed${failure ? ` (${failure})` : ""}; see ${step.log}.`);
 }
 
+export async function prepareV6PaymentDependency(env, options) {
+  if (env.CENTER_V6_SOURCE_ROOT?.trim()) return null;
+  const temporary = await realpath(await mkdtemp(resolve(tmpdir(), "center-check-v6-")));
+  try {
+    const destination = resolve(temporary, "source");
+    await runStep("v6-payment-extract", process.execPath,
+      ["scripts/rest/prepare-v6-payment-fixture.mjs", "--output", destination], { ...options, env, timeoutMs: 30_000 });
+    env.CENTER_V6_SOURCE_ROOT = destination;
+    return temporary;
+  } catch (error) {
+    await rm(temporary, { recursive: true, force: true }); throw error;
+  }
+}
+
 async function main() {
   const preflightOnly = process.argv.includes("--preflight");
   if (process.argv.slice(2).some(arg => arg !== "--preflight")) throw new Error("Usage: check-required-tests.mjs [--preflight]");
@@ -308,9 +351,10 @@ async function main() {
     revision: null, dirty: null, sourceStart: null, sourceEnd: null, sourceChangedDuringCheck: null,
     node: process.versions.node, mode: preflightOnly ? "preflight" : "release", status: "running", steps: [], suites: [] };
   const save = () => writeObservation(resolve(directory, "summary.json"), observation);
-  const options = { directory, observation, cwd: root, env: process.env, save };
+  const checkEnv = { ...process.env };
+  const options = { directory, observation, cwd: root, env: checkEnv, save };
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  let temporary;
+  let temporary, v6Temporary;
   console.log(`[check] observation: ${relative(root, directory)}/summary.json`);
   await save();
   try {
@@ -318,23 +362,25 @@ async function main() {
     observation.revision = observation.sourceStart.revision;
     observation.dirty = observation.sourceStart.dirty;
     validateRuntime(process.versions.node, process.env.TEST_DATABASE_URL);
+    v6Temporary = await prepareV6PaymentDependency(checkEnv, options);
+    await runStep("v6-payment-sources", process.execPath, v6PaymentSourcePreflight, { ...options, timeoutMs: 30_000 });
     observation.database = await checkDatabase(new Client({ connectionString: process.env.TEST_DATABASE_URL,
       connectionTimeoutMillis: 5_000, query_timeout: 5_000 }));
     await save();
     if (!preflightOnly) {
       const executionReport = resolve(directory, "execution.json");
       await runStep("execution", npm, ["run", "check:execution"], { ...options,
-        env: { ...process.env, CENTER_EXECUTION_REPORT: executionReport } });
+        env: { ...checkEnv, CENTER_EXECUTION_REPORT: executionReport } });
       observation.suites.push(...verifyExecutionReport(JSON.parse(await readFile(executionReport, "utf8"))));
       const passkeyReport = resolve(directory, "passkey.json");
       await runStep("wallet-compatibility", npm, ["run", "check:wallet-compatibility"], { ...options,
-        env: { ...process.env, CENTER_PASSKEY_REPORT: passkeyReport } });
+        env: { ...checkEnv, CENTER_PASSKEY_REPORT: passkeyReport } });
       observation.suites.push(...verifyExecutionReport(JSON.parse(await readFile(passkeyReport, "utf8"))));
       temporary = await mkdtemp(resolve(tmpdir(), "center-check-report-"));
       const mcpReport = resolve(temporary, "mcp.json");
       let mcpError;
       try { await runStep("mcp", npm, ["--prefix", "mcp", "run", "check"], { ...options,
-        env: { ...process.env, CENTER_MCP_REPORT: mcpReport } }); }
+        env: { ...checkEnv, CENTER_MCP_REPORT: mcpReport } }); }
       catch (error) { mcpError = error; }
       observation.suites.push(...summarizeVitest(JSON.parse(await readFile(mcpReport, "utf8")), root, []));
       if (mcpError) throw mcpError;
@@ -357,6 +403,7 @@ async function main() {
     process.exitCode = 1;
   } finally {
     if (temporary) await rm(temporary, { recursive: true, force: true });
+    if (v6Temporary) await rm(v6Temporary, { recursive: true, force: true });
     try {
       observation.sourceEnd = await captureSourceSnapshot(root);
       observation.sourceChangedDuringCheck = observation.sourceStart?.fingerprint !== observation.sourceEnd.fingerprint;

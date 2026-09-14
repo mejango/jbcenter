@@ -1,0 +1,241 @@
+import { randomBytes, randomUUID } from "node:crypto";
+import { beforeAll, describe, expect, it } from "vitest";
+import { encodeFunctionData, erc20Abi, hashTypedData, parseAbi, type Address, type Hex } from "viem";
+import { createWalletPaymentReviewDraft, validateWalletPaymentReviewDraft, assertWalletPaymentReviewContext,
+  verifyWalletPaymentReviewProof, type WalletPaymentReviewContext } from "../src/rest/wallet/paymentReviews.js";
+import { createWalletAuthorityContextFixture } from "./fixtures/wallet-authority-context.js";
+import { createRegistration, enrollmentBackupAccount, signBackupProof, signGet } from "./fixtures/wallet-enrollment-crypto.js";
+import { createWalletEnrollmentIntent, prepareWalletEnrollmentCandidate, verifyWalletEnrollmentProof,
+  walletEnrollmentDocument, enrollmentDigest, type WalletEnrollment } from "../src/rest/wallet/enrollment.js";
+import { createWalletAuthorityIdentity, reconcileWalletAuthority, walletAuthorityContextDigest } from "../src/rest/wallet/authority.js";
+import { fingerprint } from "../src/rest/smartAccounts/service.js";
+import { walletAppPrincipalId } from "../src/rest/wallet/appGrants.js";
+import { encodeSafe7579Execution } from "../src/rest/smartAccounts/accountExecution.js";
+import { decodeSafe7579PasskeyOwnerSignature, safe7579PasskeyOwnerSigningPayload } from "../src/rest/smartAccounts/passkeySignatures.js";
+import { digest } from "../src/rest/userOperations/store.js";
+import { getUserOperationHash, userOperationCommitment } from "../src/rest/userOperations/codec.js";
+
+const now = 1_800_000_120_000, issuer = "https://wallet.juicebox.center", rpId = "wallet.juicebox.center";
+const audience = "https://juicebox.center";
+const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as Address;
+const terminal = "0x4444444444444444444444444444444444444444" as Address;
+const payAbi = parseAbi(["function pay(uint256 projectId,address token,uint256 amount,address beneficiary,uint256 minReturnedTokens,string memo,bytes metadata) payable returns (uint256)"]);
+let base: WalletPaymentReviewContext, credential: ReturnType<typeof createRegistration>;
+const options = () => ({ id: randomUUID(), state: randomBytes(32).toString("base64url"), createdAtMs: now });
+const context = () => structuredClone(base);
+function recommit(c: WalletPaymentReviewContext): void {
+  c.plan.commitment = digest({ actor: c.plan.actor, draft: c.plan.draft, expiresAt: c.plan.expiresAt, smartAccount: c.plan.smartAccount });
+  const r = c.operation;
+  r.planCommitment = c.plan.commitment;
+  r.operationHash = getUserOperationHash(r.operation, r.entryPoint, r.chainId);
+  r.commitment = digest({ planId: r.planId, planCommitment: r.planCommitment, operation: r.operation, operationHash: r.operationHash,
+    accountBindingId: r.accountBindingId, accountStateHash: r.accountStateHash, gasPolicyId: r.gasPolicyId,
+    providerId: r.providerId, createdAt: r.createdAt, expiresAt: r.expiresAt });
+}
+beforeAll(async () => {
+  const authority = await createWalletAuthorityContextFixture(now);
+  const manifest = structuredClone(authority.enrollment.intent.manifest);
+  manifest.entryPoint = { ...manifest.safe7579, address: "0x0000000071727de22e5e9d8baf0edac6f37da032", version: "0.7" };
+  const intent = createWalletEnrollmentIntent({ manifest, rpId, origin: issuer, recoveryOwner: enrollmentBackupAccount.address, expiresAt: now - 60_000 });
+  const empty: WalletEnrollment = { intent, createdAt: now - 120_000, state: "awaiting_registration", candidate: null,
+    candidateDigest: null, creation: null, possession: null, receipt: null };
+  credential = createRegistration({ rpId, origin: issuer, userHandle: intent.userHandle,
+    challenge: `0x${Buffer.from(intent.registration.challenge, "base64url").toString("hex")}` });
+  const pending: WalletEnrollment = { ...empty, ...prepareWalletEnrollmentCandidate(empty, credential.response), state: "awaiting_possession" };
+  const document = walletEnrollmentDocument(pending), proof = await verifyWalletEnrollmentProof(pending, {
+    assertion: signGet({ ...credential, rpId, origin: issuer, challenge: hashTypedData(document) }), backupSignature: await signBackupProof(document) });
+  const safe = pending.creation!.address, accountId = `eip155:8453:${safe.toLowerCase()}`;
+  authority.enrollment = { ...pending, state: "verified", receipt: { id: intent.id, enrollmentId: intent.id, accountId,
+    credentialId: credential.credentialId, initializerHash: pending.creation!.initializerHash, manifestCommitment: `0x${enrollmentDigest(manifest)}`,
+    manifestRevision: manifest.revision, creationCommitment: `0x${enrollmentDigest(pending.creation)}`,
+    verificationDigest: proof.verificationDigest, verifiedAt: now - 119_999 } };
+  authority.accountId = accountId;
+  authority.credential = { accountId, enrollmentId: intent.id, rpId, credentialId: credential.credentialId, userHandle: credential.userHandle,
+    publicKey: credential.publicKey, backupEligible: true, verifiedAtMs: now - 119_999, supersededAtMs: null };
+  const b = authority.binding, signer = pending.creation!.bootstrap.signerAddress;
+  b.id = fingerprint({ ownerAccountId: accountId, wallet: safe, chainId: 8453 });
+  b.ownerAccountId = accountId; b.ownerAddress = safe; b.wallet.address = safe;
+  b.authorization.setup!.initializerHash = pending.creation!.initializerHash;
+  b.state.address = safe; b.state.owners = [signer, intent.recoveryOwner]; b.state.executionVerified = true;
+  (b.state.modules!.details as any).provenance.initializerHash = pending.creation!.initializerHash;
+  b.state.ownerProfile!.signer = { ...b.state.ownerProfile!.signer, address: signer, ...credential.publicKey };
+  const identity = createWalletAuthorityIdentity(authority, { stateHash: b.state.stateHash,
+    sessionAdministration: { epoch: "0", hash: digest("administration") }, creationTransaction: digest("creation") });
+  authority.prior = reconcileWalletAuthority(authority, { version: "center-wallet-authority-observation-v1", accountId,
+    contextDigest: walletAuthorityContextDigest(authority), observedAtMs: now, validUntilMs: now + 30_000, head: b.state.evidence,
+    priorAnchor: { status: "none", expected: null, observed: null }, identity, eligibility: "matched", reason: null }, now);
+  const grant: WalletPaymentReviewContext["grant"] = { kind: "wallet-app", id: randomUUID(), incarnation: "1", accountId,
+    signerAddress: "0x2222222222222222222222222222222222222222", scopes: ["read", "plan", "relay"], origin: "https://beep.juicebox.money",
+    callbackUri: "https://beep.juicebox.money/wallet/callback", audience, appGeneration: 1, authorityEpoch: "1", sessionEpoch: "1",
+    createdAt: now / 1000 - 1, expiresAt: now / 1000 + 3599, revokedAt: null, retainUntil: now / 1000 + 3599 + 86400 };
+  const actor = { accountId, principalId: walletAppPrincipalId(grant) };
+  const approve = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [terminal, 1_000_000n] });
+  const pay = encodeFunctionData({ abi: payAbi, functionName: "pay", args: [7n, token, 1_000_000n, safe, 5n, "hello", "0x"] });
+  const calls = [{ chainId: 8453, to: token, data: approve, value: "0", label: "Approve", dependsOn: [], decoded: {} },
+    { chainId: 8453, to: terminal, data: pay, value: "0", label: "Pay", dependsOn: [0], decoded: {} }];
+  const plan: WalletPaymentReviewContext["plan"] = { id: randomUUID(), actor, draft: { operation: "pay", account: safe,
+    project: { chainId: 8453, projectId: "7", version: 6 }, calls, evidence: [b.state.evidence], summary: {
+      operation: "pay", project: { chainId: 8453, projectId: "7", version: 6 }, account: safe, terminal,
+      terminalPath: [terminal], routerGateway: null, route: "multi-terminal", payment: { token, amount: "1000000", unit: "token-base-units" },
+      beneficiary: safe, minimumBeneficiaryTokenCount: "5", metadata: "0x" }, warnings: [] },
+    commitment: digest("pending"), createdAt: now - 1000, expiresAt: now + 240_000, revision: 0,
+    smartAccount: { bindingId: b.id, stateHash: b.state.stateHash, chainId: 8453, address: safe, manifestRevision: manifest.revision },
+    steps: calls.map((_, index) => ({ index, state: "waiting" })) };
+  const operation: WalletPaymentReviewContext["operation"] = { id: randomUUID(), actor, planId: plan.id, planCommitment: plan.commitment,
+    stepIndexes: [0, 1], chainId: 8453, entryPoint: manifest.entryPoint.address, sender: safe.toLowerCase() as Address,
+    operation: { sender: safe.toLowerCase() as Address, nonce: "0x0", callData: encodeSafe7579Execution(calls.map(c => ({ target: c.to, value: c.value, callData: c.data }))),
+      callGasLimit: "0x186a0", verificationGasLimit: "0x30d40", preVerificationGas: "0xc350", maxFeePerGas: "0x64", maxPriorityFeePerGas: "0x1", signature: "0xabcd" },
+    operationHash: digest("pending"), preparationKey: "prepare-payment-001", inputHash: digest("input"), commitment: digest("pending"),
+    accountBindingId: b.id, accountStateHash: b.state.stateHash, gasPolicyId: "gas", providerId: "provider", createdAt: now - 500,
+    expiresAt: now + 120_000, revision: 0, state: "prepared" };
+  base = { issuer, token, directV6Terminal: terminal, grant, authority, plan, operation, manifest }; recommit(base);
+});
+function assertion(draft: ReturnType<typeof createWalletPaymentReviewDraft>, changes: Record<string, unknown> = {}) {
+  return signGet({ ...credential, rpId, origin: issuer, challenge: draft.signing.digest, ...changes });
+}
+describe("owner-approved modeled payment review", () => {
+  it("keeps the enrolled wallet RP origin distinct from the configured REST audience", () => {
+    const c = context(), draft = createWalletPaymentReviewDraft(c, options());
+    expect(draft.issuer).toBe("https://wallet.juicebox.center");
+    expect(draft.grant.audience).toBe("https://juicebox.center");
+    expect(validateWalletPaymentReviewDraft(draft)).toEqual(draft);
+    expect(() => assertWalletPaymentReviewContext(draft, c)).not.toThrow();
+    expect(verifyWalletPaymentReviewProof(draft, assertion(draft)).signature).not.toBe("0x");
+  });
+  it("builds an immutable exact SafeOp review from server records, without estimation signature", () => {
+    const c = context(), draft = createWalletPaymentReviewDraft(c, options());
+    expect(draft.operation.signature).toBe("0x");
+    expect(draft.expiresAtMs).toBe(c.operation.expiresAt);
+    expect(draft.ceremony.challenge).toBe(Buffer.from(draft.signing.digest.slice(2), "hex").toString("base64url"));
+    const signing = safe7579PasskeyOwnerSigningPayload({ operation: c.operation.operation, chainId: 8453,
+      entryPoint: c.operation.entryPoint, safe7579: c.manifest.safe7579.address,
+      validAfter: String(Math.floor(c.operation.createdAt / 1000)), validUntil: String(Math.floor(c.operation.expiresAt / 1000)) });
+    expect(draft.signing).toEqual({ digest: signing.digest, signedData: signing.signedData, validAfter: signing.validAfter, validUntil: signing.validUntil });
+    expect(Object.isFrozen(draft)).toBe(true); expect(Object.isFrozen(draft.operation)).toBe(true);
+    expect(validateWalletPaymentReviewDraft(draft)).toEqual(draft);
+    expect(() => assertWalletPaymentReviewContext(draft, c)).not.toThrow();
+  });
+  it("verifies real P256 UV possession and returns the Safe contract owner envelope", () => {
+    const draft = createWalletPaymentReviewDraft(context(), options()), proof = verifyWalletPaymentReviewProof(draft, assertion(draft));
+    const entries = decodeSafe7579PasskeyOwnerSignature({ signature: proof.signature, ...draft.signing, threshold: 1 });
+    expect(entries).toHaveLength(1); expect(entries[0]).toMatchObject({ kind: "contract", owner: base.authority.binding.state.ownerProfile!.signer.address });
+    expect(proof.signedCommitment).toBe(userOperationCommitment({ ...draft.operation, signature: proof.signature }, draft.entryPoint, 8453));
+  });
+  it("keeps semantic proof stable across fresh signatures and counters while returning each actual envelope", () => {
+    const draft = createWalletPaymentReviewDraft(context(), options());
+    const a = verifyWalletPaymentReviewProof(draft, assertion(draft)), b = verifyWalletPaymentReviewProof(draft, assertion(draft, { signCount: 42, backedUp: false }));
+    expect(a.proofDigest).toBe(b.proofDigest); expect(a.signature).not.toBe(b.signature); expect(a.signedCommitment).not.toBe(b.signedCommitment);
+  });
+  it("compares immutable context after lifecycle observation changes without reissuing a review", () => {
+    const c = context(), draft = createWalletPaymentReviewDraft(c, options());
+    c.operation.state = "submission_unknown"; c.operation.revision = 8; c.operation.observation = { state: "unknown", operationHash: c.operation.operationHash };
+    c.plan.revision = 3; c.plan.steps[0]!.state = "unknown";
+    expect(() => assertWalletPaymentReviewContext(draft, c)).not.toThrow();
+  });
+  it("accepts an ownership binding whose historical execution flag is false, retaining the current authority identity", () => {
+    const c = context(); c.authority.binding.state.executionVerified = false;
+    const draft = createWalletPaymentReviewDraft(c, options());
+    expect(draft.operationHash).toBe(c.operation.operationHash);
+    expect(() => assertWalletPaymentReviewContext(draft, c)).not.toThrow();
+  });
+  it("caps expiry at the real SafeOp second, app grant and five minute review limit", () => {
+    const c = context(); c.operation.expiresAt += 999; recommit(c);
+    expect(createWalletPaymentReviewDraft(c, options()).expiresAtMs).toBe(now + 120_000);
+    c.grant.expiresAt = now / 1000 + 30; c.grant.retainUntil = c.grant.expiresAt + 86400;
+    expect(createWalletPaymentReviewDraft(c, options()).expiresAtMs).toBe(now + 30_000);
+    const long = context(); long.operation.expiresAt = now + 600_000; long.plan.expiresAt = now + 900_000; recommit(long);
+    expect(createWalletPaymentReviewDraft(long, options()).expiresAtMs).toBe(now + 300_000);
+  });
+  it("keeps the review identity across ordinary refreshed chain observations", () => {
+    const c = context(), draft = createWalletPaymentReviewDraft(c, options()), a = c.authority;
+    a.binding.state.safeNonce = "12";
+    const prior = a.prior!;
+    a.prior = reconcileWalletAuthority(a, { ...prior.latestObservation!, contextDigest: walletAuthorityContextDigest(a),
+      observedAtMs: now + 10, validUntilMs: now + 30_010,
+      priorAnchor: { status: "same", expected: prior.acceptedAnchor!, observed: prior.acceptedAnchor! } }, now + 10);
+    expect(() => assertWalletPaymentReviewContext(draft, c)).not.toThrow();
+  });
+  it.each(["nonce", "callGasLimit", "verificationGasLimit", "preVerificationGas", "maxFeePerGas", "maxPriorityFeePerGas"] as const)("rejects a different operation %s under the original review", field => {
+    const c = context(), draft = createWalletPaymentReviewDraft(c, options()); c.operation.operation[field] = field === "maxPriorityFeePerGas" ? "0x2" : "0x12345"; recommit(c);
+    expect(() => assertWalletPaymentReviewContext(draft, c)).toThrow();
+  });
+  it.each(["issuer", "state", "operationHash", "operationId", "planCommitment", "entryPoint", "safe7579", "expiresAtMs"])("rejects changed stored review %s", field => {
+    const draft = structuredClone(createWalletPaymentReviewDraft(context(), options())) as any;
+    draft[field] = field === "expiresAtMs" ? draft[field] + 1 : field === "issuer" ? "https://evil.example" : field === "state" ? randomBytes(32).toString("base64url") : field.endsWith("Id") ? randomUUID() : digest("other");
+    expect(() => validateWalletPaymentReviewDraft(draft)).toThrow();
+  });
+  it("requires exact grant principal, incarnation, epochs, authority identity, configured terminal and token", () => {
+    const draft = createWalletPaymentReviewDraft(context(), options());
+    for (const change of [(c: WalletPaymentReviewContext) => { c.grant.incarnation = "2"; },
+      (c: WalletPaymentReviewContext) => { c.grant.sessionEpoch = "2"; },
+      (c: WalletPaymentReviewContext) => { c.operation.actor.principalId = "owner:" + c.grant.accountId; },
+      (c: WalletPaymentReviewContext) => { c.authority.binding.authorization.digest = digest("other"); },
+      (c: WalletPaymentReviewContext) => { c.token = terminal; },
+      (c: WalletPaymentReviewContext) => { c.directV6Terminal = token; }]) {
+      const c = context(); change(c); expect(() => assertWalletPaymentReviewContext(draft, c)).toThrow();
+    }
+  });
+  it("requires full modeled payment and rejects operation calldata outside the selected plan", () => {
+    for (const change of [(c: WalletPaymentReviewContext) => { c.plan.draft.operation = "arbitrary"; },
+      (c: WalletPaymentReviewContext) => { c.operation.stepIndexes = [0]; },
+      (c: WalletPaymentReviewContext) => { c.operation.operation.callData = encodeSafe7579Execution([{ target: terminal, value: "1", callData: "0x" }]); },
+      (c: WalletPaymentReviewContext) => { c.operation.session = {} as any; }]) {
+      const c = context(); change(c); recommit(c); expect(() => createWalletPaymentReviewDraft(c, options())).toThrow();
+    }
+  });
+  it("rejects modified token amounts, beneficiaries and minimums even when plan and operation hashes are recomputed", () => {
+    const draft = createWalletPaymentReviewDraft(context(), options());
+    for (const changed of [[8n, token, 1_000_000n, base.plan.draft.account, 5n, "hello", "0x"],
+      [7n, token, 1_000_000n, terminal, 5n, "hello", "0x"], [7n, token, 1_000_000n, base.plan.draft.account, 0n, "hello", "0x"]] as const) {
+      const c = context(); c.plan.draft.calls[1]!.data = encodeFunctionData({ abi: payAbi, functionName: "pay", args: changed });
+      c.operation.operation.callData = encodeSafe7579Execution(c.plan.draft.calls.map(call => ({ target: call.to, callData: call.data, value: call.value })));
+      recommit(c); expect(() => assertWalletPaymentReviewContext(draft, c)).toThrow();
+    }
+  });
+  it("rejects corrupted plan and operation commitments before requesting owner approval", () => {
+    for (const field of ["plan", "operation"] as const) {
+      const c = context(); c[field].commitment = digest("corrupt");
+      expect(() => createWalletPaymentReviewDraft(c, options())).toThrow();
+    }
+  });
+  it("rejects wrong purpose digest, origin, RP, user handle, key and missing UV", () => {
+    const draft = createWalletPaymentReviewDraft(context(), options());
+    for (const changed of [assertion(draft, { challenge: digest("login") }), assertion(draft, { origin: "https://evil.example" }),
+      assertion(draft, { rpId: "evil.example" }), { ...assertion(draft), userHandle: randomBytes(32).toString("base64url") },
+      { ...assertion(draft), credentialId: randomBytes(32).toString("base64url") }])
+      expect(() => verifyWalletPaymentReviewProof(draft, changed)).toThrowError(expect.objectContaining({ code: "WALLET_PAYMENT_REVIEW_PROOF_INVALID" }));
+    const noUv = assertion(draft); noUv.authenticatorData[32]! &= ~4;
+    expect(() => verifyWalletPaymentReviewProof(draft, noUv)).toThrow();
+  });
+  it("accepts allowCredentials assertions with a null user handle while pinning exact credential ID and key", () => {
+    const draft = createWalletPaymentReviewDraft(context(), options());
+    const a = assertion(draft), b = { ...a, userHandle: null };
+    expect(verifyWalletPaymentReviewProof(draft, b).proofDigest).toBe(verifyWalletPaymentReviewProof(draft, a).proofDigest);
+  });
+  it("rejects a genuine assertion from a different P256 private key", () => {
+    const draft = createWalletPaymentReviewDraft(context(), options());
+    const other = createRegistration({ rpId, origin: issuer, userHandle: credential.userHandle, challenge: draft.signing.digest });
+    expect(() => verifyWalletPaymentReviewProof(draft, assertion(draft, { key: other.key }))).toThrow();
+  });
+  it("does not execute assertion byte iterators or getters and rejects proxy byte views", () => {
+    const draft = createWalletPaymentReviewDraft(context(), options()); let calls = 0;
+    const a = assertion(draft), original = verifyWalletPaymentReviewProof(draft, a);
+    Object.defineProperty(a.authenticatorData, Symbol.iterator, { value() { calls++; throw new Error("iterator"); } });
+    Object.defineProperty(a.authenticatorData, "byteLength", { get() { calls++; throw new Error("length"); } });
+    expect(verifyWalletPaymentReviewProof(draft, a)).toEqual(original); expect(calls).toBe(0);
+    expect(() => verifyWalletPaymentReviewProof(draft, { ...a, authenticatorData: new Proxy(a.authenticatorData, {}) })).toThrow();
+    Object.defineProperty(a, "signature", { get() { calls++; throw new Error("signature"); } });
+    expect(() => verifyWalletPaymentReviewProof(draft, a)).toThrow(); expect(calls).toBe(0);
+  });
+  it("rejects getters, proxies, hidden fields and large public trees without executing user code", () => {
+    let calls = 0;
+    const c = context(); Object.defineProperty(c.operation.operation, "nonce", { enumerable: true, get() { calls++; return "0x0"; } });
+    expect(() => createWalletPaymentReviewDraft(c, options())).toThrow(); expect(calls).toBe(0);
+    const proxy = new Proxy(context(), { ownKeys() { calls++; return []; } });
+    expect(() => createWalletPaymentReviewDraft(proxy, options())).toThrow(); expect(calls).toBe(0);
+    const large = context(); large.plan.draft.summary = "x".repeat(1_048_577);
+    expect(() => createWalletPaymentReviewDraft(large, options())).toThrow();
+    const draft = structuredClone(createWalletPaymentReviewDraft(context(), options())); Object.defineProperty(draft, "authorityOverride", { value: true });
+    expect(() => validateWalletPaymentReviewDraft(draft)).toThrow();
+  });
+});

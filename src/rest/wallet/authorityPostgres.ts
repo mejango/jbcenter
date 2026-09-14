@@ -52,29 +52,51 @@ function credentialOf(row: CurrentWalletCredentialRow): WalletAuthorityCredentia
     verifiedAtMs: Number(row.verified_at), supersededAtMs: null };
 }
 
+async function lockAccount(client: PoolClient, accountId: string): Promise<void> {
+  const row = (await client.query<{ owner_address: string; authority_chain_id: string }>(
+    "SELECT owner_address,authority_chain_id FROM rest_accounts WHERE id=$1 FOR UPDATE", [accountId])).rows[0];
+  if (!row || String(row.authority_chain_id) !== "8453" || `eip155:8453:${row.owner_address.toLowerCase()}` !== accountId) unavailable();
+}
+async function readBinding(client: PoolClient, accountId: string): Promise<BindingRow> {
+  // Existing binding writers hold the same account row lock. This does not create or un-revoke one.
+  const row = (await client.query<BindingRow>(`SELECT document,revoked_at,authorization_digest FROM rest_smart_account_bindings
+    WHERE account_id=$1 AND chain_id=8453 AND wallet_address=$2 AND revoked_at IS NULL`, [accountId, accountId.slice("eip155:8453:".length)])).rows[0];
+  if (!row || row.document.authorization.method !== "safe-passkey-owner-threshold-and-api-grant" ||
+      row.document.authorization.digest !== row.authorization_digest) unavailable();
+  return row;
+}
+async function readAuthority(client: Pool | PoolClient, accountId: string, lock = false): Promise<AuthorityRow | null> {
+  return (await client.query<AuthorityRow>(`SELECT * FROM rest_wallet_authority WHERE account_id=$1${lock ? " FOR UPDATE" : ""}`, [accountId])).rows[0] ?? null;
+}
+
+/** Internal locked metadata only. Caller owns BEGIN/COMMIT and validates a captured context
+ * outside SQL before comparing its immutable fields here. Account → enrollment → authority
+ * → credential locks; no proof validation, RPC, pool acquisition or authority admission. */
+export async function loadWalletAuthorityContextInTransaction(client: PoolClient, accountId: string): Promise<WalletAuthorityContext> {
+  account(accountId);
+  await lockAccount(client, accountId);
+  const currentBinding = await readBinding(client, accountId);
+  const row = (await client.query<{ id: string }>("SELECT id FROM rest_wallet_enrollments WHERE account_id=$1 AND state='verified'", [accountId])).rows[0];
+  if (!row) unavailable();
+  const enrollment = await lockWalletEnrollmentInTransaction(client, row.id);
+  const authority = await readAuthority(client, accountId, true);
+  const credential = await currentWalletCredentialInTransaction(client, enrollment);
+  if (!credential) unavailable();
+  return { version: "center-wallet-authority-context-v1", accountId, enrollment,
+    credential: credentialOf(credential), binding: currentBinding.document, prior: authority ? snapshotOf(authority) : null };
+}
+
 /** Internal trusted storage composition only. No chain transport or public grant issuance. */
 export class PostgresWalletAuthorityStore {
   constructor(private readonly pool: Pool) {}
   async loadContext(accountId: string): Promise<WalletAuthorityContext> {
-    account(accountId);
-    const context = await this.transaction(async client => {
-      await this.lockAccount(client, accountId);
-      const binding = await this.binding(client, accountId);
-      const row = (await client.query<{ id: string }>("SELECT id FROM rest_wallet_enrollments WHERE account_id=$1 AND state='verified'", [accountId])).rows[0];
-      if (!row) unavailable();
-      const enrollment = await lockWalletEnrollmentInTransaction(client, row.id);
-      const authority = await this.readAuthority(client, accountId, true);
-      const credential = await currentWalletCredentialInTransaction(client, enrollment);
-      if (!credential) unavailable();
-      return { version: "center-wallet-authority-context-v1" as const, accountId, enrollment,
-        credential: credentialOf(credential), binding: binding.document, prior: authority ? snapshotOf(authority) : null };
-    });
+    const context = await this.transaction(client => loadWalletAuthorityContextInTransaction(client, accountId));
     // Expensive context/creation/profile validation occurs only after every row lock is released.
     return validateWalletAuthorityContext(context);
   }
   async get(accountId: string): Promise<WalletAuthoritySnapshot | null> {
     account(accountId);
-    const row = await this.readAuthority(this.pool, accountId);
+    const row = await readAuthority(this.pool, accountId);
     return row ? validateWalletAuthoritySnapshot(snapshotOf(row)) : null;
   }
   async reconcile(inputContext: WalletAuthorityContext, inputObservation: WalletAuthorityObservation): Promise<{
@@ -88,18 +110,18 @@ export class PostgresWalletAuthorityStore {
     const resultRevision = (BigInt(context.prior?.revision ?? "0") + 1n).toString();
     const expected = { enrollment: stable(context.enrollment), binding: stable(context.binding),
       credential: stable(context.credential), prior: stable(context.prior) };
-    const hint = await this.readAuthority(this.pool, context.accountId);
+    const hint = await readAuthority(this.pool, context.accountId);
     // A known lost-response retry may outlive the observation TTL; it can only read the exact
     // still-durable result. All distinct writes must pass the reducer's original-time deadline.
     const candidate = hint?.observation_digest === digest ? null
       : reconcileWalletAuthority(context, observation, await databaseNow(this.pool));
     const result = await this.transaction(async client => {
-      await this.lockAccount(client, context.accountId);
+      await lockAccount(client, context.accountId);
       const enrollment = await lockWalletEnrollmentInTransaction(client, context.enrollment.intent.id);
-      const current = await this.readAuthority(client, context.accountId, true);
+      const current = await readAuthority(client, context.accountId, true);
       const credential = await currentWalletCredentialInTransaction(client, enrollment);
       if (!credential) unavailable();
-      const binding = await this.binding(client, context.accountId);
+      const binding = await readBinding(client, context.accountId);
       // Bounded structural comparisons only. No digest computation, proof verification, external
       // call or second pool acquisition is performed while account/enrollment/authority/key lock.
       if (stable(enrollment) !== expected.enrollment || stable(binding.document) !== expected.binding ||
@@ -129,22 +151,6 @@ export class PostgresWalletAuthorityStore {
       return { snapshot: snapshotOf(row), replayed: false };
     });
     return { snapshot: validateWalletAuthoritySnapshot(result.snapshot), replayed: result.replayed };
-  }
-  private async lockAccount(client: PoolClient, accountId: string): Promise<void> {
-    const row = (await client.query<{ owner_address: string; authority_chain_id: string }>(
-      "SELECT owner_address,authority_chain_id FROM rest_accounts WHERE id=$1 FOR UPDATE", [accountId])).rows[0];
-    if (!row || String(row.authority_chain_id) !== "8453" || `eip155:8453:${row.owner_address.toLowerCase()}` !== accountId) unavailable();
-  }
-  private async binding(client: PoolClient, accountId: string): Promise<BindingRow> {
-    // Existing binding writers hold the same account row lock. This does not create or un-revoke one.
-    const row = (await client.query<BindingRow>(`SELECT document,revoked_at,authorization_digest FROM rest_smart_account_bindings
-      WHERE account_id=$1 AND chain_id=8453 AND wallet_address=$2 AND revoked_at IS NULL`, [accountId, accountId.slice("eip155:8453:".length)])).rows[0];
-    if (!row || row.document.authorization.method !== "safe-passkey-owner-threshold-and-api-grant" ||
-        row.document.authorization.digest !== row.authorization_digest) unavailable();
-    return row;
-  }
-  private async readAuthority(client: Pool | PoolClient, accountId: string, lock = false): Promise<AuthorityRow | null> {
-    return (await client.query<AuthorityRow>(`SELECT * FROM rest_wallet_authority WHERE account_id=$1${lock ? " FOR UPDATE" : ""}`, [accountId])).rows[0] ?? null;
   }
   private async transaction<T>(run: (client: PoolClient) => Promise<T>): Promise<T> {
     // Production supplies the shared pool's bounded acquisition/query deadlines; never acquire

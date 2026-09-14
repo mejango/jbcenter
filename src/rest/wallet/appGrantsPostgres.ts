@@ -7,6 +7,9 @@ import { inactiveWalletAppGrant, invalidWalletAppGrant, validateWalletAppGrant, 
   walletAppGrantMaximumLifetimeSeconds, walletAppGrantRetentionSeconds, walletAppPrincipalId, walletAppTime,
   walletAppUuid, type WalletAppGrant, type WalletAppGrantAdmission, type WalletAppAuthorityContext,
   type WalletAuthority, type WalletAuthorityAdvance } from "./appGrants.js";
+import { stable } from "../smartAccounts/service.js";
+import type { WalletAuthorityContext, WalletAuthoritySnapshot } from "./authority.js";
+import { loadWalletAuthorityContextInTransaction } from "./authorityPostgres.js";
 import { assertWalletPolicyCallbackInTransaction } from "./policyPostgres.js";
 
 interface GrantRow {
@@ -129,6 +132,33 @@ export async function assertWalletAppGrantActiveInTransaction(client: PoolClient
   if (grant.createdAt > before || expiresAt <= before) inactiveWalletAppGrant();
   await policyGuard(client, { ...grant, expiresAt });
   if (expiresAt <= await now(client) || authorityDeadline <= await nowMs(client)) inactiveWalletAppGrant();
+}
+
+/** Scheduling identity only, after an exact request signature was verified. The caller captures and
+ * validates its complete authority context outside SQL, then claims its nonce in this transaction.
+ * Unknown/expired readiness may request observation; known changed, fenced or bootstrap state may
+ * not. This never returns a principal, renews readiness, or replaces the full admission guard. */
+export async function assertWalletAppRefreshIdentityInTransaction(client: PoolClient, input: WalletAppGrant,
+  inputContext: WalletAppAuthorityContext, expected: WalletAuthorityContext): Promise<WalletAuthoritySnapshot> {
+  const grant = validateWalletAppGrant(input), request = contextOf(inputContext);
+  if (request.kind !== "request" || expected.accountId !== grant.accountId) inactiveWalletAppGrant();
+  const current = await loadWalletAuthorityContextInTransaction(client, grant.accountId), authority = current.prior;
+  if (!authority || !expected.prior || !authority.identity || authority.bootstrapRequired || authority.activeFence !== null
+    || !["verified", "unknown"].includes(authority.readiness)
+    || authority.authorityEpoch !== grant.authorityEpoch || authority.sessionEpoch !== grant.sessionEpoch
+    || authority.authorityEpoch !== expected.prior.authorityEpoch || authority.sessionEpoch !== expected.prior.sessionEpoch
+    || stable(authority.identity) !== stable(expected.prior.identity)
+    || stable(authority.historicalVerifiedIdentity) !== stable(authority.identity)
+    || stable(current.enrollment) !== stable(expected.enrollment) || stable(current.credential) !== stable(expected.credential)
+    || stable(current.binding) !== stable(expected.binding)) inactiveWalletAppGrant();
+  const row = (await client.query<GrantRow>("SELECT * FROM rest_wallet_app_grants WHERE id=$1 FOR SHARE", [grant.id])).rows[0];
+  if (!row || stable(grantOf(row)) !== stable(grant) || grant.revokedAt !== null
+    || request.audience !== grant.audience || request.origin !== grant.origin) inactiveWalletAppGrant();
+  const expiresAt = Math.min(request.expiresAt, grant.expiresAt), before = await now(client);
+  if (grant.createdAt > before || expiresAt <= before) inactiveWalletAppGrant();
+  await policyGuard(client, { ...grant, expiresAt });
+  if (expiresAt <= await now(client)) inactiveWalletAppGrant();
+  return authority;
 }
 
 /** Internal storage admission only: no public issuance, login, code exchange or canonical epoch producer.

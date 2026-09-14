@@ -14,6 +14,7 @@ const cancel = element<HTMLButtonElement>("wallet-cancel"), signOut = element<HT
 let configuration: Configuration, intent: Intent | null = null, session: Session | null = null;
 let sessionKnown = false, busy = false, csrf = "", pending: Completion | null = null;
 let completionAttempted = false;
+let paymentReviewId: string | null = null;
 let nativePrompt: AbortController | null = null, retryAction: (() => Promise<void>) | null = null;
 let nextRetry: () => Promise<void> = load;
 
@@ -115,7 +116,9 @@ async function run(action: () => Promise<void>) {
 async function load() {
   nextRetry = load; setStatus("loading", "Checking your wallet…");
   const query = new URL(location.href);
-  if (query.hash || [...query.searchParams.keys()].some(key => key !== "intent") || query.searchParams.getAll("intent").length > 1) throw new InvalidResponse();
+  if (query.hash || [...query.searchParams.keys()].some(key => !["intent", "payment"].includes(key)) || query.searchParams.size > 1) throw new InvalidResponse();
+  paymentReviewId = query.searchParams.get("payment");
+  if (paymentReviewId !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(paymentReviewId)) throw new InvalidResponse();
   const intentId = query.searchParams.has("intent") ? token(query.searchParams.get("intent")) : null;
   const config = await request("/wallet/config");
   if (config.version !== "center-wallet-v1" || config.issuer !== location.origin) throw new InvalidResponse();
@@ -140,7 +143,11 @@ async function readSession() {
   await continueSession();
 }
 async function continueSession() {
-  if (session && intent) await issue();
+  if (session && paymentReviewId) {
+    setStatus("returning", "Returning to your payment review…");
+    location.replace(`/wallet/payment?review=${paymentReviewId}`);
+  }
+  else if (session && intent) await issue();
   else setStatus(session ? "signed-in" : "ready", session ? "You are signed in." : "Sign in with your existing wallet passkey.");
 }
 async function login() {

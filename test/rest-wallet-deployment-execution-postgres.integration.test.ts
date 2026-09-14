@@ -83,7 +83,7 @@ suite("PostgreSQL exact-byte deployment dispatch fencing", () => {
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 5 });
     for (const name of ["013_rest_wallet_ceremonies.sql", "015_rest_wallet_enrollment.sql", "016_rest_wallet_deployments.sql",
-      "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql"])
+      "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     store = new PostgresWalletDeploymentStore(pool); enrollments = new PostgresWalletEnrollmentStore(pool);
   });
@@ -116,6 +116,9 @@ suite("PostgreSQL exact-byte deployment dispatch fencing", () => {
     expect(first.status).toBe(200);
     const old = first.body as WalletDeploymentDispatchJournal;
     await waitUntil(old.nextAttemptAt + 10);
+    // A retry obtains a fresh observation, just as the production coordinator does after cooldown.
+    context.operation = (await store.saveObservation({ operationId: context.operation.id, expectedRevision: context.operation.revision,
+      signedHash: context.operation.signed!.hash, observation: syntheticDeploymentObservation(context, await now()) })).operation;
     const next = await b.request({ action: "lease-dispatch", input: await claim(context) });
     expect(next.status).toBe(200); expect(next.body).toMatchObject({ attempts: 2, revision: 2 });
     expect((await a.request({ action: "settle-dispatch", input: settlement(old, "accepted") })).status).toBe(409);
@@ -150,7 +153,8 @@ suite("PostgreSQL exact-byte deployment dispatch fencing", () => {
   it("keeps the permanent eight-attempt limit across worker recovery", async () => {
     let context = await signedContext();
     for (let i = 1; i <= 8; i++) {
-      const journal = await store.leaseDispatch(await claim(context, 30));
+      // This case tests the durable attempt cap, not an unrealistically small success deadline.
+      const journal = await store.leaseDispatch(await claim(context, 200));
       expect(journal.attempts).toBe(i);
       await waitUntil(journal.nextAttemptAt + 5);
       context.operation = (await store.saveObservation({ operationId: context.operation.id, expectedRevision: context.operation.revision,

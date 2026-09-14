@@ -4,6 +4,7 @@ import type { Hex } from 'viem';
 import { RestError } from '../core.js';
 import { RestAuthError } from '../auth/shared.js';
 import { walletPage, walletCss } from '../web/walletPage.js';
+import { walletPaymentPage, walletPaymentCss } from '../web/walletPaymentPage.js';
 import { walletAppAudience, walletAppFields } from './appGrants.js';
 import { validateWalletPolicyOrigin } from './policy.js';
 import { validateWalletRpConfiguration, type WalletAssertion } from './webauthn.js';
@@ -14,15 +15,19 @@ import { assertWalletHttpHost, assertWalletHttpRequest, assertWalletCsrf, readWa
 import type { PostgresWalletLoginStore } from './loginPostgres.js';
 import type { PostgresWalletHandoffStore } from './handoffPostgres.js';
 import type { PostgresWalletPolicyStore } from './policyPostgres.js';
+import type { PostgresWalletPaymentReviewStore } from './paymentReviewsPostgres.js';
+import { publicWalletPaymentCentralReview } from './paymentPublic.js';
 
 export interface WalletSiteOptions {
   origin: string;
   audience: string;
   browserScript: string;
+  paymentBrowserScript?: string;
   login: Pick<PostgresWalletLoginStore, 'begin' | 'identifyCompletion' | 'complete' | 'identifySession' | 'readSession' | 'logout'>;
   handoff: Pick<PostgresWalletHandoffStore, 'prepare' | 'getIntent' | 'issue' | 'identifyExchange' | 'exchange'>;
   policy: Pick<PostgresWalletPolicyStore, 'readActivePolicy'>;
   refresh: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
+  payments?: Pick<PostgresWalletPaymentReviewStore, 'getForSession' | 'approve' | 'cancel'>;
   onEvent?: (event: { action: string; outcome: 'ok' | 'rejected' | 'unavailable'; code?: string }) => void;
 }
 
@@ -190,6 +195,56 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     c.header('Set-Cookie', walletCookie(walletSessionCookie, null, 0), { append: true });
     c.header('Set-Cookie', walletCookie(walletFlowCookie, null, 0), { append: true });
     emit('logout', 'ok'); return c.json(result);
+  });
+  const payments = () => {
+    if (!options.payments) reject(503, 'WALLET_PAYMENTS_UNAVAILABLE');
+    return options.payments;
+  };
+  app.get('/wallet/payment', c => {
+    payments();
+    if (!options.paymentBrowserScript) reject(503, 'WALLET_PAYMENTS_UNAVAILABLE');
+    return c.html(walletPaymentPage());
+  });
+  app.get('/wallet/assets/wallet-payment.js', c => {
+    payments();
+    if (!options.paymentBrowserScript) reject(503, 'WALLET_PAYMENTS_UNAVAILABLE');
+    return c.body(options.paymentBrowserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' });
+  });
+  app.get('/wallet/assets/wallet-payment.css', c => {
+    payments();
+    if (!options.paymentBrowserScript) reject(503, 'WALLET_PAYMENTS_UNAVAILABLE');
+    return c.body(walletPaymentCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' });
+  });
+  const paymentSession = async (c: Context, mutate: boolean) => {
+    if (mutate) central(c);
+    const token = mutate ? cookie(c, walletSessionCookie) : readWalletCookie(c.req.raw, walletSessionCookie);
+    if (!token) reject(403, 'WALLET_HTTP_SESSION');
+    const session = await sessionFor(token);
+    if (!session) reject(403, 'WALLET_HTTP_SESSION');
+    return session;
+  };
+  app.get('/wallet/payment-reviews/:id', async c => {
+    const service = payments(), session = await paymentSession(c, false);
+    return c.json(publicWalletPaymentCentralReview(await service.getForSession(c.req.param('id'), session.id)));
+  });
+  app.post('/wallet/payment-reviews/:id/approve', async c => {
+    const service = payments(), session = await paymentSession(c, true);
+    const body = fields(await readWalletJson(c.req.raw), ['assertion']);
+    const result = await service.approve(c.req.param('id'), session.id, assertion(body.assertion));
+    if (result.view.draft.issuer !== origin) reject(503, 'WALLET_UNAVAILABLE');
+    const callback = new URL(result.view.draft.grant.callbackUri);
+    callback.searchParams.set('review', result.view.draft.id);
+    callback.searchParams.set('state', result.view.draft.state);
+    callback.searchParams.set('iss', result.view.draft.issuer);
+    emit('payment_approve', 'ok');
+    return c.json({ review: publicWalletPaymentCentralReview(result.view), replayed: result.replayed, redirectUri: callback.href });
+  });
+  app.post('/wallet/payment-reviews/:id/cancel', async c => {
+    const service = payments(), session = await paymentSession(c, true);
+    fields(await readWalletJson(c.req.raw), []);
+    const view = await service.cancel(c.req.param('id'), session.id);
+    emit('payment_cancel', 'ok');
+    return c.json(publicWalletPaymentCentralReview(view));
   });
   app.get('/wallet/authorize/:id', async c => c.json(await handoff.getIntent(c.req.param('id'))));
   app.post('/wallet/authorize/issue', async c => {

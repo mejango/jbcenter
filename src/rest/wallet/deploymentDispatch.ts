@@ -4,6 +4,7 @@ import type { WalletEnrollment } from "./enrollment.js";
 import { enrollmentDigest } from "./enrollment.js";
 import { assertWalletDeploymentObservation } from "./deploymentObservation.js";
 import type { WalletDeploymentOperation, WalletDeploymentPool } from "./deploymentPostgres.js";
+import { assertWalletDeploymentAccounting, walletDeploymentAccountingDigest, walletDeploymentRemainingWei } from "./deploymentSettlement.js";
 
 /** Internal database-loaded context. A matching JSON shape does not establish its provenance. */
 export interface WalletDeploymentExecutionContext {
@@ -13,8 +14,7 @@ export interface WalletDeploymentExecutionContext {
 }
 /** Only the explicit local Anvil adapter may produce this experimental admission. It grants no
  * Base affordability claim and is not accepted from a public request or a deployment proof. */
-export interface WalletDeploymentDispatchAdmission {
-  version: "center-wallet-deployment-local-admission-v1";
+interface WalletDeploymentDispatchAdmissionFields {
   operationId: string;
   poolConfigurationDigest: string;
   templateCommitment: Hex;
@@ -29,6 +29,10 @@ export interface WalletDeploymentDispatchAdmission {
   feeScope: "local-execution-only";
   baseTotalAffordability: "unknown";
 }
+export type WalletDeploymentDispatchAdmission = WalletDeploymentDispatchAdmissionFields & (
+  { version: "center-wallet-deployment-local-admission-v1"; accounting?: never } |
+  { version: "center-wallet-deployment-local-admission-v2"; accounting: { digest: string; remainingWei: string; nextNonce: string } }
+);
 export const walletDeploymentDispatchLimits = Object.freeze({ maximumAttempts: 8, leaseMs: 15_000,
   cooldownMs: 1_000, admissionLifetimeMs: 5_000, sendTimeoutMs: 3_000 });
 export interface WalletDeploymentDispatchJournal {
@@ -70,8 +74,10 @@ export function assertWalletDeploymentDispatchAdmission(input: unknown,
   };
   try {
     enrollmentDigest(input);
+    const initialized = !!context.pool.accounting;
     exact(input, ["version", "operationId", "poolConfigurationDigest", "templateCommitment", "transactionHash", "operationRevision",
-      "observationDigest", "environment", "observedAt", "expiresAt", "balanceWei", "maximumExecutionCost", "feeScope", "baseTotalAffordability"]);
+      "observationDigest", "environment", "observedAt", "expiresAt", "balanceWei", "maximumExecutionCost", "feeScope", "baseTotalAffordability",
+      ...(initialized ? ["accounting"] : [])]);
     const value = structuredClone(input) as WalletDeploymentDispatchAdmission;
     exact(value.environment, ["kind", "genesisHash", "head"]);
     const { operation, pool } = context, observation = assertWalletDeploymentObservation(operation.observation);
@@ -80,7 +86,16 @@ export function assertWalletDeploymentDispatchAdmission(input: unknown,
       if (typeof v !== "string" || v.length > 78 || !/^(0|[1-9][0-9]*)$/.test(v) || BigInt(v) >= 1n << 256n) fail();
       return BigInt(v);
     };
-    if (value.version !== "center-wallet-deployment-local-admission-v1" || value.environment.kind !== "unforked-anvil" ||
+    const remaining = walletDeploymentRemainingWei(pool);
+    if (initialized) {
+      const accounting = assertWalletDeploymentAccounting(pool.accounting, pool);
+      if (value.version !== "center-wallet-deployment-local-admission-v2") return fail();
+      exact(value.accounting, ["digest", "remainingWei", "nextNonce"]);
+      if (accounting.fence || value.accounting.digest !== walletDeploymentAccountingDigest(accounting) ||
+          value.accounting.remainingWei !== remaining || value.accounting.nextNonce !== accounting.nextNonce ||
+          accounting.nextNonce !== operation.template?.transaction.nonce || value.environment.genesisHash !== accounting.environment.genesisHash) fail();
+    } else if (value.version !== "center-wallet-deployment-local-admission-v1") fail();
+    if (value.environment.kind !== "unforked-anvil" ||
       value.feeScope !== "local-execution-only" || value.baseTotalAffordability !== "unknown" ||
       !/^0x[0-9a-f]{64}$/.test(value.environment.genesisHash) || BigInt(value.environment.genesisHash) === 0n ||
       operation.state !== "signed" || !operation.signed || !operation.template || pool.state !== "active" || pool.activeOperationId !== operation.id ||
@@ -106,8 +121,8 @@ export function assertWalletDeploymentDispatchAdmission(input: unknown,
       BigInt(value.expiresAt) > (BigInt(observation.head.timestamp) + 300n) * 1000n ||
       value.maximumExecutionCost !== operation.signed.maximumExecutionCost ||
       amount(value.maximumExecutionCost) !== amount(operation.template.transaction.gas) * amount(operation.template.transaction.maxFeePerGas) ||
-      amount(value.balanceWei) < amount(pool.configuration.allocationWei) ||
-      amount(value.maximumExecutionCost) > amount(pool.configuration.allocationWei)) fail();
+      amount(value.balanceWei) < amount(remaining) ||
+      amount(value.maximumExecutionCost) > amount(remaining)) fail();
     return value;
   } catch { return fail(); }
 }

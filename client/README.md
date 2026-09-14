@@ -42,4 +42,36 @@ sensitive. `disconnect()` clears it and invalidates the helper's existing client
 
 The returned connection exposes the Base wallet address and an ordinary
 `CenterClient` with read/plan/relay access. The request key cannot sign payments or
-activate spending sessions. Fresh owner-approved payment review remains separate.
+activate spending sessions. Use the separate payment workflow below for fresh owner approval.
+
+
+For an explicitly configured Base USDC pilot, call `wallet.payments()` on the same
+wallet helper. Prepare a normal smart-account plan and UserOperation through the
+returned `CenterClient`, then pass the exact plan, operation and your app's expected
+payment to `preparePayment()`. The expected payment includes token, direct V6
+terminal, amount, project, beneficiary, minimum returned tokens, memo, metadata and
+`maximumNetworkFee` in native wei. This bounds EntryPoint prefund; separate rollup
+data fees are not included.
+
+Navigate to the returned `approvalUrl`. Center displays the exact payment and
+requires a fresh passkey approval. Back on the same registered callback, call
+`completePayment()` to validate the callback and retrieve the original approval.
+Call `submitPayment()` explicitly, then `refreshPayment()` to observe that same
+operation. A canonical receipt with verified payment effects becomes `paid`;
+submission, confirmation in progress and unknown outcomes remain distinct.
+
+`pendingPayment()` returns the retained public state after reload. A disconnected,
+expired or replaced grant cannot authorize requests, but disconnect preserves the
+payment record. `clearPayment()` refuses to discard a live approval or possible
+submission. It can explicitly archive a locally unsent record after its original
+finite signing window has elapsed, provided no approval was saved. That archive
+remains unknown; the browser clock does not establish chain expiry or nonpayment. Do not prepare a replacement because a response was lost or a review
+expired; reconcile the original operation. These methods neither create a wallet
+nor activate the pilot service, and they do not add generic EOA signing support.
+
+
+`connection.client.authorizeRead(requestTarget)` produces an exact signed GET for
+an application server to relay without revealing the request key or sending it.
+The relay must preserve its URL and signed headers. Trusted app relays additionally
+supply their fixed configured app Origin; user input must not select that origin.
+The original request expiry, nonce and live server grant checks still apply.

@@ -53,8 +53,8 @@ describe("REST OpenAPI contract", () => {
     const files = ["../src/rest/app.ts", "../src/rest/auth/router.ts"];
     for (const file of files) {
       const source = await readFile(new URL(file, import.meta.url), "utf8");
-      for (const match of source.matchAll(/(?:app|router)\.(get|post|patch|delete)\("([^\"]+)"/g)) {
-        const path = match[2] === "/" ? "/api/v1" : `/api/v1${match[2]!.replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, "{$1}")}`;
+      for (const match of source.matchAll(/(?:app|router)\.(get|post|patch|delete)\((["'])([^"']+)\2/g)) {
+        const path = match[3] === "/" ? "/api/v1" : `/api/v1${match[3]!.replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, "{$1}")}`;
         expect(spec.paths[path]?.[match[1]!], `${match[1]} ${path}`).toBeDefined();
       }
     }

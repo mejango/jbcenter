@@ -1,3 +1,4 @@
+import { paymentProjectionFixture } from './fixtures/wallet-payment-projection.js';
 import { describe, expect, it, vi } from 'vitest';
 import { createWalletSite, type WalletSiteOptions } from '../src/rest/wallet/site.js';
 import { walletCsrfToken, walletFlowCookie, walletSessionCookie } from '../src/rest/wallet/http.js';
@@ -10,7 +11,7 @@ const origin='https://wallet.example.test', appOrigin='https://beep.example.test
 const flow=Buffer.alloc(32,7).toString('base64url'), token=Buffer.alloc(32,8).toString('base64url');
 const accountId='eip155:8453:0x0000000000000000000000000000000000000003';
 const loginId='11111111-1111-4111-8111-111111111111';
-function setup() {
+function setup(overrides: Partial<WalletSiteOptions> = {}) {
   // HTTP controller evidence only: storage/crypto correctness has separate real-PG/EVM suites.
   const session={id:'22222222-2222-4222-8222-222222222222',accountId,expiresAtMs:Date.now()+3_600_000,
     credentialId:'private-credential-metadata',userHandle:'private-user-handle'} as WalletCentralSession;
@@ -23,11 +24,80 @@ function setup() {
       issue:vi.fn(async()=>({code:flow,state:token,issuer:origin,callbackUri:appOrigin+'/center/callback'})),identifyExchange:vi.fn(async()=>({accountId})),exchange:vi.fn(async()=>({grant:{id:'public-grant'} as never,replayed:false}))},
     policy:{readActivePolicy:vi.fn(async()=>({revision:1,configurationHash:'a'.repeat(64),configuration:{version:'center-wallet-policy-v1' as const,applications:[{origin:appOrigin,walletCallbacks:[appOrigin+'/center/callback']}]},activatedAt:1,apps:[{origin:appOrigin,walletCallbacks:[appOrigin+'/center/callback'],generation:1,enabled:true}]}))},
     refresh:{request:vi.fn(async()=>({status:'queued'})),tick:vi.fn(async()=>({}))},onEvent:vi.fn()};
+  Object.assign(options, overrides);
   return {app:createWalletSite(options),options};
 }
 function request(path:string,body:unknown,headers:Record<string,string>={}) {
   return new Request(origin+path,{method:'POST',headers:{origin,'content-type':'application/json','x-center-wallet-request':'1',...headers},body:JSON.stringify(body)});
 }
+
+describe('central payment approval HTTP boundary',()=>{
+  function payments() {const view=paymentProjectionFixture();return {
+    getForSession:vi.fn(async()=>view),approve:vi.fn(async()=>({view,replayed:false})),cancel:vi.fn(async()=>({...view,status:'cancelled' as const})),
+  };}
+  const headers={cookie:`${walletSessionCookie}=${token}`,'x-center-wallet-csrf':walletCsrfToken(token)};
+  const assertion={credentialId:flow,userHandle:null,authenticatorData:Buffer.alloc(37).toString('base64url'),clientDataJSON:Buffer.from('{}').toString('base64url'),signature:Buffer.alloc(70).toString('base64url')};
+  it('mounts the emitted payment approval URL and its production assets only with explicit configuration',async()=>{
+    const {app}=setup({payments:payments(),paymentBrowserScript:'/* reviewed payment browser */'});
+    const response=await app.fetch(new Request(origin+'/wallet/payment?review='+loginId));
+    expect(response.status).toBe(200);expect(await response.text()).toContain('/wallet/assets/wallet-payment.js');
+    expect(response.headers.get('content-security-policy')).toContain("script-src 'self';");
+    const script=await app.fetch(new Request(origin+'/wallet/assets/wallet-payment.js'));
+    expect(script.status).toBe(200);expect(await script.text()).toBe('/* reviewed payment browser */');
+    expect(script.headers.get('content-type')).toContain('application/javascript');
+    expect((await app.fetch(new Request(origin+'/wallet/assets/wallet-payment.css'))).status).toBe(200);
+    for(const path of ['/wallet/payment?review='+loginId,'/wallet/assets/wallet-payment.js','/wallet/assets/wallet-payment.css'])
+      expect((await setup().app.fetch(new Request(origin+path))).status).toBe(503);
+  });
+  it('requires a live cookie session before reading selected passkey or payment metadata',async()=>{
+    const service=payments(),{app,options}=setup({payments:service});
+    expect((await app.fetch(new Request(origin+'/wallet/payment-reviews/review-id'))).status).toBe(403);
+    expect(service.getForSession).not.toHaveBeenCalled();
+    const result=await app.fetch(new Request(origin+'/wallet/payment-reviews/review-id',{headers}));
+    expect(result.status).toBe(200);expect(service.getForSession).toHaveBeenCalledWith('review-id','22222222-2222-4222-8222-222222222222');
+    const body=await result.json();expect(body.passkey).toMatchObject({credentialId:'selected-credential',userVerification:'required'});
+    expect(body).not.toHaveProperty('approval');expect(JSON.stringify(body)).not.toContain('private-');
+    vi.mocked(options.login.readSession).mockResolvedValue(null);vi.mocked(options.login.identifySession).mockResolvedValue(null);
+    expect((await app.fetch(new Request(origin+'/wallet/payment-reviews/review-id',{headers}))).status).toBe(403);
+    expect(service.getForSession).toHaveBeenCalledTimes(1);
+  });
+  it('passes the server session and exact decoded assertion, returning only the saved callback',async()=>{
+    const service=payments(),{app,options}=setup({payments:service});
+    const result=await app.fetch(request('/wallet/payment-reviews/review-id/approve',{assertion},headers));
+    expect(result.status).toBe(200);
+    expect(service.approve).toHaveBeenCalledWith('review-id','22222222-2222-4222-8222-222222222222',{
+      credentialId:flow,userHandle:null,authenticatorData:Buffer.alloc(37),clientDataJSON:Buffer.from('{}'),signature:Buffer.alloc(70),
+    });
+    const body=await result.json(),callback=new URL(body.redirectUri);
+    expect(callback.origin).toBe(appOrigin);expect(callback.pathname).toBe('/center/callback');
+    expect(Object.fromEntries(callback.searchParams)).toEqual({review:'review-id',state:'app-state',iss:origin});
+    expect(body.review.status).toBe('approved');expect(body).not.toHaveProperty('approval');
+    expect(JSON.stringify(body)).not.toContain('0x1234');expect(JSON.stringify(vi.mocked(options.onEvent!).mock.calls)).not.toContain(flow);
+  });
+  it('rejects cross-origin, missing-CSRF and body-supplied authority before approval or cancellation',async()=>{
+    const service=payments(),{app}=setup({payments:service});
+    for(const action of ['approve','cancel']) {
+      const body=action==='approve'?{assertion}:{};
+      for(const h of [{...headers,origin:appOrigin},{cookie:headers.cookie}])
+        expect((await app.fetch(request('/wallet/payment-reviews/review-id/'+action,body,h))).status).toBe(403);
+      for(const extra of [{sessionId:'other'},{accountId:'other'},{callbackUri:'https://attacker.test'}])
+        expect((await app.fetch(request('/wallet/payment-reviews/review-id/'+action,{...body,...extra},headers))).status).toBe(400);
+    }
+    expect(service.approve).not.toHaveBeenCalled();expect(service.cancel).not.toHaveBeenCalled();
+  });
+  it('allows cancellation with current central authority and never creates an approval',async()=>{
+    const service=payments(),{app}=setup({payments:service});
+    const response=await app.fetch(request('/wallet/payment-reviews/review-id/cancel',{},headers));
+    expect(response.status).toBe(200);expect((await response.json()).status).toBe('cancelled');
+    expect(service.cancel).toHaveBeenCalledWith('review-id','22222222-2222-4222-8222-222222222222');expect(service.approve).not.toHaveBeenCalled();
+  });
+  it('does not expose payment cookie endpoints through app CORS or enable an unconfigured service',async()=>{
+    const {app}=setup();
+    expect((await app.fetch(request('/wallet/payment-reviews/review-id/approve',{assertion},headers))).status).toBe(503);
+    const preflight=await app.fetch(new Request(origin+'/wallet/payment-reviews/review-id/approve',{method:'OPTIONS',headers:{origin:appOrigin,'access-control-request-method':'POST','access-control-request-headers':'content-type,x-center-wallet-request,x-center-wallet-csrf'}}));
+    expect(preflight.status).toBe(403);expect(preflight.headers.get('access-control-allow-origin')).toBeNull();
+  });
+});
 
 describe('dedicated Center wallet HTTP journey',()=>{
   it('serves a dedicated passkey page with self-only scripts and no Para policy',async()=>{

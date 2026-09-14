@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { Pool } from "pg";
-import { expect } from "vitest";
+import assert from "node:assert/strict";
 import { hashTypedData, keccak256, toHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { createWalletEnrollmentIntent, walletEnrollmentDocument, type WalletEnrollment } from "../../src/rest/wallet/enrollment.js";
@@ -16,7 +16,7 @@ import { fingerprint } from "../../src/rest/smartAccounts/service.js";
 import { passkeyOnboardingDocument, passkeyOnboardingProofDocument, passkeyOnboardingSigningPayload,
   validatePasskeyOnboardingInput, verifyPasskeyOnboardingSignatures, type PasskeyOnboardingInput } from "../../src/rest/smartAccounts/passkeyOnboarding.js";
 import { encodeSafe7579MessageSignature } from "../../src/rest/smartAccounts/passkeySignatures.js";
-import type { SmartAccountBinding, SmartAccountState } from "../../src/rest/smartAccounts/types.js";
+import type { SmartAccountBinding, SmartAccountManifest, SmartAccountState } from "../../src/rest/smartAccounts/types.js";
 import { createRegistration, enrollmentBackupAccount, enrollmentManifest, signBackupProof, signGet } from "./wallet-enrollment-crypto.js";
 import { PostgresWalletLoginStore } from "../../src/rest/wallet/loginPostgres.js";
 
@@ -25,7 +25,7 @@ export const walletLoginFixtureRpId = "wallet.juicebox.center";
 export const walletLoginTestMigrations = ["004_rest_accounts.sql", "007_rest_smart_accounts.sql", "012_rest_smart_account_onboarding.sql",
   "013_rest_wallet_ceremonies.sql", "014_rest_passkey_onboarding.sql", "015_rest_wallet_enrollment.sql",
   "017_rest_wallet_policy.sql", "019_rest_wallet_app_grants.sql", "020_rest_wallet_authority.sql", "022_wallet_login.sql"];
-export async function createWalletLoginSetup(pool: Pool, options: { lifetimeMs?: number; origin?: string; rpId?: string } = {}) {
+export async function createWalletLoginSetup(pool: Pool, options: { lifetimeMs?: number; origin?: string; rpId?: string; manifest?: SmartAccountManifest } = {}) {
   const audience = options.origin ?? walletLoginFixtureOrigin;
   const credentialRpId = options.rpId ?? new URL(audience).hostname;
   const browser = privateKeyToAccount(`0x${"22".repeat(32)}`);
@@ -35,7 +35,8 @@ export async function createWalletLoginSetup(pool: Pool, options: { lifetimeMs?:
     return Number((await pool.query("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::text AS now")).rows[0].now);
   }
   async function verifiedEnrollment() {
-    const initial = await enrollments.begin(createWalletEnrollmentIntent({ manifest: enrollmentManifest,
+    // Any execution pin is selected before the original W3 consent, never added to its signed manifest later.
+    const initial = await enrollments.begin(createWalletEnrollmentIntent({ manifest: options.manifest ?? enrollmentManifest,
       rpId: credentialRpId, origin: audience, recoveryOwner: enrollmentBackupAccount.address,
       expiresAt: await databaseNow() + 120000 }));
     const credential = createRegistration({ challenge: `0x${Buffer.from(initial.intent.registration.challenge, "base64url").toString("hex")}`,
@@ -83,7 +84,7 @@ export async function createWalletLoginSetup(pool: Pool, options: { lifetimeMs?:
       signature: await enrollmentBackupAccount.sign({ hash: payload.digest }) }]);
     const signers = await verifyPasskeyOnboardingSignatures(document, state, signature,
       await browser.signTypedData(passkeyOnboardingProofDocument(document)), async () => { throw new Error("No contract provider exists in PG fixture"); });
-    expect(signers).toEqual([enrollmentBackupAccount.address]);
+    assert.deepEqual(signers, [enrollmentBackupAccount.address]);
     const binding: SmartAccountBinding = { id: fingerprint({ ownerAccountId: accountId, wallet: state.address, chainId: state.chainId }),
       ownerAccountId: accountId, ownerAddress: state.address, wallet: { chainId: 8453, address: state.address }, manifestId: state.manifestId,
       authorization: { digest: hashTypedData(document), nonce: input.nonce, expiresAt: input.expiresAt,
@@ -127,7 +128,7 @@ export async function createWalletLoginSetup(pool: Pool, options: { lifetimeMs?:
   return initialized(options.lifetimeMs ?? 30_000);
 }
 
-export async function completeWalletLoginFixture(pool: Pool, options: { lifetimeMs?: number; origin?: string; rpId?: string } = {}) {
+export async function completeWalletLoginFixture(pool: Pool, options: { lifetimeMs?: number; origin?: string; rpId?: string; manifest?: SmartAccountManifest } = {}) {
   const value = await createWalletLoginSetup(pool, options);
   const origin = options.origin ?? walletLoginFixtureOrigin, rpId = options.rpId ?? new URL(origin).hostname;
   const store = new PostgresWalletLoginStore(pool, { rpId, origin });

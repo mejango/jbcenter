@@ -72,11 +72,14 @@ import { createWalletAuthorityRefresh } from "./wallet/authorityRefresh.js";
 import { PostgresWalletAuthorityRefreshQueue } from "./wallet/authorityRefreshPostgres.js";
 import { validateWalletPolicyOrigin } from "./wallet/policy.js";
 import { createWalletSite } from "./wallet/site.js";
+import { PostgresWalletPaymentReviewStore } from './wallet/paymentReviewsPostgres.js';
+import type { WalletV6UsdcPaymentConfig } from './userOperations/semantics.js';
 
 export interface RestWalletConfiguration {
   origin: string;
   manifest: SmartAccountManifest;
   utility: ContractPin;
+  payments?: Omit<WalletV6UsdcPaymentConfig, 'chainId'>;
 }
 export interface RestWalletRuntime {
   origin: string;
@@ -86,6 +89,7 @@ export interface RestWalletRuntime {
   handoff: PostgresWalletHandoffStore;
   authority: PostgresWalletAuthorityStore;
   refresh: ReturnType<typeof createWalletAuthorityRefresh>;
+  payments?: PostgresWalletPaymentReviewStore;
   /** Internal operator transition; startup never activates policy. */
   activatePolicy: PostgresWalletPolicyStore["activate"];
 }
@@ -183,7 +187,7 @@ export async function createRestRuntime(options: {
     });
     return { origin, login, policy, handoff, appGrants, authority, refresh, activatePolicy: policy.activate.bind(policy) };
   })() : undefined;
-  const accountStore = new PostgresAccountStore(options.pool);
+  const accountStore = new PostgresAccountStore(options.pool, wallet ? { walletRefresh: wallet.refresh } : {});
   const verifyContractOwner = createContractOwnerVerifier(
     rpc,
     contracts.data.chains.map((chain) => chain.id),
@@ -409,8 +413,16 @@ export async function createRestRuntime(options: {
       );
     return manifest;
   };
+  const walletPayments = wallet && walletConfiguration?.payments
+    ? new PostgresWalletPaymentReviewStore(options.pool, { issuer: wallet.origin, audience: auth.audience,
+      token: walletConfiguration.payments.token, directV6Terminal: walletConfiguration.payments.directV6Terminal,
+      manifestFor: binding => manifestFor(binding.manifestId, binding.state.manifestRevision) })
+    : undefined;
+  if (wallet && walletPayments) wallet.payments = walletPayments;
   userOperations = new UserOperationService({
     rpc,
+    ...(walletConfiguration?.payments ? { v6UsdcPayment: { chainId: 8453 as const,
+      token: walletConfiguration.payments.token, directV6Terminal: walletConfiguration.payments.directV6Terminal } } : {}),
     provider: new UserOperationProvider(execution.providers),
     ...(execution.sponsorRoutes ? {sponsorRoutes: execution.sponsorRoutes} : {}),
     policies: execution.policies,
@@ -484,6 +496,7 @@ export async function createRestRuntime(options: {
     sessionReviewer,
     sessions,
     userOperations,
+    ...(walletPayments ? { walletPayments } : {}),
     omnichain,
     openapi,
   });
@@ -491,6 +504,7 @@ export async function createRestRuntime(options: {
   const walletSite = wallet ? createWalletSite({ origin: wallet.origin, audience: auth.audience,
     browserScript: assets.walletScript, login: wallet.login, policy: wallet.policy,
     handoff: wallet.handoff, refresh: wallet.refresh,
+    ...(walletPayments ? { payments: walletPayments, paymentBrowserScript: assets.walletPaymentScript } : {}),
     onEvent: event => console.info(JSON.stringify({ service: "wallet", ...event })),
   }) : undefined;
   const metrics = options.metrics ?? new Metrics();
@@ -519,6 +533,7 @@ export async function createRestRuntime(options: {
         await wallet.login.cleanup(250);
         if (!stopped) await wallet.handoff.cleanup(250);
         if (!stopped) await wallet.appGrants.cleanup(250);
+        if (!stopped && walletPayments) await walletPayments.cleanup(250);
         if (!stopped) console.info(JSON.stringify({ service: "wallet", action: "authority_refresh_queue", ...await wallet.refresh.stats() }));
       }
     })()

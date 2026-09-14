@@ -49,6 +49,7 @@ import {
   userOperationCommitment,
 } from "./codec.js";
 import { observeUserOperation } from "./execution.js";
+import { verifyWalletV6UsdcPaymentEffects, type WalletV6UsdcPaymentConfig } from "./semantics.js";
 import { UserOperationProvider } from "./provider.js";
 import { createSessionGasEstimation } from "./estimation.js";
 import { passkeyDummySignature, passkeyEstimateProvider } from "./passkeyEstimation.js";
@@ -107,6 +108,8 @@ export interface UserOperationServiceDependencies {
     signature: Hex,
   ): Promise<{ issuedAt: number; expiresAt: number }>;
   semanticVerifier: SemanticVerifier;
+  /** Optional reviewed host profile; absent configuration retains generic batch uncertainty. */
+  v6UsdcPayment?: WalletV6UsdcPaymentConfig;
   now?: () => number;
 }
 export interface UserOperationPreparationInput {
@@ -842,6 +845,11 @@ export class UserOperationService {
         await this.options.verifyHistoricalAccount(plan, evidence, signal);
       },
       verifySemantics: async (receipt: StoredReceipt) => {
+        // Once this host opts into the strict Base pay domain, rejected plans
+        // cannot downgrade into weaker legacy single-step economic evidence.
+        if (this.options.v6UsdcPayment && record.chainId === this.options.v6UsdcPayment.chainId && plan.draft.operation === "pay") {
+          return verifyWalletV6UsdcPaymentEffects(plan, record.stepIndexes, this.options.v6UsdcPayment, receipt);
+        }
         const results = await Promise.all(
           record.stepIndexes.map((index) =>
             this.options.semanticVerifier.verify(

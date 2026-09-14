@@ -1,6 +1,10 @@
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type { Address } from "viem";
-import { assertWalletAppGrantActiveInTransaction, getWalletAppGrantInTransaction } from "../wallet/appGrantsPostgres.js";
+import { stable } from "../smartAccounts/service.js";
+import { createWalletAuthorityIdentity, type WalletAuthorityContext } from "../wallet/authority.js";
+import { PostgresWalletAuthorityStore } from "../wallet/authorityPostgres.js";
+import type { WalletAppGrant } from "../wallet/appGrants.js";
+import { assertWalletAppGrantActiveInTransaction, assertWalletAppRefreshIdentityInTransaction, getWalletAppGrantInTransaction } from "../wallet/appGrantsPostgres.js";
 import {
   accountStoreLimits,
   actorGrantId,
@@ -190,11 +194,26 @@ export async function registerBotInTransaction(client: PoolClient, grant: BotGra
   return grantFromRow(result.rows[0]);
 }
 
+export interface PostgresAccountStoreOptions extends AccountStoreOptions {
+  /** Startup-owned worker only. Scheduling uses a consumed request nonce, never a public account ID. */
+  walletRefresh?: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
+}
+function checkingWalletAuthority(): RestAuthError {
+  return new RestAuthError("WALLET_AUTHORITY_CHECKING", 503, "Wallet authority is being checked. Retry with a newly signed request.");
+}
+
 export class PostgresAccountStore implements AccountStore {
   private readonly limits: AccountStoreLimits;
+  private readonly walletRefresh: PostgresAccountStoreOptions["walletRefresh"];
 
-  constructor(readonly pool: Pool, options: AccountStoreOptions = {}) {
+  constructor(readonly pool: Pool, options: PostgresAccountStoreOptions = {}) {
     this.limits = accountStoreLimits(options);
+    if (options.walletRefresh) {
+      if (typeof options.walletRefresh.request !== "function" || typeof options.walletRefresh.tick !== "function")
+        throw new TypeError("Wallet admission requires the configured bounded refresh worker.");
+      this.walletRefresh = Object.freeze({ request: options.walletRefresh.request.bind(options.walletRefresh),
+        tick: options.walletRefresh.tick.bind(options.walletRefresh) });
+    }
   }
 
   async getAccount(id: string): Promise<Account | null> {
@@ -224,8 +243,13 @@ export class PostgresAccountStore implements AccountStore {
     });
   }
 
-  async authorizeAndConsume(request: VerifiedRequest): Promise<RestPrincipal> {
+  async authorizeAndConsume(input: VerifiedRequest): Promise<RestPrincipal> {
+    const request = structuredClone(input);
     assertRequest(request);
+    if (this.walletRefresh && request.grantId !== null) {
+      const grant = await this.transaction(client => getAuthorizationGrant(client, request.grantId));
+      if (grant?.kind === "wallet-app") return this.authorizeWalletApp(request, grant);
+    }
     return this.transaction(async (client) => {
       const account = await lockedAccount(client, request.accountId);
       const grant = await getAuthorizationGrant(client, request.grantId);
@@ -238,6 +262,93 @@ export class PostgresAccountStore implements AccountStore {
       assertRequest(completedRequest);
       await assertAppRequestActive(client, grant, completedRequest);
       return principalFor(account, grant, completedRequest);
+    });
+  }
+
+  private async authorizeWalletApp(request: VerifiedRequest, grant: WalletAppGrant): Promise<RestPrincipal> {
+    // Exact signature verification has already completed in createRestAuth. Validate the current
+    // credential/enrollment/binding commitments outside locks; locked comparisons preserve them.
+    const context = await new PostgresWalletAuthorityStore(this.pool).loadContext(request.accountId);
+    const identity = context.prior?.identity;
+    if (!identity || context.prior!.bootstrapRequired || context.prior!.activeFence !== null
+      || !["verified", "unknown"].includes(context.prior!.readiness)
+      || stable(createWalletAuthorityIdentity(context, { stateHash: identity.stateHash,
+        sessionAdministration: identity.sessionAdministration, creationTransaction: identity.creationTransaction })) !== stable(identity))
+      throw new RestAuthError("FORBIDDEN", 403, "Wallet application identity is unavailable or changed.");
+    const route = { kind: "request" as const, audience: request.audience ?? "", origin: request.origin ?? null, expiresAt: request.expiresAt };
+    await this.transaction(async client => {
+      const account = await lockedAccount(client, request.accountId);
+      const current = { ...request, now: await databaseNow(client) };
+      assertRequest(current); principalFor(account, grant, current);
+      await assertWalletAppRefreshIdentityInTransaction(client, grant, route, context);
+      // This committed nonce admits scheduling work, not API/business authority. A crash, timeout
+      // or unknown observation spends this signed attempt; retries must use a new request nonce.
+      await this.consumeNonce(client, { ...request, now: await databaseNow(client) });
+      const completed = { ...request, now: await databaseNow(client) };
+      assertRequest(completed); principalFor(account, grant, completed);
+      await assertWalletAppRefreshIdentityInTransaction(client, grant, route, context);
+      const finalRequest = { ...request, now: await databaseNow(client) };
+      assertRequest(finalRequest); principalFor(account, grant, finalRequest);
+    });
+    // No SQL locks or connections cross the scheduling/worker boundary. Request cancellation
+    // cannot undo the committed claim or cancel another request's shared authority observation.
+    const deadline = performance.now() + 10_000;
+    const bounded = async <T>(work: () => Promise<T>): Promise<T> => {
+      const remaining = deadline - performance.now();
+      if (remaining <= 0) throw checkingWalletAuthority();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const result = await Promise.race([work(), new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(checkingWalletAuthority()), remaining);
+        })]);
+        if (performance.now() >= deadline) throw checkingWalletAuthority();
+        return result;
+      } finally { clearTimeout(timer); }
+    };
+    let ticking: Promise<unknown> | undefined;
+    try {
+      const result = await bounded(() => this.walletRefresh!.request(request.accountId));
+      if (result && typeof result === "object" && "status" in result && result.status === "overloaded") throw checkingWalletAuthority();
+      ticking = this.walletRefresh!.tick();
+      void ticking.catch(() => {});
+    } catch { /* Scheduling availability cannot invalidate independently fresh authority. */ }
+    try {
+      // An already fresh app request does not wait behind unrelated slow observations.
+      return await bounded(() => this.finishWalletAppRequest(request, grant, context));
+    } catch (error) {
+      if (!(error instanceof RestAuthError) || error.code !== "WALLET_AUTHORITY_CHECKING") throw error;
+      if (!ticking) throw error;
+      try { await bounded(() => ticking); } catch { throw checkingWalletAuthority(); }
+      return bounded(() => this.finishWalletAppRequest(request, grant, context));
+    }
+  }
+
+  private async finishWalletAppRequest(request: VerifiedRequest, grant: WalletAppGrant, context: WalletAuthorityContext): Promise<RestPrincipal> {
+    return this.transaction(async client => {
+      const account = await lockedAccount(client, request.accountId);
+      const currentGrant = await getAuthorizationGrant(client, request.grantId);
+      if (!currentGrant || stable(currentGrant) !== stable(grant))
+        throw new RestAuthError("FORBIDDEN", 403, "Wallet application grant changed during admission.");
+      const current = { ...request, now: await databaseNow(client) };
+      assertRequest(current); principalFor(account, grant, current);
+      const authority = await assertWalletAppRefreshIdentityInTransaction(client, grant,
+        { kind: "request", audience: request.audience ?? "", origin: request.origin ?? null, expiresAt: request.expiresAt }, context);
+      const nonce = (await client.query<{ expires_at: string }>(
+        "SELECT expires_at FROM rest_request_nonces WHERE account_id=$1 AND nonce=$2", [request.accountId, request.nonce.toLowerCase()])).rows[0];
+      if (!nonce || Number(nonce.expires_at) !== request.expiresAt)
+        throw new RestAuthError("REPLAY", 409, "Wallet scheduling claim is unavailable.");
+      const milliseconds = Number((await client.query<{ now: string }>(
+        "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS now")).rows[0]!.now);
+      assertRequest({ ...request, now: Math.floor(milliseconds / 1000) });
+      if (authority.readiness !== "verified" || authority.validUntilMs === null || authority.validUntilMs <= milliseconds)
+        throw checkingWalletAuthority();
+      await assertAppRequestActive(client, currentGrant, { ...request, now: await databaseNow(client) });
+      const finalMs = Number((await client.query<{ now: string }>(
+        "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS now")).rows[0]!.now);
+      const completed = { ...request, now: Math.floor(finalMs / 1000) };
+      assertRequest(completed);
+      if (authority.validUntilMs <= finalMs) throw checkingWalletAuthority();
+      return principalFor(account, currentGrant, completed);
     });
   }
 

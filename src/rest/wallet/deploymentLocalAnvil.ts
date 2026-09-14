@@ -8,9 +8,12 @@ import { enrollmentDigest } from "./enrollment.js";
 import { assertWalletDeploymentObservation } from "./deploymentObservation.js";
 import { walletDeploymentDispatchLimits as bounds, type WalletDeploymentDispatchAdmission, type WalletDeploymentExecutionContext } from "./deploymentDispatch.js";
 import { operationRpc } from "./operationRpc.js";
+import { assertWalletDeploymentAccounting, walletDeploymentAccountingDigest, walletDeploymentRemainingWei,
+  type WalletDeploymentLocalEnvironment } from "./deploymentSettlement.js";
 
 const readMethods = new Set(["web3_clientVersion", "anvil_nodeInfo", "anvil_metadata", "eth_chainId", "eth_getBlockByNumber",
-  "eth_getCode", "eth_getBalance", "eth_getTransactionCount", "eth_getTransactionReceipt", "eth_getTransactionByHash", "eth_call", "eth_estimateGas"]);
+  "eth_getCode", "eth_getBalance", "eth_getTransactionCount", "eth_getTransactionReceipt", "eth_getTransactionByHash", "eth_call", "eth_estimateGas",
+  "eth_getBlockByHash", "eth_getStorageAt", "eth_getTransactionByBlockHashAndIndex", "eth_getRawTransactionByHash", "eth_getLogs", "debug_traceTransaction"]);
 const limits = Object.freeze({ rpcCalls: 64, rpcTimeoutMs: 2000, totalTimeoutMs: 5000, responseBytes: 1024 * 1024 });
 function invalid(): never { throw new RestError(403, "WALLET_DEPLOYMENT_LOCAL_INVALID", "A current exact local deployment capability is required."); }
 function unavailable(): never { throw new RestError(502, "WALLET_DEPLOYMENT_LOCAL_UNAVAILABLE", "The configured local chain could not verify deployment admission."); }
@@ -35,18 +38,48 @@ function block(value: unknown, now: number) {
   return { head, baseFee };
 }
 
-/** Explicit host-created experimental capability. It has no app route, key, database, production
- * fee claim or configurable remote provider. Each admission authorizes at most one local attempt. */
-export function createLocalAnvilWalletDeploymentTransport(options: {
-  endpoint: string; expectedGenesisHash: Hex; now?: () => number;
-}) {
-  // Check the literal spelling before URL normalization: no DNS, alternate numeric hosts,
-  // credentials, redirects, paths or remote origins can become this capability's destination.
+function localEndpoint(options: { endpoint: string; expectedGenesisHash: Hex; now?: () => number }): URL {
+  // Validate the literal spelling before URL normalization. No DNS or remote destinations.
   if (!options || typeof options.endpoint !== "string" ||
       !/^http:\/\/(?:127\.0\.0\.1|\[::1\]):[1-9][0-9]{0,4}\/?$/.test(options.endpoint) ||
       !word(options.expectedGenesisHash) || (options.now !== undefined && typeof options.now !== "function")) invalid();
   const endpoint = new URL(options.endpoint);
   if (!endpoint.port || Number(endpoint.port) > 65535) invalid();
+  return endpoint;
+}
+
+/** Shared read-only local endpoint. Actual identity is returned so initialized accounting can
+ * retain a proved environment change as a fence; an unavailable/malformed identity still fails. */
+export function createLocalAnvilWalletDeploymentReader(options: { endpoint: string; expectedGenesisHash: Hex; now?: () => number }) {
+  const endpoint = localEndpoint(options);
+  const gateway = createRpcGateway(new Map([[8453, [endpoint.href]]]), fetch, { timeoutMs: bounds.sendTimeoutMs, responseLimitBytes: 524288 });
+  let sequence = 0;
+  const reads: RestRpc = { async request(chain, method, params, signal) {
+    if (chain !== 8453 || !readMethods.has(method)) invalid();
+    const answer = await gateway.request(8453, { jsonrpc: "2.0", id: ++sequence, method, params }, signal);
+    if (!record(answer) || answer.error || !Object.hasOwn(answer, "result")) unavailable();
+    return answer.result;
+  } };
+  return { reads, async identity(rpc: ReturnType<typeof operationRpc>): Promise<WalletDeploymentLocalEnvironment> {
+    const [chain, client, node, metadata, genesis] = await Promise.all([
+      rpc.request("eth_chainId", []), rpc.request("web3_clientVersion", []), rpc.request("anvil_nodeInfo", []),
+      rpc.request("anvil_metadata", []), rpc.request("eth_getBlockByNumber", ["0x0", false]),
+    ]);
+    if (quantity(chain) !== 8453n || typeof client !== "string" || !/^anvil\/v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][a-zA-Z0-9.-]+)?$/.test(client) ||
+        !record(node) || node.hardFork !== "Cancun" || !record(node.environment) || node.environment.chainId !== 8453 ||
+        !record(node.forkConfig) || node.forkConfig.forkUrl !== null || node.forkConfig.forkBlockNumber !== null || node.forkConfig.forkRetryBackoff !== null ||
+        !record(metadata) || metadata.clientVersion !== client || metadata.chainId !== 8453 || metadata.forkedNetwork !== null || !word(metadata.instanceId) ||
+        !record(genesis) || quantity(genesis.number) !== 0n || !word(genesis.hash)) unavailable();
+    return { kind: "unforked-anvil", genesisHash: genesis.hash.toLowerCase() as Hex, instanceId: metadata.instanceId.toLowerCase() as Hex };
+  } };
+}
+
+/** Explicit host-created experimental capability. It has no app route, key, database, production
+ * fee claim or configurable remote provider. Each admission authorizes at most one local attempt. */
+export function createLocalAnvilWalletDeploymentTransport(options: {
+  endpoint: string; expectedGenesisHash: Hex; now?: () => number;
+}) {
+  const endpoint = localEndpoint(options), local = createLocalAnvilWalletDeploymentReader(options);
   const genesisHash = options.expectedGenesisHash.toLowerCase() as Hex, now = options.now ?? Date.now;
   // One endpoint only: the underlying gateway's generic URL failover must never repeat a send.
   const gateway = createRpcGateway(new Map([[8453, [endpoint.href]]]), fetch, { timeoutMs: bounds.sendTimeoutMs, responseLimitBytes: 524288 });
@@ -56,22 +89,12 @@ export function createLocalAnvilWalletDeploymentTransport(options: {
     if (!record(answer) || answer.error || !Object.hasOwn(answer, "result")) unavailable();
     return answer.result;
   }
-  const reads: RestRpc = { request(chain, method, params, signal) {
-    if (chain !== 8453 || !readMethods.has(method)) invalid();
-    return request(method, params, signal);
-  } };
+  const reads = local.reads;
   type Scope = ReturnType<typeof operationRpc>;
   async function identity(rpc: Scope): Promise<Hex> {
-    const [chain, client, node, metadata, genesis] = await Promise.all([
-      rpc.request("eth_chainId", []), rpc.request("web3_clientVersion", []), rpc.request("anvil_nodeInfo", []),
-      rpc.request("anvil_metadata", []), rpc.request("eth_getBlockByNumber", ["0x0", false]),
-    ]);
-    if (quantity(chain) !== 8453n || typeof client !== "string" || !/^anvil\/v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][a-zA-Z0-9.-]+)?$/.test(client) ||
-        !record(node) || node.hardFork !== "Cancun" || !record(node.environment) || node.environment.chainId !== 8453 ||
-        !record(node.forkConfig) || node.forkConfig.forkUrl !== null || node.forkConfig.forkBlockNumber !== null || node.forkConfig.forkRetryBackoff !== null ||
-        !record(metadata) || metadata.clientVersion !== client || metadata.chainId !== 8453 || metadata.forkedNetwork !== null || !word(metadata.instanceId) ||
-        !record(genesis) || quantity(genesis.number) !== 0n || !same(genesis.hash, genesisHash)) unavailable();
-    return metadata.instanceId.toLowerCase() as Hex;
+    const environment = await local.identity(rpc);
+    if (!same(environment.genesisHash, genesisHash)) unavailable();
+    return environment.instanceId;
   }
   const capabilities = new WeakMap<WalletDeploymentDispatchAdmission, { digest: string; raw: Hex; hash: Hex; instance: Hex; deadline: number }>();
   return {
@@ -80,6 +103,10 @@ export function createLocalAnvilWalletDeploymentTransport(options: {
       enrollmentDigest(input); const context = structuredClone(input), observedAt = now(), deadline = performance.now() + limits.totalTimeoutMs;
       if (!time(observedAt)) invalid();
       const { pool, enrollment, operation } = context, config = pool.configuration;
+      const accounting = pool.accounting ? assertWalletDeploymentAccounting(pool.accounting, pool) : null;
+      const remainingWei = walletDeploymentRemainingWei(pool);
+      if (accounting && (accounting.fence || accounting.nextNonce !== operation.template?.transaction.nonce ||
+          accounting.environment.genesisHash !== genesisHash)) invalid();
       const observation = assertWalletDeploymentObservation(operation.observation);
       if (pool.state !== "active" || pool.activeOperationId !== operation.id || config.chainId !== 8453 ||
           pool.configurationDigest !== enrollmentDigest(config) || operation.poolConfigurationDigest !== pool.configurationDigest ||
@@ -97,18 +124,26 @@ export function createLocalAnvilWalletDeploymentTransport(options: {
       const signed = await validateSignedWalletDeployment({ enrollment, approval: operation.approval, template: operation.template,
         rawTransaction: operation.signed.rawTransaction, policy });
       if (signed.hash !== operation.signed.hash || signed.templateCommitment !== operation.templateCommitment ||
-          signed.maximumExecutionCost !== operation.signed.maximumExecutionCost || decimal(config.allocationWei) < BigInt(signed.maximumExecutionCost)) invalid();
+          signed.maximumExecutionCost !== operation.signed.maximumExecutionCost || decimal(remainingWei) < BigInt(signed.maximumExecutionCost)) invalid();
       const expiresAt = Math.min(observedAt + bounds.admissionLifetimeMs, observation.observedAt + config.policy.maximumObservationAgeMs,
         Number((BigInt(observation.head.timestamp) + 300n) * 1000n));
       function fresh() { const current = now(); if (!time(current) || current < observedAt || current >= expiresAt || performance.now() >= deadline) invalid(); }
       const rpc = operationRpc(reads, limits, signal);
       try {
         fresh(); const instance = await identity(rpc);
+        if (accounting && instance !== accounting.environment.instanceId) unavailable();
         const latest = block(await rpc.request("eth_getBlockByNumber", ["latest", false]), observedAt), head = latest.head;
         if (enrollmentDigest(head) !== enrollmentDigest(observation.head) ||
             (operation.highestObservedHead !== null && BigInt(head.blockNumber) < decimal(operation.highestObservedHead))) invalid();
         const observedBlock = block(await rpc.request("eth_getBlockByNumber", [toHex(BigInt(observation.head.blockNumber)), false]), observedAt);
         if (enrollmentDigest(observedBlock.head) !== enrollmentDigest(observation.head)) unavailable();
+        async function settlementAnchor() {
+          if (!accounting?.lastSettlementAnchor) return;
+          const prior = accounting.lastSettlementAnchor, current = await rpc.request("eth_getBlockByNumber", [toHex(BigInt(prior.blockNumber)), false]);
+          if (!record(current) || !same(current.hash, prior.blockHash) || quantity(current.number) !== BigInt(prior.blockNumber) ||
+              quantity(current.timestamp) !== BigInt(prior.timestamp)) unavailable();
+        }
+        await settlementAnchor();
         const tag = { blockHash: head.blockHash, requireCanonical: true as const }, tx = operation.template.transaction;
         const snapshot = { evidence: head, tag, request: (method: string, params: readonly unknown[]) => rpc.request(method, [...params, tag]) };
         const manifest = enrollment.intent.manifest;
@@ -128,7 +163,7 @@ export function createLocalAnvilWalletDeploymentTransport(options: {
         ]);
         const balance = quantity(balanceRaw), nonce = BigInt(tx.nonce);
         if (receipt !== null || transaction !== null || codes.some(code => code !== "0x") || quantity(confirmedRaw) !== nonce || quantity(pendingRaw) !== nonce ||
-            balance < decimal(config.allocationWei) || balance < BigInt(signed.maximumExecutionCost) ||
+            balance < decimal(remainingWei) || balance < BigInt(signed.maximumExecutionCost) ||
             BigInt(tx.maxFeePerGas) < latest.baseFee + BigInt(tx.maxPriorityFeePerGas)) unavailable();
         const call = { type: "0x2", from: config.sender, to: tx.to, data: tx.data, value: "0x0", nonce: toHex(nonce),
           gas: toHex(BigInt(tx.gas)), maxFeePerGas: toHex(BigInt(tx.maxFeePerGas)), maxPriorityFeePerGas: toHex(BigInt(tx.maxPriorityFeePerGas)), accessList: [] };
@@ -141,8 +176,11 @@ export function createLocalAnvilWalletDeploymentTransport(options: {
         const finalBlock = block(canonical, now());
         if (enrollmentDigest(finalBlock.head) !== enrollmentDigest(head) || finalBlock.baseFee !== latest.baseFee ||
             quantity(pendingAgain) !== nonce || instanceAgain !== instance) unavailable();
+        await settlementAnchor();
         fresh(); rpc.check();
-        const admission: WalletDeploymentDispatchAdmission = { version: "center-wallet-deployment-local-admission-v1", operationId: operation.id,
+        const admission: WalletDeploymentDispatchAdmission = { ...(accounting ? { version: "center-wallet-deployment-local-admission-v2" as const,
+          accounting: { digest: walletDeploymentAccountingDigest(accounting), remainingWei, nextNonce: accounting.nextNonce } } :
+          { version: "center-wallet-deployment-local-admission-v1" as const }), operationId: operation.id,
           poolConfigurationDigest: pool.configurationDigest, templateCommitment: signed.templateCommitment, transactionHash: signed.hash,
           operationRevision: operation.revision, observationDigest: enrollmentDigest(observation), environment: { kind: "unforked-anvil", genesisHash, head },
           observedAt, expiresAt, balanceWei: String(balance), maximumExecutionCost: signed.maximumExecutionCost,

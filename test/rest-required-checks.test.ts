@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const {
   validateRuntime, checkDatabase, summarizeVitest, requiredVitestSuites, verifyExecutionReport, redactOutput, runStep,
   writeObservation, captureSourceSnapshot,
+  v6PaymentSourcePreflight,
+  prepareV6PaymentDependency,
 } = await import(new URL("../scripts/rest/check-required-tests.mjs", import.meta.url).href);
 
 const directories: string[] = [];
@@ -42,6 +44,12 @@ describe("release check cannot silently omit required verification", () => {
       "rest-wallet-deployment-dispatch-evm-postgres.integration.test.ts",
       "rest-wallet-site-postgres.integration.test.ts",
       "rest-wallet-connect-browser-postgres.integration.test.ts",
+      "rest-wallet-app-refresh-postgres.integration.test.ts",
+      "rest-wallet-payment-reviews-postgres.integration.test.ts",
+      "rest-wallet-payment-http-postgres.integration.test.ts",
+      "rest-wallet-pressure-postgres.integration.test.ts",
+      "rest-wallet-deployment-settlement-postgres.integration.test.ts",
+      "rest-wallet-deployment-settlement-evm-postgres.integration.test.ts",
     ].sort();
     const testDirectory = new URL(".", import.meta.url);
     const files = await readdir(testDirectory);
@@ -61,7 +69,12 @@ describe("release check cannot silently omit required verification", () => {
       "rest-wallet-authority-service.test.ts", "rest-wallet-device-probe.test.ts", "rest-wallet-device-probe-browser.test.ts",
       "rest-wallet-authority-refresh.test.ts", "rest-wallet-login.test.ts", "rest-wallet-handoff.test.ts",
       "rest-wallet-deployment-execution.test.ts", "rest-wallet-deployment-local-anvil.test.ts", "rest-wallet-deployment-scalar-evm.test.ts",
-      "rest-wallet-site.test.ts", "rest-wallet-http.test.ts", "rest-wallet-runtime.test.ts", "rest-wallet-client.test.ts",
+      "rest-wallet-site.test.ts", "rest-wallet-http.test.ts", "rest-wallet-runtime.test.ts", "rest-wallet-client.test.ts", "rest-wallet-payment-reviews.test.ts", "rest-wallet-deployment-settlement.test.ts", "rest-wallet-deployment-settlement-local-anvil.test.ts",
+      "rest-wallet-payment-public.test.ts", "rest-wallet-payment-client.test.ts", "rest-user-operations-v6-payment-semantics.test.ts",
+      "rest-wallet-payment-browser.test.ts",
+      "rest-wallet-pressure-schedule.test.ts",
+      "rest-wallet-v6-payment-evm.test.ts",
+      "rest-v6-payment-fixture.test.ts",
       "rest-wallet-policy.test.ts", "rest-signed-transaction.test.ts"]) {
       expect(requiredVitestSuites).toContain(`test/${file}`);
     }
@@ -74,6 +87,36 @@ describe("release check cannot silently omit required verification", () => {
     expect(() => validateRuntime("22.23.1", "postgresql://user:password@localhost/test")).not.toThrow();
     expect(() => validateRuntime("22.0.0", "postgresql://user:password@localhost/test")).toThrow("22.16");
   });
+
+  it("fails the shared V6 source preflight when its explicit checkout dependency is absent", () => {
+    try {
+      execFileSync(process.execPath, v6PaymentSourcePreflight, { cwd: new URL("..", import.meta.url),
+        env: { ...process.env, CENTER_V6_SOURCE_ROOT: "" }, encoding: "utf8", timeout: 10_000, stdio: "pipe" });
+      throw new Error("Missing V6 sources unexpectedly passed");
+    } catch (error) {
+      expect(error).toMatchObject({ status: 1 });
+      expect(String((error as { stderr?: string }).stderr)).toBe(
+        "V6 payment source preflight failed. Configure CENTER_V6_SOURCE_ROOT with the pinned source and artifacts documented in test/fixtures/v6-payment/README.md.\n");
+    }
+  });
+
+  it("prepares and verifies a fresh bundled V6 dependency when no explicit checkout is supplied", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "center-v6-gate-")); directories.push(directory);
+    const env: NodeJS.ProcessEnv = { ...process.env, CENTER_V6_SOURCE_ROOT: "" };
+    const observation = { steps: [] };
+    const options = { directory, observation, cwd: new URL("..", import.meta.url).pathname, env, save: async () => {} };
+    const prepared = await prepareV6PaymentDependency(env, options);
+    expect(typeof prepared).toBe("string"); directories.push(prepared);
+    expect(env.CENTER_V6_SOURCE_ROOT).toBe(join(prepared, "source"));
+    await runStep("verify-v6", process.execPath, v6PaymentSourcePreflight, { ...options, timeoutMs: 30_000 });
+    expect(observation.steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "v6-payment-extract", status: "passed" }),
+      expect.objectContaining({ name: "verify-v6", status: "passed" }),
+    ]));
+    const preserved = env.CENTER_V6_SOURCE_ROOT;
+    expect(await prepareV6PaymentDependency(env, options)).toBeNull();
+    expect(env.CENTER_V6_SOURCE_ROOT).toBe(preserved);
+  }, 30_000);
 
   it("checks PostgreSQL 16 and transactional schema permissions, without leaving a schema", async () => {
     const client = { connect: vi.fn(), end: vi.fn(), query: vi.fn(async (sql: string) =>

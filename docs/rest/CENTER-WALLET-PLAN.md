@@ -7,7 +7,7 @@ Reviewed 2026-09-13 against Center `109cb0e`. This is the implementation strateg
 - Center owns the shared wallet lifecycle and execution. Beep and Juicebox Money are its first two clients.
 - New wallets use passkeys for creation, sign-in and exact payment approval. No email, phone or messaging-provider dependency. WhatsApp remains a possible later contact feature.
 - The existing Center origin allowlist supplies first-party trust. No per-site connection consent. Authentication and fresh transaction approval still apply.
-- Start with Base and the existing V6 payment path. Preserve legacy Para, external wallets, current account IDs and exact signed protocol meanings.
+- Start with Base and the existing V6 payment path. Beep removes its Para integration and uses Center for its built-in wallet. Center and Money support both Para and Center passkeys during the transition. Preserve external wallets, existing account data/IDs and exact signed protocol meanings; retire Para in Center only after a tested migration path exists.
 - Reuse the existing client package, PostgreSQL, account inspection, relay and recovery machinery. Do not build an MPC service or a second execution gateway.
 
 ## Review findings that change the sequence
@@ -79,7 +79,7 @@ Each row is a dependency boundary, not a requirement to fit unrelated schema, cr
 | W5. Recovery and rotation | Backup proves possession; rotate onchain while preserving address; invalidate stale API authority | W4. Direct independent withdrawal and rebind pass. Consumer recovery choice must be closed before public funding. |
 | W6. Trusted shared sessions | Center login and automatic allowlist-based app grants through PKCE | W2+W3 for actual authority acceptance; development can begin against frozen W1 fixtures. Code replay, key substitution, cross-app reuse, CSRF, expiry, global logout and allowlist activation/removal fail safely across two processes. Can develop alongside W4/W5. |
 | W7. Review and connector | Present and authorize exact operation, then resume after cancel/reload/account switch/unknown response | W2+W4+W6. Extend current client package; distinguish connection, signing and submission. No generic EOA emulation or new SDK family. |
-| W8. Beep integration | Replace Para coupling only in the new wallet route; pay a fixed invoice from the actual Safe | W5+W7 for funded acceptance. Preserve independent invoice fulfillment and beneficiary checks, one receipt/device effect, external-wallet and Para regressions. |
+| W8. Beep integration | Remove Beep Para coupling/dependencies and use Center for its built-in wallet; pay a fixed invoice from the actual Safe | W5+W7 for funded acceptance. Preserve independent invoice fulfillment and beneficiary checks, one receipt/device effect, external wallets and historical records. Existing Para-user access/migration must be addressed before rollout. |
 | W9. Money integration | Connect the same Safe and exercise one actual supported V6 payment | W7, can develop alongside W8; W5 before funded acceptance. Test account/balance destination and operation tracking. Listing the address alone is insufficient; don't route Center operations through Money's unrelated Safe Transaction Service path. |
 | W10. Native completion | Native iOS and browser share the same account and protocol; correct return links and cancellation | Early W1 probe + W6/W7. Physical iPhone and Android browser matrix, backup/restore observations and resumed invoice/operation. Browser fallback is not native completion. |
 | W11. Pressure qualification | Sustained, burst, hot-wallet, backlog, recovery and failure scenarios | Harness begins in W3; W11 aggregates measured behavior after integrations. Fix observed failures and rerun affected scenarios. |
@@ -102,7 +102,7 @@ After W1, persistence/shared sessions and deployment/contract execution can prog
 | Money | `src/providers/{Providers,lazy-para-connector,wallet-connectors}.ts*`, `hooks/useWallet.ts`, `lib/{wallet-core,safe,safe-connector,safe-batch-connector}.ts` |
 | Native | Beep `ios/` currently proves Para enrollment and browser checkout only; native payments/funding/receipts/recovery still need implementation |
 
-Money uses wagmi as its connection source of truth; implement a capability-aware Center connector. Beep exposes `ParaSigningSession` in its embedded-wallet type; replace that coupling only as the second implementation arrives, and reuse shared Center operation semantics rather than copying signed wire formats again. Unsupported operations/chains must report an explicit capability error.
+Money uses wagmi as its connection source of truth; implement a capability-aware Center connector. Beep exposes `ParaSigningSession` in its embedded-wallet type; replace that coupling with Center, and reuse shared Center operation semantics rather than copying signed wire formats again. Unsupported operations/chains must report an explicit capability error.
 
 ## TDD and evidence workflow
 

@@ -8,6 +8,7 @@ import type { PreparedForwardRequest, SponsorshipSubmission } from "../sponsorsh
 import {
   SignedRestClient, accountIdFor, RestClientError, readPublicRestJson, newRequestNonce, createBotRegistration,
   buildTransactionApprovalTypedData, buildSponsorshipApprovalTypedData, sponsorshipSubmissionHash,
+  prepareSignedRequest,
   type RequestOptions, type ClientOptions, type RestSigner, type TransactionApproval, type SponsorshipApproval,
 } from "./index.js";
 import { parseConnection } from "./connection.js";
@@ -46,6 +47,8 @@ export class CenterClient {
   private readonly client: SignedRestClient;
   constructor(private readonly options: ClientOptions) { this.client = new SignedRestClient(options); }
   request<T = unknown>(options: RequestOptions) { return this.client.request<T>(options); }
+  /** Authorizes one exact GET for a relay. Send the returned URL and headers unchanged; this method does not send it. */
+  authorizeRead(requestTarget: string) { return prepareSignedRequest(this.options, { method: "GET", requestTarget }); }
   /** Uses this connection's existing API identity and grant on every execution network. */
   smartAccounts() { return new SmartAccountClient(this.client); }
   /** Signs locally with the bot key after checking the exact plan and activated permission. Does not submit. */

@@ -1,3 +1,4 @@
+import { paymentProjectionFixture } from './fixtures/wallet-payment-projection.js';
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { keccak256, type Address, type Hex } from "viem";
@@ -48,7 +49,7 @@ function descriptor(id: string, transaction: boolean): ProtocolOperation {
   };
 }
 
-async function fixture() {
+async function fixture(overrides: Partial<RestDependencies> = {}) {
   const clock = { now };
   const accounts = new MemoryAccountStore();
   const auth = createRestAuth({ store: accounts, audience, now: () => clock.now });
@@ -91,7 +92,7 @@ async function fixture() {
   const app = new Hono();
   app.route("/api/v1", createRestApp({
     auth, quota, contracts: catalog, protocol, indexer: createIndexerReadService(),
-    operations, transactions, openapi: { openapi: "3.1.0", paths: {} },
+    operations, transactions, openapi: { openapi: "3.1.0", paths: {} }, ...overrides,
   }));
   const ownerConfig: ClientOptions = { audience, accountId, signer: owner, now: () => clock.now };
   const prepared = (options: RequestOptions, config = ownerConfig) => prepareSignedRequest(config, options);
@@ -115,6 +116,52 @@ async function fixture() {
   return { app, accounts, auth, transactionStore, transactions, draft, catalog, rpcCalls, quotas, clock,
     execute, semanticPrepare, prepare, ownerConfig, prepared, sendPrepared, send, register };
 }
+
+describe('signed wallet payment review controller', () => {
+  function reviews() { return { prepare: vi.fn(async()=>paymentProjectionFixture()), getForApp: vi.fn(async()=>paymentProjectionFixture()) }; }
+  it('requires signed app authority and preserves its exact actor and idempotency key',async()=>{
+    const walletPayments=reviews(), f=await fixture({walletPayments});
+    const principal={...appPrincipal(),idempotencyKey:'payment-review-attempt'};
+    // Controller-only app authority; actual app signature, PG authority and ceremony proof
+    // are exercised by their separate real HTTP/PG journey tests.
+    vi.spyOn(f.auth,'authenticate').mockResolvedValue(principal);
+    const body={operationId:'operation-id',state:'app-state'};
+    const response=await f.send({method:'POST',requestTarget:'/api/v1/wallet/payment-reviews',json:body,idempotencyKey:'payment-review-attempt'});
+    expect(response.status).toBe(201);
+    expect(f.auth.authenticate).toHaveBeenCalledWith(expect.anything(),['plan']);
+    expect(walletPayments.prepare).toHaveBeenCalledWith({accountId:principal.account.id,principalId:principal.principalId},body,'payment-review-attempt');
+    const result=await response.json();expect(result).toMatchObject({id:'review-id',operationId:'operation-id'});
+    expect(result).not.toHaveProperty('approval');expect(JSON.stringify(result)).not.toContain('private-');
+    const read=await f.send({requestTarget:'/api/v1/wallet/payment-reviews/review-id'});
+    expect(read.status).toBe(200);expect((await read.json()).approval).toEqual({signature:'0x1234',signedCommitment:'0x4321'});
+    expect(walletPayments.getForApp).toHaveBeenCalledWith({accountId:principal.account.id,principalId:principal.principalId},'review-id');
+  });
+  it('rejects genuine signed legacy owner and bot principals without treating them as app grants',async()=>{
+    const walletPayments=reviews(),f=await fixture({walletPayments}),bot=await f.register(['read','plan','relay']);
+    for(const config of [f.ownerConfig,bot.config]) {
+      const response=await f.send({method:'POST',requestTarget:'/api/v1/wallet/payment-reviews',json:{operationId:'operation-id',state:'app-state'},idempotencyKey:'payment-review-attempt'},config);
+      expect(response.status).toBe(403);
+      expect((await f.send({requestTarget:'/api/v1/wallet/payment-reviews/review-id'},config)).status).toBe(403);
+    }
+    expect(walletPayments.prepare).not.toHaveBeenCalled();expect(walletPayments.getForApp).not.toHaveBeenCalled();
+  });
+  it('rejects unsigned, missing-idempotency and authority-injecting requests before review work',async()=>{
+    const walletPayments=reviews(),f=await fixture({walletPayments});
+    expect((await f.app.request(audience+'/api/v1/wallet/payment-reviews/review-id')).status).toBe(401);
+    const principal=appPrincipal();vi.spyOn(f.auth,'authenticate').mockResolvedValue(principal);
+    const send=(json:unknown)=>f.send({method:'POST',requestTarget:'/api/v1/wallet/payment-reviews',json});
+    expect((await send({operationId:'operation-id',state:'app-state'})).status).toBe(400);
+    principal.idempotencyKey='payment-review-attempt';
+    for(const extra of [{accountId:'other'},{sessionId:'other'},{callbackUri:'https://attacker.test'},{payment:{amount:'1'}}])
+      expect((await send({operationId:'operation-id',state:'app-state',...extra})).status).toBe(400);
+    expect(walletPayments.prepare).not.toHaveBeenCalled();
+  });
+  it('keeps payment reviews unavailable unless the trusted host explicitly configured them',async()=>{
+    const f=await fixture();vi.spyOn(f.auth,'authenticate').mockResolvedValue({...appPrincipal(),idempotencyKey:'payment-review-attempt'});
+    const response=await f.send({method:'POST',requestTarget:'/api/v1/wallet/payment-reviews',json:{operationId:'operation-id',state:'app-state'},idempotencyKey:'payment-review-attempt'});
+    expect(response.status).toBe(503);expect((await response.json()).code).toBe('WALLET_PAYMENTS_UNAVAILABLE');
+  });
+});
 
 describe("mounted signed REST API", () => {
   it("keeps discovery public and requires a signature for live reads", async () => {

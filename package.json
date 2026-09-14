@@ -10,6 +10,7 @@
     "build": "npm run build:mcp && npm run build:web && tsc && npm run build:client && node scripts/rest/copy-assets.mjs",
     "test": "vitest run",
     "load:test": "node scripts/load-test.mjs",
+    "wallet:pressure": "node --import tsx scripts/rest/wallet-pressure.ts",
     "typecheck": "npm run build:mcp && tsc --noEmit",
     "check": "node scripts/rest/check-required-tests.mjs",
     "check:preflight": "node scripts/rest/check-required-tests.mjs --preflight",

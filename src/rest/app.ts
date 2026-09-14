@@ -40,6 +40,8 @@ import type {
   UserOperationService,
   UserOperationPreparationInput,
 } from "./userOperations/service.js";
+import type { PostgresWalletPaymentReviewStore } from './wallet/paymentReviewsPostgres.js';
+import { publicWalletPaymentReview, publicWalletPaymentAppReview } from './wallet/paymentPublic.js';
 import type {
   createSmartAccountService,
   createSessionPolicyReviewer,
@@ -75,6 +77,7 @@ export interface RestDependencies {
   sessionReviewer?: ReturnType<typeof createSessionPolicyReviewer>;
   sessions?: SessionService;
   userOperations?: UserOperationService;
+  walletPayments?: Pick<PostgresWalletPaymentReviewStore, 'prepare' | 'getForApp'>;
   omnichain?: {
     getProjectGroup(
       project: { chainId: number; projectId: string; version: 6 },
@@ -1260,6 +1263,29 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
       );
     });
   }
+  const walletPayments = (principal: RestPrincipal) => {
+    if (principal.kind !== 'wallet-app')
+      throw new RestError(403, 'WALLET_APP_REQUIRED', 'Connect a trusted app before preparing a wallet payment review.');
+    if (!deps.walletPayments)
+      throw new RestError(503, 'WALLET_PAYMENTS_UNAVAILABLE', 'Wallet payment reviews are not configured.');
+    return deps.walletPayments;
+  };
+  app.post('/wallet/payment-reviews', async context => {
+    query(context, []);
+    const { input, principal } = await authenticate(context, ['plan']);
+    const service = walletPayments(principal);
+    const body = object(jsonBody(input), ['operationId', 'state']);
+    if (typeof body.operationId !== 'string' || typeof body.state !== 'string')
+      throw new RestError(400, 'WALLET_PAYMENT_REVIEW_INPUT', 'Choose the prepared operation and callback state.');
+    const view = await service.prepare(actor(principal), { operationId: body.operationId, state: body.state }, idempotency(principal));
+    return response(context, publicWalletPaymentReview(view), 201);
+  });
+  app.get('/wallet/payment-reviews/:id', async context => {
+    query(context, []);
+    const { principal } = await authenticate(context, ['read']);
+    const view = await walletPayments(principal).getForApp(actor(principal), context.req.param('id'));
+    return response(context, publicWalletPaymentAppReview(view));
+  });
   const userOperations = () => {
     if (!deps.userOperations)
       throw new RestError(

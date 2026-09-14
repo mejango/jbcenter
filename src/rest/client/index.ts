@@ -14,6 +14,8 @@ export {
 } from "../approvals.js";
 export type TypedDocument = ReturnType<typeof buildRequestTypedData> | ReturnType<typeof buildBotProofTypedData>;
 export * from "./smartAccounts.js";
+export type { CenterWalletExpectedPayment, CenterWalletPaymentInput, CenterWalletPaymentState, CenterWalletPaymentStatus } from './walletPayments.js';
+export { userOperationMaximumCost } from '../userOperations/codec.js';
 export type RestSigner = {
   address: Address;
   /** Required only for locally signing operations under an activated bot wallet permission. */

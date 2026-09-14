@@ -8,7 +8,7 @@ Juicebox Center supplies a user-controlled wallet shared across its allowlisted,
 
 Start with Base, the existing V6 payment path, and the existing Safe execution infrastructure. Reuse Center's client package and authorization machinery. Add an isolated Center wallet UI and a browser connector before considering another SDK package. Native iOS must use the same account and credential authority. Other chains follow explicit compatibility validation; shared identity does not promise identical addresses or pooled balances across chains.
 
-The first release does not build an MPC service, replace fiat onramps, introduce default delegated spending, or require every existing-wallet customer to create a Center wallet. Existing Para and external-wallet paths continue during migration.
+The first release does not build an MPC service, replace fiat onramps, introduce default delegated spending, or require every existing-wallet customer to create a Center wallet. Center and Money retain Para alongside passkeys during migration. Beep removes its Para integration and uses Center for its built-in wallet. External-wallet support and existing account records remain; existing Para-user access must be verified before rollout.
 
 Authentication decision: new Center wallets use passkeys for creation, sign-in and exact payment approval. No email address, phone number or messaging verification is required for this first-release journey. Recovery still requires the independently enrolled authority described below. WhatsApp is a possible later integration for verified contact details, account discovery or notifications; it is not a launch dependency or a selected provider. Email and SMS verification are outside the first-release scope. Any future contact channel must not become unilateral wallet recovery authority.
 
@@ -105,7 +105,7 @@ Inventory actual Para-controlled Safes and their owners/modules before selecting
 
 If preserving an account is unsupported, show an explicit new-account and asset-transfer migration. Project credits, nontransferable positions, and administrative permissions may not move with ERC-20 balances. Do not silently generate a new address or declare migration complete after copying an email identity.
 
-Para remains a legacy signer option while new Center wallets are introduced. Removing Para requires accounting for its current funding-provider integration: retain equivalent supported funding through an adapter or explicitly scope the new path to transfers from external wallets. Building a fiat onramp service is not required. Wallet sharing with Juicebox Money is proven by integration, not assumed from using the same provider or login identifier.
+Para remains a signer option in Center and Money while new Center wallets are introduced. Beep removes its direct Para integration. Center will retire Para after its migration path is tested. Removing Para requires accounting for its current funding-provider integration: retain equivalent supported funding through an adapter or explicitly scope the new path to transfers from external wallets. Building a fiat onramp service is not required. Wallet sharing with Juicebox Money is proven by integration, not assumed from using the same provider or login identifier.
 
 ## Acceptance and delivery
 

@@ -30,7 +30,14 @@ export interface WalletDeploymentPoolConfiguration {
     maximumObservationAgeMs: number;
   };
 }
+import { assertWalletDeploymentAccounting, assertWalletDeploymentFundingEvidence, assertWalletDeploymentSettlementEvidence,
+  walletDeploymentFundingConflict, walletDeploymentRemainingWei } from "./deploymentSettlement.js";
+import type { WalletDeploymentAccounting, WalletDeploymentFundingContext, WalletDeploymentFundingEvidence,
+  WalletDeploymentSettlementContext, WalletDeploymentSettlementEvidence, WalletDeploymentSettlementReceipt } from "./deploymentSettlement.js";
+
 export interface WalletDeploymentPool {
+  /** Absent/null preserves the original single unresolved lane; it cannot settle. */
+  accounting?: WalletDeploymentAccounting | null;
   configuration: WalletDeploymentPoolConfiguration;
   configurationDigest: string;
   createdAt: number;
@@ -77,6 +84,8 @@ export interface WalletDeploymentOperation {
   historicalCanonicalObservation: WalletDeploymentObservation | null;
   /** Provider-head high watermark only; it does not establish current canonical chain truth. */
   highestObservedHead: string | null;
+  /** Permanent one-way marker; phase and original signed artifact remain unchanged. */
+  settlementId?: string;
   revision: number;
 }
 export interface WalletDeploymentObservationCommit {
@@ -93,6 +102,7 @@ export interface WalletDeploymentRecoveryPage {
 export interface WalletDeploymentClaim {
   operationId: string;
   assertion: WalletAssertion;
+  funding?: WalletDeploymentFundingEvidence;
   admission: WalletDeploymentAdmission;
 }
 export interface WalletDeploymentSignedCommit {
@@ -240,19 +250,21 @@ function live(operation: WalletDeploymentOperation, now: number, admission?: Wal
     throw new RestError(410, "WALLET_DEPLOYMENT_OBSERVATION_EXPIRED", "Deployment chain admission must be refreshed.");
 }
 type PoolRow = { configuration: WalletDeploymentPoolConfiguration; configuration_digest: string; created_at: string;
-  state: WalletDeploymentPool["state"]; active_operation_id: string | null; revision: string };
+  state: WalletDeploymentPool["state"]; active_operation_id: string | null; revision: string; accounting?: WalletDeploymentAccounting | null };
 function poolOf(row: PoolRow): WalletDeploymentPool {
   const checked = configuration(row.configuration);
   if (enrollmentDigest(checked) !== row.configuration_digest) conflict();
-  return { configuration: checked, configurationDigest: row.configuration_digest, createdAt: Number(row.created_at),
+  const result: WalletDeploymentPool = { configuration: checked, configurationDigest: row.configuration_digest, createdAt: Number(row.created_at),
     state: row.state, activeOperationId: row.active_operation_id, revision: Number(row.revision) };
+  if (row.accounting) result.accounting = assertWalletDeploymentAccounting(row.accounting, result);
+  return result;
 }
 type OperationRow = { id: string; pool_id: string; enrollment_id: string; pool_configuration_digest: string; approval: WalletDeploymentApproval;
   state: WalletDeploymentOperation["state"]; created_at: string; retain_until: string; claimed_at: string | null; proof_digest: string | null;
   admission: WalletDeploymentAdmission | null; template: WalletDeploymentTemplate | null; template_commitment: Hex | null;
   signing_lease_token: string | null; signing_lease_until: string | null; raw_transaction: Hex | null; transaction_hash: Hex | null;
   maximum_execution_cost: string | null; revision: string; observation: WalletDeploymentObservation | null;
-  observation_saved_at: string | null; historical_canonical_observation: WalletDeploymentObservation | null; highest_observed_head: string | null };
+  observation_saved_at: string | null; historical_canonical_observation: WalletDeploymentObservation | null; highest_observed_head: string | null; settlement_id?: string | null };
 function operationOf(row: OperationRow): WalletDeploymentOperation {
   return { id: row.id, poolId: row.pool_id, enrollmentId: row.enrollment_id, poolConfigurationDigest: row.pool_configuration_digest,
     approval: row.approval, state: row.state, createdAt: Number(row.created_at), retainUntil: Number(row.retain_until),
@@ -262,11 +274,12 @@ function operationOf(row: OperationRow): WalletDeploymentOperation {
     signed: row.raw_transaction === null ? null : { rawTransaction: row.raw_transaction, hash: row.transaction_hash!, maximumExecutionCost: row.maximum_execution_cost! },
     observation: row.observation ?? null, observationSavedAt: row.observation_saved_at == null ? null : Number(row.observation_saved_at),
     historicalCanonicalObservation: row.historical_canonical_observation ?? null, highestObservedHead: row.highest_observed_head ?? null,
-    revision: Number(row.revision) };
+    ...(row.settlement_id ? { settlementId: row.settlement_id } : {}), revision: Number(row.revision) };
 }
 
 /** Internal durable store only. Admission observations must come from the configured trusted chain
- * adapter; this class cannot establish onchain truth, sign, publish or release a sender lane.
+ * adapter; this class cannot establish onchain truth, sign or publish. Only explicitly initialized
+ * local accounting can release a lane after qualified finality and a permanent exact fee debit.
  * All public records here are internal: signed bytes must not be returned by a future status route. */
 export class PostgresWalletDeploymentStore {
   private readonly ceremonies: PostgresWalletCeremonyStore;
@@ -274,6 +287,130 @@ export class PostgresWalletDeploymentStore {
   constructor(private readonly pool: Pool) {
     this.ceremonies = new PostgresWalletCeremonyStore(pool);
     this.enrollments = new PostgresWalletEnrollmentStore(pool);
+  }
+
+  async loadFundingContext(poolId: string): Promise<WalletDeploymentFundingContext> {
+    id(poolId);
+    return this.transaction(async client => {
+      const pool = await this.poolRecord(poolId, client);
+      return { pool, lastSettlement: await this.lastSettlement(pool, client) };
+    });
+  }
+  async initializeAccounting(contextInput: WalletDeploymentFundingContext, evidenceInput: WalletDeploymentFundingEvidence, expectedNonce: string): Promise<WalletDeploymentPool> {
+    quantity(expectedNonce, false, BigInt(Number.MAX_SAFE_INTEGER));
+    enrollmentDigest(contextInput); enrollmentDigest(evidenceInput);
+    const context = structuredClone(contextInput), evidence = structuredClone(evidenceInput);
+    return this.transaction(async client => {
+      const pool = await this.poolRecord(context.pool.configuration.id, client);
+      if (enrollmentDigest(pool) !== enrollmentDigest(context.pool) || pool.accounting || pool.activeOperationId || pool.state !== "active" || context.lastSettlement !== null) conflict();
+      // Never initialize by adopting whatever nonce a provider happened to return. The host supplies
+      // the expected first nonce for an unused explicitly local sender.
+      const proof = assertWalletDeploymentFundingEvidence(evidence, context, await walletCeremonyDatabaseNow(client));
+      if (walletDeploymentFundingConflict(context, proof, expectedNonce)) conflict();
+      const accounting: WalletDeploymentAccounting = { version: "center-wallet-deployment-accounting-v1", environment: proof.environment,
+        initialHead: proof.head, initialNonce: expectedNonce, nextNonce: expectedNonce, spentWei: "0", sequence: 0,
+        lastSettlementId: null, lastSettlementAnchor: null, fence: null };
+      const result = await this.writeAccounting(pool, accounting, client);
+      assertWalletDeploymentFundingEvidence(proof, context, await walletCeremonyDatabaseNow(client));
+      return result;
+    });
+  }
+  /** Internal incident/restore boundary only. A field in this database cannot detect its own rollback. */
+  async fenceAccounting(contextInput: WalletDeploymentFundingContext, evidenceInput: WalletDeploymentFundingEvidence | { reason: "restore-required" }): Promise<WalletDeploymentPool> {
+    enrollmentDigest(contextInput); enrollmentDigest(evidenceInput);
+    const context = structuredClone(contextInput), evidence = structuredClone(evidenceInput);
+    return this.transaction(async client => {
+      const pool = await this.poolRecord(context.pool.configuration.id, client);
+      if (enrollmentDigest(pool) !== enrollmentDigest(context.pool) || !pool.accounting) conflict();
+      if (pool.accounting.fence) return pool;
+      const now = await walletCeremonyDatabaseNow(client);
+      let reason: NonNullable<WalletDeploymentAccounting["fence"]>["reason"] | null;
+      if ("reason" in evidence) { fields(evidence, ["reason"]); if (evidence.reason !== "restore-required") invalid(); reason = evidence.reason; }
+      else {
+        const proof = assertWalletDeploymentFundingEvidence(evidence, context, now);
+        reason = walletDeploymentFundingConflict(context, proof, pool.accounting.nextNonce, "0");
+        // During an active lane, nonce+1 may be our own consumed transaction. Only settlement may
+        // interpret that nonce. Environment/retained-finality contradictions are independent.
+        if (pool.activeOperationId && reason === "nonce-conflict") conflict();
+        if (!reason && !pool.activeOperationId) reason = walletDeploymentFundingConflict(context, proof);
+      }
+      if (!reason) conflict();
+      const result = await this.writeAccounting(pool, { ...pool.accounting, fence: { reason, evidenceDigest: enrollmentDigest(evidence), recordedAt: now } }, client);
+      if (!("reason" in evidence)) assertWalletDeploymentFundingEvidence(evidence, context, await walletCeremonyDatabaseNow(client));
+      return result;
+    });
+  }
+  async loadSettlementContext(operationId: string): Promise<WalletDeploymentSettlementContext> {
+    id(operationId); const before = await this.required(operationId);
+    return this.transaction(async client => {
+      const pool = await this.poolRecord(before.poolId, client), enrollment = await lockWalletEnrollmentInTransaction(client, before.enrollmentId);
+      const operation = await this.required(operationId, client); this.sameContext(before, operation, enrollment, pool);
+      if (!pool.accounting || operation.state !== "signed" || !operation.signed || pool.activeOperationId !== operation.id) conflict();
+      const row = (await client.query<DispatchRow>("SELECT * FROM rest_wallet_deployment_dispatches WHERE operation_id=$1 FOR UPDATE", [operationId])).rows[0];
+      return { pool, enrollment, operation, dispatch: row ? dispatchOf(row) : null, lastSettlement: await this.lastSettlement(pool, client) };
+    });
+  }
+  async getSettlement(operationId: string): Promise<WalletDeploymentSettlementReceipt | null> {
+    id(operationId);
+    return (await this.pool.query<{ receipt: WalletDeploymentSettlementReceipt }>("SELECT receipt FROM rest_wallet_deployment_settlements WHERE id=$1", [operationId])).rows[0]?.receipt ?? null;
+  }
+  async settle(contextInput: WalletDeploymentSettlementContext, evidenceInput: WalletDeploymentSettlementEvidence): Promise<{
+    settlement: WalletDeploymentSettlementReceipt | null; pool: WalletDeploymentPool; replayed: boolean;
+  }> {
+    enrollmentDigest(contextInput); enrollmentDigest(evidenceInput);
+    const context = structuredClone(contextInput), evidence = structuredClone(evidenceInput);
+    id(context.operation.id);
+    // Validate shape/context outside locks, at the original capture time. Freshness at real DB time
+    // follows replay lookup, so exact durable retries survive their original short evidence expiry.
+    assertWalletDeploymentSettlementEvidence(evidence, context, evidence.funding.observedAt);
+    const evidenceDigest = enrollmentDigest(evidence);
+    return this.transaction(async client => {
+      const pool = await this.poolRecord(context.pool.configuration.id, client);
+      const enrollment = await lockWalletEnrollmentInTransaction(client, context.enrollment.intent.id);
+      const operation = await this.required(context.operation.id, client);
+      const existing = (await client.query<{ receipt: WalletDeploymentSettlementReceipt }>("SELECT receipt FROM rest_wallet_deployment_settlements WHERE id=$1", [operation.id])).rows[0]?.receipt;
+      if (existing) {
+        if (existing.evidenceDigest !== evidenceDigest || existing.evidence.transactionHash !== operation.signed?.hash) conflict();
+        return { settlement: existing, pool, replayed: true };
+      }
+      const row = (await client.query<DispatchRow>("SELECT * FROM rest_wallet_deployment_dispatches WHERE operation_id=$1 FOR UPDATE", [operation.id])).rows[0];
+      const actual: WalletDeploymentSettlementContext = { pool, enrollment, operation, dispatch: row ? dispatchOf(row) : null,
+        lastSettlement: await this.lastSettlement(pool, client) };
+      if (enrollmentDigest(actual) !== enrollmentDigest(context)) conflict();
+      const now = await walletCeremonyDatabaseNow(client), proof = assertWalletDeploymentSettlementEvidence(evidence, actual, now);
+      if (actual.dispatch && actual.dispatch.leaseUntil > now) busy();
+      const cost = BigInt(proof.fees.totalWei), remaining = BigInt(walletDeploymentRemainingWei(pool)), nextNonce = String(BigInt(operation.template!.transaction.nonce) + 1n);
+      const reason = walletDeploymentFundingConflict(actual, proof.funding, nextNonce, String(cost > remaining ? 0n : remaining - cost)) ??
+        (proof.finalizedNonce !== nextNonce ? "nonce-conflict" : cost > remaining ? "balance-deficit" : null);
+      if (reason) {
+        const fenced = await this.writeAccounting(pool, { ...pool.accounting!, fence: { reason, evidenceDigest, recordedAt: now } }, client);
+        assertWalletDeploymentSettlementEvidence(proof, actual, await walletCeremonyDatabaseNow(client));
+        return { settlement: null, pool: fenced, replayed: false };
+      }
+      const prior = pool.accounting!, sequence = prior.sequence + 1, spentWei = String(BigInt(prior.spentWei) + cost);
+      const receipt: WalletDeploymentSettlementReceipt = { version: "center-wallet-deployment-settlement-receipt-v1", id: operation.id,
+        operationId: operation.id, poolId: pool.configuration.id, evidenceDigest, evidence: proof, nonce: operation.template!.transaction.nonce,
+        priorSequence: prior.sequence, sequence, spentWei, nextNonce, settledAt: now };
+      await client.query(`INSERT INTO rest_wallet_deployment_settlements(id,pool_id,sequence,evidence_digest,receipt)
+        VALUES($1,$2,$3,$4,$5::jsonb)`, [operation.id, pool.configuration.id, sequence, evidenceDigest, JSON.stringify(receipt)]);
+      await client.query("UPDATE rest_wallet_deployments SET settlement_id=$1 WHERE id=$1", [operation.id]);
+      const result = await this.writeAccounting(pool, { ...prior, sequence, spentWei, nextNonce, lastSettlementId: operation.id,
+        lastSettlementAnchor: proof.observation.finality.evidence! }, client, true);
+      // Covers row/trigger/index/write waits. No bytes are broadcast and no RPC/crypto runs in SQL.
+      assertWalletDeploymentSettlementEvidence(proof, actual, await walletCeremonyDatabaseNow(client));
+      return { settlement: receipt, pool: result, replayed: false };
+    });
+  }
+  private async lastSettlement(pool: WalletDeploymentPool, client: PoolClient): Promise<WalletDeploymentSettlementReceipt | null> {
+    if (!pool.accounting?.lastSettlementId) return null;
+    const row = (await client.query<{ receipt: WalletDeploymentSettlementReceipt }>("SELECT receipt FROM rest_wallet_deployment_settlements WHERE id=$1", [pool.accounting.lastSettlementId])).rows[0];
+    if (!row) conflict(); return row.receipt;
+  }
+  private async writeAccounting(pool: WalletDeploymentPool, accounting: WalletDeploymentAccounting, client: PoolClient, release = false): Promise<WalletDeploymentPool> {
+    assertWalletDeploymentAccounting(accounting, pool);
+    const row = (await client.query<PoolRow>(`UPDATE rest_wallet_deployment_pools SET accounting=$2::jsonb,revision=revision+1${release ? ",active_operation_id=NULL" : ""}
+      WHERE id=$1 AND revision=$3 RETURNING *`, [pool.configuration.id, JSON.stringify(accounting), pool.revision])).rows[0];
+    if (!row) conflict(); return poolOf(row);
   }
 
   async configurePool(input: WalletDeploymentPoolConfiguration): Promise<WalletDeploymentPool> {
@@ -416,7 +553,8 @@ export class PostgresWalletDeploymentStore {
 
   async claim(input: WalletDeploymentClaim): Promise<{ operation: WalletDeploymentOperation; replayed: boolean }> {
     // Binary proofs are copied before the first await; arbitrary JSON/private key material is rejected.
-    if (!input || Object.keys(input).length !== 3 || Object.keys(input).some(key => !["operationId", "assertion", "admission"].includes(key))) invalid();
+    if (!input || ![3,4].includes(Object.keys(input).length) || Object.keys(input).some(key => !["operationId", "assertion", "admission", "funding"].includes(key))) invalid();
+    const funding = input.funding === undefined ? null : (enrollmentDigest(input.funding), structuredClone(input.funding));
     id(input.operationId);
     const operationId = input.operationId, assertion = copyProof(input.assertion), admission = checkedAdmission(input.admission);
     const before = await this.required(operationId), beforePool = await this.poolRecord(before.poolId);
@@ -440,7 +578,18 @@ export class PostgresWalletDeploymentStore {
         return { operation: current, replayed: true };
       }
       await this.currentCredential(client, currentEnrollment);
-      if (pool.state !== "active" || pool.activeOperationId !== null) busy();
+      if (pool.state !== "active" || pool.activeOperationId !== null || pool.accounting?.fence) busy();
+      const fundingContext = { pool, lastSettlement: await this.lastSettlement(pool, client) };
+      const checkFunding = async () => {
+        if (pool.accounting) {
+          if (!funding) conflict();
+          assertWalletDeploymentFundingEvidence(funding, fundingContext, await walletCeremonyDatabaseNow(client));
+          if (walletDeploymentFundingConflict(fundingContext, funding) || admission.confirmedNonce !== pool.accounting.nextNonce ||
+              admission.blockNumber !== funding.head.blockNumber || admission.blockHash !== funding.head.blockHash ||
+              BigInt(template.transaction.gas) * BigInt(template.transaction.maxFeePerGas) > BigInt(walletDeploymentRemainingWei(pool))) conflict();
+        } else if (funding) conflict();
+      };
+      await checkFunding();
       if (enrollmentDigest(template) !== enrollmentDigest(admissionTemplate(currentEnrollment, current, pool, admission))) conflict();
       live(current, await walletCeremonyDatabaseNow(client), admission, pool);
       const consumed = await this.ceremonies.consumeInTransaction(client, { ...current.approval.ceremony,
@@ -449,12 +598,13 @@ export class PostgresWalletDeploymentStore {
       const claimedAt = await walletCeremonyDatabaseNow(client);
       live(current, claimedAt, admission, pool);
       const row = (await client.query<OperationRow>(`UPDATE rest_wallet_deployments SET state='claimed',claimed_at=$2,proof_digest=$3,
-        admission=$4::jsonb,chain_id=$5,sender=$6,nonce=$7,template=$8::jsonb,template_commitment=$9,revision=revision+1 WHERE id=$1 RETURNING *`,
+        admission=$4::jsonb,chain_id=$5,sender=$6,nonce=$7,template=$8::jsonb,template_commitment=$9,claim_funding=$10::jsonb,revision=revision+1 WHERE id=$1 RETURNING *`,
       [current.id, claimedAt, proof.verificationDigest, JSON.stringify(admission), admission.chainId, admission.sender,
-        admission.confirmedNonce, JSON.stringify(template), commitment(template)])).rows[0]!;
+        admission.confirmedNonce, JSON.stringify(template), commitment(template), funding ? JSON.stringify(funding) : null])).rows[0]!;
       await client.query("UPDATE rest_wallet_deployment_pools SET active_operation_id=$2,revision=revision+1 WHERE id=$1", [current.poolId, current.id]);
       // Includes unique-index waits and all writes. Expiry rolls back ceremony, lane and nonce together.
       live(current, await walletCeremonyDatabaseNow(client), admission, pool);
+      await checkFunding();
       return { operation: operationOf(row), replayed: false };
     });
   }
@@ -472,7 +622,7 @@ export class PostgresWalletDeploymentStore {
       this.sameContext(before, current, enrollment, pool);
       if (current.state === "prepared" || pool.activeOperationId !== current.id) conflict();
       if (current.state === "signed") return { operation: current, leaseToken: null, leaseUntil: null, revision: current.revision };
-      if (pool.state !== "active") busy();
+      if (pool.state !== "active" || pool.accounting?.fence) busy();
       const now = await walletCeremonyDatabaseNow(client);
       if (current.signingLease && current.signingLease.until > now) busy(true);
       const token = randomUUID(), until = now + durationMs;
@@ -506,12 +656,12 @@ export class PostgresWalletDeploymentStore {
       const currentEnrollment = await lockWalletEnrollmentInTransaction(client, before.enrollmentId);
       const current = await this.required(request.operationId, client);
       this.sameContext(before, current, currentEnrollment, pool);
-      if (pool.activeOperationId !== current.id || !current.template || current.templateCommitment !== validated.templateCommitment) conflict();
+      if (pool.accounting?.fence || pool.activeOperationId !== current.id || !current.template || current.templateCommitment !== validated.templateCommitment) conflict();
       if (current.signed) {
         if (current.signed.hash !== validated.hash || current.signed.rawTransaction !== request.rawTransaction) conflict();
         return { operation: current, replayed: true };
       }
-      if (pool.state !== "active") busy();
+      if (pool.state !== "active" || pool.accounting?.fence) busy();
       const now = await walletCeremonyDatabaseNow(client);
       if (current.state !== "claimed" || current.revision !== request.revision || current.signingLease?.token !== request.leaseToken ||
           current.signingLease.until <= now) conflict();
@@ -578,7 +728,7 @@ export class PostgresWalletDeploymentStore {
     }
     const rows = (await this.pool.query<Pick<OperationRow, "id" | "created_at" | "revision" | "state" | "transaction_hash">>(
       `SELECT id,created_at,revision,state,transaction_hash FROM rest_wallet_deployments
-       WHERE state IN ('claimed','signed')${cursor ? " AND (created_at,id)>($2::bigint,$3::uuid)" : ""}
+       WHERE state IN ('claimed','signed') AND settlement_id IS NULL${cursor ? " AND (created_at,id)>($2::bigint,$3::uuid)" : ""}
        ORDER BY created_at,id LIMIT $1`, cursor ? [limit + 1, cursor.createdAt, cursor.operationId] : [limit + 1])).rows;
     const items = rows.slice(0, limit).map(row => ({ id: row.id, createdAt: Number(row.created_at), revision: Number(row.revision),
       state: row.state as "claimed" | "signed", signedHash: row.transaction_hash }));

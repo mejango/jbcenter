@@ -9,6 +9,7 @@ import { array, decimalString, nullable, object, ref, sharedSchemas, type Schema
 import { sponsorshipSchemas } from "./sponsorship.js";
 import { smartAccountSchemas } from "./smartAccounts.js";
 import { sessionSchemas } from "./sessions.js";
+import { walletPaymentSchemas } from './walletPayments.js';
 
 export type OpenApiOperation = Record<string, unknown> & {
   operationId: string; summary: string; tags: string[];
@@ -72,7 +73,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
   const origin = parsed.origin;
   const catalog = indexer.catalog();
   const descriptors = operationDescriptors(operations);
-  const schemas = { ...sharedSchemas(contracts.data.chains.map((chain) => chain.id)), ...sponsorshipSchemas(), ...smartAccountSchemas(), ...sessionSchemas() };
+  const schemas = { ...sharedSchemas(contracts.data.chains.map((chain) => chain.id)), ...sponsorshipSchemas(), ...smartAccountSchemas(), ...sessionSchemas(), ...walletPaymentSchemas() };
   const parameters: Record<string, Schema> = {};
   const header = (key: keyof typeof REST_AUTH_HEADERS, schema: Schema, description: string, required: boolean) => {
     parameters[key] = { name: REST_AUTH_HEADERS[key], in: "header", required, schema, description };
@@ -113,6 +114,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
       { name: "Wallets", description: "Reviewed Safe creation calldata, owner-threshold binding and smart-account transaction plans. Availability depends on current verified manifests." },
       { name: "Sessions", description: "Immutable seven- or thirty-day policies, owner activation/revocation plans and canonical onchain quota observations." },
       { name: "UserOperations", description: "Reviewed EntryPoint v0.7 preparation, external owner or session-key signatures, one-time provider publication and reconciliation." },
+      { name: 'WalletPayments', description: 'Exact passkey payment reviews for typed trusted-app grants; available only with explicit pilot configuration.' },
     ],
     paths: {}, components: { schemas, parameters, responses: { Problem: problemResponse } },
     "x-auth": {
@@ -399,6 +401,16 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
       parameters: [pathParameter("id", ref("ResourceId"))], body: ref("SessionPlanInput"), result: ref("SessionPlanResult"), status: 201, idempotent: true, extra: sessionAvailability,
       description: "Only the API owner can request this plan, acknowledging the exact `compiledHash`. Separately prepare a UserOperation from the returned plan, obtain the current Safe-owner threshold signatures, submit and refresh the session. Only the currently admitted lifecycle plan may execute. An expired plan with no admitted transport or attempt can be replaced with fresh owner consent and a new idempotency key, preserving up to 32 superseded approvals. Replacement cannot reinitialize an observed active generation. Only one generation per physical wallet may remain admitted, across keys, grants, assets and time windows. Release requires finalized disabled state with an advanced enable nonce; API revocation, unlinking or expiry alone cannot release it.",
     });
+  add('/wallet/payment-reviews', 'POST', 'prepareWalletPaymentReview', 'Prepare an exact passkey payment review for the current app', 'WalletPayments', 'plan', {
+    body: ref('PrepareWalletPaymentReview'), result: ref('WalletPaymentReview'), status: 201, idempotent: true,
+    description: 'Requires a current typed wallet-app grant. The server loads its existing prepared operation and derives the payment and SafeOp digest. Neither API owners nor legacy bot grants can use this route. The saved allowlist callback supplies the return location. No signature, nonce reservation or submission occurs here.',
+    extra: { 'x-principal-kind': 'wallet-app', 'x-runtime-capability': 'wallet.payments' },
+  });
+  add('/wallet/payment-reviews/{id}', 'GET', 'getWalletPaymentReview', 'Read the original app review and any live owner approval', 'WalletPayments', 'read', {
+    parameters: [pathParameter('id', ref('ResourceId'))], result: ref('WalletPaymentAppReview'),
+    description: 'Only the original current app grant and incarnation can retrieve its review. Approval requires a separate explicit passkey ceremony on the central wallet origin. A winning signature is returned only while the review and authority remain live. Submit it through the original UserOperation endpoint with unchanged fields. After review expiry, reconcile the original UserOperation; expiry does not establish a safe replacement.',
+    extra: { 'x-principal-kind': 'wallet-app', 'x-runtime-capability': 'wallet.payments' },
+  });
   add("/user-operations", "POST", "prepareUserOperation", "Prepare exact EntryPoint v0.7 bytes and the appropriate signing payload", "UserOperations", "plan", {
     body: ref("PrepareUserOperation"), result: ref("UserOperation"), status: 201, idempotent: true,
     description: "Requires configured provider/runtime policies and the source smart-account plan's creating principal. Select increasing step indices. Owner mode permits 1–16 calls on one chain and returns SafeOp typed data. Session mode requires the exact active bound bot, selects one call and returns an EIP-191 payload. Provider estimation and sponsorship are checked before signing; no execution occurs during preparation.",

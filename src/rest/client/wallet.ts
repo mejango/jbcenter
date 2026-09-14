@@ -2,6 +2,7 @@ import { toHex, type Address, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { RestClientError, type ClientOptions } from './index.js';
 import { CenterClient } from './center.js';
+import { createCenterWalletPaymentClient } from './walletPayments.js';
 import {
   validateWalletHandoffToken, walletHandoffPkceChallenge, walletHandoffCodeHash,
   walletHandoffRequestDocument, walletHandoffExchangeDocument, type WalletHandoffRequest,
@@ -270,7 +271,9 @@ export function createCenterWalletClient(options: CenterWalletClientOptions) {
       address: signer.address,
       signTypedData: async document => {
         ensureActive();
-        return document.primaryType === 'CenterRequest' ? signer.signTypedData(document) : signer.signTypedData(document);
+        const signature = document.primaryType === 'CenterRequest' ? await signer.signTypedData(document) : await signer.signTypedData(document);
+        ensureActive();
+        return signature;
       },
     }, fetch: (input, init) => { ensureActive(); return transport(input, init); },
       now: () => Math.floor(clock() / 1000), timeoutMs };
@@ -370,5 +373,14 @@ export function createCenterWalletClient(options: CenterWalletClientOptions) {
       if (storage().getItem(storageKey) !== null) throw new Error();
     } catch { fail('WALLET_STORAGE_UNAVAILABLE', 'This tab could not clear its wallet connection.'); }
   }
-  return Object.freeze({ prepareConnection, completeConnection, retryConnection, restoreConnection, disconnect });
+  function payments() {
+    return createCenterWalletPaymentClient({ issuer, audience, callbackUri, location, now: clock,
+      storage: { getItem: key => storage().getItem(key), setItem: (key, value) => storage().setItem(key, value), removeItem: key => storage().removeItem(key) },
+      connection: () => {
+        const saved = read()?.value;
+        return saved?.grant && saved.grant.expiresAt > Math.floor(clock() / 1000)
+          ? { grant: structuredClone(saved.grant), client: connection(saved).client } : null;
+      } });
+  }
+  return Object.freeze({ prepareConnection, completeConnection, retryConnection, restoreConnection, disconnect, payments });
 }

@@ -364,6 +364,37 @@ describe("served Center wallet UI (local HTTP contract, virtual authenticator)",
     expect(requests.find(item => item.path === "/wallet/authorize/issue")!.body).toEqual({ intentId });
   });
 
+  it("returns an existing session to only the fixed payment review without issuing a grant or prompting", async () => {
+    authenticated = true;
+    const review = "77777777-7777-4777-8777-777777777777";
+    await page.goto(`${origin}/wallet?payment=${review}`);
+    await expect.poll(() => page.url()).toBe(`${origin}/wallet/payment?review=${review}`);
+    expect(issues).toBe(0); expect(begins).toBe(0);
+    expect(await page.evaluate(() => (window as any).passkeyRequests)).toBe(0);
+  });
+
+  it("returns a fresh passkey sign-in to the same fixed payment review without approving payment", async () => {
+    await loadAndEnroll();
+    const review = "77777777-7777-4777-8777-777777777777";
+    await page.goto(`${origin}/wallet?payment=${review}`); await status("ready");
+    await page.locator("#wallet-signin").click();
+    await expect.poll(() => page.url()).toBe(`${origin}/wallet/payment?review=${review}`);
+    expect(begins).toBe(1); expect(completions).toBe(1); expect(issues).toBe(0);
+    expect(requests.filter(item => item.path.endsWith("/approve"))).toHaveLength(0);
+  });
+
+  it.each(["https://outside.invalid", "../outside", "77777777-7777-4777-8777-777777777777&payment=77777777-7777-4777-8777-777777777777"])("rejects unsafe payment continuation %s", async payment => {
+    authenticated = true;
+    await page.goto(`${origin}/wallet?payment=${payment}`); await status("error");
+    expect(new URL(page.url()).pathname).toBe("/wallet"); expect(issues).toBe(0); expect(begins).toBe(0);
+  });
+
+  it("rejects a payment continuation mixed with an app connection intent", async () => {
+    authenticated = true;
+    await page.goto(`${origin}/wallet?payment=77777777-7777-4777-8777-777777777777&intent=${intentId}`); await status("error");
+    expect(issues).toBe(0); expect(begins).toBe(0);
+  });
+
   it.each(["wrong-origin", "wrong-state", "duplicate-state", "fragment"])("refuses a %s redirect instead of leaking the handoff", async variant => {
     authenticated = true;
     const redirect = new URL(`${callback()}?${new URLSearchParams({ code, state, iss: origin })}`);

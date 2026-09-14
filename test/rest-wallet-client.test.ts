@@ -230,6 +230,33 @@ describe('Center browser wallet connection', () => {
     expect(f.calls).toHaveLength(count);
   });
 
+  it('authorizes one exact GET for a server relay without sending it or exposing the request key', async () => {
+    const f = fixture(), wallet = f.client(); await wallet.prepareConnection();
+    const connected = await wallet.completeConnection(f.callback()), count = f.calls.length;
+    const request = await connected.client.authorizeRead('/api/v1/plans/original-plan');
+    expect(request.url).toBe(audience + '/api/v1/plans/original-plan'); expect(request.method).toBe('GET'); expect(request.body).toHaveLength(0);
+    const proof = readRequestClaims({ method: request.method, requestTarget: '/api/v1/plans/original-plan', contentType: '',
+      body: request.body, headers: request.headers });
+    await verifyRequestSignature(audience, proof.claims, proof.signature);
+    expect(proof.claims.accountId).toBe(accountId); expect(proof.claims.grantId).toBe('550e8400-e29b-41d4-a716-446655440000');
+    expect(f.calls).toHaveLength(count);
+    expect(JSON.stringify(request)).not.toContain(JSON.parse([...f.data.values()][0]!).key);
+    await expect(connected.client.authorizeRead('/api/v1/plans/../another')).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+  });
+
+  it.each(['disconnect', 'replace'])('does not return relay authorization when the connection changes during signing: %s', async kind => {
+    const f = fixture(), wallet = f.client(); await wallet.prepareConnection();
+    const connected = await wallet.completeConnection(f.callback()), count = f.calls.length;
+    const preparing = connected.client.authorizeRead('/api/v1/plans/original-plan');
+    if (kind === 'disconnect') wallet.disconnect();
+    else {
+      const [key, encoded] = [...f.data.entries()][0]!, saved = JSON.parse(encoded);
+      saved.grant.incarnation = '2'; f.data.set(key, JSON.stringify(saved));
+    }
+    await expect(preparing).rejects.toMatchObject({ code: 'WALLET_CONNECTION_INACTIVE' });
+    expect(f.calls).toHaveLength(count);
+  });
+
   it('bounds a fetch which ignores AbortSignal without exposing transport details', async () => {
     const f = fixture(); let signal: AbortSignal | null | undefined;
     const client = createCenterWalletClient({ ...f.options, timeoutMs: 10,
