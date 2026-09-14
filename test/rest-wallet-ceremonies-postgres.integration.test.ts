@@ -309,4 +309,14 @@ suite("PostgreSQL wallet ceremony storage (does not verify authentication)", () 
       .rejects.toMatchObject({ code: "WALLET_CEREMONY_EXPIRED" });
     await expect(store.cleanup(10_001)).rejects.toMatchObject({ code: "WALLET_CEREMONY_INVALID" });
   });
+  it("reclaims unconsumed expired challenges while retaining consumed replay receipts", async () => {
+    const records = await Promise.all([store.issue(draft("a")), store.issue(draft("b")), store.issue(draft("c"))]);
+    await store.consume(consume(records[0]!));
+    await pool.query("UPDATE rest_wallet_ceremonies SET created_at=created_at-301000, expires_at=expires_at-301000, retain_until=retain_until-301000, consumed_at=consumed_at-301000");
+    expect(await store.cleanup(1)).toBe(1); expect(await store.cleanup(1)).toBe(1); expect(await store.cleanup()).toBe(0);
+    expect((await pool.query('SELECT id FROM rest_wallet_ceremonies')).rows).toEqual([{ id: records[0]!.id }]);
+    const retained = (await store.get({ id: records[0]!.id, accountId: records[0]!.accountId }))!;
+    expect((await store.consume({ ...consume(retained), proofDigest: retained.proofDigest!, resultId: retained.resultId! })).replayed).toBe(true);
+  });
+
 });

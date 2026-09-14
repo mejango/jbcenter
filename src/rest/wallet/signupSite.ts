@@ -44,7 +44,14 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
   app.get('/wallet/signup/state', async c => {
     const token = readWalletCookie(c.req.raw, walletSignupCookie);
     if (!token) return c.json({ view: null });
-    return json(c, { view: await signup.status(token), csrfToken: walletCsrfToken(token) });
+    try { return json(c, { view: await signup.status(token), csrfToken: walletCsrfToken(token) }); }
+    catch (error) {
+      if (!(error instanceof RestError) || error.code !== 'WALLET_SIGNUP_UNAUTHORIZED') throw error;
+      // Expired unproved flows may be reclaimed. Clear only the unusable continuation,
+      // preserving all accepted deployment/setup records and requiring an explicit next action.
+      c.header('Set-Cookie', walletCookie(walletSignupCookie, null, 0), { append: true });
+      return c.json({ view: null });
+    }
   });
   app.post('/wallet/signup/begin', async c => {
     const input = await body(c, ['recoveryOwner', 'passkeyName']);

@@ -26,7 +26,7 @@ suite('durable replacement-passkey proof intake (canonical state explicitly mode
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 8 });
     for (const name of ['004_rest_accounts.sql', '007_rest_smart_accounts.sql', '012_rest_smart_account_onboarding.sql',
       '013_rest_wallet_ceremonies.sql', '014_rest_passkey_onboarding.sql', '015_rest_wallet_enrollment.sql',
-      '017_rest_wallet_policy.sql', '019_rest_wallet_app_grants.sql', '020_rest_wallet_authority.sql', '028_wallet_recovery.sql', '029_wallet_recovery_mapping.sql', '030_wallet_recovery_flow.sql'])
+      '017_rest_wallet_policy.sql', '019_rest_wallet_app_grants.sql', '020_rest_wallet_authority.sql', '028_wallet_recovery.sql', '029_wallet_recovery_mapping.sql', '033_wallet_unproved_recovery_expiry.sql', '030_wallet_recovery_flow.sql'])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), 'utf8'));
     store = new PostgresWalletRecoveryStore(pool, policy);
   });
@@ -53,8 +53,8 @@ suite('durable replacement-passkey proof intake (canonical state explicitly mode
     } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
     return context;
   }
-  async function registered(selected = store) {
-    const context = await existing(), begun = await selected.begin(context.accountId), intent = begun.record.intent;
+  async function registered(selected = store, suppliedContext?: Awaited<ReturnType<typeof existing>>) {
+    const context = suppliedContext ?? await existing(), begun = await selected.begin(context.accountId), intent = begun.record.intent;
     const key = createRegistration({ rpId: intent.rpId, origin: intent.origin, userHandle: intent.userHandle,
       challenge: `0x${Buffer.from(intent.registration.challenge, 'base64url').toString('hex')}` });
     const record = await selected.register(intent.id, begun.flowToken, key.response);
@@ -145,11 +145,11 @@ suite('durable replacement-passkey proof intake (canonical state explicitly mode
     await expect(pool.query("UPDATE rest_wallet_recoveries SET proof=jsonb_set(proof,'{verificationDigest}',to_jsonb($2::text)) WHERE id=$1",
       [accepted.record.intent.id, '11'.repeat(32)])).rejects.toMatchObject({ code: '23514' });
   });
-  it('enforces account and global admission caps across replicas', async () => {
+  it('bounds anonymous recovery globally without charging unproved requests to the victim account', async () => {
     const context = await existing(), options = { ...policy, maxRecords: 3, maxAccountRecords: 2 };
     const results = await Promise.allSettled(Array.from({ length: 5 }, () => new PostgresWalletRecoveryStore(pool, options).begin(context.accountId)));
-    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(2);
-    const second = await existing(); await new PostgresWalletRecoveryStore(pool, options).begin(second.accountId);
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(3);
+    const second = await existing();
     await expect(new PostgresWalletRecoveryStore(pool, options).begin(second.accountId)).rejects.toMatchObject({ status: 429 });
     expect((await pool.query('SELECT count(*)::int AS count FROM rest_wallet_recoveries')).rows[0].count).toBe(3);
   });
@@ -221,4 +221,30 @@ suite('durable replacement-passkey proof intake (canonical state explicitly mode
       expect((await store.get(id, value.begun.flowToken))!.activation).toBeNull();
     } finally { await pool.query('DROP TRIGGER delay_recovery_mapping ON rest_wallet_recoveries; DROP FUNCTION delay_recovery_mapping()'); }
   });
+  it('reserves account recovery capacity only after valid backup-wallet and replacement-passkey proofs', async () => {
+    const context = await existing(), options = { ...policy, maxRecords: 10, maxAccountRecords: 1 };
+    const a = new PostgresWalletRecoveryStore(pool, options), b = new PostgresWalletRecoveryStore(pool, options);
+    await a.begin(context.accountId); await b.begin(context.accountId);
+    const first = await registered(a, context), second = await registered(b, context);
+    const wrong = { ...first.proof, backupSignature: '0x' + '00'.repeat(65) } as typeof first.proof;
+    await expect(a.prove(first.record.intent.id, first.begun.flowToken, wrong)).rejects.toThrow();
+    const results = await Promise.allSettled([a.prove(first.record.intent.id, first.begun.flowToken, first.proof),
+      b.prove(second.record.intent.id, second.begun.flowToken, second.proof)]);
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find(r => r.status === 'rejected')).toMatchObject({ reason: { code: 'WALLET_RECOVERY_LIMIT' } });
+    const winner = results[0]!.status === 'fulfilled' ? first : second;
+    expect((await b.prove(winner.record.intent.id, winner.begun.flowToken, winner.proof)).replayed).toBe(true);
+    expect((await pool.query('SELECT count(*)::int AS count FROM rest_wallet_recoveries WHERE proof IS NOT NULL')).rows[0].count).toBe(1);
+  });
+  it('reclaims expired unproved recoveries while preserving accepted proofs and their immutable history', async () => {
+    const short = new PostgresWalletRecoveryStore(pool, { ...policy, lifetimeMs: 1200 });
+    const accepted = await registered(short), receipt = await short.prove(accepted.record.intent.id, accepted.begun.flowToken, accepted.proof);
+    const abandoned = await registered(short);
+    await pool.query('SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.02)', [abandoned.record.intent.expiresAtMs]);
+    await short.begin(abandoned.context.accountId);
+    expect(await short.get(abandoned.record.intent.id, abandoned.begun.flowToken)).toBeNull();
+    expect(await short.prove(accepted.record.intent.id, accepted.begun.flowToken, accepted.proof)).toEqual({ ...receipt, replayed: true });
+    await expect(pool.query('DELETE FROM rest_wallet_recoveries WHERE id=$1', [accepted.record.intent.id])).rejects.toMatchObject({ code: '23514' });
+  });
+
 });

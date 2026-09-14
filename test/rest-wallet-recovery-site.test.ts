@@ -103,4 +103,17 @@ describe('recovery HTTP boundary', () => {
     expect((await app.fetch(post('restart', {}, fresh))).status).toBe(403);
     expect(recovery.restart).not.toHaveBeenCalled();
   });
+  it('clears an unavailable continuation cookie so cleaned pending flows do not trap the browser', async () => {
+    const { app, recovery } = setup();
+    recovery.status.mockRejectedValueOnce(new RestError(403, 'WALLET_RECOVERY_UNAUTHORIZED', 'Continuation unavailable'));
+    const response = await app.fetch(new Request(origin + '/wallet/recovery/state', { headers }));
+    expect(response.status).toBe(200); expect(await response.json()).toEqual({ view: null });
+    expect(response.headers.get('set-cookie')).toContain(walletRecoveryCookie + '=;');
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
+    expect(recovery.begin).not.toHaveBeenCalled();
+    recovery.status.mockRejectedValueOnce(new Error('Database unavailable'));
+    const outage = await app.fetch(new Request(origin + '/wallet/recovery/state', { headers }));
+    expect(outage.status).toBe(503); expect(outage.headers.get('set-cookie')).toBeNull();
+  });
+
 });

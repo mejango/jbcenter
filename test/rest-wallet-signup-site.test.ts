@@ -84,4 +84,17 @@ describe('signup HTTP authority boundary', () => {
     expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
     expect(signup.begin).not.toHaveBeenCalled();
   });
+  it('clears an unavailable continuation cookie so cleaned pending flows do not trap the browser', async () => {
+    const { app, signup } = setup();
+    signup.status.mockRejectedValueOnce(new RestError(403, 'WALLET_SIGNUP_UNAUTHORIZED', 'Continuation unavailable'));
+    const response = await app.fetch(new Request(origin + '/wallet/signup/state', { headers }));
+    expect(response.status).toBe(200); expect(await response.json()).toEqual({ view: null });
+    expect(response.headers.get('set-cookie')).toContain(walletSignupCookie + '=;');
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
+    expect(signup.begin).not.toHaveBeenCalled();
+    signup.status.mockRejectedValueOnce(new Error('Database unavailable'));
+    const outage = await app.fetch(new Request(origin + '/wallet/signup/state', { headers }));
+    expect(outage.status).toBe(503); expect(outage.headers.get('set-cookie')).toBeNull();
+  });
+
 });

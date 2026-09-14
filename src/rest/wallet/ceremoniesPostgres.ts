@@ -188,7 +188,7 @@ export class PostgresWalletCeremonyStore {
   private async cleanupInTransaction(client: PoolClient, limit: number): Promise<number> {
     const result = await client.query(
       `DELETE FROM rest_wallet_ceremonies WHERE id IN
-       (SELECT id FROM rest_wallet_ceremonies WHERE retain_until <= ${nowSql} ORDER BY retain_until,id LIMIT $1 FOR UPDATE SKIP LOCKED)`, [limit],
+       (SELECT id FROM rest_wallet_ceremonies WHERE retain_until <= ${nowSql} OR (consumed_at IS NULL AND expires_at <= ${nowSql}) ORDER BY expires_at,id LIMIT $1 FOR UPDATE SKIP LOCKED)`, [limit],
     );
     return result.rowCount ?? 0;
   }

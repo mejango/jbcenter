@@ -332,4 +332,11 @@ suite("PostgreSQL wallet enrollment without deployment or sessions", () => {
     expect(recovered.body.record.receipt.id).toBe(record.intent.id);
     expect(await counts()).toEqual({ credentials: 1, verified: 1, consumed: 2 });
   });
+  it("reclaims abandoned enrollment at challenge expiry without waiting for proof receipt retention", async () => {
+    const expiresAt = Date.now() + 1200, initial = await store.begin(intent(expiresAt));
+    await pool.query('SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.02)', [expiresAt]);
+    expect(await store.cleanup()).toBe(1);
+    expect(await store.get(initial.intent.id)).toBeNull();
+  });
+
 });

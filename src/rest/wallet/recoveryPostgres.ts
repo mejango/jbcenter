@@ -67,11 +67,12 @@ export class PostgresWalletRecoveryStore {
       // Global admission precedes account → enrollment → authority → credential → recovery → ceremony.
       await lockWalletCeremonyAdmission(client);
       await client.query(`DELETE FROM rest_wallet_recoveries WHERE id IN
-        (SELECT id FROM rest_wallet_recoveries WHERE proof IS NULL AND retain_until_ms<=${sqlNow}
-          ORDER BY retain_until_ms,id LIMIT 100 FOR UPDATE SKIP LOCKED)`);
-      const counts = (await client.query<{ total: number; account: number }>(
-        'SELECT count(*)::int AS total,count(*) FILTER (WHERE account_id=$1)::int AS account FROM rest_wallet_recoveries', [accountId])).rows[0]!;
-      if (counts.total >= this.policy.maxRecords || counts.account >= this.policy.maxAccountRecords)
+        (SELECT id FROM rest_wallet_recoveries WHERE proof IS NULL AND expires_at_ms<=${sqlNow}
+          ORDER BY expires_at_ms,id LIMIT 100 FOR UPDATE SKIP LOCKED)`);
+      const counts = (await client.query<{ total: number }>(
+        'SELECT count(*)::int AS total FROM rest_wallet_recoveries')).rows[0]!;
+      // The account locator is public. Only a backup-owner proof may consume its quota.
+      if (counts.total >= this.policy.maxRecords)
         throw new RestError(429, 'WALLET_RECOVERY_LIMIT', 'Recovery storage admission limit reached.');
       if (captured(await loadWalletAuthorityContextInTransaction(client, accountId)) !== expected) conflict();
       await this.live(client, intent);
@@ -133,6 +134,13 @@ export class PostgresWalletRecoveryStore {
         if (row.proof.verificationDigest !== proof.verificationDigest) conflict();
         return { record: recordOf(row), replayed: true };
       }
+      // The account row is already locked by loadWalletAuthorityContextInTransaction.
+      // Proof verification precedes all locks; retries above do not consume another slot.
+      const count = (await client.query<{ total: number }>(
+        'SELECT count(*)::int AS total FROM rest_wallet_recoveries WHERE account_id=$1 AND proof IS NOT NULL',
+        [row.intent.accountId])).rows[0]!.total;
+      if (count >= this.policy.maxAccountRecords)
+        throw new RestError(429, 'WALLET_RECOVERY_LIMIT', 'Verified recovery storage admission limit reached.');
       await this.live(client, row.intent);
       await this.ceremonies.consumeInTransaction(client, { ...row.candidate!.possession, proofDigest: proof.verificationDigest, resultId: id });
       const accepted = { ...proof, verifiedAtMs: await this.live(client, row.intent) };

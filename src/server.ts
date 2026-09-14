@@ -49,7 +49,10 @@ export function createCenterServer(
         setImmediate(() => server.closeIdleConnections());
       });
       const path = (request.url ?? "/").split("?", 1)[0]!;
-      if (path === "/mcp" || path.startsWith("/mcp/")) {
+      // The reserved wallet origin belongs entirely to Hono's wallet boundary,
+      // including setup/disabled responses. MCP must not bypass that host guard.
+      const walletHost = request.headers.host?.split(':', 1)[0]?.toLowerCase() === 'wallet.juicebox.center';
+      if (!walletHost && (path === "/mcp" || path.startsWith("/mcp/"))) {
         mcp.handler(request, response);
         return;
       }
