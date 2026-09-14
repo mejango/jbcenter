@@ -33,6 +33,8 @@ export interface RelayrEntry {
   value: string;
   virtual_nonce: number;
 }
+export type RelayrIndependentEntry = Omit<RelayrEntry, 'virtual_nonce'> & { virtual_nonce?: never };
+
 export interface RelayrPayment {
   chainId: number;
   to: Address;
@@ -40,9 +42,9 @@ export interface RelayrPayment {
   value: string;
   deadline: string;
 }
-export interface RelayrQuote {
+export interface RelayrQuote<Entry extends RelayrEntry | RelayrIndependentEntry = RelayrEntry> {
   bundleUuid: string;
-  entries: { txUuid: string; entry: RelayrEntry }[];
+  entries: { txUuid: string; entry: Entry }[];
   payments: RelayrPayment[];
   commitment: Hex;
   observedAt: number;

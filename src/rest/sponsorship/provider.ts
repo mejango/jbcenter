@@ -9,7 +9,7 @@ import {
   RELAYR_PAYMENT_ADDRESS,
   RELAYR_PAYMENT_SELECTOR,
 } from "./constants.js";
-import type { RelayrEntry, RelayrPayment, RelayrQuote } from "./types.js";
+import type { RelayrEntry, RelayrIndependentEntry, RelayrPayment, RelayrQuote } from "./types.js";
 import {
   assertSignal,
   decimal,
@@ -45,10 +45,11 @@ export class RelayrProvider {
     return this.createWithMode(entries, "MultiChain", signal);
   }
   /** Operator-only independent contract deployments have no forwarding nonce dependencies. */
-  async createIndependent(entries: RelayrEntry[], signal?: AbortSignal): Promise<unknown> {
+  async createIndependent(entries: RelayrIndependentEntry[], signal?: AbortSignal): Promise<unknown> {
+    assertIndependentEntries(entries);
     return this.createWithMode(entries, "Disabled", signal);
   }
-  private async createWithMode(entries: RelayrEntry[], mode: "MultiChain" | "Disabled", signal?: AbortSignal): Promise<unknown> {
+  private async createWithMode(entries: RelayrEntry[] | RelayrIndependentEntry[], mode: "MultiChain" | "Disabled", signal?: AbortSignal): Promise<unknown> {
     return this.json(
       "/v1/bundle/prepaid",
       {
@@ -306,13 +307,18 @@ export function parseQuoteBinding(
   return quoteBinding(value, entries, now, RELAYR_MAINNET_CHAINS);
 }
 /** Operator-only: retain the clients' same-family payment policy without expanding app sponsorship. */
-export function parseIndependentQuoteBinding(value: unknown, entries: RelayrEntry[], now: number): RelayrQuote {
+export function parseIndependentQuoteBinding(value: unknown, entries: RelayrIndependentEntry[], now: number): RelayrQuote<RelayrIndependentEntry> {
+  assertIndependentEntries(entries);
   const chains = [RELAYR_MAINNET_CHAINS, RELAYR_TESTNET_CHAINS].find(family =>
     entries.length > 0 && entries.every(entry => family.some(chain => chain === entry.chain)));
   if (!chains) fail("RELAYR_INVALID_QUOTE", "Choose destinations from one supported network family.", 502);
   return quoteBinding(value, entries, now, chains);
 }
-function quoteBinding(value: unknown, entries: RelayrEntry[], now: number, paymentChains: readonly number[]): RelayrQuote {
+function assertIndependentEntries(entries: readonly RelayrIndependentEntry[]): void {
+  if (entries.some(entry => Object.hasOwn(entry, 'virtual_nonce')))
+    fail('RELAYR_INVALID_REQUEST', 'Disabled ordering forbids a virtual nonce.', 400);
+}
+function quoteBinding<Entry extends RelayrEntry | RelayrIndependentEntry>(value: unknown, entries: Entry[], now: number, paymentChains: readonly number[]): RelayrQuote<Entry> {
   if (
     !object(value) ||
     !uuid(value.bundle_uuid) ||
@@ -387,6 +393,15 @@ export function parseStatus(
   value: unknown,
   quote: RelayrQuote,
 ): { step: number; providerState: string; hash?: Hex }[] {
+  return statusBinding(value, quote, false);
+}
+/** Disabled mode has no nonce; Relayr may represent an absent optional field as null. */
+export function parseIndependentStatus(value: unknown, quote: RelayrQuote<RelayrIndependentEntry>) {
+  assertIndependentEntries(quote.entries.map(item => item.entry));
+  return statusBinding(value, quote, true);
+}
+function statusBinding(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIndependentEntry>, independent: boolean):
+  { step: number; providerState: string; hash?: Hex }[] {
   if (
     !object(value) ||
     value.bundle_uuid !== quote.bundleUuid ||
@@ -425,7 +440,7 @@ export function parseStatus(
       typeof item.request.data !== "string" ||
       !same(item.request.data, expected.data) ||
       item.request.value !== expected.value ||
-      item.request.virtual_nonce !== expected.virtual_nonce ||
+      (independent ? item.request.virtual_nonce != null : item.request.virtual_nonce !== expected.virtual_nonce) ||
       typeof item.status.state !== "string" ||
       item.status.state.length > 64
     )

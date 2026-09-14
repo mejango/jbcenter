@@ -4,6 +4,7 @@ import {
   RelayrProvider,
   RelayrResponseError,
   parseIndependentQuoteBinding,
+  parseIndependentStatus,
   parsePayment,
   parseQuote,
   parseStatus,
@@ -52,6 +53,8 @@ function entries(): RelayrEntry[] {
   ];
 }
 
+function independentEntries() { return entries().map(({ virtual_nonce, ...entry }) => entry); }
+
 function paymentData(bundle = BUNDLE, deadline = DEADLINE): Hex {
   // ABI-encode the independently reviewed bytes16 and uint40 argument layout.
   // uint256 permits constructing out-of-range negative test vectors too.
@@ -84,12 +87,12 @@ function quoteResponse(overrides: Record<string, unknown> = {}) {
 }
 
 it('accepts testnet payments only for the operator same-family parser; ordinary app sponsorship stays mainnet-only', () => {
-  const testEntries = entries().map(entry => ({ ...entry, chain: 84532 }));
+  const testEntries = independentEntries().map(entry => ({ ...entry, chain: 84532 }));
   const response = quoteResponse({ payment_info: [payment({ chain: 84532 })] });
   expect(parseIndependentQuoteBinding(response, testEntries, NOW).payments[0]!.chainId).toBe(84532);
-  expect(() => parseQuote(response, testEntries, NOW, MAXIMUM_VALUE)).toThrow();
-  expect(() => parseIndependentQuoteBinding(response, entries(), NOW)).toThrow();
-  expect(() => parseIndependentQuoteBinding(response, [entries()[0]!, testEntries[1]!], NOW)).toThrow();
+  expect(() => parseQuote(response, entries().map(entry => ({ ...entry, chain: 84532 })), NOW, MAXIMUM_VALUE)).toThrow();
+  expect(() => parseIndependentQuoteBinding(response, independentEntries(), NOW)).toThrow();
+  expect(() => parseIndependentQuoteBinding(response, [independentEntries()[0]!, testEntries[1]!], NOW)).toThrow();
   expect(() => parseIndependentQuoteBinding(response, [], NOW)).toThrow();
 });
 
@@ -415,9 +418,9 @@ describe("bounded fixed-origin Relayr transport", () => {
   it("uses Disabled ordering only for the explicit independent-deployment method", async () => {
     const fetcher = vi.fn<typeof fetch>(async () => Response.json({ observed: true }));
     const provider = new RelayrProvider(fetcher);
-    await provider.createIndependent(entries());
+    await provider.createIndependent(independentEntries());
     await provider.create(entries());
-    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toEqual({ transactions: entries(), virtual_nonce_mode: 'Disabled' });
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toEqual({ transactions: independentEntries(), virtual_nonce_mode: 'Disabled' });
     expect(JSON.parse(fetcher.mock.calls[1]![1]!.body as string).virtual_nonce_mode).toBe('MultiChain');
   });
   it("uses only the fixed origin, exact create body and canonical status path with redirects disabled", async () => {
@@ -453,6 +456,31 @@ describe("bounded fixed-origin Relayr transport", () => {
     });
     expect(fetcher.mock.calls[1]![1]!.method).toBe("GET");
     expect(fetcher.mock.calls[1]![1]).not.toHaveProperty("body");
+  });
+
+  it('rejects a supplied nonce in Disabled mode before publishing, matching the live HTTP 406 InvalidNonce response', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    await expect(new RelayrProvider(fetcher).createIndependent(entries() as never)).rejects.toMatchObject({ code: 'RELAYR_INVALID_REQUEST' });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(() => parseIndependentQuoteBinding(quoteResponse(), entries() as never, NOW)).toThrow();
+  });
+  it('authenticates omitted or null independent nonces without weakening ordered app nonce bindings', () => {
+    const quote = parseIndependentQuoteBinding(quoteResponse(), independentEntries(), NOW);
+    for (const nonce of [undefined, null]) {
+      const status = statusResponse();
+      for (const item of status.transactions) {
+        delete (item.request as Partial<RelayrEntry>).virtual_nonce;
+        if (nonce === null) Object.assign(item.request, { virtual_nonce: null });
+      }
+      expect(parseIndependentStatus(status, quote)).toHaveLength(2);
+      expect(() => parseStatus(status, parseQuote(quoteResponse(), entries(), NOW, MAXIMUM_VALUE))).toThrow();
+    }
+    for (const nonce of [0, 1, '0', false]) {
+      const status = statusResponse();
+      for (const item of status.transactions) Object.assign(item.request, { virtual_nonce: nonce });
+      expect(() => parseIndependentStatus(status, quote)).toThrow();
+    }
+    expect(() => parseIndependentStatus(statusResponse(), parseQuote(quoteResponse(), entries(), NOW, MAXIMUM_VALUE) as never)).toThrow();
   });
 
   it("rejects invalid status identifiers and already aborted requests without fetching", async () => {
@@ -590,7 +618,7 @@ describe("bounded fixed-origin Relayr transport", () => {
 
   it('keeps bounded HTTP diagnostics private from ordinary error serialization', async () => {
     const body = JSON.stringify({ error: PRIVATE_ERROR, bundle_uuid: BUNDLE });
-    const error = await caught(new RelayrProvider(async () => new Response(body, { status: 406 })).createIndependent(entries()));
+    const error = await caught(new RelayrProvider(async () => new Response(body, { status: 406 })).createIndependent(independentEntries()));
     expect(error).toBeInstanceOf(RelayrResponseError);
     expect((error as RelayrResponseError).responseDetails).toEqual({ status: 406, body, complete: true, truncated: false });
     expect(String(error)).not.toContain(PRIVATE_ERROR);
@@ -598,7 +626,7 @@ describe("bounded fixed-origin Relayr transport", () => {
   });
 
   it('retains the HTTP status and bounded prefix when an error body exceeds the limit', async () => {
-    const error = await caught(new RelayrProvider(async () => new Response('x'.repeat(RELAYR_LIMITS.maximumBytes + 1), { status: 500 })).createIndependent(entries()));
+    const error = await caught(new RelayrProvider(async () => new Response('x'.repeat(RELAYR_LIMITS.maximumBytes + 1), { status: 500 })).createIndependent(independentEntries()));
     expect(error).toMatchObject({ code: 'RELAYR_RESPONSE_LIMIT' });
     expect((error as RelayrResponseError).responseDetails).toEqual({ status: 500,
       body: 'x'.repeat(RELAYR_LIMITS.maximumBytes), complete: false, truncated: true });
@@ -610,7 +638,7 @@ describe("bounded fixed-origin Relayr transport", () => {
     const fetcher = vi.fn<typeof fetch>(async () => new Response(new ReadableStream({
       start(controller) { controller.enqueue(new TextEncoder().encode('partial error')); }, cancel,
     }), { status: 503 }));
-    const result = caught(new RelayrProvider(fetcher, 50).createIndependent(entries()));
+    const result = caught(new RelayrProvider(fetcher, 50).createIndependent(independentEntries()));
     await vi.advanceTimersByTimeAsync(50);
     const error = await result;
     expect(error).toMatchObject({ code: 'RELAYR_TIMEOUT' });

@@ -10,7 +10,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { keccak256, toHex, type Hex } from 'viem';
 import { preparePasskeyDependencyDeployment } from '../src/rest/smartAccounts/passkeyProfile.js';
 import { inspectWalletDependencyChain, prepareWalletDependencyBundle, WALLET_DEPENDENCY_CHAINS } from '../src/rest/wallet/dependencyBundle.js';
-import type { RelayrEntry } from '../src/rest/sponsorship/types.js';
+import type { RelayrIndependentEntry } from '../src/rest/sponsorship/types.js';
 import type { RestRpc } from '../src/rest/core.js';
 import { RelayrProvider } from '../src/rest/sponsorship/provider.js';
 import { publishWalletDependencyQuote, recoveryBundleUuid } from '../src/rest/wallet/dependencyPublication.js';
@@ -21,6 +21,9 @@ const blockHash = keccak256('0x1234'), clock = 1800000000000;
 const providerSchema = JSON.parse(readFileSync(new URL('./fixtures/relayr/prepaid-request.schema.json', import.meta.url), 'utf8'),
   (key, value) => key === 'nullable' ? undefined : value);
 const validProviderBody = new Ajv2020({ strict: false, validateFormats: false }).compile(providerSchema);
+const validIndependentBody = new Ajv2020({ strict: false }).compile({
+  type: 'object', properties: { transactions: { type: 'array', items: { not: { required: ['virtual_nonce'] } } } },
+});
 async function fixture(chainId: number, wrongChain = false, verifierExists = false) {
   const plan = await preparePasskeyDependencyDeployment(), calls: string[] = [];
   const rpc: RestRpc = { async request(chain, method, params) {
@@ -77,11 +80,14 @@ describe('audit-gated eight-chain Relayr dependency plan', () => {
     for (const bundle of result.bundles) {
       expect(bundle.body.virtual_nonce_mode).toBe('Disabled');
       expect(validProviderBody(bundle.body), JSON.stringify(validProviderBody.errors)).toBe(true);
+      expect(validIndependentBody(bundle.body)).toBe(true);
+      expect(validIndependentBody({ ...bundle.body, transactions: bundle.body.transactions.map(entry => ({ ...entry, virtual_nonce: 0 })) })).toBe(false);
       expect(validProviderBody({ ...bundle.body, virtual_nonce_mode: 'Multichain' })).toBe(false);
     }
     const transactions = result.bundles.flatMap(bundle => bundle.body.transactions);
     for (const chain of WALLET_DEPENDENCY_CHAINS) {
-      expect(transactions.filter(entry => entry.chain === chain).map(entry => entry.virtual_nonce)).toEqual([0, 0]);
+      expect(transactions.filter(entry => entry.chain === chain)).toHaveLength(2);
+      expect(transactions.filter(entry => entry.chain === chain).every(entry => !Object.hasOwn(entry, 'virtual_nonce'))).toBe(true);
     }
     expect(new Set(transactions.map(entry => entry.target)).size).toBe(1);
     expect(new Set(transactions.map(entry => entry.data)).size).toBe(2);
@@ -96,7 +102,7 @@ describe('audit-gated eight-chain Relayr dependency plan', () => {
     const bundle = await prepareWalletDependencyBundle(observations, clock);
     expect(bundle.bundles.map(bundle => bundle.body.transactions.length)).toEqual([8, 6]);
     const transactions = bundle.bundles.flatMap(bundle => bundle.body.transactions);
-    expect(transactions.every(entry => entry.virtual_nonce === 0)).toBe(true);
+    expect(transactions.every(entry => !Object.hasOwn(entry, 'virtual_nonce'))).toBe(true);
     for (const chain of [11155111, 84532]) {
       const entries = transactions.filter(entry => entry.chain === chain);
       expect(entries).toHaveLength(1);
@@ -167,13 +173,13 @@ describe('one-shot operator Relayr publication journal', () => {
     }] };
     const record = async () => JSON.parse(await readFile(join(journal, 'publication.json'), 'utf8'));
     const status = vi.fn(async () => ({ bundle_uuid: id, transactions: body.transactions.map((entry, index) => ({
-      tx_uuid: response.tx_uuids[index], request: entry, status: { state: 'Pending' },
+      tx_uuid: response.tx_uuids[index], request: { ...entry, virtual_nonce: null }, status: { state: 'Pending' },
     })) }));
     return { family, directory, journal, source, observations, response, body, record, status };
   }
   it('persists the reviewed source and exact transaction fields before publication and retains the quote binding without enabling funding', async () => {
     const f = await publication();
-    const provider = { status: f.status, createIndependent: vi.fn(async (entries: RelayrEntry[]) => {
+    const provider = { status: f.status, createIndependent: vi.fn(async (entries: RelayrIndependentEntry[]) => {
       const before = await f.record();
       expect(before.state).toBe('submission-unknown');
       expect(before.body).toEqual(f.body);
@@ -190,7 +196,7 @@ describe('one-shot operator Relayr publication journal', () => {
   });
   it.each(['mainnet', 'testnet'] as const)('quotes only %s calls and accepts only payment options from that family', async family => {
     const f = await publication(family);
-    const provider = { status: f.status, createIndependent: vi.fn(async (entries: RelayrEntry[]) => {
+    const provider = { status: f.status, createIndependent: vi.fn(async (entries: RelayrIndependentEntry[]) => {
       const allowed = family === 'mainnet' ? [1, 10, 8453, 42161] : [11155111, 11155420, 84532, 421614];
       expect(entries.every(entry => allowed.includes(entry.chain))).toBe(true);
       return f.response;

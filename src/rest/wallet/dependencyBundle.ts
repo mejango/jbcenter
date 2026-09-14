@@ -4,7 +4,7 @@ import { rpcHex } from '../protocol/code.js';
 import { preparePasskeyDependencyDeployment } from '../smartAccounts/passkeyProfile.js';
 import { fingerprint, stable } from '../smartAccounts/service.js';
 import { RELAYR_MAINNET_CHAINS, RELAYR_TESTNET_CHAINS } from '../sponsorship/constants.js';
-import type { RelayrEntry } from '../sponsorship/types.js';
+import type { RelayrIndependentEntry } from '../sponsorship/types.js';
 import { operationRpc, walletPreflightRpcBounds } from './operationRpc.js';
 
 export const WALLET_DEPENDENCY_CHAINS = Object.freeze([...RELAYR_MAINNET_CHAINS, ...RELAYR_TESTNET_CHAINS] as const);
@@ -92,7 +92,7 @@ export async function prepareWalletDependencyBundle(input: Awaited<ReturnType<ty
   if (!Array.isArray(observations) || observations.length !== WALLET_DEPENDENCY_CHAINS.length
     || new Set(observations.map(item => item.chainId)).size !== WALLET_DEPENDENCY_CHAINS.length)
     invalid('Exactly one observation for each of the eight chains is required.');
-  const transactions: RelayrEntry[] = [];
+  const transactions: RelayrIndependentEntry[] = [];
   for (const chain of WALLET_DEPENDENCY_CHAINS) {
     const item = observations.find(item => item.chainId === chain);
     if (!item || item.version !== VERSION) invalid('The dependency observation chain or version differs.');
@@ -120,7 +120,7 @@ export async function prepareWalletDependencyBundle(input: Awaited<ReturnType<ty
           runtimeCodeHash: deployment.pin.runtimeCodeHash, initCodeHash: deployment.initCodeHash,
           transaction: deployment.transaction, estimatedGas: missing.estimatedGas })) invalid('The planned deployment bytes or estimate differ.');
       transactions.push({ chain, target: deployment.transaction.to, data: deployment.transaction.data,
-        value: '0', virtual_nonce: 0 });
+        value: '0' });
     });
   }
   // Neither constructor depends on the other deployment. A failure on one chain

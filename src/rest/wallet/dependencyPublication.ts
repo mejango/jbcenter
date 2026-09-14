@@ -3,7 +3,7 @@ import { mkdir, open, readFile, rename } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { RestError } from '../core.js';
 import { object, uuid } from '../sponsorship/validation.js';
-import { parseIndependentQuoteBinding, parseStatus, RelayrResponseError, type RelayrResponseDetails, type RelayrProvider } from '../sponsorship/provider.js';
+import { parseIndependentQuoteBinding, parseIndependentStatus, RelayrResponseError, type RelayrResponseDetails, type RelayrProvider } from '../sponsorship/provider.js';
 import { prepareWalletDependencyBundle, type inspectWalletDependencyChain, type WalletDependencyFamily } from './dependencyBundle.js';
 
 type Observation = Awaited<ReturnType<typeof inspectWalletDependencyChain>>;
@@ -109,7 +109,7 @@ export async function publishWalletDependencyQuote(options: {
   // stored bundle to contain the exact targets, calldata, values and nonce fields.
   const statusReceived = { ...bound, state: 'status-received', statusResponse: status };
   await save(statusReceived);
-  const providerStatus = parseStatus(status, quote);
+  const providerStatus = parseIndependentStatus(status, quote);
   const record = { ...statusReceived, state: 'quoted', providerStatus };
   await save(record);
   return { record, path };
