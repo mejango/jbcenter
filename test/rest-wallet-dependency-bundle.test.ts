@@ -110,7 +110,7 @@ describe('audit-gated eight-chain Relayr dependency plan', () => {
     changed[0]!.missing[0]!.transaction.value = '1' as '0';
     await expect(prepareWalletDependencyBundle(changed, clock)).rejects.toThrow();
   });
-  it.each(['proxy', 'occupied', 'wrong-address', 'gas', 'reorg', 'stale', 'future'])(
+  it.each(['proxy', 'occupied', 'wrong-address', 'gas', 'reorg', 'wrong-height', 'stale', 'future'])(
     'rejects unsafe chain observation: %s', async failure => {
       const f = await fixture(1), recipe = await preparePasskeyDependencyDeployment();
       const rpc: RestRpc = { async request(chain, method, params, signal) {
@@ -121,6 +121,7 @@ describe('audit-gated eight-chain Relayr dependency plan', () => {
         if (method === 'eth_estimateGas' && failure === 'gas') return toHex(8000001);
         if (method === 'eth_getBlockByNumber') {
           if (failure === 'stale' || failure === 'future') return { ...(result as object), timestamp: toHex((clock + (failure === 'stale' ? -61000 : 31000)) / 1000) };
+          if (failure === 'wrong-height' && params[0] !== 'latest') return { ...(result as object), number: '0x2' };
           if (failure === 'reorg' && params[0] !== 'latest') return { ...(result as object), hash: keccak256('0xabcd') };
         }
         return result;
