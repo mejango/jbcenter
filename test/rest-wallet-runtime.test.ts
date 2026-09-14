@@ -29,7 +29,7 @@ import { enrollmentManifest } from './fixtures/wallet-enrollment-crypto.js';
 // semantics have independent PostgreSQL, browser and EVM suites; no live service is contacted here.
 vi.mock('../src/rest/site.js', async original => ({
   ...(await original<typeof import('../src/rest/site.js')>()),
-  readRestAssets: async () => ({ accountsScript: '', walletScript: '/* bounded wallet browser fixture */', walletPaymentScript: '/* payment fixture */', documents: new Map() }),
+  readRestAssets: async () => ({ accountsScript: '', walletScript: '/* bounded wallet browser fixture */', walletPaymentScript: '/* payment fixture */', walletSignupScript: '/* signup fixture */', documents: new Map() }),
 }));
 const origin = 'https://wallet.pilot.example', audience = 'https://juicebox.center';
 const cleanup: Array<() => Promise<void>> = [];
@@ -37,7 +37,7 @@ afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
   vi.useRealTimers(); vi.restoreAllMocks();
 });
-async function fixture(wallet?: RestWalletConfiguration, startMaintenance = false, smartAccountManifests?: readonly SmartAccountManifest[]) {
+async function fixture(wallet?: RestWalletConfiguration, startMaintenance = false, smartAccountManifests?: readonly SmartAccountManifest[], localWalletSignup?: Parameters<typeof createRestRuntime>[0]['localWalletSignup']) {
   const pool = new Pool({ connectionString: 'postgresql://fixture@127.0.0.1:1/unused' });
   cleanup.push(() => pool.end());
   const query = vi.spyOn(pool, 'query').mockImplementation(() => { throw new Error('Unexpected database request during startup'); });
@@ -48,7 +48,7 @@ async function fixture(wallet?: RestWalletConfiguration, startMaintenance = fals
   } });
   const runtime = await createRestRuntime({ pool, store, services: mcp.services, config: mcp.config,
     upstreams: new Map(), rpc: { request }, executionConfiguration: await readRestExecutionConfiguration({}),
-    startMaintenance, ...(wallet ? { wallet } : {}), ...(smartAccountManifests ? { smartAccountManifests } : {}) });
+    startMaintenance, ...(wallet ? { wallet } : {}), ...(smartAccountManifests ? { smartAccountManifests } : {}), ...(localWalletSignup ? { localWalletSignup } : {}) });
   cleanup.unshift(() => runtime.stop());
   return { runtime, pool, query, request };
 }
@@ -59,6 +59,16 @@ async function walletConfiguration() {
 }
 
 describe('explicit wallet runtime composition', () => {
+  it('installs signup only from an explicit local capability and stops its worker with the runtime', async () => {
+    const site = vi.spyOn(walletSite, 'createWalletSite');
+    const start = vi.fn(), stop = vi.fn(async () => true);
+    const local = vi.fn(() => ({ start, stop }) as never);
+    const f = await fixture(await walletConfiguration(), false, undefined, local);
+    expect(local).toHaveBeenCalledOnce(); expect(local.mock.calls[0]).toHaveLength(1);
+    expect(site).toHaveBeenCalledWith(expect.objectContaining({ signup: f.runtime.wallet!.signup, signupBrowserScript: '/* signup fixture */' }));
+    expect(start).not.toHaveBeenCalled(); expect(f.query).not.toHaveBeenCalled(); expect(f.request).not.toHaveBeenCalled();
+    await f.runtime.stop(); expect(stop).toHaveBeenCalledOnce();
+  });
   it('composes payment reviews and strict V6 effects from the same optional host configuration', async () => {
     const site = vi.spyOn(walletSite, 'createWalletSite');
     const Original = operationService.UserOperationService;

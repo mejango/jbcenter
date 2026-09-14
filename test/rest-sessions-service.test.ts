@@ -94,6 +94,7 @@ type ChainSession = {
 };
 async function setup(kind: "memory" | "postgres", planTtlMs = 60_000) {
   const now = () => Date.now();
+  let policyReviewTime: number | undefined;
   const ownerKey = privateKeyToAccount(fingerprint(`owner:${randomUUID()}`));
   const botKey = privateKeyToAccount(fingerprint(`bot:${randomUUID()}`));
   const accountId = accountIdFor(ownerKey.address, 1);
@@ -425,7 +426,9 @@ async function setup(kind: "memory" | "postgres", planTtlMs = 60_000) {
   const target = address(`token:${accountId}`),
     paymaster = stack.paymaster!.address;
   const reviewer = createSessionPolicyReviewer({
-    now,
+    // Lifecycle tests keep real storage/expiry time, but their policy input and review
+    // share one instant. A database roundtrip crossing a second is not this test's subject.
+    now: () => policyReviewTime ?? now(),
     currentBinding,
     getGrant: async () =>
       (await accounts.listBots(accountId)).find(
@@ -528,7 +531,7 @@ async function setup(kind: "memory" | "postgres", planTtlMs = 60_000) {
     grantId: grant.id,
     generation,
     nonce: fingerprint(randomUUID()),
-    validAfter: Math.floor(now() / 1000),
+    validAfter: Math.floor((policyReviewTime = now()) / 1000),
     durationDays: 7,
     maximumCalls: "4",
     gasBudget: {

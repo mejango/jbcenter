@@ -7,22 +7,25 @@ import { walletPage, walletCss } from '../web/walletPage.js';
 import { walletPaymentPage, walletPaymentCss } from '../web/walletPaymentPage.js';
 import { walletAppAudience, walletAppFields } from './appGrants.js';
 import { validateWalletPolicyOrigin } from './policy.js';
-import { validateWalletRpConfiguration, type WalletAssertion } from './webauthn.js';
+import { validateWalletRpConfiguration } from './webauthn.js';
 import type { WalletCentralSession } from './login.js';
 import type { WalletHandoffExchangeInput, WalletHandoffRequest } from './handoff.js';
 import { assertWalletHttpHost, assertWalletHttpRequest, assertWalletCsrf, readWalletCookie,
-  readWalletJson, walletCookie, walletCsrfToken, walletFlowCookie, walletSessionCookie } from './http.js';
+  readWalletJson, walletCookie, walletCsrfToken, walletFlowCookie, walletSessionCookie, walletHttpAssertion as assertion, walletPageHeaders as pageHeaders } from './http.js';
 import type { PostgresWalletLoginStore } from './loginPostgres.js';
 import type { PostgresWalletHandoffStore } from './handoffPostgres.js';
 import type { PostgresWalletPolicyStore } from './policyPostgres.js';
 import type { PostgresWalletPaymentReviewStore } from './paymentReviewsPostgres.js';
 import { publicWalletPaymentCentralReview } from './paymentPublic.js';
+import { mountWalletSignup, type WalletSignupSiteOptions } from './signupSite.js';
 
 export interface WalletSiteOptions {
   origin: string;
   audience: string;
   browserScript: string;
   paymentBrowserScript?: string;
+  signup?: WalletSignupSiteOptions['signup'];
+  signupBrowserScript?: string;
   login: Pick<PostgresWalletLoginStore, 'begin' | 'identifyCompletion' | 'complete' | 'identifySession' | 'readSession' | 'logout'>;
   handoff: Pick<PostgresWalletHandoffStore, 'prepare' | 'getIntent' | 'issue' | 'identifyExchange' | 'exchange'>;
   policy: Pick<PostgresWalletPolicyStore, 'readActivePolicy'>;
@@ -31,11 +34,6 @@ export interface WalletSiteOptions {
   onEvent?: (event: { action: string; outcome: 'ok' | 'rejected' | 'unavailable'; code?: string }) => void;
 }
 
-const pageHeaders = {
-  'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
-  'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff',
-  'X-Frame-Options': 'DENY', 'Permissions-Policy': 'publickey-credentials-get=(self), publickey-credentials-create=(self)',
-};
 function reject(status = 400, code = 'WALLET_HTTP_INVALID'): never {
   throw new RestError(status, code, 'Wallet request could not be completed.');
 }
@@ -47,13 +45,6 @@ function bytes(value: unknown, min: number, max = min): Buffer {
   const decoded = Buffer.from(value, 'base64url');
   if (decoded.length < min || decoded.length > max || decoded.toString('base64url') !== value) reject();
   return decoded;
-}
-function assertion(value: unknown): WalletAssertion {
-  const a = fields(value, ['credentialId', 'userHandle', 'authenticatorData', 'clientDataJSON', 'signature']);
-  bytes(a.credentialId, 1, 1023);
-  if (a.userHandle !== null) bytes(a.userHandle, 1, 64);
-  return { credentialId: a.credentialId as string, userHandle: a.userHandle as string | null,
-    authenticatorData: bytes(a.authenticatorData, 37), clientDataJSON: bytes(a.clientDataJSON, 1, 2048), signature: bytes(a.signature, 8, 72) };
 }
 function publicSession(session: WalletCentralSession) {
   return { loginId: session.loginId, accountId: session.accountId, walletAddress: session.accountId.slice('eip155:8453:'.length),
@@ -152,8 +143,12 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     c.header('Access-Control-Allow-Headers', 'content-type, x-center-wallet-request');
     return c.body(null, 204);
   });
-  app.get('/wallet', c => c.html(walletPage()));
-  app.get('/wallet/', c => c.html(walletPage()));
+  if (options.signup) {
+    if (!options.signupBrowserScript) reject(503, 'WALLET_SIGNUP_UNAVAILABLE');
+    mountWalletSignup(app, { origin, signup: options.signup, browserScript: options.signupBrowserScript });
+  }
+  app.get('/wallet', c => c.html(walletPage(!!options.signup)));
+  app.get('/wallet/', c => c.html(walletPage(!!options.signup)));
   app.get('/wallet/assets/wallet.js', c => c.body(browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
   app.get('/wallet/assets/wallet.css', c => c.body(walletCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
   app.get('/wallet/config', async c => {

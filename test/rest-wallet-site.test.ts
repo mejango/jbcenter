@@ -32,6 +32,12 @@ function request(path:string,body:unknown,headers:Record<string,string>={}) {
 }
 
 describe('central payment approval HTTP boundary',()=>{
+  it('preserves the exact discovery contract for installed clients when signup is enabled', async () => {
+    const { app } = setup({ signup: {} as never, signupBrowserScript: '/* signup */' });
+    const response = await app.fetch(new Request(origin + '/wallet/config', { headers: { origin: appOrigin } }));
+    expect(response.status).toBe(200);
+    expect(Object.keys(await response.json()).sort()).toEqual(['app', 'audience', 'issuer', 'rpId', 'version']);
+  });
   function payments() {const view=paymentProjectionFixture();return {
     getForSession:vi.fn(async()=>view),approve:vi.fn(async()=>({view,replayed:false})),cancel:vi.fn(async()=>({...view,status:'cancelled' as const})),
   };}

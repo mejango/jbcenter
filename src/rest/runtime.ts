@@ -74,6 +74,7 @@ import { validateWalletPolicyOrigin } from "./wallet/policy.js";
 import { createWalletSite } from "./wallet/site.js";
 import { PostgresWalletPaymentReviewStore } from './wallet/paymentReviewsPostgres.js';
 import type { WalletV6UsdcPaymentConfig } from './userOperations/semantics.js';
+import type { createLocalWalletSignup } from './wallet/signup.js';
 
 export interface RestWalletConfiguration {
   origin: string;
@@ -90,6 +91,7 @@ export interface RestWalletRuntime {
   authority: PostgresWalletAuthorityStore;
   refresh: ReturnType<typeof createWalletAuthorityRefresh>;
   payments?: PostgresWalletPaymentReviewStore;
+  signup?: ReturnType<typeof createLocalWalletSignup>;
   /** Internal operator transition; startup never activates policy. */
   activatePolicy: PostgresWalletPolicyStore["activate"];
 }
@@ -103,6 +105,10 @@ export async function createRestRuntime(options: {
   audience?: string;
   para?: RestSite["para"];
   wallet?: RestWalletConfiguration;
+  /** Explicit host capability for the unforked local pilot. No environment or HTTP
+   * field can construct a treasury signer or enable production deployment. */
+  localWalletSignup?: (context: { pool: Pool; rpc: RestRpc; wallet: RestWalletRuntime;
+    smart: ReturnType<typeof createSmartAccountService> }) => ReturnType<typeof createLocalWalletSignup>;
   rpcSiteLimitPerMinute?: number;
   smartAccountManifests?: readonly SmartAccountManifest[];
   smartAccountModuleInspectors?: readonly SmartModuleInspector[];
@@ -501,12 +507,16 @@ export async function createRestRuntime(options: {
     openapi,
   });
   const assets = await readRestAssets();
+  if (options.localWalletSignup && !wallet) throw new RestError(503, 'WALLET_SIGNUP_UNAVAILABLE', 'Local signup requires the dedicated wallet host.');
+  if (wallet && options.localWalletSignup) wallet.signup = options.localWalletSignup({ pool: options.pool, rpc: backendRpc, wallet, smart: smartAccounts });
   const walletSite = wallet ? createWalletSite({ origin: wallet.origin, audience: auth.audience,
     browserScript: assets.walletScript, login: wallet.login, policy: wallet.policy,
     handoff: wallet.handoff, refresh: wallet.refresh,
     ...(walletPayments ? { payments: walletPayments, paymentBrowserScript: assets.walletPaymentScript } : {}),
+    ...(wallet.signup ? { signup: wallet.signup, signupBrowserScript: assets.walletSignupScript } : {}),
     onEvent: event => console.info(JSON.stringify({ service: "wallet", ...event })),
   }) : undefined;
+  if (options.startMaintenance !== false) wallet?.signup?.start();
   const metrics = options.metrics ?? new Metrics();
   if (options.startMaintenance !== false) metrics.startRestRecovery();
   let stopped = false;
@@ -577,6 +587,7 @@ export async function createRestRuntime(options: {
       if (factoryTimer) clearInterval(factoryTimer);
       shutdownSignal.abort();
       await wallet?.refresh.stop();
+      await wallet?.signup?.stop();
       await factoryHistory?.stop();
       if (maintenance) await maintenance;
     },

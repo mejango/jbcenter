@@ -1,0 +1,99 @@
+import type { Hono, Context } from 'hono';
+import type { Address, Hex } from 'viem';
+import { RestError } from '../core.js';
+import { walletAppFields } from './appGrants.js';
+import type { createLocalWalletSignup } from './signup.js';
+import { walletSignupPage, walletSignupCss } from '../web/walletSignupPage.js';
+import { assertWalletHttpHost, assertWalletHttpRequest, assertWalletCsrf, readWalletCookie, readWalletJson,
+  walletCookie, walletCsrfToken, walletSignupCookie, walletSignupResumeCookie, walletHttpBytes, walletHttpAssertion, walletPageHeaders,
+  type WalletCookieName } from './http.js';
+
+export interface WalletSignupSiteOptions {
+  origin: string; browserScript: string;
+  signup: Pick<ReturnType<typeof createLocalWalletSignup>, 'begin' | 'status' | 'register' | 'proveEnrollment' |
+    'prepareDeployment' | 'approveDeployment' | 'prepareSetup' | 'completeSetupPasskey' | 'beginResume' | 'completeResume'>;
+}
+function invalid(status = 400): never { throw new RestError(status, 'WALLET_SIGNUP_HTTP_INVALID', 'Reload the original signup and retry its current step.'); }
+/** Installed only by the dedicated wallet host. No trusted-app CORS grants signup access. */
+export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
+  const { signup, origin } = options;
+  for (const path of ['/wallet/create', '/wallet/signup/*', '/wallet/assets/wallet-signup.*']) app.use(path, async (c, next) => {
+    assertWalletHttpHost(c.req.raw, origin);
+    for (const [name, value] of Object.entries(walletPageHeaders)) c.header(name, value);
+    await next();
+  });
+  function cookie(c: Context, name: WalletCookieName) {
+    const token = readWalletCookie(c.req.raw, name);
+    if (!token) invalid(403);
+    assertWalletCsrf(c.req.raw, token); return token;
+  }
+  async function body(c: Context, fields: string[]) {
+    assertWalletHttpRequest(c.req.raw, origin, 'central');
+    const value = await readWalletJson(c.req.raw);
+    try { return walletAppFields(value, fields); } catch { return invalid(); }
+  }
+  function result(c: Context, token: string, view: Awaited<ReturnType<typeof signup.status>>, replayed?: boolean) {
+    c.header('Set-Cookie', walletCookie(walletSignupCookie, token, Math.max(1, Math.min(86400, Math.floor((view.expiresAtMs - Date.now()) / 1000)))), { append: true });
+    return { view, csrfToken: walletCsrfToken(token), ...(replayed === undefined ? {} : { replayed }) };
+  }
+  // All typed-data uints are decimal JSON strings; no credential-bearing rows are serialized.
+  const json = (c: Context, value: unknown) => c.body(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? String(item) : item), 200, { 'Content-Type': 'application/json' });
+  app.get('/wallet/create', c => c.html(walletSignupPage()));
+  app.get('/wallet/assets/wallet-signup.js', c => c.body(options.browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
+  app.get('/wallet/assets/wallet-signup.css', c => c.body(walletSignupCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
+  app.get('/wallet/signup/state', async c => {
+    const token = readWalletCookie(c.req.raw, walletSignupCookie);
+    if (!token) return c.json({ view: null });
+    return json(c, { view: await signup.status(token), csrfToken: walletCsrfToken(token) });
+  });
+  app.post('/wallet/signup/begin', async c => {
+    const input = await body(c, ['recoveryOwner', 'passkeyName']);
+    if (readWalletCookie(c.req.raw, walletSignupCookie)) invalid(409);
+    const started = await signup.begin({ recoveryOwner: input.recoveryOwner as Address, passkeyName: input.passkeyName as string });
+    return c.json(result(c, started.flowToken, started.view), 201);
+  });
+  app.post('/wallet/signup/restart', async c => {
+    await body(c, []); const token = cookie(c, walletSignupCookie);
+    if ((await signup.status(token)).phase !== 'expired') invalid(409);
+    c.header('Set-Cookie', walletCookie(walletSignupCookie, null, 0), { append: true });
+    return c.json({ view: null });
+  });
+  app.post('/wallet/signup/register', async c => {
+    const input = await body(c, ['type', 'credentialId', 'rawId', 'clientDataJSON', 'attestationObject']), token = cookie(c, walletSignupCookie);
+    if (input.type !== 'public-key') invalid();
+    walletHttpBytes(input.credentialId, 1, 1023);
+    return json(c, { view: await signup.register(token, { type: 'public-key', credentialId: input.credentialId as string,
+      rawId: walletHttpBytes(input.rawId, 1, 1023), clientDataJSON: walletHttpBytes(input.clientDataJSON, 1, 2048), attestationObject: walletHttpBytes(input.attestationObject, 1, 2048) }) });
+  });
+  app.post('/wallet/signup/prove', async c => {
+    const input = await body(c, ['assertion', 'backupSignature']), token = cookie(c, walletSignupCookie);
+    return json(c, { view: await signup.proveEnrollment(token, { assertion: walletHttpAssertion(input.assertion), backupSignature: input.backupSignature as Hex }) });
+  });
+  app.post('/wallet/signup/deployment/review', async c => {
+    await body(c, []); return json(c, await signup.prepareDeployment(cookie(c, walletSignupCookie)));
+  });
+  app.post('/wallet/signup/deployment/approve', async c => {
+    const input = await body(c, ['approvalId', 'assertion']), token = cookie(c, walletSignupCookie);
+    return json(c, { view: await signup.approveDeployment(token, { approvalId: input.approvalId as string, assertion: walletHttpAssertion(input.assertion) }) });
+  });
+  app.post('/wallet/signup/setup/review', async c => {
+    const input = await body(c, ['browserPublicAddress']), token = cookie(c, walletSignupCookie);
+    return json(c, await signup.prepareSetup(token, { browserPublicAddress: input.browserPublicAddress as Address }));
+  });
+  app.post('/wallet/signup/setup/complete', async c => {
+    const input = await body(c, ['setupId', 'assertion', 'browserProof']), token = cookie(c, walletSignupCookie);
+    return json(c, { view: await signup.completeSetupPasskey(token, { setupId: input.setupId as string,
+      assertion: walletHttpAssertion(input.assertion), browserProof: input.browserProof as Hex }) });
+  });
+  app.post('/wallet/signup/resume/begin', async c => {
+    await body(c, []);
+    const resumed = await signup.beginResume();
+    c.header('Set-Cookie', walletCookie(walletSignupResumeCookie, resumed.resumeToken, 86400), { append: true });
+    return c.json({ challenge: resumed.challenge, csrfToken: walletCsrfToken(resumed.resumeToken) }, 201);
+  });
+  app.post('/wallet/signup/resume/complete', async c => {
+    const input = await body(c, ['resumeId', 'assertion']), resumeToken = cookie(c, walletSignupResumeCookie);
+    const resumed = await signup.completeResume({ resumeId: input.resumeId as string, resumeToken, assertion: walletHttpAssertion(input.assertion) });
+    return json(c, result(c, resumed.flowToken, await signup.status(resumed.flowToken), resumed.replayed));
+  });
+}

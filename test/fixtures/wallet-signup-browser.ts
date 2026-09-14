@@ -1,0 +1,124 @@
+import { once } from 'node:events';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { serve } from '@hono/node-server';
+import { build } from 'esbuild';
+import { Hono } from 'hono';
+import { chromium } from 'playwright';
+import { expect } from 'vitest';
+import type { Pool } from 'pg';
+import type { TypedDataDefinition } from 'viem';
+import { createLocalWalletSignup, type LocalWalletSignupDependencies } from '../../src/rest/wallet/signup.js';
+import { PostgresWalletSignupStore } from '../../src/rest/wallet/signupPostgres.js';
+import { PostgresWalletLoginStore } from '../../src/rest/wallet/loginPostgres.js';
+import { createWalletSite } from '../../src/rest/wallet/site.js';
+import { walletSignupCookie } from '../../src/rest/wallet/http.js';
+import { enrollmentBackupAccount } from './wallet-enrollment-crypto.js';
+import type { startWalletDeploymentAnvil } from './wallet-deployment-anvil.js';
+
+/** Real browser, HTTP handlers, PostgreSQL and unforked EVM. Only the hardware
+ * authenticator and independent test recovery wallet are simulated. */
+export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDependencies, 'flows'> & {
+  pool: Pool; fixture: Awaited<ReturnType<typeof startWalletDeploymentAnvil>>;
+}) {
+  let app = new Hono(), lostRegistration = false, lostSetup = false;
+  const observed: { path: string; status: number }[] = [];
+  const server = serve({ port: 0, hostname: '127.0.0.1', fetch: async request => {
+    const response = await app.fetch(request), path = new URL(request.url).pathname;
+    observed.push({ path, status: response.status });
+    if (response.ok && ((path === '/wallet/signup/register' && !lostRegistration) || (path === '/wallet/signup/setup/complete' && !lostSetup))) {
+      if (path.endsWith('/register')) lostRegistration = true; else lostSetup = true;
+      return new Response('Unavailable after commit', { status: 503 });
+    }
+    return response;
+  } });
+  if (!server.listening) await once(server, 'listening');
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('No local signup listener.');
+  const origin = `http://localhost:${address.port}`;
+  const flows = new PostgresWalletSignupStore(options.pool, { origin, rpId: 'localhost', manifest: options.fixture.manifest });
+  const signup = createLocalWalletSignup({ ...options, flows });
+  const login = new PostgresWalletLoginStore(options.pool, { origin, rpId: 'localhost' });
+  const bundle = async (entry: string) => (await build({ entryPoints: [entry], bundle: true, platform: 'browser', format: 'esm', write: false })).outputFiles[0]!.text;
+  const [browserScript, signupBrowserScript] = await Promise.all([bundle('src/rest/web/wallet.ts'), bundle('src/rest/web/walletSignup.ts')]);
+  app = createWalletSite({ origin, audience: 'https://juicebox.center', browserScript, signup, signupBrowserScript, login,
+    // No app handoff is involved in this signup/login observation.
+    handoff: {} as never, policy: {} as never,
+    refresh: { request: accountId => options.authority.refreshAuthority(accountId), tick: async () => ({}) } });
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({ viewport: { width: 1000, height: 850 } });
+  const page = await context.newPage(), errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.name));
+  page.setDefaultTimeout(15000);
+  await page.exposeFunction('recoveryTestRequest', async (input: { method: string; params?: unknown[] }) => {
+    if (input.method === 'eth_requestAccounts') return [enrollmentBackupAccount.address];
+    if (input.method === 'eth_signTypedData_v4') {
+      expect(input.params?.[0]).toBe(enrollmentBackupAccount.address);
+      return enrollmentBackupAccount.signTypedData(JSON.parse(input.params?.[1] as string) as TypedDataDefinition);
+    }
+    throw new Error('Unsupported test recovery wallet method.');
+  });
+  await page.addInitScript(() => {
+    (window as any).ethereum = { request: (input: unknown) => (window as any).recoveryTestRequest(input) };
+  });
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('WebAuthn.enable');
+  const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: {
+    protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal', hasResidentKey: true,
+    hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true,
+  } });
+  const out = new URL('../../.generated/wallet-observations/signup-browser/', import.meta.url);
+  const contains = async (text: string) => expect.poll(() => page.locator('#wallet-status').textContent()).toContain(text);
+  try {
+    await page.goto(origin + '/wallet/create');
+    await page.getByLabel('Passkey name').fill('Juicebox test');
+    await page.getByRole('button', { name: 'Connect recovery wallet' }).click();
+    await contains('Create your named passkey');
+    await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
+    await page.getByRole('button', { name: 'Create passkey', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel prompt' }).click();
+    await contains('cancelled');
+    await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
+    await page.getByRole('button', { name: 'Create passkey', exact: true }).click();
+    await contains('Check the original signup');
+    await page.getByRole('button', { name: 'Check signup' }).click();
+    await contains('Prove access');
+    await page.getByRole('button', { name: 'Verify both owners' }).click();
+    await contains('Review and approve');
+    const originalAddress = await page.locator('#signup-address').textContent();
+    await page.getByRole('button', { name: 'Review wallet creation' }).click();
+    await page.getByRole('button', { name: 'Approve wallet creation' }).click();
+    await contains('Creating your test wallet');
+    const cookie = (await context.cookies()).find(item => item.name === walletSignupCookie)!;
+    const flow = (await flows.authenticate(cookie.value))!, deploymentId = flow.deploymentId!;
+    await signup.tick();
+    const dispatch = (await options.deployments.getDispatch(deploymentId))!;
+    await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.leaseUntil - Date.now() + 20)));
+    await options.fixture.rpc('anvil_mine', ['0x41', '0x0']); await signup.tick();
+    await context.clearCookies({ name: walletSignupCookie });
+    await page.reload();
+    await page.getByRole('button', { name: 'Resume with a passkey' }).click();
+    await contains('Authorize this browser');
+    expect(await page.locator('#signup-address').textContent()).toBe(originalAddress);
+    expect(await flows.authenticate(cookie.value)).toBeNull();
+    await page.getByRole('button', { name: 'Review browser setup' }).click();
+    await page.getByRole('button', { name: 'Approve browser setup' }).click();
+    await contains('Check the original signup');
+    await page.getByRole('button', { name: 'Check signup' }).click();
+    await contains('Your test wallet is ready');
+    expect(await page.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('center:signup:browser:')))).toEqual([]);
+    await mkdir(out, { recursive: true });
+    await page.screenshot({ path: new URL('signup-desktop.png', out).pathname, fullPage: true });
+    await page.setViewportSize({ width: 320, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: new URL('signup-mobile.png', out).pathname, fullPage: true });
+    await page.getByRole('link', { name: 'Sign in with your passkey' }).click();
+    await page.getByRole('button', { name: 'Sign in with a passkey' }).click();
+    await contains('You are signed in');
+    expect((await page.locator('#wallet-address').textContent())?.toLowerCase()).toBe(originalAddress?.toLowerCase());
+    expect(errors).toEqual([]); expect(lostRegistration && lostSetup).toBe(true);
+    expect((await options.deployments.getSettlement(deploymentId))?.nextNonce).toBe('5');
+    await writeFile(new URL('summary.json', out), JSON.stringify({ passed: true, browser: browser.version(),
+      evidence: 'real HTTP, PostgreSQL, unforked Anvil; virtual authenticator and test EOA',
+      cancelledPrompt: true, lostRegistrationReplyRecovered: lostRegistration, lostSetupReplyRecovered: lostSetup,
+      cookieLossResumedSameWallet: true, separateFreshLogin: true, mobileWidth: 320, pageErrors: errors, requests: observed }, null, 2));
+  } finally { await signup.stop(); await browser.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
+}

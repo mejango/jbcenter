@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { RestError } from "../core.js";
 
-export const walletCeremonyPurposes = ["registration", "login", "session", "deploy", "payment", "rotate"] as const;
+export const walletCeremonyPurposes = ["registration", "login", "session", "deploy", "payment", "rotate", "signup-resume"] as const;
 export type WalletCeremonyPurpose = typeof walletCeremonyPurposes[number];
 export const walletCeremonyMaxLifetimeMs = 300_000;
 export const walletCeremonyRetentionMs = 86_400_000;

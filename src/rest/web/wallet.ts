@@ -122,6 +122,8 @@ async function load() {
   const intentId = query.searchParams.has("intent") ? token(query.searchParams.get("intent")) : null;
   const config = await request("/wallet/config");
   if (config.version !== "center-wallet-v1" || config.issuer !== location.origin) throw new InvalidResponse();
+  const create = document.getElementById("wallet-create") as HTMLAnchorElement | null;
+  if (create) { create.href = "/wallet/create" + query.search; create.hidden = false; }
   const rpId = string(config.rpId, 253);
   if (location.hostname !== rpId && !location.hostname.endsWith(`.${rpId}`)) throw new InvalidResponse();
   configuration = { issuer: location.origin, audience: string(config.audience), rpId };

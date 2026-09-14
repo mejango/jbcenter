@@ -203,7 +203,9 @@ suite("PostgreSQL wallet handoff with genuine request-key proofs and credentiall
   });
 
   it("cleans expired receipts in bounded batches, skips held rows and preserves the live grant", async () => {
-    const value = await issuedHandoff({ receiptRetentionMs: 100 }, 30_000, 1600);
+    // This checks cleanup and row locking, not a 100ms completion deadline under
+    // the full parallel EVM suite. Keep the successful exchange alive long enough.
+    const value = await issuedHandoff({ receiptRetentionMs: 1000 }, 30_000, 1600);
     const first = await value.target.exchange(value.exchange, origin);
     const another = await request({ expiresAtMs: await nowMs() + 1000 });
     const other = await value.target.prepare({ request: another.request, signature: another.signature }, origin);

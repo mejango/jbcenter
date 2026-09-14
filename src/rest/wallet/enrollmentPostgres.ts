@@ -37,13 +37,13 @@ function copyBytes(value: Uint8Array, minimum: number, maximum: number, proof = 
   if (!(value instanceof Uint8Array) || value.byteLength < minimum || value.byteLength > maximum) invalidInput(proof);
   return Uint8Array.from(value);
 }
-function copyRegistration(value: WalletRegistrationResponse): WalletRegistrationResponse {
+export function copyWalletEnrollmentRegistration(value: WalletRegistrationResponse): WalletRegistrationResponse {
   inputFields(value, ["type", "credentialId", "rawId", "clientDataJSON", "attestationObject"]);
   if (value.type !== "public-key" || typeof value.credentialId !== "string" || value.credentialId.length > 1364) invalidInput();
   return { type: value.type, credentialId: value.credentialId, rawId: copyBytes(value.rawId, 1, 1023),
     clientDataJSON: copyBytes(value.clientDataJSON, 1, 2048), attestationObject: copyBytes(value.attestationObject, 1, 2048) };
 }
-function copyProof(value: { assertion: WalletAssertion; backupSignature: Hex }): { assertion: WalletAssertion; backupSignature: Hex } {
+export function copyWalletEnrollmentProof(value: { assertion: WalletAssertion; backupSignature: Hex }): { assertion: WalletAssertion; backupSignature: Hex } {
   inputFields(value, ["assertion", "backupSignature"], true);
   const assertion = value.assertion;
   inputFields(assertion, ["credentialId", "userHandle", "authenticatorData", "clientDataJSON", "signature"], true);
@@ -97,29 +97,35 @@ export class PostgresWalletEnrollmentStore {
   async begin(input: WalletEnrollmentIntent): Promise<WalletEnrollment> {
     assertWalletEnrollmentIntent(input);
     const intent = structuredClone(input);
-    return this.transaction(async client => {
-      await lockWalletCeremonyAdmission(client);
-      await this.cleanupInTransaction(client, 100);
-      const row = (await client.query<EnrollmentRow>("SELECT * FROM rest_wallet_enrollments WHERE id=$1 FOR UPDATE", [intent.id])).rows[0];
-      if (row) {
-        const prior = recordOf(row);
-        if (enrollmentDigest(prior.intent) !== enrollmentDigest(intent)) conflict();
-        if (prior.state !== "verified" && intent.expiresAt + walletCeremonyRetentionMs <= await walletCeremonyDatabaseNow(client))
-          throw new RestError(410, "WALLET_ENROLLMENT_EXPIRED", "Enrollment retention has ended.");
-        return prior;
-      }
-      if ((await client.query<{ count: number }>("SELECT count(*)::int AS count FROM rest_wallet_enrollments WHERE state<>'verified'")).rows[0]!.count >= this.maxPendingEnrollments)
-        throw new RestError(429, "WALLET_ENROLLMENT_LIMIT", "Enrollment storage admission limit reached.");
-      const ceremony = await this.ceremonies.issueInTransaction(client, intent.registration, null);
-      const inserted = (await client.query<EnrollmentRow>(
-        `INSERT INTO rest_wallet_enrollments(id,user_handle,state,intent_digest,created_at,expires_at,retain_until,intent)
-         VALUES($1,$2,'awaiting_registration',$3,$4,$5,$6,$7::jsonb) RETURNING *`,
-        [intent.id, intent.userHandle, enrollmentDigest(intent), ceremony.createdAt, intent.expiresAt,
-          intent.expiresAt + walletCeremonyRetentionMs, JSON.stringify(intent)],
-      )).rows[0]!;
-      await assertLive(client, { intent });
-      return recordOf(inserted);
-    });
+    return this.transaction(client => this.beginInTransaction(client, intent));
+  }
+
+  /** Internal compound signup helper. Caller owns the transaction and acquires its admission
+   * lock before ceremony admission. Never acquire another connection while holding these locks. */
+  async beginInTransaction(client: PoolClient, input: WalletEnrollmentIntent): Promise<WalletEnrollment> {
+    assertWalletEnrollmentIntent(input);
+    const intent = structuredClone(input);
+    await lockWalletCeremonyAdmission(client);
+    await this.cleanupInTransaction(client, 100);
+    const row = (await client.query<EnrollmentRow>("SELECT * FROM rest_wallet_enrollments WHERE id=$1 FOR UPDATE", [intent.id])).rows[0];
+    if (row) {
+      const prior = recordOf(row);
+      if (enrollmentDigest(prior.intent) !== enrollmentDigest(intent)) conflict();
+      if (prior.state !== "verified" && intent.expiresAt + walletCeremonyRetentionMs <= await walletCeremonyDatabaseNow(client))
+        throw new RestError(410, "WALLET_ENROLLMENT_EXPIRED", "Enrollment retention has ended.");
+      return prior;
+    }
+    if ((await client.query<{ count: number }>("SELECT count(*)::int AS count FROM rest_wallet_enrollments WHERE state<>'verified'")).rows[0]!.count >= this.maxPendingEnrollments)
+      throw new RestError(429, "WALLET_ENROLLMENT_LIMIT", "Enrollment storage admission limit reached.");
+    const ceremony = await this.ceremonies.issueInTransaction(client, intent.registration, null);
+    const inserted = (await client.query<EnrollmentRow>(
+      `INSERT INTO rest_wallet_enrollments(id,user_handle,state,intent_digest,created_at,expires_at,retain_until,intent)
+       VALUES($1,$2,'awaiting_registration',$3,$4,$5,$6,$7::jsonb) RETURNING *`,
+      [intent.id, intent.userHandle, enrollmentDigest(intent), ceremony.createdAt, intent.expiresAt,
+        intent.expiresAt + walletCeremonyRetentionMs, JSON.stringify(intent)],
+    )).rows[0]!;
+    await assertLive(client, { intent });
+    return recordOf(inserted);
   }
 
   async get(id: string): Promise<WalletEnrollment | null> {
@@ -131,7 +137,7 @@ export class PostgresWalletEnrollmentStore {
   }
 
   async acceptRegistration(id: string, response: WalletRegistrationResponse): Promise<WalletEnrollment> {
-    const registration = copyRegistration(response), before = await this.get(id);
+    const registration = copyWalletEnrollmentRegistration(response), before = await this.get(id);
     if (!before) missing();
     const prepared = prepareWalletEnrollmentCandidate(before, registration);
     return this.transaction(async client => {
@@ -161,7 +167,7 @@ export class PostgresWalletEnrollmentStore {
   }
 
   async finalize(id: string, input: { assertion: WalletAssertion; backupSignature: Hex }): Promise<{ record: WalletEnrollment; replayed: boolean }> {
-    const proof = copyProof(input), before = await this.get(id);
+    const proof = copyWalletEnrollmentProof(input), before = await this.get(id);
     if (!before) missing();
     if (!before.candidate || !before.creation || !before.possession)
       throw new RestError(409, "WALLET_ENROLLMENT_STATE", "Registration must precede possession verification.");
@@ -209,7 +215,9 @@ export class PostgresWalletEnrollmentStore {
     return this.transaction(client => this.cleanupInTransaction(client, limit));
   }
 
-  private async cleanupInTransaction(client: PoolClient, limit: number): Promise<number> {
+  /** Internal bounded cleanup; caller owns the transaction. Verified identity is never deleted. */
+  async cleanupInTransaction(client: PoolClient, limit: number): Promise<number> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10_000) invalidInput();
     const result = await client.query(`DELETE FROM rest_wallet_enrollments WHERE id IN
       (SELECT id FROM rest_wallet_enrollments WHERE state<>'verified' AND retain_until <= ${nowSql}
        ORDER BY retain_until,id LIMIT $1 FOR UPDATE SKIP LOCKED)`, [limit]);
