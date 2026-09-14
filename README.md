@@ -370,10 +370,10 @@ deployment health checks. Set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30`, configur
 monitoring separately, and enable automated PostgreSQL backups and retention with the database
 provider.
 
-For persistent IPFS reads on Railway, attach a volume at `/data`, set `IPFS_CACHE_DIR=/data/ipfs`
-and `RAILWAY_RUN_UID=0`, and keep the cache byte budget below the available volume capacity.
-The startup entrypoint prepares that root-owned mount and then drops supplementary groups and
-UID/GID to 1000 before importing Center; the application still runs as the unprivileged Node user.
+For persistent IPFS reads on Railway, attach a volume at `/data`. Through Railway's maintenance
+shell, initialize only `/data/ipfs` once with ownership `1000:1000` and permissions `0700`.
+Then set `IPFS_CACHE_DIR=/data/ipfs` and keep the byte budget below the available volume capacity.
+Keep Docker's default unprivileged Node user; no root startup setting is needed.
 One process must own the cache directory. Railway volumes prevent replicas and add a brief stop
 between deployments. Startup removes abandoned fills and reloads complete entries from the volume.
 Railway's optional CDN can serve immutable IPFS responses at the edge; account, API, health and

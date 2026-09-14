@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "npm run build:mcp && npm run build:web && node --env-file-if-exists=.env --import tsx --watch src/index.ts",
-    "start": "node dist/src/start.js",
+    "start": "node dist/src/index.js",
     "build:mcp": "npm --prefix mcp run build",
     "build": "npm run build:mcp && npm run build:web && tsc && npm run build:client && node scripts/rest/copy-assets.mjs",
     "test": "vitest run",
