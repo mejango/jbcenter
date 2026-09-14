@@ -174,7 +174,7 @@ Reads are deliberately public and require neither auth nor an IP allowlist:
 GET /ipfs/:cid[/safe/path]
 ```
 
-The read gateway validates the CID and path, falls back across independent public gateways, caps
+The read gateway validates the CID and path, tries Filebase before Pinata, dweb.link and ipfs.io, caps
 responses at 500 MiB, and forwards HTTP byte ranges so browsers can seek through video and audio.
 It emits cross-origin and immutable-cache headers and forces executable or navigable content to
 download. Pin writes use a PostgreSQL-backed ten-per-caller and 200-per-site budget per ten minutes.

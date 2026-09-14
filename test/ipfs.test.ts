@@ -572,6 +572,22 @@ describe("IPFS pinning", () => {
 });
 
 describe("public IPFS gateway", () => {
+  it("serves media from Filebase when the other public gateways are rate limited", async () => {
+    const image = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    const gatewayFetch = vi.fn<typeof fetch>().mockImplementation(async (url) =>
+      String(url).startsWith("https://ipfs.filebase.io/ipfs/")
+        ? new Response(image, { headers: { "content-type": "image/jpeg" } })
+        : new Response("Too many requests", { status: 429 }),
+    );
+    const response = await createApp(new PinStore(), { gatewayFetch }).request(`/ipfs/${CID}`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/jpeg");
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(image);
+    expect(gatewayFetch).toHaveBeenCalledTimes(1);
+    expect(String(gatewayFetch.mock.calls[0]?.[0])).toBe(`https://ipfs.filebase.io/ipfs/${CID}`);
+  });
+
   it("needs no auth, falls back across gateways, and returns immutable CORS content", async () => {
     const gatewayFetch = vi
       .fn<typeof fetch>()

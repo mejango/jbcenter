@@ -76,6 +76,7 @@ const PIN_WINDOW_SECONDS = 10 * 60;
 const PIN_PER_CALLER = 10;
 const PIN_PER_SITE = 200;
 const IPFS_GATEWAYS = [
+  "https://ipfs.filebase.io/ipfs",
   "https://gateway.pinata.cloud/ipfs",
   "https://dweb.link/ipfs",
   "https://ipfs.io/ipfs",
