@@ -206,13 +206,16 @@ describe("JB Center API", () => {
 
   it("separates liveness, readiness, and protected metrics", async () => {
     const app = createApp(new MemoryStore(), { metricsToken: "metrics-secret" });
-    expect((await app.request("/healthz")).status).toBe(200);
+    const health = await app.request("/healthz");
+    expect(health.status).toBe(200);
+    expect(health.headers.get("cache-control")).toBe("no-store");
     expect((await app.request("/readyz")).status).toBe(200);
     expect((await app.request("/metrics")).status).toBe(404);
     const metrics = await app.request("/metrics", {
       headers: { authorization: "Bearer metrics-secret" },
     });
     expect(metrics.status).toBe(200);
+    expect(metrics.headers.get("cache-control")).toBe("no-store");
     expect(await metrics.text()).toContain("jbcenter_http_requests_total");
   });
 
@@ -222,6 +225,7 @@ describe("JB Center API", () => {
       headers: { ...trusted, origin: "https://example.com" },
     });
     expect(rejected.status).toBe(403);
+    expect(rejected.headers.get("cache-control")).toBe("no-store");
 
     for (const origin of originsForEnvironment("production")) {
       const accepted = await app.request("/v1/search", { headers: { ...trusted, origin } });

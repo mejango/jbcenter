@@ -3,7 +3,8 @@ import { createApp } from "./app.js";
 import { migrate } from "./db/migrate.js";
 import { createPool, PostgresStore } from "./db/postgres.js";
 import { canonicalDeploymentChains, RpcDeploymentVerifier } from "./deploymentVerifier.js";
-import { FilebaseRpcStorage, RedundantIpfsPinning } from "./ipfs.js";
+import { FilebaseRpcStorage, PIN_LIMITS, RedundantIpfsPinning } from "./ipfs.js";
+import { IpfsDiskCache } from "./ipfsCache.js";
 import { createRpcGateway, dwellirRpcUpstreams } from "./rpc.js";
 import { createCenterMcp } from "./mcp.js";
 import { createCenterServer } from "./server.js";
@@ -35,6 +36,12 @@ const port = Number(process.env.PORT ?? 3000);
 if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("PORT is invalid");
 const rpcUpstreams = dwellirRpcUpstreams(process.env.DWELLIR_API_KEY);
 const rpcSiteLimitPerMinute = positiveInteger("RPC_SITE_LIMIT_PER_MINUTE", 20_000);
+const ipfsCache = process.env.IPFS_CACHE_DIR ? new IpfsDiskCache({
+  directory: process.env.IPFS_CACHE_DIR,
+  maxBytes: positiveInteger("IPFS_CACHE_MAX_BYTES", 4_294_967_296),
+  maxEntryBytes: PIN_LIMITS.gateway,
+}) : undefined;
+await ipfsCache?.ready();
 
 const pool = createPool(connectionString);
 await migrate(pool);
@@ -73,6 +80,7 @@ const app = createApp(store, {
     metricsToken,
     metrics,
     rpc,
+    ...(ipfsCache ? { ipfsCache } : {}),
     ...(pinning ? { pinning } : {}),
   });
 const runtime = createCenterServer(app.fetch, handler, {

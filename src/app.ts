@@ -26,6 +26,8 @@ import {
 } from "./homepage.js";
 import { HOMEPAGE_JS } from "./directoryClient.js";
 import { Metrics } from "./observability.js";
+import { createIpfsGateway } from "./ipfsGateway.js";
+import type { IpfsDiskCache } from "./ipfsCache.js";
 import {
   parseRpcRequest,
   RPC_BODY_LIMIT,
@@ -35,7 +37,6 @@ import {
 } from "./rpc.js";
 import {
   PIN_LIMITS,
-  safeIpfsPath,
   type PinResult,
   type PinningService,
 } from "./ipfs.js";
@@ -53,11 +54,6 @@ export const ALLOWED_ORIGINS = originsForEnvironment();
 const PIN_WINDOW_SECONDS = 10 * 60;
 const PIN_PER_CALLER = 10;
 const PIN_PER_SITE = 200;
-const IPFS_GATEWAYS = [
-  "https://gateway.pinata.cloud/ipfs",
-  "https://dweb.link/ipfs",
-  "https://ipfs.io/ipfs",
-] as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const TX_HASH = /^0x[0-9a-f]{64}$/iu;
 
@@ -77,6 +73,7 @@ export type AppOptions = {
   metrics?: Metrics;
   pinning?: PinningService;
   gatewayFetch?: typeof fetch;
+  ipfsCache?: IpfsDiskCache;
   maxMediaBytes?: number;
   rpc?: RpcGateway;
   rpcRequestLimitPerMinute?: number;
@@ -277,20 +274,6 @@ async function streamMedia(
   });
 }
 
-const SAFE_GATEWAY_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Expose-Headers": "Accept-Ranges, Content-Length, Content-Range, ETag",
-  "Content-Security-Policy": "default-src 'none'; sandbox",
-  "Cross-Origin-Resource-Policy": "cross-origin",
-  "X-Content-Type-Options": "nosniff",
-} as const;
-
-function downloadable(type: string): boolean {
-  return /^(?:text\/(?:html|xml|css|javascript|ecmascript)|application\/(?:xhtml\+xml|xml|javascript|ecmascript|pdf|wasm))/iu.test(
-    type,
-  );
-}
-
 export function createApp(
   store: Store,
   options: AppOptions = {},
@@ -342,6 +325,11 @@ export function createApp(
   });
 
   app.use("*", metrics.middleware());
+  // Dynamic responses stay out of intermediary caches; public assets opt in below.
+  app.use("*", async (c, next) => {
+    c.header("Cache-Control", "no-store");
+    await next();
+  });
 
   if (options.rest) mountRestSite(app, options.rest);
 
@@ -393,111 +381,11 @@ export function createApp(
     return c.text(metrics.render(), 200, { "Content-Type": "text/plain; version=0.0.4" });
   });
 
-  app.get("/ipfs/*", async (c) => {
-    const path = safeIpfsPath(c.req.path.slice("/ipfs/".length));
-    if (!path) {
-      return c.json(
-        { error: { code: "bad_request", message: "IPFS path is invalid" } },
-        400,
-        SAFE_GATEWAY_HEADERS,
-      );
-    }
-    const etag = `"ipfs:${path}"`;
-    const cache = "public, max-age=31536000, s-maxage=31536000, immutable";
-    const headers = { ...SAFE_GATEWAY_HEADERS, "Cache-Control": cache, ETag: etag };
-    const range = c.req.header("range");
-    if (
-      !range &&
-      c.req.header("if-none-match")?.split(",").map((value) => value.trim()).includes(etag)
-    ) {
-      return new Response(null, { status: 304, headers });
-    }
-
-    const gatewayFetch = options.gatewayFetch ?? fetch;
-    let upstream: Response | null = null;
-    let lastStatus = 502;
-    for (const gateway of IPFS_GATEWAYS) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10_000);
-      try {
-        const response = await gatewayFetch(`${gateway}/${path}`, {
-          headers: {
-            ...(range ? { Range: range } : {}),
-            ...(c.req.header("if-range") ? { "If-Range": c.req.header("if-range")! } : {}),
-          },
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (response.ok) {
-          upstream = response;
-          break;
-        }
-        lastStatus = response.status;
-        await response.body?.cancel();
-      } catch {
-        // Try the next independent public gateway.
-      } finally {
-        clearTimeout(timeout);
-      }
-    }
-    if (!upstream) {
-      return new Response(
-        JSON.stringify({
-          error: { code: "gateway_unavailable", message: "IPFS gateways are unavailable" },
-        }),
-        {
-          status: lastStatus,
-          headers: { ...SAFE_GATEWAY_HEADERS, "Content-Type": "application/json" },
-        },
-      );
-    }
-    const declaredLength = Number(upstream.headers.get("content-length") ?? 0);
-    if (!Number.isFinite(declaredLength) || declaredLength < 0) {
-      return c.json(
-        { error: { code: "bad_gateway", message: "IPFS response is invalid" } },
-        502,
-        SAFE_GATEWAY_HEADERS,
-      );
-    }
-    if (declaredLength > PIN_LIMITS.gateway) {
-      return c.json(
-        { error: { code: "content_too_large", message: "IPFS asset is too large" } },
-        413,
-        SAFE_GATEWAY_HEADERS,
-      );
-    }
-
-    const upstreamType = upstream.headers.get("content-type") ?? "application/octet-stream";
-    const download = downloadable(upstreamType);
-    let streamed = 0;
-    const body = upstream.body?.pipeThrough(
-      new TransformStream<Uint8Array, Uint8Array>({
-        transform(chunk, controller) {
-          streamed += chunk.byteLength;
-          if (streamed > PIN_LIMITS.gateway) {
-            controller.error(new Error("IPFS asset exceeded the gateway limit"));
-            return;
-          }
-          controller.enqueue(chunk);
-        },
-      }),
-    );
-    return new Response(body, {
-      status: upstream.status,
-      headers: {
-        ...headers,
-        "Content-Type": download ? "application/octet-stream" : upstreamType,
-        ...(download ? { "Content-Disposition": "attachment; filename=ipfs-asset" } : {}),
-        ...(declaredLength > 0 ? { "Content-Length": String(declaredLength) } : {}),
-        ...(upstream.headers.get("accept-ranges") || upstream.status === 206
-          ? { "Accept-Ranges": upstream.headers.get("accept-ranges") ?? "bytes" }
-          : {}),
-        ...(upstream.headers.get("content-range")
-          ? { "Content-Range": upstream.headers.get("content-range")! }
-          : {}),
-      },
-    });
+  const ipfsGateway = createIpfsGateway({
+    ...(options.gatewayFetch ? { fetcher: options.gatewayFetch } : {}),
+    ...(options.ipfsCache ? { cache: options.ipfsCache } : {}),
   });
+  app.on(["GET", "HEAD"], "/ipfs/*", (c) => ipfsGateway(c.req.raw));
 
   app.use("/v1/*", async (c, next) => {
     const origin = c.req.header("origin");

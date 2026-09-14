@@ -172,12 +172,26 @@ Reads are deliberately public and require neither auth nor an IP allowlist:
 
 ```http
 GET /ipfs/:cid[/safe/path]
+HEAD /ipfs/:cid[/safe/path]
 ```
 
-The read gateway validates the CID and path, falls back across independent public gateways, caps
-responses at 500 MiB, and forwards HTTP byte ranges so browsers can seek through video and audio.
-It emits cross-origin and immutable-cache headers and forces executable or navigable content to
-download. Pin writes use a PostgreSQL-backed ten-per-caller and 200-per-site budget per ten minutes.
+The read gateway validates the CID and path and serves retained content directly from disk when
+`IPFS_CACHE_DIR` is configured. On a miss it tries Filebase before Pinata, dweb.link and ipfs.io,
+streams the response to the caller while writing to disk, and publishes the cache entry only after
+the full body succeeds. Concurrent requests for the same CID/path share that fill. Failed,
+truncated and partial responses are never retained. Header waits are capped at ten seconds per
+gateway, full streams at five minutes, and responses at 500 MiB.
+
+The cache survives restarts and removes the least recently used copies to stay within its byte
+budget. It also caps entries at 10,000 and concurrent fills at 16; filesystem metadata overhead is
+additional. Eviction never unpins content from Filebase or Pinata. Cached content supports HEAD,
+conditional requests and single HTTP byte ranges for seeking; cold HEAD/range requests go straight
+to an upstream gateway without filling the cache. `X-IPFS-Cache: HIT`, `MISS` or `BYPASS` identifies
+the origin's disk-cache behavior.
+
+Successful reads emit cross-origin and one-year immutable browser/CDN cache headers. Errors use
+`no-store`. Executable or navigable content is forced to download. Pin writes use a
+PostgreSQL-backed ten-per-caller and 200-per-site budget per ten minutes.
 An Origin header is a browser boundary, not identity; production should put a WAF in front if
 provider spend becomes meaningful.
 
@@ -332,6 +346,8 @@ The remaining controls are environment variables:
 - `FILEBASE_RPC_TOKEN` — bucket-scoped bearer token for Filebase's IPFS RPC API; never expose it to
   a browser.
 - `PINATA_JWT` — scoped Pinata token with `org:files:write`; never expose it to a browser.
+- `IPFS_CACHE_DIR` — optional dedicated persistent directory for public IPFS reads; unset disables disk caching.
+- `IPFS_CACHE_MAX_BYTES` — retained and in-progress content-byte budget, default `4294967296` (4 GiB). Allow extra volume capacity for filesystem metadata.
 - `DATABASE_URL` — PostgreSQL connection string; require TLS in the production provider settings.
 - `MCP_PLAN_SECRET` — required in production; a cryptographically random secret with at least
   32 bytes, stable across replicas. It authenticates unsigned transaction plans and separately
@@ -353,6 +369,16 @@ The included `Dockerfile` runs as the unprivileged Node user, and `railway.json`
 deployment health checks. Set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30`, configure continuous uptime
 monitoring separately, and enable automated PostgreSQL backups and retention with the database
 provider.
+
+For persistent IPFS reads on Railway, attach a volume at `/data`. Through Railway's maintenance
+shell, initialize only `/data/ipfs` once with ownership `1000:1000` and permissions `0700`.
+Then set `IPFS_CACHE_DIR=/data/ipfs` and keep the byte budget below the available volume capacity.
+Keep Docker's default unprivileged Node user; no root startup setting is needed.
+One process must own the cache directory. Railway volumes prevent replicas and add a brief stop
+between deployments. Startup removes abandoned fills and reloads complete entries from the volume.
+Railway's optional CDN can serve immutable IPFS responses at the edge; account, API, health and
+metrics responses use `no-store`. `X-Cache` describes the CDN, while `X-IPFS-Cache` describes the
+origin response that the CDN retained.
 
 The [production monitor](.github/workflows/production.yml) checks the public service and protected
 receipt-recovery metrics every five minutes using GitHub Actions. Set its
