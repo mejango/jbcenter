@@ -11,7 +11,7 @@ import { inspectWalletDependencyChain, prepareWalletDependencyBundle, WALLET_DEP
 import type { RelayrEntry } from '../src/rest/sponsorship/types.js';
 import type { RestRpc } from '../src/rest/core.js';
 import { RelayrProvider } from '../src/rest/sponsorship/provider.js';
-import { publishWalletDependencyQuote } from '../src/rest/wallet/dependencyPublication.js';
+import { publishWalletDependencyQuote, recoveryBundleUuid } from '../src/rest/wallet/dependencyPublication.js';
 import { RELAYR_NATIVE_TOKEN, RELAYR_PAYMENT_ADDRESS, RELAYR_PAYMENT_SELECTOR } from '../src/rest/sponsorship/constants.js';
 
 const blockHash = keccak256('0x1234'), clock = 1800000000000;
@@ -264,6 +264,50 @@ describe('one-shot operator Relayr publication journal', () => {
     expect(provider.status).not.toHaveBeenCalled();
     await expect(publishWalletDependencyQuote({ ...f, provider, now: () => clock })).rejects.toMatchObject({ code: 'EEXIST' });
     expect(provider.createIndependent).toHaveBeenCalledTimes(1);
+  });
+  it.each(['freshness', 'cancellation'])('records a provably unsubmitted %s failure and admits one fresh caller without deleting history', async failure => {
+    const f = await publication(), provider = { status: f.status, createIndependent: vi.fn(async () => f.response) };
+    let calls = 0;
+    await expect(publishWalletDependencyQuote({ ...f, provider,
+      now: () => failure === 'freshness' && ++calls >= 3 ? clock + 61000 : clock,
+      signal: failure === 'cancellation' ? AbortSignal.abort() : undefined })).rejects.toThrow();
+    const stopped = await f.record();
+    expect(stopped.state).toBe('not-submitted');
+    expect(provider.createIndependent).not.toHaveBeenCalled();
+    const results = await Promise.allSettled([1, 2].map(() => publishWalletDependencyQuote({ ...f, provider, now: () => clock })));
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(provider.createIndependent).toHaveBeenCalledTimes(1);
+    expect((await f.record()).state).toBe('quoted');
+    expect(JSON.parse(await readFile(join(f.journal, `not-submitted-${stopped.attemptId}.json`), 'utf8'))).toEqual(stopped);
+  });
+  it('preserves HTTP metadata and a recovery UUID when the error journal write fails', async () => {
+    const f = await publication();
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      await rename(join(f.journal, 'publication.json'), join(f.journal, 'before.json'));
+      await mkdir(join(f.journal, 'publication.json'));
+      return new Response(JSON.stringify({ bundle_uuid: f.response.bundle_uuid, error: 'private error text' }), { status: 500 });
+    });
+    await expect(publishWalletDependencyQuote({ ...f, provider: new RelayrProvider(fetcher), now: () => clock })).rejects.toMatchObject({
+      code: 'WALLET_DEPENDENCY_JOURNAL_WRITE_FAILED', recoveryBundleUuid: f.response.bundle_uuid,
+      httpResponse: { status: 500, complete: true, truncated: false },
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+  it('journals a status GET rejection after preserving the exact quote binding', async () => {
+    const f = await publication();
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(JSON.stringify(f.response)))
+      .mockResolvedValueOnce(new Response('status temporarily unavailable', { status: 503 }));
+    await expect(publishWalletDependencyQuote({ ...f, provider: new RelayrProvider(fetcher), now: () => clock })).rejects.toMatchObject({ code: 'RELAYR_UNAVAILABLE' });
+    expect(await f.record()).toMatchObject({ state: 'status-received', quote: { bundleUuid: f.response.bundle_uuid }, fundingEnabled: false,
+      errorCode: 'RELAYR_UNAVAILABLE', httpResponse: { status: 503, body: 'status temporarily unavailable', complete: true, truncated: false } });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('extracts only a valid top-level recovery UUID from JSON', () => {
+    const id = randomUUID();
+    expect(recoveryBundleUuid(JSON.stringify({ bundle_uuid: id }))).toBe(id);
+    for (const body of ['null', '1', 'true', '[]', JSON.stringify(id), JSON.stringify([{ bundle_uuid: id }]),
+      JSON.stringify({ error: { bundle_uuid: id } }), JSON.stringify({ bundle_uuid: '../bad' }), '{"bundle_uuid":'])
+      expect(recoveryBundleUuid(body)).toBeNull();
   });
   it('rejects missing or malformed source attribution before publication', async () => {
     const f = await publication(), provider = { status: f.status, createIndependent: vi.fn(async () => f.response) };
