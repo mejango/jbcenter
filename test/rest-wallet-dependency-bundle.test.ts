@@ -270,7 +270,7 @@ describe('one-shot operator Relayr publication journal', () => {
     let calls = 0;
     await expect(publishWalletDependencyQuote({ ...f, provider,
       now: () => failure === 'freshness' && ++calls >= 3 ? clock + 61000 : clock,
-      signal: failure === 'cancellation' ? AbortSignal.abort() : undefined })).rejects.toThrow();
+      ...(failure === 'cancellation' ? { signal: AbortSignal.abort() } : {}) })).rejects.toThrow();
     const stopped = await f.record();
     expect(stopped.state).toBe('not-submitted');
     expect(provider.createIndependent).not.toHaveBeenCalled();
