@@ -75,6 +75,7 @@ import { createWalletSite } from "./wallet/site.js";
 import { PostgresWalletPaymentReviewStore } from './wallet/paymentReviewsPostgres.js';
 import type { WalletV6UsdcPaymentConfig } from './userOperations/semantics.js';
 import type { createLocalWalletSignup } from './wallet/signup.js';
+import type { createLocalWalletRecovery } from './wallet/recoveryService.js';
 
 export interface RestWalletConfiguration {
   origin: string;
@@ -92,6 +93,7 @@ export interface RestWalletRuntime {
   refresh: ReturnType<typeof createWalletAuthorityRefresh>;
   payments?: PostgresWalletPaymentReviewStore;
   signup?: ReturnType<typeof createLocalWalletSignup>;
+  recovery?: ReturnType<typeof createLocalWalletRecovery>;
   /** Internal operator transition; startup never activates policy. */
   activatePolicy: PostgresWalletPolicyStore["activate"];
 }
@@ -109,6 +111,8 @@ export async function createRestRuntime(options: {
    * field can construct a treasury signer or enable production deployment. */
   localWalletSignup?: (context: { pool: Pool; rpc: RestRpc; wallet: RestWalletRuntime;
     smart: ReturnType<typeof createSmartAccountService> }) => ReturnType<typeof createLocalWalletSignup>;
+  localWalletRecovery?: (context: { pool: Pool; rpc: RestRpc; wallet: RestWalletRuntime;
+    smart: ReturnType<typeof createSmartAccountService> }) => ReturnType<typeof createLocalWalletRecovery>;
   rpcSiteLimitPerMinute?: number;
   smartAccountManifests?: readonly SmartAccountManifest[];
   smartAccountModuleInspectors?: readonly SmartModuleInspector[];
@@ -509,14 +513,18 @@ export async function createRestRuntime(options: {
   const assets = await readRestAssets();
   if (options.localWalletSignup && !wallet) throw new RestError(503, 'WALLET_SIGNUP_UNAVAILABLE', 'Local signup requires the dedicated wallet host.');
   if (wallet && options.localWalletSignup) wallet.signup = options.localWalletSignup({ pool: options.pool, rpc: backendRpc, wallet, smart: smartAccounts });
+  if (options.localWalletRecovery && !wallet) throw new RestError(503, 'WALLET_RECOVERY_UNAVAILABLE', 'Local recovery requires the dedicated wallet host.');
+  if (wallet && options.localWalletRecovery) wallet.recovery = options.localWalletRecovery({ pool: options.pool, rpc: backendRpc, wallet, smart: smartAccounts });
   const walletSite = wallet ? createWalletSite({ origin: wallet.origin, audience: auth.audience,
     browserScript: assets.walletScript, login: wallet.login, policy: wallet.policy,
     handoff: wallet.handoff, refresh: wallet.refresh,
     ...(walletPayments ? { payments: walletPayments, paymentBrowserScript: assets.walletPaymentScript } : {}),
     ...(wallet.signup ? { signup: wallet.signup, signupBrowserScript: assets.walletSignupScript } : {}),
+    ...(wallet.recovery ? { recovery: wallet.recovery, recoveryBrowserScript: assets.walletRecoveryScript } : {}),
     onEvent: event => console.info(JSON.stringify({ service: "wallet", ...event })),
   }) : undefined;
   if (options.startMaintenance !== false) wallet?.signup?.start();
+  if (options.startMaintenance !== false) wallet?.recovery?.start();
   const metrics = options.metrics ?? new Metrics();
   if (options.startMaintenance !== false) metrics.startRestRecovery();
   let stopped = false;
@@ -588,6 +596,7 @@ export async function createRestRuntime(options: {
       shutdownSignal.abort();
       await wallet?.refresh.stop();
       await wallet?.signup?.stop();
+      await wallet?.recovery?.stop();
       await factoryHistory?.stop();
       if (maintenance) await maintenance;
     },

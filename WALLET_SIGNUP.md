@@ -2,8 +2,8 @@
 
 Center can compose the existing passkey enrollment, deployment, canonical setup and
 fresh sign-in services into one resumable browser journey at `/wallet/create`.
-This checkpoint supports the unforked local pilot. It does not enable production
-Base deployment or replace a lost passkey.
+This checkpoint supports the unforked local pilot, including the recovery journey
+at `/wallet/recover`. It does not enable production Base deployment or recovery.
 
 The browser lets the user name a discoverable P-256 passkey. First-time users can
 create a recovery kit without connecting an existing wallet. The browser generates
@@ -55,7 +55,8 @@ recovery proof store now records a purpose-bound new-key proof and independent
 owner signature tied to the original Safe, enrollment, current credential and
 binding. Intake is bounded, continuation secrets are hashed, accepted records are
 immutable, and concurrent/lost-response retries return the original receipt.
-It is not mounted in HTTP. After an actual owner rotation and new-key browser setup,
+The optional local recovery host composes this store behind dedicated HTTP boundaries.
+After an actual owner rotation and new-key browser setup,
 the internal activation store verifies that new setup assertion and calls the
 configured canonical observer. It atomically supersedes the previous credential,
 inserts immutable replacement lineage, revokes old bot/app grants, and advances
@@ -67,9 +68,32 @@ The canonical observer rechecks the replacement setup's original block anchor on
 every observation. A chain rollback makes the account unready and cannot undo
 credential supersession or revive previous sessions. Payment approval retains its
 existing proof format; the authority identity commits replacement lineage, and
-fresh approval must verify under the replacement key. The recovery HTTP journey,
-reviewed rotation transport, funding policy and physical-device observations are
-still required before this can be offered as a production recovery flow.
+fresh approval must verify under the replacement key.
+
+The local recovery page imports a saved kit in browser memory or connects the
+original recovery wallet for typed-data signing. It creates a named replacement
+passkey, proves both owners, and presents the exact signer-creation and owner-swap
+calls. A distinct local relayer submits two transactions after the backup owner
+signs the exact Safe transaction. No non-creation delegatecall exception is added.
+The relayer is restricted to a literal loopback endpoint, pinned genesis and an
+unforked Anvil instance. It cannot share a signup treasury sender. It stores the
+review, approval, both signed transaction bytes and nonce/maximum-cost reservations
+before any network send. Each worker pass sends at most one transaction; a marked
+attempt is never resent automatically. Lost replies reconcile the original hashes.
+Reservations never recycle, and chain resets or rollback fence the local lane.
+This transport supplies no production fee qualification or funding policy.
+
+The initial proof deadline only limits proof intake. An accepted proof can later
+be followed by separate Safe transaction approval and fresh canonical evidence.
+The standard Safe transaction signature has no onchain expiry: browser cancellation
+cannot invalidate an already signed transaction or release its retained liabilities.
+
+Cookie loss resumes the original recovery reference using a fresh replacement-key
+assertion and independent recovery-owner signature. Only the hash of the browser
+continuation is stored. Atomic token rotation fences the old cookie, and stale
+resume receipts cannot restore an older continuation. The original proof record
+stays immutable. Setup approval and credential activation still precede a separate
+fresh login; resuming never issues spending authority or a session.
 
 ## Composition and observation
 
@@ -83,6 +107,12 @@ field that constructs treasury authority or enables production broadcast.
 The runtime mounts signup only when that factory is provided, and starts/stops its
 worker with maintenance. Normal Center startup and Para compatibility remain
 available. Public wallet discovery preserves the installed SDK's exact schema.
+
+`createRestRuntime.localWalletRecovery` is the corresponding explicit local host
+factory for recovery. It mounts the page only when supplied and starts/stops its
+bounded worker with maintenance. Production startup never constructs either signer
+from an environment flag or request field. Recovery has distinct HttpOnly cookies,
+cookie-bound CSRF, exact Host/Origin checks and no trusted-app CORS access.
 
 Signup uses distinct `__Host-` HttpOnly, Secure, SameSite cookies. Central POSTs
 require exact Host/Origin, the wallet request header and cookie-bound CSRF for
@@ -116,8 +146,18 @@ rejection and an actual Anvil rollback. Sanitized evidence is written to
 `.generated/wallet-observations/recovery-evm/summary.json`. Those actions use only
 public fixture keys and synthetic local balances, not a production relay or fee provider.
 
+The kit browser journey now removes the original virtual passkey and exercises real
+HTTP, PostgreSQL and Anvil recovery. It covers prompt cancellation, wrong-kit
+rejection, lost registration/approval/setup responses, cookie loss after onchain
+rotation, resumed setup, old-session rejection and fresh new-key login at the same
+address. Screenshots and sanitized results are in
+`.generated/wallet-observations/recovery-browser/`; phrases are absent from requests,
+browser storage and observation artifacts. The separate EVM helper also injects a
+lost accepted RPC response and verifies exactly two physical sends and retained
+dispatch history after rollback.
+
 Production testing still needs a qualified Base fee/settlement provider,
 non-rollback accounting and restore evidence, deployment funding controls,
-production RP/device observations, owner replacement and a joined Homerun
+production RP/device observations, production recovery transport and joined Homerun/Beep
 payment test against the configured service. Local test-chain success does not
 establish those properties.

@@ -1,0 +1,88 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import type { BrowserContext, CDPSession, Page } from 'playwright';
+import { expect } from 'vitest';
+import { walletRecoveryCookie, walletSessionCookie } from '../../src/rest/wallet/http.js';
+import type { createLocalWalletRecovery } from '../../src/rest/wallet/recoveryService.js';
+import type { PostgresWalletLoginStore } from '../../src/rest/wallet/loginPostgres.js';
+
+/** Joined real browser/HTTP/PG/local EVM journey. Only authenticator hardware and
+ * local gas funding are fixtures. The recovery kit remains in memory and is never an artifact. */
+export async function exerciseRecoveryBrowser(options: {
+  page: Page; context: BrowserContext; cdp: CDPSession; authenticatorId: string; origin: string;
+  recovery: ReturnType<typeof createLocalWalletRecovery>; login: PostgresWalletLoginStore; kitText: string;
+  requestBodies: string[];
+}) {
+  const { page, context, cdp, authenticatorId, origin, recovery, login } = options, kit = JSON.parse(options.kitText);
+  const contains = async (value: string) => expect.poll(() => page.locator('#wallet-status').textContent(), { timeout: 15000 }).toContain(value);
+  const originalSession = (await context.cookies()).find(cookie => cookie.name === walletSessionCookie)!;
+  expect(await login.readSession(originalSession.value)).not.toBeNull();
+  await cdp.send('WebAuthn.clearCredentials', { authenticatorId });
+  await page.goto(origin + '/wallet/recover');
+  await page.getByLabel('Open your recovery kit').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(options.kitText) });
+  await page.getByLabel('New passkey name').fill('Juicebox replacement');
+  await page.getByRole('button', { name: 'Start recovery', exact: true }).click();
+  await contains('Create your replacement passkey');
+  await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
+  await page.getByRole('button', { name: 'Create replacement passkey', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel prompt' }).click();
+  await contains('cancelled');
+  await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
+  await page.getByRole('button', { name: 'Create replacement passkey', exact: true }).click();
+  await contains('could not be confirmed');
+  await page.getByRole('button', { name: 'Check recovery' }).click();
+  await contains('Prove access');
+  await page.getByRole('button', { name: 'Verify both owners' }).click();
+  await contains('Review and approve');
+  const originalFlow = (await context.cookies()).find(cookie => cookie.name === walletRecoveryCookie)!;
+  const before = await recovery.status(originalFlow.value);
+  expect(before.walletAddress.toLowerCase()).toBe(kit.walletAddress.toLowerCase());
+  const wrongKit = JSON.stringify({ ...kit, walletAddress: '0x' + '66'.repeat(20) });
+  await page.getByLabel('Open your recovery kit').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(wrongKit) });
+  await contains('does not match');
+  await page.getByRole('button', { name: 'Check recovery' }).click();
+  await page.getByRole('button', { name: 'Review passkey replacement' }).click();
+  await page.getByRole('button', { name: 'Approve passkey replacement' }).click();
+  await contains('could not be confirmed');
+  await page.getByRole('button', { name: 'Check recovery' }).click();
+  await contains('Replacing your passkey');
+  // Only the host worker may advance retained exact approval; GET merely reconciles.
+  for (let index = 0; index < 4; index++) await recovery.tick();
+  await page.getByRole('button', { name: 'Check recovery' }).click();
+  await contains('Authorize this browser');
+  await context.clearCookies({ name: walletRecoveryCookie });
+  await page.reload();
+  await contains('Resume the original recovery');
+  expect(await page.locator('#recovery-words').inputValue()).toBe('');
+  await page.getByLabel('Open your recovery kit').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(options.kitText) });
+  await page.getByText('Resume an existing recovery', { exact: true }).click();
+  await page.getByRole('button', { name: 'Resume recovery', exact: true }).click();
+  await contains('Authorize this browser');
+  const newFlow = (await context.cookies()).find(cookie => cookie.name === walletRecoveryCookie)!;
+  expect(newFlow.value).not.toBe(originalFlow.value);
+  await expect(recovery.status(originalFlow.value)).rejects.toThrow();
+  expect((await recovery.status(newFlow.value)).id).toBe(before.id);
+  await page.getByRole('button', { name: 'Review browser setup' }).click();
+  await page.getByRole('button', { name: 'Approve browser setup' }).click();
+  await contains('could not be confirmed');
+  await page.getByRole('button', { name: 'Check recovery' }).click();
+  await contains('Your replacement passkey is ready');
+  expect(await login.readSession(originalSession.value)).toBeNull();
+  const persisted = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
+  expect(persisted.includes(kit.mnemonic)).toBe(false);
+  expect(options.requestBodies.some(body => body.includes(kit.mnemonic))).toBe(false);
+  expect(await page.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('center:recovery:browser:')))).toEqual([]);
+  const out = new URL('../../.generated/wallet-observations/recovery-browser/', import.meta.url); await mkdir(out, { recursive: true });
+  await page.screenshot({ path: new URL('recovery-desktop.png', out).pathname, fullPage: true });
+  await page.setViewportSize({ width: 320, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: new URL('recovery-mobile.png', out).pathname, fullPage: true });
+  await page.getByRole('link', { name: 'Sign in with your new passkey' }).click();
+  await page.getByRole('button', { name: 'Sign in with a passkey' }).click();
+  await contains('You are signed in');
+  expect((await page.locator('#wallet-address').textContent())!.toLowerCase()).toBe(kit.walletAddress.toLowerCase());
+  await writeFile(new URL('summary.json', out), JSON.stringify({ passed: true, evidence: 'real HTTP, PostgreSQL, unforked Anvil; virtual authenticator',
+    originalPasskeyRemoved: true, recoveryKitImported: true, wrongKitRejected: true, nativeCancellationRetried: true,
+    lostRegistrationReplyRecovered: true, lostApprovalReplyRecovered: true, cookieLostAfterRotationResumedSameRecovery: true,
+    lostSetupReplyRecovered: true, oldSessionRejected: true, sameWalletFreshNewPasskeyLogin: true,
+    phraseAbsentFromStorageAndRequests: true, mobileWidth: 320 }, null, 2));
+}

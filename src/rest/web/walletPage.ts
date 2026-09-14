@@ -1,5 +1,5 @@
 /** Dedicated credential surface. All behavior and styles are served as same-origin assets. */
-export function walletPage(signup = false): string {
+export function walletPage(signup = false, recovery = false): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>Your wallet | Juicebox</title>
@@ -15,6 +15,7 @@ export function walletPage(signup = false): string {
 <button id="wallet-logout" type="button" class="secondary" hidden>Sign out</button></div>
 <p class="note">Use a passkey already linked to your Center wallet. Payments still require your approval.</p>
 ${signup ? '<p><a id="wallet-create" href="/wallet/create" hidden>Create or resume a wallet</a></p>' : ''}
+${recovery ? '<p><a id="wallet-recover" href="/wallet/recover" hidden>Recover a lost passkey</a></p>' : ''}
 <noscript><p>Enable JavaScript to sign in with your passkey.</p></noscript>
 </main></body></html>`;
 }

@@ -29,7 +29,7 @@ import { enrollmentManifest } from './fixtures/wallet-enrollment-crypto.js';
 // semantics have independent PostgreSQL, browser and EVM suites; no live service is contacted here.
 vi.mock('../src/rest/site.js', async original => ({
   ...(await original<typeof import('../src/rest/site.js')>()),
-  readRestAssets: async () => ({ accountsScript: '', walletScript: '/* bounded wallet browser fixture */', walletPaymentScript: '/* payment fixture */', walletSignupScript: '/* signup fixture */', documents: new Map() }),
+  readRestAssets: async () => ({ accountsScript: '', walletScript: '/* bounded wallet browser fixture */', walletPaymentScript: '/* payment fixture */', walletSignupScript: '/* signup fixture */', walletRecoveryScript: '/* recovery fixture */', documents: new Map() }),
 }));
 const origin = 'https://wallet.pilot.example', audience = 'https://juicebox.center';
 const cleanup: Array<() => Promise<void>> = [];
@@ -37,7 +37,7 @@ afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
   vi.useRealTimers(); vi.restoreAllMocks();
 });
-async function fixture(wallet?: RestWalletConfiguration, startMaintenance = false, smartAccountManifests?: readonly SmartAccountManifest[], localWalletSignup?: Parameters<typeof createRestRuntime>[0]['localWalletSignup']) {
+async function fixture(wallet?: RestWalletConfiguration, startMaintenance = false, smartAccountManifests?: readonly SmartAccountManifest[], localWalletSignup?: Parameters<typeof createRestRuntime>[0]['localWalletSignup'], localWalletRecovery?: Parameters<typeof createRestRuntime>[0]['localWalletRecovery']) {
   const pool = new Pool({ connectionString: 'postgresql://fixture@127.0.0.1:1/unused' });
   cleanup.push(() => pool.end());
   const query = vi.spyOn(pool, 'query').mockImplementation(() => { throw new Error('Unexpected database request during startup'); });
@@ -48,7 +48,7 @@ async function fixture(wallet?: RestWalletConfiguration, startMaintenance = fals
   } });
   const runtime = await createRestRuntime({ pool, store, services: mcp.services, config: mcp.config,
     upstreams: new Map(), rpc: { request }, executionConfiguration: await readRestExecutionConfiguration({}),
-    startMaintenance, ...(wallet ? { wallet } : {}), ...(smartAccountManifests ? { smartAccountManifests } : {}), ...(localWalletSignup ? { localWalletSignup } : {}) });
+    startMaintenance, ...(wallet ? { wallet } : {}), ...(smartAccountManifests ? { smartAccountManifests } : {}), ...(localWalletSignup ? { localWalletSignup } : {}), ...(localWalletRecovery ? { localWalletRecovery } : {}) });
   cleanup.unshift(() => runtime.stop());
   return { runtime, pool, query, request };
 }
@@ -59,6 +59,19 @@ async function walletConfiguration() {
 }
 
 describe('explicit wallet runtime composition', () => {
+  it('mounts recovery only from a host-created local capability without enabling it at normal startup', async () => {
+    const site = vi.spyOn(walletSite, 'createWalletSite'), start = vi.fn(), stop = vi.fn(async () => {});
+    const factory = vi.fn(() => ({ start, stop }) as never);
+    const f = await fixture(await walletConfiguration(), false, undefined, undefined, factory);
+    expect(factory).toHaveBeenCalledOnce();
+    expect(site).toHaveBeenCalledWith(expect.objectContaining({ recovery: f.runtime.wallet!.recovery, recoveryBrowserScript: '/* recovery fixture */' }));
+    expect(start).not.toHaveBeenCalled(); expect(f.query).not.toHaveBeenCalled(); expect(f.request).not.toHaveBeenCalled();
+    await f.runtime.stop(); expect(stop).toHaveBeenCalledOnce();
+    const absent = await fixture(await walletConfiguration());
+    expect(absent.runtime.wallet).not.toHaveProperty('recovery');
+    await expect(fixture(undefined, false, undefined, undefined, factory)).rejects.toMatchObject({ code: 'WALLET_RECOVERY_UNAVAILABLE' });
+    expect(factory).toHaveBeenCalledOnce();
+  });
   it('installs signup only from an explicit local capability and stops its worker with the runtime', async () => {
     const site = vi.spyOn(walletSite, 'createWalletSite');
     const start = vi.fn(), stop = vi.fn(async () => true);

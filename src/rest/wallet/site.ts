@@ -18,6 +18,7 @@ import type { PostgresWalletPolicyStore } from './policyPostgres.js';
 import type { PostgresWalletPaymentReviewStore } from './paymentReviewsPostgres.js';
 import { publicWalletPaymentCentralReview } from './paymentPublic.js';
 import { mountWalletSignup, type WalletSignupSiteOptions } from './signupSite.js';
+import { mountWalletRecovery, type WalletRecoverySiteOptions } from './recoverySite.js';
 
 export interface WalletSiteOptions {
   origin: string;
@@ -26,6 +27,8 @@ export interface WalletSiteOptions {
   paymentBrowserScript?: string;
   signup?: WalletSignupSiteOptions['signup'];
   signupBrowserScript?: string;
+  recovery?: WalletRecoverySiteOptions['recovery'];
+  recoveryBrowserScript?: string;
   login: Pick<PostgresWalletLoginStore, 'begin' | 'identifyCompletion' | 'complete' | 'identifySession' | 'readSession' | 'logout'>;
   handoff: Pick<PostgresWalletHandoffStore, 'prepare' | 'getIntent' | 'issue' | 'identifyExchange' | 'exchange'>;
   policy: Pick<PostgresWalletPolicyStore, 'readActivePolicy'>;
@@ -147,8 +150,12 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     if (!options.signupBrowserScript) reject(503, 'WALLET_SIGNUP_UNAVAILABLE');
     mountWalletSignup(app, { origin, signup: options.signup, browserScript: options.signupBrowserScript });
   }
-  app.get('/wallet', c => c.html(walletPage(!!options.signup)));
-  app.get('/wallet/', c => c.html(walletPage(!!options.signup)));
+  if (options.recovery) {
+    if (!options.recoveryBrowserScript) reject(503, 'WALLET_RECOVERY_UNAVAILABLE');
+    mountWalletRecovery(app, { origin, recovery: options.recovery, browserScript: options.recoveryBrowserScript });
+  }
+  app.get('/wallet', c => c.html(walletPage(!!options.signup, !!options.recovery)));
+  app.get('/wallet/', c => c.html(walletPage(!!options.signup, !!options.recovery)));
   app.get('/wallet/assets/wallet.js', c => c.body(browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
   app.get('/wallet/assets/wallet.css', c => c.body(walletCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
   app.get('/wallet/config', async c => {

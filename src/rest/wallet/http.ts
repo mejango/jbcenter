@@ -7,7 +7,10 @@ export const walletSessionCookie = '__Host-center-wallet';
 export const walletFlowCookie = '__Host-center-wallet-flow';
 export const walletSignupCookie = '__Host-center-wallet-signup';
 export const walletSignupResumeCookie = '__Host-center-wallet-signup-resume';
-export type WalletCookieName = typeof walletSessionCookie | typeof walletFlowCookie | typeof walletSignupCookie | typeof walletSignupResumeCookie;
+export const walletRecoveryCookie = '__Host-center-wallet-recovery';
+export const walletRecoveryResumeCookie = '__Host-center-wallet-recovery-resume';
+export type WalletCookieName = typeof walletSessionCookie | typeof walletFlowCookie | typeof walletSignupCookie | typeof walletSignupResumeCookie
+  | typeof walletRecoveryCookie | typeof walletRecoveryResumeCookie;
 
 export const walletPageHeaders = {
   'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
@@ -24,7 +27,7 @@ function secret(value: unknown): string {
   return value;
 }
 function cookieName(name: WalletCookieName): void {
-  if (![walletSessionCookie, walletFlowCookie, walletSignupCookie, walletSignupResumeCookie].includes(name)) invalid();
+  if (![walletSessionCookie, walletFlowCookie, walletSignupCookie, walletSignupResumeCookie, walletRecoveryCookie, walletRecoveryResumeCookie].includes(name)) invalid();
 }
 
 /** Central cookies never inherit the general API's trusted-app CORS policy. Reverse proxy
@@ -68,7 +71,7 @@ export function walletCookie(name: WalletCookieName, token: string | null, maxAg
   cookieName(name);
   // New proofs expire after 3min in the store. A flow bearer survives that deadline solely
   // to recover the original live 1h session when its committed response was lost.
-  const maximum = name === walletFlowCookie ? 3780 : [walletSignupCookie, walletSignupResumeCookie].includes(name) ? 86400 : 3600;
+  const maximum = name === walletFlowCookie ? 3780 : [walletSignupCookie, walletSignupResumeCookie, walletRecoveryCookie, walletRecoveryResumeCookie].includes(name) ? 86400 : 3600;
   if (!Number.isSafeInteger(maxAge) || maxAge < 0 || maxAge > maximum
     || ((token === null) !== (maxAge === 0))) invalid();
   return `${name}=${token === null ? '' : secret(token)}; Path=/; Max-Age=${maxAge}; Secure; HttpOnly; SameSite=Lax`;

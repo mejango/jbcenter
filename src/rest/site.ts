@@ -69,9 +69,10 @@ export async function readRestAssets() {
   const walletScript = await readFile(new URL("../../.generated/rest/wallet.js", import.meta.url), "utf8");
   const walletPaymentScript = await readFile(new URL("../../.generated/rest/wallet-payment.js", import.meta.url), "utf8");
   const walletSignupScript = await readFile(new URL("../../.generated/rest/wallet-signup.js", import.meta.url), "utf8");
+  const walletRecoveryScript = await readFile(new URL("../../.generated/rest/wallet-recovery.js", import.meta.url), "utf8");
   const docsScript = await readFile(new URL("../../.generated/rest/docs.js", import.meta.url), "utf8");
   const clientPackage = new Uint8Array(await readFile(new URL("../../.generated/rest/juicebox-center-client-0.1.0.tgz", import.meta.url)));
-  return { accountsScript, paraScript, walletScript, walletPaymentScript, walletSignupScript, documents, docsScript, clientPackage };
+  return { accountsScript, paraScript, walletScript, walletPaymentScript, walletSignupScript, walletRecoveryScript, documents, docsScript, clientPackage };
 }
 
 export function mountRestSite(app: Hono<JbcenterEnv>, site: RestSite): void {

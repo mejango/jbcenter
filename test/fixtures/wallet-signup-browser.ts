@@ -7,9 +7,17 @@ import { chromium } from 'playwright';
 import { expect } from 'vitest';
 import type { Pool } from 'pg';
 import type { TypedDataDefinition } from 'viem';
+import { toHex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { createLocalWalletSignup, type LocalWalletSignupDependencies } from '../../src/rest/wallet/signup.js';
 import { PostgresWalletSignupStore } from '../../src/rest/wallet/signupPostgres.js';
 import { PostgresWalletLoginStore } from '../../src/rest/wallet/loginPostgres.js';
+import { PostgresWalletRecoveryStore } from '../../src/rest/wallet/recoveryPostgres.js';
+import { PostgresWalletRecoveryFlowStore } from '../../src/rest/wallet/recoveryFlowPostgres.js';
+import { createLocalAnvilWalletRecovery } from '../../src/rest/wallet/recoveryLocalAnvil.js';
+import { createLocalWalletRecovery } from '../../src/rest/wallet/recoveryService.js';
+import { createWalletAuthorityChain } from '../../src/rest/wallet/authorityChain.js';
+import { exerciseRecoveryBrowser } from './wallet-recovery-browser.js';
 import { createWalletSite } from '../../src/rest/wallet/site.js';
 import { walletSignupCookie } from '../../src/rest/wallet/http.js';
 import { enrollmentBackupAccount } from './wallet-enrollment-crypto.js';
@@ -22,12 +30,18 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
   recoveryMode?: 'wallet' | 'kit'; expectedNextNonce?: string;
 }) {
   let app = new Hono(), lostRegistration = false, lostSetup = false;
+  let recoveryKitText: string | null = null;
+  const lostRecoveryPaths = new Set<string>();
   const kitMode = options.recoveryMode === 'kit', requestBodies: string[] = [];
   const observed: { path: string; status: number }[] = [];
   const server = serve({ port: 0, hostname: '127.0.0.1', fetch: async request => {
     if (kitMode && request.method === 'POST') requestBodies.push(await request.clone().text());
     const response = await app.fetch(request), path = new URL(request.url).pathname;
     observed.push({ path, status: response.status });
+    if (kitMode && response.ok && ['/wallet/recovery/register', '/wallet/recovery/rotation/approve', '/wallet/recovery/setup/complete'].includes(path)
+      && !lostRecoveryPaths.has(path)) {
+      lostRecoveryPaths.add(path); return new Response('Unavailable after commit', { status: 503 });
+    }
     if (response.ok && ((path === '/wallet/signup/register' && !lostRegistration) || (path === '/wallet/signup/setup/complete' && !lostSetup))) {
       if (path.endsWith('/register')) lostRegistration = true; else lostSetup = true;
       return new Response('Unavailable after commit', { status: 503 });
@@ -40,9 +54,20 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
   const flows = new PostgresWalletSignupStore(options.pool, { origin, rpId: 'localhost', manifest: options.fixture.manifest });
   const signup = createLocalWalletSignup({ ...options, flows });
   const login = new PostgresWalletLoginStore(options.pool, { origin, rpId: 'localhost' });
+  const recoveryObserver = createWalletAuthorityChain({ rpc: options.fixture.readOnlyRpc, manifest: options.fixture.manifest, utility: options.fixture.utility });
+  const relay = privateKeyToAccount(`0x${'77'.repeat(32)}`);
+  const recovery = kitMode ? createLocalWalletRecovery({ audience: 'https://juicebox.center', smart: options.smart, authority: options.authority,
+    recoveries: new PostgresWalletRecoveryStore(options.pool, { origin, rpId: 'localhost' },
+      { audience: 'https://juicebox.center', observe: context => recoveryObserver.observe(context) }),
+    flows: new PostgresWalletRecoveryFlowStore(options.pool),
+    rotation: createLocalAnvilWalletRecovery({ pool: options.pool, endpoint: options.fixture.endpoint, expectedGenesisHash: options.fixture.expectedGenesisHash,
+      signer: relay, manifest: options.fixture.manifest, utility: options.fixture.utility, maximumOperations: 2, maximumCostWei: '1000000000000000000' }) }) : null;
+  if (kitMode) await options.fixture.rpc('anvil_setBalance', [relay.address, toHex(10n ** 20n)]);
   const bundle = async (entry: string) => (await build({ entryPoints: [entry], bundle: true, platform: 'browser', format: 'esm', write: false })).outputFiles[0]!.text;
   const [browserScript, signupBrowserScript] = await Promise.all([bundle('src/rest/web/wallet.ts'), bundle('src/rest/web/walletSignup.ts')]);
+  const recoveryBrowserScript = recovery ? await bundle('src/rest/web/walletRecoveryJourney.ts') : undefined;
   app = createWalletSite({ origin, audience: 'https://juicebox.center', browserScript, signup, signupBrowserScript, login,
+    ...(recovery ? { recovery, recoveryBrowserScript: recoveryBrowserScript! } : {}),
     // No app handoff is involved in this signup/login observation.
     handoff: {} as never, policy: {} as never,
     refresh: { request: accountId => options.authority.refreshAuthority(accountId), tick: async () => ({}) } });
@@ -97,6 +122,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       if (!stream) throw new Error('No recovery download.');
       for await (const chunk of stream) chunks.push(chunk);
       const encoded = Buffer.concat(chunks).toString('utf8'), kit = JSON.parse(encoded);
+      recoveryKitText = encoded;
       expect(kit.walletAddress.toLowerCase()).toBe(originalAddress?.toLowerCase());
       expect(kit.mnemonic.split(' ')).toHaveLength(24);
       const wrong = JSON.stringify({ ...kit, walletAddress: '0x' + '44'.repeat(20) });
@@ -146,6 +172,10 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await page.getByRole('button', { name: 'Sign in with a passkey' }).click();
     await contains('You are signed in');
     expect((await page.locator('#wallet-address').textContent())?.toLowerCase()).toBe(originalAddress?.toLowerCase());
+    if (recovery) {
+      await exerciseRecoveryBrowser({ page, context, cdp, authenticatorId, origin, recovery, login, kitText: recoveryKitText!, requestBodies });
+      expect(lostRecoveryPaths.size).toBe(3);
+    }
     expect(errors).toEqual([]); expect(lostRegistration && lostSetup).toBe(true);
     expect((await options.deployments.getSettlement(deploymentId))?.nextNonce).toBe(options.expectedNextNonce ?? '5');
     await writeFile(new URL('summary.json', out), JSON.stringify({ passed: true, browser: browser.version(),
@@ -153,5 +183,5 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       recoveryMode: options.recoveryMode ?? 'wallet', ...(kitMode ? { savedKitRestored: true, wrongKitRejected: true, phraseAbsentFromStorageAndRequests: true } : {}),
       cancelledPrompt: true, lostRegistrationReplyRecovered: lostRegistration, lostSetupReplyRecovered: lostSetup,
       cookieLossResumedSameWallet: true, separateFreshLogin: true, mobileWidth: 320, pageErrors: errors, requests: observed }, null, 2));
-  } finally { await signup.stop(); await browser.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
+  } finally { await recovery?.stop(); await signup.stop(); await browser.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
 }

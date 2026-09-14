@@ -15,6 +15,7 @@ import { validateWalletRpConfiguration, verifyWalletAssertion, type WalletAssert
 import { copyWalletSignupAssertion } from './signupPostgres.js';
 import { passkeyOnboardingSigningPayload } from '../smartAccounts/passkeyOnboarding.js';
 import type { WalletCredentialRecovery } from './credentialRecovery.js';
+import { assertRecoveryContinuationInTransaction } from './recoveryFlowPostgres.js';
 
 export interface WalletRecoveryRecord {
   intent: WalletRecoveryIntent; candidate: WalletRecoveryCandidate | null; proof: WalletRecoveryProof | null;
@@ -83,8 +84,21 @@ export class PostgresWalletRecoveryStore {
   }
   async get(id: string, flowToken: string): Promise<WalletRecoveryRecord | null> {
     if (typeof id !== 'string' || !uuid.test(id) || !token(flowToken)) return null;
-    const row = (await this.pool.query<Row>('SELECT * FROM rest_wallet_recoveries WHERE id=$1 AND token_hash=$2', [id, hashToken(flowToken)])).rows[0];
+    const row = (await this.pool.query<Row>(`SELECT r.* FROM rest_wallet_recoveries r LEFT JOIN rest_wallet_recovery_flows f ON f.id=r.id
+      WHERE r.id=$1 AND ((f.id IS NULL AND r.token_hash=$2) OR (f.token_hash=$2 AND f.expires_at_ms>${sqlNow}))`, [id, hashToken(flowToken)])).rows[0];
     return row ? recordOf(row) : null;
+  }
+  async getByToken(flowToken: string): Promise<WalletRecoveryRecord | null> {
+    if (!token(flowToken)) return null;
+    const row = (await this.pool.query<Row>(`SELECT r.* FROM rest_wallet_recoveries r LEFT JOIN rest_wallet_recovery_flows f ON f.id=r.id
+      WHERE (f.id IS NULL AND r.token_hash=$1) OR (f.token_hash=$1 AND f.expires_at_ms>${sqlNow})`, [hashToken(flowToken)])).rows[0];
+    return row ? recordOf(row) : null;
+  }
+  async isCurrentActivation(id: string, flowToken: string): Promise<boolean> {
+    const before = await this.required(id, flowToken);
+    if (!before.activation) return false;
+    const current = await this.authority.loadContext(before.intent.accountId);
+    return stable(current.credential.recovery) === stable(before.activation);
   }
   async register(id: string, flowToken: string, input: WalletRegistrationResponse): Promise<WalletRecoveryRecord> {
     const response = copyWalletEnrollmentRegistration(input), before = await this.required(id, flowToken);
@@ -202,8 +216,10 @@ export class PostgresWalletRecoveryStore {
   private async now() { return Number((await this.pool.query(`SELECT ${sqlNow} AS now`)).rows[0].now); }
   private async required(id: string, flowToken: string) { const row = await this.get(id, flowToken); return row ?? unauthorized(); }
   private async lock(client: PoolClient, id: string, flowToken: string): Promise<Row> {
-    const row = (await client.query<Row>('SELECT * FROM rest_wallet_recoveries WHERE id=$1 AND token_hash=$2 FOR UPDATE', [id, hashToken(flowToken)])).rows[0];
-    return row ?? unauthorized();
+    const row = (await client.query<Row>('SELECT * FROM rest_wallet_recoveries WHERE id=$1 FOR UPDATE', [id])).rows[0];
+    if (!row) unauthorized();
+    await assertRecoveryContinuationInTransaction(client, row, flowToken);
+    return row;
   }
   private async live(client: PoolClient, intent: WalletRecoveryIntent) {
     const now = await walletCeremonyDatabaseNow(client); if (now < intent.issuedAtMs || now >= intent.expiresAtMs) expired(); return now;

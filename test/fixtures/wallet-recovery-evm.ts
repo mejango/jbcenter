@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import type { Pool } from 'pg';
-import { concatHex, decodeFunctionResult, encodeFunctionData, hashTypedData, padHex, toHex, zeroAddress, zeroHash, type Abi, type Address, type Hex } from 'viem';
+import { hashTypedData, toHex, type Address, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
-import { expect } from 'vitest';
+import { expect, vi } from 'vitest';
 import type { WalletEnrollment } from '../../src/rest/wallet/enrollment.js';
 import { PostgresWalletRecoveryStore } from '../../src/rest/wallet/recoveryPostgres.js';
 import { PostgresWalletAuthorityStore } from '../../src/rest/wallet/authorityPostgres.js';
@@ -16,6 +16,8 @@ import { passkeyOnboardingProofDocument } from '../../src/rest/smartAccounts/pas
 import { encodeSafe7579MessageSignature } from '../../src/rest/smartAccounts/passkeySignatures.js';
 import { verifyWalletAssertion } from '../../src/rest/wallet/webauthn.js';
 import { walletRecoveryDocument } from '../../src/rest/wallet/recovery.js';
+import { walletRecoveryRotationDocument } from '../../src/rest/wallet/recoveryRotation.js';
+import { createLocalAnvilWalletRecovery } from '../../src/rest/wallet/recoveryLocalAnvil.js';
 import { createRegistration, enrollmentBackupAccount, signBackupProof, signGet } from './wallet-enrollment-crypto.js';
 import type { startWalletDeploymentAnvil } from './wallet-deployment-anvil.js';
 
@@ -29,37 +31,51 @@ export async function exerciseWalletRecoveryEvm(options: {
 }) {
   const { pool, fixture, enrollment, smart } = options, rpId = enrollment.intent.rpId, origin = enrollment.intent.origin;
   const observer = createWalletAuthorityChain({ rpc: fixture.readOnlyRpc, manifest: fixture.manifest, utility: fixture.utility });
-  const recovery = new PostgresWalletRecoveryStore(pool, { rpId, origin }, { audience: options.audience, observe: context => observer.observe(context) });
+  const recovery = new PostgresWalletRecoveryStore(pool, { rpId, origin, lifetimeMs: 2000 }, { audience: options.audience, observe: context => observer.observe(context) });
   const accountId = enrollment.receipt!.accountId, begun = await recovery.begin(accountId), intent = begun.record.intent;
   const replacement = createRegistration({ rpId, origin, userHandle: intent.userHandle,
     challenge: `0x${Buffer.from(intent.registration.challenge, 'base64url').toString('hex')}` });
   const pending = await recovery.register(intent.id, begun.flowToken, replacement.response), document = walletRecoveryDocument(pending.candidate!);
   await recovery.prove(intent.id, begun.flowToken, { assertion: signGet({ ...replacement, rpId, origin, challenge: hashTypedData(document) }),
     backupSignature: await signBackupProof(document) });
+  await pool.query('SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.01)', [intent.expiresAtMs]);
   const beforeRotation = await fixture.rpc<Hex>('evm_snapshot');
-  const safe = JSON.parse(await readFile(new URL('../../src/rest/smartAccounts/stack/artifacts/SafeL2.json', import.meta.url), 'utf8')) as { abi: Abi };
-  const factory = JSON.parse(await readFile(new URL('../../src/rest/smartAccounts/stack/passkey/artifacts/SafeWebAuthnSignerFactory.json', import.meta.url), 'utf8')) as { abi: Abi };
-  await fixture.rpc('anvil_setBalance', [enrollmentBackupAccount.address, toHex(10n ** 20n)]);
-  async function send(to: Address, data: Hex) {
-    const nonce = Number(BigInt(await fixture.rpc<Hex>('eth_getTransactionCount', [enrollmentBackupAccount.address, 'latest'])));
-    const serialized = await enrollmentBackupAccount.signTransaction({ type: 'eip1559', chainId: 8453, to, data, value: 0n,
-      nonce, gas: 3000000n, maxFeePerGas: 20_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n });
-    const hash = await fixture.rpc<Hex>('eth_sendRawTransaction', [serialized]);
-    expect((await fixture.rpc<{ status: string }>('eth_getTransactionReceipt', [hash])).status).toBe('0x1');
-    return hash;
-  }
+  // This public fixture key has no owner role and no relation to the signup treasury.
+  // The independent backup approves the exact SafeTx using only typed-data signing.
+  const relay = privateKeyToAccount(`0x${'55'.repeat(32)}`);
+  await fixture.rpc('anvil_setBalance', [relay.address, toHex(10n ** 20n)]);
   const candidate = pending.candidate!, wallet = enrollment.creation!.address;
-  await send(fixture.manifest.ownerProfile!.signerFactory.address, encodeFunctionData({ abi: factory.abi, functionName: 'createSigner',
-    args: [BigInt(replacement.publicKey.x), BigInt(replacement.publicKey.y), BigInt(enrollment.creation!.bootstrap.verifiers)] }));
-  const owners = decodeFunctionResult({ abi: safe.abi, functionName: 'getOwners', data: await fixture.rpc<Hex>('eth_call',
-    [{ to: wallet, data: encodeFunctionData({ abi: safe.abi, functionName: 'getOwners' }) }, 'latest']) }) as Address[];
-  const oldIndex = owners.findIndex(owner => owner.toLowerCase() === intent.priorSigner);
-  expect(oldIndex).toBeGreaterThanOrEqual(0);
-  const previous = oldIndex === 0 ? '0x0000000000000000000000000000000000000001' : owners[oldIndex - 1]!;
-  const swap = encodeFunctionData({ abi: safe.abi, functionName: 'swapOwner', args: [previous, intent.priorSigner, candidate.signerAddress] });
-  const ownerApproval = concatHex([padHex(enrollmentBackupAccount.address, { size: 32 }), zeroHash, '0x01']);
-  const rotationTransaction = await send(wallet, encodeFunctionData({ abi: safe.abi, functionName: 'execTransaction',
-    args: [wallet, 0n, swap, 0, 0n, 0n, 0n, zeroAddress, zeroAddress, ownerApproval] }));
+  const transport = createLocalAnvilWalletRecovery({ pool, endpoint: fixture.endpoint, expectedGenesisHash: fixture.expectedGenesisHash,
+    signer: relay, manifest: fixture.manifest, utility: fixture.utility, maximumOperations: 2, maximumCostWei: '1000000000000000000' });
+  const rotation = await transport.prepare(intent.id);
+  const ownerSignature = await enrollmentBackupAccount.signTypedData(walletRecoveryRotationDocument(rotation));
+  let sends = 0;
+  const originalFetch = globalThis.fetch, network = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const response = await originalFetch(input, init);
+    if (String(input) === fixture.endpoint && typeof init?.body === 'string' && JSON.parse(init.body).method === 'eth_sendRawTransaction') {
+      sends++;
+      if (sends === 1) { await response.body?.cancel(); throw new Error('Injected lost response after local RPC accepted the transaction'); }
+    }
+    return response;
+  });
+  let dispatched: Awaited<ReturnType<typeof transport.approve>>;
+  try {
+    dispatched = await transport.approve(intent.id, rotation, ownerSignature);
+    for (let attempt = 0; dispatched.state === 'unknown' && attempt < 20; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+      dispatched = await transport.approve(intent.id, rotation, ownerSignature);
+    }
+    expect(dispatched.state).toBe('ready'); expect(sends).toBe(2);
+    expect(await transport.approve(intent.id, rotation, ownerSignature)).toEqual(dispatched);
+    expect(await transport.status(intent.id)).toEqual(dispatched); expect(sends).toBe(2);
+  } finally { network.mockRestore(); }
+  const signerTransaction = dispatched.transactions.createSigner!, rotationTransaction = dispatched.transactions.rotateOwner!;
+  const dispatchHistory = (await pool.query('SELECT * FROM rest_wallet_recovery_transactions WHERE recovery_id=$1 ORDER BY step', [intent.id])).rows;
+  expect(dispatchHistory).toHaveLength(2);
+  expect(dispatchHistory.every(row => row.attempted_at_ms !== null && row.receipt?.status === 'success')).toBe(true);
+  expect((await fixture.rpc<{ from: Address }>('eth_getTransactionByHash', [rotationTransaction])).from.toLowerCase()).toBe(relay.address.toLowerCase());
+  expect(relay.address.toLowerCase()).not.toBe(enrollmentBackupAccount.address.toLowerCase());
+  expect(relay.address.toLowerCase()).not.toBe(fixture.sender.toLowerCase());
   const browser = privateKeyToAccount(generatePrivateKey()), now = Math.floor(Date.now() / 1000);
   const input = { profile: 'center-passkey-v1' as const, address: wallet, manifestId: fixture.manifest.id,
     nonce: `0x${randomUUID().replaceAll('-', '').repeat(2)}` as Hex, issuedAt: now, expiresAt: now + 300,
@@ -94,11 +110,16 @@ export async function exerciseWalletRecoveryEvm(options: {
     assertion: signGet({ ...options.originalKey, rpId, origin, challenge: resume.challenge.challenge }) })).rejects.toThrow();
   const retained = (await pool.query('SELECT credential_id,superseded_at,recovery_receipt FROM rest_wallet_credentials WHERE account_id=$1 ORDER BY credential_id', [accountId])).rows;
   expect(await fixture.rpc('evm_revert', [beforeRotation])).toBe(true);
+  expect((await transport.status(intent.id)).state).toBe('unknown');
+  expect((await pool.query('SELECT fence FROM rest_wallet_recovery_lanes WHERE sender=$1', [relay.address.toLowerCase()])).rows[0].fence).not.toBeNull();
+  expect((await pool.query('SELECT * FROM rest_wallet_recovery_transactions WHERE recovery_id=$1 ORDER BY step', [intent.id])).rows).toEqual(dispatchHistory);
   expect((await options.authority.refreshAuthority(accountId)).snapshot.readiness).not.toBe('verified');
   expect(await login.readSession(signedIn.sessionToken)).toBeNull();
   expect((await pool.query('SELECT credential_id,superseded_at,recovery_receipt FROM rest_wallet_credentials WHERE account_id=$1 ORDER BY credential_id', [accountId])).rows).toEqual(retained);
   const out = new URL('../../.generated/wallet-observations/recovery-evm/', import.meta.url); await mkdir(out, { recursive: true });
   await writeFile(new URL('summary.json', out), JSON.stringify({ passed: true, evidence: 'actual PostgreSQL, unforked Anvil, P256 and independent test EOA',
-    rotationTransaction, sameSafe: true, originalGenesisRetained: true, newPasskeyLogin: true, oldSessionAndPasskeyRejected: true,
+    signerTransaction, rotationTransaction, separateSyntheticRelayer: true, backupTypedDataSignature: true,
+    acceptedTransactionLostReplyRecovered: true, physicalSends: sends, exactDispatchBytesRetainedAfterRollback: true,
+    sameSafe: true, originalGenesisRetained: true, newPasskeyLogin: true, oldSessionAndPasskeyRejected: true,
     oldSignupResumeRejected: true, exactActivationRetry: true, chainRollbackFailsClosedWithoutRevertingCredentials: true }, null, 2));
 }

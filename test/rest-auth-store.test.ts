@@ -410,9 +410,14 @@ for (const backend of ["memory", "postgres"] as const) {
 
   it("rolls back an in-flight replay when its nonce expires and cleanup wins between SQL queries", async () => {
     const store = new PostgresAccountStore(pool!);
-    const shortRequest = request({ expiresAt: NOW + 2 });
+    const shortRequest = request();
     await store.enroll(account(), shortRequest);
     const client = await pool!.connect();
+    // Control only the SQL clock at the race boundary. The nonce queries, cleanup,
+    // account lock and rollback still execute in PostgreSQL. A wall-clock sleep
+    // can expire the request before this scenario even begins under parallel load.
+    let databaseTime = NOW;
+    const clockQuery = "SELECT floor(extract(epoch FROM clock_timestamp()))::text AS now";
     let entered!: () => void;
     let resume!: () => void;
     const enteredPromise = new Promise<void>((resolve) => { entered = resolve; });
@@ -421,6 +426,7 @@ for (const backend of ["memory", "postgres"] as const) {
       get(target, property) {
         if (property === "release") return () => undefined;
         if (property === "query") return async (...args: unknown[]) => {
+          if (args[0] === clockQuery) return target.query("SELECT $1::text AS now", [databaseTime]);
           if (typeof args[0] === "string" && args[0].startsWith("SELECT 1 FROM rest_request_nonces")) {
             entered();
             await resumed;
@@ -431,16 +437,23 @@ for (const backend of ["memory", "postgres"] as const) {
       },
     });
     const gatedStore = new PostgresAccountStore({ connect: async () => gatedClient } as unknown as Pool);
+    const cleanupStore = new PostgresAccountStore(new Proxy(pool!, {
+      get(target, property) {
+        if (property === "query") return (...args: unknown[]) => args[0] === clockQuery
+          ? target.query("SELECT $1::text AS now", [databaseTime]) : Reflect.apply(target.query, target, args);
+        return Reflect.get(target, property, target);
+      },
+    }));
     const replay = gatedStore.authorizeAndConsume(shortRequest);
-    // Attach the rejection handler before advancing the database's real clock.
+    // Attach the rejection handler before advancing the controlled SQL clock.
     const rejected = expect(replay).rejects.toMatchObject({ code: "AUTH_REQUIRED" });
     try {
       await Promise.race([enteredPromise, replay.then(
         () => { throw new Error("Replay unexpectedly completed before the SQL gate"); },
         (error: unknown) => { throw error; },
       )]);
-      await new Promise((resolve) => setTimeout(resolve, 2_100));
-      expect(await store.cleanupExpiredNonces(Math.floor(Date.now() / 1_000))).toBe(1);
+      databaseTime = shortRequest.expiresAt;
+      expect(await cleanupStore.cleanupExpiredNonces(NOW)).toBe(1);
       resume();
       await rejected;
       const rows = await pool!.query("SELECT 1 FROM rest_request_nonces WHERE account_id = $1", [account().id]);

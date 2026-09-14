@@ -3,6 +3,13 @@ import { fileURLToPath } from "node:url";
 
 await build({
   absWorkingDir: fileURLToPath(new URL("../../", import.meta.url)),
+  entryPoints: ["src/rest/web/walletRecoveryJourney.ts"], outfile: ".generated/rest/wallet-recovery.js",
+  bundle: true, platform: "browser", format: "esm", target: ["es2022"], minify: true,
+  sourcemap: false, legalComments: "eof",
+});
+
+await build({
+  absWorkingDir: fileURLToPath(new URL("../../", import.meta.url)),
   entryPoints: ["src/rest/web/walletSignup.ts"], outfile: ".generated/rest/wallet-signup.js",
   bundle: true, platform: "browser", format: "esm", target: ["es2022"], minify: true,
   sourcemap: false, legalComments: "eof",

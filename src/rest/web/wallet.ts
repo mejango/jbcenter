@@ -124,6 +124,8 @@ async function load() {
   if (config.version !== "center-wallet-v1" || config.issuer !== location.origin) throw new InvalidResponse();
   const create = document.getElementById("wallet-create") as HTMLAnchorElement | null;
   if (create) { create.href = "/wallet/create" + query.search; create.hidden = false; }
+  const recover = document.getElementById("wallet-recover") as HTMLAnchorElement | null;
+  if (recover) { recover.href = "/wallet/recover" + query.search; recover.hidden = false; }
   const rpId = string(config.rpId, 253);
   if (location.hostname !== rpId && !location.hostname.endsWith(`.${rpId}`)) throw new InvalidResponse();
   configuration = { issuer: location.origin, audience: string(config.audience), rpId };
