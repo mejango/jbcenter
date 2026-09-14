@@ -446,11 +446,11 @@ suite("PostgreSQL discoverable wallet login with genuine P256 and synthetic cano
     }
   });
 
-  it("reclaims only expired pending login receipts in bounded cleanup without touching independent ceremony records", async () => {
+  it("reclaims abandoned logins at challenge expiry in bounded cleanup without touching independent ceremony records", async () => {
     const live = await store.begin(), before = Number((await pool.query("SELECT count(*)::int AS count FROM rest_wallet_ceremonies")).rows[0].count);
     for (let i = 0; i < 2; i++) {
       const { draft } = createWalletLoginDraft({ rpId, origin: audience,
-        nowMs: await databaseNow() - 3_600_000 - 86_400_000 - 180_000 - 2000 });
+        nowMs: await databaseNow() - 180_000 - 2000 });
       await pool.query(`INSERT INTO rest_wallet_logins(id,session_id,ceremony_id,rp_id,flow_token_hash,
         issued_at_ms,expires_at_ms,retain_until_ms,draft) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
         [draft.id, draft.sessionId, draft.ceremony.id, draft.rpId, draft.flowTokenHash,
@@ -460,4 +460,13 @@ suite("PostgreSQL discoverable wallet login with genuine P256 and synthetic cano
     expect((await pool.query("SELECT id FROM rest_wallet_logins")).rows).toEqual([{ id: live.login.id }]);
     expect(Number((await pool.query("SELECT count(*)::int AS count FROM rest_wallet_ceremonies")).rows[0].count)).toBe(before);
   });
+  it("retains completed login receipts and rejects direct early deletion after challenge expiry", async () => {
+    const value = await initialized(), short = new PostgresWalletLoginStore(pool, { rpId, origin: audience, loginLifetimeMs: 2000 });
+    const begun = await short.begin(), input = proof(value, begun), completed = await short.complete(input);
+    await untilDatabaseTime(begun.login.expiresAtMs);
+    expect(await short.cleanup()).toBe(0);
+    await expect(pool.query('DELETE FROM rest_wallet_logins WHERE id=$1', [begun.login.id])).rejects.toMatchObject({ code: '23514' });
+    expect(await short.complete(input)).toEqual({ ...completed, replayed: true });
+  });
+
 });

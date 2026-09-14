@@ -82,6 +82,19 @@ describe('recovery HTTP boundary', () => {
     expect(recovery.begin).not.toHaveBeenCalled(); expect(recovery.approveRotation).not.toHaveBeenCalled();
     expect(() => walletCookie(walletRecoveryCookie, token, 86401)).toThrow();
   });
+  it('clears a reclaimed continuation during restart but preserves it on outage and rejects invalid CSRF', async () => {
+    const { app, recovery } = setup();
+    recovery.restart.mockRejectedValueOnce(new RestError(403, 'WALLET_RECOVERY_UNAUTHORIZED', 'Reclaimed'));
+    const reset = await app.fetch(post('restart', {}));
+    expect(reset.status).toBe(200);
+    expect(reset.headers.get('set-cookie')).toContain('Max-Age=0');
+    recovery.restart.mockRejectedValueOnce(new Error('Database unavailable'));
+    const outage = await app.fetch(post('restart', {}));
+    expect(outage.status).toBe(503); expect(outage.headers.get('set-cookie')).toBeNull();
+    const invalid = await app.fetch(post('restart', {}, { ...headers, 'x-center-wallet-csrf': '' }));
+    expect(invalid.status).toBe(403); expect(invalid.headers.get('set-cookie')).toBeNull();
+    expect(recovery.restart).toHaveBeenCalledTimes(2); expect(recovery.begin).not.toHaveBeenCalled();
+  });
   it('clears only an explicitly restartable recovery cookie and makes an already-cleared retry harmless', async () => {
     const { app, recovery } = setup();
     recovery.restart.mockRejectedValueOnce(new RestError(409, 'WALLET_RECOVERY_CONFLICT', 'Still active'));
@@ -103,4 +116,17 @@ describe('recovery HTTP boundary', () => {
     expect((await app.fetch(post('restart', {}, fresh))).status).toBe(403);
     expect(recovery.restart).not.toHaveBeenCalled();
   });
+  it('clears an unavailable continuation cookie so cleaned pending flows do not trap the browser', async () => {
+    const { app, recovery } = setup();
+    recovery.status.mockRejectedValueOnce(new RestError(403, 'WALLET_RECOVERY_UNAUTHORIZED', 'Continuation unavailable'));
+    const response = await app.fetch(new Request(origin + '/wallet/recovery/state', { headers }));
+    expect(response.status).toBe(200); expect(await response.json()).toEqual({ view: null });
+    expect(response.headers.get('set-cookie')).toContain(walletRecoveryCookie + '=;');
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
+    expect(recovery.begin).not.toHaveBeenCalled();
+    recovery.status.mockRejectedValueOnce(new Error('Database unavailable'));
+    const outage = await app.fetch(new Request(origin + '/wallet/recovery/state', { headers }));
+    expect(outage.status).toBe(503); expect(outage.headers.get('set-cookie')).toBeNull();
+  });
+
 });

@@ -115,6 +115,15 @@ afterEach(async () => {
 });
 
 describe("Center and MCP share one HTTP listener", () => {
+  it("keeps every MCP path on the reserved wallet host inside the wallet HTTP boundary", async () => {
+    const { base } = await start();
+    for (const path of ['/mcp', '/mcp/healthz', '/mcp/readyz']) {
+      const result = await rawPost(new URL(base + path), 'wallet.juicebox.center');
+      expect(result.status).toBe(503);
+      expect(result.body).toBe('Juicebox wallet setup is in progress. Please try again later.');
+    }
+    expect((await post(base + '/mcp')).status).toBe(200);
+  });
   it("serves the complete MCP through the official client alongside Center", async () => {
     const originalRequest = globalThis.Request;
     const originalResponse = globalThis.Response;

@@ -43,7 +43,13 @@ export function mountWalletRecovery(app: Hono, options: WalletRecoverySiteOption
   app.get('/wallet/assets/wallet-recovery.css', c => c.body(walletRecoveryCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
   app.get('/wallet/recovery/state', async c => {
     const token = readWalletCookie(c.req.raw, walletRecoveryCookie);
-    return token ? json(c, { view: await recovery.status(token), csrfToken: walletCsrfToken(token) }) : c.json({ view: null });
+    if (!token) return c.json({ view: null });
+    try { return json(c, { view: await recovery.status(token), csrfToken: walletCsrfToken(token) }); }
+    catch (error) {
+      if (!(error instanceof RestError) || error.code !== 'WALLET_RECOVERY_UNAUTHORIZED') throw error;
+      c.header('Set-Cookie', walletCookie(walletRecoveryCookie, null, 0), { append: true });
+      return c.json({ view: null });
+    }
   });
   app.post('/wallet/recovery/begin', async c => {
     const input = await body(c, ['walletAddress', 'passkeyName']);
@@ -53,7 +59,11 @@ export function mountWalletRecovery(app: Hono, options: WalletRecoverySiteOption
   });
   app.post('/wallet/recovery/restart', async c => {
     await body(c, []);
-    if (readWalletCookie(c.req.raw, walletRecoveryCookie)) await recovery.restart(cookie(c, walletRecoveryCookie));
+    try { if (readWalletCookie(c.req.raw, walletRecoveryCookie)) await recovery.restart(cookie(c, walletRecoveryCookie)); }
+    catch (error) {
+      if (!(error instanceof RestError) || error.code !== 'WALLET_RECOVERY_UNAUTHORIZED') throw error;
+      // Cleanup can reclaim the expired continuation between state and Restart.
+    }
     c.header('Set-Cookie', walletCookie(walletRecoveryCookie, null, 0), { append: true });
     return c.json({ restarted: true, view: null });
   });

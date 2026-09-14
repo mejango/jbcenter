@@ -2,7 +2,7 @@ import { RestError } from '../../src/rest/core.js';
 import { resolve } from 'node:path';
 import { captureSourceSnapshot } from './check-required-tests.mjs';
 import { createRestRpc } from '../../src/rest/rpc.js';
-import { WALLET_DEPENDENCY_RPC_URLS } from './wallet-dependency-rpc.js';
+import { walletDependencyRpcUpstreams } from './wallet-dependency-rpc.js';
 import { RelayrProvider, RelayrResponseError } from '../../src/rest/sponsorship/provider.js';
 import { inspectWalletDependencyChain, WALLET_DEPENDENCY_CHAINS } from '../../src/rest/wallet/dependencyBundle.js';
 import { publishWalletDependencyQuote, WalletDependencyJournalError, recoveryBundleUuid } from '../../src/rest/wallet/dependencyPublication.js';
@@ -22,7 +22,7 @@ async function reviewed() {
 }
 try {
   await reviewed();
-  const rpc = createRestRpc({ upstreams: new Map(WALLET_DEPENDENCY_CHAINS.map(chain => [chain, [WALLET_DEPENDENCY_RPC_URLS[chain]!]])) });
+  const rpc = createRestRpc({ upstreams: walletDependencyRpcUpstreams(process.env.DWELLIR_API_KEY) });
   const signal = AbortSignal.timeout(15000);
   const observations = await Promise.all(WALLET_DEPENDENCY_CHAINS.map(chainId => inspectWalletDependencyChain({ chainId, rpc, signal })));
   signal.throwIfAborted();

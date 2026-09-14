@@ -272,7 +272,7 @@ export class PostgresWalletLoginStore {
   }
   private async cleanupInTransaction(client: PoolClient, count: number): Promise<number> {
     const result = await client.query(`DELETE FROM rest_wallet_logins WHERE id IN (SELECT id FROM rest_wallet_logins
-      WHERE retain_until_ms<=${nowSql} ORDER BY retain_until_ms,id LIMIT $1 FOR UPDATE SKIP LOCKED)`, [count]);
+      WHERE retain_until_ms<=${nowSql} OR (completed_at_ms IS NULL AND expires_at_ms<=${nowSql}) ORDER BY expires_at_ms,id LIMIT $1 FOR UPDATE SKIP LOCKED)`, [count]);
     return result.rowCount ?? 0;
   }
   private async transaction<T>(run: (client: PoolClient) => Promise<T>): Promise<T> {

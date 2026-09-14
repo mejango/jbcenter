@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createRestRpc } from '../../src/rest/rpc.js';
-import { WALLET_DEPENDENCY_RPC_URLS } from './wallet-dependency-rpc.js';
+import { walletDependencyRpcUpstreams } from './wallet-dependency-rpc.js';
 import { RestError } from '../../src/rest/core.js';
 import { inspectWalletDependencyChain, prepareWalletDependencyBundle, WALLET_DEPENDENCY_CHAINS } from '../../src/rest/wallet/dependencyBundle.js';
 
@@ -10,8 +10,7 @@ if (args.length !== 2 || args[0] !== '--output' || !args[1]) {
   throw new Error('Usage: npm run wallet:dependency-bundle -- --output /absolute/path/bundle.json');
 }
 const output = resolve(args[1]);
-const rpc = createRestRpc({ upstreams: new Map(WALLET_DEPENDENCY_CHAINS.map(chain =>
-  [chain, [WALLET_DEPENDENCY_RPC_URLS[chain]!]])) });
+const rpc = createRestRpc({ upstreams: walletDependencyRpcUpstreams(process.env.DWELLIR_API_KEY) });
 try {
   const observations = [];
   // Exactly eight read-only inspections, at most 32 code reads in flight, sharing

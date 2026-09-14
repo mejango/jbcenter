@@ -1,3 +1,5 @@
+import { walletDependencyRpcUpstreams } from '../scripts/rest/wallet-dependency-rpc.js';
+import { DWELLIR_RPC_HOSTS } from '../src/rpc.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -38,6 +40,14 @@ async function fixture(chainId: number, wrongChain = false, verifierExists = fal
   return { rpc, calls };
 }
 describe('audit-gated eight-chain Relayr dependency plan', () => {
+  it('uses Center Dwellir configuration for every chain and requires the key without public fallback', () => {
+    const key = 'center_wallet_fixture_123456789';
+    const upstreams = walletDependencyRpcUpstreams(key);
+    expect([...upstreams.keys()].sort((a, b) => a - b)).toEqual([...WALLET_DEPENDENCY_CHAINS].sort((a, b) => a - b));
+    for (const chain of WALLET_DEPENDENCY_CHAINS) expect(upstreams.get(chain)).toEqual([`https://${DWELLIR_RPC_HOSTS[chain]}/${key}`]);
+    expect(() => walletDependencyRpcUpstreams(undefined)).toThrow();
+    expect(() => walletDependencyRpcUpstreams('https://arbitrary.example')).toThrow();
+  });
   it('reproduces all three reviewed deployment addresses and keeps the operator table aligned', async () => {
     const { profile } = await preparePasskeyDependencyDeployment();
     const addresses = {

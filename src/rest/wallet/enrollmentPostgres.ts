@@ -231,8 +231,8 @@ export class PostgresWalletEnrollmentStore {
   async cleanupInTransaction(client: PoolClient, limit: number): Promise<number> {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10_000) invalidInput();
     const result = await client.query(`DELETE FROM rest_wallet_enrollments WHERE id IN
-      (SELECT id FROM rest_wallet_enrollments WHERE state<>'verified' AND retain_until <= ${nowSql}
-       ORDER BY retain_until,id LIMIT $1 FOR UPDATE SKIP LOCKED)`, [limit]);
+      (SELECT id FROM rest_wallet_enrollments WHERE state<>'verified' AND expires_at <= ${nowSql}
+       ORDER BY expires_at,id LIMIT $1 FOR UPDATE SKIP LOCKED)`, [limit]);
     return result.rowCount ?? 0;
   }
 
