@@ -8,7 +8,9 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { keccak256, toHex, type Hex } from 'viem';
 import { preparePasskeyDependencyDeployment } from '../src/rest/smartAccounts/passkeyProfile.js';
 import { inspectWalletDependencyChain, prepareWalletDependencyBundle, WALLET_DEPENDENCY_CHAINS } from '../src/rest/wallet/dependencyBundle.js';
+import type { RelayrEntry } from '../src/rest/sponsorship/types.js';
 import type { RestRpc } from '../src/rest/core.js';
+import { RelayrProvider } from '../src/rest/sponsorship/provider.js';
 import { publishWalletDependencyQuote } from '../src/rest/wallet/dependencyPublication.js';
 import { RELAYR_NATIVE_TOKEN, RELAYR_PAYMENT_ADDRESS, RELAYR_PAYMENT_SELECTOR } from '../src/rest/sponsorship/constants.js';
 
@@ -60,16 +62,20 @@ describe('audit-gated eight-chain Relayr dependency plan', () => {
     expect(result.audit.status).toBe('pending');
     expect(result.publicationEnabled).toBe(false);
     // Constructors are independent; a failed testnet call must not gate other chains.
-    expect(result.body.virtual_nonce_mode).toBe('Disabled');
-    expect(result.body.transactions).toHaveLength(16);
-    expect(validProviderBody(result.body), JSON.stringify(validProviderBody.errors)).toBe(true);
-    expect(validProviderBody({ ...result.body, virtual_nonce_mode: 'Multichain' })).toBe(false);
-    for (const chain of WALLET_DEPENDENCY_CHAINS) {
-      expect(result.body.transactions.filter(entry => entry.chain === chain).map(entry => entry.virtual_nonce)).toEqual([0, 0]);
+    expect(result.bundles.map(bundle => bundle.family)).toEqual(['mainnet', 'testnet']);
+    expect(result.bundles.map(bundle => bundle.body.transactions.length)).toEqual([8, 8]);
+    for (const bundle of result.bundles) {
+      expect(bundle.body.virtual_nonce_mode).toBe('Disabled');
+      expect(validProviderBody(bundle.body), JSON.stringify(validProviderBody.errors)).toBe(true);
+      expect(validProviderBody({ ...bundle.body, virtual_nonce_mode: 'Multichain' })).toBe(false);
     }
-    expect(new Set(result.body.transactions.map(entry => entry.target)).size).toBe(1);
-    expect(new Set(result.body.transactions.map(entry => entry.data)).size).toBe(2);
-    expect(result.body.transactions.every(entry => entry.value === '0')).toBe(true);
+    const transactions = result.bundles.flatMap(bundle => bundle.body.transactions);
+    for (const chain of WALLET_DEPENDENCY_CHAINS) {
+      expect(transactions.filter(entry => entry.chain === chain).map(entry => entry.virtual_nonce)).toEqual([0, 0]);
+    }
+    expect(new Set(transactions.map(entry => entry.target)).size).toBe(1);
+    expect(new Set(transactions.map(entry => entry.data)).size).toBe(2);
+    expect(transactions.every(entry => entry.value === '0')).toBe(true);
     expect(result.walletActivationChains).toEqual([]);
   });
   it('omits exact existing verifiers and gives the fourteen remaining calls no ordering dependency', async () => {
@@ -78,11 +84,11 @@ describe('audit-gated eight-chain Relayr dependency plan', () => {
       return inspectWalletDependencyChain({ chainId, rpc, now: () => clock });
     }));
     const bundle = await prepareWalletDependencyBundle(observations, clock);
-    expect(bundle.body.virtual_nonce_mode).toBe('Disabled');
-    expect(bundle.body.transactions).toHaveLength(14);
-    expect(bundle.body.transactions.every(entry => entry.virtual_nonce === 0)).toBe(true);
+    expect(bundle.bundles.map(bundle => bundle.body.transactions.length)).toEqual([8, 6]);
+    const transactions = bundle.bundles.flatMap(bundle => bundle.body.transactions);
+    expect(transactions.every(entry => entry.virtual_nonce === 0)).toBe(true);
     for (const chain of [11155111, 84532]) {
-      const entries = bundle.body.transactions.filter(entry => entry.chain === chain);
+      const entries = transactions.filter(entry => entry.chain === chain);
       expect(entries).toHaveLength(1);
       expect(entries[0]!.data).toBe(bundle.recipe.deployments[1]!.transaction.data);
     }
@@ -133,17 +139,18 @@ describe('audit-gated eight-chain Relayr dependency plan', () => {
 describe('one-shot operator Relayr publication journal', () => {
   const folders: string[] = [];
   afterEach(async () => { for (const folder of folders.splice(0)) await rm(folder, { recursive: true, force: true }); });
-  async function publication() {
+  async function publication(family: 'mainnet' | 'testnet' = 'mainnet') {
     const root = await mkdtemp(join(tmpdir(), 'center-dependency-publication-')); folders.push(root);
     const directory = join(root, 'attempt');
     const observations = await Promise.all(WALLET_DEPENDENCY_CHAINS.map(async chainId =>
       inspectWalletDependencyChain({ chainId, rpc: (await fixture(chainId)).rpc, now: () => clock })));
-    const bundle = await prepareWalletDependencyBundle(observations, clock), body = bundle.body;
+    const plan = await prepareWalletDependencyBundle(observations, clock);
+    const bundle = plan.bundles.find(bundle => bundle.family === family)!, body = bundle.body;
     const source = { revision: 'a'.repeat(40), fingerprint: 'b'.repeat(64) };
     const journal = join(directory, bundle.bodyHash.slice(2));
     const id = randomUUID(), deadline = clock / 1000 + 300;
     const response = { bundle_uuid: id, tx_uuids: body.transactions.map(() => randomUUID()), payment_info: [{
-      chain: 8453, token: RELAYR_NATIVE_TOKEN, target: RELAYR_PAYMENT_ADDRESS, amount: '1234',
+      chain: family === 'mainnet' ? 8453 : 84532, token: RELAYR_NATIVE_TOKEN, target: RELAYR_PAYMENT_ADDRESS, amount: '1234',
       calldata: RELAYR_PAYMENT_SELECTOR + id.replaceAll('-', '').padEnd(64, '0') + deadline.toString(16).padStart(64, '0'),
       payment_deadline: new Date(deadline * 1000).toISOString(),
     }] };
@@ -151,11 +158,11 @@ describe('one-shot operator Relayr publication journal', () => {
     const status = vi.fn(async () => ({ bundle_uuid: id, transactions: body.transactions.map((entry, index) => ({
       tx_uuid: response.tx_uuids[index], request: entry, status: { state: 'Pending' },
     })) }));
-    return { directory, journal, source, observations, response, body, record, status };
+    return { family, directory, journal, source, observations, response, body, record, status };
   }
   it('persists the reviewed source and exact transaction fields before publication and retains the quote binding without enabling funding', async () => {
     const f = await publication();
-    const provider = { status: f.status, createIndependent: vi.fn(async entries => {
+    const provider = { status: f.status, createIndependent: vi.fn(async (entries: RelayrEntry[]) => {
       const before = await f.record();
       expect(before.state).toBe('submission-unknown');
       expect(before.body).toEqual(f.body);
@@ -169,6 +176,40 @@ describe('one-shot operator Relayr publication journal', () => {
     expect(await f.record()).toEqual(result.record);
     await expect(publishWalletDependencyQuote({ ...f, provider, now: () => clock })).rejects.toMatchObject({ code: 'EEXIST' });
     expect(provider.createIndependent).toHaveBeenCalledTimes(1);
+  });
+  it.each(['mainnet', 'testnet'] as const)('quotes only %s calls and accepts only payment options from that family', async family => {
+    const f = await publication(family);
+    const provider = { status: f.status, createIndependent: vi.fn(async (entries: RelayrEntry[]) => {
+      const allowed = family === 'mainnet' ? [1, 10, 8453, 42161] : [11155111, 11155420, 84532, 421614];
+      expect(entries.every(entry => allowed.includes(entry.chain))).toBe(true);
+      return f.response;
+    }) };
+    const result = await publishWalletDependencyQuote({ ...f, provider, now: () => clock });
+    expect(result.record.family).toBe(family);
+    expect(result.record.fundingEnabled).toBe(false);
+    const wrong = await publication(family);
+    wrong.response.payment_info[0]!.chain = family === 'mainnet' ? 84532 : 8453;
+    await expect(publishWalletDependencyQuote({ ...wrong, provider: { ...provider, createIndependent: async () => wrong.response }, now: () => clock }))
+      .rejects.toMatchObject({ code: 'RELAYR_INVALID_QUOTE' });
+    expect((await wrong.record()).state).toBe('response-received');
+  });
+  it.each([403, 406, 500])('retains HTTP %s and its response body, including a bundle UUID, without parsing it as a payable quote', async status => {
+    const f = await publication();
+    const body = JSON.stringify({ bundle_uuid: f.response.bundle_uuid, error: 'Use one network family' });
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(body, { status }));
+    await expect(publishWalletDependencyQuote({ ...f, provider: new RelayrProvider(fetcher), now: () => clock }))
+      .rejects.toMatchObject({ code: 'RELAYR_UNAVAILABLE' });
+    expect(await f.record()).toMatchObject({ state: 'response-received', family: 'mainnet',
+      httpResponse: { status, body, complete: true, truncated: false } });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await expect(publishWalletDependencyQuote({ ...f, provider: new RelayrProvider(fetcher), now: () => clock })).rejects.toMatchObject({ code: 'EEXIST' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('rejects an unknown network family before claiming or publishing', async () => {
+    const f = await publication(), provider = { status: f.status, createIndependent: vi.fn(async () => f.response) };
+    await expect(publishWalletDependencyQuote({ ...f, family: 'all' as 'mainnet', provider, now: () => clock })).rejects.toThrow();
+    expect(provider.createIndependent).not.toHaveBeenCalled();
+    await expect(f.record()).rejects.toMatchObject({ code: 'ENOENT' });
   });
   it('lets only one concurrent attempt claim the same journal', async () => {
     const f = await publication(), provider = { status: f.status, createIndependent: vi.fn(async () => f.response) };

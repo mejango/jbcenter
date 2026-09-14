@@ -3,8 +3,8 @@ import { mkdir, open, rename } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { RestError } from '../core.js';
 import { uuid } from '../sponsorship/validation.js';
-import { parseQuoteBinding, parseStatus, type RelayrProvider } from '../sponsorship/provider.js';
-import { prepareWalletDependencyBundle, type inspectWalletDependencyChain } from './dependencyBundle.js';
+import { parseIndependentQuoteBinding, parseStatus, RelayrResponseError, type RelayrProvider } from '../sponsorship/provider.js';
+import { prepareWalletDependencyBundle, type inspectWalletDependencyChain, type WalletDependencyFamily } from './dependencyBundle.js';
 
 type Observation = Awaited<ReturnType<typeof inspectWalletDependencyChain>>;
 
@@ -18,7 +18,7 @@ export class WalletDependencyJournalError extends RestError {
 /** One body-hash claim within the operator's fixed journal root. Never remove a claim
  * or switch roots to bypass an uncertain prior publication. No payment authority. */
 export async function publishWalletDependencyQuote(options: {
-  observations: Observation[]; directory: string;
+  observations: Observation[]; directory: string; family: WalletDependencyFamily;
   source: { revision: string; fingerprint: string };
   provider: Pick<RelayrProvider, 'createIndependent' | 'status'>;
   now?: () => number; signal?: AbortSignal;
@@ -27,7 +27,9 @@ export async function publishWalletDependencyQuote(options: {
   if (!source || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(source.revision) || !/^[0-9a-f]{64}$/.test(source.fingerprint))
     throw new RestError(400, 'WALLET_DEPENDENCY_SOURCE_INVALID', 'Reviewed source attribution is required.');
   const now = options.now ?? Date.now;
-  const bundle = await prepareWalletDependencyBundle(options.observations, now());
+  const plan = await prepareWalletDependencyBundle(options.observations, now());
+  const bundle = plan.bundles.find(bundle => bundle.family === options.family);
+  if (!bundle) throw new RestError(400, 'WALLET_DEPENDENCY_FAMILY_INVALID', 'Choose mainnet or testnet.');
   if (!bundle.body.transactions.length) throw new RestError(409, 'WALLET_DEPENDENCIES_PRESENT', 'Every dependency is already present.');
   const root = resolve(options.directory);
   await mkdir(root, { recursive: true, mode: 0o700 });
@@ -45,16 +47,27 @@ export async function publishWalletDependencyQuote(options: {
     const folder = await open(directory, 'r');
     try { await folder.sync(); } finally { await folder.close(); }
   }
-  const attempt = { version: 'center-wallet-dependency-publication-v1',
+  const attempt = { version: 'center-wallet-dependency-publication-v2', family: bundle.family,
     state: 'submission-unknown', startedAt: now(), bodyHash: bundle.bodyHash,
-    body: bundle.body, observations: bundle.observations, source };
+    body: bundle.body, observations: plan.observations, source };
   await save(attempt);
   // Recheck freshness after filesystem waits and immediately before the sole network write.
-  const refreshed = await prepareWalletDependencyBundle(bundle.observations, now());
-  if (refreshed.bodyHash !== bundle.bodyHash)
+  const refreshed = await prepareWalletDependencyBundle(plan.observations, now());
+  if (refreshed.bundles.find(item => item.family === bundle.family)?.bodyHash !== bundle.bodyHash)
     throw new RestError(409, 'WALLET_DEPENDENCY_REQUEST_CHANGED', 'Dependency request changed before publication.');
   options.signal?.throwIfAborted();
-  const response = await options.provider.createIndependent(bundle.body.transactions, options.signal);
+  async function receive(work: () => Promise<unknown>, previous: object, phase: 'quote' | 'status', knownBundleUuid: string | null = null) {
+    try { return await work(); }
+    catch (error) {
+      if (error instanceof RelayrResponseError) {
+        try { await save({ ...previous, state: phase === 'quote' ? 'response-received' : 'status-received',
+          responseReceivedAt: now(), errorCode: error.code, httpResponse: error.responseDetails }); }
+        catch { throw new WalletDependencyJournalError(knownBundleUuid ?? recoveryBundleUuid(error.responseDetails.body)); }
+      }
+      throw error;
+    }
+  }
+  const response = await receive(() => options.provider.createIndependent(bundle.body.transactions, options.signal), attempt, 'quote');
   // Preserve even a malformed response (including any recovery UUID) before policy parsing.
   const received = { ...attempt, state: 'response-received', responseReceivedAt: now(), response };
   try { await save(received); }
@@ -63,10 +76,10 @@ export async function publishWalletDependencyQuote(options: {
     // A validated UUID survives disk failures through the CLI's stderr; never echo provider text.
     throw new WalletDependencyJournalError(uuid(id) ? id : null);
   }
-  const quote = parseQuoteBinding(response, bundle.body.transactions, now());
+  const quote = parseIndependentQuoteBinding(response, bundle.body.transactions, now());
   const bound = { ...received, state: 'quote-bound', quote, fundingEnabled: false as const };
   await save(bound);
-  const status = await options.provider.status(quote.bundleUuid, options.signal);
+  const status = await receive(() => options.provider.status(quote.bundleUuid, options.signal), bound, 'status', quote.bundleUuid);
   // A UUID list alone does not echo the requested calls. Require the provider's
   // stored bundle to contain the exact targets, calldata, values and nonce fields.
   const statusReceived = { ...bound, state: 'status-received', statusResponse: status };
@@ -75,4 +88,10 @@ export async function publishWalletDependencyQuote(options: {
   const record = { ...statusReceived, state: 'quoted', providerStatus };
   await save(record);
   return { record, path };
+}
+
+/** Error text is untrusted; only a complete parsed top-level UUID is a recovery locator. */
+export function recoveryBundleUuid(body: string): string | null {
+  try { const value = JSON.parse(body); return value && uuid(value.bundle_uuid) ? value.bundle_uuid : null; }
+  catch { return null; }
 }

@@ -3,10 +3,12 @@ import { RestError, type RestRpc } from '../core.js';
 import { rpcHex } from '../protocol/code.js';
 import { preparePasskeyDependencyDeployment } from '../smartAccounts/passkeyProfile.js';
 import { fingerprint, stable } from '../smartAccounts/service.js';
+import { RELAYR_MAINNET_CHAINS, RELAYR_TESTNET_CHAINS } from '../sponsorship/constants.js';
 import type { RelayrEntry } from '../sponsorship/types.js';
 import { operationRpc, walletPreflightRpcBounds } from './operationRpc.js';
 
-export const WALLET_DEPENDENCY_CHAINS = Object.freeze([1, 10, 8453, 42161, 11155111, 11155420, 84532, 421614] as const);
+export const WALLET_DEPENDENCY_CHAINS = Object.freeze([...RELAYR_MAINNET_CHAINS, ...RELAYR_TESTNET_CHAINS] as const);
+export type WalletDependencyFamily = 'mainnet' | 'testnet';
 const VERSION = 'center-wallet-dependency-observation-v1';
 const singletonAbi = parseAbi(['function SINGLETON() view returns(address)']);
 type Recipe = Awaited<ReturnType<typeof preparePasskeyDependencyDeployment>>;
@@ -123,9 +125,14 @@ export async function prepareWalletDependencyBundle(input: Awaited<ReturnType<ty
   }
   // Neither constructor depends on the other deployment. A failure on one chain
   // must not block independent calls elsewhere in the same prepaid bundle.
-  const body = { transactions, virtual_nonce_mode: 'Disabled' as const };
-  return { version: 'center-wallet-dependency-bundle-v1', preparedAt: now,
+  // Match the clients' payment boundary: testnet actions never request mainnet ETH.
+  const bundles = ([['mainnet', RELAYR_MAINNET_CHAINS], ['testnet', RELAYR_TESTNET_CHAINS]] as const).map(([family, chains]) => {
+    const body = { transactions: transactions.filter(entry => chains.some(chain => chain === entry.chain)),
+      virtual_nonce_mode: 'Disabled' as const };
+    return { family, body, bodyHash: fingerprint(body) };
+  });
+  return { version: 'center-wallet-dependency-bundle-v2', preparedAt: now,
     audit: { status: 'pending' as const }, publicationEnabled: false as const, walletActivationChains: [],
-    recipe, observations, body, bodyHash: fingerprint(body),
+    recipe, observations, bundles,
     feeScope: 'execution-gas-estimates-only-not-a-Relayr-quote' as const };
 }

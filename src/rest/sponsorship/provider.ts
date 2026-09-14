@@ -3,6 +3,7 @@ import { RestError } from "../core.js";
 import {
   RELAYR_LIMITS,
   RELAYR_MAINNET_CHAINS,
+  RELAYR_TESTNET_CHAINS,
   RELAYR_NATIVE_TOKEN,
   RELAYR_ORIGIN,
   RELAYR_PAYMENT_ADDRESS,
@@ -19,6 +20,17 @@ import {
   same,
   uuid,
 } from "./validation.js";
+
+export type RelayrResponseDetails = { status: number; body: string; complete: boolean; truncated: boolean };
+/** Operator diagnostics are deliberately absent from ordinary error serialization. */
+export class RelayrResponseError extends RestError {
+  #responseDetails: RelayrResponseDetails;
+  constructor(error: RestError, details: RelayrResponseDetails) {
+    super(error.status, error.code, error.message);
+    this.#responseDetails = Object.freeze({ ...details });
+  }
+  get responseDetails(): RelayrResponseDetails { return this.#responseDetails; }
+}
 
 /** Fixed provider origin; callers cannot supply URLs, headers, redirects or credentials. */
 export class RelayrProvider {
@@ -66,6 +78,8 @@ export class RelayrProvider {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let response: Response | undefined;
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    const chunks: Uint8Array[] = [];
+    let complete = false, truncated = false;
     const deadline = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         reject(
@@ -106,23 +120,23 @@ export class RelayrProvider {
         await response.body?.cancel().catch(() => {});
         assertSignal(controller.signal);
       }
-      if (!response.ok)
-        fail(
-          "RELAYR_UNAVAILABLE",
-          "The execution service rejected or could not answer the request. Provider response details are not exposed.",
-          502,
-        );
       const length = response.headers.get("content-length");
       if (
         length !== null &&
         (!/^\d{1,10}$/.test(length) ||
           Number(length) > RELAYR_LIMITS.maximumBytes)
-      )
+      ) {
+        truncated = true;
         fail(
           "RELAYR_RESPONSE_LIMIT",
           "The execution service response exceeds the byte limit.",
           502,
         );
+      }
+      if (!response.body && !response.ok) {
+        complete = true;
+        fail("RELAYR_UNAVAILABLE", "The execution service rejected the request.", 502);
+      }
       if (!response.body)
         fail(
           "RELAYR_INVALID_RESPONSE",
@@ -130,20 +144,24 @@ export class RelayrProvider {
           502,
         );
       reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
       let bytes = 0;
       for (;;) {
         const chunk = await reader.read();
-        if (chunk.done) break;
+        if (chunk.done) { complete = true; break; }
         bytes += chunk.value.byteLength;
-        if (bytes > RELAYR_LIMITS.maximumBytes)
+        if (bytes > RELAYR_LIMITS.maximumBytes) {
+          chunks.push(chunk.value.slice(0, Math.max(0, RELAYR_LIMITS.maximumBytes - (bytes - chunk.value.byteLength))));
+          truncated = true;
           fail(
             "RELAYR_RESPONSE_LIMIT",
             "The execution service response exceeds the byte limit.",
             502,
           );
+        }
         chunks.push(chunk.value);
       }
+      if (!response.ok)
+        fail("RELAYR_UNAVAILABLE", "The execution service rejected or could not answer the request.", 502);
       try {
         return JSON.parse(
           new TextDecoder("utf-8", { fatal: true }).decode(
@@ -161,12 +179,12 @@ export class RelayrProvider {
     try {
       return await Promise.race([work, deadline, cancelled]);
     } catch (error) {
-      if (error instanceof RestError) throw error;
-      return fail(
-        "RELAYR_UNAVAILABLE",
-        "The execution service could not be reached. A submitted bundle may exist.",
-        502,
-      );
+      const failure = error instanceof RestError ? error : new RestError(502, "RELAYR_UNAVAILABLE",
+        "The execution service could not be reached. A submitted bundle may exist.");
+      if (response) throw new RelayrResponseError(failure, {
+        status: response.status, body: Buffer.concat(chunks).toString('utf8'), complete, truncated,
+      });
+      throw failure;
     } finally {
       if (timer) clearTimeout(timer);
       signal?.removeEventListener("abort", abort);
@@ -211,11 +229,12 @@ export function parsePayment(
 function parsePaymentBinding(
   value: unknown,
   bundleUuid: string,
+  paymentChains: readonly number[] = RELAYR_MAINNET_CHAINS,
 ): RelayrPayment {
   if (
     !object(value) ||
     typeof value.chain !== "number" ||
-    !RELAYR_MAINNET_CHAINS.some((chain) => chain === value.chain) ||
+    !paymentChains.some((chain) => chain === value.chain) ||
     !isAddress(String(value.target)) ||
     !same(String(value.target), RELAYR_PAYMENT_ADDRESS) ||
     !isAddress(String(value.token)) ||
@@ -284,6 +303,16 @@ export function parseQuoteBinding(
   entries: RelayrEntry[],
   now: number,
 ): RelayrQuote {
+  return quoteBinding(value, entries, now, RELAYR_MAINNET_CHAINS);
+}
+/** Operator-only: retain the clients' same-family payment policy without expanding app sponsorship. */
+export function parseIndependentQuoteBinding(value: unknown, entries: RelayrEntry[], now: number): RelayrQuote {
+  const chains = [RELAYR_MAINNET_CHAINS, RELAYR_TESTNET_CHAINS].find(family =>
+    entries.length > 0 && entries.every(entry => family.some(chain => chain === entry.chain)));
+  if (!chains) fail("RELAYR_INVALID_QUOTE", "Choose destinations from one supported network family.", 502);
+  return quoteBinding(value, entries, now, chains);
+}
+function quoteBinding(value: unknown, entries: RelayrEntry[], now: number, paymentChains: readonly number[]): RelayrQuote {
   if (
     !object(value) ||
     !uuid(value.bundle_uuid) ||
@@ -319,7 +348,7 @@ export function parseQuoteBinding(
       502,
     );
   const payments = value.payment_info.map((payment) =>
-    parsePaymentBinding(payment, value.bundle_uuid as string),
+    parsePaymentBinding(payment, value.bundle_uuid as string, paymentChains),
   );
   if (
     new Set(payments.map((payment) => payment.chainId)).size !== payments.length

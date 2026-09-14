@@ -48,3 +48,5 @@ export const FORWARDER_ABI = parseAbi([
   "function execute((address from,address to,uint256 value,uint256 gas,uint48 deadline,bytes data,bytes signature) request) payable",
   "event ExecutedForwardRequest(address indexed signer,uint256 nonce,bool success)",
 ]);
+
+export const RELAYR_TESTNET_CHAINS = Object.freeze([11155111, 11155420, 84532, 421614] as const);
