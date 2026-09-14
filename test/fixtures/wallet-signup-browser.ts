@@ -95,7 +95,9 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true,
   } });
   const out = new URL(`../../.generated/wallet-observations/signup-browser${kitMode ? '-kit' : ''}/`, import.meta.url);
-  const contains = async (text: string) => expect.poll(() => page.locator('#wallet-status').textContent()).toContain(text);
+  // Match the browser's existing wait budget, rather than Vitest's one-second
+  // polling default. The enclosing journey and all server deadlines stay bounded.
+  const contains = async (text: string) => expect.poll(() => page.locator('#wallet-status').textContent(), { timeout: 15000 }).toContain(text);
   try {
     await page.goto(origin + '/wallet/create');
     await page.getByLabel('Passkey name').fill('Juicebox test');

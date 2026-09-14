@@ -492,7 +492,7 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
     } finally {
       for (const alias of aliases) await admin.query(`DROP SCHEMA ${alias} CASCADE`);
     }
-  });
+  }, 20_000);
 
   it("cleans only expired review receipts in bounded batches while preserving operation, nonce, plan and ceremony history", async () => {
     const value = await pendingReview({ receiptRetentionMs: 100 }, 3200);

@@ -243,16 +243,20 @@ suite("real browser enrollment through two HTTP replicas and PostgreSQL", () => 
       assertion: registration, backupSignature: await signBackupProof(walletEnrollmentDocument(candidate)),
     } });
     expect(completed.status).toBe(200);
-    const record = completed.body.record as WalletEnrollment, issuedAt = Date.now();
+    // Production signup stamps approval from the same database clock as the
+    // verified receipt. Do not compare a VM timestamp with the host clock.
+    const dbNow = async () => Number((await pool!.query('SELECT floor(extract(epoch FROM clock_timestamp())*1000)::text AS now')).rows[0].now);
+    const record = completed.body.record as WalletEnrollment, issuedAt = await dbNow();
     const approval = prepareWalletDeploymentApproval(record, { issuedAt, expiresAt: issuedAt + 120_000 });
     const decode = (wire: typeof registration) => ({ ...wire,
       authenticatorData: Buffer.from(wire.authenticatorData, "base64url"), clientDataJSON: Buffer.from(wire.clientDataJSON, "base64url"),
       signature: Buffer.from(wire.signature, "base64url") });
     expect(approval.ceremony.challenge).not.toBe(record.possession!.ceremony.challenge);
-    expect(() => verifyWalletDeploymentProof(record, approval, decode(registration), Date.now())).toThrow();
+    const replayTime = await dbNow();
+    expect(() => verifyWalletDeploymentProof(record, approval, decode(registration), replayTime)).toThrow();
     const fresh = await assertion(record, "required", approval.ceremony.challenge);
     expect(fresh.credentialId).toBe(registration.credentialId); expect(fresh.userHandle).toBe(registration.userHandle);
-    expect(verifyWalletDeploymentProof(record, approval, decode(fresh), Date.now()).verificationDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(verifyWalletDeploymentProof(record, approval, decode(fresh), await dbNow()).verificationDigest).toMatch(/^[0-9a-f]{64}$/);
     // The pure deployment proof does not mutate identity, allocate a nonce, or authorize a session.
     expect((await browserRequest("/replica/1/get", { id: record.intent.id })).body).toEqual(record);
     const crossPurposeReplay = await browserRequest("/replica/1/finalize", { id: record.intent.id, proof: {
