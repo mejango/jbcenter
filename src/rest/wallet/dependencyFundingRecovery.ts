@@ -132,6 +132,8 @@ export async function reconcileWalletDependencyFunding(options: WalletDependency
 export async function rebroadcastWalletDependencyFunding(options: WalletDependencyFundingRecoveryOptions & {
   assertReviewedSource?: () => Promise<void>;
 }) {
+  // Keep both source gates: before recovery work and immediately before claiming.
+  await options.assertReviewedSource?.();
   const recovered = await reconcileWalletDependencyFunding(options);
   if (recovered.record.state !== 'not-found' || recovered.record.providerReportedPayment !== 'unpaid') invalid();
   const { template, signed } = recovered;
@@ -154,7 +156,9 @@ export async function rebroadcastWalletDependencyFunding(options: WalletDependen
     kind: recovered.savedState === 'signed' ? 'first-send-from-signed' : 'rebroadcast',
     observedAt: (options.now ?? Date.now)(), templateDigest: digest(template), signed, admissionEvidence: fresh.evidence };
   await writeWalletDependencyEvidence(directory, sending, 'rebroadcast.json');
-  await options.assertReviewedSource?.(); freshEnough();
+  // The final expensive source gate above already ran before mkdir. Only this
+  // cheap freshness/cancellation check belongs after the permanent claim.
+  freshEnough();
   await sendWalletDependencyFundingRaw(options, template.transaction.chainId, signed);
   const record = { ...sending, state: 'submitted' };
   await writeWalletDependencyEvidence(directory, record, 'rebroadcast.json');

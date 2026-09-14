@@ -279,6 +279,17 @@ describe('bounded operator dependency funding', () => {
     await expect(rebroadcastWalletDependencyFunding({ ...f.options, bundleUuid: f.response.bundle_uuid })).rejects.toThrow();
     expect(f.calls.filter(c => c.method === 'eth_sendRawTransaction')).toHaveLength(2);
   });
+  it('checks reviewed source before consuming the sole resume claim', async () => {
+    const f = await fixture(); await fundWalletDependencyQuote({ ...f.options, sign: f.signer });
+    const request = f.options.rpc.request;
+    f.options.rpc.request = (chain, method, params, signal) => ['eth_getTransactionByHash', 'eth_getTransactionReceipt'].includes(method)
+      ? Promise.resolve(null) : request(chain, method, params, signal);
+    const assertReviewedSource = vi.fn(async () => {
+      await expect(access(join(f.directory, 'funding', f.response.bundle_uuid, 'rebroadcast-once'))).rejects.toMatchObject({ code: 'ENOENT' });
+    });
+    await rebroadcastWalletDependencyFunding({ ...f.options, assertReviewedSource });
+    expect(assertReviewedSource).toHaveBeenCalledTimes(2);
+  });
   it.each(['nonce', 'expired', 'paid'])('never rebroadcasts an unsafe %s payment', async fault => {
     const f = await fixture(); await fundWalletDependencyQuote({ ...f.options, sign: f.signer });
     const request = f.options.rpc.request;
@@ -332,6 +343,27 @@ describe('bounded operator dependency funding', () => {
     await expect(renewWalletDependencyQuote(f.options)).rejects.toThrow();
     const child = JSON.parse(await readFile(join(f.directory, f.options.bodyHash, `renewal-${f.response.bundle_uuid}`, 'publication.json'), 'utf8'));
     expect(child.state).toBe('submission-unknown'); expect(f.provider.createIndependent).toHaveBeenCalledTimes(2);
+  });
+  it('resumes interrupted retirement into exactly one successor POST', async () => {
+    const f = await fixture(); f.flags.now += 1300000;
+    const recipe = await preparePasskeyDependencyDeployment(), request = f.options.rpc.request;
+    f.options.rpc.request = (chain, method, params, signal) => {
+      if (method === 'eth_getCode' && String(params[0]).toLowerCase() === recipe.deployer.address.toLowerCase())
+        return Promise.reject(new Error('Fixture inspection interruption'));
+      return request(chain, method, params, signal);
+    };
+    await expect(renewWalletDependencyQuote(f.options)).rejects.toThrow();
+    expect(f.provider.createIndependent).toHaveBeenCalledTimes(1);
+    await expect(access(join(f.directory, f.options.bodyHash, `renewal-${f.response.bundle_uuid}`))).rejects.toMatchObject({ code: 'ENOENT' });
+    f.options.rpc.request = request;
+    const next = 'a0a555ff-4444-4111-aaaa-444444444444', deadline = f.flags.now / 1000 + 900;
+    f.statusIds.add(next);
+    f.provider.createIndependent.mockImplementation(async () => ({ ...f.response, bundle_uuid: next,
+      payment_info: f.response.payment_info.map(item => ({ ...item, payment_deadline: new Date(deadline * 1000).toISOString(),
+        calldata: RELAYR_PAYMENT_SELECTOR + next.replaceAll('-', '').padEnd(64, '0') + deadline.toString(16).padStart(64, '0') })) }));
+    const attempts = await Promise.allSettled([1,2].map(() => renewWalletDependencyQuote(f.options)));
+    expect(attempts.filter(item => item.status === 'fulfilled')).toHaveLength(1);
+    expect(f.provider.createIndependent).toHaveBeenCalledTimes(2);
   });
   it('retains retirement without a POST when the fresh missing set changes', async () => {
     const f = await fixture(); f.flags.now += 1300000;
