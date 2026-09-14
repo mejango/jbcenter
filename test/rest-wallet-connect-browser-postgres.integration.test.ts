@@ -36,6 +36,11 @@ suite("real browser shared-wallet connection with PostgreSQL (synthetic chain re
   const pageErrors: string[] = [];
   const externalRequests: string[] = [];
   const authenticated: Array<{ kind: string; isOwner: boolean; accountId: string }> = [];
+  const activeRequests = new Set<Promise<void>>();
+  const track = (work: Promise<void>) => {
+    activeRequests.add(work);
+    void work.then(() => activeRequests.delete(work), () => activeRequests.delete(work));
+  };
 
   async function listen(server: Server, hostname: string): Promise<string> {
     server.requestTimeout = 10_000; server.headersTimeout = 10_000; server.keepAliveTimeout = 1_000;
@@ -76,13 +81,13 @@ suite("real browser shared-wallet connection with PostgreSQL (synthetic chain re
     // The production Hono adapter receives actual Host headers; no browser header spoofing exists.
     let dispatch: ReturnType<typeof getRequestListener> | undefined;
     centerServer = createServer((request, response) => {
-      if (dispatch) void dispatch(request, response);
+      if (dispatch) track(dispatch(request, response));
       else { response.writeHead(503); response.end(); }
     });
     issuer = await listen(centerServer, "localhost");
     let apiDispatch: ReturnType<typeof getRequestListener> | undefined;
     apiServer = createServer((request, response) => {
-      if (apiDispatch) void apiDispatch(request, response);
+      if (apiDispatch) track(apiDispatch(request, response));
       else { response.writeHead(503); response.end(); }
     });
     audience = await listen(apiServer, "127.0.0.1");
@@ -159,8 +164,11 @@ suite("real browser shared-wallet connection with PostgreSQL (synthetic chain re
 
   afterEach(async () => {
     const results = await Promise.allSettled([page?.context().close(), close(centerServer), close(appServer), close(apiServer)]);
+    // Closing sockets does not stop an already running Hono/SQL operation.
+    // Drain those operations before the next case truncates the shared schema.
+    results.push(...await Promise.allSettled([...activeRequests]));
     for (const result of results) if (result.status === "rejected") throw result.reason;
-  }, 10_000);
+  }, 20_000);
   afterAll(async () => {
     const results: PromiseSettledResult<unknown>[] = await Promise.allSettled([browser?.close(), pool?.end()]);
     if (admin) {
