@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { Pool } from 'pg';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { hashTypedData } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { PostgresWalletRecoveryStore } from '../src/rest/wallet/recoveryPostgres.js';
@@ -236,6 +236,42 @@ suite('durable replacement-passkey proof intake (canonical state explicitly mode
     expect((await b.prove(winner.record.intent.id, winner.begun.flowToken, winner.proof)).replayed).toBe(true);
     expect((await pool.query('SELECT count(*)::int AS count FROM rest_wallet_recoveries WHERE proof IS NOT NULL')).rows[0].count).toBe(1);
   });
+  it('waits for the account before reclaiming recovery rows, avoiding a cycle with an owner operation', async () => {
+    const context = await existing(), short = new PostgresWalletRecoveryStore(pool, { ...policy, lifetimeMs: 1000 });
+    const expired = await short.begin(context.accountId);
+    await pool.query('SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.02)', [expired.record.intent.expiresAtMs]);
+    const application = `recovery_order_${randomUUID()}`;
+    const beginPool = new Pool({ connectionString, options: `-c search_path=${schema}`, application_name: application });
+    const selected = new PostgresWalletRecoveryStore(beginPool, policy), locker = await pool.connect();
+    const original = selected.authority.loadContext.bind(selected.authority);
+    // A real account lock after the initial snapshot forces begin's transaction to wait.
+    const snapshot = vi.spyOn(selected.authority, 'loadContext').mockImplementationOnce(async id => {
+      const result = await original(id);
+      await locker.query('BEGIN');
+      await locker.query('SELECT id FROM rest_accounts WHERE id=$1 FOR UPDATE', [id]);
+      return result;
+    });
+    const pending = selected.begin(context.accountId).then(value => ({ value }), error => ({ error }));
+    try {
+      const until = Date.now() + 5000;
+      let waiting = false;
+      while (!waiting && Date.now() < until) {
+        waiting = (await pool.query("SELECT pid FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock'", [application])).rowCount! > 0;
+        if (!waiting) await pool.query('SELECT pg_sleep(0.005)');
+      }
+      expect(waiting).toBe(true);
+      // The old cleanup-first implementation holds this row while waiting for our
+      // account lock: an owner operation taking it next would form a deadlock.
+      await expect(pool.query('SELECT id FROM rest_wallet_recoveries WHERE id=$1 FOR UPDATE NOWAIT', [expired.record.intent.id]))
+        .resolves.toMatchObject({ rowCount: 1 });
+    } finally {
+      await locker.query('ROLLBACK'); locker.release(); snapshot.mockRestore();
+      const result = await pending;
+      await beginPool.end();
+      expect(result).not.toHaveProperty('error');
+    }
+    expect(await store.get(expired.record.intent.id, expired.flowToken)).toBeNull();
+  }, 15000);
   it('reclaims expired unproved recoveries while preserving accepted proofs and their immutable history', async () => {
     const short = new PostgresWalletRecoveryStore(pool, { ...policy, lifetimeMs: 1200 });
     const accepted = await registered(short), receipt = await short.prove(accepted.record.intent.id, accepted.begun.flowToken, accepted.proof);

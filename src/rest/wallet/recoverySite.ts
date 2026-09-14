@@ -59,7 +59,11 @@ export function mountWalletRecovery(app: Hono, options: WalletRecoverySiteOption
   });
   app.post('/wallet/recovery/restart', async c => {
     await body(c, []);
-    if (readWalletCookie(c.req.raw, walletRecoveryCookie)) await recovery.restart(cookie(c, walletRecoveryCookie));
+    try { if (readWalletCookie(c.req.raw, walletRecoveryCookie)) await recovery.restart(cookie(c, walletRecoveryCookie)); }
+    catch (error) {
+      if (!(error instanceof RestError) || error.code !== 'WALLET_RECOVERY_UNAUTHORIZED') throw error;
+      // Cleanup can reclaim the expired continuation between state and Restart.
+    }
     c.header('Set-Cookie', walletCookie(walletRecoveryCookie, null, 0), { append: true });
     return c.json({ restarted: true, view: null });
   });

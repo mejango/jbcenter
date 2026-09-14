@@ -84,6 +84,19 @@ describe('signup HTTP authority boundary', () => {
     expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
     expect(signup.begin).not.toHaveBeenCalled();
   });
+  it('clears a reclaimed continuation during restart but preserves it on outage and rejects invalid CSRF', async () => {
+    const { app, signup } = setup();
+    signup.status.mockRejectedValueOnce(new RestError(403, 'WALLET_SIGNUP_UNAUTHORIZED', 'Reclaimed'));
+    const reset = await app.fetch(post('restart', {}));
+    expect(reset.status).toBe(200);
+    expect(reset.headers.get('set-cookie')).toContain('Max-Age=0');
+    signup.status.mockRejectedValueOnce(new Error('Database unavailable'));
+    const outage = await app.fetch(post('restart', {}));
+    expect(outage.status).toBe(503); expect(outage.headers.get('set-cookie')).toBeNull();
+    const invalid = await app.fetch(post('restart', {}, { ...headers, 'x-center-wallet-csrf': '' }));
+    expect(invalid.status).toBe(403); expect(invalid.headers.get('set-cookie')).toBeNull();
+    expect(signup.status).toHaveBeenCalledTimes(2); expect(signup.begin).not.toHaveBeenCalled();
+  });
   it('clears an unavailable continuation cookie so cleaned pending flows do not trap the browser', async () => {
     const { app, signup } = setup();
     signup.status.mockRejectedValueOnce(new RestError(403, 'WALLET_SIGNUP_UNAUTHORIZED', 'Continuation unavailable'));

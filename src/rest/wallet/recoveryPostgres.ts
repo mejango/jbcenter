@@ -66,6 +66,7 @@ export class PostgresWalletRecoveryStore {
     return this.transaction(async client => {
       // Global admission precedes account → enrollment → authority → credential → recovery → ceremony.
       await lockWalletCeremonyAdmission(client);
+      if (captured(await loadWalletAuthorityContextInTransaction(client, accountId)) !== expected) conflict();
       await client.query(`DELETE FROM rest_wallet_recoveries WHERE id IN
         (SELECT id FROM rest_wallet_recoveries WHERE proof IS NULL AND expires_at_ms<=${sqlNow}
           ORDER BY expires_at_ms,id LIMIT 100 FOR UPDATE SKIP LOCKED)`);
@@ -74,7 +75,6 @@ export class PostgresWalletRecoveryStore {
       // The account locator is public. Only a backup-owner proof may consume its quota.
       if (counts.total >= this.policy.maxRecords)
         throw new RestError(429, 'WALLET_RECOVERY_LIMIT', 'Recovery storage admission limit reached.');
-      if (captured(await loadWalletAuthorityContextInTransaction(client, accountId)) !== expected) conflict();
       await this.live(client, intent);
       await this.ceremonies.issueInTransaction(client, intent.registration, null);
       const row = (await client.query<Row>(`INSERT INTO rest_wallet_recoveries(id,account_id,enrollment_id,token_hash,created_at_ms,

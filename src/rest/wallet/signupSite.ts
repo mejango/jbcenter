@@ -61,7 +61,11 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
   });
   app.post('/wallet/signup/restart', async c => {
     await body(c, []); const token = cookie(c, walletSignupCookie);
-    if ((await signup.status(token)).phase !== 'expired') invalid(409);
+    try { if ((await signup.status(token)).phase !== 'expired') invalid(409); }
+    catch (error) {
+      if (!(error instanceof RestError) || error.code !== 'WALLET_SIGNUP_UNAUTHORIZED') throw error;
+      // Cleanup can reclaim the expired continuation between state and Restart.
+    }
     c.header('Set-Cookie', walletCookie(walletSignupCookie, null, 0), { append: true });
     return c.json({ view: null });
   });
