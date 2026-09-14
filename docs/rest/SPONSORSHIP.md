@@ -132,7 +132,8 @@ Center uses an internal relay adapter; API clients use the sponsorship routes an
 returned signing documents without integrating with that provider. The historical
 transport identifier `relayr-prepaid-erc2771` remains stable for compatibility.
 [Bundle ordering](https://relayr-docs-staging.up.railway.app/docs/concepts/bundle/)
-is implemented with `Multichain` virtual nonces: consecutive values starting at
+is implemented with `MultiChain` virtual nonces (the exact wire enum in
+[Relayr's OpenAPI](https://api.relayr.ba5ed.com/openapi.json)): consecutive values starting at
 zero per chain, with equal values on different chains eligible to run together.
 Center assigns consecutive wallet forwarding nonces, verifies signed prefixes
 with sequential `eth_simulateV1` calls against the deployed forwarder, and publishes

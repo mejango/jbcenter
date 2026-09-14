@@ -36,7 +36,7 @@ export class RelayrProvider {
         method: "POST",
         body: JSON.stringify({
           transactions: entries,
-          virtual_nonce_mode: "Multichain",
+          virtual_nonce_mode: "MultiChain",
         }),
       },
       signal,

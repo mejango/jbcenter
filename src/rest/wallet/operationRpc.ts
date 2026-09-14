@@ -11,7 +11,11 @@ function word(value: unknown): value is Hex { return typeof value === "string" &
 
 /** A single read-only operation owns all calls, response bytes and cancellation, including helper
  * reads. Promise races also bound transports that fail to honor their AbortSignal. */
-export function operationRpc(rpc: RestRpc, limits: Record<keyof typeof walletPreflightRpcBounds, number>, signal?: AbortSignal, observation = false) {
+export function operationRpc(rpc: RestRpc, limits: Record<keyof typeof walletPreflightRpcBounds, number>, signal?: AbortSignal, observation = false, chainId = 8453) {
+  // Existing wallet authority callers remain bound to Base. Operator dependency
+  // observations may explicitly read one of Center's other configured EVM chains.
+  if (![1, 10, 8453, 42161, 11155111, 11155420, 84532, 421614].includes(chainId))
+    fail('WALLET_DEPLOYMENT_CHAIN_UNSUPPORTED', 'Unsupported dependency observation chain.', 500);
   const controller = new AbortController();
   const operationDeadline = performance.now() + limits.totalTimeoutMs;
   let failure: RestError | undefined, remaining = limits.rpcCalls, remainingBytes = limits.responseBytes;
@@ -95,7 +99,7 @@ export function operationRpc(rpc: RestRpc, limits: Record<keyof typeof walletPre
       try {
         // Attach both race handlers before invoking a transport that may throw synchronously.
         const response = Promise.resolve().then(() => {
-          check(callDeadline); return rpc.request(8453, method, structuredClone(params), call.signal);
+          check(callDeadline); return rpc.request(chainId, method, structuredClone(params), call.signal);
         });
         const result = await Promise.race([response, interrupted]);
         check(callDeadline); const checked = checkedResponse(result, trace); check(callDeadline); return checked;

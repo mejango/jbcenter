@@ -429,7 +429,7 @@ describe("bounded fixed-origin Relayr transport", () => {
     expect(fetcher.mock.calls[0]![1]!.method).toBe("POST");
     expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toEqual({
       transactions: entries(),
-      virtual_nonce_mode: "Multichain",
+      virtual_nonce_mode: "MultiChain",
     });
     expect(fetcher.mock.calls[1]![1]!.method).toBe("GET");
     expect(fetcher.mock.calls[1]![1]).not.toHaveProperty("body");

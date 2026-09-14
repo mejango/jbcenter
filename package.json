@@ -18,6 +18,8 @@
     "check:wallet-compatibility": "node src/rest/smartAccounts/stack/passkey/verify.mjs",
     "wallet:device-probe": "node --import tsx scripts/rest/wallet-device-probe.ts",
     "wallet:client-pilot": "vitest run --config acceptance/shared-wallet/vitest.config.ts",
+    "wallet:production-stack": "node --import tsx scripts/rest/wallet-production-stack.ts",
+    "wallet:dependency-bundle": "node --import tsx scripts/rest/wallet-dependency-bundle.ts",
     "verify:execution-artifacts": "node src/rest/smartAccounts/stack/verify-artifacts.mjs",
     "migrate": "node --env-file-if-exists=.env --import tsx src/db/migrate-cli.ts",
     "build:web": "node scripts/rest/build-web.mjs",

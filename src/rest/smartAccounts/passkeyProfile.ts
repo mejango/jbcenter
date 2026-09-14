@@ -60,6 +60,32 @@ function requirePin(pin: ContractPin, name: ArtifactName, expectedRuntime: Hex) 
     invalid("The passkey profile needs the exact reviewed source, artifact and runtime pins.");
 }
 
+/** Unsigned deployment of the exact inspected artifacts. The factory constructor creates
+ * its singleton with CREATE nonce one; that address is patched only into reviewed slots.
+ * These predictions contain no observation, signer, fee authority or activation. */
+export async function preparePasskeyDependencyDeployment() {
+  const a = await artifacts();
+  const deployer = { address: getAddress('0x4e59b44847b379578588920ca78fbf26c0b4956c'),
+    // Arachnid deterministic-deployment-proxy, also pinned by prepare-session-guard.mjs.
+    runtime: '0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3' as Hex };
+  const address = (name: ArtifactName) => getContractAddress({ from: deployer.address,
+    opcode: 'CREATE2', salt: zeroHash, bytecode: a[name].bytecode });
+  const factory = address('SafeWebAuthnSignerFactory');
+  const singleton = getContractAddress({ from: factory, nonce: 1n });
+  const pin = (name: ArtifactName, address: Address, code: Hex): ContractPin => ({ address,
+    runtimeCodeHash: keccak256(code), source: { repository: SOURCE, commit: COMMIT, artifactSha256: ARTIFACT_SHA256[name] } });
+  const profile: PasskeyOwnerProfile = { version: 'center-passkey-v1',
+    signerFactory: pin('SafeWebAuthnSignerFactory', factory, runtime(a.SafeWebAuthnSignerFactory, { '16': BigInt(singleton) })),
+    signerSingleton: pin('SafeWebAuthnSignerSingleton', singleton, a.SafeWebAuthnSignerSingleton.deployedBytecode),
+    p256Verifier: pin('FCLP256Verifier', address('FCLP256Verifier'), a.FCLP256Verifier.deployedBytecode) };
+  const deployments = [
+    { name: 'FCLP256Verifier' as const, pin: profile.p256Verifier },
+    { name: 'SafeWebAuthnSignerFactory' as const, pin: profile.signerFactory },
+  ].map(item => ({ ...item, initCodeHash: keccak256(a[item.name].bytecode),
+    transaction: { to: deployer.address, data: concatHex([zeroHash, a[item.name].bytecode]), value: '0' as const } }));
+  return { deployer, profile, deployments };
+}
+
 async function inspectDependencies(manifest: SmartAccountManifest, snapshot: SmartSnapshot) {
   const profile = manifest.ownerProfile;
   if (!profile || profile.version !== "center-passkey-v1" || manifest.chainId !== 8453 || snapshot.evidence.chainId !== 8453)

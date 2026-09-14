@@ -1,0 +1,108 @@
+{
+  "$comment": "Captured from https://api.relayr.ba5ed.com/openapi.json on 2026-09-14. Original document SHA-256: 3620fd2fbb56124f3468f13969e27aa067e8227f303853a97da39f946ed20b14",
+  "$ref": "#/$defs/CreateNewEstimateRequest",
+  "$defs": {
+    "CreateNewEstimateRequest": {
+      "title": "CreateNewEstimateRequest",
+      "type": "object",
+      "required": [
+        "transactions"
+      ],
+      "properties": {
+        "app_id": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": true
+        },
+        "transactions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CallRequest"
+          }
+        },
+        "virtual_nonce_mode": {
+          "default": "Disabled",
+          "allOf": [
+            {
+              "$ref": "#/$defs/VirtualNonceMode"
+            }
+          ]
+        }
+      }
+    },
+    "CallRequest": {
+      "type": "object",
+      "required": [
+        "chain",
+        "target"
+      ],
+      "properties": {
+        "chain": {
+          "description": "The chain id the call will be send to.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "data": {
+          "description": "The data that will be send to the target.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/Bytes"
+            }
+          ],
+          "nullable": true
+        },
+        "gas_limit": {
+          "description": "The maximum amount of gas that can be used in this call. This is as specified by the user. If its none then its up to us to determine the correct value for it.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/U256"
+            }
+          ],
+          "nullable": true
+        },
+        "target": {
+          "description": "The receiving address of the call.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/Address"
+            }
+          ]
+        },
+        "value": {
+          "description": "The value that will be send along side the call.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/U256"
+            }
+          ],
+          "nullable": true
+        },
+        "virtual_nonce": {
+          "description": "A virtual nonce that can be used to order the transactions within a bundle.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0,
+          "nullable": true
+        }
+      }
+    },
+    "VirtualNonceMode": {
+      "type": "string",
+      "enum": [
+        "Disabled",
+        "ChainIndependent",
+        "MultiChain"
+      ]
+    },
+    "U256": {
+      "type": "string"
+    },
+    "Address": {
+      "type": "string"
+    },
+    "Bytes": {
+      "type": "string"
+    }
+  }
+}

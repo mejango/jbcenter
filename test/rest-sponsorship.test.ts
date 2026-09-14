@@ -883,7 +883,7 @@ describe("Relayr sponsorship service", () => {
     const quoted = await f.service.submit(f.actor, prepared.id, { signatures }, "publish");
     expect(quoted.state).toBe("quoted");
     const publication = JSON.parse(String(f.fetcher.mock.calls[0]![1]!.body));
-    expect(publication.virtual_nonce_mode).toBe("Multichain");
+    expect(publication.virtual_nonce_mode).toBe("MultiChain");
     expect(publication.transactions.map((entry: RelayrEntry) => entry.virtual_nonce)).toEqual(Array.from({ length: count }, (_, i) => i));
     const batches = f.rpc.mock.calls.filter(([, method]) => method === "eth_simulateV1");
     expect(batches).toHaveLength(count - 1);

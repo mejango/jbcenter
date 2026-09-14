@@ -30,6 +30,8 @@ export const requiredVitestSuites = [
   "test/rest-execution-runtime.test.ts",
   "test/rest-execution-config.test.ts",
   "test/rest-wallet-webauthn.test.ts",
+  "test/rest-wallet-production-stack.test.ts",
+  "test/rest-wallet-dependency-bundle.test.ts",
   "test/rest-passkey-signatures.test.ts",
   "test/rest-wallet-passkey-evm.test.ts",
   "test/rest-passkey-profile-evm.test.ts",

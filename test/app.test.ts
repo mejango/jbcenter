@@ -99,6 +99,22 @@ class MemoryStore implements Store {
   }
 }
 
+describe('reserved production credential origin during rollout', () => {
+  it.each(['/', '/accounts', '/assets/para.js', '/wallet', '/ipfs/bafytest'])('keeps %s closed before the wallet host is configured', async path => {
+    const response = await createApp(new MemoryStore()).request('https://wallet.juicebox.center' + path);
+    expect(response.status).toBe(503);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('content-security-policy')).toContain("default-src 'none'");
+    expect(response.headers.get('set-cookie')).toBeNull();
+    expect(await response.text()).not.toContain('<script');
+  });
+  it('protects the actual Host header without trusting forwarded-host claims', async () => {
+    const app = createApp(new MemoryStore());
+    expect((await app.request('http://localhost/accounts', { headers: { Host: 'WALLET.JUICEBOX.CENTER:8080' } })).status).toBe(503);
+    expect((await app.request('https://juicebox.center/', { headers: { 'X-Forwarded-Host': 'wallet.juicebox.center' } })).status).toBe(200);
+  });
+});
+
 const account = privateKeyToAccount(
   "0x0123456789012345678901234567890123456789012345678901234567890123",
 );

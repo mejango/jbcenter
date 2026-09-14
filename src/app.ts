@@ -331,6 +331,21 @@ export function createApp(
     await next();
   });
 
+  // DNS may be attached before the wallet runtime is activated. Reserve its credential
+  // origin even then: legacy Accounts, Para and IPFS must never execute on this host.
+  app.use('*', async (c, next) => {
+    const hostname = new URL(c.req.url).hostname;
+    const wireHostname = c.req.header('Host')?.toLowerCase().split(':')[0];
+    if (!options.rest?.wallet && [hostname, wireHostname].includes('wallet.juicebox.center')) {
+      return c.text('Juicebox wallet setup is in progress. Please try again later.', 503, {
+        'Cache-Control': 'no-store', 'Retry-After': '60', 'Referrer-Policy': 'no-referrer',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+      });
+    }
+    await next();
+  });
+
   if (options.rest) mountRestSite(app, options.rest);
 
   app.get("/", (c) => c.html(HOMEPAGE_HTML, 200, HOMEPAGE_HEADERS));
