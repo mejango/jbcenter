@@ -6,6 +6,7 @@ import { object, uuid } from '../sponsorship/validation.js';
 import { stable } from '../smartAccounts/service.js';
 import { bindIndependentQuoteStatus, parseIndependentQuoteBinding, parseIndependentStatus, RelayrResponseError, type RelayrResponseDetails, type RelayrProvider } from '../sponsorship/provider.js';
 import { prepareWalletDependencyBundle, type inspectWalletDependencyChain, type WalletDependencyFamily } from './dependencyBundle.js';
+import { walletDependencyPublicationLocation } from './dependencyJournal.js';
 
 type Observation = Awaited<ReturnType<typeof inspectWalletDependencyChain>>;
 
@@ -22,7 +23,7 @@ export async function publishWalletDependencyQuote(options: {
   observations: Observation[]; directory: string; family: WalletDependencyFamily;
   source: { revision: string; fingerprint: string };
   provider: Pick<RelayrProvider, 'createIndependent' | 'status'>;
-  now?: () => number; signal?: AbortSignal;
+  now?: () => number; signal?: AbortSignal; renewalOf?: string;
 }) {
   const source = structuredClone(options.source);
   if (!source || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(source.revision) || !/^[0-9a-f]{64}$/.test(source.fingerprint))
@@ -34,7 +35,16 @@ export async function publishWalletDependencyQuote(options: {
   if (!bundle.body.transactions.length) throw new RestError(409, 'WALLET_DEPENDENCIES_PRESENT', 'Every dependency is already present.');
   const root = resolve(options.directory);
   await mkdir(root, { recursive: true, mode: 0o700 });
-  const directory = join(root, bundle.bodyHash.slice(2)), path = join(directory, 'publication.json');
+  const location = await walletDependencyPublicationLocation(root, bundle.bodyHash.slice(2));
+  let directory = location.directory;
+  if (options.renewalOf !== undefined) {
+    if (!uuid(options.renewalOf)) throw new RestError(409, 'WALLET_DEPENDENCY_RENEWAL_REJECTED', 'A known retired predecessor is required.');
+    if (location.retired?.bundleUuid === options.renewalOf && location.depth < 7) directory = location.retired.successorDirectory;
+    else if (location.parentUuid !== options.renewalOf || location.retired)
+      throw new RestError(409, 'WALLET_DEPENDENCY_RENEWAL_REJECTED', 'Renewal must follow the current retired predecessor.');
+  } else if (location.parentUuid || location.retired)
+    throw new RestError(409, 'WALLET_DEPENDENCY_RENEWAL_REQUIRED', 'Use explicit renewal to preserve the expired quote history.');
+  const path = join(directory, 'publication.json');
   // mkdir is the cross-process claim keyed by semantic request hash, independent of run IDs.
   let previousAttemptId: string | null = null;
   try { await mkdir(directory, { mode: 0o700 }); }
@@ -53,10 +63,10 @@ export async function publishWalletDependencyQuote(options: {
   }
   const parent = await open(resolve(directory, '..'), 'r');
   try { await parent.sync(); } finally { await parent.close(); }
-  const save = (record: unknown, name = 'publication.json') => saveRecord(directory, record, name);
+  const save = (record: unknown, name = 'publication.json') => writeWalletDependencyEvidence(directory, record, name);
   const attempt = { version: 'center-wallet-dependency-publication-v2', family: bundle.family,
     state: 'submission-unknown', attemptId: randomUUID(), previousAttemptId, startedAt: now(), bodyHash: bundle.bodyHash,
-    body: bundle.body, observations: plan.observations, source };
+    body: bundle.body, observations: plan.observations, source, renewalOf: options.renewalOf ?? null };
   await save(attempt);
   // Recheck freshness after filesystem waits and immediately before the sole network write.
   try {
@@ -116,7 +126,7 @@ export function recoveryBundleUuid(body: string): string | null {
 }
 
 /** Atomic local evidence writes. Callers retain the permanent publication claim and history. */
-async function saveRecord(directory: string, record: unknown, name: string) {
+export async function writeWalletDependencyEvidence(directory: string, record: unknown, name: string) {
   const temporary = join(directory, `${randomUUID()}.tmp`);
   const file = await open(temporary, 'wx', 0o600);
   try { await file.writeFile(JSON.stringify(record, null, 2) + '\n'); await file.sync(); }
@@ -136,7 +146,8 @@ export async function reconcileWalletDependencyQuote(options: {
   const validSource = (value: unknown) => object(value) && typeof value.revision === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value.revision)
     && typeof value.fingerprint === 'string' && /^[0-9a-f]{64}$/.test(value.fingerprint);
   if (!/^[0-9a-f]{64}$/.test(options.bodyHash) || !validSource(options.source)) invalid();
-  const directory = join(resolve(options.directory), options.bodyHash), originalPath = join(directory, 'publication.json');
+  const { directory } = await walletDependencyPublicationLocation(options.directory, options.bodyHash);
+  const originalPath = join(directory, 'publication.json');
   const file = await open(originalPath, 'r');
   let bytes: Buffer;
   try {
@@ -170,19 +181,19 @@ export async function reconcileWalletDependencyQuote(options: {
   let status: unknown;
   try { status = await options.provider.status(provisionalQuote.bundleUuid, options.signal); }
   catch (error) {
-    if (error instanceof RelayrResponseError) await saveRecord(directory,
+    if (error instanceof RelayrResponseError) await writeWalletDependencyEvidence(directory,
       { ...evidence, observedAt: now(), httpResponse: error.responseDetails }, `${name}-response.json`);
     throw error;
   }
   // No parser or status failure can erase this response or the original POST identity.
   const received = { ...evidence, observedAt: now(), statusResponse: status };
-  await saveRecord(directory, received, `${name}-response.json`);
+  await writeWalletDependencyEvidence(directory, received, `${name}-response.json`);
   const quote = bindIndependentQuoteStatus(status, provisionalQuote);
   const providerStatus = parseIndependentStatus(status, quote);
   const record = { ...received, state: 'reconciled', quote, providerStatus,
     providerReportedPayment: object(status) && status.payment_received === true ? 'received' :
       object(status) && status.payment_received === false ? 'unpaid' : 'unknown' };
   const path = join(directory, `${name}.json`);
-  await saveRecord(directory, record, `${name}.json`);
+  await writeWalletDependencyEvidence(directory, record, `${name}.json`);
   return { record, path };
 }

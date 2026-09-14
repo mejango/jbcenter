@@ -1,6 +1,6 @@
 import { RestError } from '../../src/rest/core.js';
 import { resolve } from 'node:path';
-import { captureSourceSnapshot } from './check-required-tests.mjs';
+import { walletOperatorSource, walletDependencyJournalDirectory } from './wallet-dependency-operator.js';
 import { createRestRpc } from '../../src/rest/rpc.js';
 import { walletDependencyRpcUpstreams } from './wallet-dependency-rpc.js';
 import { RelayrProvider, RelayrResponseError } from '../../src/rest/sponsorship/provider.js';
@@ -15,7 +15,7 @@ if (args.length !== 4 || args[0] !== '--audited-fingerprint' || !/^[0-9a-f]{64}$
 // audit approval. The operator must obtain the fingerprint from the reviewed release record.
 const root = resolve(import.meta.dirname, '../..'), expected = args[1];
 async function reviewed() {
-  const source = await captureSourceSnapshot(root);
+  const source = await walletOperatorSource(root);
   if (source.fingerprint !== expected || source.dirty)
     throw new RestError(409, 'WALLET_DEPENDENCY_SOURCE_CHANGED', 'Source differs from the clean operator-reviewed release.');
   return { revision: source.revision, fingerprint: source.fingerprint };
@@ -27,7 +27,7 @@ try {
   const observations = await Promise.all(WALLET_DEPENDENCY_CHAINS.map(chainId => inspectWalletDependencyChain({ chainId, rpc, signal })));
   signal.throwIfAborted();
   const source = await reviewed();
-  const result = await publishWalletDependencyQuote({ observations, source, family: args[3] as 'mainnet' | 'testnet', directory: resolve(root, '.generated/wallet-dependency-publications'), provider: new RelayrProvider(),
+  const result = await publishWalletDependencyQuote({ observations, source, family: args[3] as 'mainnet' | 'testnet', directory: walletDependencyJournalDirectory(), provider: new RelayrProvider(),
     signal: AbortSignal.timeout(45000) });
   console.log(JSON.stringify({ state: result.record.state, family: result.record.family, journal: result.path, bundleUuid: result.record.quote.bundleUuid,
     payments: result.record.quote.payments, fundingEnabled: result.record.fundingEnabled }));

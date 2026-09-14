@@ -32,6 +32,10 @@ export const requiredVitestSuites = [
   "test/rest-wallet-webauthn.test.ts",
   "test/rest-wallet-production-stack.test.ts",
   "test/rest-wallet-dependency-bundle.test.ts",
+  "test/rest-wallet-dependency-funding.test.ts",
+  "test/rest-relayr-payment-evm.test.ts",
+  "test/rest-relayr-payment-source.test.ts",
+  "test/rest-relayr-payment-event.test.ts",
   "test/rest-passkey-evidence.test.ts",
   "test/rest-passkey-signatures.test.ts",
   "test/rest-wallet-passkey-evm.test.ts",
@@ -221,9 +225,9 @@ export async function writeObservation(path, observation) {
   } finally { await rm(temporary, { force: true }); }
 }
 
-export async function captureSourceSnapshot(projectRoot) {
+export async function captureSourceSnapshot(projectRoot, gitEnv = process.env, gitBinary = 'git') {
   const git = args => {
-    const result = spawnSync("git", args, { cwd: projectRoot, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 10_000 });
+    const result = spawnSync(gitBinary, args, { cwd: projectRoot, env: gitEnv, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 10_000 });
     if (result.error || result.status !== 0) throw new Error("Cannot attribute checks to the Git source tree.");
     return result.stdout;
   };

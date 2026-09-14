@@ -22,6 +22,7 @@
     "wallet:dependency-bundle": "node --import tsx scripts/rest/wallet-dependency-bundle.ts",
     "wallet:dependency-reconcile": "node --import tsx scripts/rest/wallet-dependency-reconcile.ts",
     "wallet:dependency-quote": "node --import tsx scripts/rest/wallet-dependency-quote.ts",
+    "wallet:dependency-funding": "node --import tsx scripts/rest/wallet-dependency-funding.ts",
     "verify:execution-artifacts": "node src/rest/smartAccounts/stack/verify-artifacts.mjs",
     "migrate": "node --env-file-if-exists=.env --import tsx src/db/migrate-cli.ts",
     "build:web": "node scripts/rest/build-web.mjs",
