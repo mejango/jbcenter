@@ -4,8 +4,6 @@ import type { CachedIpfsEntry, IpfsDiskCache } from "./ipfsCache.js";
 const GATEWAYS = [
   "https://ipfs.filebase.io/ipfs",
   "https://gateway.pinata.cloud/ipfs",
-  "https://dweb.link/ipfs",
-  "https://ipfs.io/ipfs",
 ];
 const SAFE_HEADERS = {
   "Access-Control-Allow-Origin": "*",

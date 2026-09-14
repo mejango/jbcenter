@@ -242,12 +242,14 @@ function normalizeResponse(value: unknown, id: RpcId): Record<string, unknown> |
     typeof data === "string" && data.length <= 131_074 && /^0x(?:[0-9a-f]{2})*$/iu.test(data)
       ? data
       : undefined;
+  // Upstream messages are replaced with fixed literals so a provider can never echo its credential URL.
+  // Code 3 keeps "execution reverted": viem only decodes the preserved revert `data` when it sees that text.
   return {
     jsonrpc: "2.0",
     id,
     error: {
       code: value.error.code,
-      message: "RPC request failed",
+      message: value.error.code === 3 ? "execution reverted" : "RPC request failed",
       ...(safeData ? { data: safeData } : {}),
     },
   };

@@ -142,7 +142,7 @@ describe("persistent public IPFS gateway", () => {
     expect(unavailable.headers.get("cache-control")).toBe("no-store");
     expect(unavailable.headers.get("x-ipfs-cache")).toBe("BYPASS");
     await unavailable.text();
-    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(fetcher).toHaveBeenCalledTimes(2);
     expect(await cache.get(PATH)).toBeNull();
     fetcher.mockImplementation(async () => new Response("short", { headers: { "content-length": "10" } }));
     await expect((await gateway(request())).text()).rejects.toThrow("incomplete");
@@ -155,7 +155,7 @@ describe("persistent public IPFS gateway", () => {
     const hit = await gateway(request());
     expect(hit.headers.get("x-ipfs-cache")).toBe("HIT");
     expect(await hit.text()).toBe("0123456789");
-    expect(fetcher).toHaveBeenCalledTimes(6);
+    expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
   it("forwards cold ranges without caching partial bodies and forwards cold HEAD without filling", async () => {

@@ -440,6 +440,25 @@ describe("RPC upstream boundary", () => {
     });
   });
 
+  it("keeps reverts recognizable as reverts without echoing the upstream message", async () => {
+    const gateway = createRpcGateway(
+      new Map([[1, ["https://rpc.example/credential"]]]),
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          jsonrpc: "2.0",
+          id: 1,
+          error: { code: 3, message: "execution reverted: https://rpc.example/credential", data: "0x1234" },
+        }),
+      ),
+    );
+
+    await expect(gateway.request(1, { ...chainIdRequest, method: "eth_call" })).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      error: { code: 3, message: "execution reverted", data: "0x1234" },
+    });
+  });
+
   it("rejects unsupported chains before fetching", async () => {
     const fetcher = vi.fn<typeof fetch>();
     const gateway = createRpcGateway(new Map(), fetcher);
