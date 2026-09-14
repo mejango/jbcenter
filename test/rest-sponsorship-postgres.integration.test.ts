@@ -706,6 +706,18 @@ suite("PostgreSQL sponsorship persistence", () => {
     ]);
   });
 
+  it("preserves a preparation stamped by a faster app clock without changing its commitment or expiry", async () => {
+    const plan = await createPlan("preparation-fast-clock");
+    const appNow = (await databaseSeconds(pool)) * 1000 + 10_000;
+    const record = { ...preparation(plan), createdAt: appNow, expiresAt: appNow + 60_000 };
+    expect(await sponsorships.create(record, appNow)).toEqual(record);
+    expect(await sponsorships.get(owner, record.id)).toEqual(record);
+    expect(await sponsorships.find(owner, record.preparationKey, record.inputHash)).toEqual(record);
+    const invalid = { ...record, id: "preparation-future", preparationKey: "future-key", createdAt: appNow + 1 };
+    await expect(sponsorships.create(invalid, appNow)).rejects.toMatchObject({ code: "INVALID_SPONSORSHIP_RECORD", status: 400 });
+    expect(await sponsorships.find(owner, invalid.preparationKey, invalid.inputHash)).toBeUndefined();
+  });
+
   it("rejects preparation already expired on the database clock even if a slow replica accepts it", async () => {
     const plan = await createPlan("preparation-slow-clock");
     const record = preparation(plan);

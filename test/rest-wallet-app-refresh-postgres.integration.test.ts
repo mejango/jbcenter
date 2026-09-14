@@ -158,7 +158,9 @@ suite('signed app requests renew their own bounded authority refresh interest', 
 
   it.each(['signature', 'signer', 'origin', 'owner-only', 'grant-revoked', 'grant-expired', 'epoch', 'credential', 'binding', 'policy', 'policy-readded'] as const)(
     'does not schedule provider work for invalid %s', async invalidation => {
-      const value = await seed({ grantSeconds: invalidation === 'grant-expired' ? 1 : 600 });
+      // Whole-second expiry must leave a full second for admission before this
+      // test intentionally waits past it. +1 could expire at the next tick.
+      const value = await seed({ grantSeconds: invalidation === 'grant-expired' ? 2 : 600 });
       if (invalidation === 'grant-revoked') await pool.query('UPDATE rest_wallet_app_grants SET revoked_at=$2 WHERE id=$1', [value.grant.id, Math.floor(await nowMs() / 1000)]);
       if (invalidation === 'grant-expired') await waitPast(value.grant.expiresAt * 1000);
       if (invalidation === 'epoch') await new PostgresWalletAppGrantStore(pool).advanceEpochs({ accountId: value.accountId, kind: 'logout',

@@ -175,7 +175,9 @@ export class PostgresTransactionStore implements TransactionStore {
       const existing = await this.idempotency(client, plan.actor, idempotency);
       checkIdempotency(existing, idempotency);
       if (existing) return this.require(client, plan.actor, existing.planId);
-      assertNewPlan(plan, await databaseMilliseconds(client));
+      // createdAt was validated on the app clock that stamped it. Recheck
+      // expiry against both clocks without requiring millisecond clock equality.
+      assertNewPlan(plan, Math.max(now, await databaseMilliseconds(client)));
       const usage = await client.query<{ count: string }>(
         "SELECT count(*)::text AS count FROM rest_transaction_plans WHERE account_id = $1",
         [plan.actor.accountId],
@@ -213,7 +215,7 @@ export class PostgresTransactionStore implements TransactionStore {
         ["plan"],
         Math.floor(now / 1_000),
       );
-      assertNewPlan(plan, await databaseMilliseconds(client));
+      assertNewPlan(plan, Math.max(now, await databaseMilliseconds(client)));
       return boundedClone(plan);
     });
   }

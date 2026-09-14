@@ -119,7 +119,9 @@ export class PostgresSponsorshipStore implements SponsorshipStore {
       const clock = await client.query<{ now: string }>(
         'SELECT floor(extract(epoch FROM clock_timestamp())*1000)::text AS now',
       );
-      assertNew(record, Number(clock.rows[0]!.now));
+      // Keep the app-clock shape check above and reject expiry on either clock.
+      // An app timestamp slightly ahead of the database is not malformed input.
+      assertNew(record, Math.max(now, Number(clock.rows[0]!.now)));
       await client.query(
         'INSERT INTO rest_sponsorships(id,account_id,principal_id,plan_id,preparation_key,created_at,revision,document) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)',
         [

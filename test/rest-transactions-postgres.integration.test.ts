@@ -537,6 +537,18 @@ suite('PostgreSQL transaction persistence', () => {
     expect(ids).toContain('monitor');
   });
 
+  it('preserves a fresh plan stamped by a faster app clock without changing its committed expiry', async () => {
+    const databaseNow = (await databaseSeconds(pool)) * 1000;
+    const appNow = databaseNow + 10_000;
+    const value = { ...plan('clock-ahead'), createdAt: appNow, expiresAt: appNow + 60_000 };
+    expect(await store.create(value, idem('clock-ahead'), appNow)).toEqual(value);
+    expect(await store.get(owner, value.id)).toEqual(value);
+    expect(await store.findIdempotentPlan(owner, idem('clock-ahead'))).toEqual(value);
+    await expect(store.create({ ...value, id: 'clock-invalid', createdAt: appNow + 1 }, idem('clock-invalid'), appNow))
+      .rejects.toMatchObject({ status: 400 });
+    expect(await store.findIdempotentPlan(owner, idem('clock-invalid'))).toBeUndefined();
+  });
+
   it('uses database time to reject preparation that only appears unexpired on a slow replica', async () => {
     const expired = { ...plan('clock-expired'), createdAt: now - 120_000, expiresAt: now - 30_000 };
     await expect(store.create(expired, idem('clock-expired'), now - 60_000)).rejects.toMatchObject({
