@@ -19,6 +19,9 @@ export async function exerciseRecoveryBrowser(options: {
   expect(await login.readSession(originalSession.value)).not.toBeNull();
   await cdp.send('WebAuthn.clearCredentials', { authenticatorId });
   await page.goto(origin + '/recover');
+  // The page loads its state first and drops input while busy; the disabled file input still
+  // receives a programmatic file, so wait for the initial state before opening the backup.
+  await contains('Open your backup file');
   await openBackup();
   await page.getByLabel('New passkey name').fill('Juicebox replacement');
   await page.getByRole('button', { name: 'Start recovery', exact: true }).click();
