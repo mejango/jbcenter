@@ -121,6 +121,15 @@ describe('dedicated Center wallet HTTP journey',()=>{
     expect(options.login.readSession).not.toHaveBeenCalled();
     expect(options.refresh.request).not.toHaveBeenCalled();
   });
+  it('sends a bare landing visit straight to the signup page unless a session cookie or app return is present',async()=>{
+    const {app}=setup({ signup: {} as never, signupBrowserScript: '/* signup */' });
+    const bare=await app.fetch(new Request(origin+'/wallet'));
+    expect(bare.status).toBe(302);expect(bare.headers.get('location')).toBe('/wallet/create');
+    expect((await app.fetch(new Request(origin+'/wallet',{headers:{cookie:`${walletSessionCookie}=${token}`}}))).status).toBe(200);
+    expect((await app.fetch(new Request(origin+'/wallet?intent='+flow))).status).toBe(200);
+    expect((await app.fetch(new Request(origin+'/wallet?payment='+loginId))).status).toBe(200);
+    expect((await setup().app.fetch(new Request(origin+'/wallet'))).status).toBe(200);
+  });
   it('serves a dedicated passkey page with self-only scripts and no Para policy',async()=>{
     const {app}=setup();const response=await app.fetch(new Request(origin+'/wallet'));
     expect(response.status).toBe(200);expect(await response.text()).toContain('Sign in with a passkey');

@@ -26,7 +26,8 @@ function kitIdentity(): WalletRecoveryKitIdentity {
 }
 const steps: Record<View['phase'], string> = {
   awaiting_registration: 'Create your passkey.', awaiting_possession: 'Your passkey is ready. Create your wallet with it.',
-  awaiting_deployment_approval: 'Your passkey is ready. Approve creation of your wallet.', deploying: 'Creating your wallet. Keep this page open, or come back later with your passkey.',
+  awaiting_deployment_approval: 'Your passkey is ready. Approve creation of your wallet.',
+  deploying: 'Creating your wallet. This usually takes about a minute. Keep this page open, or come back later with your passkey.',
   deployment_failed: 'Wallet creation did not complete. Keep this signup for recovery; do not send funds.',
   awaiting_setup: 'Your wallet is ready.', ready_to_sign_in: 'Your wallet is ready. Log in with your passkey.',
   expired: 'This incomplete signup expired. Its passkey is not an active wallet credential.',
@@ -165,6 +166,8 @@ async function advance() {
     native = null;
     await send('register', { type: 'public-key', credentialId: encode(value.rawId), rawId: encode(value.rawId),
       clientDataJSON: encode(value.response.clientDataJSON), attestationObject: encode(value.response.attestationObject) });
+    // Straight on to checking the passkey and approving creation; the first page said so.
+    if (current()?.phase === 'awaiting_possession') await advance();
   } else if (view.phase === 'awaiting_possession' && view.possession) {
     const document = view.possession.document, value = document.message;
     if (document.domain.name !== 'Juicebox Center Wallet Enrollment' || document.domain.version !== '1' || document.domain.chainId !== 8453
@@ -181,12 +184,12 @@ async function advance() {
       const owner = await recoveryOwner(view.recoveryOwner);
       backupSignature = await provider().request({ method: 'eth_signTypedData_v4', params: [owner, JSON.stringify(document)] });
     }
-    message('Confirm the new passkey in the prompt (1 of 2).');
+    message('Check that the new passkey works: use it in the prompt.');
     const proof = await assertion(view.possession.challenge, view.rpId, view.possession.credentialId);
     await send('prove', { assertion: proof, backupSignature });
-    if (current()?.phase === 'awaiting_deployment_approval') await approve('2 of 2');
+    if (current()?.phase === 'awaiting_deployment_approval') await approve();
   } else if (view.phase === 'awaiting_deployment_approval') {
-    await approve('1 of 1');
+    await approve();
   } else if (view.phase === 'awaiting_setup') {
     if (kitMode() && recoverySecret && kitSavedWallet !== view.walletAddress) throw new Error('Download your recovery kit before continuing.');
     // One click authorizes this browser for an hour of read, plan and relay access (it cannot approve
@@ -205,11 +208,11 @@ async function advance() {
   }
 }
 const current = () => view;
-async function approve(count: string) {
+async function approve() {
   const deployment: Awaited<ReturnType<Signup['prepareDeployment']>> = await request('deployment/review', {});
   if (deployment.walletAddress.toLowerCase() !== view!.walletAddress?.toLowerCase() || deployment.recoveryOwner.toLowerCase() !== view!.recoveryOwner.toLowerCase()
     || deployment.initializerHash !== view!.initializerHash) throw new Error('The wallet creation review changed.');
-  message(`Approve wallet creation in the prompt (${count}).`);
+  message('Approve creating your wallet: use your passkey in the prompt.');
   const proof = await assertion(deployment.challenge, view!.rpId, deployment.credentialId);
   await send('deployment/approve', { approvalId: deployment.id, assertion: proof });
 }
@@ -250,7 +253,10 @@ el('recovery-restore').addEventListener('click', () => { void run(async () => {
   message('Recovery words restored. Save the complete kit with your wallet address before creating the wallet.');
 }); });
 next.addEventListener('click', () => { void run(advance); });
-check.addEventListener('click', () => { void run(observe); });
+check.addEventListener('click', () => { void run(async () => {
+  message('Checking your signup…'); await observe(); pollCount = 0;
+  if (view?.phase === 'deploying') message('Still creating your wallet. Checked just now; this page keeps checking while it is open.');
+}); });
 cancel.addEventListener('click', () => native?.abort());
 async function walletRequest(path: string, body: unknown, proof?: string): Promise<any> {
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15000);
@@ -283,7 +289,7 @@ resume.addEventListener('click', event => { event.preventDefault(); if (busy || 
   await resumeSignup();
 }); });
 const timer = setInterval(() => {
-  if (!busy && !pending && view?.phase === 'deploying' && !document.hidden && navigator.onLine && pollCount++ < 60) void run(observe);
+  if (!busy && !pending && view?.phase === 'deploying' && !document.hidden && navigator.onLine && pollCount++ < 150) void run(observe);
 }, 2000);
 window.addEventListener('pagehide', () => {
   disposed = true; native?.abort(); clearInterval(timer); recoverySecret = null;

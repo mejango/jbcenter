@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { concatHex, decodeFunctionResult, encodeFunctionData, getAddress, hashTypedData, keccak256, padHex, toHex, zeroAddress, zeroHash,
+import { concatHex, decodeFunctionResult, encodeFunctionData, getAddress, hashTypedData, keccak256, padHex, stringToHex, toHex, zeroAddress, zeroHash,
   type Abi, type Address, type Hex } from "viem";
 import { mnemonicToAccount } from "viem/accounts";
 import type { RelayPolicy } from "../src/rest/transactions/types.js";
@@ -356,20 +356,35 @@ describe.skipIf(!available)("read-only signed deployment observation against the
     expect(result.finality).toEqual({ state: "unknown", evidence: null });
   });
 
-  it("rejects forged creation-log data even while the actual treasury receipt is successful", async () => {
-    const receipt = await broadcast();
+  it("rejects a forged creation log in the treasury receipt instead of proving the wallet with it", async () => {
+    // The receipt's own ProxyCreation log is what proves the deployment to the wallet inspector,
+    // so a provider that tampers with it must leave the whole observation unproven.
+    await broadcast();
     let forged = false;
     const result = await observe({ request: async (chain, method, params, signal) => {
       const answer = await transport.request(chain, method, params, signal);
-      if (method === "eth_getLogs" && Array.isArray(answer) && answer.length && !forged) {
-        forged = true; return [{ ...answer[0], data: "0x" }, ...answer.slice(1)];
+      if (method === "eth_getTransactionReceipt" && answer && typeof answer === "object" && Array.isArray((answer as Receipt).logs)) {
+        forged = true;
+        return { ...answer, logs: (answer as Receipt).logs.map(log => log.topics[0] === keccak256(stringToHex("ProxyCreation(address,address)")) ? { ...log, data: "0x" } : log) };
       }
       return answer;
     } });
     expect(forged).toBe(true);
-    unknownWallet(result);
+    expect(result.transaction.state).not.toBe("canonical-success");
+    expect(result.wallet.state).not.toBe("verified");
+    expect(result.dispatchEligible).toBe(false);
+  });
+  it("proves the wallet from the verified receipt without scanning factory history from genesis", async () => {
+    const receipt = await broadcast();
+    const scans: { fromBlock: string }[] = [];
+    const result = await observe({ request: async (chain, method, params, signal) => {
+      if (method === "eth_getLogs") scans.push(params[0] as { fromBlock: string });
+      return transport.request(chain, method, params, signal);
+    } });
     expect(result.transaction).toMatchObject({ state: "canonical-success", receipt: { block: { blockHash: receipt.blockHash } } });
-    expect(result.fees.executionWei).toBe((BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice)).toString());
+    expect(result.wallet.state).toBe("verified");
+    expect(scans.length).toBeGreaterThan(0);
+    expect(scans.map(scan => BigInt(scan.fromBlock) >= BigInt(receipt.blockNumber))).not.toContain(false);
   });
 
   it("drops current proof when a receipt block cannot be canonically rechecked", async () => {

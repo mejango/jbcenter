@@ -69,6 +69,12 @@ export async function startWalletBaseAnvil() {
       return result.map(log => record(log) ? { ...log, transactionIndex: shift(log.transactionIndex) } : log);
     return result;
   }
+  async function logRangeTooWide(filter: unknown) {
+    const { fromBlock, toBlock } = (record(filter) ? filter : {}) as { fromBlock?: string; toBlock?: string };
+    const head = BigInt(await anvil.rpc<string>("eth_blockNumber", []));
+    const bound = (value: string | undefined, fallback: bigint) => value && /^0x[0-9a-f]+$/i.test(value) ? BigInt(value) : fallback;
+    return bound(toBlock, head) - bound(fromBlock, 0n) >= 500n;
+  }
   const proxy: Server = createServer(async (request, response) => {
     try {
       let bytes = "";
@@ -78,6 +84,11 @@ export async function startWalletBaseAnvil() {
       let result: unknown;
       if (body.method === "eth_getTransactionByHash" && typeof body.params[0] === "string" && [...blocks.keys()].some(hash => depositHash(hash) === body.params[0])) {
         result = deposit([...blocks.keys()].find(hash => depositHash(hash) === body.params[0])!);
+      } else if (body.method === "eth_getLogs" && await logRangeTooWide(body.params[0])) {
+        // Dwellir's Base plan refuses wider log windows; the hosted runtime must page like production.
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, error: { code: -32005, message: "eth_getLogs range exceeds the 500-block limit for this plan; split the request into ranges of at most 500 blocks" } }));
+        return;
       } else if (body.method === "eth_sendRawTransaction" && faults.send === "lost-reply") {
         await anvil.rpc(body.method, body.params); response.destroy(); return;
       } else {

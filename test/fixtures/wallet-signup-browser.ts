@@ -44,7 +44,9 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     }
     // The kit journey loses the setup reply and logs in by hand; the wallet journey keeps it and
     // proves the single "Continue" click carries the user from setup into the signed-in wallet.
-    if (response.ok && ((path === '/wallet/signup/register' && !lostRegistration) || (kitMode && path === '/wallet/signup/setup/complete' && !lostSetup))) {
+    // The kit journey loses the registration and setup replies and recovers by hand; the wallet
+    // journey keeps them and proves one click runs create, check and approve, then setup and login.
+    if (response.ok && kitMode && ((path === '/wallet/signup/register' && !lostRegistration) || (path === '/wallet/signup/setup/complete' && !lostSetup))) {
       if (path.endsWith('/register')) lostRegistration = true; else lostSetup = true;
       return new Response('Unavailable after commit', { status: 503 });
     }
@@ -111,14 +113,21 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await contains('cancelled');
     await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
     await page.getByRole('button', { name: 'Create passkey', exact: true }).click();
-    await contains('Check the original signup');
-    await page.getByRole('button', { name: 'Check signup' }).click();
-    await contains('Your passkey is ready');
-    const originalAddress = await page.locator('#signup-address').textContent();
-    expect((await page.locator('#signup-recovery').textContent())?.toLowerCase()).toBe(kitMode ? 'a kit you download once the wallet exists' : enrollmentBackupAccount.address.toLowerCase());
-    // One click proves the passkey and approves creation: two prompts, each announced in the status line.
-    await page.getByRole('button', { name: 'Create wallet', exact: true }).click();
+    if (kitMode) {
+      await contains('Check the original signup');
+      await page.getByRole('button', { name: 'Check signup' }).click();
+      await contains('Your passkey is ready');
+      expect((await page.locator('#signup-recovery').textContent())?.toLowerCase()).toBe('a kit you download once the wallet exists');
+      // One click proves the passkey and approves creation: two prompts, each announced in the status line.
+      await page.getByRole('button', { name: 'Create wallet', exact: true }).click();
+    }
     await contains('Creating your wallet');
+    const originalAddress = await page.locator('#signup-address').textContent();
+    if (!kitMode) expect((await page.locator('#signup-recovery').textContent())?.toLowerCase()).toBe(enrollmentBackupAccount.address.toLowerCase());
+    // A manual check while creation is still running answers at once; the page's own polling then
+    // notices the created wallet, so the kit appears without another click.
+    await page.getByRole('button', { name: 'Check signup' }).click();
+    await contains('Still creating your wallet');
     const cookie = (await context.cookies()).find(item => item.name === walletSignupCookie)!;
     const flow = (await flows.authenticate(cookie.value))!, deploymentId = flow.deploymentId!;
     await signup.tick();
@@ -128,7 +137,6 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     let encoded = '';
     if (kitMode) {
       // The kit is presented once the wallet exists; saving it unlocks browser setup.
-      await page.getByRole('button', { name: 'Check signup' }).click();
       await contains('Save your recovery kit');
       expect(await page.getByRole('button', { name: 'Continue', exact: true }).isDisabled()).toBe(true);
       const downloaded = page.waitForEvent('download');
@@ -186,7 +194,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       await exerciseRecoveryBrowser({ page, context, cdp, authenticatorId, origin, recovery, login, kitText: recoveryKitText!, requestBodies });
       expect(lostRecoveryPaths.size).toBe(3);
     }
-    expect(errors).toEqual([]); expect(lostRegistration).toBe(true); expect(lostSetup).toBe(kitMode);
+    expect(errors).toEqual([]); expect(lostRegistration).toBe(kitMode); expect(lostSetup).toBe(kitMode);
     expect((await options.deployments.getSettlement(deploymentId))?.nextNonce).toBe(options.expectedNextNonce ?? '5');
     await writeFile(new URL('summary.json', out), JSON.stringify({ passed: true, browser: browser.version(),
       evidence: 'real HTTP, PostgreSQL, unforked Anvil; virtual authenticator and test EOA',

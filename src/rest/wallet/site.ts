@@ -157,8 +157,12 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     if (!options.recoveryBrowserScript) reject(503, 'WALLET_RECOVERY_UNAVAILABLE');
     mountWalletRecovery(app, { origin, recovery: options.recovery, browserScript: options.recoveryBrowserScript });
   }
-  app.get('/wallet', c => c.html(walletPage(!!options.signup, !!options.recovery)));
-  app.get('/wallet/', c => c.html(walletPage(!!options.signup, !!options.recovery)));
+  // A bare visit without a session belongs on the signup page (which also logs in); deciding it
+  // here avoids painting the landing page first. App returns and stale cookies still land here.
+  const landing = (c: Context) => options.signup && !readWalletCookie(c.req.raw, walletSessionCookie) && new URL(c.req.url).search === ''
+    ? c.redirect('/wallet/create', 302) : c.html(walletPage(!!options.signup, !!options.recovery));
+  app.get('/wallet', landing);
+  app.get('/wallet/', landing);
   app.get('/wallet/assets/wallet.js', c => c.body(browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
   app.get('/wallet/assets/wallet.css', c => c.body(walletCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
   app.get('/wallet/config', async c => {

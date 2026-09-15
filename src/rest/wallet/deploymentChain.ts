@@ -158,6 +158,11 @@ export function createWalletDeploymentChain(options: WalletDeploymentChainOption
         }
         rpc.check();
       }
+      // The canonical ProxyCreation log of this operation's own receipt. CREATE2 cannot reuse an
+      // occupied address and Base (post-Cancun) cannot vacate one after its creating transaction,
+      // so a successful creation in our receipt is the unique factory deployment: no genesis-to-head
+      // factory scan is needed, and none fits the provider's 500-block log windows.
+      let creationLog: Record<string, unknown> | null = null;
       async function inspectWallet(head: RestBlockEvidence) {
         const code = rpcHex(await rpc.request("eth_getCode", [creation.address, tag(head)]), "observed Safe runtime", 49_152);
         if (code === "0x") {
@@ -170,8 +175,10 @@ export function createWalletDeploymentChain(options: WalletDeploymentChainOption
         // Disposable instances omit BOTH persistence and creation-log callbacks. No index sync,
         // checkpoint write, receipt-only history shortcut or fabricated REST principal is used.
         const accountService = createSmartAccountService({ rpc: scoped, manifests: [manifest], registry: new MemorySmartAccountRegistry(),
-          audience: enrollment.intent.origin, now, moduleInspectors: [createSafe7579Inspector({ rpc: scoped, utility,
-            inspectSessions: createInstalledSessionVerifier({ rpc: scoped }).inspectAllAt })] });
+          audience: enrollment.intent.origin, now, moduleInspectors: [createSafe7579Inspector({ rpc: scoped, utility, maxLogRangeBlocks: 500,
+            inspectSessions: createInstalledSessionVerifier({ rpc: scoped }).inspectAllAt,
+            creationLogs: async (chainId, factory, account, end) => creationLog && chainId === 8453 && same(factory, manifest.factory.address)
+              && same(account, creation.address) && end >= BigInt(String(creationLog.blockNumber)) ? [structuredClone(creationLog)] : undefined })] });
         try {
           const state = await accountService.inspect({ manifestId: manifest.id, address: creation.address }, signal, head);
           const details = state.modules?.details;
@@ -228,7 +235,7 @@ export function createWalletDeploymentChain(options: WalletDeploymentChainOption
               if (item.topics.length !== 2 || item.topics[1].toLowerCase() !== padHex(creation.address, { size: 32 }).toLowerCase() ||
                 !same(decoded.args.proxy, creation.address) || !same(decoded.args.singleton, manifest.singleton.address) ||
                 !same(data, encodeAbiParameters([{ type: "address" }], [manifest.singleton.address]))) invalid();
-              expectedCreations++;
+              expectedCreations++; if (status === 1n) creationLog = item;
             }
           }
           if (status === 1n && expectedCreations !== 1) invalid();

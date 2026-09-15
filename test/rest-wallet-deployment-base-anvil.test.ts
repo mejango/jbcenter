@@ -70,8 +70,14 @@ describe("hosted Base deployment producers on a Base-shaped local chain", () => 
     expect(fixture.sends()).toHaveLength(1);
     expect(fixture.sends()[0]!.params).toEqual([context.operation.signed!.rawTransaction]);
     await expect(producer().observeSettlement(context)).rejects.toMatchObject({ status: 502 });
-    await fixture.rpc("anvil_mine", ["0x41", "0x0"]);
+    await fixture.rpc("anvil_mine", ["0x201", "0x0"]);
+    fixture.requests.length = 0;
     const evidence = await producer().observeSettlement(context), receipt = evidence.observation.transaction.receipt!;
+    // The verified creation receipt proves the deployment; a genesis-to-head factory scan is
+    // impossible on a 500-block log plan, so every history read starts at the creation block.
+    const scans = fixture.requests.filter(request => request.method === "eth_getLogs").map(request => request.params[0] as { fromBlock: string });
+    expect(scans.length).toBeGreaterThan(0);
+    expect(scans.map(scan => BigInt(scan.fromBlock) >= BigInt(receipt.block.blockNumber))).not.toContain(false);
     const priced = calculateBaseSignedFees({ rawTransaction: context.operation.signed!.rawTransaction, parameters: baseAnvilParameters() });
     const execution = BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice), operator = BigInt(receipt.gasUsed) * 100n + 7n;
     expect(evidence.observation).toMatchObject({ transaction: { state: "canonical-success" }, wallet: { state: "verified" }, finality: { state: "finalized" } });
