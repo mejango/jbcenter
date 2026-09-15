@@ -297,10 +297,19 @@ el('recovery-share').addEventListener('click', () => { void run(async () => {
   if (!recoverySecret) throw new Error('Restore your backup password first.');
   const file = new File([serializeWalletRecoveryKit(recoverySecret, kitIdentity())], backupFileName, { type: 'application/json' });
   if (!navigator.canShare({ files: [file] })) throw new Error('This device cannot share files. Save the backup file instead.');
-  await navigator.share({ files: [file], title: 'Juicebox wallet backup' });
+  try { await navigator.share({ files: [file], title: 'Juicebox wallet backup' }); }
+  catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw new Error('Sharing cancelled. Save the backup file, or share again.');
+    throw new Error('Your browser would not open its share sheet. Save the backup file instead.');
+  }
   kitSavedWallet = view!.walletAddress!;
   message('Backup file shared. Make sure it reached somewhere you trust, then continue.');
 }); });
+el('backup-password-show').addEventListener('click', () => {
+  const fields = [el<HTMLInputElement>('backup-password'), el<HTMLInputElement>('backup-password-again')], reveal = fields[0]!.type === 'password';
+  for (const field of fields) field.type = reveal ? 'text' : 'password';
+  el('backup-password-show').textContent = reveal ? 'Hide' : 'Show';
+});
 el('recovery-show').addEventListener('click', () => {
   const input = el<HTMLInputElement>('recovery-phrase'); input.type = input.type === 'password' ? 'text' : 'password'; render();
 });

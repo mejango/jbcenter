@@ -12,20 +12,21 @@ export function walletSignupPage(options: { passwordBackups?: boolean } = {}) {
 <label class="choice"><input type="radio" name="recovery-method" value="kit" checked>A backup password made for you</label>
 <label class="choice"><input type="radio" name="recovery-method" value="wallet">A wallet you already have</label>${options.passwordBackups ? `
 <label class="choice"><input type="radio" name="recovery-method" value="password">A password you choose</label>` : ''}</fieldset>
-<div id="password-fields" hidden><label>Choose a password<input id="backup-password" type="password" maxlength="128" autocomplete="new-password"></label>
+<div id="password-fields" hidden><label>Choose a password<div class="secret"><input id="backup-password" type="password" maxlength="128" autocomplete="new-password">
+<button type="button" id="backup-password-show" class="quiet">Show</button></div></label>
 <label>Type it again<input id="backup-password-again" type="password" maxlength="128" autocomplete="new-password"></label>
 <p class="hint">At least 8 characters with letters and numbers. This password cannot be reset or recovered later. Anyone with it can control your wallet.</p></div>
 <button type="submit" id="signup-begin">Sign up</button></form>
-<section id="signup-details" hidden aria-label="Wallet details"><dl><dt>Passkey name</dt><dd id="signup-name"></dd>
+<section id="signup-details" hidden aria-label="Wallet details"><dl><dt>Wallet address</dt><dd id="signup-address"></dd>
+<dt>Passkey name</dt><dd id="signup-name"></dd>
 <dt id="signup-recovery-label">Recovery</dt><dd><span id="signup-recovery"></span>
 <div class="secret" id="recovery-secret" hidden><input id="recovery-phrase" type="password" readonly aria-label="Backup password" autocomplete="off">
-<button type="button" id="recovery-show" class="quiet">Show</button><button type="button" id="recovery-copy" class="quiet">Copy</button></div></dd>
-<dt>Wallet address</dt><dd id="signup-address"></dd></dl></section>
+<button type="button" id="recovery-show" class="quiet">Show</button><button type="button" id="recovery-copy" class="quiet">Copy</button></div></dd></dl></section>
 <p id="password-ready" hidden>Your backup is sealed with the password you chose. It cannot be reset, so keep that password safe.</p>
 <section id="recovery-kit" hidden aria-label="Backup password">
 <p>Anyone with this backup password can control your wallet. A lost backup password can't be recovered.</p>
 <p id="recovery-kit-note">The backup file holds this password and your wallet address. Save it somewhere private you'll remember, or share it with someone you trust with your money.</p>
-<div class="actions"><button type="button" id="recovery-download">Save backup file</button><button type="button" id="recovery-share" class="secondary" hidden>Share</button></div>
+<div class="actions"><button type="button" id="recovery-download" class="secondary">Save backup file</button><button type="button" id="recovery-share" class="secondary" hidden>Share</button></div>
 <div id="recovery-restore-box" hidden><p id="recovery-hint"></p><label>Backup password<textarea id="recovery-words" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea></label>
 <button type="button" id="recovery-restore" class="secondary">Restore backup password</button></div></section>
 <div class="actions"><button type="button" id="signup-next" hidden></button>
