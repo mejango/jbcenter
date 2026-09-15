@@ -63,23 +63,23 @@ function accept(result: { view: View | null; csrfToken?: string }) {
   if (result.csrfToken) { if (decode(result.csrfToken).length !== 32) throw new Error('Invalid signup context.'); csrf = result.csrfToken; }
   message(view ? steps[view.phase] : '');
   if (view?.phase === 'ready_to_sign_in') sessionStorage.removeItem('center:signup:browser:' + view.enrollmentId);
-  if (view?.phase === 'ready_to_sign_in' || (view?.phase === 'awaiting_deployment_approval' && kitVerifiedWallet === view.walletAddress)) recoverySecret = null;
+  if (view?.phase === 'ready_to_sign_in' && kitSavedWallet === view.walletAddress) recoverySecret = null;
 }
 function render() {
   form.hidden = !known || !!view; form.querySelector('button')!.disabled = busy;
   name.disabled = busy; details.hidden = !view;
-  const recoveryPhase = !view || ['awaiting_registration', 'awaiting_possession', 'awaiting_deployment_approval'].includes(view.phase);
+  // The kit is presented once the wallet exists. Earlier phases still need the words in memory
+  // to sign the enrollment; a reload before then strands the signup, so say so and offer a fresh start.
+  const kitPhase = !!view && ['awaiting_setup', 'ready_to_sign_in'].includes(view.phase);
+  const stranded = kitMode() && !recoverySecret && !!view && ['awaiting_registration', 'awaiting_possession'].includes(view.phase);
+  if (stranded) message('Reloading lost the recovery words for this signup. Sign up again with a new passkey.', true);
+  form.hidden = !known || (!!view && !stranded);
   el<HTMLFieldSetElement>('recovery-method').disabled = busy; // Inside the form: gone once signup begins.
-  el('recovery-kit').hidden = !view || !recoveryPhase || !kitMode() || (kitVerifiedWallet !== null && kitVerifiedWallet === view.walletAddress);
+  el('recovery-kit').hidden = !kitPhase || !kitMode() || kitVerifiedWallet === view!.walletAddress;
   el('recovery-phrase').textContent = recoverySecret?.mnemonic ?? '';
-  // The kit is complete only once the passkey fixed the wallet address. Until then, or after a
-  // reload lost the words, say what to do instead of showing an idle button.
-  const complete = !!recoverySecret && !!view?.walletAddress;
-  el('recovery-hint').textContent = !view?.walletAddress ? 'Create your passkey to complete the kit with your wallet address.'
-    : recoverySecret ? '' : 'Reopen your saved kit or restore your words to continue.';
-  el('recovery-kit-note').hidden = !complete; el<HTMLButtonElement>('recovery-download').hidden = !complete;
+  el('recovery-hint').textContent = recoverySecret ? '' : 'Reloading hid the words. Reopen your saved kit or restore the words to check them.';
+  el('recovery-kit-note').hidden = !recoverySecret; el<HTMLButtonElement>('recovery-download').hidden = !recoverySecret;
   el<HTMLButtonElement>('recovery-download').disabled = busy;
-  el('recovery-verify').hidden = !view?.walletAddress;
   el<HTMLInputElement>('recovery-file').disabled = busy;
   el<HTMLTextAreaElement>('recovery-words').disabled = busy;
   el<HTMLButtonElement>('recovery-restore').disabled = busy;
@@ -89,8 +89,9 @@ function render() {
     : view?.phase === 'awaiting_deployment_approval' ? deployment ? 'Approve wallet creation' : 'Review wallet creation'
     : view?.phase === 'awaiting_setup' ? setup ? 'Approve browser setup' : 'Review browser setup'
     : view?.phase === 'expired' ? 'Start a new registration' : null;
-  next.hidden = !label || !!pending; next.textContent = label; next.disabled = busy;
-  if (view?.phase === 'awaiting_deployment_approval' && kitMode() && kitSavedWallet !== view.walletAddress) next.disabled = true;
+  next.hidden = !label || !!pending || stranded; next.textContent = label; next.disabled = busy;
+  // Saving the kit unlocks browser setup; after a reload the words are gone and only a saved kit can be checked.
+  if (view?.phase === 'awaiting_setup' && kitMode() && recoverySecret && kitSavedWallet !== view.walletAddress) next.disabled = true;
   el('signup-intro').hidden = !known || !!view; // "log in" resumes with a passkey; a finished wallet lands at sign-in.
   check.hidden = !view && !pending && known; check.disabled = busy;
   cancel.hidden = !native; signIn.hidden = view?.phase !== 'ready_to_sign_in';
@@ -180,7 +181,6 @@ async function advance() {
     const proof = await assertion(view.possession.challenge, view.rpId, view.possession.credentialId);
     await send('prove', { assertion: proof, backupSignature });
   } else if (view.phase === 'awaiting_deployment_approval') {
-    if (kitMode() && kitSavedWallet !== view.walletAddress) throw new Error('Download your recovery kit before creating the wallet.');
     if (!deployment) {
       deployment = await request('deployment/review', {});
       if (deployment!.walletAddress.toLowerCase() !== view.walletAddress?.toLowerCase() || deployment!.recoveryOwner.toLowerCase() !== view.recoveryOwner.toLowerCase() || deployment!.initializerHash !== view.initializerHash) {
@@ -192,6 +192,7 @@ async function advance() {
       await send('deployment/approve', { approvalId: deployment.id, assertion: proof }); deployment = null;
     }
   } else if (view.phase === 'awaiting_setup') {
+    if (kitMode() && recoverySecret && kitSavedWallet !== view.walletAddress) throw new Error('Download your recovery kit before continuing.');
     const browser = browserKey();
     if (!setup) {
       setup = await request('setup/review', { browserPublicAddress: browser.address });
@@ -220,7 +221,7 @@ el('recovery-download').addEventListener('click', () => { void run(async () => {
   document.body.append(link); link.click(); link.remove();
   setTimeout(() => { URL.revokeObjectURL(url); downloadUrls.delete(url); }, 1000);
   kitSavedWallet = view!.walletAddress!;
-  message('Recovery kit saved. Keep it somewhere private, then review creation of your wallet.');
+  message('Recovery kit saved. Keep it somewhere private, then continue.');
 }); });
 el<HTMLInputElement>('recovery-file').addEventListener('change', event => { void run(async () => {
   const input = event.target as HTMLInputElement, file = input.files?.[0]; input.value = '';
@@ -229,7 +230,7 @@ el<HTMLInputElement>('recovery-file').addEventListener('change', event => { void
   recoverySecret = view?.phase === 'awaiting_possession' || view?.phase === 'awaiting_registration'
     ? { mnemonic: kit.mnemonic, recoveryOwner: kit.recoveryOwner } : null;
   kitVerifiedWallet = kitSavedWallet = view!.walletAddress; el<HTMLTextAreaElement>('recovery-words').value = '';
-  message('Recovery kit verified. You can review creation of your wallet.');
+  message('Recovery kit verified.');
 }); });
 el('recovery-restore').addEventListener('click', () => { void run(async () => {
   if (!view) throw new Error('Resume your signup first.');

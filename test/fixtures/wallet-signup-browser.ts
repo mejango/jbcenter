@@ -116,38 +116,6 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await page.getByRole('button', { name: 'Verify both owners' }).click();
     await contains('Review and approve');
     const originalAddress = await page.locator('#signup-address').textContent();
-    if (kitMode) {
-      expect(await page.getByRole('button', { name: 'Review wallet creation' }).isDisabled()).toBe(true);
-      const downloaded = page.waitForEvent('download');
-      await page.getByRole('button', { name: 'Download recovery kit' }).click();
-      const stream = await (await downloaded).createReadStream(), chunks = [];
-      if (!stream) throw new Error('No recovery download.');
-      for await (const chunk of stream) chunks.push(chunk);
-      const encoded = Buffer.concat(chunks).toString('utf8'), kit = JSON.parse(encoded);
-      recoveryKitText = encoded;
-      expect(kit.walletAddress.toLowerCase()).toBe(originalAddress?.toLowerCase());
-      expect(kit.mnemonic.split(' ')).toHaveLength(24);
-      // Saving the kit is what unlocks creation; checking the saved file is optional and stays strict.
-      expect(await page.getByRole('button', { name: 'Review wallet creation' }).isDisabled()).toBe(false);
-      const wrong = JSON.stringify({ ...kit, walletAddress: '0x' + '44'.repeat(20) });
-      await page.locator('#recovery-verify summary').click();
-      await page.getByLabel('Recovery kit file').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(wrong) });
-      await contains('does not match');
-      await page.reload();
-      await contains('Review and approve');
-      expect(await page.locator('#recovery-phrase').textContent()).toBe('');
-      await page.setViewportSize({ width: 320, height: 844 });
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      expect(await page.getByRole('button', { name: 'Review wallet creation' }).isDisabled()).toBe(true);
-      await page.locator('#recovery-verify summary').click();
-      await page.getByLabel('Recovery kit file').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(encoded) });
-      await contains('Recovery kit verified');
-      expect(await page.locator('#recovery-phrase').textContent()).toBe('');
-      const persisted = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
-      expect(persisted.includes(kit.mnemonic)).toBe(false);
-      expect(requestBodies.some(body => body.includes(kit.mnemonic))).toBe(false);
-      await page.setViewportSize({ width: 1000, height: 850 });
-    }
     await page.getByRole('button', { name: 'Review wallet creation' }).click();
     await page.getByRole('button', { name: 'Approve wallet creation' }).click();
     await contains('Creating your wallet');
@@ -157,12 +125,47 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     const dispatch = (await options.deployments.getDispatch(deploymentId))!;
     await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.leaseUntil - Date.now() + 20)));
     await options.fixture.rpc('anvil_mine', ['0x41', '0x0']); await signup.tick();
+    let encoded = '';
+    if (kitMode) {
+      // The kit is presented once the wallet exists; saving it unlocks browser setup.
+      await page.getByRole('button', { name: 'Check signup' }).click();
+      await contains('Authorize this browser');
+      expect(await page.getByRole('button', { name: 'Review browser setup' }).isDisabled()).toBe(true);
+      const downloaded = page.waitForEvent('download');
+      await page.getByRole('button', { name: 'Download recovery kit' }).click();
+      const stream = await (await downloaded).createReadStream(), chunks = [];
+      if (!stream) throw new Error('No recovery download.');
+      for await (const chunk of stream) chunks.push(chunk);
+      encoded = Buffer.concat(chunks).toString('utf8'); const kit = JSON.parse(encoded);
+      recoveryKitText = encoded;
+      expect(kit.walletAddress.toLowerCase()).toBe(originalAddress?.toLowerCase());
+      expect(kit.mnemonic.split(' ')).toHaveLength(24);
+      expect(await page.getByRole('button', { name: 'Review browser setup' }).isDisabled()).toBe(false);
+      const wrong = JSON.stringify({ ...kit, walletAddress: '0x' + '44'.repeat(20) });
+      await page.locator('#recovery-verify summary').click();
+      await page.getByLabel('Recovery kit file').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(wrong) });
+      await contains('does not match');
+    }
     await context.clearCookies({ name: walletSignupCookie });
     await page.reload();
     await page.getByRole('link', { name: 'log in' }).click();
     await contains('Authorize this browser');
     expect(await page.locator('#signup-address').textContent()).toBe(originalAddress);
     expect(await flows.authenticate(cookie.value)).toBeNull();
+    if (kitMode) {
+      const kit = JSON.parse(encoded);
+      expect(await page.locator('#recovery-phrase').textContent()).toBe('');
+      await page.setViewportSize({ width: 320, height: 844 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.locator('#recovery-verify summary').click();
+      await page.getByLabel('Recovery kit file').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(encoded) });
+      await contains('Recovery kit verified');
+      expect(await page.locator('#recovery-phrase').textContent()).toBe('');
+      const persisted = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
+      expect(persisted.includes(kit.mnemonic)).toBe(false);
+      expect(requestBodies.some(body => body.includes(kit.mnemonic))).toBe(false);
+      await page.setViewportSize({ width: 1000, height: 850 });
+    }
     await page.getByRole('button', { name: 'Review browser setup' }).click();
     await page.getByRole('button', { name: 'Approve browser setup' }).click();
     await contains('Check the original signup');

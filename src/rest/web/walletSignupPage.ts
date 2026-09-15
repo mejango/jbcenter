@@ -16,7 +16,7 @@ export function walletSignupPage() {
 <p>Anyone with these words can control your wallet. Save them somewhere private, separate from your passkey. Center cannot replace a lost kit.</p>
 <p id="recovery-phrase" class="phrase"></p>
 <p id="recovery-hint"></p>
-<p id="recovery-kit-note">The kit file holds these words and your wallet address. Download it before creating the wallet.</p>
+<p id="recovery-kit-note">The kit file holds these words and your wallet address. Download it before continuing.</p>
 <button type="button" id="recovery-download">Download recovery kit</button>
 <details id="recovery-verify"><summary>Check a saved kit (optional)</summary><label>Recovery kit file<input id="recovery-file" type="file" accept="application/json,.json"></label></details>
 <details><summary>Restore from words instead</summary><label>Recovery words<textarea id="recovery-words" rows="4" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea></label>
