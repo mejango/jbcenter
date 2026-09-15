@@ -146,7 +146,9 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
       await refresh.request(accountId);
       const work = refresh.tick();
       if (!wait) { void work.catch(() => emit('refresh', 'unavailable', 'WALLET_REFRESH_UNAVAILABLE')); return; }
-      await Promise.race([work, new Promise<void>(resolve => { timer = setTimeout(resolve, 10_000); })]);
+      // One hosted observation takes ~25 s; a login that arrives after the snapshot expired waits
+      // for the worker's fresh one rather than failing WALLET_LOGIN_INACTIVE.
+      await Promise.race([work, new Promise<void>(resolve => { timer = setTimeout(resolve, 90_000); })]);
     } catch { emit('refresh', 'unavailable', 'WALLET_REFRESH_UNAVAILABLE'); }
     finally { clearTimeout(timer); }
   };

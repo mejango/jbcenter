@@ -43,13 +43,13 @@ function kitIdentity(): WalletRecoveryKitIdentity {
   return { network: 'base', chainId: 8453, walletAddress: view.walletAddress, recoveryOwner: view.recoveryOwner, initializerHash: view.initializerHash };
 }
 const steps: Record<View['phase'], string> = {
-  awaiting_registration: 'Create your passkey.', awaiting_possession: 'Your passkey is ready. Create your wallet with it.',
-  awaiting_deployment_approval: 'Your passkey is ready. Approve creation of your wallet.',
-  deploying: 'Creating your wallet. This usually takes about a minute. Keep this page open, or come back later with your passkey.',
-  deployment_failed: 'Wallet creation did not complete. Keep this signup for recovery; do not send funds.',
-  awaiting_setup: 'Your wallet is ready.', preparing_sign_in: 'Preparing your login. This can take up to a minute…',
-  ready_to_sign_in: 'Your wallet is ready. Log in with your passkey.',
-  expired: 'This incomplete signup expired. Its passkey is not an active wallet credential.',
+  awaiting_registration: 'Create your passkey.', awaiting_possession: 'Your passkey is ready. Create your account with it.',
+  awaiting_deployment_approval: 'Your passkey is ready. Approve creation of your account.',
+  deploying: 'Creating your account. This usually takes about a minute. Keep this page open, or come back later with your passkey.',
+  deployment_failed: 'Account creation did not complete. Keep this signup for recovery; do not send funds.',
+  awaiting_setup: 'Your account is ready.', preparing_sign_in: 'Preparing your login. This can take up to a minute…',
+  ready_to_sign_in: 'Your account is ready. Log in with your passkey.',
+  expired: 'This incomplete signup expired. Its passkey is not an active account credential.',
 };
 // While work is in flight the status line's mark spins (Croptop's text ticker) instead of showing the lightning.
 // A native prompt waiting on the user is not work in flight, so the mark holds still for it.
@@ -77,7 +77,7 @@ function hexBytes(value: string) {
 }
 class HttpFailure extends Error {
   constructor(readonly status: number, readonly code = '') {
-    super(code === 'WALLET_DEPLOYMENT_BUSY' ? 'Another wallet is being created right now. Try again in a minute.' : 'Signup could not be confirmed. Check the original signup and retry.');
+    super(code === 'WALLET_DEPLOYMENT_BUSY' ? 'Another account is being created right now. Try again in a minute.' : 'Signup could not be confirmed. Check the original signup and retry.');
   }
 }
 async function failure(response: Response) {
@@ -85,7 +85,7 @@ async function failure(response: Response) {
   catch { return new HttpFailure(response.status); }
 }
 // Setup reviews inspect the wallet on Base (tens of provider reads); they get a longer budget.
-const slowPaths = new Set(['setup/review', 'setup/complete']);
+const slowPaths = new Set(['setup/review', 'setup/complete', 'login/complete']);
 async function request(path: string, body?: unknown, proof = csrf): Promise<any> {
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), slowPaths.has(path) ? 90000 : 15000);
   try {
@@ -98,7 +98,7 @@ async function request(path: string, body?: unknown, proof = csrf): Promise<any>
 }
 function accept(result: { view: View | null; csrfToken?: string }) {
   if (result.view) {
-    if (result.view.origin !== location.origin || result.view.rpId !== location.hostname || !(result.view.phase in steps)) throw new Error('The wallet host or signup changed.');
+    if (result.view.origin !== location.origin || result.view.rpId !== location.hostname || !(result.view.phase in steps)) throw new Error('The account host or signup changed.');
     if (view && view.enrollmentId !== result.view.enrollmentId && !pending?.path.startsWith('resume/')) throw new Error('Another signup replaced this page. Reload before continuing.');
   }
   view = result.view; known = true;
@@ -140,10 +140,10 @@ function render() {
   el('signup-recovery-label').textContent = mode() === 'wallet' ? 'Recovery wallet' : showKit && recoverySecret ? 'Backup password'
     : showKit ? 'Backup password address' : 'Recovery';
   el('signup-recovery').textContent = mode() === 'wallet' ? view?.recoveryOwner ?? ''
-    : kitPhase ? recoverySecret ? '' : view?.recoveryOwner ?? '' : 'A backup password you get once the wallet exists';
+    : kitPhase ? recoverySecret ? '' : view?.recoveryOwner ?? '' : 'A backup password you get once the account exists';
   el('signup-address').textContent = view?.walletAddress ?? 'Not created yet';
   const label = view?.phase === 'awaiting_registration' ? 'Create passkey'
-    : view?.phase === 'awaiting_possession' || view?.phase === 'awaiting_deployment_approval' ? 'Create wallet'
+    : view?.phase === 'awaiting_possession' || view?.phase === 'awaiting_deployment_approval' ? 'Create account'
     : view?.phase === 'awaiting_setup' ? 'Continue' : view?.phase === 'ready_to_sign_in' ? 'Log in' : view?.phase === 'expired' ? 'Start a new signup' : null;
   next.hidden = !label || !!pending || stranded; next.textContent = label; next.disabled = busy;
   el<HTMLButtonElement>('recovery-show').disabled = busy; el<HTMLButtonElement>('recovery-copy').disabled = busy;
@@ -174,7 +174,7 @@ async function run(action: () => Promise<void>) {
     message(error instanceof DOMException && ['NotAllowedError', 'AbortError'].includes(error.name) && native
       ? 'Passkey prompt cancelled or unavailable. You can try again.'
       : error instanceof DOMException && error.name === 'AbortError'
-      ? 'The wallet service took too long to answer. Try again.'
+      ? 'The account service took too long to answer. Try again.'
       : error instanceof Error ? error.message : 'Signup is unavailable. Check the original signup again.', true);
   } finally { native = null; busy = false; if (!disposed) render(); }
 }
@@ -234,7 +234,7 @@ async function advance() {
       || value.origin !== location.origin || value.rpId !== location.hostname || value.initializerHash !== view.initializerHash
       || getAddress(value.recoveryOwner) !== getAddress(view.recoveryOwner) || getAddress(value.predictedSafe) !== getAddress(view.walletAddress!)
       || getAddress(document.domain.verifyingContract) !== getAddress(view.walletAddress!)
-      || hashTypedData(document) !== view.possession.challenge || BigInt(value.expiresAtMs) <= BigInt(Date.now())) throw new Error('The wallet enrollment review changed.');
+      || hashTypedData(document) !== view.possession.challenge || BigInt(value.expiresAtMs) <= BigInt(Date.now())) throw new Error('The account enrollment review changed.');
     let backupSignature: unknown;
     if (kitMode()) {
       if (!recoverySecret) throw new Error('Restore your backup password or saved backup file before continuing this signup.');
@@ -249,19 +249,21 @@ async function advance() {
   } else if (view.phase === 'awaiting_setup') {
     if (mode() === 'kit' && recoverySecret && kitSavedWallet !== view.walletAddress) {
       // Nothing saved, shared or copied: say so once, then respect the choice.
-      await announce('Nothing saved yet', 'Without the backup password you cannot get back into this wallet if you lose the passkey. Continue anyway?');
+      await announce('Nothing saved yet', 'Without the backup password you cannot get back into this account if you lose the passkey. Continue anyway?');
       kitSavedWallet = view.walletAddress;
     }
     // One click authorizes this browser for an hour of read, plan and relay access (it cannot approve
     // payments on its own), then logs in: two prompts.
     const browser = browserKey();
-    messageLinked('Checking', ' your new wallet. This can take up to a minute…');
+    messageLinked('Checking', ' your new account. This can take up to a minute…');
     const setup: Awaited<ReturnType<Signup['prepareSetup']>> = await request('setup/review', { browserPublicAddress: browser.address });
     if (setup.walletAddress.toLowerCase() !== view.walletAddress?.toLowerCase() || getAddress(setup.input.grant.botAddress) !== browser.address ||
       setup.input.grant.scopes.join(',') !== 'read,plan,relay') throw new Error('The browser setup review changed.');
-    await announce('Authorize this browser', 'A passkey prompt lets this browser read your wallet and prepare requests for one hour. It cannot move funds on its own.');
+    await announce('Authorize this browser', 'A passkey prompt lets this browser read your account and prepare requests for one hour. It cannot move funds on its own.');
     message('Authorize this browser in the prompt.');
     const proof = await assertion(setup.signingPayload.digest, view.rpId);
+    // The server re-inspects the account and checks the signature on Base before committing.
+    message('Confirming this browser. This can take up to a minute…');
     const browserProof = await browser.signTypedData(setup.proofDocument as TypedDataDefinition);
     await send('setup/complete', { setupId: setup.id, assertion: proof, browserProof });
     if (current()?.phase === 'ready_to_sign_in') await login();
@@ -273,9 +275,9 @@ const current = () => view;
 async function approve(backupSignature?: Hex) {
   const deployment: Awaited<ReturnType<Signup['prepareDeployment']>> = await request('deployment/review', {});
   if (deployment.walletAddress.toLowerCase() !== view!.walletAddress?.toLowerCase() || deployment.recoveryOwner.toLowerCase() !== view!.recoveryOwner.toLowerCase()
-    || deployment.initializerHash !== view!.initializerHash) throw new Error('The wallet creation review changed.');
-  await announce('Approve creating your wallet', 'A passkey prompt approves creating wallet, making it yours.');
-  message('Approve creating your wallet: use your passkey in the prompt.');
+    || deployment.initializerHash !== view!.initializerHash) throw new Error('The account creation review changed.');
+  await announce('Approve creating your account', 'A passkey prompt approves creating your account, making it yours.');
+  message('Approve creating your account: use your passkey in the prompt.');
   const proof = await assertion(deployment.challenge, view!.rpId, deployment.credentialId);
   await send('deployment/approve', { approvalId: deployment.id, assertion: proof, ...(backupSignature ? { backupSignature } : {}) });
 }
@@ -289,7 +291,7 @@ form.addEventListener('submit', event => { event.preventDefault(); void run(asyn
   if (view?.phase === 'awaiting_registration') await advance();
 }); });
 el('recovery-method').addEventListener('change', render);
-const backupFileName = 'juicebox-wallet-backup.json';
+const backupFileName = 'juicebox-account-backup.json';
 el('recovery-download').addEventListener('click', () => { void run(async () => {
   if (!recoverySecret) throw new Error('Restore your backup password first.');
   const encoded = serializeWalletRecoveryKit(recoverySecret, kitIdentity());
@@ -304,7 +306,7 @@ el('recovery-share').addEventListener('click', () => { void run(async () => {
   if (!recoverySecret) throw new Error('Restore your backup password first.');
   const file = new File([serializeWalletRecoveryKit(recoverySecret, kitIdentity())], backupFileName, { type: 'application/json' });
   if (!navigator.canShare({ files: [file] })) throw new Error('This device cannot share files. Save the backup file instead.');
-  try { await navigator.share({ files: [file], title: 'Juicebox wallet backup' }); }
+  try { await navigator.share({ files: [file], title: 'Juicebox account backup' }); }
   catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw new Error('Sharing cancelled. Save the backup file, or share again.');
     throw new Error('Your browser would not open its share sheet. Save the backup file instead.');
@@ -328,7 +330,7 @@ restart.addEventListener('click', () => { void run(async () => {
 }); });
 check.addEventListener('click', () => { void run(async () => {
   message('Checking your signup…'); await observe(); pollCount = 0;
-  if (view?.phase === 'deploying') message('Still creating your wallet. Checked just now; this page keeps checking while it is open.');
+  if (view?.phase === 'deploying') message('Still creating your account. Checked just now; this page keeps checking while it is open.');
 }); });
 cancel.addEventListener('click', () => native?.abort());
 async function walletRequest(path: string, body: unknown, proof?: string): Promise<any> {
@@ -342,9 +344,9 @@ async function walletRequest(path: string, body: unknown, proof?: string): Promi
 }
 /** The same sign-in as the wallet landing page, then that page shows the session (and any app return). */
 async function login() {
-  await announce('Log in', 'A passkey prompt logs you in to your wallet.');
+  await announce('Log in', 'A passkey prompt logs you in to your account.');
   const begun = await walletRequest(`${base}/login/begin`, {}), publicKey = begun.publicKey;
-  if (publicKey?.rpId !== location.hostname || publicKey.userVerification !== 'required' || typeof begun.loginId !== 'string' || typeof begun.csrfToken !== 'string') throw new Error('The wallet host changed.');
+  if (publicKey?.rpId !== location.hostname || publicKey.userVerification !== 'required' || typeof begun.loginId !== 'string' || typeof begun.csrfToken !== 'string') throw new Error('The account host changed.');
   const challenge = decode(publicKey.challenge); if (challenge.length !== 32) throw new Error('Invalid passkey challenge.');
   message('Log in with the prompt.');
   const proof = await assertion('0x' + Array.from(challenge, byte => byte.toString(16).padStart(2, '0')).join(''), publicKey.rpId);

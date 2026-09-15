@@ -113,7 +113,7 @@ async function run(action: () => Promise<void>) {
         setStatus("ready", "This sign-in expired or could not be authorized. Try your passkey again.");
       } else {
         retryAction = readSession;
-        setStatus("retry", "Wallet access changed or the request expired. Check your wallet again.");
+        setStatus("retry", "Account access changed or the request expired. Check your account again.");
       }
     } else {
       retryAction = nextRetry;
@@ -124,7 +124,7 @@ async function run(action: () => Promise<void>) {
   } finally { nativePrompt = null; busy = false; render(); }
 }
 async function load() {
-  nextRetry = load; setStatus("loading", "Checking your wallet…");
+  nextRetry = load; setStatus("loading", "Checking your account…");
   const query = new URL(location.href);
   if (query.hash || [...query.searchParams.keys()].some(key => !["intent", "payment"].includes(key)) || query.searchParams.size > 1) throw new InvalidResponse();
   paymentReviewId = query.searchParams.get("payment");
@@ -192,7 +192,7 @@ async function login() {
 async function completeLogin() {
   nextRetry = completeLogin;
   if (!pending) throw new InvalidResponse();
-  setStatus("checking", "Confirming your wallet access…");
+  setStatus("checking", "Confirming your account access…");
   if (completionAttempted) {
     // Success headers can install the session and clear the flow cookie before its body
     // arrives. Only this exact login can recover the selected credential's completion.

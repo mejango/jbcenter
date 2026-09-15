@@ -146,18 +146,18 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       await contains('Check the original signup');
       await page.getByRole('button', { name: 'Check signup' }).click();
       await contains('Your passkey is ready');
-      expect((await page.locator('#signup-recovery').textContent())?.toLowerCase()).toBe('a backup password you get once the wallet exists');
+      expect((await page.locator('#signup-recovery').textContent())?.toLowerCase()).toBe('a backup password you get once the account exists');
       // One click and one prompt approve creation and prove the passkey.
-      await page.getByRole('button', { name: 'Create wallet', exact: true }).click();
+      await page.getByRole('button', { name: 'Create account', exact: true }).click();
     }
-    await proceed('Approve creating your wallet');
-    await contains('Creating your wallet');
+    await proceed('Approve creating your account');
+    await contains('Creating your account');
     const originalAddress = await page.locator('#signup-address').textContent();
     if (!kitMode) expect((await page.locator('#signup-recovery').textContent())?.toLowerCase()).toBe(enrollmentBackupAccount.address.toLowerCase());
     // A manual check while creation is still running answers at once; the page's own polling then
     // notices the created wallet, so the kit appears without another click.
     await page.getByRole('button', { name: 'Check signup' }).click();
-    await contains('Still creating your wallet');
+    await contains('Still creating your account');
     const cookie = (await context.cookies()).find(item => item.name === walletSignupCookie)!;
     const flow = (await flows.authenticate(cookie.value))!, deploymentId = flow.deploymentId!;
     await signup.tick();
@@ -196,7 +196,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await page.getByRole('link', { name: 'log in' }).click();
     await proceed('Log in');
     await proceed('Pick up your signup');
-    await contains('Your wallet is ready');
+    await contains('Your account is ready');
     expect(await page.locator('#signup-address').textContent()).toBe(originalAddress);
     expect(await flows.authenticate(cookie.value)).toBeNull();
     if (kitMode) {
