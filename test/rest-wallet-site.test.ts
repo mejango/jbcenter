@@ -128,15 +128,29 @@ describe('dedicated Center wallet HTTP journey',()=>{
     expect((await app.fetch(new Request('https://wallet.example.test.old/wallet/login/begin',{method:'POST',headers:{host:'wallet.example.test.old'}}))).status).toBe(301);
     expect((await app.fetch(new Request(origin+'/wallet/assets/wallet.css'))).status).toBe(200);
   });
+  it('serves the wallet at the host root when mounted without a path prefix, and keeps /wallet links working',async()=>{
+    const {app}=setup({ basePath: '', signup: {} as never, signupBrowserScript: '/* signup */' });
+    const root=await app.fetch(new Request(origin+'/'));
+    expect(root.status).toBe(200);expect(await root.text()).toContain('Sign up with a passkey');
+    expect(await (await app.fetch(new Request(origin+'/'))).text()).toContain('content=""');
+    expect((await app.fetch(new Request(origin+'/create'))).status).toBe(200);
+    expect((await app.fetch(new Request(origin+'/assets/wallet-signup.js'))).status).toBe(200);
+    expect((await app.fetch(new Request(origin+'/config'))).status).toBe(200);
+    const moved=await app.fetch(new Request(origin+'/wallet/create?intent=abc',{headers:{'sec-fetch-mode':'navigate'}}));
+    expect(moved.status).toBe(301);expect(moved.headers.get('location')).toBe('/create?intent=abc');
+    expect((await app.fetch(new Request(origin+'/wallet/config'))).status).toBe(200);
+    expect((await app.fetch(new Request(origin+'/api/v1/anything'))).status).toBe(404);
+    expect((await app.fetch(new Request(origin+'/accounts'))).status).toBe(404);
+  });
   it('sends the wallet host root to the wallet page',async()=>{
     const {app}=setup();const response=await app.fetch(new Request(origin+'/'));
     expect(response.status).toBe(302);expect(response.headers.get('location')).toBe('/wallet');
     expect((await app.fetch(new Request(origin+'/anything'))).status).toBe(404);
   });
-  it('sends a bare landing visit straight to the signup page unless a session cookie or app return is present',async()=>{
+  it('serves a bare landing visit as the signup page unless a session cookie or app return is present',async()=>{
     const {app}=setup({ signup: {} as never, signupBrowserScript: '/* signup */' });
     const bare=await app.fetch(new Request(origin+'/wallet'));
-    expect(bare.status).toBe(302);expect(bare.headers.get('location')).toBe('/wallet/create');
+    expect(bare.status).toBe(200);expect(await bare.text()).toContain('Sign up with a passkey');
     expect((await app.fetch(new Request(origin+'/wallet',{headers:{cookie:`${walletSessionCookie}=${token}`}}))).status).toBe(200);
     expect((await app.fetch(new Request(origin+'/wallet?intent='+flow))).status).toBe(200);
     expect((await app.fetch(new Request(origin+'/wallet?payment='+loginId))).status).toBe(200);

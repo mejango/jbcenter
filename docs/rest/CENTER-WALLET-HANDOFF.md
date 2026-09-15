@@ -56,6 +56,16 @@ faults, all fixed with red-then-green tests against the Base-shaped fixture
    precedes every native passkey prompt; "Check signup" answers visibly; "Start over"
    drops the continuation cookie at any phase; the busy treasury lane is named.
 
+**Later on 2026-09-15:** the wallet moved to `https://my.juicebox.center` (Railway custom
+domain; `WALLET_ORIGIN`, with `WALLET_LEGACY_ORIGINS` for the retired host). Pages are mounted
+at the host root (`basePath: ''` in `src/index.ts`): `/` is the signup page for a plain visit,
+`/create`, `/recover`, `/config`, `/handoff/*` and the rest sit directly under the host, and
+`/wallet/…` links still work (navigations 301, calls are served). The REST app dispatches the
+wallet hosts to the wallet app before path routing (`walletHosts` in `mountRestSite`). Creation
+approvals are v2 (bound to the registered identity, so one assertion approves creation and proves
+possession; migration 036). Recovery has a third option, a password the user chooses
+(`WALLET_BACKUP_WRAP_KEY`, migration 037, `walletBackupPassword.ts`, `backupPostgres.ts`).
+
 Throughput is pilot-grade: one treasury lane is held from send to Base finality
 (~15-20 min), so roughly four creations per hour. Before public launch: release the
 lane at canonical inclusion and settle at finality, add treasuries (pools), and

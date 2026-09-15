@@ -26,7 +26,7 @@ export async function exerciseRecoveryBrowser(options: {
   const originalSession = (await context.cookies()).find(cookie => cookie.name === walletSessionCookie)!;
   expect(await login.readSession(originalSession.value)).not.toBeNull();
   await cdp.send('WebAuthn.clearCredentials', { authenticatorId });
-  await page.goto(origin + '/wallet/recover');
+  await page.goto(origin + '/recover');
   await openBackup();
   await page.getByLabel('New passkey name').fill('Juicebox replacement');
   if (options.password) {

@@ -1,10 +1,10 @@
 /** Dedicated credential surface. All behavior and styles are served as same-origin assets. */
-export function walletPage(signup = false, recovery = false): string {
+export function walletPage(signup = false, recovery = false, base = '/wallet'): string {
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="wallet-base" content="${base}"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>Your wallet | Juicebox</title>
-<link rel="stylesheet" href="/wallet/assets/wallet.css"><script type="module" src="/wallet/assets/wallet.js"></script></head>
-<body><main><a class="brand" href="/wallet">JUICEBOX CENTER</a>
+<link rel="stylesheet" href="${base}/assets/wallet.css"><script type="module" src="${base}/assets/wallet.js"></script></head>
+<body><main><a class="brand" href="${base || '/'}">JUICEBOX CENTER</a>
 <h1>Your Juicebox</h1><p>One wallet for Juicebox apps.</p>
 <p id="wallet-destination" hidden></p>
 <p id="wallet-status" role="status" aria-live="polite" aria-atomic="true" data-state="loading">Checking your wallet…</p>
@@ -14,8 +14,8 @@ export function walletPage(signup = false, recovery = false): string {
 <button id="wallet-cancel" type="button" class="secondary" hidden>Cancel</button>
 <button id="wallet-logout" type="button" class="secondary" hidden>Sign out</button></div>
 <p class="note">Use a passkey already linked to your Center wallet. Payments still require your approval.</p>
-${signup ? '<p><a id="wallet-create" href="/wallet/create" hidden>Create or resume a wallet</a></p>' : ''}
-${recovery ? '<p><a id="wallet-recover" href="/wallet/recover" hidden>Recover a lost passkey</a></p>' : ''}
+${signup ? '<p><a id="wallet-create" href="${base}/create" hidden>Create or resume a wallet</a></p>' : ''}
+${recovery ? '<p><a id="wallet-recover" href="${base}/recover" hidden>Recover a lost passkey</a></p>' : ''}
 <noscript><p>Enable JavaScript to sign in with your passkey.</p></noscript>
 </main></body></html>`;
 }

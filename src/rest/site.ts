@@ -22,6 +22,8 @@ export const ACCOUNTS_PAGE_HEADERS = {
 export interface RestSite {
   app: ReturnType<typeof createRestApp>;
   wallet?: Hono;
+  /** Hosts served entirely by the wallet app (its own and retired ones); other hosts never see it. */
+  walletHosts?: string[];
   audience: string;
   para?: { apiKey: string; environment: "BETA" | "PROD" };
   paraScript?: string;
@@ -76,7 +78,10 @@ export async function readRestAssets() {
 }
 
 export function mountRestSite(app: Hono<JbcenterEnv>, site: RestSite): void {
-  if (site.wallet) app.route("/", site.wallet);
+  if (site.wallet && site.walletHosts?.length) {
+    const hosts = new Set(site.walletHosts);
+    app.use("*", async (c, next) => hosts.has(c.req.header("host") ?? new URL(c.req.url).host) ? site.wallet!.fetch(c.req.raw, c.env) : next());
+  } else if (site.wallet) app.route("/", site.wallet);
   app.route("/api/v1", site.app);
   app.get("/accounts", (context) =>
     context.html(

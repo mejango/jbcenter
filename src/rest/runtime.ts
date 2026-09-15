@@ -84,6 +84,8 @@ export interface RestWalletConfiguration {
   legacyOrigins?: string[];
   /** 32-byte hex key wrapping chosen-password backup envelopes at rest; unset disables the option. */
   backupWrapKey?: `0x${string}`;
+  /** Mount path of the wallet pages: '' on a dedicated host. Defaults to '/wallet'. */
+  basePath?: string;
   manifest: SmartAccountManifest;
   utility: ContractPin;
   payments?: Omit<WalletV6UsdcPaymentConfig, 'chainId'>;
@@ -523,6 +525,7 @@ export async function createRestRuntime(options: {
   if (options.walletRecovery && !wallet) throw new RestError(503, 'WALLET_RECOVERY_UNAVAILABLE', 'Recovery requires the dedicated wallet host.');
   if (wallet && options.walletRecovery) wallet.recovery = await options.walletRecovery({ pool: options.pool, rpc: backendRpc, wallet, audience: auth.audience, smart: smartAccounts });
   const walletSite = wallet ? createWalletSite({ origin: wallet.origin, audience: auth.audience, ...(options.wallet?.legacyOrigins ? { legacyOrigins: options.wallet.legacyOrigins } : {}),
+    ...(options.wallet?.basePath !== undefined ? { basePath: options.wallet.basePath } : {}),
     browserScript: assets.walletScript, login: wallet.login, policy: wallet.policy,
     handoff: wallet.handoff, refresh: wallet.refresh,
     ...(walletPayments ? { payments: walletPayments, paymentBrowserScript: assets.walletPaymentScript } : {}),
@@ -588,7 +591,7 @@ export async function createRestRuntime(options: {
   return {
     site: {
       ...(options.para ? { para: options.para } : {}),
-      ...(walletSite ? { wallet: walletSite } : {}),
+      ...(walletSite ? { wallet: walletSite, walletHosts: [new URL(wallet!.origin).host, ...(options.wallet?.legacyOrigins ?? []).map(value => new URL(value).host)] } : {}),
       app,
       audience: auth.audience,
       docsHtml: apiDocsPage(openapi),

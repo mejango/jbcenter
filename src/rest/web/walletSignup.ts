@@ -2,6 +2,7 @@ import { getAddress, hashTypedData, isAddress, type Address, type Hex, type Type
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import type { createLocalWalletSignup } from '../wallet/signup.js';
 import { checkWalletBackupPassword, sealWalletBackup } from './walletBackupPassword.js';
+import { base } from './walletBase.js';
 import { createWalletRecoverySecret, recoveryAccountFromPhrase, serializeWalletRecoveryKit,
   type WalletRecoveryKitIdentity, type WalletRecoverySecret } from './walletRecoveryKit.js';
 
@@ -74,7 +75,7 @@ async function failure(response: Response) {
 async function request(path: string, body?: unknown, proof = csrf): Promise<any> {
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15000);
   try {
-    const response = await fetch('/wallet/signup/' + path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal,
+    const response = await fetch(`${base}/signup/` + path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal,
       ...(body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json', 'x-center-wallet-request': '1',
         ...(proof ? { 'x-center-wallet-csrf': proof } : {}) }, body: JSON.stringify(body) }) });
     if (!response.ok) throw await failure(response);
@@ -338,14 +339,14 @@ async function walletRequest(path: string, body: unknown, proof?: string): Promi
 /** The same sign-in as the wallet landing page, then that page shows the session (and any app return). */
 async function login() {
   await announce('Log in', 'A passkey prompt logs you in to your wallet.');
-  const begun = await walletRequest('/wallet/login/begin', {}), publicKey = begun.publicKey;
+  const begun = await walletRequest(`${base}/login/begin`, {}), publicKey = begun.publicKey;
   if (publicKey?.rpId !== location.hostname || publicKey.userVerification !== 'required' || typeof begun.loginId !== 'string' || typeof begun.csrfToken !== 'string') throw new Error('The wallet host changed.');
   const challenge = decode(publicKey.challenge); if (challenge.length !== 32) throw new Error('Invalid passkey challenge.');
   message('Log in with the prompt.');
   const proof = await assertion('0x' + Array.from(challenge, byte => byte.toString(16).padStart(2, '0')).join(''), publicKey.rpId);
-  const result = await walletRequest('/wallet/login/complete', { loginId: begun.loginId, assertion: proof }, begun.csrfToken);
+  const result = await walletRequest(`${base}/login/complete`, { loginId: begun.loginId, assertion: proof }, begun.csrfToken);
   if (result?.session?.loginId !== begun.loginId) throw new Error('Sign-in could not be confirmed.');
-  location.replace('/wallet' + location.search);
+  location.replace((base || '/') + location.search);
 }
 async function resumeSignup() {
   await announce('Pick up your signup', 'That passkey belongs to an unfinished signup. One more passkey prompt picks it up where you left off.');
@@ -370,6 +371,6 @@ void run(async () => {
   const url = new URL(location.href);
   if (url.hash || url.searchParams.size > 1 || [...url.searchParams].some(([key, value]) => key === 'intent' ? !/^[A-Za-z0-9_-]{43}$/.test(value)
     : key === 'payment' ? !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value) : true)) throw new Error('Return to the original app to start this signup.');
-  el<HTMLAnchorElement>('wallet-back').href = '/wallet' + url.search;
+  el<HTMLAnchorElement>('wallet-back').href = (base || '/') + url.search;
   await observe();
 });

@@ -1,3 +1,4 @@
+import { walletSignupPage } from '../web/walletSignupPage.js';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Hex } from 'viem';
@@ -26,6 +27,8 @@ export interface WalletSiteOptions {
   audience: string;
   /** Former wallet origins; requests on their hosts move to the same path on `origin`. */
   legacyOrigins?: string[];
+  /** Mount path of the wallet pages: (base || '/') beside other routes, '' on a dedicated host. */
+  basePath?: string;
   browserScript: string;
   paymentBrowserScript?: string;
   signup?: WalletSignupSiteOptions['signup'];
@@ -67,7 +70,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   if (new URL(audience).origin === origin) reject(400, 'WALLET_HTTP_CONFIG');
   const rpId = new URL(origin).hostname;
   validateWalletRpConfiguration({ origin, rpId });
-  const app = new Hono();
+  const app = new Hono(), base = options.basePath ?? '/wallet';
   const emit = (action: string, outcome: 'ok' | 'rejected' | 'unavailable', code?: string) => {
     try { onEvent?.({ action, outcome, ...(code ? { code } : {}) }); } catch { /* Observation cannot undo committed authority. */ }
   };
@@ -86,15 +89,30 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     for (const [key, value] of Object.entries(pageHeaders)) c.header(key, value);
     return c.redirect(origin + url.pathname + url.search, 301);
   });
-  app.use('/wallet', protect);
-  app.use('/wallet/*', protect);
+  // The wallet's own paths under `base`. On the credential host nothing else may execute.
+  const walletPrefixes = ['/assets/', '/authorize/', '/config', '/create', '/handoff/', '/launch', '/login/', '/logout', '/payment',
+    '/payment-reviews/', '/recover', '/recovery/', '/session', '/signup/'];
+  const isWalletPath = (path: string) => path === (base || '/') || path === `${base}/` || walletPrefixes.some(prefix => path.startsWith(base + prefix));
+  const legacyPrefix = '/wallet';
+  if (base === '') app.use('*', async (c, next) => {
+    // Links minted while the pages lived under the old prefix keep working: navigations move, calls are served.
+    const url = new URL(c.req.url);
+    if (url.pathname !== legacyPrefix && !url.pathname.startsWith(legacyPrefix + '/')) return next();
+    url.pathname = url.pathname.slice(legacyPrefix.length) || '/';
+    if (c.req.method === 'GET' && (c.req.header('Sec-Fetch-Mode') === 'navigate' || c.req.header('Accept')?.includes('text/html'))) {
+      for (const [key, value] of Object.entries(pageHeaders)) c.header(key, value);
+      return c.redirect(url.pathname + url.search, 301);
+    }
+    return app.fetch(new Request(url, c.req.raw));
+  });
+  app.use(base || '/', protect);
+  app.use(`${base}/*`, protect);
   app.use('*', async (c, next) => {
     // When mounted alongside the legacy site, no Accounts/Para or other app code may
     // execute on this credential origin and inherit its cookie authority.
-    if (c.req.path !== '/wallet' && !c.req.path.startsWith('/wallet/')
-      && (c.req.header('Host') ?? new URL(c.req.url).host) === new URL(origin).host) {
+    if (!isWalletPath(c.req.path) && (c.req.header('Host') ?? new URL(c.req.url).host) === new URL(origin).host) {
       for (const [key, value] of Object.entries(pageHeaders)) c.header(key, value);
-      return c.req.path === '/' ? c.redirect('/wallet', 302) : c.text('Not found', 404);
+      return c.req.path === '/' && base ? c.redirect(base, 302) : c.text('Not found', 404);
     }
     await next();
   });
@@ -103,8 +121,8 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     const status = known && error.status >= 400 && error.status <= 599 ? error.status : 503;
     const code = known && /^[A-Z0-9_]{1,80}$/.test(error.code) ? error.code : 'WALLET_UNAVAILABLE';
     emit('request', status >= 500 ? 'unavailable' : 'rejected', code);
-    if (c.req.path === '/wallet/launch' && c.req.header('Sec-Fetch-Mode') === 'navigate')
-      return c.html('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connection unavailable</title><link rel="stylesheet" href="/wallet/assets/wallet.css"></head><body><main><h1>Connection unavailable</h1><p>This connection expired or could not be verified. Return to the app and connect again.</p></main></body></html>', status as ContentfulStatusCode);
+    if (c.req.path === `${base}/launch` && c.req.header('Sec-Fetch-Mode') === 'navigate')
+      return c.html('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connection unavailable</title><link rel="stylesheet" href=`${base}/assets/wallet.css`></head><body><main><h1>Connection unavailable</h1><p>This connection expired or could not be verified. Return to the app and connect again.</p></main></body></html>', status as ContentfulStatusCode);
     return c.json({ error: { code, message: status >= 500 ? 'Wallet service is temporarily unavailable. Try again.' : 'Wallet request could not be completed. Try again or start over.' } }, status as ContentfulStatusCode);
   });
   const central = (c: Context) => assertWalletHttpRequest(c.req.raw, origin, 'central');
@@ -152,9 +170,9 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     if (!/^application\/json(?:; ?charset=utf-8)?$/i.test(c.req.header('Content-Type') ?? '')) reject(415, 'WALLET_HTTP_CONTENT_TYPE');
     return entry;
   };
-  app.options('/wallet/*', async c => {
+  app.options(`${base}/*`, async c => {
     const path = c.req.path;
-    const method = path === '/wallet/config' ? 'GET' : ['/wallet/handoff/prepare', '/wallet/handoff/exchange'].includes(path) ? 'POST' : null;
+    const method = path === `${base}/config` ? 'GET' : [`${base}/handoff/prepare`, `${base}/handoff/exchange`].includes(path) ? 'POST' : null;
     if (!method || c.req.header('Access-Control-Request-Method') !== method) reject(403, 'WALLET_HTTP_ORIGIN');
     const requested = c.req.header('Access-Control-Request-Headers')?.split(',').map(header => header.trim().toLowerCase()) ?? [];
     if (requested.some(header => !['content-type', 'x-center-wallet-request'].includes(header))) reject(403, 'WALLET_HTTP_ORIGIN');
@@ -165,27 +183,27 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   });
   if (options.signup) {
     if (!options.signupBrowserScript) reject(503, 'WALLET_SIGNUP_UNAVAILABLE');
-    mountWalletSignup(app, { origin, signup: options.signup, browserScript: options.signupBrowserScript, passwordBackups: !!options.backups });
+    mountWalletSignup(app, { origin, signup: options.signup, browserScript: options.signupBrowserScript, passwordBackups: !!options.backups, basePath: base });
   }
   if (options.recovery) {
     if (!options.recoveryBrowserScript) reject(503, 'WALLET_RECOVERY_UNAVAILABLE');
-    mountWalletRecovery(app, { origin, recovery: options.recovery, browserScript: options.recoveryBrowserScript, ...(options.backups ? { backups: options.backups } : {}) });
+    mountWalletRecovery(app, { origin, recovery: options.recovery, browserScript: options.recoveryBrowserScript, basePath: base, ...(options.backups ? { backups: options.backups } : {}) });
   }
-  // A bare visit without a session belongs on the signup page (which also logs in); deciding it
-  // here avoids painting the landing page first. App returns and stale cookies still land here.
+  // A bare visit without a session is a signup (which also logs in), served right here so nothing
+  // redirects or repaints. App returns and stale cookies still get the landing page.
   const landing = (c: Context) => options.signup && !readWalletCookie(c.req.raw, walletSessionCookie) && new URL(c.req.url).search === ''
-    ? c.redirect('/wallet/create', 302) : c.html(walletPage(!!options.signup, !!options.recovery));
-  app.get('/wallet', landing);
-  app.get('/wallet/', landing);
-  app.get('/wallet/assets/wallet.js', c => c.body(browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
-  app.get('/wallet/assets/wallet.css', c => c.body(walletCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
-  app.get('/wallet/config', async c => {
+    ? c.html(walletSignupPage({ passwordBackups: !!options.backups, base })) : c.html(walletPage(!!options.signup, !!options.recovery, base));
+  app.get(base || '/', landing);
+  if (base) app.get(`${base}/`, landing);
+  app.get(`${base}/assets/wallet.js`, c => c.body(browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
+  app.get(`${base}/assets/wallet.css`, c => c.body(walletCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
+  app.get(`${base}/config`, async c => {
     const candidate = c.req.header('Origin');
     const entry = candidate && candidate !== origin ? await appOrigin(c) : undefined;
     return c.json({ version: 'center-wallet-v1', issuer: origin, audience, rpId,
       ...(entry ? { app: { origin: entry.origin, callbackUris: entry.walletCallbacks, generation: entry.generation } } : {}) });
   });
-  app.post('/wallet/login/begin', async c => {
+  app.post(`${base}/login/begin`, async c => {
     central(c); fields(await readWalletJson(c.req.raw), []);
     const result = await login.begin();
     c.header('Set-Cookie', walletCookie(walletFlowCookie, result.flowToken, 3780), { append: true });
@@ -194,7 +212,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
       challenge: Buffer.from(result.login.challenge.slice(2), 'hex').toString('base64url'), userVerification: 'required', timeout: 90_000 },
       expiresAtMs: result.login.expiresAtMs, csrfToken: walletCsrfToken(result.flowToken) }, 201);
   });
-  app.post('/wallet/login/complete', async c => {
+  app.post(`${base}/login/complete`, async c => {
     central(c); const flowToken = cookie(c, walletFlowCookie);
     const body = fields(await readWalletJson(c.req.raw), ['loginId', 'assertion']);
     if (typeof body.loginId !== 'string') reject();
@@ -207,12 +225,12 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     emit('login_complete', 'ok');
     return c.json({ session: publicSession(result.session), csrfToken: walletCsrfToken(result.sessionToken), replayed: result.replayed });
   });
-  app.get('/wallet/session', async c => {
+  app.get(`${base}/session`, async c => {
     const token = readWalletCookie(c.req.raw, walletSessionCookie);
     const session = token ? await sessionFor(token) : null;
     return c.json(session && token ? { session: publicSession(session), csrfToken: walletCsrfToken(token) } : { session: null });
   });
-  app.post('/wallet/logout', async c => {
+  app.post(`${base}/logout`, async c => {
     central(c); const token = cookie(c, walletSessionCookie); fields(await readWalletJson(c.req.raw), []);
     const result = await login.logout(token);
     c.header('Set-Cookie', walletCookie(walletSessionCookie, null, 0), { append: true });
@@ -223,17 +241,17 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     if (!options.payments) reject(503, 'WALLET_PAYMENTS_UNAVAILABLE');
     return options.payments;
   };
-  app.get('/wallet/payment', c => {
+  app.get(`${base}/payment`, c => {
     payments();
     if (!options.paymentBrowserScript) reject(503, 'WALLET_PAYMENTS_UNAVAILABLE');
-    return c.html(walletPaymentPage());
+    return c.html(walletPaymentPage(base));
   });
-  app.get('/wallet/assets/wallet-payment.js', c => {
+  app.get(`${base}/assets/wallet-payment.js`, c => {
     payments();
     if (!options.paymentBrowserScript) reject(503, 'WALLET_PAYMENTS_UNAVAILABLE');
     return c.body(options.paymentBrowserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' });
   });
-  app.get('/wallet/assets/wallet-payment.css', c => {
+  app.get(`${base}/assets/wallet-payment.css`, c => {
     payments();
     if (!options.paymentBrowserScript) reject(503, 'WALLET_PAYMENTS_UNAVAILABLE');
     return c.body(walletPaymentCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' });
@@ -246,11 +264,11 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     if (!session) reject(403, 'WALLET_HTTP_SESSION');
     return session;
   };
-  app.get('/wallet/payment-reviews/:id', async c => {
+  app.get(`${base}/payment-reviews/:id`, async c => {
     const service = payments(), session = await paymentSession(c, false);
     return c.json(publicWalletPaymentCentralReview(await service.getForSession(c.req.param('id'), session.id)));
   });
-  app.post('/wallet/payment-reviews/:id/approve', async c => {
+  app.post(`${base}/payment-reviews/:id/approve`, async c => {
     const service = payments(), session = await paymentSession(c, true);
     const body = fields(await readWalletJson(c.req.raw), ['assertion']);
     const result = await service.approve(c.req.param('id'), session.id, assertion(body.assertion));
@@ -262,15 +280,15 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     emit('payment_approve', 'ok');
     return c.json({ review: publicWalletPaymentCentralReview(result.view), replayed: result.replayed, redirectUri: callback.href });
   });
-  app.post('/wallet/payment-reviews/:id/cancel', async c => {
+  app.post(`${base}/payment-reviews/:id/cancel`, async c => {
     const service = payments(), session = await paymentSession(c, true);
     fields(await readWalletJson(c.req.raw), []);
     const view = await service.cancel(c.req.param('id'), session.id);
     emit('payment_cancel', 'ok');
     return c.json(publicWalletPaymentCentralReview(view));
   });
-  app.get('/wallet/authorize/:id', async c => c.json(await handoff.getIntent(c.req.param('id'))));
-  app.post('/wallet/launch', async c => {
+  app.get(`${base}/authorize/:id`, async c => c.json(await handoff.getIntent(c.req.param('id'))));
+  app.post(`${base}/launch`, async c => {
     const claim = await readWalletLaunchForm(c.req.raw);
     const intent = await handoff.getIntent(claim.intentId);
     if (c.req.header('Origin') !== intent.request.origin || intent.state !== 'prepared') reject(403, 'WALLET_HANDOFF_UNCLAIMED');
@@ -279,9 +297,9 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     if (remaining < 1) reject(410, 'WALLET_HANDOFF_EXPIRED');
     c.header('Set-Cookie', walletCookie(walletLaunchCookie, `${claim.intentId}.${claim.signature}`, Math.min(330, remaining)), { append: true });
     emit('handoff_launch', 'ok');
-    return c.redirect(origin + '/wallet?intent=' + intent.id, 303);
+    return c.redirect(origin + (base || '/') + '?intent=' + intent.id, 303);
   });
-  app.post('/wallet/authorize/issue', async c => {
+  app.post(`${base}/authorize/issue`, async c => {
     central(c); const token = cookie(c, walletSessionCookie);
     const body = fields(await readWalletJson(c.req.raw), ['intentId']);
     if (typeof body.intentId !== 'string') reject();
@@ -299,12 +317,12 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     callback.searchParams.set('code', issued.code); callback.searchParams.set('state', issued.state); callback.searchParams.set('iss', issued.issuer);
     emit('handoff_issue', 'ok'); return c.json({ redirectUri: callback.href });
   });
-  app.post('/wallet/handoff/prepare', async c => {
+  app.post(`${base}/handoff/prepare`, async c => {
     const entry = await appPost(c); const body = fields(await readWalletJson(c.req.raw), ['request', 'signature']);
     const intent = await handoff.prepare({ request: body.request as WalletHandoffRequest, signature: body.signature as Hex }, entry.origin);
     emit('handoff_prepare', 'ok'); return c.json(intent, 201);
   });
-  app.post('/wallet/handoff/exchange', async c => {
+  app.post(`${base}/handoff/exchange`, async c => {
     const entry = await appPost(c); const body = await readWalletJson(c.req.raw) as unknown as WalletHandoffExchangeInput;
     const identity = await handoff.identifyExchange(body, entry.origin); await demand(identity.accountId);
     const result = await handoff.exchange(body, entry.origin);

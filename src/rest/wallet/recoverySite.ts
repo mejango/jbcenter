@@ -11,6 +11,8 @@ import { assertWalletHttpHost, assertWalletHttpRequest, assertWalletCsrf, readWa
 
 export interface WalletRecoverySiteOptions {
   origin: string; browserScript: string;
+  /** Mount path of the wallet pages on this host ('' on the dedicated host). */
+  basePath?: string;
   /** Chosen-password backups: sealed envelopes handed back by wallet address for recovery. */
   backups?: Pick<PostgresWalletBackupStore, 'read'>;
   recovery: Pick<ReturnType<typeof createLocalWalletRecovery>, 'begin' | 'status' | 'register' | 'prove' | 'prepareRotation'
@@ -19,8 +21,8 @@ export interface WalletRecoverySiteOptions {
 function invalid(status = 400): never { throw new RestError(status, 'WALLET_RECOVERY_HTTP_INVALID', 'Check the original recovery and retry its current step.'); }
 /** Dedicated wallet-host capability. App allowlisting never grants access to recovery cookies. */
 export function mountWalletRecovery(app: Hono, options: WalletRecoverySiteOptions) {
-  const { recovery, origin } = options;
-  for (const path of ['/wallet/recover', '/wallet/recovery/*', '/wallet/assets/wallet-recovery.*']) app.use(path, async (c, next) => {
+  const { recovery, origin } = options, base = options.basePath ?? '/wallet';
+  for (const path of [`${base}/recover`, `${base}/recovery/*`, `${base}/assets/wallet-recovery.*`]) app.use(path, async (c, next) => {
     assertWalletHttpHost(c.req.raw, origin);
     for (const [name, value] of Object.entries(walletPageHeaders)) c.header(name, value);
     await next();
@@ -41,18 +43,18 @@ export function mountWalletRecovery(app: Hono, options: WalletRecoverySiteOption
     c.header('Set-Cookie', walletCookie(walletRecoveryCookie, token, Math.max(1, Math.min(86400, Math.floor((view.expiresAtMs - Date.now()) / 1000)))), { append: true });
     return { view, csrfToken: walletCsrfToken(token), ...(replayed === undefined ? {} : { replayed }) };
   }
-  app.get('/wallet/recover', c => c.html(walletRecoveryPage({ passwordBackups: !!options.backups })));
+  app.get(`${base}/recover`, c => c.html(walletRecoveryPage({ passwordBackups: !!options.backups, base })));
   // Pre-authentication by design: the password never leaves the browser and the store limits reads.
-  app.post('/wallet/recovery/backup', async c => {
+  app.post(`${base}/recovery/backup`, async c => {
     const input = await body(c, ['walletAddress']);
     if (typeof input.walletAddress !== 'string' || !isAddress(input.walletAddress)) invalid();
     const found = options.backups ? await options.backups.read(input.walletAddress) : null;
     if (!found) throw new RestError(404, 'WALLET_BACKUP_NOT_FOUND', 'No chosen-password backup exists for this wallet.');
     return json(c, found);
   });
-  app.get('/wallet/assets/wallet-recovery.js', c => c.body(options.browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
-  app.get('/wallet/assets/wallet-recovery.css', c => c.body(walletRecoveryCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
-  app.get('/wallet/recovery/state', async c => {
+  app.get(`${base}/assets/wallet-recovery.js`, c => c.body(options.browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
+  app.get(`${base}/assets/wallet-recovery.css`, c => c.body(walletRecoveryCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
+  app.get(`${base}/recovery/state`, async c => {
     const token = readWalletCookie(c.req.raw, walletRecoveryCookie);
     if (!token) return c.json({ view: null });
     try { return json(c, { view: await recovery.status(token), csrfToken: walletCsrfToken(token) }); }
@@ -62,13 +64,13 @@ export function mountWalletRecovery(app: Hono, options: WalletRecoverySiteOption
       return c.json({ view: null });
     }
   });
-  app.post('/wallet/recovery/begin', async c => {
+  app.post(`${base}/recovery/begin`, async c => {
     const input = await body(c, ['walletAddress', 'passkeyName']);
     if (readWalletCookie(c.req.raw, walletRecoveryCookie)) invalid(409);
     const begun = await recovery.begin({ walletAddress: input.walletAddress as Address, passkeyName: input.passkeyName as string });
     return c.json(result(c, begun.flowToken, begun.view), 201);
   });
-  app.post('/wallet/recovery/restart', async c => {
+  app.post(`${base}/recovery/restart`, async c => {
     await body(c, []);
     try { if (readWalletCookie(c.req.raw, walletRecoveryCookie)) await recovery.restart(cookie(c, walletRecoveryCookie)); }
     catch (error) {
@@ -78,40 +80,40 @@ export function mountWalletRecovery(app: Hono, options: WalletRecoverySiteOption
     c.header('Set-Cookie', walletCookie(walletRecoveryCookie, null, 0), { append: true });
     return c.json({ restarted: true, view: null });
   });
-  app.post('/wallet/recovery/register', async c => {
+  app.post(`${base}/recovery/register`, async c => {
     const input = await body(c, ['type', 'credentialId', 'rawId', 'clientDataJSON', 'attestationObject']), token = cookie(c, walletRecoveryCookie);
     if (input.type !== 'public-key') invalid();
     walletHttpBytes(input.credentialId, 1, 1023);
     return json(c, { view: await recovery.register(token, { type: 'public-key', credentialId: input.credentialId as string,
       rawId: walletHttpBytes(input.rawId, 1, 1023), clientDataJSON: walletHttpBytes(input.clientDataJSON, 1, 2048), attestationObject: walletHttpBytes(input.attestationObject, 1, 2048) }) });
   });
-  app.post('/wallet/recovery/prove', async c => {
+  app.post(`${base}/recovery/prove`, async c => {
     const input = await body(c, ['assertion', 'backupSignature']), token = cookie(c, walletRecoveryCookie);
     return json(c, { view: await recovery.prove(token, { assertion: walletHttpAssertion(input.assertion), backupSignature: input.backupSignature as Hex }) });
   });
-  app.post('/wallet/recovery/rotation/review', async c => {
+  app.post(`${base}/recovery/rotation/review`, async c => {
     await body(c, []); return json(c, await recovery.prepareRotation(cookie(c, walletRecoveryCookie)));
   });
-  app.post('/wallet/recovery/rotation/approve', async c => {
+  app.post(`${base}/recovery/rotation/approve`, async c => {
     const input = await body(c, ['backupSignature']), token = cookie(c, walletRecoveryCookie);
     return json(c, { view: await recovery.approveRotation(token, input.backupSignature as Hex) });
   });
-  app.post('/wallet/recovery/setup/review', async c => {
+  app.post(`${base}/recovery/setup/review`, async c => {
     const input = await body(c, ['browserPublicAddress']), token = cookie(c, walletRecoveryCookie);
     return json(c, await recovery.prepareSetup(token, { browserPublicAddress: input.browserPublicAddress as Address }));
   });
-  app.post('/wallet/recovery/setup/complete', async c => {
+  app.post(`${base}/recovery/setup/complete`, async c => {
     const input = await body(c, ['setupId', 'assertion', 'browserProof']), token = cookie(c, walletRecoveryCookie);
     return json(c, { view: await recovery.completeSetup(token, { setupId: input.setupId as string,
       assertion: walletHttpAssertion(input.assertion), browserProof: input.browserProof as Hex }) });
   });
-  app.post('/wallet/recovery/resume/begin', async c => {
+  app.post(`${base}/recovery/resume/begin`, async c => {
     const input = await body(c, ['recoveryId']);
     const resumed = await recovery.beginResume(input.recoveryId as string);
     c.header('Set-Cookie', walletCookie(walletRecoveryResumeCookie, resumed.resumeToken, 86400), { append: true });
     return json(c, { challenge: resumed.challenge, csrfToken: walletCsrfToken(resumed.resumeToken) });
   });
-  app.post('/wallet/recovery/resume/complete', async c => {
+  app.post(`${base}/recovery/resume/complete`, async c => {
     const input = await body(c, ['resumeId', 'assertion', 'backupSignature']), resumeToken = cookie(c, walletRecoveryResumeCookie);
     const resumed = await recovery.completeResume({ resumeId: input.resumeId as string, resumeToken,
       assertion: walletHttpAssertion(input.assertion), backupSignature: input.backupSignature as Hex });

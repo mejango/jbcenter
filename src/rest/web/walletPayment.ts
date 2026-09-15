@@ -1,3 +1,4 @@
+import { base } from './walletBase.js';
 import { formatUnits } from 'viem';
 import { getUserOperationHash, normalizeUserOperation, uoCanonical, userOperationMaximumCost } from '../userOperations/codec.js';
 import { safe7579PasskeyOwnerSigningPayload } from '../smartAccounts/passkeySignatures.js';
@@ -129,7 +130,7 @@ function accept(input: unknown) {
   else setStatus('ready', 'Check the payment details, then approve with your passkey.');
 }
 async function readSession() {
-  const result = await request('/wallet/session');
+  const result = await request(`${base}/session`);
   if (result.session === null) { needsSignIn = true; csrf = ''; setStatus('sign-in', 'Sign in to review this payment.'); return false; }
   const session = record(result.session), nextAccount = text(session.accountId);
   if (session.chainId !== 8453 || `eip155:8453:${address(session.walletAddress).toLowerCase()}` !== nextAccount || (accountId && accountId !== nextAccount)) fail();
@@ -139,15 +140,15 @@ async function readSession() {
 async function load() {
   const url = new URL(location.href);
   if (url.hash || url.searchParams.size !== 1 || !url.searchParams.has('review')) fail();
-  id = uuid(url.searchParams.get('review')); signIn.href = `/wallet?payment=${id}`;
-  const config = await request('/wallet/config');
+  id = uuid(url.searchParams.get('review')); signIn.href = `${base || '/'}?payment=${id}`;
+  const config = await request(`${base}/config`);
   if (config.version !== 'center-wallet-v1' || config.issuer !== location.origin) fail();
   rpId = text(config.rpId, 253); if (location.hostname !== rpId && !location.hostname.endsWith(`.${rpId}`)) fail();
   await recover();
 }
 async function recover() {
   if (!await readSession()) return;
-  accept(await request(`/wallet/payment-reviews/${id}`));
+  accept(await request(`${base}/payment-reviews/${id}`));
   if (review?.status === 'pending' && pending && !expired()) await submitApproval();
   else if (review?.status === 'pending' && uncertain) {
     // A cancellation may have failed before reaching the server. Reading pending
@@ -158,7 +159,7 @@ async function recover() {
 async function submitApproval() {
   if (!pending || !review || review.status !== 'pending' || expired()) throw new HttpFailure(410);
   uncertain = true; nativePrompt = null; render(); setStatus('checking', 'Confirming your payment approval…');
-  const result = await request(`/wallet/payment-reviews/${id}/approve`, { assertion: pending });
+  const result = await request(`${base}/payment-reviews/${id}/approve`, { assertion: pending });
   const checked = checkReview(result.review);
   if (checked.status !== 'approved' || typeof result.replayed !== 'boolean' || result.redirectUri !== callback(checked)) fail();
   accept(checked);
@@ -180,7 +181,7 @@ async function approvePayment() {
 async function cancelPayment() {
   if (!review || review.status !== 'pending' || expired() || uncertain) return;
   uncertain = true; render(); setStatus('checking', 'Declining this payment…');
-  const result = checkReview(await request(`/wallet/payment-reviews/${id}/cancel`));
+  const result = checkReview(await request(`${base}/payment-reviews/${id}/cancel`));
   if (!['cancelled', 'approved'].includes(result.status)) fail(); accept(result);
 }
 async function run(action: () => Promise<void>) {

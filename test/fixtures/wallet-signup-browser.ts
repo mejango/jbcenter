@@ -40,7 +40,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     if (secretMode && request.method === 'POST') requestBodies.push(await request.clone().text());
     const response = await app.fetch(request), path = new URL(request.url).pathname;
     observed.push({ path, status: response.status });
-    if (secretMode && response.ok && ['/wallet/recovery/register', '/wallet/recovery/rotation/approve', '/wallet/recovery/setup/complete'].includes(path)
+    if (secretMode && response.ok && ['/recovery/register', '/recovery/rotation/approve', '/recovery/setup/complete'].includes(path)
       && !lostRecoveryPaths.has(path)) {
       lostRecoveryPaths.add(path); return new Response('Unavailable after commit', { status: 503 });
     }
@@ -48,7 +48,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     // proves the single "Continue" click carries the user from setup into the signed-in wallet.
     // The kit journey loses the registration and setup replies and recovers by hand; the wallet
     // journey keeps them and proves one click runs create, check and approve, then setup and login.
-    if (response.ok && kitMode && ((path === '/wallet/signup/register' && !lostRegistration) || (path === '/wallet/signup/setup/complete' && !lostSetup))) {
+    if (response.ok && kitMode && ((path === '/signup/register' && !lostRegistration) || (path === '/signup/setup/complete' && !lostSetup))) {
       if (path.endsWith('/register')) lostRegistration = true; else lostSetup = true;
       return new Response('Unavailable after commit', { status: 503 });
     }
@@ -73,7 +73,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
   const bundle = async (entry: string) => (await build({ entryPoints: [entry], bundle: true, platform: 'browser', format: 'esm', write: false })).outputFiles[0]!.text;
   const [browserScript, signupBrowserScript] = await Promise.all([bundle('src/rest/web/wallet.ts'), bundle('src/rest/web/walletSignup.ts')]);
   const recoveryBrowserScript = recovery ? await bundle('src/rest/web/walletRecoveryJourney.ts') : undefined;
-  app = createWalletSite({ origin, audience: 'https://juicebox.center', browserScript, signup, signupBrowserScript, login,
+  app = createWalletSite({ origin, basePath: '', audience: 'https://juicebox.center', browserScript, signup, signupBrowserScript, login,
     ...(recovery ? { recovery, recoveryBrowserScript: recoveryBrowserScript! } : {}), ...(backups ? { backups } : {}),
     // No app handoff is involved in this signup/login observation.
     handoff: {} as never, policy: {} as never,
@@ -111,7 +111,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await page.locator('#explain-continue').click();
   };
   try {
-    await page.goto(origin + '/wallet/create');
+    await page.goto(origin + '/');
     const fillForm = async () => {
       await page.getByLabel('Passkey name').fill('Juicebox test');
       if (options.recoveryMode === 'wallet' || !options.recoveryMode) await page.getByLabel('A wallet you already have').check();

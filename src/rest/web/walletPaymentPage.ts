@@ -1,11 +1,11 @@
 /** Dedicated owner approval surface. Values are populated with textContent, never HTML. */
-export function walletPaymentPage(): string {
+export function walletPaymentPage(base = '/wallet'): string {
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="wallet-base" content="${base}"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>Review payment | Juicebox</title>
-<link rel="stylesheet" href="/wallet/assets/wallet.css"><link rel="stylesheet" href="/wallet/assets/wallet-payment.css">
-<script type="module" src="/wallet/assets/wallet-payment.js"></script></head>
-<body><main><a class="brand" href="/wallet">JUICEBOX CENTER</a><h1>Review payment</h1>
+<link rel="stylesheet" href="${base}/assets/wallet.css"><link rel="stylesheet" href="${base}/assets/wallet-payment.css">
+<script type="module" src="${base}/assets/wallet-payment.js"></script></head>
+<body><main><a class="brand" href="${base || '/'}">JUICEBOX CENTER</a><h1>Review payment</h1>
 <p id="payment-status" role="status" aria-live="polite" aria-atomic="true" data-state="loading">Checking this payment…</p>
 <section id="payment-review" aria-label="Payment details" hidden>
 <p id="payment-amount" class="amount"></p><dl>

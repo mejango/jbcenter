@@ -78,7 +78,7 @@ const walletBackupWrapKey = process.env.WALLET_BACKUP_WRAP_KEY;
 if (walletBackupWrapKey !== undefined && !/^0x[0-9a-fA-F]{64}$/.test(walletBackupWrapKey)) throw new Error("WALLET_BACKUP_WRAP_KEY must be 32 bytes of hex");
 const wallet: RestWalletConfiguration | undefined = walletOrigin && walletStack
   ? { origin: walletOrigin, manifest: walletStack.manifest, utility: walletStack.utility, ...(walletLegacyOrigins.length ? { legacyOrigins: walletLegacyOrigins } : {}),
-      ...(walletBackupWrapKey ? { backupWrapKey: walletBackupWrapKey as `0x${string}` } : {}) } : undefined;
+      ...(walletBackupWrapKey ? { backupWrapKey: walletBackupWrapKey as `0x${string}` } : {}), basePath: "" } : undefined;
 const rest = await createRestRuntime({
   ...(process.env.PARA_API_KEY ? { para: { apiKey: process.env.PARA_API_KEY, environment: paraEnvironment } } : {}),
   ...(wallet ? { wallet } : {}),

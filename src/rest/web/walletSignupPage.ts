@@ -1,9 +1,10 @@
 import { walletCss } from './walletPage.js';
-export function walletSignupPage(options: { passwordBackups?: boolean } = {}) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+export function walletSignupPage(options: { passwordBackups?: boolean; base?: string } = {}) {
+  const base = options.base ?? '/wallet';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="wallet-base" content="${base}"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>Your Juicebox</title>
-<link rel="stylesheet" href="/wallet/assets/wallet-signup.css"><script type="module" src="/wallet/assets/wallet-signup.js"></script></head>
-<body><main><a class="brand" id="wallet-back" href="/wallet">JUICEBOX CENTER</a>
+<link rel="stylesheet" href="${base}/assets/wallet-signup.css"><script type="module" src="${base}/assets/wallet-signup.js"></script></head>
+<body><main><a class="brand" id="wallet-back" href="${base || '/'}">JUICEBOX CENTER</a>
 <h1>Your Juicebox</h1>
 <p id="signup-intro" hidden>Sign up with a passkey, or <a href="#" id="signup-resume">log in</a> with one you've got.</p>
 <p id="wallet-status" role="status" aria-live="polite" aria-atomic="true">Checking your signup…</p>

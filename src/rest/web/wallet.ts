@@ -1,3 +1,4 @@
+import { base } from './walletBase.js';
 /** No credentials, assertions, CSRF values or handoff codes are persisted by this page. */
 type Json = Record<string, unknown>;
 type Configuration = { issuer: string; audience: string; rpId: string };
@@ -66,7 +67,7 @@ async function request(path: string, body?: unknown, csrfToken?: string): Promis
       } }) });
     if (!response.ok) {
       let code: string | undefined;
-      if (path === '/wallet/authorize/issue' && response.status === 403) {
+      if (path === `${base}/authorize/issue` && response.status === 403) {
         const body = await response.json().catch(() => null);
         if (body?.error?.code === 'WALLET_HANDOFF_UNCLAIMED') code = 'WALLET_HANDOFF_UNCLAIMED';
       }
@@ -129,17 +130,17 @@ async function load() {
   paymentReviewId = query.searchParams.get("payment");
   if (paymentReviewId !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(paymentReviewId)) throw new InvalidResponse();
   const intentId = query.searchParams.has("intent") ? token(query.searchParams.get("intent")) : null;
-  const config = await request("/wallet/config");
+  const config = await request(`${base}/config`);
   if (config.version !== "center-wallet-v1" || config.issuer !== location.origin) throw new InvalidResponse();
   const create = document.getElementById("wallet-create") as HTMLAnchorElement | null;
-  if (create) { create.href = "/wallet/create" + query.search; create.hidden = false; }
+  if (create) { create.href = `${base}/create` + query.search; create.hidden = false; }
   const recover = document.getElementById("wallet-recover") as HTMLAnchorElement | null;
-  if (recover) { recover.href = "/wallet/recover" + query.search; recover.hidden = false; }
+  if (recover) { recover.href = `${base}/recover` + query.search; recover.hidden = false; }
   const rpId = string(config.rpId, 253);
   if (location.hostname !== rpId && !location.hostname.endsWith(`.${rpId}`)) throw new InvalidResponse();
   configuration = { issuer: location.origin, audience: string(config.audience), rpId };
   if (intentId) {
-    const result = await request(`/wallet/authorize/${intentId}`), requested = record(result.request);
+    const result = await request(`${base}/authorize/${intentId}`), requested = record(result.request);
     if (result.id !== intentId || !["prepared", "issued"].includes(String(result.state))
       || requested.issuer !== configuration.issuer || requested.audience !== configuration.audience) throw new InvalidResponse();
     const callbackUri = string(requested.callbackUri), callback = new URL(callbackUri);
@@ -152,17 +153,17 @@ async function load() {
 }
 async function readSession() {
   nextRetry = readSession; setStatus("checking", "Checking current wallet access…");
-  acceptSession(await readyRequest("/wallet/session"));
+  acceptSession(await readyRequest(`${base}/session`));
   await continueSession();
 }
 async function continueSession() {
   if (session && paymentReviewId) {
     setStatus("returning", "Returning to your payment review…");
-    location.replace(`/wallet/payment?review=${paymentReviewId}`);
+    location.replace(`${base}/payment?review=${paymentReviewId}`);
   }
   else if (session && intent) await issue();
   // A direct visit without a session or an app return belongs on the signup page, which also logs in.
-  else if (!session && !intent && !paymentReviewId && document.getElementById("wallet-create")) location.replace("/wallet/create");
+  else if (!session && !intent && !paymentReviewId && document.getElementById("wallet-create")) location.replace(`${base}/create`);
   else setStatus(session ? "signed-in" : "ready", session ? "You are signed in." : "Sign in with your existing wallet passkey.");
 }
 async function login() {
@@ -172,7 +173,7 @@ async function login() {
     setStatus("error", "This browser cannot use passkeys here. Open Center in a browser that supports passkeys."); return;
   }
   setStatus("checking", "Preparing your passkey sign-in…");
-  const begun = await request("/wallet/login/begin", {}), publicKey = record(begun.publicKey);
+  const begun = await request(`${base}/login/begin`, {}), publicKey = record(begun.publicKey);
   if (publicKey.rpId !== configuration.rpId || publicKey.userVerification !== "required" || publicKey.timeout !== 90_000) throw new InvalidResponse();
   const challenge = decode(publicKey.challenge); if (challenge.length !== 32) throw new InvalidResponse();
   const loginId = string(begun.loginId, 36); future(begun.expiresAtMs);
@@ -195,7 +196,7 @@ async function completeLogin() {
   if (completionAttempted) {
     // Success headers can install the session and clear the flow cookie before its body
     // arrives. Only this exact login can recover the selected credential's completion.
-    const recovered = await readyRequest("/wallet/session");
+    const recovered = await readyRequest(`${base}/session`);
     if (recovered.session && record(recovered.session).loginId === pending.loginId) {
       acceptSession(recovered, true); pending = null; completionAttempted = false;
       await continueSession(); return;
@@ -203,7 +204,7 @@ async function completeLogin() {
     // A different tab's session must neither replace this identity nor its flow CSRF.
   }
   completionAttempted = true;
-  const result = await readyRequest("/wallet/login/complete", pending, csrf);
+  const result = await readyRequest(`${base}/login/complete`, pending, csrf);
   if (record(result.session).loginId !== pending.loginId) throw new InvalidResponse();
   acceptSession(result, true);
   pending = null; completionAttempted = false;
@@ -214,7 +215,7 @@ async function issue() {
   if (!intent || !session) throw new InvalidResponse();
   future(intent.expiresAtMs); future(session.expiresAtMs);
   setStatus("returning", "Returning to your Juicebox app…");
-  const result = await request("/wallet/authorize/issue", { intentId: intent.id }, csrf);
+  const result = await request(`${base}/authorize/issue`, { intentId: intent.id }, csrf);
   const redirectUri = string(result.redirectUri, 4096), redirect = new URL(redirectUri);
   const keys = [...redirect.searchParams.keys()];
   if (redirectUri.split("?")[0] !== intent.callbackUri || redirect.hash || keys.length !== 3
@@ -225,7 +226,7 @@ async function issue() {
 }
 async function logout() {
   nextRetry = logout; setStatus("checking", "Signing out…");
-  const result = await request("/wallet/logout", {}, csrf);
+  const result = await request(`${base}/logout`, {}, csrf);
   if (result.loggedOut !== true) throw new InvalidResponse();
   session = null; csrf = ""; pending = null; completionAttempted = false; sessionKnown = true;
   setStatus("ready", "You are signed out. You can sign in again with your passkey.");

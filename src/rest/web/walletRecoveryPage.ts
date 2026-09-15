@@ -1,10 +1,11 @@
 import { walletSignupCss } from './walletSignupPage.js';
 
-export function walletRecoveryPage(options: { passwordBackups?: boolean } = {}) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+export function walletRecoveryPage(options: { passwordBackups?: boolean; base?: string } = {}) {
+  const base = options.base ?? '/wallet';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="wallet-base" content="${base}"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>Recover your wallet | Juicebox</title>
-<link rel="stylesheet" href="/wallet/assets/wallet-recovery.css"><script type="module" src="/wallet/assets/wallet-recovery.js"></script></head>
-<body><main><a class="brand" id="wallet-back" href="/wallet">JUICEBOX CENTER</a>
+<link rel="stylesheet" href="${base}/assets/wallet-recovery.css"><script type="module" src="${base}/assets/wallet-recovery.js"></script></head>
+<body><main><a class="brand" id="wallet-back" href="${base || '/'}">JUICEBOX CENTER</a>
 <h1>Recover your Juicebox wallet</h1>
 <p>Use your backup file or original recovery wallet to replace a lost passkey. Your wallet address stays the same.</p>
 <p id="wallet-status" role="status" aria-live="polite" aria-atomic="true">Checking your recovery…</p>
@@ -38,7 +39,7 @@ export function walletRecoveryPage(options: { passwordBackups?: boolean } = {}) 
 <p>Use the replacement passkey and original recovery owner. Your recovery reference is public and cannot approve recovery.</p>
 <label>Recovery reference<input id="recovery-id" maxlength="36" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
 <button type="button" id="recovery-resume">Resume recovery</button></details></section>
-<a id="recovery-signin" href="/wallet" hidden>Sign in with your new passkey</a>
+<a id="recovery-signin" href="${base || '/'}" hidden>Sign in with your new passkey</a>
 <noscript><p>Enable JavaScript to recover your wallet.</p></noscript></main></body></html>`;
 }
 

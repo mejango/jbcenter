@@ -1,3 +1,4 @@
+import { base } from './walletBase.js';
 import { getAddress, hashTypedData, isAddress, keccak256, stringToHex, type Address, type Hex, type TypedDataDefinition } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import type { WalletRecoveryView } from '../wallet/recoveryService.js';
@@ -71,7 +72,7 @@ class HttpFailure extends Error { constructor(readonly status: number) { super('
 async function request(path: string, body?: unknown, proof = csrf): Promise<any> {
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15000);
   try {
-    const response = await fetch('/wallet/recovery/' + path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal,
+    const response = await fetch(`${base}/recovery/` + path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal,
       ...(body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json', 'x-center-wallet-request': '1',
         ...(proof ? { 'x-center-wallet-csrf': proof } : {}) }, body: JSON.stringify(body) }) });
     if (!response.ok) throw new HttpFailure(response.status);
@@ -340,7 +341,7 @@ void run(async () => {
   const url = new URL(location.href);
   if (url.hash || url.searchParams.size > 1 || [...url.searchParams].some(([key, value]) => key === 'intent' ? !/^[A-Za-z0-9_-]{43}$/.test(value)
     : key === 'payment' ? !uuid.test(value) : true)) throw new Error('Return to the original app to start this recovery.');
-  signIn.href = '/wallet' + url.search; el<HTMLAnchorElement>('wallet-back').href = signIn.href;
+  signIn.href = (base || '/') + url.search; el<HTMLAnchorElement>('wallet-back').href = signIn.href;
   const locator = sessionStorage.getItem(locatorKey); if (locator && uuid.test(locator)) reference.value = locator;
   await observe();
 });
