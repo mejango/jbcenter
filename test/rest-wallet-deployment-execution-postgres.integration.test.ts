@@ -96,7 +96,8 @@ suite("PostgreSQL exact-byte deployment dispatch fencing", () => {
     expect(await store.loadExecutionContext(context.operation.id)).toEqual(context);
   });
   it("commits one fenced attempt across two actual competing processes without changing signed or observation revisions", async () => {
-    const context = await signedContext(), input = await claim(context), a = await worker(), b = await worker();
+    const [a, b] = await Promise.all([worker(), worker()]);
+    const context = await signedContext(), input = await claim(context);
     const results = await Promise.all([a.request({ action: "lease-dispatch", input }), b.request({ action: "lease-dispatch", input })]);
     expect(results.map(value => value.status).sort()).toEqual([200, 409]);
     const journal = await store.getDispatch(context.operation.id);
@@ -111,7 +112,10 @@ suite("PostgreSQL exact-byte deployment dispatch fencing", () => {
     await expect(store.settleDispatch(settlement(journal, "accepted"))).rejects.toMatchObject({ status: 409 });
   });
   it("replaces only an expired lease after cooldown and rejects the old process's late response", async () => {
-    const context = await signedContext(), a = await worker(), b = await worker();
+    // Start the processes before observing: module loading is not part of a live
+    // admission, whose deadline must remain inside the observation freshness bound.
+    const [a, b] = await Promise.all([worker(), worker()]);
+    const context = await signedContext();
     // This first attempt must commit successfully before testing lease takeover.
     // Use the fixture's normal lease; subsecond expiry is tested separately below.
     const first = await a.request({ action: "lease-dispatch", input: await claim(context) });
@@ -128,7 +132,7 @@ suite("PostgreSQL exact-byte deployment dispatch fencing", () => {
     expect(await store.get(context.operation.id)).toEqual(context.operation);
   }, 15_000);
   it.each(["after-dispatch", "after-commit"])("recovers a process killed at %s without losing signed bytes or allocation", async barrier => {
-    const context = await signedContext(), child = await worker(), reached = message(child.child, "barrier");
+    const child = await worker(), context = await signedContext(), reached = message(child.child, "barrier");
     const request = child.request({ action: "lease-dispatch", input: await claim(context), barrier }).catch(() => null);
     await reached; await kill(child.child); await request;
     const journal = await store.getDispatch(context.operation.id);
@@ -137,14 +141,14 @@ suite("PostgreSQL exact-byte deployment dispatch fencing", () => {
     expect(await store.loadExecutionContext(context.operation.id)).toEqual(context);
   });
   it("rolls back an attempt whose lease expires behind an actual process post-write barrier", async () => {
-    const context = await signedContext(), child = await worker(), reached = message(child.child, "barrier");
+    const child = await worker(), context = await signedContext(), reached = message(child.child, "barrier");
     const input = await claim(context, 120), request = child.request({ action: "lease-dispatch", input, barrier: "after-dispatch", continueBarrier: true });
     await reached; await new Promise(resolve => setTimeout(resolve, 180)); child.child.send({ kind: "continue" });
     expect((await request).status).toBe(409); expect(await store.getDispatch(context.operation.id)).toBeNull();
     expect(await store.get(context.operation.id)).toEqual(context.operation);
   });
   it("rejects an admission which expires while waiting for the sender pool lock", async () => {
-    const context = await signedContext(), child = await worker(), input = await claim(context);
+    const child = await worker(), context = await signedContext(), input = await claim(context);
     input.admission.expiresAt = input.admission.observedAt + 150;
     const locked = await pool.connect(); await locked.query("BEGIN");
     await locked.query("SELECT id FROM rest_wallet_deployment_pools FOR UPDATE");
@@ -153,6 +157,7 @@ suite("PostgreSQL exact-byte deployment dispatch fencing", () => {
     expect((await request).status).toBe(403); expect(await store.getDispatch(context.operation.id)).toBeNull();
   });
   it("keeps the permanent eight-attempt limit across worker recovery", async () => {
+    const process = await worker();
     let context = await signedContext();
     for (let i = 1; i <= 8; i++) {
       // This case tests the durable attempt cap, not an unrealistically small success deadline.
@@ -162,7 +167,6 @@ suite("PostgreSQL exact-byte deployment dispatch fencing", () => {
       context.operation = (await store.saveObservation({ operationId: context.operation.id, expectedRevision: context.operation.revision,
         signedHash: context.operation.signed!.hash, observation: syntheticDeploymentObservation(context, await now()) })).operation;
     }
-    const process = await worker();
     expect((await process.request({ action: "lease-dispatch", input: await claim(context) })).status).toBe(409);
     expect((await store.getDispatch(context.operation.id))!.attempts).toBe(8);
     expect((await store.loadExecutionContext(context.operation.id)).pool.activeOperationId).toBe(context.operation.id);
