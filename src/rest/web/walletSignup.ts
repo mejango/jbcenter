@@ -9,7 +9,7 @@ type View = Awaited<ReturnType<Signup['status']>>;
 type Ethereum = { request(input: { method: string; params?: unknown[] }): Promise<unknown> };
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const form = el<HTMLFormElement>('signup-form'), name = el<HTMLInputElement>('passkey-name');
-const next = el<HTMLButtonElement>('signup-next'), resume = el<HTMLButtonElement>('signup-resume');
+const next = el<HTMLButtonElement>('signup-next'), resume = el<HTMLAnchorElement>('signup-resume');
 const check = el<HTMLButtonElement>('signup-check'), cancel = el<HTMLButtonElement>('signup-cancel');
 const status = el('wallet-status'), details = el('signup-details'), signIn = el<HTMLAnchorElement>('signup-signin');
 let view: View | null = null, known = false, busy = false, csrf = '', native: AbortController | null = null;
@@ -61,7 +61,7 @@ function accept(result: { view: View | null; csrfToken?: string }) {
   }
   view = result.view; known = true;
   if (result.csrfToken) { if (decode(result.csrfToken).length !== 32) throw new Error('Invalid signup context.'); csrf = result.csrfToken; }
-  message(view ? steps[view.phase] : 'Name your passkey.');
+  message(view ? steps[view.phase] : '');
   if (view?.phase === 'ready_to_sign_in') sessionStorage.removeItem('center:signup:browser:' + view.enrollmentId);
   if (view?.phase === 'ready_to_sign_in' || (view?.phase === 'awaiting_deployment_approval' && kitVerifiedWallet === view.walletAddress)) recoverySecret = null;
 }
@@ -70,7 +70,6 @@ function render() {
   name.disabled = busy; details.hidden = !view;
   const recoveryPhase = !view || ['awaiting_registration', 'awaiting_possession', 'awaiting_deployment_approval'].includes(view.phase);
   el<HTMLFieldSetElement>('recovery-method').disabled = busy; // Inside the form: gone once signup begins.
-  el('signup-begin').textContent = kitMode() ? 'Create passkey wallet' : 'Connect recovery wallet';
   el('recovery-kit').hidden = !view || !recoveryPhase || !kitMode() || (kitVerifiedWallet !== null && kitVerifiedWallet === view.walletAddress);
   el('recovery-phrase').textContent = recoverySecret?.mnemonic ?? '';
   // The kit is complete only once the passkey fixed the wallet address. Until then, or after a
@@ -92,7 +91,7 @@ function render() {
     : view?.phase === 'expired' ? 'Start a new registration' : null;
   next.hidden = !label || !!pending; next.textContent = label; next.disabled = busy;
   if (view?.phase === 'awaiting_deployment_approval' && kitMode() && kitSavedWallet !== view.walletAddress) next.disabled = true;
-  resume.hidden = busy || !!pending || view?.phase === 'ready_to_sign_in';
+  el('signup-intro').hidden = !known || !!view; // "log in" resumes with a passkey; a finished wallet lands at sign-in.
   check.hidden = !view && !pending && known; check.disabled = busy;
   cancel.hidden = !native; signIn.hidden = view?.phase !== 'ready_to_sign_in';
 }
@@ -242,7 +241,7 @@ el('recovery-restore').addEventListener('click', () => { void run(async () => {
 next.addEventListener('click', () => { void run(advance); });
 check.addEventListener('click', () => { void run(observe); });
 cancel.addEventListener('click', () => native?.abort());
-resume.addEventListener('click', () => { void run(async () => {
+resume.addEventListener('click', event => { event.preventDefault(); if (busy || pending) return; void run(async () => {
   const begun = await request('resume/begin', {}), proof = await assertion(begun.challenge.challenge, begun.challenge.rpId);
   await send('resume/complete', { resumeId: begun.challenge.id, assertion: proof }, begun.csrfToken);
   deployment = null; setup = null;

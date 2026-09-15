@@ -102,7 +102,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await page.goto(origin + '/wallet/create');
     await page.getByLabel('Passkey name').fill('Juicebox test');
     if (!kitMode) await page.getByLabel('A wallet you already have').check();
-    await page.getByRole('button', { name: kitMode ? 'Create passkey wallet' : 'Connect recovery wallet' }).click();
+    await page.getByRole('button', { name: 'Sign up' }).click();
     await contains('Create your named passkey');
     await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
     await page.getByRole('button', { name: 'Create passkey', exact: true }).click();
@@ -159,7 +159,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await options.fixture.rpc('anvil_mine', ['0x41', '0x0']); await signup.tick();
     await context.clearCookies({ name: walletSignupCookie });
     await page.reload();
-    await page.getByRole('button', { name: 'Resume with a passkey' }).click();
+    await page.getByRole('link', { name: 'log in' }).click();
     await contains('Authorize this browser');
     expect(await page.locator('#signup-address').textContent()).toBe(originalAddress);
     expect(await flows.authenticate(cookie.value)).toBeNull();
