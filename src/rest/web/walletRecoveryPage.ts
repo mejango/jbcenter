@@ -7,7 +7,6 @@ export function walletRecoveryPage() {
 <body><main><a class="brand" id="wallet-back" href="/wallet">JUICEBOX CENTER</a>
 <h1>Recover your Juicebox wallet</h1>
 <p>Use your recovery kit or original recovery wallet to replace a lost passkey. Your wallet address stays the same.</p>
-<p class="note">Local pilot. Recovery is available only on the private test chain. Do not send real funds.</p>
 <p id="wallet-status" role="status" aria-live="polite" aria-atomic="true">Checking your recovery…</p>
 <fieldset id="recovery-method" hidden><legend>Recover with</legend>
 <label class="choice"><input type="radio" name="recovery-method" value="kit" checked>My recovery kit</label>

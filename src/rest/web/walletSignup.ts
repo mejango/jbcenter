@@ -17,19 +17,19 @@ let pending: { path: string; body: unknown; csrf: string } | null = null;
 let deployment: Awaited<ReturnType<Signup['prepareDeployment']>> | null = null;
 let setup: Awaited<ReturnType<Signup['prepareSetup']>> | null = null;
 let disposed = false, pollCount = 0;
-let recoverySecret: WalletRecoverySecret | null = null, kitVerifiedWallet: string | null = null;
+let recoverySecret: WalletRecoverySecret | null = null, kitVerifiedWallet: string | null = null, kitSavedWallet: string | null = null;
 const downloadUrls = new Set<string>();
 const kitMode = () => el<HTMLFieldSetElement>('recovery-method').querySelector<HTMLInputElement>('input:checked')?.value === 'kit';
 function kitIdentity(): WalletRecoveryKitIdentity {
   if (!view?.walletAddress || !view.initializerHash) throw new Error('Create your passkey before saving the complete recovery kit.');
-  return { network: 'local-test', chainId: 8453, walletAddress: view.walletAddress, recoveryOwner: view.recoveryOwner, initializerHash: view.initializerHash };
+  return { network: 'base', chainId: 8453, walletAddress: view.walletAddress, recoveryOwner: view.recoveryOwner, initializerHash: view.initializerHash };
 }
 const steps: Record<View['phase'], string> = {
   awaiting_registration: 'Create your named passkey.', awaiting_possession: 'Prove access to your passkey and recovery wallet.',
-  awaiting_deployment_approval: 'Review and approve creation of your test wallet.', deploying: 'Creating your test wallet. Keep this page open, or resume later with your passkey.',
+  awaiting_deployment_approval: 'Review and approve creation of your wallet.', deploying: 'Creating your wallet. Keep this page open, or resume later with your passkey.',
   deployment_failed: 'Wallet creation did not complete. Keep this signup for recovery; do not send funds.',
   awaiting_setup: 'Authorize this browser to read and prepare requests. Every payment will still need owner approval.',
-  ready_to_sign_in: 'Your test wallet is ready. Sign in with a fresh passkey prompt.', expired: 'This incomplete registration expired. Its passkey is not an active wallet credential.',
+  ready_to_sign_in: 'Your wallet is ready. Sign in with a fresh passkey prompt.', expired: 'This incomplete registration expired. Its passkey is not an active wallet credential.',
 };
 function message(value: string, error = false) { status.textContent = value; status.dataset.state = error ? 'error' : 'ready'; }
 function encode(value: ArrayBuffer) { return btoa(String.fromCharCode(...new Uint8Array(value))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', ''); }
@@ -74,8 +74,15 @@ function render() {
   el('signup-begin').textContent = kitMode() ? 'Create passkey wallet' : 'Connect recovery wallet';
   el('recovery-kit').hidden = !view || !recoveryPhase || !kitMode() || (kitVerifiedWallet !== null && kitVerifiedWallet === view.walletAddress);
   el('recovery-phrase').textContent = recoverySecret?.mnemonic ?? '';
-  el<HTMLButtonElement>('recovery-download').disabled = busy || !recoverySecret || !view?.walletAddress;
-  el<HTMLInputElement>('recovery-file').disabled = busy || !view?.walletAddress;
+  // The kit is complete only once the passkey fixed the wallet address. Until then, or after a
+  // reload lost the words, say what to do instead of showing an idle button.
+  const complete = !!recoverySecret && !!view?.walletAddress;
+  el('recovery-hint').textContent = !view?.walletAddress ? 'Create your passkey to complete the kit with your wallet address.'
+    : recoverySecret ? '' : 'Reopen your saved kit or restore your words to continue.';
+  el('recovery-kit-note').hidden = !complete; el<HTMLButtonElement>('recovery-download').hidden = !complete;
+  el<HTMLButtonElement>('recovery-download').disabled = busy;
+  el('recovery-verify').hidden = !view?.walletAddress;
+  el<HTMLInputElement>('recovery-file').disabled = busy;
   el<HTMLTextAreaElement>('recovery-words').disabled = busy;
   el<HTMLButtonElement>('recovery-restore').disabled = busy;
   el('signup-name').textContent = view?.passkeyName ?? ''; el('signup-recovery').textContent = view?.recoveryOwner ?? '';
@@ -85,7 +92,7 @@ function render() {
     : view?.phase === 'awaiting_setup' ? setup ? 'Approve browser setup' : 'Review browser setup'
     : view?.phase === 'expired' ? 'Start a new registration' : null;
   next.hidden = !label || !!pending; next.textContent = label; next.disabled = busy;
-  if (view?.phase === 'awaiting_deployment_approval' && kitMode() && kitVerifiedWallet !== view.walletAddress) next.disabled = true;
+  if (view?.phase === 'awaiting_deployment_approval' && kitMode() && kitSavedWallet !== view.walletAddress) next.disabled = true;
   resume.hidden = busy || !!pending || view?.phase === 'ready_to_sign_in';
   check.hidden = !view && !pending && known; check.disabled = busy;
   cancel.hidden = !native; signIn.hidden = view?.phase !== 'ready_to_sign_in';
@@ -175,13 +182,13 @@ async function advance() {
     const proof = await assertion(view.possession.challenge, view.rpId, view.possession.credentialId);
     await send('prove', { assertion: proof, backupSignature });
   } else if (view.phase === 'awaiting_deployment_approval') {
-    if (kitMode() && kitVerifiedWallet !== view.walletAddress) throw new Error('Download and verify your saved recovery kit before creating the wallet.');
+    if (kitMode() && kitSavedWallet !== view.walletAddress) throw new Error('Download your recovery kit before creating the wallet.');
     if (!deployment) {
       deployment = await request('deployment/review', {});
       if (deployment!.walletAddress.toLowerCase() !== view.walletAddress?.toLowerCase() || deployment!.recoveryOwner.toLowerCase() !== view.recoveryOwner.toLowerCase() || deployment!.initializerHash !== view.initializerHash) {
         deployment = null; throw new Error('The wallet creation review changed.');
       }
-      message('Approve creation of the test wallet shown above, with this passkey and recovery owner.');
+      message('Approve creation of the wallet shown above, with this passkey and recovery owner.');
     } else {
       const proof = await assertion(deployment.challenge, view.rpId, deployment.credentialId);
       await send('deployment/approve', { approvalId: deployment.id, assertion: proof }); deployment = null;
@@ -211,10 +218,11 @@ el('recovery-download').addEventListener('click', () => { void run(async () => {
   if (!recoverySecret) throw new Error('Restore your recovery words first.');
   const encoded = serializeWalletRecoveryKit(recoverySecret, kitIdentity());
   const url = URL.createObjectURL(new Blob([encoded], { type: 'application/json' })); downloadUrls.add(url);
-  const link = document.createElement('a'); link.href = url; link.download = 'juicebox-local-test-recovery.json';
+  const link = document.createElement('a'); link.href = url; link.download = 'juicebox-wallet-recovery-kit.json';
   document.body.append(link); link.click(); link.remove();
   setTimeout(() => { URL.revokeObjectURL(url); downloadUrls.delete(url); }, 1000);
-  message('Open the recovery kit you just saved to verify it before continuing.');
+  kitSavedWallet = view!.walletAddress!;
+  message('Recovery kit saved. Keep it somewhere private, then review creation of your wallet.');
 }); });
 el<HTMLInputElement>('recovery-file').addEventListener('change', event => { void run(async () => {
   const input = event.target as HTMLInputElement, file = input.files?.[0]; input.value = '';
@@ -222,7 +230,7 @@ el<HTMLInputElement>('recovery-file').addEventListener('change', event => { void
   const kit = readWalletRecoveryKit(await file.text(), kitIdentity());
   recoverySecret = view?.phase === 'awaiting_possession' || view?.phase === 'awaiting_registration'
     ? { mnemonic: kit.mnemonic, recoveryOwner: kit.recoveryOwner } : null;
-  kitVerifiedWallet = view!.walletAddress; el<HTMLTextAreaElement>('recovery-words').value = '';
+  kitVerifiedWallet = kitSavedWallet = view!.walletAddress; el<HTMLTextAreaElement>('recovery-words').value = '';
   message('Recovery kit verified. You can review creation of your wallet.');
 }); });
 el('recovery-restore').addEventListener('click', () => { void run(async () => {

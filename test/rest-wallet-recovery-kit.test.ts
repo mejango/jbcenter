@@ -5,7 +5,7 @@ import { createWalletRecoverySecret, readWalletRecoveryKit, recoveryAccountFromP
 // Public BIP39 test entropy; never used for real funds.
 const phrase = 'abandon '.repeat(23) + 'art';
 const account = mnemonicToAccount(phrase, { path: "m/44'/60'/0'/0/0" });
-const identity = { network: 'local-test' as const, chainId: 8453 as const, walletAddress: `0x${'11'.repeat(20)}` as const,
+const identity = { network: 'base' as const, chainId: 8453 as const, walletAddress: `0x${'11'.repeat(20)}` as const,
   initializerHash: `0x${'22'.repeat(32)}` as const, recoveryOwner: account.address };
 describe('browser-owned portable recovery kit', () => {
   it('uses a standard 24-word recovery phrase and explicit Ethereum derivation path', () => {
@@ -24,7 +24,7 @@ describe('browser-owned portable recovery kit', () => {
   it('refuses a valid kit for another wallet, key, chain, initializer or version', () => {
     const encoded = serializeWalletRecoveryKit({ mnemonic: phrase, recoveryOwner: account.address }, identity);
     for (const patch of [{ walletAddress: `0x${'33'.repeat(20)}` }, { initializerHash: `0x${'33'.repeat(32)}` },
-      { recoveryOwner: `0x${'44'.repeat(20)}` }, { chainId: 1 }, { network: 'base' }, { version: 'later' },
+      { recoveryOwner: `0x${'44'.repeat(20)}` }, { chainId: 1 }, { network: 'local-test' }, { version: 'later' },
       { derivationPath: "m/44'/60'/0'/0/1" }, { passphrase: 'extra authority' }]) {
       const changed = { ...JSON.parse(encoded), ...patch };
       expect(() => readWalletRecoveryKit(JSON.stringify(changed), identity)).toThrow();

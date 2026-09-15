@@ -53,7 +53,7 @@ describe('recovery browser continuation and secret handling with modeled HTTP', 
   it('keeps kit words private, checks an unknown begin, cancels the prompt and retries identical registration bytes', async () => {
     const context = await browser.newContext({ viewport: { width: 320, height: 844 } }), page = await context.newPage();
     const secret = createWalletRecoverySecret(), encoded = serializeWalletRecoveryKit(secret, {
-      network: 'local-test', chainId: 8453, walletAddress, initializerHash, recoveryOwner: secret.recoveryOwner });
+      network: 'base', chainId: 8453, walletAddress, initializerHash, recoveryOwner: secret.recoveryOwner });
     let view: Record<string, unknown> | null = null, begins = 0, lostRegistration = false;
     const bodies: string[] = [], registrations: string[] = [], errors: string[] = [];
     page.on('pageerror', error => errors.push(error.name));

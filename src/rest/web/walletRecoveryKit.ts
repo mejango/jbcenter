@@ -5,7 +5,7 @@ import { english, generateMnemonic, mnemonicToAccount } from 'viem/accounts';
 export const walletRecoveryDerivationPath = "m/44'/60'/0'/0/0";
 export interface WalletRecoverySecret { mnemonic: string; recoveryOwner: Address }
 export interface WalletRecoveryKitIdentity {
-  network: 'local-test'; chainId: 8453; walletAddress: Address; recoveryOwner: Address; initializerHash: Hex;
+  network: 'base'; chainId: 8453; walletAddress: Address; recoveryOwner: Address; initializerHash: Hex;
 }
 export interface WalletRecoveryKit extends WalletRecoveryKitIdentity, WalletRecoverySecret {
   version: 'juicebox-recovery-kit-v1'; derivationPath: typeof walletRecoveryDerivationPath;
@@ -15,7 +15,7 @@ function address(value: unknown): asserts value is Address {
   if (typeof value !== 'string' || !isAddress(value) || BigInt(value) <= 1n) invalid();
 }
 function identity(value: WalletRecoveryKitIdentity) {
-  if (!value || value.network !== 'local-test' || value.chainId !== 8453) invalid();
+  if (!value || value.network !== 'base' || value.chainId !== 8453) invalid();
   address(value.walletAddress); address(value.recoveryOwner);
   if (getAddress(value.walletAddress) === getAddress(value.recoveryOwner) || typeof value.initializerHash !== 'string'
     || !/^0x[0-9a-f]{64}$/.test(value.initializerHash) || BigInt(value.initializerHash) === 0n) invalid();

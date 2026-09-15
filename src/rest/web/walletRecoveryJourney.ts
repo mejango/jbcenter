@@ -292,7 +292,7 @@ el('recovery-method').addEventListener('change', () => { if (!kitMode()) { secre
 el<HTMLInputElement>('recovery-file').addEventListener('change', event => { void run(async () => {
   const input = event.target as HTMLInputElement, file = input.files?.[0]; input.value = '';
   if (!file || file.size > 8192) throw new Error('Choose the recovery kit you saved for this wallet.');
-  const value = readWalletRecoveryKit(await file.text(), view ? { network: 'local-test', chainId: 8453, walletAddress: view.walletAddress,
+  const value = readWalletRecoveryKit(await file.text(), view ? { network: 'base', chainId: 8453, walletAddress: view.walletAddress,
     recoveryOwner: view.recoveryOwner, initializerHash: view.initializerHash } : undefined);
   kit = value; secret = { mnemonic: value.mnemonic, recoveryOwner: value.recoveryOwner }; wallet.value = value.walletAddress;
   el<HTMLTextAreaElement>('recovery-words').value = ''; el('recovery-kit-status').textContent = 'Recovery kit loaded in this tab.';

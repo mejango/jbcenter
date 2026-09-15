@@ -127,16 +127,20 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       recoveryKitText = encoded;
       expect(kit.walletAddress.toLowerCase()).toBe(originalAddress?.toLowerCase());
       expect(kit.mnemonic.split(' ')).toHaveLength(24);
+      // Saving the kit is what unlocks creation; checking the saved file is optional and stays strict.
+      expect(await page.getByRole('button', { name: 'Review wallet creation' }).isDisabled()).toBe(false);
       const wrong = JSON.stringify({ ...kit, walletAddress: '0x' + '44'.repeat(20) });
-      await page.getByLabel('Verify your saved recovery kit').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(wrong) });
+      await page.locator('#recovery-verify summary').click();
+      await page.getByLabel('Recovery kit file').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(wrong) });
       await contains('does not match');
-      expect(await page.getByRole('button', { name: 'Review wallet creation' }).isDisabled()).toBe(true);
       await page.reload();
       await contains('Review and approve');
       expect(await page.locator('#recovery-phrase').textContent()).toBe('');
       await page.setViewportSize({ width: 320, height: 844 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      await page.getByLabel('Verify your saved recovery kit').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(encoded) });
+      expect(await page.getByRole('button', { name: 'Review wallet creation' }).isDisabled()).toBe(true);
+      await page.locator('#recovery-verify summary').click();
+      await page.getByLabel('Recovery kit file').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(encoded) });
       await contains('Recovery kit verified');
       expect(await page.locator('#recovery-phrase').textContent()).toBe('');
       const persisted = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
@@ -146,7 +150,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     }
     await page.getByRole('button', { name: 'Review wallet creation' }).click();
     await page.getByRole('button', { name: 'Approve wallet creation' }).click();
-    await contains('Creating your test wallet');
+    await contains('Creating your wallet');
     const cookie = (await context.cookies()).find(item => item.name === walletSignupCookie)!;
     const flow = (await flows.authenticate(cookie.value))!, deploymentId = flow.deploymentId!;
     await signup.tick();
@@ -163,7 +167,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await page.getByRole('button', { name: 'Approve browser setup' }).click();
     await contains('Check the original signup');
     await page.getByRole('button', { name: 'Check signup' }).click();
-    await contains('Your test wallet is ready');
+    await contains('Your wallet is ready');
     expect(await page.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('center:signup:browser:')))).toEqual([]);
     await mkdir(out, { recursive: true });
     await page.screenshot({ path: new URL('signup-desktop.png', out).pathname, fullPage: true });
