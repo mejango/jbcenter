@@ -8,7 +8,7 @@ import { createCenterMcp } from "../src/mcp.js";
 import { migrate } from "../src/db/migrate.js";
 import { createRestRuntime } from "../src/rest/runtime.js";
 import { readRestExecutionConfiguration } from "../src/rest/executionConfig.js";
-import { createBaseWalletSignupHost } from "../src/rest/wallet/baseHost.js";
+import { createBaseWalletRecoveryHost, createBaseWalletSignupHost } from "../src/rest/wallet/baseHost.js";
 import { PostgresWalletDeploymentStore } from "../src/rest/wallet/deploymentPostgres.js";
 import { startWalletBaseAnvil } from "./fixtures/wallet-base-anvil.js";
 
@@ -44,13 +44,16 @@ suite("hosted Base signup runtime host", () => {
       executionConfiguration: await readRestExecutionConfiguration({}), startMaintenance: false,
       wallet: { origin, manifest: fixture.manifest, utility: fixture.utility },
       walletSignup: context => createBaseWalletSignupHost(context, { url: fixture.endpoint, genesisHash: fixture.genesisHash, signerKey,
-        ...host, allocationWei: "100000000000000000", manifest: fixture.manifest, utility: fixture.utility }) });
+        ...host, allocationWei: "100000000000000000", manifest: fixture.manifest, utility: fixture.utility }),
+      walletRecovery: context => createBaseWalletRecoveryHost(context, { url: fixture.endpoint, genesisHash: fixture.genesisHash,
+        signerKey: `0x${"55".repeat(32)}`, maximumOperations: 10, maximumCostWei: "100000000000000000", manifest: fixture.manifest, utility: fixture.utility }) });
   }
 
   it("configures the pool and initializes Base accounting once, then resumes without reinitializing", async () => {
     const first = await runtime({ poolId, initialNonce: "2" });
     try {
-      expect(first.wallet?.signup).toBeDefined();
+      expect(first.wallet?.signup).toBeDefined(); expect(first.wallet?.recovery).toBeDefined();
+      await first.wallet!.recovery!.tick();
       const deployments = new PostgresWalletDeploymentStore(pool), funding = await deployments.loadFundingContext(poolId);
       expect(funding.pool.configuration).toMatchObject({ id: poolId, chainId: 8453, sender: fixture.sender, allocationWei: "100000000000000000" });
       expect(funding.pool.accounting).toMatchObject({ environment: { kind: "base-mainnet", genesisHash: fixture.genesisHash }, nextNonce: "2", sequence: 0, fence: null });

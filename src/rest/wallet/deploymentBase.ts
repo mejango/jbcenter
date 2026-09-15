@@ -63,10 +63,10 @@ export function createBaseWalletDeploymentReader(options: BaseWalletDeploymentOp
   if (!(loopback || dwellir) || endpoint.search || endpoint.hash) invalid();
   const genesisHash = (options.genesisHash ?? baseWalletChainPins.genesisHash).toLowerCase() as Hex;
   // One URL only. The shared gateway list would fail over to a public provider for reads and could repeat a send.
-  const upstream = new Map([[8453, [endpoint.href]]]);
-  const gateways = { reads: createRpcGateway(upstream, fetch, { timeoutMs: 5000, responseLimitBytes: 8 * 1024 * 1024 }),
-    traces: createRpcGateway(upstream, fetch, { timeoutMs: PRIVATE_TRACE_TIMEOUT_MS, responseLimitBytes: PRIVATE_TRACE_RESPONSE_LIMIT }),
-    send: createRpcGateway(upstream, fetch, { timeoutMs: bounds.sendTimeoutMs, responseLimitBytes: 65536 }) };
+  const upstream = new Map([[8453, [endpoint.href]]]), fetcher: typeof fetch = (input, init) => globalThis.fetch(input, init);
+  const gateways = { reads: createRpcGateway(upstream, fetcher, { timeoutMs: 5000, responseLimitBytes: 8 * 1024 * 1024 }),
+    traces: createRpcGateway(upstream, fetcher, { timeoutMs: PRIVATE_TRACE_TIMEOUT_MS, responseLimitBytes: PRIVATE_TRACE_RESPONSE_LIMIT }),
+    send: createRpcGateway(upstream, fetcher, { timeoutMs: bounds.sendTimeoutMs, responseLimitBytes: 65536 }) };
   let sequence = 0;
   async function request(method: string, params: readonly unknown[], signal?: AbortSignal): Promise<unknown> {
     const gateway = method === "eth_sendRawTransaction" ? gateways.send : method === "debug_traceTransaction" ? gateways.traces : gateways.reads;

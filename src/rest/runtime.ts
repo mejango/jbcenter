@@ -109,9 +109,9 @@ export async function createRestRuntime(options: {
   wallet?: RestWalletConfiguration;
   /** Explicit host capabilities: the unforked local pilot or the hosted Base host. No HTTP field
    * can construct a treasury signer; the host process supplies the factory and its configuration. */
-  walletSignup?: (context: { pool: Pool; rpc: RestRpc; wallet: RestWalletRuntime;
+  walletSignup?: (context: { pool: Pool; rpc: RestRpc; wallet: RestWalletRuntime; audience: string;
     smart: ReturnType<typeof createSmartAccountService> }) => ReturnType<typeof createLocalWalletSignup> | Promise<ReturnType<typeof createLocalWalletSignup>>;
-  walletRecovery?: (context: { pool: Pool; rpc: RestRpc; wallet: RestWalletRuntime;
+  walletRecovery?: (context: { pool: Pool; rpc: RestRpc; wallet: RestWalletRuntime; audience: string;
     smart: ReturnType<typeof createSmartAccountService> }) => ReturnType<typeof createLocalWalletRecovery> | Promise<ReturnType<typeof createLocalWalletRecovery>>;
   rpcSiteLimitPerMinute?: number;
   smartAccountManifests?: readonly SmartAccountManifest[];
@@ -512,9 +512,9 @@ export async function createRestRuntime(options: {
   });
   const assets = await readRestAssets();
   if (options.walletSignup && !wallet) throw new RestError(503, 'WALLET_SIGNUP_UNAVAILABLE', 'Signup requires the dedicated wallet host.');
-  if (wallet && options.walletSignup) wallet.signup = await options.walletSignup({ pool: options.pool, rpc: backendRpc, wallet, smart: smartAccounts });
+  if (wallet && options.walletSignup) wallet.signup = await options.walletSignup({ pool: options.pool, rpc: backendRpc, wallet, audience: auth.audience, smart: smartAccounts });
   if (options.walletRecovery && !wallet) throw new RestError(503, 'WALLET_RECOVERY_UNAVAILABLE', 'Recovery requires the dedicated wallet host.');
-  if (wallet && options.walletRecovery) wallet.recovery = await options.walletRecovery({ pool: options.pool, rpc: backendRpc, wallet, smart: smartAccounts });
+  if (wallet && options.walletRecovery) wallet.recovery = await options.walletRecovery({ pool: options.pool, rpc: backendRpc, wallet, audience: auth.audience, smart: smartAccounts });
   const walletSite = wallet ? createWalletSite({ origin: wallet.origin, audience: auth.audience,
     browserScript: assets.walletScript, login: wallet.login, policy: wallet.policy,
     handoff: wallet.handoff, refresh: wallet.refresh,

@@ -101,7 +101,7 @@ export async function startWalletBaseAnvil() {
   const chain = () => createWalletDeploymentChain({ rpc: readOnlyRpc, configuration: anvil.configuration, manifest: anvil.manifest, utility: anvil.utility });
   async function reset() { await anvil.reset(); requests.length = 0; faults.transform = (_m, _p, result) => result; faults.send = "none"; }
   async function close() { proxy.closeAllConnections(); await new Promise<void>(resolve => proxy.close(() => resolve())); await anvil.close(); }
-  return { anvil, endpoint, requests, sends, faults, reset, close, feeContracts, genesisHash: anvil.expectedGenesisHash,
+  return { anvil, endpoint, requests, sends, faults, reset, close, feeContracts, genesisHash: anvil.expectedGenesisHash, expectedGenesisHash: anvil.expectedGenesisHash,
     configuration: anvil.configuration, manifest: anvil.manifest, utility: anvil.utility, sender: anvil.sender,
     rpc: anvil.rpc, readOnlyRpc, chain, signedContext: anvil.signedContext };
 }

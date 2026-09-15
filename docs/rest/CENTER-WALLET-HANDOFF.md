@@ -104,15 +104,23 @@ chain nonce versus accounting `nextNonce` is the restore fence. The shared
 funding-evidence lifetime bound is 60 s (local producers keep 5 s). Single lane held
 to finality remains the pilot throughput limit.
 
-## Next slice: hosted Base recovery
+## Completed slice: hosted Base recovery
 
-Parameterize the local recovery relay the same way: Base identity through the same
-reader, `eth_sendRawTransaction` through the single Dwellir endpoint, complete receipt
-fees per transaction, and lane release only after finality. Migration 031 pins the lane
-configuration version `unforked-anvil-recovery-v1` and execution-only receipts; a
-follow-up migration must admit a Base version and complete fees. A separate recovery
-sender key is required (SQL keeps signup and recovery senders distinct). Then a Base
-recovery host and `WALLET_RECOVERY_*` settings in `index.ts`. Begin by reading
+The shared relay ([recoveryRelay.ts](../../src/rest/wallet/recoveryRelay.ts)) now takes
+the same chain adapter as creation; [recoveryBase.ts](../../src/rest/wallet/recoveryBase.ts)
+and `createBaseWalletRecoveryHost` compose it, and migration 035 admits the
+`base-mainnet-recovery-v1` lane with a monotonic actual spend and the
+`allocation-exceeded` fence. The joined Base test recovers a Base-created wallet through
+the relay with a lost accepted reply, a process kill before activation, old-credential
+rejection, finality-gated lane settlement with complete fees, and a chain rollback that
+fails closed. `WALLET_RECOVERY_*` settings mount it; the relay key must differ from the
+creation treasury.
+
+## Next: production configuration and the pilot
+
+Prepare two Base keys (creation treasury, recovery relay) and budgets, then the user's
+funding decision. Measure Dwellir admission latency against the 5 s admission lifetime.
+Begin by reading
 [WALLET_SIGNUP.md](../../WALLET_SIGNUP.md), the
 [deployment strategy](WALLET-DEPLOYMENT-STRATEGY.md),
 [Base fee notes](../../src/rest/wallet/stack/baseFees/README.md), and the following

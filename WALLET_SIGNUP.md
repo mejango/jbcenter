@@ -129,9 +129,18 @@ The runtime mounts signup only when that factory is provided, and starts/stops i
 worker with maintenance. Normal Center startup and Para compatibility remain
 available. Public wallet discovery preserves the installed SDK's exact schema.
 
-`createRestRuntime.walletRecovery` is the corresponding explicit local host
-factory for recovery. It mounts the page only when supplied and starts/stops its
-bounded worker with maintenance. Production startup never constructs either signer
+`createRestRuntime.walletRecovery` is the corresponding explicit host factory for
+recovery. It mounts the page only when supplied and starts/stops its bounded worker
+with maintenance. The shared relay (`src/rest/wallet/recoveryRelay.ts`) takes the
+same chain adapter as creation; the local wrapper keeps fixed fees, execution-only
+receipts and immediate lane release, while the Base wrapper (`recoveryBase.ts`)
+quotes fees from the head block, reserves execution plus twice the L1/operator
+estimate per transaction, records complete receipt fees as a monotonic actual spend
+(fencing the lane as `allocation-exceeded` above its budget) and releases the lane
+only after both receipts are finalized. Setup and fresh login proceed once both
+receipts are canonical. `index.ts` mounts it from `WALLET_RECOVERY_SIGNER_KEY`,
+`WALLET_RECOVERY_MAX_OPERATIONS` and `WALLET_RECOVERY_MAX_COST_WEI`; the relay key
+must differ from the creation treasury. Production startup never constructs either signer
 from an environment flag or request field. Recovery has distinct HttpOnly cookies,
 cookie-bound CSRF, exact Host/Origin checks and no trusted-app CORS access.
 

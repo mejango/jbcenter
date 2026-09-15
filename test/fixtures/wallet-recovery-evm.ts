@@ -16,16 +16,19 @@ import type { createSmartAccountService } from '../../src/rest/smartAccounts/ser
 import { walletRecoveryDocument } from '../../src/rest/wallet/recovery.js';
 import { walletRecoveryRotationDocument } from '../../src/rest/wallet/recoveryRotation.js';
 import { createLocalAnvilWalletRecovery } from '../../src/rest/wallet/recoveryLocalAnvil.js';
+import { createBaseWalletRecovery } from '../../src/rest/wallet/recoveryBase.js';
 import { createRegistration, enrollmentBackupAccount, signBackupProof, signGet } from './wallet-enrollment-crypto.js';
 import type { startWalletDeploymentAnvil } from './wallet-deployment-anvil.js';
 
 /** Actual local chain and database recovery. Public test keys and unforked synthetic
  * balances only; this helper never receives a user wallet provider or production RPC. */
 export async function exerciseWalletRecoveryEvm(options: {
-  pool: Pool; fixture: Awaited<ReturnType<typeof startWalletDeploymentAnvil>>;
+  pool: Pool; fixture: Pick<Awaited<ReturnType<typeof startWalletDeploymentAnvil>>, 'endpoint' | 'expectedGenesisHash' | 'manifest' | 'utility' | 'rpc' | 'readOnlyRpc' | 'sender'>;
   smart: ReturnType<typeof createSmartAccountService>; authority: ReturnType<typeof createWalletAuthorityService>;
   enrollment: WalletEnrollment; originalKey: ReturnType<typeof createRegistration>; originalSessionToken: string;
   audience: string;
+  /** 'base' composes the hosted Base relay against a Base-shaped fixture; default is the local Anvil relay. */
+  relay?: 'local' | 'base';
 }) {
   const { pool, fixture, enrollment } = options, rpId = enrollment.intent.rpId, origin = enrollment.intent.origin;
   const observer = createWalletAuthorityChain({ rpc: fixture.readOnlyRpc, manifest: fixture.manifest, utility: fixture.utility });
@@ -44,14 +47,18 @@ export async function exerciseWalletRecoveryEvm(options: {
   const relay = recoveryFixtureRelay;
   await fixture.rpc('anvil_setBalance', [relay.address, toHex(10n ** 20n)]);
   const candidate = pending.candidate!;
-  const transport = createLocalAnvilWalletRecovery({ pool, endpoint: fixture.endpoint, expectedGenesisHash: fixture.expectedGenesisHash,
-    signer: relay, manifest: fixture.manifest, utility: fixture.utility, maximumOperations: 2, maximumCostWei: '1000000000000000000' });
+  const base = options.relay === 'base';
+  const transport = base
+    ? createBaseWalletRecovery({ pool, url: fixture.endpoint, genesisHash: fixture.expectedGenesisHash, signer: relay,
+        manifest: fixture.manifest, utility: fixture.utility, maximumOperations: 2, maximumCostWei: '1000000000000000000' })
+    : createLocalAnvilWalletRecovery({ pool, endpoint: fixture.endpoint, expectedGenesisHash: fixture.expectedGenesisHash,
+        signer: relay, manifest: fixture.manifest, utility: fixture.utility, maximumOperations: 2, maximumCostWei: '1000000000000000000' });
   const rotation = await transport.prepare(intent.id);
   const ownerSignature = await enrollmentBackupAccount.signTypedData(walletRecoveryRotationDocument(rotation));
   let sends = 0;
   const originalFetch = globalThis.fetch, network = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const response = await originalFetch(input, init);
-    if (String(input) === fixture.endpoint && typeof init?.body === 'string' && JSON.parse(init.body).method === 'eth_sendRawTransaction') {
+    if (new URL(String(input)).href === new URL(fixture.endpoint).href && typeof init?.body === 'string' && JSON.parse(init.body).method === 'eth_sendRawTransaction') {
       sends++;
       if (sends === 1) { await response.body?.cancel(); throw new Error('Injected lost response after local RPC accepted the transaction'); }
     }
@@ -72,13 +79,29 @@ export async function exerciseWalletRecoveryEvm(options: {
   const dispatchHistory = (await pool.query('SELECT * FROM rest_wallet_recovery_transactions WHERE recovery_id=$1 ORDER BY step', [intent.id])).rows;
   expect(dispatchHistory).toHaveLength(2);
   expect(dispatchHistory.every(row => row.attempted_at_ms !== null && row.receipt?.status === 'success')).toBe(true);
+  if (base) {
+    // Ready for setup before finality, but the recovery lane and its actual complete fees settle only after it.
+    const lane = async () => (await pool.query('SELECT active_recovery,spent_wei,fence,configuration FROM rest_wallet_recovery_lanes WHERE sender=$1', [relay.address.toLowerCase()])).rows[0];
+    expect((await lane()).configuration.version).toBe('base-mainnet-recovery-v1');
+    expect((await lane()).active_recovery).toBe(intent.id);
+    for (const row of dispatchHistory) {
+      expect(BigInt(row.receipt.l1Wei)).toBeGreaterThan(0n); expect(BigInt(row.receipt.operatorWei)).toBeGreaterThan(0n);
+      expect(BigInt(row.receipt.totalWei)).toBe(BigInt(row.receipt.executionWei) + BigInt(row.receipt.l1Wei) + BigInt(row.receipt.operatorWei));
+    }
+    await fixture.rpc('anvil_mine', ['0x41', '0x0']);
+    expect((await transport.status(intent.id)).state).toBe('ready');
+    const settled = await lane();
+    expect(settled.active_recovery).toBeNull(); expect(settled.fence).toBeNull();
+    expect(BigInt(settled.spent_wei)).toBe(dispatchHistory.reduce((sum, row) => sum + BigInt(row.receipt.totalWei), 0n));
+    expect(sends).toBe(2);
+  }
   expect((await fixture.rpc<{ from: Address }>('eth_getTransactionByHash', [rotationTransaction])).from.toLowerCase()).toBe(relay.address.toLowerCase());
   expect(relay.address.toLowerCase()).not.toBe(enrollmentBackupAccount.address.toLowerCase());
   expect(relay.address.toLowerCase()).not.toBe(fixture.sender.toLowerCase());
   const { assertion, activated, flowToken, crashObservation } = await exerciseRecoverySetupCrash({ pool, accountId, recoveryId: intent.id,
     flowToken: begun.flowToken, replacement, initializerHash: enrollment.creation!.initializerHash, replacementSigner: candidate.signerAddress, priorCredentialId: options.originalKey.credentialId, relayAddress: relay.address, rpc: fixture.rpc,
     config: { endpoint: fixture.endpoint, expectedGenesisHash: fixture.expectedGenesisHash, manifest: fixture.manifest,
-      utility: fixture.utility, origin, rpId, audience: options.audience } });
+      utility: fixture.utility, origin, rpId, audience: options.audience, ...(base ? { relay: 'base' as const } : {}) } });
   expect((await options.authority.refreshAuthority(accountId)).snapshot.readiness).toBe('verified');
   const login = new PostgresWalletLoginStore(pool, { rpId, origin });
   expect(await login.readSession(options.originalSessionToken)).toBeNull();

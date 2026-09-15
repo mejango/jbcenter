@@ -30,7 +30,8 @@ function localEndpoint(options: { endpoint: string; expectedGenesisHash: Hex; no
 export function createLocalAnvilWalletDeploymentReader(options: { endpoint: string; expectedGenesisHash: Hex; now?: () => number }) {
   const endpoint = localEndpoint(options);
   // One endpoint only: the underlying gateway's generic URL failover must never repeat a send.
-  const gateway = createRpcGateway(new Map([[8453, [endpoint.href]]]), fetch, { timeoutMs: bounds.sendTimeoutMs, responseLimitBytes: 524288 });
+  // Resolve fetch per call so fixtures can inject lost replies around one physical send.
+  const gateway = createRpcGateway(new Map([[8453, [endpoint.href]]]), (input, init) => globalThis.fetch(input, init), { timeoutMs: bounds.sendTimeoutMs, responseLimitBytes: 524288 });
   let sequence = 0;
   async function request(method: string, params: readonly unknown[], signal?: AbortSignal): Promise<unknown> {
     const answer = await gateway.request(8453, { jsonrpc: "2.0", id: ++sequence, method, params }, signal);

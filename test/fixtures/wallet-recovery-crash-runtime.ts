@@ -12,13 +12,14 @@ import { createWalletAuthorityService } from '../../src/rest/wallet/authoritySer
 import { PostgresWalletRecoveryStore } from '../../src/rest/wallet/recoveryPostgres.js';
 import { PostgresWalletRecoveryFlowStore } from '../../src/rest/wallet/recoveryFlowPostgres.js';
 import { createLocalAnvilWalletRecovery } from '../../src/rest/wallet/recoveryLocalAnvil.js';
+import { createBaseWalletRecovery } from '../../src/rest/wallet/recoveryBase.js';
 import { createLocalWalletRecovery, type LocalWalletRecoveryDependencies } from '../../src/rest/wallet/recoveryService.js';
 import { createWalletDeploymentAnvilRpc, type startWalletDeploymentAnvil } from './wallet-deployment-anvil.js';
 
 export const recoveryFixtureRelay = privateKeyToAccount(`0x${'55'.repeat(32)}`);
 
 export type RecoveryCrashConfiguration = Pick<Awaited<ReturnType<typeof startWalletDeploymentAnvil>>,
-  'endpoint' | 'expectedGenesisHash' | 'manifest' | 'utility'> & { origin: string; rpId: string; audience: string };
+  'endpoint' | 'expectedGenesisHash' | 'manifest' | 'utility'> & { origin: string; rpId: string; audience: string; relay?: 'local' | 'base' };
 export function createRecoveryCrashRuntime(pool: Pool, config: RecoveryCrashConfiguration,
   onEvent?: LocalWalletRecoveryDependencies['onEvent']) {
   const rpc = createWalletDeploymentAnvilRpc(config.endpoint);
@@ -32,9 +33,12 @@ export function createRecoveryCrashRuntime(pool: Pool, config: RecoveryCrashConf
     { audience: config.audience, observe: context => chain.observe(context) });
   const service = createLocalWalletRecovery({ audience: config.audience, smart, authority, recoveries,
     flows: new PostgresWalletRecoveryFlowStore(pool), ...(onEvent ? { onEvent } : {}),
-    rotation: createLocalAnvilWalletRecovery({ pool, endpoint: config.endpoint, expectedGenesisHash: config.expectedGenesisHash,
-      // Same public fixture key as the completed parent rotation; no production wallet.
-      signer: recoveryFixtureRelay, manifest: config.manifest, utility: config.utility,
-      maximumOperations: 2, maximumCostWei: '1000000000000000000' }) });
+    // Same public fixture key as the completed parent rotation; no production wallet.
+    rotation: config.relay === 'base'
+      ? createBaseWalletRecovery({ pool, url: config.endpoint, genesisHash: config.expectedGenesisHash, signer: recoveryFixtureRelay,
+          manifest: config.manifest, utility: config.utility, maximumOperations: 2, maximumCostWei: '1000000000000000000' })
+      : createLocalAnvilWalletRecovery({ pool, endpoint: config.endpoint, expectedGenesisHash: config.expectedGenesisHash,
+          signer: recoveryFixtureRelay, manifest: config.manifest, utility: config.utility,
+          maximumOperations: 2, maximumCostWei: '1000000000000000000' }) });
   return { service, recoveries };
 }

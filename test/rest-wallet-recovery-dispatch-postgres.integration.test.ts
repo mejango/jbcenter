@@ -25,7 +25,7 @@ suite('recovery dispatch durable liabilities (database history, no canonical-cha
     for (const name of ['004_rest_accounts.sql', '007_rest_smart_accounts.sql', '012_rest_smart_account_onboarding.sql',
       '013_rest_wallet_ceremonies.sql', '014_rest_passkey_onboarding.sql', '015_rest_wallet_enrollment.sql', '016_rest_wallet_deployments.sql',
       '017_rest_wallet_policy.sql', '019_rest_wallet_app_grants.sql', '020_rest_wallet_authority.sql', '028_wallet_recovery.sql',
-      '029_wallet_recovery_mapping.sql', '033_wallet_unproved_recovery_expiry.sql', '030_wallet_recovery_flow.sql', '031_wallet_recovery_dispatch.sql'])
+      '029_wallet_recovery_mapping.sql', '033_wallet_unproved_recovery_expiry.sql', '030_wallet_recovery_flow.sql', '031_wallet_recovery_dispatch.sql', '035_wallet_recovery_base.sql'])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), 'utf8'));
   });
   beforeEach(async () => { await pool.query('TRUNCATE rest_accounts,rest_wallet_enrollments,rest_wallet_ceremonies,rest_wallet_recovery_lanes CASCADE'); });

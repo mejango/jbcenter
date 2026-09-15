@@ -26,18 +26,26 @@ import { createLocalWalletSignup } from "../src/rest/wallet/signup.js";
 import { createRegistration, enrollmentBackupAccount, signBackupProof, signGet } from "./fixtures/wallet-enrollment-crypto.js";
 import { walletLoginTestMigrations } from "./fixtures/wallet-login-setup.js";
 import { startWalletBaseAnvil } from "./fixtures/wallet-base-anvil.js";
+import { exerciseWalletRecoveryEvm } from "./fixtures/wallet-recovery-evm.js";
+import { PostgresWalletLoginStore } from "../src/rest/wallet/loginPostgres.js";
+import { encodeSafe7579MessageSignature } from "../src/rest/smartAccounts/passkeySignatures.js";
+import { passkeyOnboardingProofDocument } from "../src/rest/smartAccounts/passkeyOnboarding.js";
+import { verifyWalletAssertion } from "../src/rest/wallet/webauthn.js";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 const connectionString = process.env.TEST_DATABASE_URL;
 const suite = connectionString ? describe : describe.skip;
 const issuer = "https://wallet.juicebox.center", rpId = "wallet.juicebox.center";
 suite("hosted Base signup composition against real PostgreSQL and a Base-shaped chain", () => {
-  const schema = `rest_wallet_base_signup_${randomUUID().replaceAll("-", "")}`;
+  const schema = `rest_wallet_signup_${randomUUID().replaceAll("-", "")}`;
   let admin: Pool, pool: Pool, fixture: Awaited<ReturnType<typeof startWalletBaseAnvil>>;
   beforeAll(async () => {
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 5 });
     for (const name of [...new Set([...walletLoginTestMigrations, "016_rest_wallet_deployments.sql", "018_rest_wallet_deployment_observations.sql",
-      "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "027_wallet_signup.sql", "034_wallet_deployment_base.sql"])].sort())
+      "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "027_wallet_signup.sql", "028_wallet_recovery.sql",
+      "029_wallet_recovery_mapping.sql", "033_wallet_unproved_recovery_expiry.sql", "030_wallet_recovery_flow.sql", "031_wallet_recovery_dispatch.sql",
+      "034_wallet_deployment_base.sql", "035_wallet_recovery_base.sql"])].sort())
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     fixture = await startWalletBaseAnvil();
   }, 60_000);
@@ -66,6 +74,8 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
       chain: createWalletAuthorityChain({ rpc: fixture.readOnlyRpc, manifest: fixture.manifest, utility: fixture.utility }) });
     const flows = new PostgresWalletSignupStore(pool, { rpId, origin: issuer, manifest: fixture.manifest });
     const events: string[] = [];
+    const login = new PostgresWalletLoginStore(pool, { rpId, origin: issuer });
+    let recoveryTarget: Pick<Parameters<typeof exerciseWalletRecoveryEvm>[0], "enrollment" | "originalKey" | "originalSessionToken"> | null = null;
     const signup = createLocalWalletSignup({ flows, enrollments, deployments, settlement, execution, smart, authority,
       registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id,
       onEvent: event => events.push(`${event.stage}:${event.outcome}`) });
@@ -95,6 +105,20 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
       expect((await deployments.get(operation.id))!.observation).toMatchObject({ transaction: { state: "canonical-success" }, wallet: { state: "verified" }, finality: { state: "unfinalized" } });
       expect((await signup.status(flowToken)).phase).toBe("awaiting_setup");
       expect(await deployments.getSettlement(operation.id)).toBeNull();
+      // Setup and fresh login complete before treasury finality, as on the local pilot.
+      const browser = privateKeyToAccount(generatePrivateKey());
+      const setupReview = await signup.prepareSetup(flowToken, { browserPublicAddress: browser.address });
+      const setup = (await flows.authenticate(flowToken))!.setup!.input, onboarding = await smart.passkeyOnboardingChallenge(setup);
+      const setupAssertion = signGet({ ...credential, challenge: onboarding.signingPayload.digest, rpId, origin: issuer });
+      const verified = verifyWalletAssertion(setupAssertion, { purpose: "session", challenge: onboarding.signingPayload.digest, rpId, origin: issuer,
+        credential: { id: credential.credentialId, userHandle: credential.userHandle, publicKey: credential.publicKey, backupEligible: true }, requireUserHandle: true });
+      expect((await signup.completeSetup(flowToken, { setupId: setupReview.id, browserProof: await browser.signTypedData(passkeyOnboardingProofDocument(onboarding.typedData)),
+        signature: encodeSafe7579MessageSignature([{ kind: "contract", owner: onboarding.state.ownerProfile!.signer.address, signature: verified.contractSignature }]) })).phase).toBe("ready_to_sign_in");
+      expect((await authority.refreshAuthority(record.receipt!.accountId)).snapshot.readiness).toBe("verified");
+      const begunLogin = await login.begin(), loggedIn = await login.complete({ loginId: begunLogin.login.id, flowToken: begunLogin.flowToken,
+        assertion: signGet({ ...credential, challenge: begunLogin.login.challenge, rpId, origin: issuer }) });
+      expect(loggedIn.session.accountId).toBe(record.receipt!.accountId);
+      recoveryTarget = { enrollment: record, originalKey: credential, originalSessionToken: loggedIn.sessionToken };
       await fixture.rpc("anvil_mine", ["0x41", "0x0"]);
       await signup.tick();
       const settled = (await deployments.getSettlement(operation.id))!;
@@ -111,5 +135,8 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
     expect(events).toContain("deployment:settled");
     expect((await deployments.listUnresolved()).items).toEqual([]);
     expect(await fixture.rpc("eth_getTransactionCount", [fixture.sender, "latest"])).toBe("0x4");
-  }, 120_000);
+    // Recovery to the same Safe through the hosted Base relay: lost accepted reply, restart before
+    // activation, old credential rejected, lane settled with complete fees only after finality.
+    await exerciseWalletRecoveryEvm({ pool, fixture, smart, authority, ...recoveryTarget!, audience: "https://juicebox.center", relay: "base" });
+  }, 180_000);
 });
