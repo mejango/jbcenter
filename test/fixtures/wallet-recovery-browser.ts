@@ -18,7 +18,7 @@ export async function exerciseRecoveryBrowser(options: {
   expect(await login.readSession(originalSession.value)).not.toBeNull();
   await cdp.send('WebAuthn.clearCredentials', { authenticatorId });
   await page.goto(origin + '/wallet/recover');
-  await page.getByLabel('Open your recovery kit').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(options.kitText) });
+  await page.getByLabel('Open your backup file').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(options.kitText) });
   await page.getByLabel('New passkey name').fill('Juicebox replacement');
   await page.getByRole('button', { name: 'Start recovery', exact: true }).click();
   await contains('Create your replacement passkey');
@@ -37,7 +37,7 @@ export async function exerciseRecoveryBrowser(options: {
   const before = await recovery.status(originalFlow.value);
   expect(before.walletAddress.toLowerCase()).toBe(kit.walletAddress.toLowerCase());
   const wrongKit = JSON.stringify({ ...kit, walletAddress: '0x' + '66'.repeat(20) });
-  await page.getByLabel('Open your recovery kit').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(wrongKit) });
+  await page.getByLabel('Open your backup file').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(wrongKit) });
   await contains('does not match');
   await page.getByRole('button', { name: 'Check recovery' }).click();
   await page.getByRole('button', { name: 'Review passkey replacement' }).click();
@@ -63,7 +63,7 @@ export async function exerciseRecoveryBrowser(options: {
   await page.reload();
   await contains('Resume the original recovery');
   expect(await page.locator('#recovery-words').inputValue()).toBe('');
-  await page.getByLabel('Open your recovery kit').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(options.kitText) });
+  await page.getByLabel('Open your backup file').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(options.kitText) });
   await page.getByText('Resume an existing recovery', { exact: true }).click();
   await page.getByRole('button', { name: 'Resume recovery', exact: true }).click();
   await contains('Authorize this browser');

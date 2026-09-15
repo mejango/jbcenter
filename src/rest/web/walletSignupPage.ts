@@ -9,9 +9,8 @@ export function walletSignupPage() {
 <p id="wallet-status" role="status" aria-live="polite" aria-atomic="true">Checking your signup…</p>
 <form id="signup-form" hidden><label>Passkey name<input id="passkey-name" maxlength="120" autocomplete="off" required></label>
 <fieldset id="recovery-method"><legend>If you lose this passkey, get back in with</legend>
-<label class="choice"><input type="radio" name="recovery-method" value="kit" checked>A recovery kit we give you</label>
+<label class="choice"><input type="radio" name="recovery-method" value="kit" checked>A backup password made for you</label>
 <label class="choice"><input type="radio" name="recovery-method" value="wallet">A wallet you already have</label></fieldset>
-<p class="hint">You'll use your passkey twice: to create it, and to approve creating your wallet.</p>
 <button type="submit" id="signup-begin">Sign up</button></form>
 <section id="signup-details" hidden aria-label="Wallet details"><dl><dt>Passkey name</dt><dd id="signup-name"></dd>
 <dt id="signup-recovery-label">Recovery</dt><dd><span id="signup-recovery"></span>

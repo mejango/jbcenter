@@ -89,7 +89,7 @@ describe('recovery browser continuation and secret handling with modeled HTTP', 
     const contains = async (text: string) => expect.poll(() => page.locator('#wallet-status').textContent()).toContain(text);
     try {
       await page.goto(origin + '/wallet/recover');
-      await page.getByLabel('Open your recovery kit').setInputFiles({ name: 'kit.json', mimeType: 'application/json', buffer: Buffer.from(encoded) });
+      await page.getByLabel('Open your backup file').setInputFiles({ name: 'kit.json', mimeType: 'application/json', buffer: Buffer.from(encoded) });
       await page.getByLabel('New passkey name').fill('Juicebox replacement');
       expect(await page.getByLabel('Wallet address', { exact: true }).inputValue()).toBe(walletAddress);
       await page.getByRole('button', { name: 'Start recovery', exact: true }).click();
@@ -104,7 +104,7 @@ describe('recovery browser continuation and secret handling with modeled HTTP', 
       await page.getByRole('button', { name: 'Check recovery', exact: true }).click(); await contains('Prove access');
       expect(registrations).toHaveLength(2); expect(registrations[0]).toBe(registrations[1]);
       await page.reload(); await contains('Prove access');
-      expect(await page.getByLabel('Recovery words', { exact: true }).inputValue()).toBe('');
+      expect(await page.getByLabel('Backup password', { exact: true }).inputValue()).toBe('');
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       const stored = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
       expect(stored.includes(secret.mnemonic)).toBe(false); expect(stored).toContain(id);

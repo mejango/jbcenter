@@ -30,7 +30,7 @@ const downloadUrls = new Set<string>();
 const kitChoice = () => el<HTMLFieldSetElement>('recovery-method').querySelector<HTMLInputElement>('input:checked')?.value === 'kit';
 const kitMode = () => view ? localStorage.getItem('center:signup:kit:' + view.enrollmentId) === '1' : kitChoice();
 function kitIdentity(): WalletRecoveryKitIdentity {
-  if (!view?.walletAddress || !view.initializerHash) throw new Error('Create your passkey before saving the complete recovery kit.');
+  if (!view?.walletAddress || !view.initializerHash) throw new Error('Create your passkey before saving the complete backup file.');
   return { network: 'base', chainId: 8453, walletAddress: view.walletAddress, recoveryOwner: view.recoveryOwner, initializerHash: view.initializerHash };
 }
 const steps: Record<View['phase'], string> = {
@@ -91,7 +91,7 @@ function render() {
   const kitPhase = !!view && ['awaiting_setup', 'ready_to_sign_in'].includes(view.phase);
   const stranded = kitMode() && !recoverySecret && !!view && ['awaiting_registration', 'awaiting_possession'].includes(view.phase);
   // A stranded attempt that never created a passkey lost nothing worth mentioning: show the clean form.
-  if (stranded) message(view!.phase === 'awaiting_possession' ? 'Your last signup cannot continue without its recovery words. Sign up again with a new passkey.' : '');
+  if (stranded) message(view!.phase === 'awaiting_possession' ? 'Your last signup cannot continue without its backup password. Sign up again with a new passkey.' : '');
   form.hidden = !known || (!!view && !stranded); details.hidden = !view || stranded;
   // A default name that tells passkeys apart later: the site, then when it was made.
   if (!form.hidden && !name.value) {

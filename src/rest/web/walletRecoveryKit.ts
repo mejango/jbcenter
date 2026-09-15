@@ -10,7 +10,7 @@ export interface WalletRecoveryKitIdentity {
 export interface WalletRecoveryKit extends WalletRecoveryKitIdentity, WalletRecoverySecret {
   version: 'juicebox-recovery-kit-v1'; derivationPath: typeof walletRecoveryDerivationPath;
 }
-function invalid(): never { throw new Error('This recovery kit or phrase does not match the selected wallet.'); }
+function invalid(): never { throw new Error('This backup file or password does not match the selected wallet.'); }
 function address(value: unknown): asserts value is Address {
   if (typeof value !== 'string' || !isAddress(value) || BigInt(value) <= 1n) invalid();
 }

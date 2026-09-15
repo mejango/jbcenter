@@ -6,15 +6,15 @@ export function walletRecoveryPage() {
 <link rel="stylesheet" href="/wallet/assets/wallet-recovery.css"><script type="module" src="/wallet/assets/wallet-recovery.js"></script></head>
 <body><main><a class="brand" id="wallet-back" href="/wallet">JUICEBOX CENTER</a>
 <h1>Recover your Juicebox wallet</h1>
-<p>Use your recovery kit or original recovery wallet to replace a lost passkey. Your wallet address stays the same.</p>
+<p>Use your backup file or original recovery wallet to replace a lost passkey. Your wallet address stays the same.</p>
 <p id="wallet-status" role="status" aria-live="polite" aria-atomic="true">Checking your recovery…</p>
 <fieldset id="recovery-method" hidden><legend>Recover with</legend>
-<label class="choice"><input type="radio" name="recovery-method" value="kit" checked>My recovery kit</label>
+<label class="choice"><input type="radio" name="recovery-method" value="kit" checked>My backup file</label>
 <label class="choice"><input type="radio" name="recovery-method" value="wallet">My existing recovery wallet</label></fieldset>
-<section id="recovery-kit" hidden aria-label="Recovery kit"><label>Open your recovery kit<input id="recovery-file" type="file" accept="application/json,.json"></label>
-<p id="recovery-kit-status">The file and recovery words stay in this tab. Keep your saved copy.</p>
-<details><summary>Use my 24 recovery words</summary><label>Recovery words<textarea id="recovery-words" rows="4" maxlength="512" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea></label>
-<button type="button" id="recovery-restore">Use recovery words</button><p>You also need the wallet address from your saved kit.</p></details></section>
+<section id="recovery-kit" hidden aria-label="Backup file"><label>Open your backup file<input id="recovery-file" type="file" accept="application/json,.json"></label>
+<p id="recovery-kit-status">The file and backup password stay in this tab. Keep your saved copy.</p>
+<details><summary>Use my backup password instead</summary><label>Backup password<textarea id="recovery-words" rows="4" maxlength="512" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea></label>
+<button type="button" id="recovery-restore">Use backup password</button><p>You also need the wallet address from your saved backup file.</p></details></section>
 <form id="recovery-form" hidden><label>Wallet address<input id="recovery-wallet" placeholder="0x…" maxlength="42" autocomplete="off" autocapitalize="off" spellcheck="false" required></label>
 <label>New passkey name<input id="passkey-name" value="Juicebox wallet" maxlength="120" autocomplete="off" required></label>
 <button type="submit" id="recovery-begin">Start recovery</button></form>

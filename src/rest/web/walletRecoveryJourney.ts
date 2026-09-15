@@ -59,8 +59,8 @@ async function request(path: string, body?: unknown, proof = csrf): Promise<any>
 }
 function kitMatches(identity: { walletAddress: string; recoveryOwner: string; initializerHash: string }) {
   if (kit && (!sameAddress(kit.walletAddress, identity.walletAddress) || !sameAddress(kit.recoveryOwner, identity.recoveryOwner) || kit.initializerHash !== identity.initializerHash))
-    throw new Error('This recovery kit does not match the selected wallet.');
-  if (secret && !sameAddress(secret.recoveryOwner, identity.recoveryOwner)) throw new Error('Use the original recovery words for this wallet.');
+    throw new Error('This backup file does not match the selected wallet.');
+  if (secret && !sameAddress(secret.recoveryOwner, identity.recoveryOwner)) throw new Error('Use the original backup password for this wallet.');
 }
 function accept(result: { view: WalletRecoveryView | null; csrfToken?: string }) {
   const value = result.view;
@@ -78,7 +78,7 @@ function accept(result: { view: WalletRecoveryView | null; csrfToken?: string })
   if (!value || value.phase !== view?.phase) { rotation = null; setup = null; pollCount = 0; }
   view = value; known = true;
   if (value?.phase === 'ready_to_sign_in') { secret = null; kit = null; sessionStorage.removeItem('center:recovery:browser:' + value.id); }
-  message(value ? steps[value.phase] : reference.value ? 'Resume the original recovery with its replacement passkey and recovery owner.' : 'Open your recovery kit, or use your original recovery wallet.');
+  message(value ? steps[value.phase] : reference.value ? 'Resume the original recovery with its replacement passkey and recovery owner.' : 'Open your backup file, or use your original recovery wallet.');
 }
 function render() {
   form.hidden = !known || !!view; form.querySelector('button')!.disabled = busy || !!pending || !!reference.value;
@@ -150,7 +150,7 @@ async function recoveryOwner(expected?: string) {
 async function signBackup(document: TypedDataDefinition, owner: string) {
   let signature: unknown;
   if (kitMode()) {
-    if (!secret) throw new Error('Open your recovery kit or enter your recovery words again.');
+    if (!secret) throw new Error('Open your backup file or enter your backup password again.');
     signature = await recoveryAccountFromPhrase(secret.mnemonic, getAddress(owner)).signTypedData(document);
   } else signature = await provider().request({ method: 'eth_signTypedData_v4', params: [await recoveryOwner(owner),
     JSON.stringify(document, (_key, value) => typeof value === 'bigint' ? value.toString() : value)] });
@@ -258,10 +258,10 @@ async function advance() {
 async function resumeRecovery() {
   const recoveryId = reference.value.trim(); if (!uuid.test(recoveryId)) throw new Error('Enter the recovery reference from the original recovery.');
   const expectedWallet = view?.walletAddress ?? kit?.walletAddress ?? wallet.value.trim();
-  if (!isAddress(expectedWallet)) throw new Error('Enter the original wallet address or open its recovery kit.');
+  if (!isAddress(expectedWallet)) throw new Error('Enter the original wallet address or open its backup file.');
   selectedWallet = getAddress(expectedWallet);
   const owner = kitMode() ? secret?.recoveryOwner : await recoveryOwner(view?.recoveryOwner);
-  if (!owner) throw new Error('Open your recovery kit or enter your recovery words again.');
+  if (!owner) throw new Error('Open your backup file or enter your backup password again.');
   const begun = await request('resume/begin', { recoveryId }), challenge = begun.challenge, document = challenge.document as TypedDocument, value = document.message;
   schema(document, 'WalletRecoveryResume', [['purpose','string'],['resumeId','string'],['recoveryId','string'],['accountId','string'],['rpId','string'],['origin','string'],
     ['contextDigest','bytes32'],['issuedAtMs','string'],['expiresAtMs','string']], ['name','version','chainId','verifyingContract']);
@@ -282,27 +282,27 @@ async function resumeRecovery() {
 }
 form.addEventListener('submit', event => { event.preventDefault(); void run(async () => {
   if (reference.value || pending) throw new Error('Resume or check the original recovery before starting another.');
-  const address = wallet.value.trim(); if (!isAddress(address)) throw new Error('Enter the wallet address from your recovery kit.');
-  if (kitMode() && !secret) throw new Error('Open your recovery kit or enter your recovery words first.');
-  if (kit && !sameAddress(kit.walletAddress, address)) throw new Error('Use the wallet address in your recovery kit.');
+  const address = wallet.value.trim(); if (!isAddress(address)) throw new Error('Enter the wallet address from your backup file.');
+  if (kitMode() && !secret) throw new Error('Open your backup file or enter your backup password first.');
+  if (kit && !sameAddress(kit.walletAddress, address)) throw new Error('Use the wallet address in your backup file.');
   if (!kitMode()) await recoveryOwner(); selectedWallet = getAddress(address);
   await send('begin', { walletAddress: selectedWallet, passkeyName: name.value.trim() });
 }); });
 el('recovery-method').addEventListener('change', () => { if (!kitMode()) { secret = null; kit = null; el<HTMLTextAreaElement>('recovery-words').value = ''; } render(); });
 el<HTMLInputElement>('recovery-file').addEventListener('change', event => { void run(async () => {
   const input = event.target as HTMLInputElement, file = input.files?.[0]; input.value = '';
-  if (!file || file.size > 8192) throw new Error('Choose the recovery kit you saved for this wallet.');
+  if (!file || file.size > 8192) throw new Error('Choose the backup file you saved for this wallet.');
   const value = readWalletRecoveryKit(await file.text(), view ? { network: 'base', chainId: 8453, walletAddress: view.walletAddress,
     recoveryOwner: view.recoveryOwner, initializerHash: view.initializerHash } : undefined);
   kit = value; secret = { mnemonic: value.mnemonic, recoveryOwner: value.recoveryOwner }; wallet.value = value.walletAddress;
-  el<HTMLTextAreaElement>('recovery-words').value = ''; el('recovery-kit-status').textContent = 'Recovery kit loaded in this tab.';
-  message('Recovery kit loaded. Continue the original recovery, or name your replacement passkey.');
+  el<HTMLTextAreaElement>('recovery-words').value = ''; el('recovery-kit-status').textContent = 'Backup file loaded in this tab.';
+  message('Backup file loaded. Continue the original recovery, or name your replacement passkey.');
 }); });
 el('recovery-restore').addEventListener('click', () => { void run(async () => {
   const input = el<HTMLTextAreaElement>('recovery-words'), mnemonic = input.value; input.value = '';
   const account = recoveryAccountFromPhrase(mnemonic, view?.recoveryOwner); kit = null;
   secret = { mnemonic: mnemonic.trim().toLowerCase().replace(/\s+/g, ' '), recoveryOwner: account.address };
-  el('recovery-kit-status').textContent = 'Recovery words loaded in this tab.'; message('Recovery words loaded. Use the original wallet address.');
+  el('recovery-kit-status').textContent = 'Backup password loaded in this tab.'; message('Backup password loaded. Use the original wallet address.');
 }); });
 next.addEventListener('click', () => { void run(advance); }); check.addEventListener('click', () => { void run(observe); });
 el('recovery-restart').addEventListener('click', () => { void run(() => send('restart', {})); });
