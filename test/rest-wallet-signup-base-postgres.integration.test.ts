@@ -90,8 +90,15 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
         backupSignature: await signBackupProof(document) });
       const record = (await enrollments.get(initial.intent.id))!;
       const review = await signup.prepareDeployment(flowToken), operation = (await deployments.get(review.id))!;
-      expect((await signup.approveDeployment(flowToken, { approvalId: operation.id,
-        assertion: signGet({ ...credential, challenge: hashTypedData(walletDeploymentDocument(record, operation.approval)), rpId, origin: issuer }) })).phase).toBe("deploying");
+      // Base mines every two seconds: a new block lands between the approval's chain reads. The
+      // creation preflight and the treasury funding read must still describe one head.
+      let latestReads = 0;
+      fixture.faults.after = async (method, params) => { if (method === "eth_getBlockByNumber" && params[0] === "latest" && ++latestReads === 1) await fixture.rpc("anvil_mine", ["0x1", "0x0"]); };
+      try {
+        expect((await signup.approveDeployment(flowToken, { approvalId: operation.id,
+          assertion: signGet({ ...credential, challenge: hashTypedData(walletDeploymentDocument(record, operation.approval)), rpId, origin: issuer }) })).phase).toBe("deploying");
+      } finally { fixture.faults.after = async () => undefined; }
+      expect(latestReads).toBeGreaterThan(0);
       const claimed = (await deployments.get(operation.id))!;
       expect(claimed.template!.transaction.nonce).toBe(String(index + 2));
       await signup.tick();

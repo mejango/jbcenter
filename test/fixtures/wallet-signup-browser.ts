@@ -42,7 +42,9 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       && !lostRecoveryPaths.has(path)) {
       lostRecoveryPaths.add(path); return new Response('Unavailable after commit', { status: 503 });
     }
-    if (response.ok && ((path === '/wallet/signup/register' && !lostRegistration) || (path === '/wallet/signup/setup/complete' && !lostSetup))) {
+    // The kit journey loses the setup reply and logs in by hand; the wallet journey keeps it and
+    // proves the single "Continue" click carries the user from setup into the signed-in wallet.
+    if (response.ok && ((path === '/wallet/signup/register' && !lostRegistration) || (kitMode && path === '/wallet/signup/setup/complete' && !lostSetup))) {
       if (path.endsWith('/register')) lostRegistration = true; else lostSetup = true;
       return new Response('Unavailable after commit', { status: 503 });
     }
@@ -111,12 +113,11 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await page.getByRole('button', { name: 'Create passkey', exact: true }).click();
     await contains('Check the original signup');
     await page.getByRole('button', { name: 'Check signup' }).click();
-    await contains('Prove access');
-    await page.getByRole('button', { name: 'Verify both owners' }).click();
-    await contains('Review and approve');
+    await contains('Your passkey is ready');
     const originalAddress = await page.locator('#signup-address').textContent();
-    await page.getByRole('button', { name: 'Review wallet creation' }).click();
-    await page.getByRole('button', { name: 'Approve wallet creation' }).click();
+    expect((await page.locator('#signup-recovery').textContent())?.toLowerCase()).toBe(kitMode ? 'a kit you download once the wallet exists' : enrollmentBackupAccount.address.toLowerCase());
+    // One click proves the passkey and approves creation: two prompts, each announced in the status line.
+    await page.getByRole('button', { name: 'Create wallet', exact: true }).click();
     await contains('Creating your wallet');
     const cookie = (await context.cookies()).find(item => item.name === walletSignupCookie)!;
     const flow = (await flows.authenticate(cookie.value))!, deploymentId = flow.deploymentId!;
@@ -128,8 +129,8 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     if (kitMode) {
       // The kit is presented once the wallet exists; saving it unlocks browser setup.
       await page.getByRole('button', { name: 'Check signup' }).click();
-      await contains('Authorize this browser');
-      expect(await page.getByRole('button', { name: 'Review browser setup' }).isDisabled()).toBe(true);
+      await contains('Save your recovery kit');
+      expect(await page.getByRole('button', { name: 'Continue', exact: true }).isDisabled()).toBe(true);
       const downloaded = page.waitForEvent('download');
       await page.getByRole('button', { name: 'Download recovery kit' }).click();
       const stream = await (await downloaded).createReadStream(), chunks = [];
@@ -139,7 +140,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       recoveryKitText = encoded;
       expect(kit.walletAddress.toLowerCase()).toBe(originalAddress?.toLowerCase());
       expect(kit.mnemonic.split(' ')).toHaveLength(24);
-      expect(await page.getByRole('button', { name: 'Review browser setup' }).isDisabled()).toBe(false);
+      expect(await page.getByRole('button', { name: 'Continue', exact: true }).isDisabled()).toBe(false);
       const wrong = JSON.stringify({ ...kit, walletAddress: '0x' + '44'.repeat(20) });
       await page.locator('#recovery-verify summary').click();
       await page.getByLabel('Recovery kit file').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(wrong) });
@@ -148,7 +149,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await context.clearCookies({ name: walletSignupCookie });
     await page.reload();
     await page.getByRole('link', { name: 'log in' }).click();
-    await contains('Authorize this browser');
+    await contains('Your wallet is ready');
     expect(await page.locator('#signup-address').textContent()).toBe(originalAddress);
     expect(await flows.authenticate(cookie.value)).toBeNull();
     if (kitMode) {
@@ -165,25 +166,27 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       expect(requestBodies.some(body => body.includes(kit.mnemonic))).toBe(false);
       await page.setViewportSize({ width: 1000, height: 850 });
     }
-    await page.getByRole('button', { name: 'Review browser setup' }).click();
-    await page.getByRole('button', { name: 'Approve browser setup' }).click();
-    await contains('Check the original signup');
-    await page.getByRole('button', { name: 'Check signup' }).click();
-    await contains('Your wallet is ready');
-    expect(await page.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('center:signup:browser:')))).toEqual([]);
     await mkdir(out, { recursive: true });
     await page.screenshot({ path: new URL('signup-desktop.png', out).pathname, fullPage: true });
     await page.setViewportSize({ width: 320, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: new URL('signup-mobile.png', out).pathname, fullPage: true });
-    await page.getByRole('link', { name: 'Sign in with your passkey' }).click();
+    await page.setViewportSize({ width: 1000, height: 850 });
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    if (kitMode) {
+      await contains('Check the original signup');
+      await page.getByRole('button', { name: 'Check signup' }).click();
+      await contains('Log in with your passkey');
+      expect(await page.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('center:signup:browser:')))).toEqual([]);
+      await page.getByRole('button', { name: 'Log in', exact: true }).click();
+    }
     await contains('You are signed in');
     expect((await page.locator('#wallet-address').textContent())?.toLowerCase()).toBe(originalAddress?.toLowerCase());
     if (recovery) {
       await exerciseRecoveryBrowser({ page, context, cdp, authenticatorId, origin, recovery, login, kitText: recoveryKitText!, requestBodies });
       expect(lostRecoveryPaths.size).toBe(3);
     }
-    expect(errors).toEqual([]); expect(lostRegistration && lostSetup).toBe(true);
+    expect(errors).toEqual([]); expect(lostRegistration).toBe(true); expect(lostSetup).toBe(kitMode);
     expect((await options.deployments.getSettlement(deploymentId))?.nextNonce).toBe(options.expectedNextNonce ?? '5');
     await writeFile(new URL('summary.json', out), JSON.stringify({ passed: true, browser: browser.version(),
       evidence: 'real HTTP, PostgreSQL, unforked Anvil; virtual authenticator and test EOA',

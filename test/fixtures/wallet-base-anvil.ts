@@ -48,8 +48,10 @@ export async function startWalletBaseAnvil() {
       nonce: "0x0", value: "0x0", gas: "0xf4240", gasPrice: "0x0", chainId: "0x2105" };
   };
   const requests: { method: string; params: readonly unknown[] }[] = [];
-  const faults: { transform: (method: string, params: readonly unknown[], result: unknown) => unknown; send: "none" | "lost-reply" | "wrong-hash" } =
-    { transform: (_method, _params, result) => result, send: "none" };
+  const faults: { transform: (method: string, params: readonly unknown[], result: unknown) => unknown; send: "none" | "lost-reply" | "wrong-hash";
+    /** Runs after the upstream answered and before the reply is shaped; lets a test mine between two reads. */
+    after: (method: string, params: readonly unknown[]) => Promise<void> } =
+    { transform: (_method, _params, result) => result, send: "none", after: async () => undefined };
   function shape(method: string, params: readonly unknown[], result: unknown): unknown {
     if ((method === "eth_getBlockByNumber" || method === "eth_getBlockByHash") && record(result) && Array.isArray(result.transactions) && typeof result.hash === "string") {
       blocks.set(result.hash.toLowerCase(), { number: String(result.number), timestamp: String(result.timestamp) });
@@ -80,6 +82,7 @@ export async function startWalletBaseAnvil() {
         await anvil.rpc(body.method, body.params); response.destroy(); return;
       } else {
         result = await anvil.rpc(body.method, body.params);
+        await faults.after(body.method, body.params);
         if (body.method === "eth_getTransactionReceipt" && record(result)) {
           const raw = await anvil.rpc<Hex>("eth_getRawTransactionByHash", [result.transactionHash]);
           result = { ...result, l1Fee: calculateBaseSignedFees({ rawTransaction: raw, parameters: baseAnvilParameters() }).l1FeeAtParameters };
@@ -99,7 +102,7 @@ export async function startWalletBaseAnvil() {
   // Every application read goes through the Base-shaped proxy so positions and fees stay consistent.
   const readOnlyRpc = createWalletDeploymentAnvilRpc(endpoint);
   const chain = () => createWalletDeploymentChain({ rpc: readOnlyRpc, configuration: anvil.configuration, manifest: anvil.manifest, utility: anvil.utility });
-  async function reset() { await anvil.reset(); requests.length = 0; faults.transform = (_m, _p, result) => result; faults.send = "none"; }
+  async function reset() { await anvil.reset(); requests.length = 0; faults.transform = (_m, _p, result) => result; faults.send = "none"; faults.after = async () => undefined; }
   async function close() { proxy.closeAllConnections(); await new Promise<void>(resolve => proxy.close(() => resolve())); await anvil.close(); }
   return { anvil, endpoint, requests, sends, faults, reset, close, feeContracts, genesisHash: anvil.expectedGenesisHash, expectedGenesisHash: anvil.expectedGenesisHash,
     configuration: anvil.configuration, manifest: anvil.manifest, utility: anvil.utility, sender: anvil.sender,

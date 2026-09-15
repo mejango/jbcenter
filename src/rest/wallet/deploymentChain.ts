@@ -292,8 +292,10 @@ export function createWalletDeploymentChain(options: WalletDeploymentChainOption
         return assertWalletDeploymentObservation(empty);
       } finally { rpc.close(); }
     },
+    /** `at` pins the snapshot to an already observed canonical head (the funding read's) so
+     * both admission halves describe one block even when the chain advances between them. */
     async preflight(input: WalletEnrollment, inputApproval: WalletDeploymentApproval,
-      signal?: AbortSignal): Promise<WalletDeploymentPreflight> {
+      signal?: AbortSignal, at?: RestBlockEvidence): Promise<WalletDeploymentPreflight> {
       enrollmentDigest(input); enrollmentDigest(inputApproval);
       const enrollment = structuredClone(input), approval = structuredClone(inputApproval), observedAt = now();
       walletDeploymentDocument(enrollment, approval);
@@ -312,8 +314,9 @@ export function createWalletDeploymentChain(options: WalletDeploymentChainOption
       const rpc = operationRpc(transport, limits, signal);
       try {
         rpc.check();
-        const [chainId, block] = await Promise.all([rpc.request("eth_chainId", []), rpc.request("eth_getBlockByNumber", ["latest", false])]);
-        if (quantity(chainId) !== 8453n || !object(block) || !word(block.hash))
+        const [chainId, block] = await Promise.all([rpc.request("eth_chainId", []),
+          rpc.request("eth_getBlockByNumber", [at ? toHex(BigInt(at.blockNumber)) : "latest", false])]);
+        if (quantity(chainId) !== 8453n || !object(block) || !word(block.hash) || (at && !same(block.hash, at.blockHash)))
           fail("WALLET_DEPLOYMENT_CHAIN_MISMATCH", "The configured provider did not establish a mined Base block.", 502);
         const number = quantity(block.number), timestamp = quantity(block.timestamp), baseFee = quantity(block.baseFeePerGas);
         if (timestamp > BigInt(Math.floor(observedAt / 1000) + 30) || timestamp + 300n < BigInt(Math.floor(observedAt / 1000)))

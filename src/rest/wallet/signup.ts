@@ -122,8 +122,10 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     // The original claim already consumed this purpose. Recovery reads its immutable state;
     // it does not issue another signature, claim, nonce or allocation.
     if (operation.state !== "prepared") return status(flowToken);
-    const admission = await chain.preflight(enrollment, operation.approval);
+    // Base mines every two seconds: the funding read fixes the head and the preflight is pinned
+    // to it, so the claim always pairs one block's admission with that block's funding.
     const funding = await settlement.observeFunding(await deployments.loadFundingContext(poolId));
+    const admission = await chain.preflight(enrollment, operation.approval, undefined, funding.head);
     if ((await context(flowToken)).flow.deploymentId !== approvalId) state();
     await deployments.claim({ operationId: approvalId, assertion, admission: admission.admission, funding });
     return status(flowToken);

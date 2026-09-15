@@ -11,25 +11,25 @@ const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as
 const form = el<HTMLFormElement>('signup-form'), name = el<HTMLInputElement>('passkey-name');
 const next = el<HTMLButtonElement>('signup-next'), resume = el<HTMLAnchorElement>('signup-resume');
 const check = el<HTMLButtonElement>('signup-check'), cancel = el<HTMLButtonElement>('signup-cancel');
-const status = el('wallet-status'), details = el('signup-details'), signIn = el<HTMLAnchorElement>('signup-signin');
+const status = el('wallet-status'), details = el('signup-details');
 let view: View | null = null, known = false, busy = false, csrf = '', native: AbortController | null = null;
 let pending: { path: string; body: unknown; csrf: string } | null = null;
-let deployment: Awaited<ReturnType<Signup['prepareDeployment']>> | null = null;
-let setup: Awaited<ReturnType<Signup['prepareSetup']>> | null = null;
 let disposed = false, pollCount = 0;
 let recoverySecret: WalletRecoverySecret | null = null, kitVerifiedWallet: string | null = null, kitSavedWallet: string | null = null;
 const downloadUrls = new Set<string>();
-const kitMode = () => el<HTMLFieldSetElement>('recovery-method').querySelector<HTMLInputElement>('input:checked')?.value === 'kit';
+// The choice outlives the form: a resumed signup reads it back by enrollment.
+const kitChoice = () => el<HTMLFieldSetElement>('recovery-method').querySelector<HTMLInputElement>('input:checked')?.value === 'kit';
+const kitMode = () => view ? localStorage.getItem('center:signup:kit:' + view.enrollmentId) === '1' : kitChoice();
 function kitIdentity(): WalletRecoveryKitIdentity {
   if (!view?.walletAddress || !view.initializerHash) throw new Error('Create your passkey before saving the complete recovery kit.');
   return { network: 'base', chainId: 8453, walletAddress: view.walletAddress, recoveryOwner: view.recoveryOwner, initializerHash: view.initializerHash };
 }
 const steps: Record<View['phase'], string> = {
-  awaiting_registration: 'Create your named passkey.', awaiting_possession: 'Prove access to your passkey and recovery wallet.',
-  awaiting_deployment_approval: 'Review and approve creation of your wallet.', deploying: 'Creating your wallet. Keep this page open, or resume later with your passkey.',
+  awaiting_registration: 'Create your passkey.', awaiting_possession: 'Your passkey is ready. Create your wallet with it.',
+  awaiting_deployment_approval: 'Your passkey is ready. Approve creation of your wallet.', deploying: 'Creating your wallet. Keep this page open, or come back later with your passkey.',
   deployment_failed: 'Wallet creation did not complete. Keep this signup for recovery; do not send funds.',
-  awaiting_setup: 'Authorize this browser to read and prepare requests. Every payment will still need owner approval.',
-  ready_to_sign_in: 'Your wallet is ready. Sign in with a fresh passkey prompt.', expired: 'This incomplete registration expired. Its passkey is not an active wallet credential.',
+  awaiting_setup: 'Your wallet is ready.', ready_to_sign_in: 'Your wallet is ready. Log in with your passkey.',
+  expired: 'This incomplete signup expired. Its passkey is not an active wallet credential.',
 };
 function message(value: string, error = false) { status.textContent = value; status.dataset.state = error ? 'error' : 'ready'; }
 function encode(value: ArrayBuffer) { return btoa(String.fromCharCode(...new Uint8Array(value))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', ''); }
@@ -61,7 +61,7 @@ function accept(result: { view: View | null; csrfToken?: string }) {
   }
   view = result.view; known = true;
   if (result.csrfToken) { if (decode(result.csrfToken).length !== 32) throw new Error('Invalid signup context.'); csrf = result.csrfToken; }
-  message(view ? steps[view.phase] : '');
+  message(view ? steps[view.phase] + (view.phase === 'awaiting_setup' ? kitMode() ? ' Save your recovery kit, then continue.' : ' Continue to log in.' : '') : '');
   if (view?.phase === 'ready_to_sign_in') sessionStorage.removeItem('center:signup:browser:' + view.enrollmentId);
   if (view?.phase === 'ready_to_sign_in' && kitSavedWallet === view.walletAddress) recoverySecret = null;
 }
@@ -84,19 +84,20 @@ function render() {
   el<HTMLInputElement>('recovery-file').disabled = busy;
   el<HTMLTextAreaElement>('recovery-words').disabled = busy;
   el<HTMLButtonElement>('recovery-restore').disabled = busy;
-  el('signup-name').textContent = view?.passkeyName ?? ''; el('signup-recovery').textContent = view?.recoveryOwner ?? '';
+  el('signup-name').textContent = view?.passkeyName ?? '';
+  el('signup-recovery-label').textContent = kitMode() ? 'Recovery' : 'Recovery wallet';
+  el('signup-recovery').textContent = kitMode() ? kitPhase ? 'Your recovery kit' : 'A kit you download once the wallet exists' : view?.recoveryOwner ?? '';
   el('signup-address').textContent = view?.walletAddress ?? 'Not created yet';
-  const label = view?.phase === 'awaiting_registration' ? 'Create passkey' : view?.phase === 'awaiting_possession' ? 'Verify both owners'
-    : view?.phase === 'awaiting_deployment_approval' ? deployment ? 'Approve wallet creation' : 'Review wallet creation'
-    : view?.phase === 'awaiting_setup' ? setup ? 'Approve browser setup' : 'Review browser setup'
-    : view?.phase === 'expired' ? 'Start a new registration' : null;
+  const label = view?.phase === 'awaiting_registration' ? 'Create passkey'
+    : view?.phase === 'awaiting_possession' || view?.phase === 'awaiting_deployment_approval' ? 'Create wallet'
+    : view?.phase === 'awaiting_setup' ? 'Continue' : view?.phase === 'ready_to_sign_in' ? 'Log in' : view?.phase === 'expired' ? 'Start a new signup' : null;
   next.hidden = !label || !!pending || stranded; next.textContent = label; next.disabled = busy;
   // Saving the kit unlocks browser setup; after a reload the words are gone and only a saved kit can be checked.
   if (view?.phase === 'awaiting_setup' && kitMode() && recoverySecret && kitSavedWallet !== view.walletAddress) next.disabled = true;
   el('signup-intro').hidden = !known || !!view; // "log in" resumes with a passkey; a finished wallet lands at sign-in.
   // "Check signup" only matters for a lost reply or while creation is in progress.
   check.hidden = stranded || !(pending || view?.phase === 'deploying'); check.disabled = busy;
-  cancel.hidden = !native; signIn.hidden = view?.phase !== 'ready_to_sign_in';
+  cancel.hidden = !native;
 }
 async function send(path: string, body: unknown, proof = csrf) {
   pending = { path, body, csrf: proof };
@@ -112,7 +113,7 @@ async function run(action: () => Promise<void>) {
   try { await action(); }
   catch (error) {
     if (error instanceof HttpFailure && error.status >= 400 && error.status < 500) {
-      pending = null; deployment = null; setup = null;
+      pending = null;
       try { accept(await request('state')); } catch { /* Resume with a fresh proof if the cookie is no longer valid. */ }
     }
     message(error instanceof DOMException && ['NotAllowedError', 'AbortError'].includes(error.name) && native
@@ -154,7 +155,7 @@ async function advance() {
   if (view.phase === 'expired') {
     await send('restart', {}); csrf = '';
   } else if (view.phase === 'awaiting_registration' && view.registration) {
-    native = new AbortController(); render();
+    message('Create the passkey in the prompt.'); native = new AbortController(); render();
     const value = await navigator.credentials.create({ publicKey: { rp: { id: view.rpId, name: 'Juicebox' },
       user: { id: decode(view.registration.userHandle), name: view.passkeyName, displayName: view.passkeyName },
       challenge: decode(view.registration.challenge), pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
@@ -180,42 +181,46 @@ async function advance() {
       const owner = await recoveryOwner(view.recoveryOwner);
       backupSignature = await provider().request({ method: 'eth_signTypedData_v4', params: [owner, JSON.stringify(document)] });
     }
+    message('Confirm the new passkey in the prompt (1 of 2).');
     const proof = await assertion(view.possession.challenge, view.rpId, view.possession.credentialId);
     await send('prove', { assertion: proof, backupSignature });
+    if (current()?.phase === 'awaiting_deployment_approval') await approve('2 of 2');
   } else if (view.phase === 'awaiting_deployment_approval') {
-    if (!deployment) {
-      deployment = await request('deployment/review', {});
-      if (deployment!.walletAddress.toLowerCase() !== view.walletAddress?.toLowerCase() || deployment!.recoveryOwner.toLowerCase() !== view.recoveryOwner.toLowerCase() || deployment!.initializerHash !== view.initializerHash) {
-        deployment = null; throw new Error('The wallet creation review changed.');
-      }
-      message('Approve creation of the wallet shown above, with this passkey and recovery owner.');
-    } else {
-      const proof = await assertion(deployment.challenge, view.rpId, deployment.credentialId);
-      await send('deployment/approve', { approvalId: deployment.id, assertion: proof }); deployment = null;
-    }
+    await approve('1 of 1');
   } else if (view.phase === 'awaiting_setup') {
     if (kitMode() && recoverySecret && kitSavedWallet !== view.walletAddress) throw new Error('Download your recovery kit before continuing.');
+    // One click authorizes this browser for an hour of read, plan and relay access (it cannot approve
+    // payments on its own), then logs in: two prompts.
     const browser = browserKey();
-    if (!setup) {
-      setup = await request('setup/review', { browserPublicAddress: browser.address });
-      if (setup!.walletAddress.toLowerCase() !== view.walletAddress?.toLowerCase() || getAddress(setup!.input.grant.botAddress) !== browser.address ||
-        setup!.input.grant.scopes.join(',') !== 'read,plan,relay') { setup = null; throw new Error('The browser setup review changed.'); }
-      message('Authorize this browser for one hour of read, plan and relay access. It cannot approve payments on its own.');
-    } else {
-      const proof = await assertion(setup.signingPayload.digest, view.rpId);
-      const browserProof = await browser.signTypedData(setup.proofDocument as TypedDataDefinition);
-      await send('setup/complete', { setupId: setup.id, assertion: proof, browserProof }); setup = null;
-    }
+    const setup: Awaited<ReturnType<Signup['prepareSetup']>> = await request('setup/review', { browserPublicAddress: browser.address });
+    if (setup.walletAddress.toLowerCase() !== view.walletAddress?.toLowerCase() || getAddress(setup.input.grant.botAddress) !== browser.address ||
+      setup.input.grant.scopes.join(',') !== 'read,plan,relay') throw new Error('The browser setup review changed.');
+    message('Authorize this browser in the prompt (1 of 2).');
+    const proof = await assertion(setup.signingPayload.digest, view.rpId);
+    const browserProof = await browser.signTypedData(setup.proofDocument as TypedDataDefinition);
+    await send('setup/complete', { setupId: setup.id, assertion: proof, browserProof });
+    if (current()?.phase === 'ready_to_sign_in') await login('2 of 2');
+  } else if (view.phase === 'ready_to_sign_in') {
+    await login('1 of 1');
   }
 }
+const current = () => view;
+async function approve(count: string) {
+  const deployment: Awaited<ReturnType<Signup['prepareDeployment']>> = await request('deployment/review', {});
+  if (deployment.walletAddress.toLowerCase() !== view!.walletAddress?.toLowerCase() || deployment.recoveryOwner.toLowerCase() !== view!.recoveryOwner.toLowerCase()
+    || deployment.initializerHash !== view!.initializerHash) throw new Error('The wallet creation review changed.');
+  message(`Approve wallet creation in the prompt (${count}).`);
+  const proof = await assertion(deployment.challenge, view!.rpId, deployment.credentialId);
+  await send('deployment/approve', { approvalId: deployment.id, assertion: proof });
+}
 form.addEventListener('submit', event => { event.preventDefault(); void run(async () => {
-  const passkeyName = name.value.trim();
-  if (kitMode() && !recoverySecret) recoverySecret = createWalletRecoverySecret();
-  const owner = kitMode() ? recoverySecret!.recoveryOwner : await recoveryOwner();
+  const passkeyName = name.value.trim(), kit = kitChoice();
+  if (kit && !recoverySecret) recoverySecret = createWalletRecoverySecret();
+  const owner = kit ? recoverySecret!.recoveryOwner : await recoveryOwner();
   await send('begin', { recoveryOwner: owner, passkeyName });
-  // Go straight into the passkey prompts; a cancelled prompt leaves the explicit buttons as the fallback.
+  if (kit) localStorage.setItem('center:signup:kit:' + view!.enrollmentId, '1');
+  // Go straight into the passkey prompt; a cancelled prompt leaves the explicit button as the fallback.
   if (view?.phase === 'awaiting_registration') await advance();
-  if (view?.phase === 'awaiting_possession') await advance();
 }); });
 el('recovery-method').addEventListener('change', render);
 el('recovery-download').addEventListener('click', () => { void run(async () => {
@@ -257,26 +262,25 @@ async function walletRequest(path: string, body: unknown, proof?: string): Promi
   } finally { clearTimeout(timer); }
 }
 /** The same sign-in as the wallet landing page, then that page shows the session (and any app return). */
-async function login() {
+async function login(count = '1 of 1') {
   const begun = await walletRequest('/wallet/login/begin', {}), publicKey = begun.publicKey;
   if (publicKey?.rpId !== location.hostname || publicKey.userVerification !== 'required' || typeof begun.loginId !== 'string' || typeof begun.csrfToken !== 'string') throw new Error('The wallet host changed.');
   const challenge = decode(publicKey.challenge); if (challenge.length !== 32) throw new Error('Invalid passkey challenge.');
-  message('Use your passkey to log in.');
+  message(`Log in with the prompt (${count}).`);
   const proof = await assertion('0x' + Array.from(challenge, byte => byte.toString(16).padStart(2, '0')).join(''), publicKey.rpId);
   const result = await walletRequest('/wallet/login/complete', { loginId: begun.loginId, assertion: proof }, begun.csrfToken);
   if (result?.session?.loginId !== begun.loginId) throw new Error('Sign-in could not be confirmed.');
   location.replace('/wallet' + location.search);
 }
 async function resumeSignup() {
-  const begun = await request('resume/begin', {}), proof = await assertion(begun.challenge.challenge, begun.challenge.rpId);
+  const begun = await request('resume/begin', {}); message('Pick up your signup with the prompt.');
+  const proof = await assertion(begun.challenge.challenge, begun.challenge.rpId);
   await send('resume/complete', { resumeId: begun.challenge.id, assertion: proof }, begun.csrfToken);
 }
-signIn.addEventListener('click', event => { event.preventDefault(); if (busy) return; void run(login); });
 resume.addEventListener('click', event => { event.preventDefault(); if (busy || pending) return; void run(async () => {
   // A passkey with a finished wallet logs in; one from an unfinished signup resumes it.
   try { await login(); return; } catch (error) { if (!(error instanceof HttpFailure) || ![400, 401, 403, 404, 410].includes(error.status)) throw error; }
   await resumeSignup();
-  deployment = null; setup = null;
 }); });
 const timer = setInterval(() => {
   if (!busy && !pending && view?.phase === 'deploying' && !document.hidden && navigator.onLine && pollCount++ < 60) void run(observe);
@@ -290,6 +294,6 @@ void run(async () => {
   const url = new URL(location.href);
   if (url.hash || url.searchParams.size > 1 || [...url.searchParams].some(([key, value]) => key === 'intent' ? !/^[A-Za-z0-9_-]{43}$/.test(value)
     : key === 'payment' ? !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value) : true)) throw new Error('Return to the original app to start this signup.');
-  signIn.href = '/wallet' + url.search; el<HTMLAnchorElement>('wallet-back').href = signIn.href;
+  el<HTMLAnchorElement>('wallet-back').href = '/wallet' + url.search;
   await observe();
 });
