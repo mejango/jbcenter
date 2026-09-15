@@ -87,7 +87,12 @@ suite("durable hosted Base deployment accounting", () => {
     const local = { ...admission, version: "center-wallet-deployment-local-admission-v2", feeScope: "local-execution-only", baseTotalAffordability: "unknown",
       environment: { ...admission.environment, kind: "unforked-anvil" } }; delete local.reservation;
     await expect(lease(local)).rejects.toMatchObject({ code: "23514" });
-    await expect(lease({ ...admission, reservation: { ...admission.reservation, totalWei: String(BigInt(context.pool.configuration.allocationWei) + 1n) } })).rejects.toMatchObject({ code: "23514" });
+    const unaffordable = { ...admission.reservation, l1WeiAtParameters: context.pool.configuration.allocationWei };
+    unaffordable.totalWei = String(BigInt(admission.maximumExecutionCost) + 2n * (BigInt(unaffordable.l1WeiAtParameters) + BigInt(unaffordable.operatorMaximumWei)));
+    await expect(lease({ ...admission, reservation: unaffordable })).rejects.toMatchObject({ code: "23514" });
+    const { reservation: _omitted, ...late } = { ...admission, version: "center-wallet-deployment-local-admission-v2", feeScope: "local-execution-only",
+      baseTotalAffordability: "unknown", environment: { ...admission.environment, kind: "unforked-anvil" }, expiresAt: now + 5001 };
+    await expect(lease(late)).rejects.toMatchObject({ code: "23514" });
     await expect(lease({ ...admission, feeScope: "local-execution-only" })).rejects.toMatchObject({ code: "23514" });
     await expect(lease({ ...admission, expiresAt: now + 20_001 })).rejects.toMatchObject({ code: "23514" });
     await expect(lease({ ...admission, expiresAt: now + 15_000 })).resolves.toBeDefined();

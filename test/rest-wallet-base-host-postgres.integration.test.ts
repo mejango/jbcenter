@@ -49,6 +49,10 @@ suite("hosted Base signup runtime host", () => {
         signerKey: `0x${"55".repeat(32)}`, maximumOperations: 10, maximumCostWei: "100000000000000000", manifest: fixture.manifest, utility: fixture.utility }) });
   }
 
+  it("refuses a first nonce that does not match the sender's actual nonce instead of adopting the provider value", async () => {
+    await expect(runtime({ poolId, initialNonce: "7" })).rejects.toMatchObject({ code: "WALLET_DEPLOYMENT_CONFLICT" });
+    expect((await new PostgresWalletDeploymentStore(pool).loadFundingContext(poolId)).pool.accounting).toBeUndefined();
+  }, 60_000);
   it("configures the pool and initializes Base accounting once, then resumes without reinitializing", async () => {
     const first = await runtime({ poolId, initialNonce: "2" });
     try {
@@ -63,9 +67,7 @@ suite("hosted Base signup runtime host", () => {
         expect((await deployments.loadFundingContext(poolId)).pool).toEqual(funding.pool);
         expect(fixture.sends()).toHaveLength(0);
       } finally { await second.stop(); }
+      await expect(runtime({ poolId, initialNonce: "3" })).rejects.toMatchObject({ code: "WALLET_CREATION_CONFIG_INVALID" });
     } finally { await first.stop(); }
-  }, 60_000);
-  it("refuses a first nonce that does not match the sender's actual nonce instead of adopting the provider value", async () => {
-    await expect(runtime({ poolId: randomUUID(), initialNonce: "7" })).rejects.toBeDefined();
   }, 60_000);
 });

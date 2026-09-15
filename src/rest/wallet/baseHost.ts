@@ -57,11 +57,13 @@ export async function createBaseWalletSignupHost(context: BaseWalletHostContext,
   await deployments.configurePool(configuration);
   const funding = await deployments.loadFundingContext(configuration.id);
   if (!funding.pool.accounting) await deployments.initializeAccounting(funding, await settlement.observeFunding(funding), options.initialNonce);
-  // Every chain read for creation goes through the single Dwellir endpoint, never a public fallback.
+  else if (funding.pool.accounting.initialNonce !== options.initialNonce)
+    throw new RestError(500, "WALLET_CREATION_CONFIG_INVALID", "The configured first nonce differs from the initialized accounting.");
+  // Every chain read for creation and readiness goes through the single Dwellir endpoint, never a public fallback.
   const chain = createWalletDeploymentChain({ rpc: reader.reads, configuration, manifest: options.manifest, utility: options.utility });
   const execution = createWalletDeploymentExecution({ store: deployments, chain, signer, experimentalTransport: createBaseWalletDeploymentTransport(base) });
   const authority = createWalletAuthorityService({ store: new PostgresWalletAuthorityStore(context.pool),
-    chain: createWalletAuthorityChain({ rpc: context.rpc, manifest: options.manifest, utility: options.utility }) });
+    chain: createWalletAuthorityChain({ rpc: reader.reads, manifest: options.manifest, utility: options.utility }) });
   return createLocalWalletSignup({ flows: new PostgresWalletSignupStore(context.pool, { rpId: new URL(context.wallet.origin).hostname,
       origin: context.wallet.origin, manifest: options.manifest }), enrollments: new PostgresWalletEnrollmentStore(context.pool),
     deployments, settlement, execution, chain, smart: context.smart, registry: new PostgresSmartAccountRegistry(context.pool), authority,
@@ -83,7 +85,8 @@ export interface BaseWalletRecoveryHostOptions {
 export function createBaseWalletRecoveryHost(context: BaseWalletHostContext, options: BaseWalletRecoveryHostOptions) {
   if (typeof options.signerKey !== "string" || !/^0x[0-9a-f]{64}$/i.test(options.signerKey))
     throw new RestError(500, "WALLET_RECOVERY_CONFIG_INVALID", "Hosted recovery requires a dedicated relay signer key.");
-  const chain = createWalletAuthorityChain({ rpc: context.rpc, manifest: options.manifest, utility: options.utility });
+  const reader = createBaseWalletDeploymentReader({ url: options.url, ...(options.genesisHash ? { genesisHash: options.genesisHash } : {}) });
+  const chain = createWalletAuthorityChain({ rpc: reader.reads, manifest: options.manifest, utility: options.utility });
   const origin = context.wallet.origin, rpId = new URL(origin).hostname;
   return createLocalWalletRecovery({ audience: context.audience, smart: context.smart,
     authority: createWalletAuthorityService({ store: new PostgresWalletAuthorityStore(context.pool), chain }),

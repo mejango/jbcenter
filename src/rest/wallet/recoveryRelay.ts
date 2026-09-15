@@ -205,6 +205,7 @@ export function createWalletRecoveryRelay(options: {
         if (!tx.receipt) await transaction(client, async () => {
           const written = await client.query('UPDATE rest_wallet_recovery_transactions SET receipt=$3 WHERE recovery_id=$1 AND step=$2 AND receipt IS NULL', [id, tx.step, accepted]);
           // The actual debit is retained even above the budget; the lane then fences instead of admitting more.
+          // lane() refused any already fenced lane above, so COALESCE only ever writes allocation-exceeded.
           if (written.rowCount) await client.query(`UPDATE rest_wallet_recovery_lanes SET spent_wei=spent_wei+$2::numeric,
             fence=CASE WHEN spent_wei+$2::numeric>(configuration->>'maximumCostWei')::numeric THEN COALESCE(fence,'allocation-exceeded') ELSE fence END
             WHERE sender=$1`, [sender, String(total(fees))]);
@@ -230,6 +231,7 @@ export function createWalletRecoveryRelay(options: {
         await canonical(client, rpc, value, latest);
         if (release) await client.query('UPDATE rest_wallet_recovery_lanes SET active_recovery=NULL,anchor=$2 WHERE sender=$1 AND active_recovery=$3', [sender, latest, id]);
         result.state = 'ready';
+        awaitingFinality = release ? null : { id, result, releaseHeight: txs.reduce((max, tx) => BigInt(tx.receipt!.block.blockNumber) > max ? BigInt(tx.receipt!.block.blockNumber) : max, 0n) };
       }
       return result;
     } catch (error) {
@@ -259,7 +261,9 @@ export function createWalletRecoveryRelay(options: {
       const [confirmed, pending, balance] = await Promise.all([rpc.request('eth_getTransactionCount', [sender, tag(latest)]),
         rpc.request('eth_getTransactionCount', [sender, 'pending']), rpc.request('eth_getBalance', [sender, tag(latest)])]);
       if (String(quantity(confirmed)) !== tx.nonce || String(quantity(pending)) !== tx.nonce) await fence(client, 'sender-nonce-changed');
-      if (quantity(balance) < limits.gas * limits.maxFeePerGas) unavailable();
+      // The balance must cover this transaction's whole reservation, not only its execution envelope.
+      const priced = adapter.reserve ? await adapter.reserve(rpc, latest, tx.raw_transaction) : null;
+      if (quantity(balance) < limits.gas * limits.maxFeePerGas + (priced ? 2n * (BigInt(priced.l1WeiAtParameters) + BigInt(priced.operatorMaximumWei)) : 0n)) unavailable();
       const call = step === 0 ? operation.approval.createSigner : operation.approval.rotateOwner;
       const input = { from: sender, to: call.to, data: call.data, value: '0x0', gas: toHex(limits.gas) };
       const simulation = await rpc.request('eth_call', [input, tag(latest)]);
@@ -279,8 +283,15 @@ export function createWalletRecoveryRelay(options: {
     }
     return result;
   }
-  // ponytail: in-memory throttle; a ready-but-unfinalized lane is re-inspected at most once a minute.
-  let readySince: { id: string; at: number } | null = null;
+  // A ready lane that only waits for finality is not re-inspected on every poll: one finalized-tag
+  // read decides whether the full reconcile can release it yet. No time-based cache is involved.
+  let awaitingFinality: { id: string; result: LocalWalletRecoveryStatus; releaseHeight: bigint } | null = null;
+  async function stillWaiting(id: string): Promise<LocalWalletRecoveryStatus | null> {
+    if (awaitingFinality?.id !== id) return null;
+    const rpc = operationRpc(adapter.reads, walletObservationRpcBounds);
+    try { return BigInt(head(await rpc.request('eth_getBlockByNumber', ['finalized', false])).blockNumber) < awaitingFinality.releaseHeight ? awaitingFinality.result : null; }
+    catch { return null; } finally { rpc.close(); }
+  }
   return {
     async prepare(id: string): Promise<WalletRecoveryRotation> {
       return locked(async (client, rpc) => {
@@ -356,14 +367,15 @@ export function createWalletRecoveryRelay(options: {
       });
     },
     // HTTP GET may reconcile receipts, but only an explicit POST/host worker progresses retained approval.
-    status(id: string) { return locked((client, rpc) => reconcile(client, rpc, id)); },
+    async status(id: string) {
+      return await stillWaiting(id) ?? locked((client, rpc) => reconcile(client, rpc, id));
+    },
     async tick(signal?: AbortSignal): Promise<void> {
       signal?.throwIfAborted();
       const active = (await pool.query<{ active_recovery: string | null }>('SELECT active_recovery FROM rest_wallet_recovery_lanes WHERE sender=$1 AND fence IS NULL', [sender])).rows[0]?.active_recovery;
-      if (!active) { readySince = null; return; }
-      if (readySince?.id === active && Date.now() - readySince.at < 60_000) return;
-      const result = await locked((client, rpc) => progress(client, rpc, active), signal);
-      readySince = result.state === 'ready' ? { id: active, at: Date.now() } : null;
+      if (!active) { awaitingFinality = null; return; }
+      if (await stillWaiting(active)) return;
+      await locked((client, rpc) => progress(client, rpc, active), signal);
     },
   };
 }

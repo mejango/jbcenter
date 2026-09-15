@@ -13,7 +13,8 @@ import { createWalletDeploymentTransport, walletDeploymentQuantity, type WalletD
 import type { WalletDeploymentEnvironment } from "./deploymentSettlement.js";
 
 /** Base mainnet identity and the fee predeploy runtimes reproduced byte for byte from public
- * source (docs/rest/evidence/wallet-delivery-2026-09-15). A later Base upgrade that replaces an
+ * source (base/base 9469da27403d6836634639b4899a6e4a0964720f; Sourcify records and observations in
+ * docs/rest/evidence/wallet-delivery-2026-09-15). A later Base upgrade that replaces an
  * implementation makes every observation fail closed until the new runtime is reviewed and pinned. */
 export const baseWalletChainPins = Object.freeze({
   chainId: 8453 as const,
@@ -28,7 +29,6 @@ export const baseWalletChainPins = Object.freeze({
       implementation: "0x4f1db3c6abd250ba86e0928471a8f7db3afd88f1" as Address,
       implementationRuntimeCodeHash: "0xe9fc7c96c4db0d6078e3d359d7e8c982c350a513cb2c31121adf5e1e8a446614" as Hex },
   ],
-  source: "base/base 9469da27403d6836634639b4899a6e4a0964720f; Sourcify records retained in the evidence bundle",
 });
 export const baseWalletDeploymentLimits = Object.freeze({
   // Measured 2026-09-15 against Center's Dwellir archive: identity 1.7 s, reservation 0.8 s, funding 3.1 s.

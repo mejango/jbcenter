@@ -8,6 +8,7 @@ import { assertWalletDeploymentSettlementEvidence, walletDeploymentFundingConfli
   type WalletDeploymentSettlementContext } from "../src/rest/wallet/deploymentSettlement.js";
 import { calculateBaseSignedFees } from "../src/rest/wallet/deploymentFees.js";
 import { baseAnvilParameters, startWalletBaseAnvil } from "./fixtures/wallet-base-anvil.js";
+import { enrollmentDigest } from "../src/rest/wallet/enrollment.js";
 
 describe("hosted Base deployment producers on a Base-shaped local chain", () => {
   let fixture: Awaited<ReturnType<typeof startWalletBaseAnvil>>;
@@ -53,13 +54,14 @@ describe("hosted Base deployment producers on a Base-shaped local chain", () => 
     expect(fixture.sends()).toHaveLength(0);
   });
   it("refuses admission when the remaining allocation cannot cover the reservation", async () => {
-    const context = await initialized();
+    let context = await initialized();
     const reservation = (await transport().admit(context)).reservation!;
-    context.pool.accounting!.sequence = 1; context.pool.accounting!.nextNonce = String(BigInt(context.pool.accounting!.initialNonce) + 1n);
-    context.pool.accounting!.spentWei = String(BigInt(context.pool.configuration.allocationWei) - BigInt(reservation.totalWei) + 1n);
-    context.pool.accounting!.lastSettlementId = context.operation.id; context.pool.accounting!.lastSettlementAnchor = context.pool.accounting!.initialHead;
-    context.operation.template!.transaction.nonce = context.pool.accounting!.nextNonce;
-    await expect(transport().admit(context)).rejects.toBeDefined();
+    // Execution alone stays affordable; only the complete reservation exceeds the remaining allocation.
+    context = structuredClone(context);
+    context.pool.configuration.allocationWei = context.pool.configuration.globalAllocationLimitWei = String(BigInt(reservation.totalWei) - 1n);
+    context.pool.configurationDigest = context.operation.poolConfigurationDigest = enrollmentDigest(context.pool.configuration);
+    expect(BigInt(context.pool.configuration.allocationWei)).toBeGreaterThan(BigInt(context.operation.signed!.maximumExecutionCost));
+    await expect(transport().admit(context)).rejects.toMatchObject({ status: 502 });
     expect(fixture.sends()).toHaveLength(0);
   });
   it("sends the admitted bytes exactly once and settles complete finalized receipt fees", async () => {

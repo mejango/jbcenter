@@ -2,7 +2,7 @@
 // shapes only; they never establish RPC provenance or dispatch authority by themselves.
 import { describe, expect, it } from "vitest";
 import { syntheticFunding, syntheticSettlement } from "./fixtures/wallet-deployment-settlement.js";
-import { syntheticDeploymentContext, syntheticDeploymentObservation } from "./fixtures/wallet-deployment-execution.js";
+import { syntheticDeploymentAdmission, syntheticDeploymentContext, syntheticDeploymentObservation } from "./fixtures/wallet-deployment-execution.js";
 import { assertWalletDeploymentAccounting, assertWalletDeploymentFundingEvidence, assertWalletDeploymentSettlementEvidence,
   walletDeploymentAccountingDigest, walletDeploymentRemainingWei, type WalletDeploymentAccounting, type WalletDeploymentEnvironment,
   type WalletDeploymentSettlementContext } from "../src/rest/wallet/deploymentSettlement.js";
@@ -109,10 +109,17 @@ describe("hosted Base deployment boundary shapes", () => {
     expect(assertWalletDeploymentDispatchAdmission(value, context, now)).toEqual(value);
     expect(() => assertWalletDeploymentDispatchAdmission({ ...value, expiresAt: now + 20_001 }, context, now)).toThrow();
     expect(localAnvilWalletDeploymentLimits.admissionLifetimeMs).toBe(5000);
+    const local = await syntheticDeploymentContext(now); local.operation.observation = syntheticDeploymentObservation(local, now - 100);
+    local.pool.configuration.policy.maximumObservationAgeMs = 30_000; local.pool.configurationDigest = enrollmentDigest(local.pool.configuration);
+    local.operation.poolConfigurationDigest = local.pool.configurationDigest;
+    const legacy = { ...syntheticDeploymentAdmission(local, now), poolConfigurationDigest: local.pool.configurationDigest };
+    expect(assertWalletDeploymentDispatchAdmission({ ...legacy, expiresAt: now + 5000 }, local, now)).toBeDefined();
+    expect(() => assertWalletDeploymentDispatchAdmission({ ...legacy, expiresAt: now + 5001 }, local, now)).toThrow();
   });
   it.each([
     (a: any) => { a.reservation.totalWei = String(BigInt(a.reservation.totalWei) - 1n); },
-    (a: any, c: any) => { a.reservation.totalWei = String(BigInt(c.pool.configuration.allocationWei) + 1n); a.reservation.l1WeiAtParameters = String(BigInt(c.pool.configuration.allocationWei)); },
+    (a: any, c: any) => { a.reservation.l1WeiAtParameters = c.pool.configuration.allocationWei;
+      a.reservation.totalWei = String(BigInt(a.maximumExecutionCost) + 2n * (BigInt(a.reservation.l1WeiAtParameters) + BigInt(a.reservation.operatorMaximumWei))); },
     (a: any) => { delete a.reservation; }, (a: any) => { a.feeScope = "local-execution-only"; }, (a: any) => { a.baseTotalAffordability = "unknown"; },
     (a: any) => { a.environment.kind = "unforked-anvil"; }, (a: any) => { a.version = "center-wallet-deployment-local-admission-v2"; },
     (a: any) => { a.reservation.attributesTransaction = "0x" + "00".repeat(32); }, (a: any) => { a.reservation.extra = 1; },

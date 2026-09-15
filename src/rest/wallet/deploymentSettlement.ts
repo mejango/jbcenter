@@ -10,7 +10,6 @@ import { enrollmentDigest } from "./enrollment.js";
 export type WalletDeploymentEnvironment =
   | { kind: "unforked-anvil"; genesisHash: Hex; instanceId: Hex }
   | { kind: "base-mainnet"; genesisHash: Hex };
-export type WalletDeploymentLocalEnvironment = WalletDeploymentEnvironment;
 export interface WalletDeploymentAccountingFence {
   /** allocation-exceeded records an actual finalized debit above the allocation; the debit is retained. */
   reason: "restore-required" | "environment-changed" | "finalized-anchor-replaced" | "nonce-conflict" | "balance-deficit" | "allocation-exceeded";
@@ -19,7 +18,7 @@ export interface WalletDeploymentAccountingFence {
 }
 export interface WalletDeploymentAccounting {
   version: "center-wallet-deployment-accounting-v1";
-  environment: WalletDeploymentLocalEnvironment;
+  environment: WalletDeploymentEnvironment;
   initialHead: RestBlockEvidence;
   initialNonce: string;
   spentWei: string;
@@ -40,7 +39,7 @@ export interface WalletDeploymentFundingEvidence {
   configurationDigest: string;
   poolRevision: number;
   accountingDigest: string | null;
-  environment: WalletDeploymentLocalEnvironment;
+  environment: WalletDeploymentEnvironment;
   head: RestBlockEvidence;
   observedAt: number;
   expiresAt: number;

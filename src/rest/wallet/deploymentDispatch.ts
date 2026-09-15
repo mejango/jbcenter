@@ -140,7 +140,8 @@ export function assertWalletDeploymentDispatchAdmission(input: unknown,
       observation.finality.state !== "unknown" || operation.historicalCanonicalObservation?.finality.state === "finalized" ||
       enrollmentDigest(value.environment.head) !== enrollmentDigest(observation.head) ||
       !integer(now) || !integer(value.observedAt) || !integer(value.expiresAt) || value.observedAt > now || value.expiresAt <= now ||
-      value.observedAt < observation.observedAt || value.expiresAt - value.observedAt > walletDeploymentDispatchLimits.admissionLifetimeMs ||
+      value.observedAt < observation.observedAt ||
+      value.expiresAt - value.observedAt > (value.version === "center-wallet-deployment-base-admission-v1" ? walletDeploymentDispatchLimits.admissionLifetimeMs : 5000) ||
       value.expiresAt > observation.observedAt + pool.configuration.policy.maximumObservationAgeMs ||
       BigInt(value.expiresAt) > (BigInt(observation.head.timestamp) + 300n) * 1000n ||
       value.maximumExecutionCost !== operation.signed.maximumExecutionCost ||

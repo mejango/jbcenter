@@ -89,7 +89,6 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
           observation.transaction.state !== "not-observed" || observation.wallet.state !== "undeployed" || !observation.head ||
           !same(observation.wallet.address, enrollment.creation!.address) || observation.wallet.initializerHash !== enrollment.creation!.initializerHash ||
           observation.observedAt > observedAt || observedAt - observation.observedAt >= config.policy.maximumObservationAgeMs ||
-          !Number.isSafeInteger(config.policy.maximumObservationAgeMs) || config.policy.maximumObservationAgeMs < 1 || config.policy.maximumObservationAgeMs > 30000 ||
           observation.transaction.nonce?.confirmed !== operation.template.transaction.nonce || observation.transaction.nonce.pending !== operation.template.transaction.nonce ||
           operation.historicalCanonicalObservation?.finality.state === "finalized") invalid();
       const policy = walletDeploymentRelayPolicy(config);
@@ -192,6 +191,7 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
         if (enrollmentDigest(await identity(rpc)) !== capability.environment) return "unknown";
         const canonical = block(await rpc.request("eth_getBlockByNumber", [toHex(BigInt(frozen.environment.head.blockNumber)), false]), now());
         if (enrollmentDigest(canonical.head) !== enrollmentDigest(frozen.environment.head)) return "unknown";
+        // The caller's admission object may have been mutated during those reads; only the frozen digest sends.
         if (enrollmentDigest(admission) !== capability.digest) return "unknown";
         fresh(); rpc.check(); signal?.throwIfAborted();
         const controller = new AbortController(), timeoutMs = Math.min(bounds.sendTimeoutMs, Math.max(1, deadline - performance.now()));
