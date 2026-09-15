@@ -100,6 +100,7 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       await expect(login.complete({ loginId: premature.login.id, flowToken: premature.flowToken,
         assertion: signGet({ ...credential, challenge: premature.login.challenge, rpId, origin: issuer }) })).rejects.toBeInstanceOf(Error);
       const deploymentReview = await signup.prepareDeployment(flowToken);
+      const beforeCreation = index === 0 ? await fixture.rpc<Hex>("evm_snapshot") : null;
       const operation = (await deployments.get(deploymentReview.id))!, approval = operation.approval;
       expect((await signup.prepareDeployment(flowToken)).id).toBe(operation.id);
       const preflight = await fixture.chain().preflight(record, approval);
@@ -112,19 +113,29 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       expect((await deployments.getDispatch(operation.id))!.status).toBe("accepted");
       const dispatch = (await deployments.getDispatch(operation.id))!;
       await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.leaseUntil - Date.now() + 15)));
-      await fixture.rpc("anvil_mine", ["0x41", "0x0"]);
       await signup.tick();
-      const settled = { settlement: await deployments.getSettlement(operation.id) };
-      expect(settled.settlement).toMatchObject({ nonce: String(index + 2), nextNonce: String(index + 3), sequence: index + 1 });
-      receipts.push(settled.settlement!.evidence.transactionHash);
-      // A restarted orchestrator reads the committed receipt; it must not create a new
-      // observation and mislabel it as an exact replay of the original evidence.
-      await signup.tick();
-      expect(await deployments.getSettlement(operation.id)).toEqual(settled.settlement);
+      const included = (await deployments.get(operation.id))!;
+      expect(included.observation).toMatchObject({ transaction: { state: "canonical-success" },
+        wallet: { state: "verified" }, finality: { state: "unfinalized" } });
+      expect(await deployments.getSettlement(operation.id)).toBeNull();
+      expect((await deployments.loadFundingContext(fixture.configuration.id)).pool.activeOperationId).toBe(operation.id);
       expect(await count("rest_accounts")).toBe(index);
 
       expect((await signup.status(flowToken)).phase).toBe("awaiting_setup");
       const browser = privateKeyToAccount(generatePrivateKey());
+      if (index === 0) {
+        const read = fixture.readOnlyRpc.request;
+        fixture.readOnlyRpc.request = (chain, method, params, signal) => method === "eth_getTransactionReceipt"
+          ? Promise.reject(new Error("Injected receipt observation outage")) : read(chain, method, params, signal);
+        try { await signup.tick(); } finally { fixture.readOnlyRpc.request = read; }
+        expect((await deployments.get(operation.id))!.historicalCanonicalObservation).toMatchObject({
+          transaction: { state: "canonical-success" }, wallet: { state: "verified" } });
+        expect((await signup.status(flowToken)).phase).toBe("deploying");
+        await expect(signup.prepareSetup(flowToken, { browserPublicAddress: browser.address }))
+          .rejects.toMatchObject({ code: "WALLET_SIGNUP_STATE" });
+        await signup.tick();
+        expect((await signup.status(flowToken)).phase).toBe("awaiting_setup");
+      }
       const setupReview = await signup.prepareSetup(flowToken, { browserPublicAddress: browser.address });
       const setup = (await flows.authenticate(flowToken))!.setup!.input;
       expect((await signup.prepareSetup(flowToken, { browserPublicAddress: browser.address })).id).toBe(setupReview.id);
@@ -139,6 +150,28 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
         initializerHash: record.creation!.initializerHash,
         signature: encodeSafe7579MessageSignature([{ kind: "contract", owner: review.state.ownerProfile!.signer.address, signature: verified.contractSignature }]),
         proofSignature: await browser.signTypedData(passkeyOnboardingProofDocument(review.typedData)) };
+      if (beforeCreation) {
+        // The readiness view is not setup authority: roll back the actual creation
+        // after review, with PostgreSQL still retaining its original signed winner.
+        expect(await fixture.rpc("evm_revert", [beforeCreation])).toBe(true);
+        await expect(signup.completeSetup(flowToken, { setupId: setupReview.id, signature: complete.signature,
+          browserProof: complete.proofSignature })).rejects.toBeInstanceOf(Error);
+        expect(await count("rest_accounts")).toBe(index);
+        expect(await count("rest_bot_grants")).toBe(index);
+        expect(await deployments.getSettlement(operation.id)).toBeNull();
+        expect((await deployments.loadFundingContext(fixture.configuration.id)).pool.activeOperationId).toBe(operation.id);
+        await signup.tick();
+        expect((await signup.status(flowToken)).phase).toBe("deploying");
+        await expect(signup.prepareSetup(flowToken, { browserPublicAddress: browser.address }))
+          .rejects.toMatchObject({ code: "WALLET_SIGNUP_STATE" });
+        // Reach the retained head watermark, then let the normal worker resend
+        // only the already journaled bytes. No replacement nonce or approval.
+        await fixture.rpc("anvil_mine", ["0x1", "0x0"]);
+        await signup.tick();
+        await signup.tick();
+        expect((await deployments.get(operation.id))!.signed).toEqual(included.signed);
+        expect((await signup.status(flowToken)).phase).toBe("awaiting_setup");
+      }
       expect((await signup.completeSetup(flowToken, { setupId: setupReview.id, signature: complete.signature,
         browserProof: complete.proofSignature })).phase).toBe("ready_to_sign_in");
       const configured = await smart.finalizePasskeyOnboarding(complete);
@@ -157,6 +190,19 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       expect((await new PostgresWalletLoginStore(pool, { rpId, origin: issuer }).complete(proof)).sessionToken).toBe(loggedIn.sessionToken);
       expect(await login.readSession(loggedIn.sessionToken)).toEqual(loggedIn.session);
       expect(await login.readSession(begun.flowToken)).toBeNull();
+      // Login can finish while the treasury lane remains occupied. Only the
+      // separate finalized fee settlement advances its nonce and releases it.
+      expect(await deployments.getSettlement(operation.id)).toBeNull();
+      expect((await deployments.loadFundingContext(fixture.configuration.id)).pool.activeOperationId).toBe(operation.id);
+      const latestDispatch = (await deployments.getDispatch(operation.id))!;
+      await new Promise(resolve => setTimeout(resolve, Math.max(1, latestDispatch.leaseUntil - Date.now() + 15)));
+      await fixture.rpc("anvil_mine", ["0x41", "0x0"]);
+      await signup.tick();
+      const settled = (await deployments.getSettlement(operation.id))!;
+      expect(settled).toMatchObject({ nonce: String(index + 2), nextNonce: String(index + 3), sequence: index + 1 });
+      receipts.push(settled.evidence.transactionHash);
+      await signup.tick();
+      expect(await deployments.getSettlement(operation.id)).toEqual(settled);
       expect(await count("rest_wallet_deployment_settlements")).toBe(index + 1);
       recoveryTarget = { enrollment: record, originalKey: credential, originalSessionToken: loggedIn.sessionToken };
     }

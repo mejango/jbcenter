@@ -60,10 +60,15 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
       binding.wallet.chainId === 8453 && binding.wallet.address.toLowerCase() === enrollment.creation!.address.toLowerCase() &&
       binding.authorization.method === "safe-passkey-owner-threshold-and-api-grant" &&
       binding.authorization.setup?.initializerHash === enrollment.creation!.initializerHash) : false;
+    // Setup re-inspects the current canonical wallet and requires fresh owner and
+    // browser proofs. It need not wait for the treasury's finalized fee receipt.
+    // Use only the latest observation here; retained history is not current evidence.
+    const creation = receipt?.evidence.observation ?? operation?.observation;
+    const created = creation?.transaction.state === "canonical-success" && creation.wallet.state === "verified";
     const phase: WalletSignupPhase = enrollment.state !== "verified" ? (enrollment.intent.expiresAt <= now ? "expired" : enrollment.state)
       : configured ? "ready_to_sign_in"
-      : receipt ? (receipt.evidence.observation.wallet.state === "verified" && receipt.evidence.observation.transaction.state === "canonical-success"
-        ? "awaiting_setup" : "deployment_failed")
+      : created ? "awaiting_setup"
+      : receipt ? "deployment_failed"
       : !operation || operation.state === "prepared" ? "awaiting_deployment_approval" : "deploying";
     // Explicit DTO. Signed treasury bytes, accounting capability, raw credential and setup
     // browser proof are never returned. A configured binding still needs fresh W6 login.

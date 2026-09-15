@@ -138,6 +138,8 @@ This fixture has two genuinely initialized wallets, synthetic chain observations
 
 Complete local signup with durable pre-account resume and same-Safe credential replacement. Complete reviewed Base fee provenance, restoration controls and allocation policy are required before production dispatch can be enabled. Local Anvil execution and settlement are not hosted-bundler or Base admission claims.
 
+Signup setup now advances after the latest deployment observation verifies the canonical creation and the enrolled wallet, before finalized treasury settlement. Review and completion still inspect current chain state and verify fresh owner/browser proofs. An unavailable or contradictory latest observation cannot use retained history to open setup. The joined PostgreSQL/unforked-Anvil test completes login before finality, rejects setup after an actual creation rollback, recovers with the original signed transaction, and later settles the exact fee. The treasury lane remains occupied until that finalized settlement. This removes the user's finality wait; it does not increase sender throughput or enable production adapters.
+
 Integrate and qualify the shared payment helper in the authorized Homerun and Beep pilots; leave Money clients unchanged. Center and Money retain Para alongside passkeys; Beep removes its Para integration. Preserve external-wallet support and historical account records, and verify existing Para-user access before rollout. The strategy's sustained/burst/soak targets remain unqualified; report HTTP/database, synthetic-chain and actual provider capacity separately. Consumer recovery, production RP, remaining devices and funded provider acceptance retain their explicit gates.
 
 
