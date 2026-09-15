@@ -122,7 +122,7 @@ export function createWalletDeploymentSettlementObserver(adapter: WalletDeployme
           rpc.request("eth_getTransactionCount", [context.pool.configuration.sender, "pending"]), identity(rpc),
         ]);
         if (!same(anchor(inclusion), receipt.block) || !same(anchor(finalized), observation.finality.evidence) ||
-            !same(anchor(currentFinalized), observation.finality.evidence) ||
+            BigInt(anchor(currentFinalized).blockNumber) < BigInt(observation.finality.evidence.blockNumber) ||
             !same(anchor(head), observation.head) || String(quantity(pending)) !== evidence.pendingNonce || !same(environment, initialEnvironment)) unavailable();
         rpc.check(); assertWalletDeploymentFundingEvidence(evidence, context, now());
         return { version: "center-wallet-deployment-settlement-evidence-v1", funding: evidence, operationId: context.operation.id,

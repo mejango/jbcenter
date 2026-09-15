@@ -35,8 +35,6 @@ export interface WalletSiteOptions {
   signupBrowserScript?: string;
   recovery?: WalletRecoverySiteOptions['recovery'];
   recoveryBrowserScript?: string;
-  /** Chosen-password backups, when a wrap key is configured. */
-  backups?: WalletRecoverySiteOptions['backups'];
   login: Pick<PostgresWalletLoginStore, 'begin' | 'identifyCompletion' | 'complete' | 'identifySession' | 'readSession' | 'logout'>;
   handoff: Pick<PostgresWalletHandoffStore, 'prepare' | 'getIntent' | 'issue' | 'identifyExchange' | 'exchange'>;
   policy: Pick<PostgresWalletPolicyStore, 'readActivePolicy'>;
@@ -45,6 +43,8 @@ export interface WalletSiteOptions {
   onEvent?: (event: { action: string; outcome: 'ok' | 'rejected' | 'unavailable'; code?: string }) => void;
 }
 
+// The status line's lightning, as the tab icon.
+const walletFavicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="88">⚡</text></svg>`;
 function reject(status = 400, code = 'WALLET_HTTP_INVALID'): never {
   throw new RestError(status, code, 'Wallet request could not be completed.');
 }
@@ -82,6 +82,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   // A retired wallet host moves every request to the same path on the current origin, before
   // the host guard below would refuse it.
   const retiredHosts = new Set((options.legacyOrigins ?? []).map(value => new URL(value).host));
+  if (retiredHosts.has(new URL(origin).host)) reject(500, 'WALLET_CONFIG_INVALID');
   app.use('*', async (c, next) => {
     const host = c.req.header('Host') ?? new URL(c.req.url).host;
     if (!retiredHosts.has(host)) return next();
@@ -98,10 +99,13 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     // Links minted while the pages lived under the old prefix keep working: navigations move, calls are served.
     const url = new URL(c.req.url);
     if (url.pathname !== legacyPrefix && !url.pathname.startsWith(legacyPrefix + '/')) return next();
-    url.pathname = url.pathname.slice(legacyPrefix.length) || '/';
+    const stripped = url.pathname.slice(legacyPrefix.length) || '/';
+    // A stripped path must be one absolute path on this origin: "//host" and "/\host" are not.
+    if (!/^\/(?![\/\\])/.test(stripped)) return c.text('Not found', 404);
+    url.pathname = stripped;
     if (c.req.method === 'GET' && (c.req.header('Sec-Fetch-Mode') === 'navigate' || c.req.header('Accept')?.includes('text/html'))) {
       for (const [key, value] of Object.entries(pageHeaders)) c.header(key, value);
-      return c.redirect(url.pathname + url.search, 301);
+      return c.redirect(origin + url.pathname + url.search, 301);
     }
     return app.fetch(new Request(url, c.req.raw));
   });
@@ -183,20 +187,21 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   });
   if (options.signup) {
     if (!options.signupBrowserScript) reject(503, 'WALLET_SIGNUP_UNAVAILABLE');
-    mountWalletSignup(app, { origin, signup: options.signup, browserScript: options.signupBrowserScript, passwordBackups: !!options.backups, basePath: base });
+    mountWalletSignup(app, { origin, signup: options.signup, browserScript: options.signupBrowserScript, basePath: base });
   }
   if (options.recovery) {
     if (!options.recoveryBrowserScript) reject(503, 'WALLET_RECOVERY_UNAVAILABLE');
-    mountWalletRecovery(app, { origin, recovery: options.recovery, browserScript: options.recoveryBrowserScript, basePath: base, ...(options.backups ? { backups: options.backups } : {}) });
+    mountWalletRecovery(app, { origin, recovery: options.recovery, browserScript: options.recoveryBrowserScript, basePath: base });
   }
   // A bare visit without a session is a signup (which also logs in), served right here so nothing
   // redirects or repaints. App returns and stale cookies still get the landing page.
   const landing = (c: Context) => options.signup && !readWalletCookie(c.req.raw, walletSessionCookie) && new URL(c.req.url).search === ''
-    ? c.html(walletSignupPage({ passwordBackups: !!options.backups, base })) : c.html(walletPage(!!options.signup, !!options.recovery, base));
+    ? c.html(walletSignupPage({ base })) : c.html(walletPage(!!options.signup, !!options.recovery, base));
   app.get(base || '/', landing);
   if (base) app.get(`${base}/`, landing);
   app.get(`${base}/assets/wallet.js`, c => c.body(browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
   app.get(`${base}/assets/wallet.css`, c => c.body(walletCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
+  app.get(`${base}/assets/favicon.svg`, c => c.body(walletFavicon, 200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' }));
   app.get(`${base}/config`, async c => {
     const candidate = c.req.header('Origin');
     const entry = candidate && candidate !== origin ? await appOrigin(c) : undefined;

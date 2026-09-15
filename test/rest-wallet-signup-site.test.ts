@@ -44,16 +44,6 @@ describe('signup HTTP authority boundary', () => {
     expect((await app.fetch(post('begin', { ...body, mnemonic: 'a secret must not be accepted' }, fresh))).status).toBe(400);
     expect(signup.begin).toHaveBeenCalledTimes(1);
   });
-  it('offers the chosen-password backup only when configured and passes its sealed envelope to begin', async () => {
-    const { app, signup } = setup({ passwordBackups: true });
-    expect(await (await app.fetch(new Request(origin + '/wallet/create'))).text()).toContain('A password you choose');
-    expect(await (await setup().app.fetch(new Request(origin + '/wallet/create'))).text()).not.toContain('A password you choose');
-    const fresh = { ...headers }; delete (fresh as Partial<typeof headers>).cookie;
-    const backup = { version: 'center-wallet-backup-v1', kdf: { name: 'scrypt', n: 65536, r: 8, p: 1 }, salt: 'a'.repeat(22), iv: 'b'.repeat(16), ciphertext: 'c'.repeat(64) };
-    const response = await app.fetch(post('begin', { recoveryOwner: '0x' + '12'.repeat(20), passkeyName: 'Juicebox test', backup }, fresh));
-    expect(response.status).toBe(201);
-    expect(signup.begin).toHaveBeenCalledWith({ recoveryOwner: '0x' + '12'.repeat(20), passkeyName: 'Juicebox test', backup });
-  });
   it('lets a deliberate start-over drop the continuation cookie at any phase without touching the signup', async () => {
     const { app, signup } = setup();
     const response = await app.fetch(post('restart', {}));

@@ -66,7 +66,7 @@ export async function createBaseWalletSignupHost(context: BaseWalletHostContext,
   const authority = createWalletAuthorityService({ store: new PostgresWalletAuthorityStore(context.pool),
     chain: createWalletAuthorityChain({ rpc: reader.reads, manifest: options.manifest, utility: options.utility }) });
   return createLocalWalletSignup({ flows: new PostgresWalletSignupStore(context.pool, { rpId: new URL(context.wallet.origin).hostname,
-      origin: context.wallet.origin, manifest: options.manifest, ...(context.wallet.backups ? { backups: context.wallet.backups } : {}) }),
+      origin: context.wallet.origin, manifest: options.manifest }),
     enrollments: new PostgresWalletEnrollmentStore(context.pool),
     deployments, settlement, execution, chain, smart: context.smart, registry: new PostgresSmartAccountRegistry(context.pool), authority,
     poolId: configuration.id, ...(options.onEvent ? { onEvent: options.onEvent } : {}) });

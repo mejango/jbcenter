@@ -135,9 +135,17 @@ describe('dedicated Center wallet HTTP journey',()=>{
     expect(await (await app.fetch(new Request(origin+'/'))).text()).toContain('content=""');
     expect((await app.fetch(new Request(origin+'/create'))).status).toBe(200);
     expect((await app.fetch(new Request(origin+'/assets/wallet-signup.js'))).status).toBe(200);
+    const icon=await app.fetch(new Request(origin+'/assets/favicon.svg'));
+    expect(icon.status).toBe(200);expect(icon.headers.get('content-type')).toBe('image/svg+xml');expect(await icon.text()).toContain('⚡');
     expect((await app.fetch(new Request(origin+'/config'))).status).toBe(200);
     const moved=await app.fetch(new Request(origin+'/wallet/create?intent=abc',{headers:{'sec-fetch-mode':'navigate'}}));
-    expect(moved.status).toBe(301);expect(moved.headers.get('location')).toBe('/create?intent=abc');
+    expect(moved.status).toBe(301);expect(moved.headers.get('location')).toBe(origin+'/create?intent=abc');
+    // Never a protocol-relative or backslash path: the redirect stays on this origin or is refused.
+    for (const path of ['/wallet//evil.example/x', '/wallet/\\evil.example', '/wallet//']) {
+      const bad=await app.fetch(new Request(origin+path,{headers:{'sec-fetch-mode':'navigate'}}));
+      expect(bad.status).toBe(404);
+    }
+    expect(()=>setup({ legacyOrigins:[origin] })).toThrow();
     expect((await app.fetch(new Request(origin+'/wallet/config'))).status).toBe(200);
     expect((await app.fetch(new Request(origin+'/api/v1/anything'))).status).toBe(404);
     expect((await app.fetch(new Request(origin+'/accounts'))).status).toBe(404);

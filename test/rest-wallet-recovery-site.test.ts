@@ -129,20 +129,4 @@ describe('recovery HTTP boundary', () => {
     expect(outage.status).toBe(503); expect(outage.headers.get('set-cookie')).toBeNull();
   });
 
-  it('hands back a chosen-password backup envelope by wallet address, and nothing when none is configured or stored', async () => {
-    const found = { walletAddress: '0x' + '12'.repeat(20), recoveryOwner: '0x' + '34'.repeat(20), initializerHash: '0x' + 'ab'.repeat(32),
-      envelope: { version: 'center-wallet-backup-v1', kdf: { name: 'scrypt', n: 65536, r: 8, p: 1 }, salt: 'a'.repeat(22), iv: 'b'.repeat(16), ciphertext: 'c'.repeat(64) } };
-    const read = vi.fn(async (address: string) => address === found.walletAddress ? found : null);
-    const { app } = setup({ backups: { read } } as never);
-    const plain = { origin, 'content-type': 'application/json', 'x-center-wallet-request': '1' };
-    const request = (body: unknown) => new Request(origin + '/wallet/recovery/backup', { method: 'POST', headers: plain, body: JSON.stringify(body) });
-    const response = await app.fetch(request({ walletAddress: found.walletAddress }));
-    expect(response.status).toBe(200); expect(await response.json()).toEqual(found);
-    expect((await app.fetch(request({ walletAddress: '0x' + '99'.repeat(20) }))).status).toBe(404);
-    expect((await app.fetch(request({ walletAddress: 'nope' }))).status).toBe(400);
-    expect((await app.fetch(request({ walletAddress: found.walletAddress, extra: 1 }))).status).toBe(400);
-    read.mockRejectedValueOnce(new RestError(429, 'WALLET_BACKUP_READ_LIMIT', 'Too many'));
-    expect((await app.fetch(request({ walletAddress: found.walletAddress }))).status).toBe(429);
-    expect((await setup().app.fetch(request({ walletAddress: found.walletAddress }))).status).toBe(404);
-  });
 });

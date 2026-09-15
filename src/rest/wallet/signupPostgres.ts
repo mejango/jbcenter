@@ -9,7 +9,6 @@ import { currentWalletCredentialInTransaction, lockWalletEnrollmentInTransaction
 import { lockWalletCeremonyAdmission, PostgresWalletCeremonyStore, walletCeremonyDatabaseNow } from "./ceremoniesPostgres.js";
 import { walletCeremonyRetentionMs, type WalletCeremonyDraft } from "./ceremonies.js";
 import { validateWalletRpConfiguration, verifyWalletAssertion, type WalletAssertion } from "./webauthn.js";
-import type { PostgresWalletBackupStore } from "./backupPostgres.js";
 
 export interface WalletSignupFlow {
   id: string; enrollmentId: string; passkeyName: string; expiresAtMs: number; revision: number;
@@ -33,8 +32,6 @@ interface ResumeRow {
 export interface WalletSignupPolicy {
   rpId: string; origin: string; manifest: SmartAccountManifest;
   maxFlows?: number; maxResumes?: number; flowLifetimeMs?: number; enrollmentLifetimeMs?: number; resumeLifetimeMs?: number;
-  /** Chosen-password backups; without it a signup carrying an envelope is refused. */
-  backups?: PostgresWalletBackupStore;
 }
 const sqlNow = "floor(extract(epoch FROM clock_timestamp())*1000)::bigint";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -76,15 +73,12 @@ export function copyWalletSignupAssertion(value: WalletAssertion): WalletAsserti
 /** Internal pre-account continuation. HTTP must add same-origin admission, HttpOnly cookies
  * and CSRF. No method issues a login, app grant, deployment approval or spending principal. */
 export class PostgresWalletSignupStore {
-  private readonly policy: Required<Omit<WalletSignupPolicy, "backups">>;
-  private readonly backups: PostgresWalletBackupStore | null;
+  private readonly policy: Required<WalletSignupPolicy>;
   private readonly enrollments: PostgresWalletEnrollmentStore;
   private readonly ceremonies: PostgresWalletCeremonyStore;
   constructor(private readonly pool: Pool, options: WalletSignupPolicy) {
-    const { backups, ...policy } = options;
-    this.backups = backups ?? null;
     this.policy = { maxFlows: 100_000, maxResumes: 100_000, flowLifetimeMs: 1_800_000,
-      enrollmentLifetimeMs: 300_000, resumeLifetimeMs: 180_000, ...structuredClone(policy) };
+      enrollmentLifetimeMs: 300_000, resumeLifetimeMs: 180_000, ...structuredClone(options) };
     const p = this.policy;
     validateWalletRpConfiguration(p);
     for (const [value, maximum] of [[p.maxFlows, 1_000_000], [p.maxResumes, 1_000_000], [p.flowLifetimeMs, 86_400_000],
@@ -95,10 +89,9 @@ export class PostgresWalletSignupStore {
       recoveryOwner: "0x1111111111111111111111111111111111111111", expiresAt: 1_800_000_000_000 });
     this.enrollments = new PostgresWalletEnrollmentStore(pool); this.ceremonies = new PostgresWalletCeremonyStore(pool);
   }
-  async begin(input: { recoveryOwner: Address; passkeyName: string; backup?: unknown }): Promise<{ flow: WalletSignupFlow; flowToken: string }> {
-    fields(input, ["recoveryOwner", "passkeyName"], ["backup"]);
+  async begin(input: { recoveryOwner: Address; passkeyName: string }): Promise<{ flow: WalletSignupFlow; flowToken: string }> {
+    fields(input, ["recoveryOwner", "passkeyName"]);
     const { recoveryOwner, passkeyName } = input;
-    if (input.backup !== undefined && !this.backups) invalid();
     if (!isAddress(recoveryOwner) || BigInt(recoveryOwner) <= 1n || typeof passkeyName !== "string" ||
       passkeyName !== passkeyName.trim() || !passkeyName.length || Buffer.byteLength(passkeyName) > 120 ||
       /[\p{Cc}\p{Cf}\p{Cs}]/u.test(passkeyName)) invalid();
@@ -107,7 +100,6 @@ export class PostgresWalletSignupStore {
       const now = await walletCeremonyDatabaseNow(client), flowToken = randomBytes(32).toString("base64url");
       const enrollment = await this.enrollments.beginInTransaction(client, createWalletEnrollmentIntent({ manifest: this.policy.manifest,
         rpId: this.policy.rpId, origin: this.policy.origin, recoveryOwner, expiresAt: now + this.policy.enrollmentLifetimeMs }));
-      if (input.backup !== undefined) await this.backups!.saveInTransaction(client, enrollment.intent.id, input.backup);
       const row = (await client.query<FlowRow>(`INSERT INTO rest_wallet_signup_flows(id,enrollment_id,token_hash,passkey_name,created_at_ms,expires_at_ms)
         VALUES($1,$2,$3,$4,$5,$6) RETURNING *`, [randomUUID(), enrollment.intent.id, hashToken(flowToken, "flow"), passkeyName, now, now + this.policy.flowLifetimeMs])).rows[0]!;
       if (enrollment.intent.expiresAt <= await walletCeremonyDatabaseNow(client) || Number(row.expires_at_ms) <= await walletCeremonyDatabaseNow(client)) expired();

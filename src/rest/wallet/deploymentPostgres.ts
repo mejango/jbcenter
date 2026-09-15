@@ -580,6 +580,9 @@ export class PostgresWalletDeploymentStore {
         verifyWalletDeploymentProof(currentEnrollment, current.approval, assertion, current.claimedAt);
         return { operation: current, replayed: true };
       }
+      // A v2 approval may have been prepared before possession was proved; the claim itself
+      // still requires the verified enrollment (the orchestrator finalizes possession first).
+      if (currentEnrollment.state !== "verified" || !currentEnrollment.receipt) conflict();
       await this.currentCredential(client, currentEnrollment);
       if (pool.state !== "active" || pool.activeOperationId !== null || pool.accounting?.fence) busy();
       const fundingContext = { pool, lastSettlement: await this.lastSettlement(pool, client) };

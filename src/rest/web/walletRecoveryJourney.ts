@@ -4,7 +4,6 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import type { WalletRecoveryView } from '../wallet/recoveryService.js';
 import type { createLocalWalletSignup } from '../wallet/signup.js';
 import { readWalletRecoveryKit, recoveryAccountFromPhrase, type WalletRecoveryKit, type WalletRecoverySecret } from './walletRecoveryKit.js';
-import { openWalletBackup } from './walletBackupPassword.js';
 import { assertWalletRecoveryRotationReview } from './walletRecoveryReview.js';
 
 type Setup = Awaited<ReturnType<ReturnType<typeof createLocalWalletSignup>['prepareSetup']>>;
@@ -21,27 +20,7 @@ let pending: { path: string; body: unknown; csrf: string } | null = null, setup:
 let rotation: Parameters<typeof assertWalletRecoveryRotationReview>[0] | null = null;
 let secret: WalletRecoverySecret | null = null, kit: WalletRecoveryKit | null = null, selectedWallet: Address | null = null;
 let disposed = false, pollCount = 0;
-const method = () => el<HTMLFieldSetElement>('recovery-method').querySelector<HTMLInputElement>('input:checked')?.value ?? 'kit';
-/** The backup words are in this tab (from a file, typed words or an opened password backup). */
-const kitMode = () => method() !== 'wallet';
-/** Fetches the sealed backup for the wallet and opens it with the typed password; nothing but the address leaves the browser. */
-async function openBackup(address: Address) {
-  const field = el<HTMLInputElement>('recovery-password'), password = field.value;
-  if (!password) throw new Error('Enter the password you chose for this wallet.');
-  message('Opening your backup…');
-  let found: any;
-  try { found = await request('backup', { walletAddress: address }); }
-  catch (error) {
-    if (error instanceof HttpFailure && error.status === 404) throw new Error('No password backup exists for this wallet address.');
-    if (error instanceof HttpFailure && error.status === 429) throw new Error('Too many attempts for this wallet. Try again in an hour.');
-    throw error;
-  }
-  if (!found || typeof found !== 'object' || !sameAddress(found.walletAddress, address) || !isAddress(found.recoveryOwner) || !word.test(found.initializerHash)) invalid();
-  const opened = await openWalletBackup(password, found.envelope, { recoveryOwner: found.recoveryOwner });
-  field.value = ''; secret = opened;
-  kit = { walletAddress: getAddress(found.walletAddress), recoveryOwner: opened.recoveryOwner, initializerHash: found.initializerHash } as WalletRecoveryKit;
-  message('Backup opened in this tab.');
-}
+const kitMode = () => el<HTMLFieldSetElement>('recovery-method').querySelector<HTMLInputElement>('input:checked')?.value === 'kit';
 const steps: Record<WalletRecoveryView['phase'], string> = {
   awaiting_registration: 'Create your replacement passkey.', awaiting_possession: 'Prove access to the replacement passkey and original recovery owner.',
   awaiting_rotation_approval: 'Review and approve replacement of the lost passkey.', rotating: 'Replacing your passkey. Check this recovery for its original transaction results.',
@@ -107,8 +86,7 @@ function render() {
   name.disabled = busy; wallet.disabled = busy;
   const recoverable = view?.phase !== 'ready_to_sign_in';
   el<HTMLFieldSetElement>('recovery-method').hidden = !known || !recoverable; el<HTMLFieldSetElement>('recovery-method').disabled = busy;
-  el('recovery-kit').hidden = !known || !recoverable || method() !== 'kit';
-  el('recovery-password-label').hidden = method() !== 'password'; el<HTMLInputElement>('recovery-password').disabled = busy;
+  el('recovery-kit').hidden = !known || !recoverable || !kitMode();
   el<HTMLInputElement>('recovery-file').disabled = busy; el<HTMLTextAreaElement>('recovery-words').disabled = busy;
   el<HTMLButtonElement>('recovery-restore').disabled = busy;
   el('recovery-details').hidden = !view;
@@ -283,7 +261,6 @@ async function resumeRecovery() {
   const expectedWallet = view?.walletAddress ?? kit?.walletAddress ?? wallet.value.trim();
   if (!isAddress(expectedWallet)) throw new Error('Enter the original wallet address or open its backup file.');
   selectedWallet = getAddress(expectedWallet);
-  if (method() === 'password' && !secret) await openBackup(selectedWallet);
   const owner = kitMode() ? secret?.recoveryOwner : await recoveryOwner(view?.recoveryOwner);
   if (!owner) throw new Error('Open your backup file or enter your backup password again.');
   const begun = await request('resume/begin', { recoveryId }), challenge = begun.challenge, document = challenge.document as TypedDocument, value = document.message;
@@ -307,13 +284,12 @@ async function resumeRecovery() {
 form.addEventListener('submit', event => { event.preventDefault(); void run(async () => {
   if (reference.value || pending) throw new Error('Resume or check the original recovery before starting another.');
   const address = wallet.value.trim(); if (!isAddress(address)) throw new Error('Enter the wallet address from your backup file.');
-  if (method() === 'password' && !secret) await openBackup(getAddress(address));
   if (kitMode() && !secret) throw new Error('Open your backup file or enter your backup password first.');
   if (kit && !sameAddress(kit.walletAddress, address)) throw new Error('Use the wallet address in your backup file.');
   if (!kitMode()) await recoveryOwner(); selectedWallet = getAddress(address);
   await send('begin', { walletAddress: selectedWallet, passkeyName: name.value.trim() });
 }); });
-el('recovery-method').addEventListener('change', () => { secret = null; kit = null; el<HTMLTextAreaElement>('recovery-words').value = ''; el<HTMLInputElement>('recovery-password').value = ''; render(); });
+el('recovery-method').addEventListener('change', () => { if (!kitMode()) { secret = null; kit = null; el<HTMLTextAreaElement>('recovery-words').value = ''; } render(); });
 el<HTMLInputElement>('recovery-file').addEventListener('change', event => { void run(async () => {
   const input = event.target as HTMLInputElement, file = input.files?.[0]; input.value = '';
   if (!file || file.size > 8192) throw new Error('Choose the backup file you saved for this wallet.');

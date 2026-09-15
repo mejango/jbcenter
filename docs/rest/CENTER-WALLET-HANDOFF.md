@@ -63,8 +63,11 @@ at the host root (`basePath: ''` in `src/index.ts`): `/` is the signup page for 
 `/wallet/…` links still work (navigations 301, calls are served). The REST app dispatches the
 wallet hosts to the wallet app before path routing (`walletHosts` in `mountRestSite`). Creation
 approvals are v2 (bound to the registered identity, so one assertion approves creation and proves
-possession; migration 036). Recovery has a third option, a password the user chooses
-(`WALLET_BACKUP_WRAP_KEY`, migration 037, `walletBackupPassword.ts`, `backupPostgres.ts`).
+possession; migration 036). A third recovery option, a password the user chooses, was built
+and then withdrawn the same evening after review: a sealed envelope fetchable by wallet address
+lets an attacker guess the password offline. Migration 037 created its table and 038 drops it;
+the Railway wrap key was deleted. Do not reintroduce it without an online-only opening step
+(an OPRF or equivalent) so guesses cannot proceed without the server.
 
 Throughput is pilot-grade: one treasury lane is held from send to Base finality
 (~15-20 min), so roughly four creations per hour. Before public launch: release the
