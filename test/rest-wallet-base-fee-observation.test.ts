@@ -88,4 +88,29 @@ describe("bounded Base fee observation at the retained canonical inclusion", () 
       return value;
     })).rejects.toThrow();
   });
+  it("observes a full supported 4096-transaction block within the unchanged byte and call budgets", async () => {
+    const { result, calls } = await run((method, _n, value) => {
+      if (method !== "eth_getBlockByNumber") return value;
+      const block = value as typeof vector.block;
+      while (block.transactions.length < 4096) block.transactions.push(toHex(BigInt(block.transactions.length + 1), { size: 32 }));
+      return block;
+    }, { responseBytes: 1_000_000 });
+    expect(result.totalWei).toBe(BigInt(vector.expected.totalWei));
+    expect(calls).toHaveLength(7);
+  });
+  it("keeps a 4097-transaction block unsupported", async () => {
+    await expect(run((method, _n, value) => {
+      if (method !== "eth_getBlockByNumber") return value;
+      const block = value as typeof vector.block;
+      while (block.transactions.length < 4097) block.transactions.push(toHex(BigInt(block.transactions.length + 1), { size: 32 }));
+      return block;
+    }, { responseBytes: 1_000_000 })).rejects.toMatchObject({ code: "WALLET_BASE_FEE_OBSERVATION_INVALID" });
+  });
+  it("cancels between the first read and canonical recheck", async () => {
+    const controller = new AbortController();
+    await expect(run((method, _n, value) => {
+      if (method === "eth_getTransactionByHash") controller.abort();
+      return value;
+    }, {}, controller.signal)).rejects.toMatchObject({ code: "WALLET_DEPLOYMENT_CANCELLED" });
+  });
 });

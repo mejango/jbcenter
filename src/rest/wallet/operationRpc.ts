@@ -33,11 +33,13 @@ export function operationRpc(rpc: RestRpc, limits: Record<keyof typeof walletPre
       stop(new RestError(504, "WALLET_DEPLOYMENT_RPC_TIMEOUT", "The configured RPC did not answer within its deadline."));
     if (failure) throw failure;
   };
-  function checkedResponse(value: unknown, trace: boolean): unknown {
+  function checkedResponse(value: unknown, trace: boolean, hashBlock: boolean): unknown {
     // Build only the bounded sanitized copy. Do not clone sparse arrays, invoke proxies/accessors,
     // allocate every descriptor, or serialize an unbounded property name before admission.
     let nodes = 0, bytes = 0;
-    const maxNodes = trace ? 32_768 : 4096, maxDepth = trace ? 64 : 8, maxBytes = trace ? 1_048_576 : 524_288;
+    // A supported 4096-hash block also contains header fields. Leave bounded structural
+    // room for that envelope; response-byte, depth, deadline and call budgets stay unchanged.
+    const maxNodes = trace ? 32_768 : hashBlock ? 8192 : 4096, maxDepth = trace ? 64 : 8, maxBytes = trace ? 1_048_576 : 524_288;
     const stringBytes = (value: string) => {
       if (value.length > maxBytes || Buffer.byteLength(value, "utf8") > remainingBytes)
         fail("WALLET_DEPLOYMENT_RPC_BYTES", "Deployment observation exhausted its response-byte budget.", 429);
@@ -102,7 +104,8 @@ export function operationRpc(rpc: RestRpc, limits: Record<keyof typeof walletPre
           check(callDeadline); return rpc.request(chainId, method, structuredClone(params), call.signal);
         });
         const result = await Promise.race([response, interrupted]);
-        check(callDeadline); const checked = checkedResponse(result, trace); check(callDeadline); return checked;
+        const hashBlock = (method === "eth_getBlockByNumber" || method === "eth_getBlockByHash") && params.length === 2 && params[1] === false;
+        check(callDeadline); const checked = checkedResponse(result, trace, hashBlock); check(callDeadline); return checked;
       } catch (error) {
         stop(error instanceof RestError ? error : new RestError(502, "WALLET_DEPLOYMENT_RPC_UNAVAILABLE", "The configured RPC could not verify the exact deployment."));
         check(); throw error;
