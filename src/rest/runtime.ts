@@ -79,6 +79,8 @@ import type { createLocalWalletRecovery } from './wallet/recoveryService.js';
 
 export interface RestWalletConfiguration {
   origin: string;
+  /** Former wallet origins whose hosts redirect to `origin`. */
+  legacyOrigins?: string[];
   manifest: SmartAccountManifest;
   utility: ContractPin;
   payments?: Omit<WalletV6UsdcPaymentConfig, 'chainId'>;
@@ -515,7 +517,7 @@ export async function createRestRuntime(options: {
   if (wallet && options.walletSignup) wallet.signup = await options.walletSignup({ pool: options.pool, rpc: backendRpc, wallet, audience: auth.audience, smart: smartAccounts });
   if (options.walletRecovery && !wallet) throw new RestError(503, 'WALLET_RECOVERY_UNAVAILABLE', 'Recovery requires the dedicated wallet host.');
   if (wallet && options.walletRecovery) wallet.recovery = await options.walletRecovery({ pool: options.pool, rpc: backendRpc, wallet, audience: auth.audience, smart: smartAccounts });
-  const walletSite = wallet ? createWalletSite({ origin: wallet.origin, audience: auth.audience,
+  const walletSite = wallet ? createWalletSite({ origin: wallet.origin, audience: auth.audience, ...(options.wallet?.legacyOrigins ? { legacyOrigins: options.wallet.legacyOrigins } : {}),
     browserScript: assets.walletScript, login: wallet.login, policy: wallet.policy,
     handoff: wallet.handoff, refresh: wallet.refresh,
     ...(walletPayments ? { payments: walletPayments, paymentBrowserScript: assets.walletPaymentScript } : {}),

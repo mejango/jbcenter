@@ -121,6 +121,13 @@ describe('dedicated Center wallet HTTP journey',()=>{
     expect(options.login.readSession).not.toHaveBeenCalled();
     expect(options.refresh.request).not.toHaveBeenCalled();
   });
+  it('sends a retired wallet host to the same path on the current origin',async()=>{
+    const {app}=setup({ legacyOrigins: ['https://wallet.example.test.old'] });
+    const moved=await app.fetch(new Request('https://wallet.example.test.old/wallet/create?intent=abc',{headers:{host:'wallet.example.test.old'}}));
+    expect(moved.status).toBe(301);expect(moved.headers.get('location')).toBe(origin+'/wallet/create?intent=abc');
+    expect((await app.fetch(new Request('https://wallet.example.test.old/wallet/login/begin',{method:'POST',headers:{host:'wallet.example.test.old'}}))).status).toBe(301);
+    expect((await app.fetch(new Request(origin+'/wallet/assets/wallet.css'))).status).toBe(200);
+  });
   it('sends the wallet host root to the wallet page',async()=>{
     const {app}=setup();const response=await app.fetch(new Request(origin+'/'));
     expect(response.status).toBe(302);expect(response.headers.get('location')).toBe('/wallet');

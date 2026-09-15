@@ -71,7 +71,10 @@ if (recoveryConfigured.length && (recoveryConfigured.length !== recoverySettings
   throw new Error("Hosted wallet recovery requires WALLET_ORIGIN and every WALLET_RECOVERY_* setting together");
 const walletStack = walletOrigin ? await createBaseWalletProductionStack() : undefined;
 const dwellirBaseUrl = `https://${DWELLIR_RPC_HOSTS[8453]}/${process.env.DWELLIR_API_KEY}`;
-const wallet: RestWalletConfiguration | undefined = walletOrigin && walletStack ? { origin: walletOrigin, manifest: walletStack.manifest, utility: walletStack.utility } : undefined;
+// WALLET_LEGACY_ORIGINS: comma-separated former wallet origins that now redirect to WALLET_ORIGIN.
+const walletLegacyOrigins = (process.env.WALLET_LEGACY_ORIGINS ?? "").split(",").map(value => value.trim()).filter(Boolean);
+const wallet: RestWalletConfiguration | undefined = walletOrigin && walletStack
+  ? { origin: walletOrigin, manifest: walletStack.manifest, utility: walletStack.utility, ...(walletLegacyOrigins.length ? { legacyOrigins: walletLegacyOrigins } : {}) } : undefined;
 const rest = await createRestRuntime({
   ...(process.env.PARA_API_KEY ? { para: { apiKey: process.env.PARA_API_KEY, environment: paraEnvironment } } : {}),
   ...(wallet ? { wallet } : {}),

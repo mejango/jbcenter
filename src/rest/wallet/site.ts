@@ -24,6 +24,8 @@ import { mountWalletRecovery, type WalletRecoverySiteOptions } from './recoveryS
 export interface WalletSiteOptions {
   origin: string;
   audience: string;
+  /** Former wallet origins; requests on their hosts move to the same path on `origin`. */
+  legacyOrigins?: string[];
   browserScript: string;
   paymentBrowserScript?: string;
   signup?: WalletSignupSiteOptions['signup'];
@@ -72,6 +74,16 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     assertWalletHttpHost(c.req.raw, origin);
     await next();
   };
+  // A retired wallet host moves every request to the same path on the current origin, before
+  // the host guard below would refuse it.
+  const retiredHosts = new Set((options.legacyOrigins ?? []).map(value => new URL(value).host));
+  app.use('*', async (c, next) => {
+    const host = c.req.header('Host') ?? new URL(c.req.url).host;
+    if (!retiredHosts.has(host)) return next();
+    const url = new URL(c.req.url);
+    for (const [key, value] of Object.entries(pageHeaders)) c.header(key, value);
+    return c.redirect(origin + url.pathname + url.search, 301);
+  });
   app.use('/wallet', protect);
   app.use('/wallet/*', protect);
   app.use('*', async (c, next) => {
