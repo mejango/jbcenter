@@ -19,3 +19,24 @@ npx vitest run test/rest-wallet-deployment-fees-anvil.test.ts
 ```
 
 The test follows existing Anvil availability handling. Release qualification must require its execution with zero skips, installed Foundry and the pinned compiler. Anvil executes the reference contract; it does not establish OP execution-client deductions, actual deployed fork semantics, RPC reliability or a guaranteed fee ceiling at a future block.
+
+## Actual Base receipt verification
+
+`../../baseReceiptFees.ts` checks the original signed Base type-2 envelope against its receipt and full inclusion-block transaction list. It accepts the explicit 178-byte Jovian L1-attributes deposit at index zero and derives every L1/operator parameter from that deposit. The supported calldata layout is documented in the [OP Jovian L1-attributes specification](https://specs.optimism.io/protocol/jovian/l1-attributes.html). Unknown selectors or lengths fail closed.
+
+L1 cost must match the receipt's required `l1Fee`. Optional receipt parameters must agree when present; missing operator fields do not imply zero. Operator cost uses the gas actually charged after refunds, following `BaseL1Block.rs:238` and `BaseL1FeeParams.rs:188`. The [OP Jovian execution specification](https://specs.optimism.io/protocol/jovian/exec-engine.html) describes the scalar multiplication. Reverted transactions still incur execution, L1 and operator fees.
+
+The returned total contains fees only. It does not claim a net sender balance delta: a successful call can transfer value back to the sender, and a receipt does not describe every internal transfer. Treasury balance accounting must observe balances separately.
+
+`test/fixtures/base-fee-receipts.json` retains two public Center dependency transactions observed through Center's Dwellir Base archive, with their full signed bytes, receipt fee fields, inclusion headers, transaction hash lists and first L1-attributes deposits:
+
+| Transaction | Execution fee (wei) | L1 fee (wei) | Operator fee (wei) |
+| --- | ---: | ---: | ---: |
+| `0x49058bea9e67003a40542a19d1adb734d27a68cfb4b64915fb08c381d6468374` | 8661130800000 | 16289011957 | 0 |
+| `0xd11408ca1fb871a80f143ca0d7437461eaafa49e856bbd689242df518e67fe3e` | 10779560400000 | 13179076760 | 0 |
+
+Both receipts omit operator fields, while their block attributes explicitly contain zero scalar and constant. Synthetic cases separately check nonzero operators, refunds, reverts, missing and contradictory evidence, canonical envelope limits, integer boundaries and malformed inputs. These two historical receipts do not establish that every future block has zero operator fees.
+
+`../../baseFeeObservation.ts` performs the read-only RPC step inside the caller's existing `operationRpc` budget. It binds the caller's retained inclusion height/hash/timestamp, reads the receipt and system deposit, then rechecks the chain, canonical block and receipt. Reorgs, changed receipts, outages, cancellation and exhausted budgets return no fee result. The caller remains responsible for finality, qualified production chain/fork configuration, stored-operation authority and treasury settlement. Neither module is a production dispatch capability or a future fee guarantee.
+
+The pure verifier accepts at most 4096 transaction hashes. The RPC layer's existing aggregate structural and byte budgets can reject a response before that limit; this leaves fee evidence unavailable. A production adapter must surface unavailable/unsupported-profile observations and alert on persistent failures, rather than interpreting them as zero cost or a completed settlement.
