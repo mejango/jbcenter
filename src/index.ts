@@ -80,7 +80,8 @@ const rest = await createRestRuntime({
       signerKey: process.env.WALLET_CREATION_SIGNER_KEY as `0x${string}`, poolId: process.env.WALLET_CREATION_POOL_ID!,
       allocationWei: process.env.WALLET_CREATION_ALLOCATION_WEI!, initialNonce: process.env.WALLET_CREATION_INITIAL_NONCE!,
       manifest: walletStack.manifest, utility: walletStack.utility,
-      onEvent: event => console.info(JSON.stringify({ service: "wallet", action: "creation", ...event })) }) } : {}),
+      // Idle worker passes happen every second; only work and failures are worth a log line.
+      onEvent: event => { if (event.stage !== "worker" || event.outcome !== "pass") console.info(JSON.stringify({ service: "wallet", action: "creation", ...event })); } }) } : {}),
   ...(wallet && walletStack && recoveryConfigured.length ? { walletRecovery: (context: Parameters<typeof createBaseWalletRecoveryHost>[0]) =>
     createBaseWalletRecoveryHost(context, { url: dwellirBaseUrl, signerKey: process.env.WALLET_RECOVERY_SIGNER_KEY as `0x${string}`,
       maximumOperations: positiveInteger("WALLET_RECOVERY_MAX_OPERATIONS", 1), maximumCostWei: process.env.WALLET_RECOVERY_MAX_COST_WEI!,
