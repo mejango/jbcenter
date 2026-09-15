@@ -5,7 +5,7 @@ export function walletPage(signup = false, recovery = false): string {
 <meta name="referrer" content="no-referrer"><title>Your wallet | Juicebox</title>
 <link rel="stylesheet" href="/wallet/assets/wallet.css"><script type="module" src="/wallet/assets/wallet.js"></script></head>
 <body><main><a class="brand" href="/wallet">JUICEBOX CENTER</a>
-<h1>Your Juicebox wallet</h1><p>One wallet for Juicebox apps.</p>
+<h1>Your Juicebox</h1><p>One wallet for Juicebox apps.</p>
 <p id="wallet-destination" hidden></p>
 <p id="wallet-status" role="status" aria-live="polite" aria-atomic="true" data-state="loading">Checking your wallet…</p>
 <section id="wallet-account" aria-label="Connected wallet" hidden><dl><dt>Wallet address</dt><dd id="wallet-address"></dd><dt>Network</dt><dd>Base</dd></dl></section>
