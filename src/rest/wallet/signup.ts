@@ -28,8 +28,10 @@ export interface LocalWalletSignupDependencies {
 export type WalletSignupPhase = "awaiting_registration" | "awaiting_possession" | "awaiting_deployment_approval" |
   "deploying" | "deployment_failed" | "awaiting_setup" | "ready_to_sign_in" | "expired";
 function state(): never { throw new RestError(409, "WALLET_SIGNUP_STATE", "Reload this signup and complete its current step."); }
-function fields(value: unknown, keys: string[]) {
-  if (!value || typeof value !== "object" || Array.isArray(value) || Reflect.ownKeys(value).length !== keys.length ||
+function fields(value: unknown, keys: string[], optional: string[] = []) {
+  const own = value && typeof value === "object" ? Reflect.ownKeys(value) : [];
+  if (!value || typeof value !== "object" || Array.isArray(value) || own.length < keys.length || own.length > keys.length + optional.length ||
+    own.some(key => typeof key !== "string" || (!keys.includes(key) && !optional.includes(key))) ||
     keys.some(key => !Object.hasOwn(value, key) || !("value" in Object.getOwnPropertyDescriptor(value, key)!)))
     throw new RestError(400, "WALLET_SIGNUP_INVALID", "Signup input is invalid.");
 }
@@ -97,7 +99,7 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
   }
   async function prepareDeployment(flowToken: string) {
     let { flow, enrollment } = await context(flowToken);
-    if (enrollment.state !== "verified") state();
+    if (enrollment.state !== "verified" && enrollment.state !== "awaiting_possession") state();
     let operation = flow.deploymentId ? await deployments.get(flow.deploymentId) : null;
     if (operation && (operation.enrollmentId !== enrollment.intent.id || operation.poolId !== poolId || operation.state !== "prepared")) state();
     const now = await flows.now();
@@ -112,16 +114,25 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
       initializerHash: enrollment.creation!.initializerHash, expiresAtMs: operation.approval.expiresAt, rpId: enrollment.intent.rpId,
       credentialId: enrollment.candidate!.credentialId, document, challenge: hashTypedData(document) };
   }
-  async function approveDeployment(flowToken: string, input: { approvalId: string; assertion: WalletAssertion }) {
-    fields(input, ["approvalId", "assertion"]);
+  async function approveDeployment(flowToken: string, input: { approvalId: string; assertion: WalletAssertion; backupSignature?: Hex }) {
+    fields(input, ["approvalId", "assertion"], ["backupSignature"]);
     const approvalId = input.approvalId, assertion = copyWalletSignupAssertion(input.assertion);
-    const { flow, enrollment } = await context(flowToken);
-    if (flow.deploymentId !== approvalId || enrollment.state !== "verified") state();
+    let { flow, enrollment } = await context(flowToken);
+    if (flow.deploymentId !== approvalId || (enrollment.state !== "verified" && enrollment.state !== "awaiting_possession")) state();
     const operation = await deployments.get(approvalId);
     if (!operation || operation.poolId !== poolId || operation.enrollmentId !== enrollment.intent.id) state();
     // The original claim already consumed this purpose. Recovery reads its immutable state;
     // it does not issue another signature, claim, nonce or allocation.
     if (operation.state !== "prepared") return status(flowToken);
+    if (enrollment.state === "awaiting_possession") {
+      // One passkey prompt: the assertion over the creation document approves creation and proves
+      // possession; the recovery owner's signature over the enrollment document rides along.
+      if (input.backupSignature === undefined) state();
+      await enrollments.finalize(enrollment.intent.id, { assertion: input.assertion, backupSignature: input.backupSignature },
+        { passkeyChallenge: hashTypedData(walletDeploymentDocument(enrollment, operation.approval)) });
+      ({ flow, enrollment } = await context(flowToken));
+      if (flow.deploymentId !== approvalId || enrollment.state !== "verified") state();
+    }
     // Base mines every two seconds: the funding read fixes the head and the preflight is pinned
     // to it, so the claim always pairs one block's admission with that block's funding.
     const funding = await settlement.observeFunding(await deployments.loadFundingContext(poolId));

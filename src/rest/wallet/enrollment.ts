@@ -246,16 +246,22 @@ export function prepareWalletEnrollmentCandidate(record: WalletEnrollment, respo
 
 /** Crypto only. The durable caller rechecks frozen state, deadline and uniqueness under locks,
  * then consumes the ceremony and writes the original receipt in the same transaction. */
-export async function verifyWalletEnrollmentProof(record: WalletEnrollment, proof: { assertion: WalletAssertion; backupSignature: Hex }):
-Promise<{ verificationDigest: string }> {
+/** `passkeyChallenge` lets one passkey assertion serve both purposes: the creation approval's
+ * assertion (over the deployment document) also proves possession, while the recovery owner
+ * still signs the enrollment document itself. The receipt digest binds identity, not the
+ * challenge, so a folded proof and a separate proof produce the same verified receipt. */
+export async function verifyWalletEnrollmentProof(record: WalletEnrollment, proof: { assertion: WalletAssertion; backupSignature: Hex },
+  options: { passkeyChallenge?: Hex } = {}): Promise<{ verificationDigest: string }> {
   try {
     fields(proof, ["assertion", "backupSignature"]);
+    fields(options, [], ["passkeyChallenge"]);
+    if (options.passkeyChallenge !== undefined && !/^0x[0-9a-f]{64}$/.test(options.passkeyChallenge)) invalid();
     // Snapshot bounded public context; submitted proof bytes are bounded/verified synchronously
     // before recovery's await, so no unbounded proof clone or caller-owned context survives it.
     publicJson(record);
     const snapshot = structuredClone(record);
     const typedData = walletEnrollmentDocument(snapshot), challenge = hashTypedData(typedData), candidate = snapshot.candidate!;
-    verifyWalletAssertion(proof.assertion, { purpose: "registration", challenge, rpId: snapshot.intent.rpId, origin: snapshot.intent.origin,
+    verifyWalletAssertion(proof.assertion, { purpose: "registration", challenge: options.passkeyChallenge ?? challenge, rpId: snapshot.intent.rpId, origin: snapshot.intent.origin,
       requireUserHandle: true, credential: { id: candidate.credentialId, userHandle: candidate.userHandle,
         publicKey: candidate.publicKey, backupEligible: candidate.backupEligible } });
     const signature = canonicalEoaSignature(proof.backupSignature);
@@ -266,6 +272,20 @@ Promise<{ verificationDigest: string }> {
   } catch {
     throw new RestError(403, "WALLET_ENROLLMENT_PROOF_INVALID", "Wallet enrollment requires matching passkey and backup ownership proofs.");
   }
+}
+
+/** A registered passkey and frozen wallet identity, verified or not yet. The returned commitment
+ * covers exactly the intent, passkey candidate and creation, so it is identical before and after
+ * possession is proved; a verified record must additionally carry a consistent receipt. */
+export function assertRegisteredWalletEnrollment(enrollment: WalletEnrollment): Hex {
+  enrollmentDigest(enrollment);
+  fields(enrollment, ["intent", "createdAt", "state", "candidate", "candidateDigest", "creation", "possession", "receipt"]);
+  if (!["awaiting_possession", "verified"].includes(enrollment.state) || !enrollment.candidate || !enrollment.creation || !enrollment.possession ||
+      enrollment.candidateDigest !== enrollmentDigest(enrollment.candidate) || !Number.isSafeInteger(enrollment.createdAt) || enrollment.createdAt <= 0) invalid();
+  walletEnrollmentDocument(enrollment);
+  if (enrollment.state === "verified") assertVerifiedWalletEnrollment(enrollment);
+  else if (enrollment.receipt !== null) invalid();
+  return asHex(enrollmentDigest({ version: "center-wallet-enrollment-identity-v1", intent: enrollment.intent, candidate: enrollment.candidate, creation: enrollment.creation }));
 }
 
 /** Input is an internal record loaded from W3's durable store, never HTTP JSON. These consistency

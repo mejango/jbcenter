@@ -178,13 +178,14 @@ export class PostgresWalletEnrollmentStore {
     });
   }
 
-  async finalize(id: string, input: { assertion: WalletAssertion; backupSignature: Hex }): Promise<{ record: WalletEnrollment; replayed: boolean }> {
+  async finalize(id: string, input: { assertion: WalletAssertion; backupSignature: Hex },
+    options: { passkeyChallenge?: Hex } = {}): Promise<{ record: WalletEnrollment; replayed: boolean }> {
     const proof = copyWalletEnrollmentProof(input), before = await this.get(id);
     if (!before) missing();
     if (!before.candidate || !before.creation || !before.possession)
       throw new RestError(409, "WALLET_ENROLLMENT_STATE", "Registration must precede possession verification.");
     // Expensive parsing/crypto precede row locks. The locked snapshot must remain byte-for-byte equal.
-    const verified = await verifyWalletEnrollmentProof(before, proof);
+    const verified = await verifyWalletEnrollmentProof(before, proof, options);
     return this.transaction(async client => {
       const current = await lockWalletEnrollmentInTransaction(client, id);
       if (enrollmentDigest([current.intent, current.candidate, current.creation, current.possession])

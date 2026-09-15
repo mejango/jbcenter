@@ -42,7 +42,7 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
   beforeAll(async () => {
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 5 });
-    for (const name of [...new Set([...walletLoginTestMigrations, "016_rest_wallet_deployments.sql", "018_rest_wallet_deployment_observations.sql",
+    for (const name of [...new Set([...walletLoginTestMigrations, "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql", "018_rest_wallet_deployment_observations.sql",
       "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "027_wallet_signup.sql", "028_wallet_recovery.sql",
       "029_wallet_recovery_mapping.sql", "033_wallet_unproved_recovery_expiry.sql", "030_wallet_recovery_flow.sql", "031_wallet_recovery_dispatch.sql",
       "034_wallet_deployment_base.sql", "035_wallet_recovery_base.sql"])].sort())
@@ -86,18 +86,25 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
         rpId, origin: issuer, userHandle: initial.intent.userHandle });
       await signup.register(flowToken, credential.response);
       const pending = (await enrollments.get(initial.intent.id))!, document = walletEnrollmentDocument(pending);
-      await signup.proveEnrollment(flowToken, { assertion: signGet({ ...credential, challenge: hashTypedData(document), rpId, origin: issuer }),
-        backupSignature: await signBackupProof(document) });
-      const record = (await enrollments.get(initial.intent.id))!;
+      // Creation is reviewed straight after registration: one passkey assertion over the creation
+      // document approves it and proves possession; the recovery owner signs the enrollment document.
       const review = await signup.prepareDeployment(flowToken), operation = (await deployments.get(review.id))!;
+      const approvalAssertion = () => signGet({ ...credential, challenge: hashTypedData(walletDeploymentDocument(pending, operation.approval)), rpId, origin: issuer });
+      await expect(signup.approveDeployment(flowToken, { approvalId: operation.id, assertion: approvalAssertion() })).rejects.toMatchObject({ status: 409 });
+      await expect(signup.approveDeployment(flowToken, { approvalId: operation.id, assertion: approvalAssertion(),
+        backupSignature: await enrollmentBackupAccount.signMessage({ message: "not the enrollment document" }) })).rejects.toMatchObject({ status: 403 });
+      expect((await enrollments.get(initial.intent.id))!.state).toBe("awaiting_possession");
+      expect((await signup.status(flowToken)).phase).toBe("awaiting_possession");
       // Base mines every two seconds: a new block lands between the approval's chain reads. The
       // creation preflight and the treasury funding read must still describe one head.
       let latestReads = 0;
       fixture.faults.after = async (method, params) => { if (method === "eth_getBlockByNumber" && params[0] === "latest" && ++latestReads === 1) await fixture.rpc("anvil_mine", ["0x1", "0x0"]); };
       try {
-        expect((await signup.approveDeployment(flowToken, { approvalId: operation.id,
-          assertion: signGet({ ...credential, challenge: hashTypedData(walletDeploymentDocument(record, operation.approval)), rpId, origin: issuer }) })).phase).toBe("deploying");
+        expect((await signup.approveDeployment(flowToken, { approvalId: operation.id, assertion: approvalAssertion(),
+          backupSignature: await signBackupProof(document) })).phase).toBe("deploying");
       } finally { fixture.faults.after = async () => undefined; }
+      const record = (await enrollments.get(initial.intent.id))!;
+      expect(record.state).toBe("verified");
       expect(latestReads).toBeGreaterThan(0);
       const claimed = (await deployments.get(operation.id))!;
       expect(claimed.template!.transaction.nonce).toBe(String(index + 2));

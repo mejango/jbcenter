@@ -80,11 +80,25 @@ describe("fresh deployment approval", () => {
     expect(() => verifyWalletDeploymentProof(enrollment, a, assertion(a), clock)).toThrow();
   });
   it.each([
-    { issuedAt: now, expiresAt: now + 1 }, { issuedAt: now + 2, expiresAt: now + 2 },
+    { issuedAt: now - 1, expiresAt: now + 1 }, { issuedAt: now + 2, expiresAt: now + 2 },
     { issuedAt: now + 2, expiresAt: now + 300_003 }, { issuedAt: now + 0.5, expiresAt: now + 3 },
   ])("rejects invalid approval lifetime %j", times => expect(() => approval(times)).toThrow());
-  it.each(["awaiting_registration", "awaiting_possession"] as const)("rejects unverified state %s", state => {
-    expect(() => prepareWalletDeploymentApproval({ ...enrollment, state }, { issuedAt: now + 2, expiresAt: now + 3 })).toThrow();
+  it("rejects an enrollment without a registered passkey", () => {
+    expect(() => prepareWalletDeploymentApproval({ ...enrollment, state: "awaiting_registration", candidate: null, candidateDigest: null, creation: null, possession: null, receipt: null },
+      { issuedAt: now + 2, expiresAt: now + 3 })).toThrow();
+    expect(() => prepareWalletDeploymentApproval({ ...enrollment, state: "awaiting_registration" }, { issuedAt: now + 2, expiresAt: now + 3 })).toThrow();
+  });
+  it("prepares creation for a registered passkey before possession is proved, with a document that survives verification", () => {
+    // One passkey prompt approves creation; that same assertion proves possession. The approval
+    // therefore binds the registered identity (intent, passkey, creation), not the later receipt.
+    const pending: WalletEnrollment = { ...enrollment, state: "awaiting_possession", receipt: null };
+    const draft = prepareWalletDeploymentApproval(pending, { issuedAt: now + 2, expiresAt: now + 30_000 });
+    expect(draft.version).toBe("center-wallet-deployment-v2");
+    expect(hashTypedData(walletDeploymentDocument(pending, draft))).toBe(hashTypedData(walletDeploymentDocument(enrollment, draft)));
+    expect(draft.enrollmentCommitment).not.toBe(`0x${enrollmentDigest(enrollment)}`);
+    expect(() => walletDeploymentDocument({ ...pending, candidate: { ...pending.candidate!, publicKey: { ...pending.candidate!.publicKey, x: `0x${"01".repeat(32)}` } } }, draft)).toThrow();
+    const proof = signGet({ ...credential, challenge: hashTypedData(walletDeploymentDocument(pending, draft)), rpId: enrollment.intent.rpId, origin: enrollment.intent.origin });
+    expect(verifyWalletDeploymentProof(pending, draft, proof, now + 3).verificationDigest).toBe(verifyWalletDeploymentProof(enrollment, draft, proof, now + 3).verificationDigest);
   });
   it.each([
     ["receipt", (r: WalletEnrollment) => { r.receipt!.verificationDigest = "00".repeat(32); }],

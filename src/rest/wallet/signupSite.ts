@@ -27,10 +27,10 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
     if (!token) invalid(403);
     assertWalletCsrf(c.req.raw, token); return token;
   }
-  async function body(c: Context, fields: string[]) {
+  async function body(c: Context, fields: string[], optional: string[] = []) {
     assertWalletHttpRequest(c.req.raw, origin, 'central');
     const value = await readWalletJson(c.req.raw);
-    try { return walletAppFields(value, fields); } catch { return invalid(); }
+    try { return walletAppFields(value, fields, optional); } catch { return invalid(); }
   }
   function result(c: Context, token: string, view: Awaited<ReturnType<typeof signup.status>>, replayed?: boolean) {
     c.header('Set-Cookie', walletCookie(walletSignupCookie, token, Math.max(1, Math.min(86400, Math.floor((view.expiresAtMs - Date.now()) / 1000)))), { append: true });
@@ -86,8 +86,10 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
     await body(c, []); return json(c, await signup.prepareDeployment(cookie(c, walletSignupCookie)));
   });
   app.post('/wallet/signup/deployment/approve', async c => {
-    const input = await body(c, ['approvalId', 'assertion']), token = cookie(c, walletSignupCookie);
-    return json(c, { view: await signup.approveDeployment(token, { approvalId: input.approvalId as string, assertion: walletHttpAssertion(input.assertion) }) });
+    const input = await body(c, ['approvalId', 'assertion'], ['backupSignature']), token = cookie(c, walletSignupCookie);
+    if (input.backupSignature !== undefined && (typeof input.backupSignature !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(input.backupSignature))) invalid();
+    return json(c, { view: await signup.approveDeployment(token, { approvalId: input.approvalId as string, assertion: walletHttpAssertion(input.assertion),
+      ...(input.backupSignature === undefined ? {} : { backupSignature: input.backupSignature as Hex }) }) });
   });
   app.post('/wallet/signup/setup/review', async c => {
     const input = await body(c, ['browserPublicAddress']), token = cookie(c, walletSignupCookie);

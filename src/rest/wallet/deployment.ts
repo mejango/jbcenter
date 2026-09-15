@@ -2,13 +2,13 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { getAddress, hashTypedData, isAddress, keccak256, parseTransaction, serializeTransaction, type Address, type Hex } from "viem";
 import { RestError } from "../core.js";
 import { assertWalletCeremonyDraft, walletCeremonyMaxLifetimeMs, type WalletCeremonyDraft } from "./ceremonies.js";
-import { assertVerifiedWalletEnrollment, enrollmentDigest, type WalletEnrollment } from "./enrollment.js";
+import { assertRegisteredWalletEnrollment, assertVerifiedWalletEnrollment, enrollmentDigest, type WalletEnrollment } from "./enrollment.js";
 import { verifyWalletAssertion, type WalletAssertion } from "./webauthn.js";
 import { validateSignedTransaction } from "../transactions/signed.js";
 import type { RelayPolicy } from "../transactions/types.js";
 
 export interface WalletDeploymentApproval {
-  version: "center-wallet-deployment-v1";
+  version: "center-wallet-deployment-v1" | "center-wallet-deployment-v2";
   id: string;
   enrollmentId: string;
   enrollmentCommitment: Hex;
@@ -76,8 +76,22 @@ const documentTypes = { WalletDeployment: [
   { name: "rpId", type: "string" }, { name: "origin", type: "string" },
   { name: "nonce", type: "bytes32" }, { name: "issuedAtMs", type: "uint64" }, { name: "expiresAtMs", type: "uint64" },
 ] } as const;
+// The receipt-independent identity of a registered enrollment. A verified receipt repeats these
+// exact values (assertVerifiedWalletEnrollment checks that), so v1 documents are unchanged.
+function identity(enrollment: WalletEnrollment) {
+  const creation = enrollment.creation!;
+  return { accountId: `eip155:8453:${creation.address.toLowerCase()}`, manifestCommitment: `0x${enrollmentDigest(enrollment.intent.manifest)}` as Hex,
+    manifestRevision: enrollment.intent.manifest.revision, creationCommitment: `0x${enrollmentDigest(creation)}` as Hex };
+}
+/** v1 approvals bind the whole verified record and can only follow possession; v2 approvals bind
+ * the registered identity so the first assertion after registration can approve creation. */
+function binding(enrollment: WalletEnrollment, version: WalletDeploymentApproval["version"]) {
+  if (version === "center-wallet-deployment-v1") return { commitment: assertVerifiedWalletEnrollment(enrollment), since: enrollment.receipt!.verifiedAt };
+  if (version !== "center-wallet-deployment-v2") invalid();
+  return { commitment: assertRegisteredWalletEnrollment(enrollment), since: enrollment.createdAt };
+}
 function document(enrollment: WalletEnrollment, approval: Omit<WalletDeploymentApproval, "ceremony">) {
-  const creation = enrollment.creation!, receipt = enrollment.receipt!;
+  const creation = enrollment.creation!, receipt = identity(enrollment);
   return {
     domain: { name: "Juicebox Center Wallet Deployment", version: "1", chainId: 8453, verifyingContract: creation.address },
     types: structuredClone(documentTypes), primaryType: "WalletDeployment" as const,
@@ -94,13 +108,13 @@ function document(enrollment: WalletEnrollment, approval: Omit<WalletDeploymentA
  * the frozen wallet identity. Issuing this draft grants no nonce, budget, signing or session authority. */
 export function prepareWalletDeploymentApproval(enrollment: WalletEnrollment, times: { issuedAt: number; expiresAt: number }): WalletDeploymentApproval {
   try {
-    const enrollmentCommitment = assertVerifiedWalletEnrollment(enrollment);
+    const { commitment: enrollmentCommitment, since } = binding(enrollment, "center-wallet-deployment-v2");
     fields(times, ["issuedAt", "expiresAt"]);
-    lifetime(times, enrollment.receipt!.verifiedAt);
-    const base = { version: "center-wallet-deployment-v1" as const, id: randomUUID(), enrollmentId: enrollment.intent.id,
+    lifetime(times, since);
+    const base = { version: "center-wallet-deployment-v2" as const, id: randomUUID(), enrollmentId: enrollment.intent.id,
       enrollmentCommitment, nonce: `0x${randomBytes(32).toString("hex")}` as Hex, ...times };
     const challenge = hashTypedData(document(enrollment, base));
-    const result: WalletDeploymentApproval = { ...base, ceremony: { id: base.id, accountId: enrollment.receipt!.accountId,
+    const result: WalletDeploymentApproval = { ...base, ceremony: { id: base.id, accountId: identity(enrollment).accountId,
       purpose: "deploy", expiresAt: base.expiresAt, contextDigest: enrollmentDigest(challenge),
       challenge: Buffer.from(challenge.slice(2), "hex").toString("base64url") } };
     walletDeploymentDocument(enrollment, result);
@@ -112,14 +126,14 @@ export function prepareWalletDeploymentApproval(enrollment: WalletEnrollment, ti
  * remain recoverable after approval expiry. Only fresh proof admission below checks the clock. */
 export function walletDeploymentDocument(enrollment: WalletEnrollment, approval: WalletDeploymentApproval) {
   try {
-    const enrollmentCommitment = assertVerifiedWalletEnrollment(enrollment);
     fields(approval, ["version", "id", "enrollmentId", "enrollmentCommitment", "nonce", "issuedAt", "expiresAt", "ceremony"]);
-    if (approval.version !== "center-wallet-deployment-v1" || !uuid.test(approval.id) || !word.test(approval.nonce) ||
+    const { commitment: enrollmentCommitment, since } = binding(enrollment, approval.version);
+    if (!uuid.test(approval.id) || !word.test(approval.nonce) ||
         approval.enrollmentId !== enrollment.intent.id || approval.enrollmentCommitment !== enrollmentCommitment) invalid();
-    lifetime(approval, enrollment.receipt!.verifiedAt);
+    lifetime(approval, since);
     const result = document(enrollment, approval), challenge = hashTypedData(result), ceremony = approval.ceremony;
     assertWalletCeremonyDraft(ceremony);
-    if (ceremony.id !== approval.id || ceremony.accountId !== enrollment.receipt!.accountId || ceremony.purpose !== "deploy" ||
+    if (ceremony.id !== approval.id || ceremony.accountId !== identity(enrollment).accountId || ceremony.purpose !== "deploy" ||
         ceremony.expiresAt !== approval.expiresAt || ceremony.contextDigest !== enrollmentDigest(challenge) ||
         ceremony.challenge !== Buffer.from(challenge.slice(2), "hex").toString("base64url")) invalid();
     return result;
