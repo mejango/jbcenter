@@ -222,10 +222,15 @@ export async function verifySafeOwnerSignatures(input: {
     if (owners.get(owner.toLowerCase()) !== entry.kind || BigInt(owner) <= previous)
       throw new RestError(403, "SMART_OWNER_SIGNATURE_INVALID", "Use sorted distinct signatures from the current owner threshold.");
     if (entry.kind === "contract") {
-      let valid = false;
+      let valid = false, reason = "unverified";
       try { valid = await input.verifyContractSignature({ owner, digest: input.digest, signedData, signature: entry.signature }); }
-      catch { /* Missing canonical evidence never proves authority. */ }
-      if (valid !== true) throw new RestError(403, "SMART_OWNER_SIGNATURE_INVALID", "The contract owner signature could not be verified.");
+      catch (error) {
+        // Missing canonical evidence never proves authority; the bounded reason reaches the log.
+        const failure = error as { code?: unknown; message?: unknown };
+        reason = String(typeof failure?.code === "string" ? failure.code : failure?.message ?? "error").slice(0, 80);
+      }
+      if (valid !== true) throw new RestError(403, "SMART_OWNER_SIGNATURE_INVALID", "The contract owner signature could not be verified.",
+        { stage: "contract-signature", reason });
     }
     verified.push(owner);
     previous = BigInt(owner);

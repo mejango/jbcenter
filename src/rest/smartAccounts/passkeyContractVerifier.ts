@@ -21,10 +21,10 @@ export function createPasskeyContractSignatureVerifier(input: {
   });
   return async ({ owner, signedData, signature }) => {
     const { state, manifest } = input, profile = state.ownerProfile;
-    if (profile?.version !== "center-passkey-v1" || manifest.ownerProfile?.version !== profile.version ||
-        state.chainId !== 8453 || state.evidence.chainId !== 8453 || manifest.chainId !== 8453 ||
-        !same(owner, profile.signer.address) || !state.owners.some((address) => same(owner, address)))
-      return false;
+    // Each refusal names its reason for the caller's log; none of them proves authority.
+    if (profile?.version !== "center-passkey-v1" || manifest.ownerProfile?.version !== profile.version) throw new Error("profile-mismatch");
+    if (state.chainId !== 8453 || state.evidence.chainId !== 8453 || manifest.chainId !== 8453) throw new Error("chain-mismatch");
+    if (!same(owner, profile.signer.address) || !state.owners.some((address) => same(owner, address))) throw new Error("owner-mismatch");
     for (const pin of [profile.signer, manifest.ownerProfile.signerFactory,
       manifest.ownerProfile.signerSingleton, manifest.ownerProfile.p256Verifier])
       await chain.runtime(state.chainId, pin, state.evidence);
@@ -33,7 +33,7 @@ export function createPasskeyContractSignatureVerifier(input: {
       gas: "0x1e8480",
     }, chain.tag(state.evidence)]);
     // Strict canonical ABI bytes4. Raw magic, bools, excess data or missing evidence fail closed.
-    if (typeof result !== "string" || result.toLowerCase() !== MAGIC) return false;
+    if (typeof result !== "string" || result.toLowerCase() !== MAGIC) throw new Error(`result:${String(result).slice(0, 10)}`);
     await chain.canonical(state.evidence);
     return true;
   };

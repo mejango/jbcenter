@@ -182,6 +182,14 @@ describe("versioned Safe passkey signature codec", () => {
     expect(input.verifyContractSignature).not.toHaveBeenCalled();
     await expect(verifySafeOwnerSignatures({ ...input, verifyContractSignature: async () => false })).rejects.toThrow("could not be verified");
     await expect(verifySafeOwnerSignatures({ ...input, verifyContractSignature: async () => { throw Error("upstream timeout"); } })).rejects.toThrow("could not be verified");
+    // Production swallowed every contract-verification failure as "invalid"; the refusal must
+    // carry the bounded reason (a chain error code or the returned selector) for the log.
+    await expect(verifySafeOwnerSignatures({ ...input, verifyContractSignature: async () => { throw Object.assign(Error("The configured chain could not verify or simulate this operation."), { code: "USER_OPERATION_RPC_UNAVAILABLE" }); } }))
+      .rejects.toMatchObject({ code: "SMART_OWNER_SIGNATURE_INVALID", details: { stage: "contract-signature", reason: "USER_OPERATION_RPC_UNAVAILABLE" } });
+    await expect(verifySafeOwnerSignatures({ ...input, verifyContractSignature: async () => { throw Error("result:0x00000000"); } }))
+      .rejects.toMatchObject({ details: { stage: "contract-signature", reason: "result:0x00000000" } });
+    await expect(verifySafeOwnerSignatures({ ...input, verifyContractSignature: async () => false }))
+      .rejects.toMatchObject({ details: { stage: "contract-signature", reason: "unverified" } });
     await expect(verifySafeOwnerSignatures({ ...input, signedData: "0x1234" })).rejects.toThrow("preimage");
     await expect(verifySafeOwnerSignatures({ ...input, owners: [...input.owners, ...input.owners] })).rejects.toThrow("distinct");
     await expect(verifySafeOwnerSignatures({ ...input, owners: [{ address: owner, kind: "ecdsa" }] })).rejects.toThrow("current owner");

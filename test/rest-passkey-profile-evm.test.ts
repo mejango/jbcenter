@@ -243,6 +243,8 @@ describe.skipIf(!available)("canonical passkey owner profile in the pinned local
     expect(after.ownerProfile!.signer.address).toBe(nextSigner);
     expect(renewed.document.message.accountId).toBe(old.document.message.accountId);
     expect(await verifyPasskeyOnboardingSignatures(renewed.document, after, renewed.signature, renewed.proofSignature, verifier(after))).toEqual([nextSigner]);
+    // A signer that is not the inspected owner names the reason instead of failing silently.
+    await expect(verifier(after)({ owner: signer, digest: renewed.document as never, signedData: "0x00", signature: "0x00" })).rejects.toThrow("owner-mismatch");
     await expect(verifyPasskeyOnboardingSignatures(old.document, after, old.signature, old.proofSignature, verifier(after)))
       .rejects.toMatchObject({ code: "SMART_ACCOUNT_CHANGED" });
     await expect(verifyPasskeyOnboardingSignatures(renewed.document, after, old.signature, renewed.proofSignature, verifier(after)))
