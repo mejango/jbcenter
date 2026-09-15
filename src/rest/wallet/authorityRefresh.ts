@@ -41,7 +41,8 @@ export function createWalletAuthorityRefresh(options: AuthorityRefreshOptions): 
 } {
   const concurrency = options.concurrency ?? 2, tickMs = options.tickMs ?? 500;
   const attemptTimeoutMs = options.attemptTimeoutMs ?? 30_000, shutdownTimeoutMs = options.shutdownTimeoutMs ?? 5_000;
-  if ([[concurrency, 2], [tickMs, 1_000], [attemptTimeoutMs, 30_000], [shutdownTimeoutMs, 5_000]]
+  // An attempt covers one hosted-provider observation (budget 90 s) plus the store round trips.
+  if ([[concurrency, 2], [tickMs, 1_000], [attemptTimeoutMs, 120_000], [shutdownTimeoutMs, 5_000]]
     .some(([value, maximum]) => !Number.isSafeInteger(value) || value! < 1 || value! > maximum!))
     throw new RestError(500, 'WALLET_AUTHORITY_REFRESH_CONFIG_INVALID', 'Use bounded authority refresh worker settings.');
   const request = options.queue.request.bind(options.queue), claim = options.queue.claim.bind(options.queue);

@@ -7,7 +7,9 @@ import { assertPasskeyOnboardingState, validatePasskeyOnboardingInput } from "..
 import { enrollmentDigest, type WalletEnrollment } from "./enrollment.js";
 import { assertWalletAuthorityCredential, type WalletCredentialRecovery } from "./credentialRecovery.js";
 
-export const walletAuthorityMaximumAgeMs = 30_000;
+// A hosted-provider observation takes ~25 s from its observedAt; the window must outlast it by
+// enough for the person to log in and for the worker to refresh ahead of expiry.
+export const walletAuthorityMaximumAgeMs = 120_000;
 export const walletAuthorityMaximumHeadAgeMs = 300_000;
 export const walletAuthorityMaximumFutureHeadMs = 30_000;
 export const walletAuthorityMaximumEpoch = 9223372036854775807n;

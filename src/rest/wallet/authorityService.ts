@@ -9,6 +9,7 @@ export interface WalletAuthorityServiceDependencies {
     reconcile(context: WalletAuthorityContext, observation: WalletAuthorityObservation): Promise<{
       snapshot: WalletAuthoritySnapshot; replayed: boolean;
     }>;
+    get?(accountId: string): Promise<WalletAuthoritySnapshot | null>;
   };
   chain: { observe(context: WalletAuthorityContext, signal?: AbortSignal): Promise<WalletAuthorityObservation> };
 }
@@ -25,6 +26,11 @@ export function createWalletAuthorityService(options: WalletAuthorityServiceDepe
     throw new RestError(400, "WALLET_AUTHORITY_ACCOUNT_INVALID", "A canonical Base wallet account is required.");
   };
   return {
+    /** The stored snapshot for readiness views. It never observes the chain; the worker does. */
+    async currentAuthority(accountId: string): Promise<WalletAuthoritySnapshot | null> {
+      if (!walletAppAccount(accountId)) invalidAccount();
+      return options.store.get ? options.store.get(accountId) : null;
+    },
     async refreshAuthority(accountId: string, signal?: AbortSignal): Promise<{ snapshot: WalletAuthoritySnapshot; replayed: boolean }> {
       if (!walletAppAccount(accountId)) invalidAccount();
       cancelled(signal);

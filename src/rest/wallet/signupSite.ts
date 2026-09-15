@@ -12,6 +12,8 @@ export interface WalletSignupSiteOptions {
   origin: string; browserScript: string;
   /** Mount path of the wallet pages on this host ('' on the dedicated host). */
   basePath?: string;
+  /** The authority refresh worker hooks; a "preparing" view asks it to verify the new wallet. */
+  refresh?: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
   signup: Pick<ReturnType<typeof createLocalWalletSignup>, 'begin' | 'status' | 'register' | 'proveEnrollment' |
     'prepareDeployment' | 'approveDeployment' | 'prepareSetup' | 'completeSetupPasskey' | 'beginResume' | 'completeResume'>;
 }
@@ -40,7 +42,16 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
     return { view, csrfToken: walletCsrfToken(token), ...(replayed === undefined ? {} : { replayed }) };
   }
   // All typed-data uints are decimal JSON strings; no credential-bearing rows are serialized.
-  const json = (c: Context, value: unknown) => c.body(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? String(item) : item), 200, { 'Content-Type': 'application/json' });
+  const json = (c: Context, value: unknown) => {
+    // Every view that is still preparing the login asks the worker for the authority observation
+    // the login needs. The queue dedupes by account; the page keeps polling state meanwhile.
+    const view = (value as { view?: { phase?: string; walletAddress?: string | null } } | null)?.view;
+    if (options.refresh && view?.phase === 'preparing_sign_in' && view.walletAddress) {
+      const refresh = options.refresh, accountId = `eip155:8453:${view.walletAddress.toLowerCase()}`;
+      void refresh.request(accountId).then(() => refresh.tick()).catch(() => { /* The page polls; the worker retries. */ });
+    }
+    return c.body(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? String(item) : item), 200, { 'Content-Type': 'application/json' });
+  };
   app.get(`${base}/create`, c => c.html(walletSignupPage({ base })));
   app.get(`${base}/assets/wallet-signup.js`, c => c.body(options.browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
   app.get(`${base}/assets/wallet-signup.css`, c => c.body(walletSignupCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));

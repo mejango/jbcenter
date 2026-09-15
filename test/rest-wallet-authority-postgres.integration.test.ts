@@ -212,7 +212,8 @@ suite("PostgreSQL canonical wallet authority with genuine enrollment and explici
     const legacy = await authorizedFixture();
     await pool.query("INSERT INTO rest_wallet_authority(account_id,authority_epoch,session_epoch,updated_at) VALUES($1,$2,$3,$4)",
       [legacy.accountId, "9007199254740993", "9007199254741007", Math.floor(await databaseNow() / 1000)]);
-    await pool.query(await readFile(new URL("../src/db/migrations/020_rest_wallet_authority.sql", import.meta.url), "utf8"));
+    for (const name of ["020_rest_wallet_authority.sql", "039_wallet_authority_window.sql"])
+      await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     migratedEpochOnly = (await pool.query("SELECT authority_epoch,session_epoch,revision,snapshot,ready_until_ms FROM rest_wallet_authority WHERE account_id=$1", [legacy.accountId])).rows[0];
     store = new PostgresWalletAuthorityStore(pool);
   });

@@ -12,7 +12,8 @@ export interface WalletAuthorityRefreshQueueOptions {
   verifiedMinRetryMs?: number; backoffBaseMs?: number; backoffMaxMs?: number;
 }
 const defaults = Object.freeze({ maxTracked: 32, maxConcurrent: 2, maxStartsPerMinute: 30,
-  interestMs: 120_000, leaseMs: 45_000, refreshLeadMs: 15_000,
+  // A lease outlives one hosted observation (~25 s measured, 90 s budget) and its store round trips.
+  interestMs: 120_000, leaseMs: 120_000, refreshLeadMs: 60_000,
   verifiedMinRetryMs: 1_000, backoffBaseMs: 2_000, backoffMaxMs: 30_000 });
 type Settings = typeof defaults;
 type Job = { account_id: string; interested_until_ms: string; due_at_ms: string;

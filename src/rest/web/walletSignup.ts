@@ -47,11 +47,14 @@ const steps: Record<View['phase'], string> = {
   awaiting_deployment_approval: 'Your passkey is ready. Approve creation of your wallet.',
   deploying: 'Creating your wallet. This usually takes about a minute. Keep this page open, or come back later with your passkey.',
   deployment_failed: 'Wallet creation did not complete. Keep this signup for recovery; do not send funds.',
-  awaiting_setup: 'Your wallet is ready.', ready_to_sign_in: 'Your wallet is ready. Log in with your passkey.',
+  awaiting_setup: 'Your wallet is ready.', preparing_sign_in: 'Preparing your login. This can take up to a minute…',
+  ready_to_sign_in: 'Your wallet is ready. Log in with your passkey.',
   expired: 'This incomplete signup expired. Its passkey is not an active wallet credential.',
 };
 // While work is in flight the status line's mark spins (Croptop's text ticker) instead of showing the lightning.
-const waiting = () => busy || view?.phase === 'deploying';
+// A native prompt waiting on the user is not work in flight, so the mark holds still for it.
+const polling = () => view?.phase === 'deploying' || view?.phase === 'preparing_sign_in';
+const waiting = () => (busy && !native) || polling();
 function message(value: string, error = false) { status.textContent = value; status.dataset.state = error ? 'error' : waiting() ? 'busy' : 'ready'; }
 /** The first word links to the creation transaction on Basescan when the signup has one. */
 function messageLinked(word: string, rest: string) {
@@ -111,7 +114,7 @@ function render() {
   name.disabled = busy;
   // The kit is presented once the wallet exists. Earlier phases still need the words in memory
   // to sign the enrollment; a reload before then strands the signup, so say so and offer a fresh start.
-  const kitPhase = !!view && ['awaiting_setup', 'ready_to_sign_in'].includes(view.phase);
+  const kitPhase = !!view && ['awaiting_setup', 'preparing_sign_in', 'ready_to_sign_in'].includes(view.phase);
   const stranded = kitMode() && !recoverySecret && !!view && ['awaiting_registration', 'awaiting_possession'].includes(view.phase);
   // A stranded attempt that never created a passkey lost nothing worth mentioning: show the clean form.
   if (stranded) message(view!.phase === 'awaiting_possession' ? 'Your last signup cannot continue without its backup password. Sign up again with a new passkey.' : '');
@@ -361,7 +364,7 @@ resume.addEventListener('click', event => { event.preventDefault(); if (busy || 
   await resumeSignup();
 }); });
 const timer = setInterval(() => {
-  if (!busy && !pending && view?.phase === 'deploying' && !document.hidden && navigator.onLine && pollCount++ < 150) void run(observe);
+  if (!busy && !pending && polling() && !document.hidden && navigator.onLine && pollCount++ < 150) void run(observe);
 }, 2000);
 window.addEventListener('pagehide', () => {
   disposed = true; native?.abort(); clearInterval(timer); recoverySecret = null;

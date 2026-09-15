@@ -1,6 +1,6 @@
-import { isAddress, toHex, type Hex } from "viem";
+import { isAddress, keccak256, padHex, stringToHex, toHex, type Address, type Hex } from "viem";
 import { RestError, type RestBlockEvidence, type RestRpc } from "../core.js";
-import type { ContractPin, SmartAccountManifest } from "../smartAccounts/types.js";
+import type { ContractPin, SmartAccountManifest, SmartAccountState } from "../smartAccounts/types.js";
 import { createSmartAccountService, stable } from "../smartAccounts/service.js";
 import { createSafe7579Inspector, SAFE7579_INSPECTOR_ID, SAFE7579_STORAGE_SOURCE } from "../smartAccounts/inspector.js";
 import { createInstalledSessionVerifier } from "../smartAccounts/installed.js";
@@ -14,6 +14,13 @@ import { createWalletAuthorityIdentity, validateWalletAuthorityContext, validate
 import { enrollmentDigest } from "./enrollment.js";
 import { operationRpc, walletObservationRpcBounds } from "./operationRpc.js";
 
+/** A complete inspection over a hosted provider measured ~25 s; the observation budget leaves room. */
+export const walletAuthorityObservationBounds = Object.freeze({ ...walletObservationRpcBounds, totalTimeoutMs: 90_000 });
+const creationTopic = keccak256(stringToHex("ProxyCreation(address,address)"));
+function provenanceTransaction(state: SmartAccountState): Hex | null {
+  const details = state.modules?.details, provenance = object(details) && object(details.provenance) ? details.provenance : null;
+  return provenance && word(provenance.creationTransaction) ? provenance.creationTransaction : null;
+}
 export interface WalletAuthorityChainOptions {
   rpc: RestRpc;
   manifest: SmartAccountManifest;
@@ -37,14 +44,14 @@ function quantity(value: unknown): bigint {
 export function createWalletAuthorityChain(options: WalletAuthorityChainOptions) {
   for (const value of [options.manifest, options.utility, options.limits ?? {}]) enrollmentDigest(value);
   const manifest = structuredClone(options.manifest), utility = structuredClone(options.utility), now = options.now ?? Date.now, transport = options.rpc;
-  const limits = { ...walletObservationRpcBounds, ...options.limits };
+  const limits = { ...walletAuthorityObservationBounds, ...options.limits };
   validatePasskeyCreationManifest(manifest);
   if (manifest.chainId !== 8453 || manifest.mode !== "execution-candidate" || manifest.moduleInspectorId !== SAFE7579_INSPECTOR_ID ||
     manifest.entryPoint?.version !== "0.7" || manifest.policies.length > 16 ||
     !isAddress(utility.address) || BigInt(utility.address) <= 1n || !word(utility.runtimeCodeHash) ||
     utility.source.commit !== SAFE7579_STORAGE_SOURCE.commit ||
-    Object.keys(limits).some(key => !(key in walletObservationRpcBounds)) || Object.entries(limits).some(([key, value]) =>
-      !Number.isSafeInteger(value) || value < 1 || value > walletObservationRpcBounds[key as keyof typeof walletObservationRpcBounds]))
+    Object.keys(limits).some(key => !(key in walletAuthorityObservationBounds)) || Object.entries(limits).some(([key, value]) =>
+      !Number.isSafeInteger(value) || value < 1 || value > walletAuthorityObservationBounds[key as keyof typeof walletAuthorityObservationBounds]))
     throw new RestError(500, "WALLET_AUTHORITY_CONFIG_INVALID", "Use one configured Base profile and the reviewed observation bounds.");
   return {
     async observe(input: WalletAuthorityContext, signal?: AbortSignal): Promise<WalletAuthorityObservation> {
@@ -115,9 +122,24 @@ export function createWalletAuthorityChain(options: WalletAuthorityChainOptions)
           return rpc.request(method, params);
         } };
         // No DB checkpoint/index hooks: all full-history reads share the same finite RPC scope.
+        // Hosted providers cap eth_getLogs windows, so creation is proven from the receipt of the
+        // creation transaction the bound setup state names, through the same finite RPC scope.
+        // The inspector still checks that log against the canonical header; a receipt without
+        // the exact factory log proves nothing and never falls back to a history scan.
+        const creationTransaction = provenanceTransaction(context.binding.state);
+        const creationLogs = async (chainId: number, factory: Address, account: Address, end: bigint): Promise<Record<string, unknown>[]> => {
+          if (chainId !== 8453 || !creationTransaction) return [];
+          const receipt = await rpc.request("eth_getTransactionReceipt", [creationTransaction]);
+          if (!object(receipt) || !Array.isArray(receipt.logs) || receipt.logs.length > 512) return [];
+          return receipt.logs.filter((log: unknown): log is Record<string, unknown> => object(log) && typeof log.address === "string" &&
+            same(log.address, factory) && Array.isArray(log.topics) && log.topics.length === 2 && log.topics[0] === creationTopic &&
+            String(log.topics[1]).toLowerCase() === padHex(account, { size: 32 }).toLowerCase() && word(log.blockHash) &&
+            quantity(log.blockNumber) <= end);
+        };
         const accounts = createSmartAccountService({ rpc: scoped, manifests: [manifest], registry: new MemorySmartAccountRegistry(),
           audience: context.enrollment.intent.origin, now, moduleInspectors: [createSafe7579Inspector({ rpc: scoped, utility,
-            inspectSessions: createInstalledSessionVerifier({ rpc: scoped }).inspectAllAt })] });
+            inspectSessions: createInstalledSessionVerifier({ rpc: scoped }).inspectAllAt,
+            creationLogs, maxLogRangeBlocks: 500, timeoutMs: limits.totalTimeoutMs })] });
         const state = await accounts.inspect({ manifestId: manifest.id, address: context.enrollment.creation!.address }, signal, head);
         const inspected = assertPasskeyOnboardingState(state), details = state.modules!.details;
         if (!same(state.address, context.enrollment.creation!.address) || state.manifestId !== manifest.id ||

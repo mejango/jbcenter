@@ -14,6 +14,7 @@ import { PostgresWalletPolicyStore } from '../src/rest/wallet/policyPostgres.js'
 import { PostgresWalletAuthorityStore } from '../src/rest/wallet/authorityPostgres.js';
 import { PostgresWalletAuthorityRefreshQueue } from '../src/rest/wallet/authorityRefreshPostgres.js';
 import * as authorityChain from '../src/rest/wallet/authorityChain.js';
+import * as authorityRefresh from '../src/rest/wallet/authorityRefresh.js';
 import * as walletSite from '../src/rest/wallet/site.js';
 import * as smartAccountService from '../src/rest/smartAccounts/service.js';
 import * as smartAccountInspector from '../src/rest/smartAccounts/inspector.js';
@@ -124,7 +125,7 @@ describe('explicit wallet runtime composition', () => {
       browserScript: '/* bounded wallet browser fixture */', login: internal.login, handoff: internal.handoff,
       policy: internal.policy, refresh: internal.refresh }));
     expect(chain).toHaveBeenCalledWith(expect.objectContaining({ manifest: configuration.manifest,
-      utility: configuration.utility, limits: { totalTimeoutMs: 10_000 } }));
+      utility: configuration.utility, limits: { totalTimeoutMs: 90_000 } }));
     expect(activate).not.toHaveBeenCalled(); expect(f.query).not.toHaveBeenCalled(); expect(f.request).not.toHaveBeenCalled();
   });
 
@@ -176,6 +177,17 @@ describe('explicit wallet runtime composition', () => {
       expect(options.maxLogRangeBlocks).toBe(500);
       expect(options.timeoutMs).toBe(90_000);
     }
+  });
+
+  it('gives the authority refresh the hosted-provider inspection budget', async () => {
+    // A complete wallet inspection over the hosted provider takes ~25 s. A 10 s observation
+    // budget made every refresh a partial read and every login WALLET_LOGIN_INACTIVE.
+    const chain = vi.spyOn(authorityChain, 'createWalletAuthorityChain'), refresh = vi.spyOn(authorityRefresh, 'createWalletAuthorityRefresh');
+    await fixture(await walletConfiguration());
+    expect(chain.mock.calls[0]![0].limits).toEqual({ totalTimeoutMs: 90_000 });
+    const options = refresh.mock.calls[0]![0];
+    expect(options.attemptTimeoutMs).toBe(100_000);
+    expect((options.queue as unknown as { settings: { leaseMs: number } }).settings.leaseMs).toBe(120_000);
   });
 
   it('owns its profile bytes even when the identical manifest is supplied in the custom account list', async () => {

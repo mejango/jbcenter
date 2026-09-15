@@ -299,6 +299,24 @@ Railway project `4a070739-bf7b-41f2-bdc1-fe6a77f98545`, environment
 environment values, include provider keys in command arguments/logs, or commit
 funding keys. Dwellir credentials already exist in Center's Railway environment.
 
+## Hosted-provider timing (measured 2026-09-15)
+
+One complete Safe7579 inspection over Dwellir Base is ~83 RPC calls and takes 20 to 27 s
+(`eth_getLogs` windows are capped at 500 blocks, error -32005). Every constant on that path
+is sized to it, and `test/rest-wallet-runtime.test.ts` pins the production values:
+
+- Three inspectors exist (legacy stack and wallet profile in `runtime.ts`, the DB-free one in
+  `authorityChain.ts`). All prove creation without a history scan: the runtime ones from the
+  `FactoryHistoryIndex`, the authority chain from the creation receipt named by the bound
+  setup state. All use `maxLogRangeBlocks: 500` and a 90 s deadline.
+- Authority observation budget `walletAuthorityObservationBounds.totalTimeoutMs` 90 s; a
+  verified snapshot is ready for `walletAuthorityMaximumAgeMs` 120 s (migration 039 relaxed
+  the DB check constraint from 30 s); refresh queue lease 120 s, refresh lead 60 s, worker
+  attempt 100 s.
+- Signup shows `preparing_sign_in` after setup until the worker's snapshot is verified; the
+  signup site asks the worker on every such view and the page polls state every 2 s. Recovery
+  still refreshes inline in its status call (open item).
+
 ## Checks, review and observation loop
 
 Use Node 22 and Foundry. On this machine:

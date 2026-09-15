@@ -2,7 +2,7 @@ import type { Pool, PoolClient } from "pg";
 import { RestError } from "../core.js";
 import type { SmartAccountBinding } from "../smartAccounts/types.js";
 import { stable } from "../smartAccounts/service.js";
-import { walletAuthorityIdentityDigest, type WalletAuthorityContext, type WalletAuthorityIdentity, type WalletAuthoritySnapshot } from "./authority.js";
+import { walletAuthorityIdentityDigest, walletAuthorityMaximumAgeMs, type WalletAuthorityContext, type WalletAuthorityIdentity, type WalletAuthoritySnapshot } from "./authority.js";
 import { PostgresWalletAuthorityStore } from "./authorityPostgres.js";
 import { currentWalletCredentialInTransaction, lockWalletEnrollmentInTransaction } from "./enrollmentPostgres.js";
 import { PostgresWalletCeremonyStore, lockWalletCeremonyAdmission, walletCeremonyDatabaseNow } from "./ceremoniesPostgres.js";
@@ -63,7 +63,7 @@ function ready(context: LockedContext, now: number): void {
   const a = context.authority, snapshot = a?.snapshot;
   if (!a || !snapshot || snapshot.readiness !== "verified" || snapshot.bootstrapRequired || snapshot.activeFence !== null ||
       !snapshot.identity || !snapshot.latestObservation || snapshot.latestObservation.observedAtMs > now ||
-      a.ready_until_ms === null || Number(a.ready_until_ms) <= now || Number(a.ready_until_ms) > snapshot.latestObservation.observedAtMs + 30_000 ||
+      a.ready_until_ms === null || Number(a.ready_until_ms) <= now || Number(a.ready_until_ms) > snapshot.latestObservation.observedAtMs + walletAuthorityMaximumAgeMs ||
       snapshot.identity.bindingId !== context.binding.id || a.binding_id !== context.binding.id ||
       snapshot.identity.bindingAuthorizationDigest !== context.binding.authorization_digest ||
       a.binding_authorization_digest !== context.binding.authorization_digest) inactive();

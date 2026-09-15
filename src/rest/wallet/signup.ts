@@ -26,7 +26,7 @@ export interface LocalWalletSignupDependencies {
   onEvent?: (event: { stage: "worker" | "deployment" | "setup"; outcome: string; operationId?: string; elapsedMs?: number; reason?: string; detail?: Record<string, unknown> }) => void;
 }
 export type WalletSignupPhase = "awaiting_registration" | "awaiting_possession" | "awaiting_deployment_approval" |
-  "deploying" | "deployment_failed" | "awaiting_setup" | "ready_to_sign_in" | "expired";
+  "deploying" | "deployment_failed" | "awaiting_setup" | "preparing_sign_in" | "ready_to_sign_in" | "expired";
 function state(): never { throw new RestError(409, "WALLET_SIGNUP_STATE", "Reload this signup and complete its current step."); }
 function fields(value: unknown, keys: string[], optional: string[] = []) {
   const own = value && typeof value === "object" ? Reflect.ownKeys(value) : [];
@@ -62,13 +62,17 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
       binding.wallet.chainId === 8453 && binding.wallet.address.toLowerCase() === enrollment.creation!.address.toLowerCase() &&
       binding.authorization.method === "safe-passkey-owner-threshold-and-api-grant" &&
       binding.authorization.setup?.initializerHash === enrollment.creation!.initializerHash) : false;
+    // Login needs the worker's verified authority observation (~25 s over a hosted provider);
+    // until then the signup is "preparing", and the page polls rather than prompting.
+    const current = configured ? await options.authority.currentAuthority(enrollment.receipt!.accountId) : null;
+    const signInReady = current?.readiness === "verified" && !current.bootstrapRequired;
     // Setup re-inspects the current canonical wallet and requires fresh owner and
     // browser proofs. It need not wait for the treasury's finalized fee receipt.
     // Use only the latest observation here; retained history is not current evidence.
     const creation = receipt?.evidence.observation ?? operation?.observation;
     const created = creation?.transaction.state === "canonical-success" && creation.wallet.state === "verified";
     const phase: WalletSignupPhase = enrollment.state !== "verified" ? (enrollment.intent.expiresAt <= now ? "expired" : enrollment.state)
-      : configured ? "ready_to_sign_in"
+      : configured ? (signInReady ? "ready_to_sign_in" : "preparing_sign_in")
       : created ? "awaiting_setup"
       : receipt ? "deployment_failed"
       : !operation || operation.state === "prepared" ? "awaiting_deployment_approval" : "deploying";
@@ -193,7 +197,7 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     if (!flow.setup || flow.setup.id !== setupId || !enrollment.candidate || !enrollment.receipt) state();
     // A lost response after the setup commit only reads the original account. It does
     // not consume another ceremony, change owners, or grant a second browser key.
-    if ((await status(flowToken)).phase === "ready_to_sign_in") return status(flowToken);
+    if (["preparing_sign_in", "ready_to_sign_in"].includes((await status(flowToken)).phase)) return status(flowToken);
     const review = await setupReview(flow.setup);
     const proof = verifyWalletAssertion(assertion, { purpose: "session", challenge: review.signingPayload.digest,
       rpId: enrollment.intent.rpId, origin: enrollment.intent.origin, requireUserHandle: true,

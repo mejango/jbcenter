@@ -186,7 +186,7 @@ export async function createRestRuntime(options: {
   const wallet: RestWalletRuntime | undefined = walletConfiguration ? (() => {
     const origin = validateWalletPolicyOrigin(walletConfiguration.origin);
     const chain = createWalletAuthorityChain({ rpc, manifest: walletConfiguration.manifest,
-      utility: walletConfiguration.utility, limits: { totalTimeoutMs: 10_000 } });
+      utility: walletConfiguration.utility, limits: { totalTimeoutMs: 90_000 } });
     const login = new PostgresWalletLoginStore(options.pool, { origin, rpId: new URL(origin).hostname });
     const policy = new PostgresWalletPolicyStore(options.pool);
     const appGrants = new PostgresWalletAppGrantStore(options.pool);
@@ -194,9 +194,10 @@ export async function createRestRuntime(options: {
       grantStore: appGrants, issuer: origin, audience: options.audience ?? options.config.publicOrigin,
     });
     const authority = new PostgresWalletAuthorityStore(options.pool);
+    // One refresh is one hosted inspection (~25 s measured, 90 s budget); the lease outlives the attempt.
     const refresh = createWalletAuthorityRefresh({
       queue: new PostgresWalletAuthorityRefreshQueue(options.pool),
-      service: createWalletAuthorityService({ store: authority, chain }),
+      service: createWalletAuthorityService({ store: authority, chain }), attemptTimeoutMs: 100_000,
       onEvent: event => console.info(JSON.stringify({ service: "wallet", action: "authority_refresh", outcome: event })),
     });
     return { origin, login, policy, handoff, appGrants, authority, refresh, activatePolicy: policy.activate.bind(policy) };

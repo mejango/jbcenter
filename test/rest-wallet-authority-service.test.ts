@@ -28,6 +28,14 @@ function fixture() {
 }
 
 describe("internal authority refresh orchestration", () => {
+  it("reads the stored snapshot for readiness views without observing the chain", async () => {
+    const f = fixture(), stored = { ...f.result.snapshot };
+    expect(await f.service.currentAuthority(f.context.accountId)).toBeNull();
+    const service = createWalletAuthorityService({ store: { ...f.store, get: vi.fn(async () => stored) }, chain: f.chain });
+    expect(await service.currentAuthority(f.context.accountId)).toEqual(stored);
+    expect(f.chain.observe).not.toHaveBeenCalled();
+    await expect(service.currentAuthority("eip155:1:0x0000000000000000000000000000000000000001")).rejects.toMatchObject({ code: "WALLET_AUTHORITY_ACCOUNT_INVALID" });
+  });
   it("loads trusted context, observes after the loader completes, then reconciles once", async () => {
     const f = fixture(), controller = new AbortController(), order: string[] = [];
     let holdingDatabaseWork = false;

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { hashTypedData, keccak256, toHex, type Hex } from "viem";
+import { hashTypedData, keccak256, padHex, stringToHex, toHex, type Hex } from "viem";
 import type { RestBlockEvidence, RestRpc } from "../src/rest/core.js";
 import type { SmartAccountState, SmartAccountManifest, ContractPin } from "../src/rest/smartAccounts/types.js";
 import { fingerprint } from "../src/rest/smartAccounts/service.js";
@@ -84,6 +84,7 @@ function fixture(override?: Override, options: Partial<Omit<WalletAuthorityChain
     if (method === "eth_chainId") result = "0x2105";
     else if (method === "eth_getBlockByNumber") { const n = params[0] === "latest" ? 100 : Number(BigInt(String(params[0])));
       result = { number: toHex(n), hash: hash(n), timestamp: toHex(now / 1000) }; }
+    else if (method === "eth_getTransactionReceipt") result = null;
     else throw new Error(`Unexpected authority RPC: ${method}`);
     return override ? override(method, params, result, signal) : result;
   } };
@@ -97,8 +98,8 @@ function prior(input: WalletAuthorityContext, accepted = block(95)): WalletAutho
     bootstrapRequired: false, readiness: "verified", identity, historicalVerifiedIdentity: identity, acceptedAnchor: accepted,
     highestObservedBlock: accepted.blockNumber, activeFence: null, lastClosedFence: null,
     latestObservation: { version: "center-wallet-authority-observation-v1", accountId: input.accountId, contextDigest: walletAuthorityContextDigest(input),
-      observedAtMs: now + 1, validUntilMs: now + 30_001, head: accepted, priorAnchor: { status: "none", expected: null, observed: null },
-      identity, eligibility: "matched", reason: null }, validUntilMs: now + 30_001, updatedAtMs: now + 2 };
+      observedAtMs: now + 1, validUntilMs: now + 120_001, head: accepted, priorAnchor: { status: "none", expected: null, observed: null },
+      identity, eligibility: "matched", reason: null }, validUntilMs: now + 120_001, updatedAtMs: now + 2 };
 }
 function fenced(input: WalletAuthorityContext, recoveryAnchor: RestBlockEvidence | null): WalletAuthoritySnapshot {
   const result = prior(input, block(95, hash(9995)));
@@ -110,13 +111,37 @@ function fenced(input: WalletAuthorityContext, recoveryAnchor: RestBlockEvidence
 describe("configured canonical authority producer", () => {
   it("uses disposable complete inspection and binds the new session-administration identity", async () => {
     const f = fixture(), result = await f.chain.observe(f.input);
-    expect(result).toMatchObject({ accountId: f.input.accountId, observedAtMs: now + 3, validUntilMs: now + 30_003,
+    expect(result).toMatchObject({ accountId: f.input.accountId, observedAtMs: now + 3, validUntilMs: now + 120_003,
       eligibility: "matched", head: block(), identity: { stateHash: state.stateHash, sessionAdministration: { epoch: "0", hash: hash(1004) } },
       priorAnchor: { status: "none", expected: null, observed: null } });
     expect(mocked.inspector).toHaveBeenCalledOnce();
-    const options = mocked.inspector.mock.calls[0]![0]; expect(options).not.toHaveProperty("checkpointStore"); expect(options).not.toHaveProperty("creationLogs");
+    const options = mocked.inspector.mock.calls[0]![0]; expect(options).not.toHaveProperty("checkpointStore");
+    // Hosted providers cap eth_getLogs windows and answer slowly; the disposable inspector proves
+    // creation from the bound state's creation receipt (below) within the observation budget.
+    expect(options).toMatchObject({ maxLogRangeBlocks: 500, timeoutMs: 90_000 });
     expect(mocked.inspect).toHaveBeenCalledWith({ manifestId: manifest.id, address: state.address }, undefined, block());
     expect(f.calls.every(c => !/send|sign|estimate|anvil/i.test(c.method))).toBe(true);
+  });
+  it("proves creation from the bound state's creation receipt instead of scanning history", async () => {
+    const creationTopic = keccak256(stringToHex("ProxyCreation(address,address)"));
+    const proxyLog = { address: manifest.factory.address, topics: [creationTopic, padHex(state.address, { size: 32 })], data: "0x",
+      blockNumber: toHex(90), blockHash: hash(90), transactionHash: hash(1005), logIndex: "0x0", removed: false };
+    const other = { ...proxyLog, topics: [creationTopic, padHex(`0x${"11".repeat(20)}`, { size: 32 })], logIndex: "0x1" };
+    const f = fixture((method, params, result) => method === "eth_getTransactionReceipt"
+      ? (params[0] === hash(1005) ? { transactionHash: hash(1005), blockNumber: toHex(90), blockHash: hash(90), status: "0x1", logs: [other, proxyLog] } : null) : result);
+    const seen: unknown[] = [];
+    mocked.inspect.mockImplementation(async (_input, _signal, at) => {
+      const options = mocked.inspector.mock.calls[0]![0] as { creationLogs: (chainId: number, factory: string, account: string, end: bigint) => Promise<unknown> };
+      seen.push(await options.creationLogs(8453, manifest.factory.address, state.address, 100n));
+      seen.push(await options.creationLogs(8453, manifest.factory.address, `0x${"22".repeat(20)}`, 100n));
+      seen.push(await options.creationLogs(8453, manifest.factory.address, state.address, 89n));
+      return { ...structuredClone(state), evidence: at };
+    });
+    await f.chain.observe(f.input);
+    // The exact factory log for this account; a receipt without it proves nothing and never
+    // falls back to a scan; a creation past the observed head is not evidence for that head.
+    expect(seen).toEqual([[proxyLog], [], []]);
+    expect(f.calls.filter(c => c.method === "eth_getTransactionReceipt").map(c => c.params)).toEqual([[hash(1005)], [hash(1005)], [hash(1005)]]);
   });
   it("proves a replaced prior anchor even when the new head is higher, before expensive inspection", async () => {
     const f = fixture(); f.input.prior = prior(f.input, block(95, hash(9995)));
@@ -189,7 +214,7 @@ describe("configured canonical authority producer", () => {
   it("retains original observation time and refuses expiry during inspection", async () => {
     let clock = now + 3;
     const f = fixture(undefined, { now: () => clock });
-    mocked.inspect.mockImplementation(async (_input, _signal, at) => { clock += 30_001; return { ...structuredClone(state), evidence: at }; });
+    mocked.inspect.mockImplementation(async (_input, _signal, at) => { clock += 120_001; return { ...structuredClone(state), evidence: at }; });
     expect(await f.chain.observe(f.input)).toMatchObject({ observedAtMs: now + 3, head: null, identity: null, validUntilMs: null });
   });
   it("bounds a provider that ignores its deadline signal", async () => {

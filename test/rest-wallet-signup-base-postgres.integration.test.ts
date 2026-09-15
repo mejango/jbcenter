@@ -127,8 +127,9 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
       const verified = verifyWalletAssertion(setupAssertion, { purpose: "session", challenge: onboarding.signingPayload.digest, rpId, origin: issuer,
         credential: { id: credential.credentialId, userHandle: credential.userHandle, publicKey: credential.publicKey, backupEligible: true }, requireUserHandle: true });
       expect((await signup.completeSetup(flowToken, { setupId: setupReview.id, browserProof: await browser.signTypedData(passkeyOnboardingProofDocument(onboarding.typedData)),
-        signature: encodeSafe7579MessageSignature([{ kind: "contract", owner: onboarding.state.ownerProfile!.signer.address, signature: verified.contractSignature }]) })).phase).toBe("ready_to_sign_in");
+        signature: encodeSafe7579MessageSignature([{ kind: "contract", owner: onboarding.state.ownerProfile!.signer.address, signature: verified.contractSignature }]) })).phase).toBe("preparing_sign_in");
       expect((await authority.refreshAuthority(record.receipt!.accountId)).snapshot.readiness).toBe("verified");
+      expect((await signup.status(flowToken)).phase).toBe("ready_to_sign_in");
       const begunLogin = await login.begin(), loggedIn = await login.complete({ loginId: begunLogin.login.id, flowToken: begunLogin.flowToken,
         assertion: signGet({ ...credential, challenge: begunLogin.login.challenge, rpId, origin: issuer }) });
       expect(loggedIn.session.accountId).toBe(record.receipt!.accountId);

@@ -58,6 +58,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
   const flows = new PostgresWalletSignupStore(options.pool, { origin, rpId: 'localhost', manifest: options.fixture.manifest });
   const signup = createLocalWalletSignup({ ...options, flows });
   const login = new PostgresWalletLoginStore(options.pool, { origin, rpId: 'localhost' });
+  let refreshHold: Promise<void> = Promise.resolve(), releaseRefresh = () => {};
   const recoveryObserver = createWalletAuthorityChain({ rpc: options.fixture.readOnlyRpc, manifest: options.fixture.manifest, utility: options.fixture.utility });
   const relay = privateKeyToAccount(`0x${'77'.repeat(32)}`);
   const recovery = kitMode ? createLocalWalletRecovery({ audience: 'https://juicebox.center', smart: options.smart, authority: options.authority,
@@ -74,7 +75,9 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     ...(recovery ? { recovery, recoveryBrowserScript: recoveryBrowserScript! } : {}),
     // No app handoff is involved in this signup/login observation.
     handoff: {} as never, policy: {} as never,
-    refresh: { request: accountId => options.authority.refreshAuthority(accountId), tick: async () => ({}) } });
+    // The site kicks the authority refresh after setup; holding it makes the "preparing" phase
+    // observable before the worker (inline here) verifies the authority and login opens.
+    refresh: { request: async accountId => { await refreshHold; await options.authority.refreshAuthority(accountId); }, tick: async () => ({}) } });
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1000, height: 850 } });
   const page = await context.newPage(), errors: string[] = [];
@@ -118,6 +121,8 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
     await page.getByRole('button', { name: 'Sign up' }).click();
     await proceed('Create your passkey');
+    // A prompt waiting on the user is not work in flight: the status mark holds still.
+    await expect.poll(() => page.locator('#wallet-status').getAttribute('data-state'), { timeout: 5000 }).toBe('ready');
     await page.getByRole('button', { name: 'Cancel prompt' }).click();
     await contains('cancelled');
     // Starting over forgets the continuation and shows the clean form again.
@@ -216,15 +221,21 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: new URL('signup-mobile.png', out).pathname, fullPage: true });
     await page.setViewportSize({ width: 1000, height: 850 });
+    refreshHold = new Promise<void>(resolve => { releaseRefresh = resolve; });
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await proceed('Authorize this browser');
     if (kitMode) {
       await contains('Check the original signup');
       await page.getByRole('button', { name: 'Check signup' }).click();
-      await contains('Log in with your passkey');
-      expect(await page.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('center:signup:browser:')))).toEqual([]);
-      await page.getByRole('button', { name: 'Log in', exact: true }).click();
     }
+    // Setup is committed, but login needs the verified authority; the page says so and polls.
+    await contains('Preparing your login');
+    expect(await page.locator('#wallet-status').getAttribute('data-state')).toBe('busy');
+    expect(await page.getByRole('button', { name: 'Log in', exact: true }).isVisible()).toBe(false);
+    releaseRefresh(); refreshHold = Promise.resolve();
+    await contains('Log in with your passkey');
+    if (kitMode) expect(await page.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('center:signup:browser:')))).toEqual([]);
+    await page.getByRole('button', { name: 'Log in', exact: true }).click();
     await proceed('Log in');
     await contains('You are signed in');
     expect((await page.locator('#wallet-address').textContent())?.toLowerCase()).toBe(originalAddress?.toLowerCase());

@@ -44,6 +44,19 @@ describe('signup HTTP authority boundary', () => {
     expect((await app.fetch(post('begin', { ...body, mnemonic: 'a secret must not be accepted' }, fresh))).status).toBe(400);
     expect(signup.begin).toHaveBeenCalledTimes(1);
   });
+  it('asks the refresh worker for the authority whenever a view is still preparing the login', async () => {
+    // Login needs the worker's verified observation (~25 s hosted); the page polls state until then.
+    const refresh = { request: vi.fn(async () => undefined), tick: vi.fn(async () => undefined) };
+    const { app, signup } = setup({ refresh });
+    const wallet = '0x' + 'AB'.repeat(20), preparing = { ...view, phase: 'preparing_sign_in', walletAddress: wallet };
+    signup.status.mockResolvedValueOnce(preparing as never);
+    expect((await app.fetch(new Request(origin + '/wallet/signup/state', { headers }))).status).toBe(200);
+    await vi.waitFor(() => expect(refresh.tick).toHaveBeenCalledTimes(1));
+    expect(refresh.request).toHaveBeenCalledWith('eip155:8453:' + wallet.toLowerCase());
+    signup.status.mockResolvedValueOnce({ ...preparing, phase: 'ready_to_sign_in' } as never);
+    expect((await app.fetch(new Request(origin + '/wallet/signup/state', { headers }))).status).toBe(200);
+    expect(refresh.request).toHaveBeenCalledTimes(1);
+  });
   it('lets a deliberate start-over drop the continuation cookie at any phase without touching the signup', async () => {
     const { app, signup } = setup();
     const response = await app.fetch(post('restart', {}));

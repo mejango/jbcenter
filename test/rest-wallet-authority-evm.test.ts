@@ -23,7 +23,7 @@ import { createWalletEnrollmentIntent, enrollmentDigest, prepareWalletEnrollment
   verifyWalletEnrollmentProof, walletEnrollmentDocument, type WalletEnrollment } from "../src/rest/wallet/enrollment.js";
 import { createWalletAuthorityChain } from "../src/rest/wallet/authorityChain.js";
 import { reconcileWalletAuthority, validateWalletAuthorityObservation, walletAuthorityIdentityDigest,
-  type WalletAuthorityContext, type WalletAuthorityObservation, type WalletAuthoritySnapshot } from "../src/rest/wallet/authority.js";
+  walletAuthorityMaximumAgeMs, type WalletAuthorityContext, type WalletAuthorityObservation, type WalletAuthoritySnapshot } from "../src/rest/wallet/authority.js";
 import { createRegistration, enrollmentBackupAccount, signBackupProof, signGet } from "./fixtures/wallet-enrollment-crypto.js";
 
 type Artifact = { address: Address; canonicalAddress?: Address; abi: Abi; bytecode: Hex; deployedBytecode: Hex;
@@ -241,7 +241,7 @@ describe.skipIf(!available)("canonical wallet authority from genuine enrollment 
       identity: { accountId: context.accountId, bindingId: context.binding.id,
         bindingAuthorizationDigest: context.binding.authorization.digest, stateHash: setupState.stateHash,
         creationTransaction, initializerHash: enrollment.creation!.initializerHash, sessionAdministration: { epoch: "0" } } });
-    expect(result.validUntilMs).toBeGreaterThan(clock); expect(result.validUntilMs).toBeLessThanOrEqual(clock + 30_000);
+    expect(result.validUntilMs).toBeGreaterThan(clock); expect(result.validUntilMs).toBeLessThanOrEqual(clock + walletAuthorityMaximumAgeMs);
     const firstCalls = observed.length, stored = reconcile(null, result);
     expect(stored).toMatchObject({ readiness: "verified", authorityEpoch: "1", sessionEpoch: "1", bootstrapRequired: false, activeFence: null });
     const repeated = await observe(stored);

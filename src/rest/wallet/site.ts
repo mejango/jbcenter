@@ -190,7 +190,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   });
   if (options.signup) {
     if (!options.signupBrowserScript) reject(503, 'WALLET_SIGNUP_UNAVAILABLE');
-    mountWalletSignup(app, { origin, signup: options.signup, browserScript: options.signupBrowserScript, basePath: base });
+    mountWalletSignup(app, { origin, signup: options.signup, browserScript: options.signupBrowserScript, basePath: base, refresh });
   }
   if (options.recovery) {
     if (!options.recoveryBrowserScript) reject(503, 'WALLET_RECOVERY_UNAVAILABLE');

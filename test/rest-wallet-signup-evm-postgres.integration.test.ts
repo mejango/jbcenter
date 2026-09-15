@@ -172,11 +172,14 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
         expect((await deployments.get(operation.id))!.signed).toEqual(included.signed);
         expect((await signup.status(flowToken)).phase).toBe("awaiting_setup");
       }
+      // Setup commits at once; login waits for the worker's verified authority observation.
       expect((await signup.completeSetup(flowToken, { setupId: setupReview.id, signature: complete.signature,
-        browserProof: complete.proofSignature })).phase).toBe("ready_to_sign_in");
+        browserProof: complete.proofSignature })).phase).toBe("preparing_sign_in");
       const configured = await smart.finalizePasskeyOnboarding(complete);
       expect((await signup.completeSetup(flowToken, { setupId: setupReview.id, signature: complete.signature,
-        browserProof: complete.proofSignature })).phase).toBe("ready_to_sign_in");
+        browserProof: complete.proofSignature })).phase).toBe("preparing_sign_in");
+      expect((await authority.refreshAuthority(accountId)).snapshot.readiness).toBe("verified");
+      expect((await signup.status(flowToken)).phase).toBe("ready_to_sign_in");
       expect(configured.account.id).toBe(accountId);
       expect(configured.binding.authorization.method).toBe("safe-passkey-owner-threshold-and-api-grant");
       expect(await count("rest_accounts")).toBe(index + 1); expect(await count("rest_bot_grants")).toBe(index + 1);
