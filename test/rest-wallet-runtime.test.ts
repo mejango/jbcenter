@@ -37,7 +37,7 @@ afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
   vi.useRealTimers(); vi.restoreAllMocks();
 });
-async function fixture(wallet?: RestWalletConfiguration, startMaintenance = false, smartAccountManifests?: readonly SmartAccountManifest[], localWalletSignup?: Parameters<typeof createRestRuntime>[0]['localWalletSignup'], localWalletRecovery?: Parameters<typeof createRestRuntime>[0]['localWalletRecovery']) {
+async function fixture(wallet?: RestWalletConfiguration, startMaintenance = false, smartAccountManifests?: readonly SmartAccountManifest[], walletSignup?: Parameters<typeof createRestRuntime>[0]['walletSignup'], walletRecovery?: Parameters<typeof createRestRuntime>[0]['walletRecovery']) {
   const pool = new Pool({ connectionString: 'postgresql://fixture@127.0.0.1:1/unused' });
   cleanup.push(() => pool.end());
   const query = vi.spyOn(pool, 'query').mockImplementation(() => { throw new Error('Unexpected database request during startup'); });
@@ -48,7 +48,7 @@ async function fixture(wallet?: RestWalletConfiguration, startMaintenance = fals
   } });
   const runtime = await createRestRuntime({ pool, store, services: mcp.services, config: mcp.config,
     upstreams: new Map(), rpc: { request }, executionConfiguration: await readRestExecutionConfiguration({}),
-    startMaintenance, ...(wallet ? { wallet } : {}), ...(smartAccountManifests ? { smartAccountManifests } : {}), ...(localWalletSignup ? { localWalletSignup } : {}), ...(localWalletRecovery ? { localWalletRecovery } : {}) });
+    startMaintenance, ...(wallet ? { wallet } : {}), ...(smartAccountManifests ? { smartAccountManifests } : {}), ...(walletSignup ? { walletSignup } : {}), ...(walletRecovery ? { walletRecovery } : {}) });
   cleanup.unshift(() => runtime.stop());
   return { runtime, pool, query, request };
 }

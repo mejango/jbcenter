@@ -53,6 +53,8 @@ describe("release check cannot silently omit required verification", () => {
       "rest-wallet-pressure-postgres.integration.test.ts",
       "rest-wallet-deployment-settlement-postgres.integration.test.ts",
       "rest-wallet-deployment-settlement-evm-postgres.integration.test.ts",
+      "rest-wallet-deployment-base-postgres.integration.test.ts", "rest-wallet-signup-base-postgres.integration.test.ts",
+      "rest-wallet-base-host-postgres.integration.test.ts",
     ].sort();
     const testDirectory = new URL(".", import.meta.url);
     const files = await readdir(testDirectory);
@@ -73,6 +75,7 @@ describe("release check cannot silently omit required verification", () => {
       "rest-wallet-authority-refresh.test.ts", "rest-wallet-login.test.ts", "rest-wallet-handoff.test.ts",
       "rest-wallet-deployment-execution.test.ts", "rest-wallet-deployment-local-anvil.test.ts", "rest-wallet-deployment-scalar-evm.test.ts",
       "rest-wallet-site.test.ts", "rest-wallet-http.test.ts", "rest-wallet-runtime.test.ts", "rest-wallet-client.test.ts", "rest-wallet-payment-reviews.test.ts", "rest-wallet-deployment-settlement.test.ts", "rest-wallet-deployment-settlement-local-anvil.test.ts",
+      "rest-wallet-deployment-base-boundaries.test.ts", "rest-wallet-deployment-base-anvil.test.ts",
       "rest-wallet-payment-public.test.ts", "rest-wallet-payment-client.test.ts", "rest-user-operations-v6-payment-semantics.test.ts",
       "rest-wallet-payment-browser.test.ts",
       "rest-wallet-pressure-schedule.test.ts",

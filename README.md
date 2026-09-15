@@ -353,6 +353,8 @@ The remaining controls are environment variables:
 - `RPC_PUBLIC_SITE_LIMIT_PER_MINUTE` — shared keyless RPC budget across untrusted origins; default `5000`.
 - `MAX_INTENTS_PER_CLIENT` — lifetime intent count per client; default `10000`.
 - `MAX_STORAGE_BYTES_PER_CLIENT` — lifetime stored envelope bytes per client; default 1 GiB.
+- `WALLET_ORIGIN` — hosted passkey wallet origin (for example `https://wallet.juicebox.center`); mounts the wallet site with the reviewed Base manifest.
+- `WALLET_CREATION_SIGNER_KEY`, `WALLET_CREATION_POOL_ID`, `WALLET_CREATION_ALLOCATION_WEI`, `WALLET_CREATION_INITIAL_NONCE` — together, the dedicated Base creation treasury: its private key, permanent pool UUID, whole allocation in wei and the sender's expected first nonce. Startup fails if only some are set; see [WALLET_SIGNUP.md](WALLET_SIGNUP.md).
 - `PARA_API_KEY` — public browser API key for account sign-in; authorize the Center origin in the Para dashboard. No Para server secret is used.
 - `PARA_ENVIRONMENT` — `BETA` (default) or `PROD`, matching the public key.
 - `METRICS_TOKEN` — required 32-character bearer token for `GET /metrics`.

@@ -107,18 +107,29 @@ resetting never starts a new recovery automatically.
 
 ## Composition and observation
 
-`createRestRuntime.localWalletSignup` accepts an explicit host-side factory after
+`createRestRuntime.walletSignup` accepts an explicit host-side factory after
 the smart-account service is constructed. It receives the shared pool, configured
 RPC, wallet runtime and smart-account service. The host must supply a qualified
-local signer, deployment transport, settlement observer and initialized local
-allocation to `createLocalWalletSignup`. There is no environment flag or request
-field that constructs treasury authority or enables production broadcast.
+signer, deployment transport, settlement observer and initialized allocation to
+`createLocalWalletSignup`. No request field constructs treasury authority.
+
+Two hosts exist. The local pilot uses the unforked Anvil producers. The hosted
+Base host (`src/rest/wallet/baseHost.ts`) uses `deploymentBase.ts`: one Dwellir
+endpoint with no public fallback, chain identity plus the pinned L1Block and
+GasPriceOracle implementation runtimes checked on every observation, a reservation
+of execution plus twice the current L1 and operator estimate priced from the head
+block's Jovian attributes deposit, one exact send, and complete Fjord/Jovian receipt
+fees at the finalized inclusion. An actual finalized debit above the allocation is
+retained and fences the pool as `allocation-exceeded`. `src/index.ts` mounts it only
+when `WALLET_ORIGIN` and every `WALLET_CREATION_*` setting are present; the first
+start configures the single pool and initializes accounting with the explicit
+`WALLET_CREATION_INITIAL_NONCE`, refusing a provider nonce that differs.
 
 The runtime mounts signup only when that factory is provided, and starts/stops its
 worker with maintenance. Normal Center startup and Para compatibility remain
 available. Public wallet discovery preserves the installed SDK's exact schema.
 
-`createRestRuntime.localWalletRecovery` is the corresponding explicit local host
+`createRestRuntime.walletRecovery` is the corresponding explicit local host
 factory for recovery. It mounts the page only when supplied and starts/stops its
 bounded worker with maintenance. Production startup never constructs either signer
 from an environment flag or request field. Recovery has distinct HttpOnly cookies,

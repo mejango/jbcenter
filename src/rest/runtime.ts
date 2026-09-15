@@ -107,12 +107,12 @@ export async function createRestRuntime(options: {
   audience?: string;
   para?: RestSite["para"];
   wallet?: RestWalletConfiguration;
-  /** Explicit host capability for the unforked local pilot. No environment or HTTP
-   * field can construct a treasury signer or enable production deployment. */
-  localWalletSignup?: (context: { pool: Pool; rpc: RestRpc; wallet: RestWalletRuntime;
-    smart: ReturnType<typeof createSmartAccountService> }) => ReturnType<typeof createLocalWalletSignup>;
-  localWalletRecovery?: (context: { pool: Pool; rpc: RestRpc; wallet: RestWalletRuntime;
-    smart: ReturnType<typeof createSmartAccountService> }) => ReturnType<typeof createLocalWalletRecovery>;
+  /** Explicit host capabilities: the unforked local pilot or the hosted Base host. No HTTP field
+   * can construct a treasury signer; the host process supplies the factory and its configuration. */
+  walletSignup?: (context: { pool: Pool; rpc: RestRpc; wallet: RestWalletRuntime;
+    smart: ReturnType<typeof createSmartAccountService> }) => ReturnType<typeof createLocalWalletSignup> | Promise<ReturnType<typeof createLocalWalletSignup>>;
+  walletRecovery?: (context: { pool: Pool; rpc: RestRpc; wallet: RestWalletRuntime;
+    smart: ReturnType<typeof createSmartAccountService> }) => ReturnType<typeof createLocalWalletRecovery> | Promise<ReturnType<typeof createLocalWalletRecovery>>;
   rpcSiteLimitPerMinute?: number;
   smartAccountManifests?: readonly SmartAccountManifest[];
   smartAccountModuleInspectors?: readonly SmartModuleInspector[];
@@ -511,10 +511,10 @@ export async function createRestRuntime(options: {
     openapi,
   });
   const assets = await readRestAssets();
-  if (options.localWalletSignup && !wallet) throw new RestError(503, 'WALLET_SIGNUP_UNAVAILABLE', 'Local signup requires the dedicated wallet host.');
-  if (wallet && options.localWalletSignup) wallet.signup = options.localWalletSignup({ pool: options.pool, rpc: backendRpc, wallet, smart: smartAccounts });
-  if (options.localWalletRecovery && !wallet) throw new RestError(503, 'WALLET_RECOVERY_UNAVAILABLE', 'Local recovery requires the dedicated wallet host.');
-  if (wallet && options.localWalletRecovery) wallet.recovery = options.localWalletRecovery({ pool: options.pool, rpc: backendRpc, wallet, smart: smartAccounts });
+  if (options.walletSignup && !wallet) throw new RestError(503, 'WALLET_SIGNUP_UNAVAILABLE', 'Signup requires the dedicated wallet host.');
+  if (wallet && options.walletSignup) wallet.signup = await options.walletSignup({ pool: options.pool, rpc: backendRpc, wallet, smart: smartAccounts });
+  if (options.walletRecovery && !wallet) throw new RestError(503, 'WALLET_RECOVERY_UNAVAILABLE', 'Recovery requires the dedicated wallet host.');
+  if (wallet && options.walletRecovery) wallet.recovery = await options.walletRecovery({ pool: options.pool, rpc: backendRpc, wallet, smart: smartAccounts });
   const walletSite = wallet ? createWalletSite({ origin: wallet.origin, audience: auth.audience,
     browserScript: assets.walletScript, login: wallet.login, policy: wallet.policy,
     handoff: wallet.handoff, refresh: wallet.refresh,

@@ -8,7 +8,10 @@ import { IpfsDiskCache } from "./ipfsCache.js";
 import { createRpcGateway, dwellirRpcUpstreams } from "./rpc.js";
 import { createCenterMcp } from "./mcp.js";
 import { createCenterServer } from "./server.js";
-import { createRestRuntime } from "./rest/runtime.js";
+import { createRestRuntime, type RestWalletConfiguration } from "./rest/runtime.js";
+import { createBaseWalletProductionStack } from "./rest/wallet/productionStack.js";
+import { createBaseWalletSignupHost } from "./rest/wallet/baseHost.js";
+import { DWELLIR_RPC_HOSTS } from "./rpc.js";
 import { readRestExecutionConfiguration } from "./rest/executionConfig.js";
 import { Metrics } from "./observability.js";
 
@@ -55,8 +58,24 @@ const mcp = createCenterMcp(store, { rpc, rpcSiteLimitPerMinute, ...(pinning ? {
 const metrics = new Metrics();
 const paraEnvironment = process.env.PARA_ENVIRONMENT ?? "BETA";
 if (paraEnvironment !== "BETA" && paraEnvironment !== "PROD") throw new Error("PARA_ENVIRONMENT must be BETA or PROD");
+// Hosted wallet: mounted only with an explicit origin. Creation additionally needs every treasury
+// setting; a partial configuration fails startup rather than exposing an incomplete journey.
+const walletOrigin = process.env.WALLET_ORIGIN;
+const creationSettings = ["WALLET_CREATION_SIGNER_KEY", "WALLET_CREATION_POOL_ID", "WALLET_CREATION_ALLOCATION_WEI", "WALLET_CREATION_INITIAL_NONCE"] as const;
+const creationConfigured = creationSettings.filter(name => process.env[name]);
+if (creationConfigured.length && (creationConfigured.length !== creationSettings.length || !walletOrigin))
+  throw new Error("Hosted wallet creation requires WALLET_ORIGIN and every WALLET_CREATION_* setting together");
+const walletStack = walletOrigin ? await createBaseWalletProductionStack() : undefined;
+const wallet: RestWalletConfiguration | undefined = walletOrigin && walletStack ? { origin: walletOrigin, manifest: walletStack.manifest, utility: walletStack.utility } : undefined;
 const rest = await createRestRuntime({
   ...(process.env.PARA_API_KEY ? { para: { apiKey: process.env.PARA_API_KEY, environment: paraEnvironment } } : {}),
+  ...(wallet ? { wallet } : {}),
+  ...(wallet && walletStack && creationConfigured.length ? { walletSignup: (context: Parameters<typeof createBaseWalletSignupHost>[0]) =>
+    createBaseWalletSignupHost(context, { url: `https://${DWELLIR_RPC_HOSTS[8453]}/${process.env.DWELLIR_API_KEY}`,
+      signerKey: process.env.WALLET_CREATION_SIGNER_KEY as `0x${string}`, poolId: process.env.WALLET_CREATION_POOL_ID!,
+      allocationWei: process.env.WALLET_CREATION_ALLOCATION_WEI!, initialNonce: process.env.WALLET_CREATION_INITIAL_NONCE!,
+      manifest: walletStack.manifest, utility: walletStack.utility,
+      onEvent: event => console.info(JSON.stringify({ service: "wallet", action: "creation", ...event })) }) } : {}),
   pool, store, services: mcp.services, config: mcp.config, upstreams: rpcUpstreams, rpcSiteLimitPerMinute, metrics,
   ...(process.env.REST_PUBLIC_ORIGIN ? { audience: process.env.REST_PUBLIC_ORIGIN } : {}),
   executionConfiguration: await readRestExecutionConfiguration(process.env),

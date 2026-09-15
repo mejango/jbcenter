@@ -1,6 +1,7 @@
 import { keccak256, padHex, toHex, type Address, type Hex } from "viem";
 import { createRpcGateway, DWELLIR_RPC_HOSTS } from "../../rpc.js";
 import { RestError, type RestBlockEvidence, type RestRpc } from "../core.js";
+import { PRIVATE_TRACE_RESPONSE_LIMIT, PRIVATE_TRACE_TIMEOUT_MS } from "../rpc.js";
 import type { ContractPin } from "../smartAccounts/types.js";
 import { baseL1AttributesParameters } from "./baseReceiptFees.js";
 import { observeBaseReceiptFees } from "./baseFeeObservation.js";
@@ -62,9 +63,13 @@ export function createBaseWalletDeploymentReader(options: BaseWalletDeploymentOp
   if (!(loopback || dwellir) || endpoint.search || endpoint.hash) invalid();
   const genesisHash = (options.genesisHash ?? baseWalletChainPins.genesisHash).toLowerCase() as Hex;
   // One URL only. The shared gateway list would fail over to a public provider for reads and could repeat a send.
-  const gateway = createRpcGateway(new Map([[8453, [endpoint.href]]]), fetch, { timeoutMs: bounds.sendTimeoutMs, responseLimitBytes: 2 * 1024 * 1024 });
+  const upstream = new Map([[8453, [endpoint.href]]]);
+  const gateways = { reads: createRpcGateway(upstream, fetch, { timeoutMs: 5000, responseLimitBytes: 8 * 1024 * 1024 }),
+    traces: createRpcGateway(upstream, fetch, { timeoutMs: PRIVATE_TRACE_TIMEOUT_MS, responseLimitBytes: PRIVATE_TRACE_RESPONSE_LIMIT }),
+    send: createRpcGateway(upstream, fetch, { timeoutMs: bounds.sendTimeoutMs, responseLimitBytes: 65536 }) };
   let sequence = 0;
   async function request(method: string, params: readonly unknown[], signal?: AbortSignal): Promise<unknown> {
+    const gateway = method === "eth_sendRawTransaction" ? gateways.send : method === "debug_traceTransaction" ? gateways.traces : gateways.reads;
     const answer = await gateway.request(8453, { jsonrpc: "2.0", id: ++sequence, method, params }, signal);
     if (!record(answer) || answer.error || !Object.hasOwn(answer, "result")) unavailable();
     return answer.result;
