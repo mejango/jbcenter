@@ -72,7 +72,7 @@ ADD CONSTRAINT rest_wallet_deployment_dispatch_admission_v3 CHECK ((jsonb_typeof
     AND jsonb_typeof(admission->'environment'->'head')='object'
     AND (admission->>'observedAt')::bigint>0 AND (admission->>'observedAt')::bigint<=claimed_at
     AND (admission->>'expiresAt')::bigint>claimed_at AND (admission->>'expiresAt')::bigint>=lease_until
-    AND (admission->>'expiresAt')::bigint<=(admission->>'observedAt')::bigint+5000
+    AND (admission->>'expiresAt')::bigint<=(admission->>'observedAt')::bigint+20000
     AND admission->>'balanceWei' ~ '^(0|[1-9][0-9]{0,77})$'
     AND admission->>'maximumExecutionCost' ~ '^[1-9][0-9]{0,77}$'
     AND (admission->>'balanceWei')::numeric<2::numeric^256

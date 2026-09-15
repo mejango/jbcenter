@@ -13,6 +13,7 @@ import { assertWalletDeploymentAccounting, walletDeploymentAccountingDigest, wal
 
 export type WalletDeploymentRpcScope = ReturnType<typeof operationRpc>;
 export interface WalletDeploymentRpcLimits { rpcCalls: number; rpcTimeoutMs: number; totalTimeoutMs: number; responseBytes: number }
+export interface WalletDeploymentTransportLimits extends WalletDeploymentRpcLimits { admissionLifetimeMs: number }
 /** One explicit chain behind the shared durable boundaries. The host constructs it; no request
  * field, environment flag or database row can supply an endpoint, key or identity. */
 export interface WalletDeploymentChainAdapter {
@@ -20,7 +21,7 @@ export interface WalletDeploymentChainAdapter {
   genesisHash: Hex;
   /** Read-only bounded transport. Every request is charged to the caller's operation budget. */
   reads: RestRpc;
-  limits: WalletDeploymentRpcLimits;
+  limits: WalletDeploymentTransportLimits;
   /** Chain identity and, for Base, the pinned fee runtimes. Throws when anything differs. */
   identity(rpc: WalletDeploymentRpcScope, at?: RestBlockEvidence): Promise<WalletDeploymentEnvironment>;
   /** One physical eth_sendRawTransaction, no failover or retry. Returns the provider result. */
@@ -52,6 +53,8 @@ export function walletDeploymentBlock(value: unknown, now: number, fail: () => n
  * reprices, replaces a nonce or claims a fee ceiling; a Base reservation is estimate plus margin. */
 export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAdapter) {
   const { reads, limits, kind } = adapter, genesisHash = adapter.genesisHash.toLowerCase() as Hex, now = adapter.now ?? Date.now;
+  if (!Number.isSafeInteger(limits.admissionLifetimeMs) || limits.admissionLifetimeMs < 1 || limits.admissionLifetimeMs > bounds.admissionLifetimeMs)
+    throw new RestError(500, "WALLET_DEPLOYMENT_CONFIG_INVALID", "The admission lifetime exceeds the reviewed bound.");
   function invalid(): never { throw new RestError(403, "WALLET_DEPLOYMENT_TRANSPORT_INVALID", "A current exact deployment capability is required."); }
   function unavailable(): never { throw new RestError(502, "WALLET_DEPLOYMENT_TRANSPORT_UNAVAILABLE", "The configured chain could not verify deployment admission."); }
   const quantity = (value: unknown) => walletDeploymentQuantity(value, unavailable), block = (value: unknown, at: number) => walletDeploymentBlock(value, at, unavailable);
@@ -94,7 +97,7 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
         rawTransaction: operation.signed.rawTransaction, policy });
       if (signed.hash !== operation.signed.hash || signed.templateCommitment !== operation.templateCommitment ||
           signed.maximumExecutionCost !== operation.signed.maximumExecutionCost || decimal(remainingWei) < BigInt(signed.maximumExecutionCost)) invalid();
-      const expiresAt = Math.min(observedAt + bounds.admissionLifetimeMs, observation.observedAt + config.policy.maximumObservationAgeMs,
+      const expiresAt = Math.min(observedAt + limits.admissionLifetimeMs, observation.observedAt + config.policy.maximumObservationAgeMs,
         Number((BigInt(observation.head.timestamp) + 300n) * 1000n));
       function fresh() { const current = now(); if (!time(current) || current < observedAt || current >= expiresAt || performance.now() >= deadline) invalid(); }
       const rpc = operationRpc(reads, limits, signal);

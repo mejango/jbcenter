@@ -9,7 +9,7 @@ import { PostgresWalletDeploymentStore } from "../src/rest/wallet/deploymentPost
 import { walletDeploymentAccountingDigest, walletDeploymentRemainingWei, type WalletDeploymentEnvironment,
   type WalletDeploymentSettlementContext } from "../src/rest/wallet/deploymentSettlement.js";
 import type { WalletDeploymentDispatchAdmission } from "../src/rest/wallet/deploymentDispatch.js";
-import { syntheticDeploymentObservation } from "./fixtures/wallet-deployment-execution.js";
+import { deploymentFixtureConfiguration, syntheticDeploymentObservation } from "./fixtures/wallet-deployment-execution.js";
 import { initializedSettlementPool, preparedSettlementUser, settlementDatabaseNow, signedSettlementUser, syntheticSettlement } from "./fixtures/wallet-deployment-settlement.js";
 
 const connectionString = process.env.TEST_DATABASE_URL, suite = connectionString ? describe : describe.skip;
@@ -75,19 +75,22 @@ suite("durable hosted Base deployment accounting", () => {
     expect((await store.getSettlement(context.operation.id))!.evidence.fees).toEqual(evidence.fees);
   });
   it("SQL refuses a local admission version, an unaffordable reservation and local fees under Base accounting", async () => {
-    await initializedSettlementPool(pool, store, base);
+    const hosted = deploymentFixtureConfiguration(); hosted.policy.maximumObservationAgeMs = 30_000;
+    await initializedSettlementPool(pool, store, base, hosted);
     const context = await observed(await signedSettlementUser(pool, store)), now = await settlementDatabaseNow(pool);
     const admission: any = baseAdmission(context, now);
     const lease = (value: unknown) => pool.query(`INSERT INTO rest_wallet_deployment_dispatches
       (operation_id,transaction_hash,template_commitment,revision,attempts,status,lease_token,lease_until,admission,admission_digest,claimed_at,next_attempt_at)
       VALUES($1,$2,$3,1,1,'in-flight',$4,$5,$6::jsonb,$7,$8,$9)`, [context.operation.id, context.operation.signed!.hash, context.operation.templateCommitment,
-      randomUUID(), now + 3000, JSON.stringify(value), enrollmentDigest(value), now, now + 4000]);
+      randomUUID(), now + 3000, JSON.stringify(value), enrollmentDigest(value), now, now + 4000]).then(async result => {
+        await pool.query("DELETE FROM rest_wallet_deployment_dispatches WHERE operation_id=$1", [context.operation.id]).catch(() => undefined); return result; });
     const local = { ...admission, version: "center-wallet-deployment-local-admission-v2", feeScope: "local-execution-only", baseTotalAffordability: "unknown",
       environment: { ...admission.environment, kind: "unforked-anvil" } }; delete local.reservation;
     await expect(lease(local)).rejects.toMatchObject({ code: "23514" });
     await expect(lease({ ...admission, reservation: { ...admission.reservation, totalWei: String(BigInt(context.pool.configuration.allocationWei) + 1n) } })).rejects.toMatchObject({ code: "23514" });
     await expect(lease({ ...admission, feeScope: "local-execution-only" })).rejects.toMatchObject({ code: "23514" });
-    await expect(lease(admission)).resolves.toBeDefined();
+    await expect(lease({ ...admission, expiresAt: now + 20_001 })).rejects.toMatchObject({ code: "23514" });
+    await expect(lease({ ...admission, expiresAt: now + 15_000 })).resolves.toBeDefined();
     const evidence = settlementAt(context, now, "16289011957");
     const localFees = { ...evidence, fees: { profile: "unforked-anvil-execution-fees-v1", executionWei: "500000000000", totalWei: "500000000000" } };
     await expect(store.settle(context, localFees as never)).rejects.toBeDefined();

@@ -8,6 +8,7 @@ import { assertWalletDeploymentAccounting, assertWalletDeploymentFundingEvidence
   type WalletDeploymentSettlementContext } from "../src/rest/wallet/deploymentSettlement.js";
 import { assertWalletDeploymentDispatchAdmission, type WalletDeploymentDispatchAdmission } from "../src/rest/wallet/deploymentDispatch.js";
 import { enrollmentDigest } from "../src/rest/wallet/enrollment.js";
+import { localAnvilWalletDeploymentLimits } from "../src/rest/wallet/deploymentLocalAnvil.js";
 
 const base: WalletDeploymentEnvironment = { kind: "base-mainnet", genesisHash: `0x${"11".repeat(32)}` };
 const baseFees = { profile: "base-fjord-jovian-receipt-v1" as const, executionWei: "500000000000", l1Wei: "16289011957", operatorWei: "7", totalWei: "516289011964" };
@@ -98,6 +99,16 @@ describe("hosted Base deployment boundary shapes", () => {
     context.operation.observation = syntheticDeploymentObservation(context, now - 100);
     const value = admission(context, now);
     expect(assertWalletDeploymentDispatchAdmission(value, context, now)).toEqual(value);
+  });
+  it("accepts a hosted admission window of up to twenty seconds while local windows stay at five", async () => {
+    const { context, now } = await fixture();
+    context.operation.observation = syntheticDeploymentObservation(context, now - 100);
+    context.pool.configuration.policy.maximumObservationAgeMs = 30_000; context.pool.configurationDigest = enrollmentDigest(context.pool.configuration);
+    context.operation.poolConfigurationDigest = context.pool.configurationDigest;
+    const value = { ...admission(context, now), expiresAt: now + 15_000, poolConfigurationDigest: context.pool.configurationDigest };
+    expect(assertWalletDeploymentDispatchAdmission(value, context, now)).toEqual(value);
+    expect(() => assertWalletDeploymentDispatchAdmission({ ...value, expiresAt: now + 20_001 }, context, now)).toThrow();
+    expect(localAnvilWalletDeploymentLimits.admissionLifetimeMs).toBe(5000);
   });
   it.each([
     (a: any) => { a.reservation.totalWei = String(BigInt(a.reservation.totalWei) - 1n); },

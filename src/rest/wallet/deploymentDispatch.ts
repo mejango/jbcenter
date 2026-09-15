@@ -48,8 +48,10 @@ export type WalletDeploymentDispatchAdmission =
       feeScope: "base-execution-l1-operator-reserved"; baseTotalAffordability: "reserved";
       accounting: { digest: string; remainingWei: string; nextNonce: string }; reservation: WalletDeploymentBaseReservation });
 export const walletDeploymentBaseReservationMargin = 2n;
+/** admissionLifetimeMs is the shared upper bound; each transport chooses its own window (local 5 s,
+ * hosted Base 20 s for roughly fourteen sequential provider rounds before the final recheck). */
 export const walletDeploymentDispatchLimits = Object.freeze({ maximumAttempts: 8, leaseMs: 15_000,
-  cooldownMs: 1_000, admissionLifetimeMs: 5_000, sendTimeoutMs: 3_000 });
+  cooldownMs: 1_000, admissionLifetimeMs: 20_000, sendTimeoutMs: 3_000 });
 export interface WalletDeploymentDispatchJournal {
   operationId: string;
   transactionHash: Hex;

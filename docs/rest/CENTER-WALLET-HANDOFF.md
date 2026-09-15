@@ -162,9 +162,13 @@ Known design constraints:
 4. Local recovery has a separate treasury sender, fixture-only budget and locks
    across bounded RPC work. Reassess those assumptions for hosted DB pressure.
 5. The Base settlement producer binds finality, the pinned runtimes at the inclusion
-   block and the durable operation before consuming fee output. Admission on Dwellir
-   must complete within the 5 s admission lifetime; measure this on the real provider
-   before the pilot and widen only with review.
+   block and the durable operation before consuming fee output. Measured read-only on
+   2026-09-15 against Center's Dwellir archive from this machine: identity 1.7 s,
+   reservation 0.8 s, funding read 3.1 s; the live genesis and both fee predeploys
+   matched the pins at block 51327173. The hosted admission window is therefore 20 s
+   (shared bound in migration 034 and `walletDeploymentDispatchLimits`); the local
+   producer keeps 5 s. The final pending-nonce and canonical-head recheck still runs
+   immediately before the single send.
 6. Read the actual Base chain configuration, not a generic OP schedule. The
    preserved source pin includes Jovian and later Base-specific upgrades.
 

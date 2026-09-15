@@ -9,9 +9,10 @@ import { assertWalletDeploymentAccounting, assertWalletDeploymentFundingEvidence
   walletDeploymentSettlementLimits as bounds } from "./deploymentSettlement.js";
 import type { WalletDeploymentFundingContext, WalletDeploymentFundingEvidence, WalletDeploymentSettlementContext,
   WalletDeploymentSettlementEvidence, WalletDeploymentSettlementFees } from "./deploymentSettlement.js";
-import type { WalletDeploymentChainAdapter, WalletDeploymentRpcScope } from "./deploymentTransport.js";
+import type { WalletDeploymentChainAdapter, WalletDeploymentRpcLimits, WalletDeploymentRpcScope } from "./deploymentTransport.js";
 
-export interface WalletDeploymentSettlementAdapter extends Omit<WalletDeploymentChainAdapter, "send" | "reserve"> {
+export interface WalletDeploymentSettlementAdapter extends Omit<WalletDeploymentChainAdapter, "send" | "reserve" | "limits"> {
+  limits: WalletDeploymentRpcLimits;
   utility: ContractPin;
   /** Producer-specific validity window for one funding read, at most the shared bound. */
   evidenceLifetimeMs: number;

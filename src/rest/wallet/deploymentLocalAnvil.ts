@@ -8,7 +8,7 @@ import type { WalletDeploymentEnvironment } from "./deploymentSettlement.js";
 const readMethods = new Set(["web3_clientVersion", "anvil_nodeInfo", "anvil_metadata", "eth_chainId", "eth_getBlockByNumber",
   "eth_getCode", "eth_getBalance", "eth_getTransactionCount", "eth_getTransactionReceipt", "eth_getTransactionByHash", "eth_call", "eth_estimateGas",
   "eth_getBlockByHash", "eth_getStorageAt", "eth_getTransactionByBlockHashAndIndex", "eth_getRawTransactionByHash", "eth_getLogs", "debug_traceTransaction"]);
-export const localAnvilWalletDeploymentLimits = Object.freeze({ rpcCalls: 64, rpcTimeoutMs: 2000, totalTimeoutMs: 5000, responseBytes: 1024 * 1024 });
+export const localAnvilWalletDeploymentLimits = Object.freeze({ rpcCalls: 64, rpcTimeoutMs: 2000, totalTimeoutMs: 5000, responseBytes: 1024 * 1024, admissionLifetimeMs: 5000 });
 function invalid(): never { throw new RestError(403, "WALLET_DEPLOYMENT_LOCAL_INVALID", "A current exact local deployment capability is required."); }
 function unavailable(): never { throw new RestError(502, "WALLET_DEPLOYMENT_LOCAL_UNAVAILABLE", "The configured local chain could not verify deployment admission."); }
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }

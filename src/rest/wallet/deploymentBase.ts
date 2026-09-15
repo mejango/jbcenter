@@ -31,7 +31,8 @@ export const baseWalletChainPins = Object.freeze({
   source: "base/base 9469da27403d6836634639b4899a6e4a0964720f; Sourcify records retained in the evidence bundle",
 });
 export const baseWalletDeploymentLimits = Object.freeze({
-  transport: { rpcCalls: 64, rpcTimeoutMs: 3000, totalTimeoutMs: 5000, responseBytes: 1024 * 1024 },
+  // Measured 2026-09-15 against Center's Dwellir archive: identity 1.7 s, reservation 0.8 s, funding 3.1 s.
+  transport: { rpcCalls: 64, rpcTimeoutMs: 5000, totalTimeoutMs: 20_000, responseBytes: 1024 * 1024, admissionLifetimeMs: 20_000 },
   settlement: { rpcCalls: 320, rpcTimeoutMs: 3000, totalTimeoutMs: 30_000, responseBytes: 8 * 1024 * 1024 },
   evidenceLifetimeMs: 60_000,
 });

@@ -21,8 +21,9 @@ export function syntheticFunding(context: WalletDeploymentFundingContext, now: n
     pendingNonce: context.pool.accounting?.nextNonce ?? "1", balanceWei: String(BigInt(context.pool.configuration.allocationWei) - BigInt(context.pool.accounting?.spentWei ?? "0")),
     previousAnchor: context.pool.accounting?.lastSettlementAnchor ?? null };
 }
-export async function initializedSettlementPool(pool: Pool, store: PostgresWalletDeploymentStore, environment?: WalletDeploymentEnvironment) {
-  const configured = await store.configurePool(deploymentFixtureConfiguration()), context = await store.loadFundingContext(configured.configuration.id);
+export async function initializedSettlementPool(pool: Pool, store: PostgresWalletDeploymentStore, environment?: WalletDeploymentEnvironment,
+  configuration = deploymentFixtureConfiguration()) {
+  const configured = await store.configurePool(configuration), context = await store.loadFundingContext(configured.configuration.id);
   await store.initializeAccounting(context, syntheticFunding(context, await settlementDatabaseNow(pool), environment), "1");
   return store.loadFundingContext(configured.configuration.id);
 }
