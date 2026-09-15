@@ -122,6 +122,17 @@ describe.skipIf(!available)("canonical passkey owner profile in the pinned local
       timestamp: String(BigInt(block.timestamp)), source: "onchain" }, request: (method, params) => rpc(method, [...params, tag]) };
   }
   const inspect = () => service().inspect({ manifestId: manifest.id, address: account });
+  it("issues the dependency and owner reads concurrently rather than one after another", async () => {
+    // Over a hosted provider each read costs a round trip; the pins, the singleton check and the
+    // owner code reads are independent, so they must go out together.
+    const base = await snapshot(); let inFlight = 0, peak = 0;
+    const counted: SmartSnapshot = { ...base, request: async (method, params) => {
+      inFlight++; peak = Math.max(peak, inFlight);
+      try { return await base.request(method, params); } finally { inFlight--; }
+    } };
+    await inspectOwners({ snapshot: counted });
+    expect(peak).toBeGreaterThanOrEqual(4);
+  });
   async function inspectOwners(changes: Partial<Parameters<typeof inspectPasskeyOwnerProfile>[0]> = {}) {
     return inspectPasskeyOwnerProfile({ manifest, owners: [signer, backup], threshold: 1, snapshot: await snapshot(), ...changes });
   }

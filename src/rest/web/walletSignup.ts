@@ -50,7 +50,9 @@ const steps: Record<View['phase'], string> = {
   awaiting_setup: 'Your wallet is ready.', ready_to_sign_in: 'Your wallet is ready. Log in with your passkey.',
   expired: 'This incomplete signup expired. Its passkey is not an active wallet credential.',
 };
-function message(value: string, error = false) { status.textContent = value; status.dataset.state = error ? 'error' : 'ready'; }
+// While work is in flight the status line's mark spins (Croptop's text ticker) instead of showing the lightning.
+function message(value: string, error = false) { status.textContent = value; status.dataset.state = error ? 'error' : busy ? 'busy' : 'ready'; }
+function spin() { if (busy) { if (status.dataset.state !== 'error') status.dataset.state = 'busy'; } else if (status.dataset.state === 'busy') status.dataset.state = 'ready'; }
 function encode(value: ArrayBuffer) { return btoa(String.fromCharCode(...new Uint8Array(value))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', ''); }
 function decode(value: string): Uint8Array<ArrayBuffer> {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,4096}$/.test(value)) throw new Error('Invalid passkey challenge.');
@@ -95,6 +97,7 @@ function accept(result: { view: View | null; csrfToken?: string }) {
   if (view?.phase === 'ready_to_sign_in' && kitSavedWallet === view.walletAddress) recoverySecret = null;
 }
 function render() {
+  spin();
   form.querySelector('button')!.disabled = busy;
   name.disabled = busy;
   // The kit is presented once the wallet exists. Earlier phases still need the words in memory

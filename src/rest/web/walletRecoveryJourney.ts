@@ -28,7 +28,9 @@ const steps: Record<WalletRecoveryView['phase'], string> = {
   awaiting_setup: 'Authorize this browser to read and prepare requests. Every payment still needs your approval.',
   ready_to_sign_in: 'Your replacement passkey is ready. Sign in with a fresh passkey prompt.', expired: 'This unfinished recovery expired. Its replacement passkey is not active.',
 };
-function message(value: string, error = false) { status.textContent = value; status.dataset.state = error ? 'error' : 'ready'; }
+// While work is in flight the status line's mark spins (Croptop's text ticker) instead of showing the lightning.
+function message(value: string, error = false) { status.textContent = value; status.dataset.state = error ? 'error' : busy ? 'busy' : 'ready'; }
+function spin() { if (busy) { if (status.dataset.state !== 'error') status.dataset.state = 'busy'; } else if (status.dataset.state === 'busy') status.dataset.state = 'ready'; }
 function invalid(): never { throw new Error('The recovery review changed. Check the original recovery before continuing.'); }
 function sameAddress(a: unknown, b: unknown): boolean { return typeof a === 'string' && typeof b === 'string' && isAddress(a) && isAddress(b) && getAddress(a) === getAddress(b); }
 function fields(value: unknown, expected: string[]) {
@@ -82,6 +84,7 @@ function accept(result: { view: WalletRecoveryView | null; csrfToken?: string })
   message(value ? steps[value.phase] : reference.value ? 'Resume the original recovery with its replacement passkey and recovery owner.' : 'Open your backup file, or use your original recovery wallet.');
 }
 function render() {
+  spin();
   form.hidden = !known || !!view; form.querySelector('button')!.disabled = busy || !!pending || !!reference.value;
   name.disabled = busy; wallet.disabled = busy;
   const recoverable = view?.phase !== 'ready_to_sign_in';

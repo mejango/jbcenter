@@ -95,13 +95,6 @@ async function inspectDependencies(manifest: SmartAccountManifest, snapshot: Sma
   requirePin(profile.signerFactory, "SafeWebAuthnSignerFactory", runtime(a.SafeWebAuthnSignerFactory, { "16": BigInt(profile.signerSingleton.address) }));
   requirePin(profile.signerSingleton, "SafeWebAuthnSignerSingleton", a.SafeWebAuthnSignerSingleton.deployedBytecode);
   requirePin(profile.p256Verifier, "FCLP256Verifier", a.FCLP256Verifier.deployedBytecode);
-  const codeHashes: { address: Address; runtimeCodeHash: Hex }[] = [];
-  // These checks also make the standalone helper safe; every read uses the caller's same canonical block.
-  for (const pin of [profile.signerFactory, profile.signerSingleton, profile.p256Verifier]) {
-    const code = rpcHex(await snapshot.request("eth_getCode", [pin.address]), "passkey dependency code");
-    if (!same(keccak256(code), pin.runtimeCodeHash)) unsupported("A passkey dependency runtime differs from its reviewed pin.");
-    codeHashes.push({ address: getAddress(pin.address), runtimeCodeHash: keccak256(code) });
-  }
   async function read(address: Address, functionName: "SINGLETON" | "getSigner" | "getConfiguration", args: readonly unknown[] = []) {
     try {
       return decodeFunctionResult({ abi: ABI, functionName,
@@ -109,8 +102,17 @@ async function inspectDependencies(manifest: SmartAccountManifest, snapshot: Sma
           data: encodeFunctionData({ abi: ABI, functionName, args } as Parameters<typeof encodeFunctionData>[0]), gas: "0x7a120" }]), "passkey configuration") });
     } catch { unsupported("The passkey configuration could not be read at the canonical snapshot."); }
   }
-  if (!same(String(await read(profile.signerFactory.address, "SINGLETON")), profile.signerSingleton.address))
-    unsupported("The signer factory uses a different singleton.");
+  // These checks also make the standalone helper safe; every read uses the caller's same canonical
+  // block, and they are independent, so they go out together rather than one round trip at a time.
+  const [codeHashes, singleton] = await Promise.all([
+    Promise.all([profile.signerFactory, profile.signerSingleton, profile.p256Verifier].map(async pin => {
+      const code = rpcHex(await snapshot.request("eth_getCode", [pin.address]), "passkey dependency code");
+      if (!same(keccak256(code), pin.runtimeCodeHash)) unsupported("A passkey dependency runtime differs from its reviewed pin.");
+      return { address: getAddress(pin.address), runtimeCodeHash: keccak256(code) };
+    })),
+    read(profile.signerFactory.address, "SINGLETON"),
+  ]);
+  if (!same(String(singleton), profile.signerSingleton.address)) unsupported("The signer factory uses a different singleton.");
   return { a, profile, codeHashes, read };
 }
 
@@ -160,9 +162,9 @@ export async function inspectPasskeyOwnerProfile(input: {
     invalid("The experimental passkey owner profile requires its explicit version on Base.");
   if (input.threshold !== 1 || owners.length !== 2 || owners.some((a) => !isAddress(a) || BigInt(a) <= 1n) || same(owners[0]!, owners[1]!))
     unsupported("The passkey pilot requires exactly one passkey signer and one independent EOA, with threshold one.");
-  const { a, profile, codeHashes, read } = await inspectDependencies(manifest, snapshot);
-  const observed = await Promise.all(owners.map(async (address) => ({ address: getAddress(address),
-    code: rpcHex(await snapshot.request("eth_getCode", [address]), "owner code") })));
+  const [{ a, profile, codeHashes, read }, observed] = await Promise.all([inspectDependencies(manifest, snapshot),
+    Promise.all(owners.map(async (address) => ({ address: getAddress(address),
+      code: rpcHex(await snapshot.request("eth_getCode", [address]), "owner code") })))]);
   const eoa = observed.filter((o) => o.code === "0x"), contracts = observed.filter((o) => o.code !== "0x");
   if (eoa.length !== 1 || contracts.length !== 1)
     unsupported("The recovery owner must be an independent EOA without delegated or contract code.");
