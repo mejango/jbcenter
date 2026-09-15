@@ -102,6 +102,11 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
   // Match the browser's existing wait budget, rather than Vitest's one-second
   // polling default. The enclosing journey and all server deadlines stay bounded.
   const contains = async (text: string) => expect.poll(() => page.locator('#wallet-status').textContent(), { timeout: 15000 }).toContain(text);
+  // Every native prompt is preceded by an in-page note; "Continue" opens the prompt.
+  const proceed = async (title: string) => {
+    await expect.poll(() => page.locator('#explain-title').textContent(), { timeout: 15000 }).toBe(title);
+    await page.locator('#explain-continue').click();
+  };
   try {
     await page.goto(origin + '/wallet/create');
     await page.getByLabel('Passkey name').fill('Juicebox test');
@@ -109,6 +114,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     // Sign up opens the passkey prompt at once; a cancelled prompt leaves the explicit button as the fallback.
     await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
     await page.getByRole('button', { name: 'Sign up' }).click();
+    await proceed('Create your passkey');
     await page.getByRole('button', { name: 'Cancel prompt' }).click();
     await contains('cancelled');
     // Starting over forgets the continuation and shows the clean form again.
@@ -118,10 +124,17 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await page.getByLabel('Passkey name').fill('Juicebox test');
     if (!kitMode) await page.getByLabel('A wallet you already have').check();
     await page.getByRole('button', { name: 'Sign up' }).click();
+    // Declining the note leaves the explicit button as the fallback, like a cancelled prompt.
+    await expect.poll(() => page.locator('#explain-title').textContent()).toBe('Create your passkey');
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+    await contains('Cancelled');
+    await page.getByRole('button', { name: 'Create passkey', exact: true }).click();
+    await proceed('Create your passkey');
     await page.getByRole('button', { name: 'Cancel prompt' }).click();
     await contains('cancelled');
     await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
     await page.getByRole('button', { name: 'Create passkey', exact: true }).click();
+    await proceed('Create your passkey');
     if (kitMode) {
       await contains('Check the original signup');
       await page.getByRole('button', { name: 'Check signup' }).click();
@@ -130,6 +143,8 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       // One click proves the passkey and approves creation: two prompts, each announced in the status line.
       await page.getByRole('button', { name: 'Create wallet', exact: true }).click();
     }
+    await proceed('Check the new passkey');
+    await proceed('Approve creating your wallet');
     await contains('Creating your wallet');
     const originalAddress = await page.locator('#signup-address').textContent();
     if (!kitMode) expect((await page.locator('#signup-recovery').textContent())?.toLowerCase()).toBe(enrollmentBackupAccount.address.toLowerCase());
@@ -147,7 +162,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     if (kitMode) {
       // The kit is presented once the wallet exists; saving it unlocks browser setup.
       await contains('Save your recovery kit');
-      expect(await page.getByRole('button', { name: 'Continue', exact: true }).isDisabled()).toBe(true);
+      expect(await page.getByRole('button', { name: 'Set up and log in' }).isDisabled()).toBe(true);
       const downloaded = page.waitForEvent('download');
       await page.getByRole('button', { name: 'Download recovery kit' }).click();
       const stream = await (await downloaded).createReadStream(), chunks = [];
@@ -157,7 +172,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       recoveryKitText = encoded;
       expect(kit.walletAddress.toLowerCase()).toBe(originalAddress?.toLowerCase());
       expect(kit.mnemonic.split(' ')).toHaveLength(24);
-      expect(await page.getByRole('button', { name: 'Continue', exact: true }).isDisabled()).toBe(false);
+      expect(await page.getByRole('button', { name: 'Set up and log in' }).isDisabled()).toBe(false);
       const wrong = JSON.stringify({ ...kit, walletAddress: '0x' + '44'.repeat(20) });
       await page.locator('#recovery-verify summary').click();
       await page.getByLabel('Recovery kit file').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(wrong) });
@@ -166,6 +181,8 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await context.clearCookies({ name: walletSignupCookie });
     await page.reload();
     await page.getByRole('link', { name: 'log in' }).click();
+    await proceed('Log in');
+    await proceed('Pick up your signup');
     await contains('Your wallet is ready');
     expect(await page.locator('#signup-address').textContent()).toBe(originalAddress);
     expect(await flows.authenticate(cookie.value)).toBeNull();
@@ -189,7 +206,8 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: new URL('signup-mobile.png', out).pathname, fullPage: true });
     await page.setViewportSize({ width: 1000, height: 850 });
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('button', { name: 'Set up and log in' }).click();
+    await proceed('Authorize this browser');
     if (kitMode) {
       await contains('Check the original signup');
       await page.getByRole('button', { name: 'Check signup' }).click();
@@ -197,6 +215,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       expect(await page.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('center:signup:browser:')))).toEqual([]);
       await page.getByRole('button', { name: 'Log in', exact: true }).click();
     }
+    await proceed('Log in');
     await contains('You are signed in');
     expect((await page.locator('#wallet-address').textContent())?.toLowerCase()).toBe(originalAddress?.toLowerCase());
     if (recovery) {

@@ -72,7 +72,13 @@ describe("hosted Base deployment producers on a Base-shaped local chain", () => 
     await expect(producer().observeSettlement(context)).rejects.toMatchObject({ status: 502 });
     await fixture.rpc("anvil_mine", ["0x201", "0x0"]);
     fixture.requests.length = 0;
+    // Base keeps mining during the pass: the funding read must pair with the observation's head
+    // by number, not expect "latest" to stand still for twenty seconds.
+    let latestReads = 0;
+    fixture.faults.after = async (method, params) => { if (method === "eth_getBlockByNumber" && params[0] === "latest" && ++latestReads === 1) await fixture.rpc("anvil_mine", ["0x1", "0x0"]); };
     const evidence = await producer().observeSettlement(context), receipt = evidence.observation.transaction.receipt!;
+    fixture.faults.after = async () => undefined;
+    expect(latestReads).toBeGreaterThan(0);
     // The verified creation receipt proves the deployment; a genesis-to-head factory scan is
     // impossible on a 500-block log plan, so every history read starts at the creation block.
     const scans = fixture.requests.filter(request => request.method === "eth_getLogs").map(request => request.params[0] as { fromBlock: string });

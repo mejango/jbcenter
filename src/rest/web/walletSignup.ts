@@ -12,6 +12,16 @@ const form = el<HTMLFormElement>('signup-form'), name = el<HTMLInputElement>('pa
 const next = el<HTMLButtonElement>('signup-next'), resume = el<HTMLAnchorElement>('signup-resume');
 const check = el<HTMLButtonElement>('signup-check'), cancel = el<HTMLButtonElement>('signup-cancel');
 const status = el('wallet-status'), details = el('signup-details'), restart = el<HTMLButtonElement>('signup-restart');
+const explain = el<HTMLDialogElement>('signup-explain');
+/** A small in-page note before every native passkey prompt: what it is for, then one click opens it. */
+function announce(title: string, text: string) {
+  el('explain-title').textContent = title; el('explain-text').textContent = text;
+  return new Promise<void>((resolve, reject) => {
+    explain.addEventListener('close', () => explain.returnValue === 'continue' ? resolve() : reject(new Error('Cancelled. You can try again.')), { once: true });
+    explain.returnValue = ''; explain.showModal();
+  });
+}
+const short = (address: string) => address.slice(0, 6) + '…' + address.slice(-4);
 let view: View | null = null, known = false, busy = false, csrf = '', native: AbortController | null = null;
 let pending: { path: string; body: unknown; csrf: string } | null = null;
 let disposed = false, pollCount = 0;
@@ -44,14 +54,22 @@ function hexBytes(value: string) {
   if (!/^0x[0-9a-fA-F]{64}$/.test(value)) throw new Error('Invalid passkey challenge.');
   return Uint8Array.from(value.slice(2).match(/../g)!.map(pair => parseInt(pair, 16)));
 }
-class HttpFailure extends Error { constructor(readonly status: number) { super('Signup could not be confirmed. Check the original signup and retry.'); } }
+class HttpFailure extends Error {
+  constructor(readonly status: number, readonly code = '') {
+    super(code === 'WALLET_DEPLOYMENT_BUSY' ? 'Another wallet is being created right now. Try again in a minute.' : 'Signup could not be confirmed. Check the original signup and retry.');
+  }
+}
+async function failure(response: Response) {
+  try { const code = (await response.json())?.error?.code; return new HttpFailure(response.status, typeof code === 'string' ? code : ''); }
+  catch { return new HttpFailure(response.status); }
+}
 async function request(path: string, body?: unknown, proof = csrf): Promise<any> {
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15000);
   try {
     const response = await fetch('/wallet/signup/' + path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal,
       ...(body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json', 'x-center-wallet-request': '1',
         ...(proof ? { 'x-center-wallet-csrf': proof } : {}) }, body: JSON.stringify(body) }) });
-    if (!response.ok) throw new HttpFailure(response.status);
+    if (!response.ok) throw await failure(response);
     return await response.json();
   } finally { clearTimeout(timer); }
 }
@@ -91,7 +109,7 @@ function render() {
   el('signup-address').textContent = view?.walletAddress ?? 'Not created yet';
   const label = view?.phase === 'awaiting_registration' ? 'Create passkey'
     : view?.phase === 'awaiting_possession' || view?.phase === 'awaiting_deployment_approval' ? 'Create wallet'
-    : view?.phase === 'awaiting_setup' ? 'Continue' : view?.phase === 'ready_to_sign_in' ? 'Log in' : view?.phase === 'expired' ? 'Start a new signup' : null;
+    : view?.phase === 'awaiting_setup' ? 'Set up and log in' : view?.phase === 'ready_to_sign_in' ? 'Log in' : view?.phase === 'expired' ? 'Start a new signup' : null;
   next.hidden = !label || !!pending || stranded; next.textContent = label; next.disabled = busy;
   // Saving the kit unlocks browser setup; after a reload the words are gone and only a saved kit can be checked.
   if (view?.phase === 'awaiting_setup' && kitMode() && recoverySecret && kitSavedWallet !== view.walletAddress) next.disabled = true;
@@ -158,6 +176,7 @@ async function advance() {
   if (view.phase === 'expired') {
     await send('restart', {}); csrf = '';
   } else if (view.phase === 'awaiting_registration' && view.registration) {
+    await announce('Create your passkey', `Your device will ask for your passkey (Touch ID, Face ID or a PIN) to save "${view.passkeyName}".`);
     message('Create the passkey in the prompt.'); native = new AbortController(); render();
     const value = await navigator.credentials.create({ publicKey: { rp: { id: view.rpId, name: 'Juicebox' },
       user: { id: decode(view.registration.userHandle), name: view.passkeyName, displayName: view.passkeyName },
@@ -186,6 +205,7 @@ async function advance() {
       const owner = await recoveryOwner(view.recoveryOwner);
       backupSignature = await provider().request({ method: 'eth_signTypedData_v4', params: [owner, JSON.stringify(document)] });
     }
+    await announce('Check the new passkey', 'One more passkey prompt proves the passkey you just made can sign for this wallet.');
     message('Check that the new passkey works: use it in the prompt.');
     const proof = await assertion(view.possession.challenge, view.rpId, view.possession.credentialId);
     await send('prove', { assertion: proof, backupSignature });
@@ -200,13 +220,14 @@ async function advance() {
     const setup: Awaited<ReturnType<Signup['prepareSetup']>> = await request('setup/review', { browserPublicAddress: browser.address });
     if (setup.walletAddress.toLowerCase() !== view.walletAddress?.toLowerCase() || getAddress(setup.input.grant.botAddress) !== browser.address ||
       setup.input.grant.scopes.join(',') !== 'read,plan,relay') throw new Error('The browser setup review changed.');
-    message('Authorize this browser in the prompt (1 of 2).');
+    await announce('Authorize this browser', 'A passkey prompt lets this browser read your wallet and prepare requests for one hour. It cannot move funds on its own.');
+    message('Authorize this browser in the prompt.');
     const proof = await assertion(setup.signingPayload.digest, view.rpId);
     const browserProof = await browser.signTypedData(setup.proofDocument as TypedDataDefinition);
     await send('setup/complete', { setupId: setup.id, assertion: proof, browserProof });
-    if (current()?.phase === 'ready_to_sign_in') await login('2 of 2');
+    if (current()?.phase === 'ready_to_sign_in') await login();
   } else if (view.phase === 'ready_to_sign_in') {
-    await login('1 of 1');
+    await login();
   }
 }
 const current = () => view;
@@ -214,6 +235,7 @@ async function approve() {
   const deployment: Awaited<ReturnType<Signup['prepareDeployment']>> = await request('deployment/review', {});
   if (deployment.walletAddress.toLowerCase() !== view!.walletAddress?.toLowerCase() || deployment.recoveryOwner.toLowerCase() !== view!.recoveryOwner.toLowerCase()
     || deployment.initializerHash !== view!.initializerHash) throw new Error('The wallet creation review changed.');
+  await announce('Approve creating your wallet', `A passkey prompt approves creating wallet ${short(deployment.walletAddress)} on Base. This makes it yours.`);
   message('Approve creating your wallet: use your passkey in the prompt.');
   const proof = await assertion(deployment.challenge, view!.rpId, deployment.credentialId);
   await send('deployment/approve', { approvalId: deployment.id, assertion: proof });
@@ -268,22 +290,24 @@ async function walletRequest(path: string, body: unknown, proof?: string): Promi
   try {
     const response = await fetch(path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal, method: 'POST',
       headers: { 'content-type': 'application/json', 'x-center-wallet-request': '1', ...(proof ? { 'x-center-wallet-csrf': proof } : {}) }, body: JSON.stringify(body) });
-    if (!response.ok) throw new HttpFailure(response.status);
+    if (!response.ok) throw await failure(response);
     return await response.json();
   } finally { clearTimeout(timer); }
 }
 /** The same sign-in as the wallet landing page, then that page shows the session (and any app return). */
-async function login(count = '1 of 1') {
+async function login() {
+  await announce('Log in', 'A passkey prompt logs you in to your wallet.');
   const begun = await walletRequest('/wallet/login/begin', {}), publicKey = begun.publicKey;
   if (publicKey?.rpId !== location.hostname || publicKey.userVerification !== 'required' || typeof begun.loginId !== 'string' || typeof begun.csrfToken !== 'string') throw new Error('The wallet host changed.');
   const challenge = decode(publicKey.challenge); if (challenge.length !== 32) throw new Error('Invalid passkey challenge.');
-  message(`Log in with the prompt (${count}).`);
+  message('Log in with the prompt.');
   const proof = await assertion('0x' + Array.from(challenge, byte => byte.toString(16).padStart(2, '0')).join(''), publicKey.rpId);
   const result = await walletRequest('/wallet/login/complete', { loginId: begun.loginId, assertion: proof }, begun.csrfToken);
   if (result?.session?.loginId !== begun.loginId) throw new Error('Sign-in could not be confirmed.');
   location.replace('/wallet' + location.search);
 }
 async function resumeSignup() {
+  await announce('Pick up your signup', 'That passkey belongs to an unfinished signup. One more passkey prompt picks it up where you left off.');
   const begun = await request('resume/begin', {}); message('Pick up your signup with the prompt.');
   const proof = await assertion(begun.challenge.challenge, begun.challenge.rpId);
   await send('resume/complete', { resumeId: begun.challenge.id, assertion: proof }, begun.csrfToken);

@@ -56,7 +56,9 @@ export function createWalletDeploymentSettlementObserver(adapter: WalletDeployme
     // genesis is reported rather than hidden. An uninitialized pool must match the configured chain.
     const environment = await adapter.identity(rpc);
     if (environment.kind !== kind || (!accounting && environment.genesisHash.toLowerCase() !== genesisHash)) unavailable();
-    const head = anchor(await rpc.request("eth_getBlockByNumber", ["latest", false]));
+    // Settlement pairs the funding read with the observation's head by number: on a live chain
+    // "latest" has moved on by the time the wallet inspection finishes.
+    const head = anchor(await rpc.request("eth_getBlockByNumber", [expectedHead ? toHex(BigInt(expectedHead.blockNumber)) : "latest", false]));
     if (expectedHead && !same(head, expectedHead)) unavailable();
     let previousAnchor: RestBlockEvidence | null = null;
     if (accounting?.lastSettlementAnchor) {
