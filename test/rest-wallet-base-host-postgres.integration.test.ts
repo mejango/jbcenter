@@ -44,7 +44,7 @@ suite("hosted Base signup runtime host", () => {
       executionConfiguration: await readRestExecutionConfiguration({}), startMaintenance: false,
       wallet: { origin, manifest: fixture.manifest, utility: fixture.utility },
       walletSignup: context => createBaseWalletSignupHost(context, { url: fixture.endpoint, genesisHash: fixture.genesisHash, signerKey,
-        ...host, allocationWei: "100000000000000000", manifest: fixture.manifest, utility: fixture.utility }),
+        ...host, allocationWei: "5000000000000000", manifest: fixture.manifest, utility: fixture.utility }),
       walletRecovery: context => createBaseWalletRecoveryHost(context, { url: fixture.endpoint, genesisHash: fixture.genesisHash,
         signerKey: `0x${"55".repeat(32)}`, maximumOperations: 10, maximumCostWei: "100000000000000000", manifest: fixture.manifest, utility: fixture.utility }) });
   }
@@ -59,7 +59,8 @@ suite("hosted Base signup runtime host", () => {
       expect(first.wallet?.signup).toBeDefined(); expect(first.wallet?.recovery).toBeDefined();
       await first.wallet!.recovery!.tick();
       const deployments = new PostgresWalletDeploymentStore(pool), funding = await deployments.loadFundingContext(poolId);
-      expect(funding.pool.configuration).toMatchObject({ id: poolId, chainId: 8453, sender: fixture.sender, allocationWei: "100000000000000000" });
+      expect(funding.pool.configuration).toMatchObject({ id: poolId, chainId: 8453, sender: fixture.sender, allocationWei: "5000000000000000" });
+      expect(BigInt(funding.pool.configuration.policy.maximumTransactionCost)).toBeLessThanOrEqual(5000000000000000n);
       expect(funding.pool.accounting).toMatchObject({ environment: { kind: "base-mainnet", genesisHash: fixture.genesisHash }, nextNonce: "2", sequence: 0, fence: null });
       await first.wallet!.signup!.tick();
       const second = await runtime({ poolId, initialNonce: "2" });

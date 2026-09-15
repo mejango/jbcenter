@@ -11,7 +11,7 @@ import { RestError } from '../core.js';
 /** Reviewed pilot recovery fees: the signer creation and owner swap fit well inside this gas, the
  * priority fee is Base's ordinary floor, and a quote above the maximum is refused rather than
  * capped so a fee spike never produces an unmineable pair; L1/operator fees are reserved separately. */
-export const baseWalletRecoveryFees = Object.freeze({ gas: 3_000_000n, maxPriorityFeePerGas: 1_000_000n, maximumFeePerGas: 10_000_000_000n });
+export const baseWalletRecoveryFees = Object.freeze({ gas: 3_000_000n, maxPriorityFeePerGas: 1_000_000n, maximumFeePerGas: 1_000_000_000n });
 function unavailable(): never { throw new RestError(502, 'WALLET_RECOVERY_BASE_UNAVAILABLE', 'The configured Base provider could not price or verify the recovery transactions.'); }
 
 /** Hosted Base recovery relay: the same single Dwellir endpoint and pinned fee runtimes as

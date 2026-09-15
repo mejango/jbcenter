@@ -37,9 +37,10 @@ export interface BaseWalletSignupHostOptions {
   onEvent?: Parameters<typeof createLocalWalletSignup>[0]["onEvent"];
 }
 /** Reviewed pilot relay policy: one Safe creation per operation, bounded execution envelope. The
- * whole allocation must cover one maximum envelope; L1/operator fees are reserved separately. */
-export const baseWalletCreationPolicy = Object.freeze({ maximumRawBytes: 32768, maximumGas: "2000000", maximumFeePerGas: "10000000000",
-  maximumTransactionCost: "20000000000000000", maximumObservationAgeMs: 30_000 });
+ * whole allocation must cover one maximum envelope (2M gas at 1 gwei = 0.002 ETH); admission pauses
+ * while Base's base fee exceeds about 0.5 gwei. L1/operator fees are reserved separately. */
+export const baseWalletCreationPolicy = Object.freeze({ maximumRawBytes: 32768, maximumGas: "2000000", maximumFeePerGas: "1000000000",
+  maximumTransactionCost: "2000000000000000", maximumObservationAgeMs: 30_000 });
 
 /** Explicit host composition for hosted Base signup. Startup configures the single permanent pool
  * and initializes its accounting exactly once; a later start with different values fails closed. */
