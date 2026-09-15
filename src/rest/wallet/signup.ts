@@ -23,7 +23,7 @@ export interface LocalWalletSignupDependencies {
   settlement: ReturnType<typeof createLocalAnvilWalletDeploymentSettlement>; execution: ReturnType<typeof createWalletDeploymentExecution>;
   chain: ReturnType<typeof createWalletDeploymentChain>; smart: ReturnType<typeof createSmartAccountService>;
   registry: Pick<VerifiedSmartAccountRegistry, "list">; authority: ReturnType<typeof createWalletAuthorityService>; poolId: string;
-  onEvent?: (event: { stage: "worker" | "deployment" | "setup"; outcome: string; operationId?: string; elapsedMs?: number }) => void;
+  onEvent?: (event: { stage: "worker" | "deployment" | "setup"; outcome: string; operationId?: string; elapsedMs?: number; reason?: string; detail?: Record<string, unknown> }) => void;
 }
 export type WalletSignupPhase = "awaiting_registration" | "awaiting_possession" | "awaiting_deployment_approval" |
   "deploying" | "deployment_failed" | "awaiting_setup" | "ready_to_sign_in" | "expired";
@@ -214,10 +214,14 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
             event({ stage: "deployment", outcome: result.settlement ? "settled" : "fenced", operationId: item.id });
           }
         }
-      } catch {
+      } catch (error) {
         // Existing stores preserve exact bytes, unknown outcomes and fences. A failed
         // observation cannot release a sender lane or invent a replacement operation.
-        event({ stage: "deployment", outcome: "pending_or_unavailable", operationId: item.id });
+        // The error class and bounded details are logged so a stuck operation is diagnosable.
+        const detail = error instanceof RestError && error.details && typeof error.details === "object"
+          ? Object.fromEntries(Object.entries(error.details as Record<string, unknown>).filter(([, value]) => ["string", "number", "boolean"].includes(typeof value)).slice(0, 12)) : undefined;
+        event({ stage: "deployment", outcome: "pending_or_unavailable", operationId: item.id,
+          reason: error instanceof RestError ? error.code : error instanceof Error ? error.name : "unknown", ...(detail ? { detail } : {}) });
       }
     }
     event({ stage: "worker", outcome: "pass", elapsedMs: Math.round(performance.now() - start) });
