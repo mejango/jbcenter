@@ -66,14 +66,15 @@ function accept(result: { view: View | null; csrfToken?: string }) {
   if (view?.phase === 'ready_to_sign_in' && kitSavedWallet === view.walletAddress) recoverySecret = null;
 }
 function render() {
-  form.hidden = !known || !!view; form.querySelector('button')!.disabled = busy;
-  name.disabled = busy; details.hidden = !view;
+  form.querySelector('button')!.disabled = busy;
+  name.disabled = busy;
   // The kit is presented once the wallet exists. Earlier phases still need the words in memory
   // to sign the enrollment; a reload before then strands the signup, so say so and offer a fresh start.
   const kitPhase = !!view && ['awaiting_setup', 'ready_to_sign_in'].includes(view.phase);
   const stranded = kitMode() && !recoverySecret && !!view && ['awaiting_registration', 'awaiting_possession'].includes(view.phase);
-  if (stranded) message('Reloading lost the recovery words for this signup. Sign up again with a new passkey.', true);
-  form.hidden = !known || (!!view && !stranded);
+  // A stranded attempt that never created a passkey lost nothing worth mentioning: show the clean form.
+  if (stranded) message(view!.phase === 'awaiting_possession' ? 'Your last signup cannot continue without its recovery words. Sign up again with a new passkey.' : '');
+  form.hidden = !known || (!!view && !stranded); details.hidden = !view || stranded;
   el<HTMLFieldSetElement>('recovery-method').disabled = busy; // Inside the form: gone once signup begins.
   el('recovery-kit').hidden = !kitPhase || !kitMode() || kitVerifiedWallet === view!.walletAddress;
   el('recovery-phrase').textContent = recoverySecret?.mnemonic ?? '';
@@ -93,7 +94,7 @@ function render() {
   // Saving the kit unlocks browser setup; after a reload the words are gone and only a saved kit can be checked.
   if (view?.phase === 'awaiting_setup' && kitMode() && recoverySecret && kitSavedWallet !== view.walletAddress) next.disabled = true;
   el('signup-intro').hidden = !known || !!view; // "log in" resumes with a passkey; a finished wallet lands at sign-in.
-  check.hidden = !view && !pending && known; check.disabled = busy;
+  check.hidden = (!view && !pending && known) || stranded; check.disabled = busy;
   cancel.hidden = !native; signIn.hidden = view?.phase !== 'ready_to_sign_in';
 }
 async function send(path: string, body: unknown, proof = csrf) {
