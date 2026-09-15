@@ -50,7 +50,7 @@ describe("qualified local deployment settlement producer", () => {
       configurationDigest: context.pool.configurationDigest, accountingDigest: null, confirmedNonce: context.operation.template!.transaction.nonce,
       pendingNonce: context.operation.template!.transaction.nonce, previousAnchor: null,
       environment: { kind: "unforked-anvil", genesisHash: fixture.expectedGenesisHash } });
-    expect(evidence.environment.instanceId).toMatch(/^0x[0-9a-f]{64}$/);
+    expect((evidence.environment as { instanceId: string }).instanceId).toMatch(/^0x[0-9a-f]{64}$/);
     expect(evidence.expiresAt - evidence.observedAt).toBeLessThanOrEqual(5000);
   });
 
@@ -196,7 +196,7 @@ describe("qualified local deployment settlement producer", () => {
 
   it.each(["instance", "nonce", "restore"])("withholds a local send capability for %s accounting mismatch", async fault => {
     const context = await initialized();
-    if (fault === "instance") context.pool.accounting!.environment.instanceId = `0x${"ab".repeat(32)}`;
+    if (fault === "instance") (context.pool.accounting!.environment as { instanceId: string }).instanceId = `0x${"ab".repeat(32)}`;
     if (fault === "nonce") context.pool.accounting!.nextNonce = String(BigInt(context.pool.accounting!.nextNonce) + 1n);
     if (fault === "restore") context.pool.accounting!.fence = { reason: "restore-required", evidenceDigest: "ab".repeat(32), recordedAt: Date.now() };
     const calls = alterRpc((_method, _params, result) => result);
@@ -248,7 +248,7 @@ describe("qualified local deployment settlement producer", () => {
         lastSettlementAnchor: evidence.observation.finality.evidence! } };
       await isolated.rpc("anvil_reset", []);
       const reset = await value.observeFunding({ pool, lastSettlement: null });
-      expect(reset.environment.instanceId).not.toBe(initial.environment.instanceId);
+      expect((reset.environment as { instanceId: string }).instanceId).not.toBe((initial.environment as { instanceId: string }).instanceId);
       expect(reset.previousAnchor).toBeNull();
       expect(walletDeploymentFundingConflict({ pool, lastSettlement: null }, reset)).toBe("environment-changed");
       expect(pool.accounting.spentWei).toBe(evidence.fees.totalWei);

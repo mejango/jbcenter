@@ -6,24 +6,24 @@ import { createWalletEnrollmentIntent, walletEnrollmentDocument } from "../../sr
 import { prepareWalletDeploymentApproval, walletDeploymentDocument } from "../../src/rest/wallet/deployment.js";
 import { createRegistration, enrollmentBackupAccount, enrollmentManifest, signBackupProof, signGet } from "./wallet-enrollment-crypto.js";
 import { deploymentFixtureConfiguration, deploymentFixtureSigner, deploymentFixtureTransaction, syntheticDeploymentObservation } from "./wallet-deployment-execution.js";
-import { walletDeploymentAccountingDigest, type WalletDeploymentFundingContext, type WalletDeploymentFundingEvidence,
+import { walletDeploymentAccountingDigest, type WalletDeploymentEnvironment, type WalletDeploymentFundingContext, type WalletDeploymentFundingEvidence,
   type WalletDeploymentSettlementContext, type WalletDeploymentSettlementEvidence } from "../../src/rest/wallet/deploymentSettlement.js";
 export async function settlementDatabaseNow(pool: Pool): Promise<number> {
   return Number((await pool.query("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::text AS now")).rows[0].now);
 }
-export function syntheticFunding(context: WalletDeploymentFundingContext, now: number): WalletDeploymentFundingEvidence {
+export function syntheticFunding(context: WalletDeploymentFundingContext, now: number, environment?: WalletDeploymentEnvironment): WalletDeploymentFundingEvidence {
   const head = { chainId: 8453 as const, blockNumber: "100", blockHash: `0x${"ab".repeat(32)}` as Hex,
     timestamp: String(Math.floor(now / 1000)), source: "onchain" as const };
   return { version: "center-wallet-deployment-funding-v1", poolId: context.pool.configuration.id, configurationDigest: context.pool.configurationDigest,
     poolRevision: context.pool.revision, accountingDigest: context.pool.accounting ? walletDeploymentAccountingDigest(context.pool.accounting) : null,
-    environment: context.pool.accounting?.environment ?? { kind: "unforked-anvil", genesisHash: `0x${"cd".repeat(32)}`, instanceId: `0x${"ef".repeat(32)}` },
+    environment: context.pool.accounting?.environment ?? environment ?? { kind: "unforked-anvil", genesisHash: `0x${"cd".repeat(32)}`, instanceId: `0x${"ef".repeat(32)}` },
     head, observedAt: now, expiresAt: now + 5000, confirmedNonce: context.pool.accounting?.nextNonce ?? "1",
     pendingNonce: context.pool.accounting?.nextNonce ?? "1", balanceWei: String(BigInt(context.pool.configuration.allocationWei) - BigInt(context.pool.accounting?.spentWei ?? "0")),
     previousAnchor: context.pool.accounting?.lastSettlementAnchor ?? null };
 }
-export async function initializedSettlementPool(pool: Pool, store: PostgresWalletDeploymentStore) {
+export async function initializedSettlementPool(pool: Pool, store: PostgresWalletDeploymentStore, environment?: WalletDeploymentEnvironment) {
   const configured = await store.configurePool(deploymentFixtureConfiguration()), context = await store.loadFundingContext(configured.configuration.id);
-  await store.initializeAccounting(context, syntheticFunding(context, await settlementDatabaseNow(pool)), "1");
+  await store.initializeAccounting(context, syntheticFunding(context, await settlementDatabaseNow(pool), environment), "1");
   return store.loadFundingContext(configured.configuration.id);
 }
 export async function preparedSettlementUser(pool: Pool, store: PostgresWalletDeploymentStore) {
@@ -54,7 +54,8 @@ export async function signedSettlementUser(pool: Pool, store: PostgresWalletDepl
     rawTransaction: await deploymentFixtureSigner.signTransaction(deploymentFixtureTransaction(operation.template!)) })).operation;
   return store.loadSettlementContext(operation.id);
 }
-export function syntheticSettlement(context: WalletDeploymentSettlementContext, now: number): WalletDeploymentSettlementEvidence {
+export function syntheticSettlement(context: WalletDeploymentSettlementContext, now: number,
+  fees: WalletDeploymentSettlementEvidence["fees"] = { profile: "unforked-anvil-execution-fees-v1", executionWei: "500000000000", totalWei: "500000000000" }): WalletDeploymentSettlementEvidence {
   const funding = syntheticFunding(context, now), next = String(BigInt(context.operation.template!.transaction.nonce) + 1n);
   funding.confirmedNonce = funding.pendingNonce = next;
   const observation = syntheticDeploymentObservation(context, now);
@@ -65,9 +66,10 @@ export function syntheticSettlement(context: WalletDeploymentSettlementContext, 
     effectiveGasPrice: "1000000", logCount: 1, logsHash: `0x${"12".repeat(32)}` };
   observation.finality = { state: "finalized", evidence: funding.head };
   observation.fees.executionWei = "500000000000";
-  funding.balanceWei = String(BigInt(funding.balanceWei) - 500000000000n);
+  const balance = BigInt(funding.balanceWei) - BigInt(fees.totalWei);
+  funding.balanceWei = String(balance < 0n ? 0n : balance);
   return { version: "center-wallet-deployment-settlement-evidence-v1", funding, operationId: context.operation.id,
     operationRevision: context.operation.revision, transactionHash: context.operation.signed!.hash,
     templateCommitment: context.operation.templateCommitment!, observation, finalizedNonce: next,
-    fees: { profile: "unforked-anvil-execution-fees-v1", executionWei: "500000000000", totalWei: "500000000000" } };
+    fees: structuredClone(fees) };
 }

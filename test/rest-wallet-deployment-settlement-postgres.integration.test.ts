@@ -161,7 +161,7 @@ suite("durable sequential local deployment settlement", () => {
     context = await store.loadSettlementContext(context.operation.id);
     const legacy = syntheticDeploymentAdmission(context, await settlementDatabaseNow(pool));
     const admission = { ...legacy, version: "center-wallet-deployment-local-admission-v2" as const,
-      environment: { ...legacy.environment, genesisHash: context.pool.accounting!.environment.genesisHash },
+      environment: { kind: "unforked-anvil" as const, genesisHash: context.pool.accounting!.environment.genesisHash, head: legacy.environment.head },
       accounting: { digest: enrollmentDigest(context.pool.accounting), remainingWei: walletDeploymentRemainingWei(context.pool), nextNonce: context.pool.accounting!.nextNonce } };
     const lease = await store.leaseDispatch({ operationId: context.operation.id, expectedRevision: context.operation.revision, signedHash: context.operation.signed!.hash, admission, leaseMs: 400 });
     context = await store.loadSettlementContext(context.operation.id);

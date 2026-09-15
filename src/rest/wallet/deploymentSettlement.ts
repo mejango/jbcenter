@@ -5,13 +5,15 @@ import type { WalletDeploymentPool } from "./deploymentPostgres.js";
 import { assertWalletDeploymentObservation, type WalletDeploymentObservation } from "./deploymentObservation.js";
 import { enrollmentDigest } from "./enrollment.js";
 
-export interface WalletDeploymentLocalEnvironment {
-  kind: "unforked-anvil";
-  genesisHash: Hex;
-  instanceId: Hex;
-}
+/** The local instance ID fences a restarted chain. The Base runtime profile digests the pinned
+ * fee predeploy implementations, so a fork that changes pricing rules reads as a changed environment. */
+export type WalletDeploymentEnvironment =
+  | { kind: "unforked-anvil"; genesisHash: Hex; instanceId: Hex }
+  | { kind: "base-mainnet"; genesisHash: Hex; runtimeProfile: Hex };
+export type WalletDeploymentLocalEnvironment = WalletDeploymentEnvironment;
 export interface WalletDeploymentAccountingFence {
-  reason: "restore-required" | "environment-changed" | "finalized-anchor-replaced" | "nonce-conflict" | "balance-deficit";
+  /** allocation-exceeded records an actual finalized debit above the allocation; the debit is retained. */
+  reason: "restore-required" | "environment-changed" | "finalized-anchor-replaced" | "nonce-conflict" | "balance-deficit" | "allocation-exceeded";
   evidenceDigest: string;
   recordedAt: number;
 }
@@ -61,8 +63,12 @@ export interface WalletDeploymentSettlementEvidence {
   templateCommitment: Hex;
   observation: WalletDeploymentObservation;
   finalizedNonce: string;
-  fees: { profile: "unforked-anvil-execution-fees-v1"; executionWei: string; totalWei: string };
+  fees: WalletDeploymentSettlementFees;
 }
+/** Fees only, never a net balance claim. The Base profile is the complete verified receipt. */
+export type WalletDeploymentSettlementFees =
+  | { profile: "unforked-anvil-execution-fees-v1"; executionWei: string; totalWei: string }
+  | { profile: "base-fjord-jovian-receipt-v1"; executionWei: string; l1Wei: string; operatorWei: string; totalWei: string };
 export interface WalletDeploymentSettlementReceipt {
   version: "center-wallet-deployment-settlement-receipt-v1";
   id: string;
@@ -99,14 +105,15 @@ function block(value: RestBlockEvidence): void {
   if (value.chainId !== 8453 || value.source !== "onchain") invalid();
   uint(value.blockNumber); uint(value.timestamp); word(value.blockHash);
 }
-function environment(value: WalletDeploymentLocalEnvironment): void {
-  exact(value, ["kind", "genesisHash", "instanceId"]); if (value.kind !== "unforked-anvil") invalid();
-  word(value.genesisHash); word(value.instanceId);
+function environment(value: WalletDeploymentEnvironment): void {
+  if (value?.kind === "base-mainnet") { exact(value, ["kind", "genesisHash", "runtimeProfile"]); word(value.runtimeProfile); }
+  else { exact(value, ["kind", "genesisHash", "instanceId"]); if (value.kind !== "unforked-anvil") invalid(); word(value.instanceId); }
+  word(value.genesisHash);
 }
 export function walletDeploymentAccountingDigest(value: WalletDeploymentAccounting): string { return enrollmentDigest(value); }
 export function walletDeploymentRemainingWei(pool: WalletDeploymentPool): string {
-  const spent = pool.accounting ? uint(assertWalletDeploymentAccounting(pool.accounting, pool).spentWei) : 0n;
-  return String(uint(pool.configuration.allocationWei) - spent);
+  const spent = pool.accounting ? uint(assertWalletDeploymentAccounting(pool.accounting, pool).spentWei) : 0n, allocation = uint(pool.configuration.allocationWei);
+  return String(spent > allocation ? 0n : allocation - spent);
 }
 export function assertWalletDeploymentAccounting(input: unknown, pool: WalletDeploymentPool): WalletDeploymentAccounting {
   const value = snapshot<WalletDeploymentAccounting>(input);
@@ -114,7 +121,8 @@ export function assertWalletDeploymentAccounting(input: unknown, pool: WalletDep
   if (value.version !== "center-wallet-deployment-accounting-v1") invalid();
   environment(value.environment); block(value.initialHead); integer(value.sequence);
   const initial = uint(value.initialNonce), nonce = uint(value.nextNonce), spent = uint(value.spentWei);
-  if (nonce !== initial + BigInt(value.sequence) || nonce > BigInt(Number.MAX_SAFE_INTEGER) || spent > uint(pool.configuration.allocationWei)) invalid();
+  if (nonce !== initial + BigInt(value.sequence) || nonce > BigInt(Number.MAX_SAFE_INTEGER) ||
+      (spent > uint(pool.configuration.allocationWei) && value.fence?.reason !== "allocation-exceeded")) invalid();
   if (value.sequence === 0) {
     if (spent !== 0n || value.lastSettlementId !== null || value.lastSettlementAnchor !== null) invalid();
   } else {
@@ -124,7 +132,8 @@ export function assertWalletDeploymentAccounting(input: unknown, pool: WalletDep
   }
   if (value.fence !== null) {
     exact(value.fence, ["reason", "evidenceDigest", "recordedAt"]);
-    if (!["restore-required", "environment-changed", "finalized-anchor-replaced", "nonce-conflict", "balance-deficit"].includes(value.fence.reason)) invalid();
+    if (!["restore-required", "environment-changed", "finalized-anchor-replaced", "nonce-conflict", "balance-deficit", "allocation-exceeded"].includes(value.fence.reason)) invalid();
+    if (value.fence.reason === "allocation-exceeded" && spent <= uint(pool.configuration.allocationWei)) invalid();
     digest(value.fence.evidenceDigest); integer(value.fence.recordedAt, true);
   }
   return value;
@@ -183,11 +192,16 @@ export function assertWalletDeploymentSettlementEvidence(input: unknown, context
       observation.wallet.address.toLowerCase() !== operation.template.predictedSafe.toLowerCase() || observation.wallet.initializerHash !== operation.template.initializerHash) invalid();
   if (operation.historicalCanonicalObservation?.finality.state === "finalized" &&
       enrollmentDigest(operation.historicalCanonicalObservation.transaction.receipt) !== enrollmentDigest(receipt)) invalid();
-  exact(value.fees, ["profile", "executionWei", "totalWei"]);
-  const cost = uint(value.fees.totalWei), actual = uint(receipt.gasUsed) * uint(receipt.effectiveGasPrice);
-  if (value.fees.profile !== "unforked-anvil-execution-fees-v1" || cost === 0n || cost !== actual ||
-      value.fees.executionWei !== value.fees.totalWei || observation.fees.executionWei !== value.fees.executionWei ||
-      cost > uint(operation.signed.maximumExecutionCost) || uint(receipt.gasUsed) > uint(operation.template.transaction.gas) ||
+  const fees = value.fees, execution = uint(receipt.gasUsed) * uint(receipt.effectiveGasPrice);
+  if (fees.profile === "base-fjord-jovian-receipt-v1") {
+    exact(fees, ["profile", "executionWei", "l1Wei", "operatorWei", "totalWei"]);
+    if (pool.accounting.environment.kind !== "base-mainnet" || uint(fees.totalWei) !== uint(fees.executionWei) + uint(fees.l1Wei) + uint(fees.operatorWei)) invalid();
+  } else {
+    exact(fees, ["profile", "executionWei", "totalWei"]);
+    if (fees.profile !== "unforked-anvil-execution-fees-v1" || pool.accounting.environment.kind !== "unforked-anvil" || fees.executionWei !== fees.totalWei) invalid();
+  }
+  if (execution === 0n || uint(fees.executionWei) !== execution || observation.fees.executionWei !== fees.executionWei ||
+      execution > uint(operation.signed.maximumExecutionCost) || uint(receipt.gasUsed) > uint(operation.template.transaction.gas) ||
       uint(receipt.effectiveGasPrice) > uint(operation.template.transaction.maxFeePerGas)) invalid();
   if (uint(value.finalizedNonce) > BigInt(Number.MAX_SAFE_INTEGER)) invalid();
   return { ...value, funding, observation };

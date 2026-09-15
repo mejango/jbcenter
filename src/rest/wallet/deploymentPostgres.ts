@@ -381,7 +381,7 @@ export class PostgresWalletDeploymentStore {
       if (actual.dispatch && actual.dispatch.leaseUntil > now) busy();
       const cost = BigInt(proof.fees.totalWei), remaining = BigInt(walletDeploymentRemainingWei(pool)), nextNonce = String(BigInt(operation.template!.transaction.nonce) + 1n);
       const reason = walletDeploymentFundingConflict(actual, proof.funding, nextNonce, String(cost > remaining ? 0n : remaining - cost)) ??
-        (proof.finalizedNonce !== nextNonce ? "nonce-conflict" : cost > remaining ? "balance-deficit" : null);
+        (proof.finalizedNonce !== nextNonce ? "nonce-conflict" : null);
       if (reason) {
         const fenced = await this.writeAccounting(pool, { ...pool.accounting!, fence: { reason, evidenceDigest, recordedAt: now } }, client);
         assertWalletDeploymentSettlementEvidence(proof, actual, await walletCeremonyDatabaseNow(client));
@@ -394,8 +394,11 @@ export class PostgresWalletDeploymentStore {
       await client.query(`INSERT INTO rest_wallet_deployment_settlements(id,pool_id,sequence,evidence_digest,receipt)
         VALUES($1,$2,$3,$4,$5::jsonb)`, [operation.id, pool.configuration.id, sequence, evidenceDigest, JSON.stringify(receipt)]);
       await client.query("UPDATE rest_wallet_deployments SET settlement_id=$1 WHERE id=$1", [operation.id]);
+      // A Base reservation is not a cap: the actual finalized debit is retained even above the
+      // allocation, and the pool is fenced for operator review instead of admitting another user.
       const result = await this.writeAccounting(pool, { ...prior, sequence, spentWei, nextNonce, lastSettlementId: operation.id,
-        lastSettlementAnchor: proof.observation.finality.evidence! }, client, true);
+        lastSettlementAnchor: proof.observation.finality.evidence!,
+        fence: cost > remaining ? { reason: "allocation-exceeded", evidenceDigest, recordedAt: now } : null }, client, true);
       // Covers row/trigger/index/write waits. No bytes are broadcast and no RPC/crypto runs in SQL.
       assertWalletDeploymentSettlementEvidence(proof, actual, await walletCeremonyDatabaseNow(client));
       return { settlement: receipt, pool: result, replayed: false };

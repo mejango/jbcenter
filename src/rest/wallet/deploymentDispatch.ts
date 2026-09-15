@@ -12,8 +12,8 @@ export interface WalletDeploymentExecutionContext {
   enrollment: WalletEnrollment;
   operation: WalletDeploymentOperation;
 }
-/** Only the explicit local Anvil adapter may produce this experimental admission. It grants no
- * Base affordability claim and is not accepted from a public request or a deployment proof. */
+/** Only the configured internal transport produces an admission. It is never accepted from a
+ * public request or a deployment proof. A Base reservation is estimate plus margin, not a cap. */
 interface WalletDeploymentDispatchAdmissionFields {
   operationId: string;
   poolConfigurationDigest: string;
@@ -21,18 +21,33 @@ interface WalletDeploymentDispatchAdmissionFields {
   transactionHash: Hex;
   operationRevision: number;
   observationDigest: string;
-  environment: { kind: "unforked-anvil"; genesisHash: Hex; head: RestBlockEvidence };
   observedAt: number;
   expiresAt: number;
   balanceWei: string;
   maximumExecutionCost: string;
+}
+interface LocalAdmissionFields extends WalletDeploymentDispatchAdmissionFields {
+  environment: { kind: "unforked-anvil"; genesisHash: Hex; head: RestBlockEvidence };
   feeScope: "local-execution-only";
   baseTotalAffordability: "unknown";
 }
-export type WalletDeploymentDispatchAdmission = WalletDeploymentDispatchAdmissionFields & (
-  { version: "center-wallet-deployment-local-admission-v1"; accounting?: never } |
-  { version: "center-wallet-deployment-local-admission-v2"; accounting: { digest: string; remainingWei: string; nextNonce: string } }
-);
+export interface WalletDeploymentBaseReservation {
+  /** The Jovian L1-attributes deposit whose parameters priced this reservation. */
+  attributesTransaction: Hex;
+  parametersDigest: string;
+  l1WeiAtParameters: string;
+  operatorMaximumWei: string;
+  /** maximumExecutionCost + 2 * (l1WeiAtParameters + operatorMaximumWei). */
+  totalWei: string;
+}
+export type WalletDeploymentDispatchAdmission =
+  | (LocalAdmissionFields & { version: "center-wallet-deployment-local-admission-v1"; accounting?: never; reservation?: never })
+  | (LocalAdmissionFields & { version: "center-wallet-deployment-local-admission-v2"; accounting: { digest: string; remainingWei: string; nextNonce: string }; reservation?: never })
+  | (WalletDeploymentDispatchAdmissionFields & { version: "center-wallet-deployment-base-admission-v1";
+      environment: { kind: "base-mainnet"; genesisHash: Hex; head: RestBlockEvidence };
+      feeScope: "base-execution-l1-operator-reserved"; baseTotalAffordability: "reserved";
+      accounting: { digest: string; remainingWei: string; nextNonce: string }; reservation: WalletDeploymentBaseReservation });
+export const walletDeploymentBaseReservationMargin = 2n;
 export const walletDeploymentDispatchLimits = Object.freeze({ maximumAttempts: 8, leaseMs: 15_000,
   cooldownMs: 1_000, admissionLifetimeMs: 5_000, sendTimeoutMs: 3_000 });
 export interface WalletDeploymentDispatchJournal {
@@ -74,10 +89,10 @@ export function assertWalletDeploymentDispatchAdmission(input: unknown,
   };
   try {
     enrollmentDigest(input);
-    const initialized = !!context.pool.accounting;
+    const initialized = !!context.pool.accounting, base = context.pool.accounting?.environment.kind === "base-mainnet";
     exact(input, ["version", "operationId", "poolConfigurationDigest", "templateCommitment", "transactionHash", "operationRevision",
       "observationDigest", "environment", "observedAt", "expiresAt", "balanceWei", "maximumExecutionCost", "feeScope", "baseTotalAffordability",
-      ...(initialized ? ["accounting"] : [])]);
+      ...(initialized ? ["accounting"] : []), ...(base ? ["reservation"] : [])]);
     const value = structuredClone(input) as WalletDeploymentDispatchAdmission;
     exact(value.environment, ["kind", "genesisHash", "head"]);
     const { operation, pool } = context, observation = assertWalletDeploymentObservation(operation.observation);
@@ -89,14 +104,21 @@ export function assertWalletDeploymentDispatchAdmission(input: unknown,
     const remaining = walletDeploymentRemainingWei(pool);
     if (initialized) {
       const accounting = assertWalletDeploymentAccounting(pool.accounting, pool);
-      if (value.version !== "center-wallet-deployment-local-admission-v2") return fail();
+      if (value.version !== (base ? "center-wallet-deployment-base-admission-v1" : "center-wallet-deployment-local-admission-v2")) return fail();
       exact(value.accounting, ["digest", "remainingWei", "nextNonce"]);
       if (accounting.fence || value.accounting.digest !== walletDeploymentAccountingDigest(accounting) ||
           value.accounting.remainingWei !== remaining || value.accounting.nextNonce !== accounting.nextNonce ||
           accounting.nextNonce !== operation.template?.transaction.nonce || value.environment.genesisHash !== accounting.environment.genesisHash) fail();
     } else if (value.version !== "center-wallet-deployment-local-admission-v1") fail();
-    if (value.environment.kind !== "unforked-anvil" ||
-      value.feeScope !== "local-execution-only" || value.baseTotalAffordability !== "unknown" ||
+    if (value.version === "center-wallet-deployment-base-admission-v1") {
+      exact(value.reservation, ["attributesTransaction", "parametersDigest", "l1WeiAtParameters", "operatorMaximumWei", "totalWei"]);
+      const r = value.reservation;
+      if (value.environment.kind !== "base-mainnet" || value.feeScope !== "base-execution-l1-operator-reserved" || value.baseTotalAffordability !== "reserved" ||
+        !/^0x[0-9a-f]{64}$/.test(r.attributesTransaction) || BigInt(r.attributesTransaction) === 0n || !/^[0-9a-f]{64}$/.test(r.parametersDigest) ||
+        amount(r.totalWei) !== amount(value.maximumExecutionCost) + walletDeploymentBaseReservationMargin * (amount(r.l1WeiAtParameters) + amount(r.operatorMaximumWei)) ||
+        amount(r.totalWei) > amount(remaining) || amount(value.balanceWei) < amount(r.totalWei)) fail();
+    } else if (value.environment.kind !== "unforked-anvil" || value.feeScope !== "local-execution-only" || value.baseTotalAffordability !== "unknown") fail();
+    if (
       !/^0x[0-9a-f]{64}$/.test(value.environment.genesisHash) || BigInt(value.environment.genesisHash) === 0n ||
       operation.state !== "signed" || !operation.signed || !operation.template || pool.state !== "active" || pool.activeOperationId !== operation.id ||
       operation.poolId !== pool.configuration.id || operation.poolConfigurationDigest !== pool.configurationDigest ||

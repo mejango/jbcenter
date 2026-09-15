@@ -53,7 +53,7 @@ export function syntheticDeploymentObservation(context: WalletDeploymentExecutio
         blockHash: `0x${"bc".repeat(32)}`, timestamp: String(Math.floor(now / 1000)), source: "onchain" }, creationTransaction: null, reason: null },
     fees: { executionWei: null, l1Wei: null, operatorWei: null, totalWei: null }, dispatchEligible: false };
 }
-export function syntheticDeploymentAdmission(context: WalletDeploymentExecutionContext, now = Date.now()): WalletDeploymentDispatchAdmission {
+export function syntheticDeploymentAdmission(context: WalletDeploymentExecutionContext, now = Date.now()): Extract<WalletDeploymentDispatchAdmission, { version: "center-wallet-deployment-local-admission-v1" }> {
   const operation = context.operation;
   return { version: "center-wallet-deployment-local-admission-v1", operationId: operation.id,
     poolConfigurationDigest: operation.poolConfigurationDigest, templateCommitment: operation.templateCommitment!, transactionHash: operation.signed!.hash,

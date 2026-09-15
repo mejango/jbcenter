@@ -93,7 +93,7 @@ export function createLocalAnvilWalletDeploymentTransport(options: {
   type Scope = ReturnType<typeof operationRpc>;
   async function identity(rpc: Scope): Promise<Hex> {
     const environment = await local.identity(rpc);
-    if (!same(environment.genesisHash, genesisHash)) unavailable();
+    if (environment.kind !== "unforked-anvil" || !same(environment.genesisHash, genesisHash)) unavailable();
     return environment.instanceId;
   }
   const capabilities = new WeakMap<WalletDeploymentDispatchAdmission, { digest: string; raw: Hex; hash: Hex; instance: Hex; deadline: number }>();
@@ -106,7 +106,7 @@ export function createLocalAnvilWalletDeploymentTransport(options: {
       const accounting = pool.accounting ? assertWalletDeploymentAccounting(pool.accounting, pool) : null;
       const remainingWei = walletDeploymentRemainingWei(pool);
       if (accounting && (accounting.fence || accounting.nextNonce !== operation.template?.transaction.nonce ||
-          accounting.environment.genesisHash !== genesisHash)) invalid();
+          accounting.environment.kind !== "unforked-anvil" || accounting.environment.genesisHash !== genesisHash)) invalid();
       const observation = assertWalletDeploymentObservation(operation.observation);
       if (pool.state !== "active" || pool.activeOperationId !== operation.id || config.chainId !== 8453 ||
           pool.configurationDigest !== enrollmentDigest(config) || operation.poolConfigurationDigest !== pool.configurationDigest ||
@@ -131,7 +131,7 @@ export function createLocalAnvilWalletDeploymentTransport(options: {
       const rpc = operationRpc(reads, limits, signal);
       try {
         fresh(); const instance = await identity(rpc);
-        if (accounting && instance !== accounting.environment.instanceId) unavailable();
+        if (accounting && (accounting.environment.kind !== "unforked-anvil" || instance !== accounting.environment.instanceId)) unavailable();
         const latest = block(await rpc.request("eth_getBlockByNumber", ["latest", false]), observedAt), head = latest.head;
         if (enrollmentDigest(head) !== enrollmentDigest(observation.head) ||
             (operation.highestObservedHead !== null && BigInt(head.blockNumber) < decimal(operation.highestObservedHead))) invalid();
