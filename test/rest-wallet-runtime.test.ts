@@ -37,7 +37,7 @@ afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
   vi.useRealTimers(); vi.restoreAllMocks();
 });
-async function fixture(wallet?: RestWalletConfiguration, startMaintenance = false, smartAccountManifests?: readonly SmartAccountManifest[], walletSignup?: Parameters<typeof createRestRuntime>[0]['walletSignup'], walletRecovery?: Parameters<typeof createRestRuntime>[0]['walletRecovery']) {
+async function fixture(wallet?: RestWalletConfiguration, startMaintenance = false, smartAccountManifests?: readonly SmartAccountManifest[], walletSignup?: Parameters<typeof createRestRuntime>[0]['walletSignup'], walletRecovery?: Parameters<typeof createRestRuntime>[0]['walletRecovery'], upstreams: Parameters<typeof createRestRuntime>[0]['upstreams'] = new Map()) {
   const pool = new Pool({ connectionString: 'postgresql://fixture@127.0.0.1:1/unused' });
   cleanup.push(() => pool.end());
   const query = vi.spyOn(pool, 'query').mockImplementation(() => { throw new Error('Unexpected database request during startup'); });
@@ -47,7 +47,7 @@ async function fixture(wallet?: RestWalletConfiguration, startMaintenance = fals
     MCP_PLAN_SECRET: 'PUBLIC_WALLET_RUNTIME_FIXTURE_SECRET_ONLY', MCP_PUBLIC_ORIGIN: audience,
   } });
   const runtime = await createRestRuntime({ pool, store, services: mcp.services, config: mcp.config,
-    upstreams: new Map(), rpc: { request }, executionConfiguration: await readRestExecutionConfiguration({}),
+    upstreams, rpc: { request }, executionConfiguration: await readRestExecutionConfiguration({}),
     startMaintenance, ...(wallet ? { wallet } : {}), ...(smartAccountManifests ? { smartAccountManifests } : {}), ...(walletSignup ? { walletSignup } : {}), ...(walletRecovery ? { walletRecovery } : {}) });
   cleanup.unshift(() => runtime.stop());
   return { runtime, pool, query, request };
@@ -160,6 +160,22 @@ describe('explicit wallet runtime composition', () => {
     const legacyUtility = inspect.mock.calls[0]![0].utility.address;
     expect(legacyUtility).not.toBe(configuration.utility.address);
     await expect(inspector.inspect({ ...input, manifest: legacy })).rejects.toThrow(`Fixture utility ${legacyUtility}`);
+  });
+
+  it('inspects the passkey wallet profile with the same hosted-provider limits as legacy operations', async () => {
+    // Setup review inspects the wallet manifest through the wallet-specific inspector. Over Dwellir a
+    // genesis log scan exceeds the 500-block limit and the default 30 s deadline (SMART_HISTORY_TIMEOUT),
+    // so it must prove creation from the indexed factory history under the same 90 s budget.
+    const inspect = vi.spyOn(smartAccountInspector, 'createSafe7579Inspector');
+    const configuration = await walletConfiguration();
+    await fixture(configuration, false, undefined, undefined, undefined, new Map([[8453, { url: 'https://base.invalid' }]]) as never);
+    const calls = inspect.mock.calls.map(([options]) => options);
+    expect(calls.map(options => options.utility.address)).toContain(configuration.utility.address);
+    for (const options of calls) {
+      expect(typeof options.creationLogs).toBe('function');
+      expect(options.maxLogRangeBlocks).toBe(500);
+      expect(options.timeoutMs).toBe(90_000);
+    }
   });
 
   it('owns its profile bytes even when the identical manifest is supplied in the custom account list', async () => {

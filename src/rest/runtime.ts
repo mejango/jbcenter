@@ -313,29 +313,24 @@ export async function createRestRuntime(options: {
   const manifests = [...activeManifests, ...retainedManifests];
   const factoryHistory = options.upstreams.has(8453) && execution.stacks.length && !options.smartAccountModuleInspectors && !options.smartAccountManifests
     ? new FactoryHistoryIndex(options.pool, rpc, await loadFactoryHistorySeed()) : undefined;
+  // Shared by the legacy and the wallet inspector: creation is proven from the indexed factory
+  // history (the hosted provider caps eth_getLogs at 500 blocks), and a complete inspection
+  // measured ~85 serial reads, so the deadline leaves room for latency.
+  const inspection = () => ({
+    rpc, inspectSessions: installedVerifier.inspectAllAt,
+    ...(factoryHistory ? {creationLogs: factoryHistory.creationLogs.bind(factoryHistory), maxLogRangeBlocks: 500} : {}),
+    timeoutMs: 90_000,
+    checkpointStore: new PostgresSafe7579CheckpointStore(options.pool),
+  });
   let moduleInspectors =
     options.smartAccountModuleInspectors ??
     (options.smartAccountManifests
       ? []
       : execution.stacks.length
-        ? [
-            createSafe7579Inspector({
-              rpc,
-              utility: execution.stacks[0]!.utility,
-              inspectSessions: installedVerifier.inspectAllAt,
-              ...(factoryHistory ? {creationLogs: factoryHistory.creationLogs.bind(factoryHistory), maxLogRangeBlocks: 500} : {}),
-              // A complete inspection over the hosted provider measured ~85 serial reads; leave room for latency.
-              timeoutMs: 90_000,
-              checkpointStore: new PostgresSafe7579CheckpointStore(
-                options.pool,
-              ),
-            }),
-          ]
+        ? [createSafe7579Inspector({ ...inspection(), utility: execution.stacks[0]!.utility })]
         : []);
   if (walletConfiguration) {
-    const walletInspector = createSafe7579Inspector({ rpc, utility: walletConfiguration.utility,
-      inspectSessions: installedVerifier.inspectAllAt,
-      checkpointStore: new PostgresSafe7579CheckpointStore(options.pool) });
+    const walletInspector = createSafe7579Inspector({ ...inspection(), utility: walletConfiguration.utility });
     const existing = moduleInspectors.find(inspector => inspector.id === walletInspector.id);
     // The same reviewed inspector supports both profiles, but each deployment retains its own
     // exact utility pin. Custom or legacy inspectors still handle their configured manifests.
