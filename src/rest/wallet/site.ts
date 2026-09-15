@@ -80,7 +80,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     if (c.req.path !== '/wallet' && !c.req.path.startsWith('/wallet/')
       && (c.req.header('Host') ?? new URL(c.req.url).host) === new URL(origin).host) {
       for (const [key, value] of Object.entries(pageHeaders)) c.header(key, value);
-      return c.text('Not found', 404);
+      return c.req.path === '/' ? c.redirect('/wallet', 302) : c.text('Not found', 404);
     }
     await next();
   });

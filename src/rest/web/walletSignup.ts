@@ -11,7 +11,7 @@ const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as
 const form = el<HTMLFormElement>('signup-form'), name = el<HTMLInputElement>('passkey-name');
 const next = el<HTMLButtonElement>('signup-next'), resume = el<HTMLAnchorElement>('signup-resume');
 const check = el<HTMLButtonElement>('signup-check'), cancel = el<HTMLButtonElement>('signup-cancel');
-const status = el('wallet-status'), details = el('signup-details');
+const status = el('wallet-status'), details = el('signup-details'), restart = el<HTMLButtonElement>('signup-restart');
 let view: View | null = null, known = false, busy = false, csrf = '', native: AbortController | null = null;
 let pending: { path: string; body: unknown; csrf: string } | null = null;
 let disposed = false, pollCount = 0;
@@ -99,6 +99,8 @@ function render() {
   // "Check signup" only matters for a lost reply or while creation is in progress.
   check.hidden = stranded || !(pending || view?.phase === 'deploying'); check.disabled = busy;
   cancel.hidden = !native;
+  // Forgetting this browser's continuation; the signup and its passkey stay usable through "log in".
+  restart.hidden = !view || stranded || view.phase === 'expired'; restart.disabled = busy;
 }
 async function send(path: string, body: unknown, proof = csrf) {
   pending = { path, body, csrf: proof };
@@ -253,6 +255,9 @@ el('recovery-restore').addEventListener('click', () => { void run(async () => {
   message('Recovery words restored. Save the complete kit with your wallet address before creating the wallet.');
 }); });
 next.addEventListener('click', () => { void run(advance); });
+restart.addEventListener('click', () => { void run(async () => {
+  await send('restart', {}); csrf = ''; pending = null; recoverySecret = null; kitSavedWallet = kitVerifiedWallet = null;
+}); });
 check.addEventListener('click', () => { void run(async () => {
   message('Checking your signup…'); await observe(); pollCount = 0;
   if (view?.phase === 'deploying') message('Still creating your wallet. Checked just now; this page keeps checking while it is open.');

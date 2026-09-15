@@ -44,6 +44,14 @@ describe('signup HTTP authority boundary', () => {
     expect((await app.fetch(post('begin', { ...body, mnemonic: 'a secret must not be accepted' }, fresh))).status).toBe(400);
     expect(signup.begin).toHaveBeenCalledTimes(1);
   });
+  it('lets a deliberate start-over drop the continuation cookie at any phase without touching the signup', async () => {
+    const { app, signup } = setup();
+    const response = await app.fetch(post('restart', {}));
+    expect(response.status).toBe(200); expect(await response.json()).toEqual({ view: null });
+    expect(response.headers.get('set-cookie')).toMatch(new RegExp(`${walletSignupCookie}=;.*Max-Age=0`));
+    expect(signup.status).toHaveBeenCalledTimes(1);
+    for (const fn of [signup.register, signup.proveEnrollment, signup.approveDeployment, signup.completeSetupPasskey]) expect(fn).not.toHaveBeenCalled();
+  });
   it('rejects missing CSRF, duplicate cookies and client authority fields before mutation', async () => {
     const { app, signup } = setup();
     for (const input of [{ ...headers, 'x-center-wallet-csrf': '' }, { ...headers, cookie: headers.cookie + '; ' + headers.cookie },
@@ -74,15 +82,6 @@ describe('signup HTTP authority boundary', () => {
   it('never permits a signup cookie to be used as a session cookie name or indefinite bearer', () => {
     expect(() => walletCookie(walletSignupCookie, token, 86401)).toThrow();
     expect(() => walletCookie('__Host-other' as never, token, 60)).toThrow();
-  });
-  it('allows a new registration only after the original unverified signup has expired', async () => {
-    const { app, signup } = setup();
-    expect((await app.fetch(post('restart', {}))).status).toBe(409);
-    signup.status.mockResolvedValueOnce({ ...view, phase: 'expired' });
-    const response = await app.fetch(post('restart', {}));
-    expect(response.status).toBe(200); expect(await response.json()).toEqual({ view: null });
-    expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
-    expect(signup.begin).not.toHaveBeenCalled();
   });
   it('clears a reclaimed continuation during restart but preserves it on outage and rejects invalid CSRF', async () => {
     const { app, signup } = setup();

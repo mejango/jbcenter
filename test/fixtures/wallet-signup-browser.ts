@@ -111,6 +111,15 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await page.getByRole('button', { name: 'Sign up' }).click();
     await page.getByRole('button', { name: 'Cancel prompt' }).click();
     await contains('cancelled');
+    // Starting over forgets the continuation and shows the clean form again.
+    await page.getByRole('button', { name: 'Start over' }).click();
+    await expect.poll(() => page.getByLabel('Passkey name').isVisible()).toBe(true);
+    expect((await context.cookies()).some(item => item.name === walletSignupCookie)).toBe(false);
+    await page.getByLabel('Passkey name').fill('Juicebox test');
+    if (!kitMode) await page.getByLabel('A wallet you already have').check();
+    await page.getByRole('button', { name: 'Sign up' }).click();
+    await page.getByRole('button', { name: 'Cancel prompt' }).click();
+    await contains('cancelled');
     await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
     await page.getByRole('button', { name: 'Create passkey', exact: true }).click();
     if (kitMode) {

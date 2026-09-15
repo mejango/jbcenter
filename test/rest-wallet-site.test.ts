@@ -121,6 +121,11 @@ describe('dedicated Center wallet HTTP journey',()=>{
     expect(options.login.readSession).not.toHaveBeenCalled();
     expect(options.refresh.request).not.toHaveBeenCalled();
   });
+  it('sends the wallet host root to the wallet page',async()=>{
+    const {app}=setup();const response=await app.fetch(new Request(origin+'/'));
+    expect(response.status).toBe(302);expect(response.headers.get('location')).toBe('/wallet');
+    expect((await app.fetch(new Request(origin+'/anything'))).status).toBe(404);
+  });
   it('sends a bare landing visit straight to the signup page unless a session cookie or app return is present',async()=>{
     const {app}=setup({ signup: {} as never, signupBrowserScript: '/* signup */' });
     const bare=await app.fetch(new Request(origin+'/wallet'));

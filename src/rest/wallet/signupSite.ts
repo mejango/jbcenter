@@ -60,11 +60,13 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
     return c.json(result(c, started.flowToken, started.view), 201);
   });
   app.post('/wallet/signup/restart', async c => {
+    // A deliberate start-over only forgets this browser's continuation. The signup itself keeps
+    // its state server-side and its passkey can log in or resume later.
     await body(c, []); const token = cookie(c, walletSignupCookie);
-    try { if ((await signup.status(token)).phase !== 'expired') invalid(409); }
+    try { await signup.status(token); }
     catch (error) {
       if (!(error instanceof RestError) || error.code !== 'WALLET_SIGNUP_UNAUTHORIZED') throw error;
-      // Cleanup can reclaim the expired continuation between state and Restart.
+      // Cleanup can reclaim an expired continuation between state and Restart.
     }
     c.header('Set-Cookie', walletCookie(walletSignupCookie, null, 0), { append: true });
     return c.json({ view: null });
