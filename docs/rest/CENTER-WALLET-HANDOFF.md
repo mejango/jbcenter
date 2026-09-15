@@ -118,8 +118,26 @@ creation treasury.
 
 ## Next: production configuration and the pilot
 
-Prepare two Base keys (creation treasury, recovery relay) and budgets, then the user's
-funding decision. Measure Dwellir admission latency against the 5 s admission lifetime.
+Center main is at the reviewed revision `321f8e9` (release check
+`2026-09-15T11-45-52.140Z-531b7a5d`, all steps passed on clean source). Two Base pilot
+keys were generated in memory on 2026-09-15 and stored only in Center's Railway
+production variables under staging names the application does not read yet:
+
+| Role | Address | Railway variables | Proposed budget |
+| --- | --- | --- | --- |
+| Creation treasury | `0xa347d65309D1254a9d7a366B4F4b5F255c549310` | `CENTER_WALLET_CREATION_TREASURY_PRIVATE_KEY`, `..._ADDRESS` | 0.05 ETH |
+| Recovery relay | `0x518bEc74014Eed3a517faF0E33c3E3f651C8cB63` | `CENTER_WALLET_RECOVERY_RELAY_PRIVATE_KEY`, `..._ADDRESS` | 0.02 ETH |
+
+Both are fresh EOAs with nonce 0. The first provisioning was rotated the same day after
+a variable listing exposed key prefixes in a session log; only these addresses are valid.
+Never list Railway variable values; check names with `railway variables --kv | cut -d= -f1`.
+
+Activation, after the user funds the addresses: set `WALLET_ORIGIN=https://wallet.juicebox.center`,
+`WALLET_CREATION_SIGNER_KEY` (the creation key), `WALLET_CREATION_POOL_ID` (a fresh UUID),
+`WALLET_CREATION_ALLOCATION_WEI=50000000000000000`, `WALLET_CREATION_INITIAL_NONCE=0`,
+`WALLET_RECOVERY_SIGNER_KEY` (the relay key), `WALLET_RECOVERY_MAX_OPERATIONS=50`,
+`WALLET_RECOVERY_MAX_COST_WEI=20000000000000000` together in one deploy; partial settings
+fail startup by design. The first start configures the pool and initializes accounting.
 Begin by reading
 [WALLET_SIGNUP.md](../../WALLET_SIGNUP.md), the
 [deployment strategy](WALLET-DEPLOYMENT-STRATEGY.md),
