@@ -40,7 +40,7 @@ export interface WalletSiteOptions {
   policy: Pick<PostgresWalletPolicyStore, 'readActivePolicy'>;
   refresh: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
   payments?: Pick<PostgresWalletPaymentReviewStore, 'getForSession' | 'approve' | 'cancel'>;
-  onEvent?: (event: { action: string; outcome: 'ok' | 'rejected' | 'unavailable'; code?: string }) => void;
+  onEvent?: (event: { action: string; outcome: 'ok' | 'rejected' | 'unavailable'; code?: string; detail?: Record<string, unknown> }) => void;
 }
 
 // The status line's lightning, as the tab icon.
@@ -71,9 +71,12 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   const rpId = new URL(origin).hostname;
   validateWalletRpConfiguration({ origin, rpId });
   const app = new Hono(), base = options.basePath ?? '/wallet';
-  const emit = (action: string, outcome: 'ok' | 'rejected' | 'unavailable', code?: string) => {
-    try { onEvent?.({ action, outcome, ...(code ? { code } : {}) }); } catch { /* Observation cannot undo committed authority. */ }
+  const emit = (action: string, outcome: 'ok' | 'rejected' | 'unavailable', code?: string, detail?: Record<string, unknown>) => {
+    try { onEvent?.({ action, outcome, ...(code ? { code } : {}), ...(detail ? { detail } : {}) }); } catch { /* Observation cannot undo committed authority. */ }
   };
+  // Bounded scalar details of a failure (stage, counts, elapsed), never payloads.
+  const scalars = (error: unknown) => error instanceof RestError && error.details && typeof error.details === 'object'
+    ? Object.fromEntries(Object.entries(error.details as Record<string, unknown>).filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value)).slice(0, 12)) : undefined;
   const protect: MiddlewareHandler = async (c, next) => {
     for (const [key, value] of Object.entries(pageHeaders)) c.header(key, value);
     assertWalletHttpHost(c.req.raw, origin);
@@ -124,7 +127,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     const known = error instanceof RestError || error instanceof RestAuthError;
     const status = known && error.status >= 400 && error.status <= 599 ? error.status : 503;
     const code = known && /^[A-Z0-9_]{1,80}$/.test(error.code) ? error.code : 'WALLET_UNAVAILABLE';
-    emit('request', status >= 500 ? 'unavailable' : 'rejected', code);
+    emit('request', status >= 500 ? 'unavailable' : 'rejected', code, scalars(error));
     if (c.req.path === `${base}/launch` && c.req.header('Sec-Fetch-Mode') === 'navigate')
       return c.html('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connection unavailable</title><link rel="stylesheet" href=`${base}/assets/wallet.css`></head><body><main><h1>Connection unavailable</h1><p>This connection expired or could not be verified. Return to the app and connect again.</p></main></body></html>', status as ContentfulStatusCode);
     return c.json({ error: { code, message: status >= 500 ? 'Wallet service is temporarily unavailable. Try again.' : 'Wallet request could not be completed. Try again or start over.' } }, status as ContentfulStatusCode);

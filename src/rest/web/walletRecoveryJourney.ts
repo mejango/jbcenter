@@ -29,8 +29,9 @@ const steps: Record<WalletRecoveryView['phase'], string> = {
   ready_to_sign_in: 'Your replacement passkey is ready. Sign in with a fresh passkey prompt.', expired: 'This unfinished recovery expired. Its replacement passkey is not active.',
 };
 // While work is in flight the status line's mark spins (Croptop's text ticker) instead of showing the lightning.
-function message(value: string, error = false) { status.textContent = value; status.dataset.state = error ? 'error' : busy ? 'busy' : 'ready'; }
-function spin() { if (busy) { if (status.dataset.state !== 'error') status.dataset.state = 'busy'; } else if (status.dataset.state === 'busy') status.dataset.state = 'ready'; }
+const waiting = () => busy || view?.phase === 'rotating';
+function message(value: string, error = false) { status.textContent = value; status.dataset.state = error ? 'error' : waiting() ? 'busy' : 'ready'; }
+function spin() { if (waiting()) { if (status.dataset.state !== 'error') status.dataset.state = 'busy'; } else if (status.dataset.state === 'busy') status.dataset.state = 'ready'; }
 function invalid(): never { throw new Error('The recovery review changed. Check the original recovery before continuing.'); }
 function sameAddress(a: unknown, b: unknown): boolean { return typeof a === 'string' && typeof b === 'string' && isAddress(a) && isAddress(b) && getAddress(a) === getAddress(b); }
 function fields(value: unknown, expected: string[]) {

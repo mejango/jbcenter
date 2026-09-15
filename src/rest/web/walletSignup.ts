@@ -51,8 +51,16 @@ const steps: Record<View['phase'], string> = {
   expired: 'This incomplete signup expired. Its passkey is not an active wallet credential.',
 };
 // While work is in flight the status line's mark spins (Croptop's text ticker) instead of showing the lightning.
-function message(value: string, error = false) { status.textContent = value; status.dataset.state = error ? 'error' : busy ? 'busy' : 'ready'; }
-function spin() { if (busy) { if (status.dataset.state !== 'error') status.dataset.state = 'busy'; } else if (status.dataset.state === 'busy') status.dataset.state = 'ready'; }
+const waiting = () => busy || view?.phase === 'deploying';
+function message(value: string, error = false) { status.textContent = value; status.dataset.state = error ? 'error' : waiting() ? 'busy' : 'ready'; }
+/** The first word links to the creation transaction on Basescan when the signup has one. */
+function messageLinked(word: string, rest: string) {
+  const hash = view?.transactionHash;
+  if (!hash) { message(word + rest); return; }
+  const link = document.createElement('a'); link.href = 'https://basescan.org/tx/' + hash; link.target = '_blank'; link.rel = 'noopener'; link.textContent = word;
+  status.replaceChildren(link, document.createTextNode(rest)); status.dataset.state = waiting() ? 'busy' : 'ready';
+}
+function spin() { if (waiting()) { if (status.dataset.state !== 'error') status.dataset.state = 'busy'; } else if (status.dataset.state === 'busy') status.dataset.state = 'ready'; }
 function encode(value: ArrayBuffer) { return btoa(String.fromCharCode(...new Uint8Array(value))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', ''); }
 function decode(value: string): Uint8Array<ArrayBuffer> {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,4096}$/.test(value)) throw new Error('Invalid passkey challenge.');
@@ -92,7 +100,8 @@ function accept(result: { view: View | null; csrfToken?: string }) {
   }
   view = result.view; known = true;
   if (result.csrfToken) { if (decode(result.csrfToken).length !== 32) throw new Error('Invalid signup context.'); csrf = result.csrfToken; }
-  message(view ? steps[view.phase] + (view.phase === 'awaiting_setup' ? mode() === 'kit' ? recoverySecret ? ' Now, save your backup password.' : '' : ' Continue to log in.' : '') : '');
+  if (view?.phase === 'deploying') messageLinked('Creating', steps.deploying.slice('Creating'.length));
+  else message(view ? steps[view.phase] + (view.phase === 'awaiting_setup' ? mode() === 'kit' ? recoverySecret ? ' Now, save your backup password.' : '' : ' Continue to log in.' : '') : '');
   if (view?.phase === 'ready_to_sign_in') sessionStorage.removeItem('center:signup:browser:' + view.enrollmentId);
   if (view?.phase === 'ready_to_sign_in' && kitSavedWallet === view.walletAddress) recoverySecret = null;
 }
@@ -110,7 +119,7 @@ function render() {
   // A default name that tells passkeys apart later: the site, then when it was made.
   if (!form.hidden && !name.value) {
     const now = new Date();
-    name.value = `juicebox.center ${now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} ${now.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    name.value = `${location.hostname} ${now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} ${now.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`;
   }
   el<HTMLFieldSetElement>('recovery-method').disabled = busy; // Inside the form: gone once signup begins.
   const showKit = kitPhase && mode() === 'kit';
@@ -243,7 +252,7 @@ async function advance() {
     // One click authorizes this browser for an hour of read, plan and relay access (it cannot approve
     // payments on its own), then logs in: two prompts.
     const browser = browserKey();
-    message('Checking your new wallet on Base. This can take up to a minute…');
+    messageLinked('Checking', ' your new wallet. This can take up to a minute…');
     const setup: Awaited<ReturnType<Signup['prepareSetup']>> = await request('setup/review', { browserPublicAddress: browser.address });
     if (setup.walletAddress.toLowerCase() !== view.walletAddress?.toLowerCase() || getAddress(setup.input.grant.botAddress) !== browser.address ||
       setup.input.grant.scopes.join(',') !== 'read,plan,relay') throw new Error('The browser setup review changed.');
