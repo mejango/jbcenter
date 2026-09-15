@@ -312,7 +312,9 @@ is sized to it, and `test/rest-wallet-runtime.test.ts` pins the production value
 - Authority observation budget `walletAuthorityObservationBounds.totalTimeoutMs` 90 s; a
   verified snapshot is ready for `walletAuthorityMaximumAgeMs` 120 s (migration 039 relaxed
   the DB check constraint from 30 s); refresh queue lease 120 s, refresh lead 60 s, worker
-  attempt 100 s.
+  attempt 100 s. The queue pins its settings in `rest_wallet_authority_refresh_control` for
+  all replicas: changing them needs a migration that clears `configuration` (040 did), or
+  every claim fails with WALLET_AUTHORITY_REFRESH_CONFIG_CONFLICT (`queue_failed` in the log).
 - Signup shows `preparing_sign_in` after setup until the worker's snapshot is verified; the
   signup site asks the worker on every such view and the page polls state every 2 s. Recovery
   still refreshes inline in its status call (open item).
