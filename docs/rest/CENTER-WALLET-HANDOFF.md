@@ -1,6 +1,6 @@
 # Continue the Center wallet delivery
 
-Snapshot: 2026-09-15 UTC. Read this first, then the
+Snapshot: 2026-09-15 UTC, updated after the hosted Base creation slice. Read this first, then the
 [delivery report](CENTER-WALLET-DELIVERY.md). Open deeper references only for the
 slice you are implementing. Older documents contain historical plans as well as
 completed checkpoints; source and the latest evidence decide current status.
@@ -35,12 +35,19 @@ Application source on Center main is
 commit. That application revision passed 4,583 checks with zero failures/skips,
 and [remote CI succeeded](https://github.com/mejango/jbcenter/actions/runs/34921022953).
 
-**Production signup and recovery are disabled.** In [src/index.ts](../../src/index.ts),
-`createRestRuntime` receives no wallet configuration. The composition in
-[runtime.ts](../../src/rest/runtime.ts) exposes `localWalletSignup` and
-`localWalletRecovery`. There is no mounted production Base funding, signing,
-dispatch and settlement producer for those flows. This is implementation work,
-not just missing environment variables.
+**Hosted Base creation is implemented but not yet configured; hosted recovery is
+not.** [src/index.ts](../../src/index.ts) mounts the wallet site when `WALLET_ORIGIN`
+is set and hosted creation only when every `WALLET_CREATION_*` setting is present
+(see [WALLET_SIGNUP.md](../../WALLET_SIGNUP.md), "Composition and observation").
+Center's Railway environment has none of these yet; no treasury key or funding
+exists. The creation host ([baseHost.ts](../../src/rest/wallet/baseHost.ts)) composes
+[deploymentBase.ts](../../src/rest/wallet/deploymentBase.ts) over the generic
+[deploymentTransport.ts](../../src/rest/wallet/deploymentTransport.ts) and
+[deploymentSettlementObserver.ts](../../src/rest/wallet/deploymentSettlementObserver.ts);
+migration 034 admits the `base-mainnet` environment, the reserved Base admission,
+complete `base-fjord-jovian-receipt-v1` fees and the `allocation-exceeded` fence.
+Recovery still has only the local Anvil relay
+([recoveryLocalAnvil.ts](../../src/rest/wallet/recoveryLocalAnvil.ts)).
 
 Local signup, recovery and app handoff are implemented and tested against
 PostgreSQL, Chromium and unforked Anvil. Shared dependency deployment is complete
@@ -74,10 +81,38 @@ Other work worth preserving, without merging blindly:
   `94d89f6209cd755d7f9020e5bc778f8a21fc122d`: preserve this exact audited operator
   checkout and its dependency journal. Do not modify/reinstall or rerun funding.
 
-## First implementation slice
+## Completed slice: hosted Base creation (revision 516d163)
 
-**Implement and prove the Base creation adapter through real runtime composition,
-then reuse its qualified boundaries for recovery.** Begin by reading
+Evidence: `~/.juicebox-center/wallet-dependencies/reviews/516d163/base-creation-adapter/`
+(release check `2026-09-15T03-25-19.016Z-49f2e259`, 181 files / 4,139 service tests,
+all steps passed on clean source; Fable review prompt and output). Tests:
+`rest-wallet-deployment-base-boundaries`, `-base-postgres.integration`, `-base-anvil`,
+`rest-wallet-signup-base-postgres.integration` (two users through reserved admission,
+one send each, complete-fee settlement, next-user admission) and
+`rest-wallet-base-host-postgres.integration` (runtime host initializes accounting once
+with the explicit first nonce and refuses a mismatching one). The Base-shaped fixture
+(`test/fixtures/wallet-base-anvil.ts`) runs the unforked Safe stack behind a proxy that
+presents the public fee predeploys, a Jovian attributes deposit at index zero of every
+block and receipt L1 fees priced from those attributes. It is not a Base provider.
+
+Design decisions to keep: the Base environment identity is the chain (genesis); the
+pinned L1Block/GasPriceOracle implementation runtimes are checked on every observation
+and at the inclusion block, failing closed on a later upgrade. A reservation is
+execution maximum plus twice the current L1/operator estimate and is not a cap; an
+actual finalized debit above the allocation is recorded and fences the pool. The
+chain nonce versus accounting `nextNonce` is the restore fence. The shared
+funding-evidence lifetime bound is 60 s (local producers keep 5 s). Single lane held
+to finality remains the pilot throughput limit.
+
+## Next slice: hosted Base recovery
+
+Parameterize the local recovery relay the same way: Base identity through the same
+reader, `eth_sendRawTransaction` through the single Dwellir endpoint, complete receipt
+fees per transaction, and lane release only after finality. Migration 031 pins the lane
+configuration version `unforked-anvil-recovery-v1` and execution-only receipts; a
+follow-up migration must admit a Base version and complete fees. A separate recovery
+sender key is required (SQL keeps signup and recovery senders distinct). Then a Base
+recovery host and `WALLET_RECOVERY_*` settings in `index.ts`. Begin by reading
 [WALLET_SIGNUP.md](../../WALLET_SIGNUP.md), the
 [deployment strategy](WALLET-DEPLOYMENT-STRATEGY.md),
 [Base fee notes](../../src/rest/wallet/stack/baseFees/README.md), and the following
@@ -101,23 +136,27 @@ of the previous credential across uncertain replies and restart.
 
 Known design constraints:
 
-1. Current deployment migrations 016/026 select one exclusive pool and one
+1. Current deployment migrations 016/026/034 select one exclusive pool and one
    unsettled operation. The lane stays held until finality. Signup now opens
    after latest canonical creation, but the next user can still wait for that
    lane. Choose a bounded, reviewed nonce pipeline or another explicit design;
    never silently discard liabilities to increase throughput.
 2. Type-2 maximum execution fees do **not** cap future Base L1/operator fees.
    Estimate plus margin is a reservation, not an enforceable chain cost ceiling.
-   Current SQL cannot record `spent > allocation`; a production design must retain
-   the actual cost and fence the incident even in that case. A sender's balance
-   is not immutable, and one nonce does not mean one sender transaction per block.
-3. A database cannot prove it has not been restored to an earlier snapshot.
-   Add external restore provenance/fencing before hot-key production signing.
+   Migration 034 now records `spent > allocation` behind the `allocation-exceeded`
+   fence. A sender's balance is not immutable, and one nonce does not mean one
+   sender transaction per block.
+3. A database cannot prove it has not been restored to an earlier snapshot. The
+   sender's chain nonce is the external fence: claim, admission and settlement all
+   require it to equal accounting `nextNonce`, and initialization requires the
+   explicit `WALLET_CREATION_INITIAL_NONCE`. A restore therefore stalls closed; an
+   operator must inspect and re-pin before any new claim.
 4. Local recovery has a separate treasury sender, fixture-only budget and locks
    across bounded RPC work. Reassess those assumptions for hosted DB pressure.
-5. The fee observer checks consistency, not finality, current fork applicability,
-   runtime authority or durable operation authority. Bind all of those in the
-   production caller, close its RPC operation, and check before consuming output.
+5. The Base settlement producer binds finality, the pinned runtimes at the inclusion
+   block and the durable operation before consuming fee output. Admission on Dwellir
+   must complete within the 5 s admission lifetime; measure this on the real provider
+   before the pilot and widen only with review.
 6. Read the actual Base chain configuration, not a generic OP schedule. The
    preserved source pin includes Jovian and later Base-specific upgrades.
 

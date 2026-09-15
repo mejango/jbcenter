@@ -7,10 +7,12 @@ the detailed chronology. For continuation, start with the [handoff](CENTER-WALLE
 
 ## Where we stand
 
-**The shared contracts are deployed, and signup and recovery work in the local
-integration environment. Consumer production signup is still disabled.** The
-hosted Base creation and recovery services need implementation and integration.
-Passing contract, browser and PostgreSQL tests does not complete that work.
+**The shared contracts are deployed, signup and recovery work in the local
+integration environment, and hosted Base creation is implemented at revision
+`516d163` but not configured or funded. Consumer production signup is still
+disabled.** Hosted recovery still needs implementation. Passing contract, browser
+and PostgreSQL tests does not complete that work; see the
+[handoff](CENTER-WALLET-HANDOFF.md) for the completed slice's evidence and the next one.
 
 Homerun showing only external wallets is consistent with this state: its Para
 path was removed, and the Center feature remains disabled. People without a
@@ -20,7 +22,7 @@ Turning on the client flag now would expose an unavailable service.
 | Deliverable | Evidence at this checkpoint | Remaining boundary |
 | --- | --- | --- |
 | Passkey ownership and account contracts | Real P-256 assertions, pinned Safe stack, contract execution and negative vectors | Complete production journey with real devices |
-| Signup without an existing wallet | Browser-generated recovery kit, verified saved-file recovery, local Safe creation and fresh login | Hosted Base signer, dispatch and treasury settlement |
+| Signup without an existing wallet | Browser-generated recovery kit, verified saved-file recovery, local Safe creation and fresh login; hosted Base creation producers and runtime host proven against a Base-shaped local chain | Production configuration, funded treasury, real Dwellir timing |
 | Lost-passkey recovery | Local same-Safe owner replacement, old authority revocation, real process-crash recovery | Hosted recovery funding/dispatch and user acceptance |
 | Shared app sign-in | App-key-bound launch, one-time exchange, SDK integrated into Homerun and Beep main | Production configuration and joined client acceptance |
 | Shared dependencies | Both Relayr payments and all 14 calls finalized across eight chains; all 13 Base runtime checks passed | These deployments do not deploy each user's wallet |
