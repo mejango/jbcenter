@@ -22,7 +22,7 @@ function setup(overrides: Partial<WalletSiteOptions> = {}) {
   const options:WalletSiteOptions={origin,audience,browserScript:'/* local browser entry */',
     login:{begin:vi.fn(async()=>({login:{id:loginId,rpId:'wallet.example.test',origin,challenge:`0x${'01'.repeat(32)}` as const,expiresAtMs:Date.now()+180_000},flowToken:flow})),
       identifyCompletion:vi.fn(async()=>({accountId})),complete:vi.fn(async()=>({session,sessionToken:token,replayed:false})),
-      identifySession:vi.fn(async()=>({accountId})),readSession:vi.fn(async()=>session),logout:vi.fn(async()=>({loggedOut:true as const,replayed:false}))},
+      identifySession:vi.fn(async()=>({accountId})),readSession:vi.fn(async()=>session),passkeyName:vi.fn(async()=>'Juicebox fixture'),logout:vi.fn(async()=>({loggedOut:true as const,replayed:false}))},
     handoff:{prepare:vi.fn(async()=>({id:loginId,state:'prepared' as const,createdAtMs:Date.now(),expiresAtMs:Date.now()+180_000,request:{} as never})),
       getIntent:vi.fn(async()=>({id:flow,state:'prepared' as const,createdAtMs:started,expiresAtMs:started+180_000,request:{version:'center-wallet-handoff-request-v1' as const,
         issuer:origin,origin:appOrigin,callbackUri:appOrigin+'/center/callback',audience,appGeneration:1,requestKey:appKey.address,state:token,codeChallenge:flow,

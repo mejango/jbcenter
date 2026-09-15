@@ -35,7 +35,7 @@ export interface WalletSiteOptions {
   signupBrowserScript?: string;
   recovery?: WalletRecoverySiteOptions['recovery'];
   recoveryBrowserScript?: string;
-  login: Pick<PostgresWalletLoginStore, 'begin' | 'identifyCompletion' | 'complete' | 'identifySession' | 'readSession' | 'logout'>;
+  login: Pick<PostgresWalletLoginStore, 'begin' | 'identifyCompletion' | 'complete' | 'identifySession' | 'readSession' | 'logout' | 'passkeyName'>;
   handoff: Pick<PostgresWalletHandoffStore, 'prepare' | 'getIntent' | 'issue' | 'identifyExchange' | 'exchange'>;
   policy: Pick<PostgresWalletPolicyStore, 'readActivePolicy'>;
   refresh: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
@@ -57,9 +57,9 @@ function bytes(value: unknown, min: number, max = min): Buffer {
   if (decoded.length < min || decoded.length > max || decoded.toString('base64url') !== value) reject();
   return decoded;
 }
-function publicSession(session: WalletCentralSession) {
+function publicSession(session: WalletCentralSession, passkeyName: string | null) {
   return { loginId: session.loginId, accountId: session.accountId, walletAddress: session.accountId.slice('eip155:8453:'.length),
-    chainId: 8453, expiresAtMs: session.expiresAtMs };
+    chainId: 8453, expiresAtMs: session.expiresAtMs, passkeyName };
 }
 
 /** Dedicated cookie origin. Trusted app CORS applies only to credentialless discovery/handoff;
@@ -233,12 +233,12 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
       Math.max(1, Math.min(3600, Math.floor((result.session.expiresAtMs - Date.now()) / 1000)))), { append: true });
     c.header('Set-Cookie', walletCookie(walletFlowCookie, null, 0), { append: true });
     emit('login_complete', 'ok');
-    return c.json({ session: publicSession(result.session), csrfToken: walletCsrfToken(result.sessionToken), replayed: result.replayed });
+    return c.json({ session: publicSession(result.session, await login.passkeyName(result.session)), csrfToken: walletCsrfToken(result.sessionToken), replayed: result.replayed });
   });
   app.get(`${base}/session`, async c => {
     const token = readWalletCookie(c.req.raw, walletSessionCookie);
     const session = token ? await sessionFor(token) : null;
-    return c.json(session && token ? { session: publicSession(session), csrfToken: walletCsrfToken(token) } : { session: null });
+    return c.json(session && token ? { session: publicSession(session, await login.passkeyName(session)), csrfToken: walletCsrfToken(token) } : { session: null });
   });
   app.post(`${base}/logout`, async c => {
     central(c); const token = cookie(c, walletSessionCookie); fields(await readWalletJson(c.req.raw), []);

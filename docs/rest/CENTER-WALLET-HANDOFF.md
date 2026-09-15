@@ -319,6 +319,13 @@ is sized to it, and `test/rest-wallet-runtime.test.ts` pins the production value
   signup site asks the worker on every such view and the page polls state every 2 s. Recovery
   still refreshes inline in its status call (open item).
 
+## Passkey name (2026-09-15)
+
+`rest_wallet_credentials.passkey_name` (migration 041) keeps the name typed at signup or recovery;
+`PostgresWalletLoginStore.passkeyName(session)` reads it and the account page shows it as
+"Passkey". It is display only: WebAuthn cannot rename a passkey, and changing the passkey itself
+is the recovery flow (new signer on the Safe, old one removed).
+
 ## Checks, review and observation loop
 
 Use Node 22 and Foundry. On this machine:

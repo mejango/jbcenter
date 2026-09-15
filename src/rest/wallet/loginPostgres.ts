@@ -205,6 +205,13 @@ export class PostgresWalletLoginStore {
     const session = await this.session(token, false); return session ? { accountId: session.accountId } : null;
   }
   async readSession(token: string): Promise<WalletCentralSession | null> { return this.session(token, true); }
+  /** The name given to the session's passkey at enrollment or recovery; display only, never authority. */
+  async passkeyName(session: Pick<WalletCentralSession, "rpId" | "credentialId">): Promise<string | null> {
+    const row = (await this.pool.query<{ passkey_name: string | null }>(
+      "SELECT passkey_name FROM rest_wallet_credentials WHERE rp_id=$1 AND credential_id=$2 AND superseded_at IS NULL",
+      [session.rpId, session.credentialId])).rows[0];
+    return row?.passkey_name ?? null;
+  }
   async logout(token: string): Promise<{ loggedOut: true; replayed: boolean }> {
     const hash = walletCentralSessionTokenHash(token);
     const hint = (await this.pool.query<LoginRow>("SELECT * FROM rest_wallet_logins WHERE session_token_hash=$1", [hash])).rows[0];

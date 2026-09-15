@@ -97,6 +97,7 @@ export async function exerciseRecoveryBrowser(options: {
   await page.locator('#explain-continue').click();
   await contains('You are signed in');
   expect((await page.locator('#wallet-address').textContent())!.toLowerCase()).toBe(kit.walletAddress.toLowerCase());
+  expect(await page.locator('#wallet-passkey').textContent()).toBe('Juicebox replacement');
   await writeFile(new URL('summary.json', out), JSON.stringify({ passed: true, evidence: 'real HTTP, PostgreSQL, unforked Anvil; virtual authenticator',
     originalPasskeyRemoved: true, recoveryKitImported: true, wrongKitRejected: true, nativeCancellationRetried: true,
     lostRegistrationReplyRecovered: true, lostApprovalReplyRecovered: true, cookieLostAfterRotationResumedSameRecovery: true,

@@ -44,6 +44,12 @@ export function copyWalletEnrollmentRegistration(value: WalletRegistrationRespon
   return { type: value.type, credentialId: value.credentialId, rawId: copyBytes(value.rawId, 1, 1023),
     clientDataJSON: copyBytes(value.clientDataJSON, 1, 2048), attestationObject: copyBytes(value.attestationObject, 1, 2048) };
 }
+/** The display name given to a passkey; shown on the account page, never used as authority. */
+export function copyWalletPasskeyName(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || value !== value.trim() || !value.length || Buffer.byteLength(value) > 120 || /[\p{Cc}\p{Cf}\p{Cs}]/u.test(value)) invalidInput();
+  return value;
+}
 export function copyWalletEnrollmentProof(value: { assertion: WalletAssertion; backupSignature: Hex }): { assertion: WalletAssertion; backupSignature: Hex } {
   inputFields(value, ["assertion", "backupSignature"], true);
   const assertion = value.assertion;
@@ -179,13 +185,14 @@ export class PostgresWalletEnrollmentStore {
   }
 
   async finalize(id: string, input: { assertion: WalletAssertion; backupSignature: Hex },
-    options: { passkeyChallenge?: Hex } = {}): Promise<{ record: WalletEnrollment; replayed: boolean }> {
+    options: { passkeyChallenge?: Hex; passkeyName?: string } = {}): Promise<{ record: WalletEnrollment; replayed: boolean }> {
     const proof = copyWalletEnrollmentProof(input), before = await this.get(id);
     if (!before) missing();
     if (!before.candidate || !before.creation || !before.possession)
       throw new RestError(409, "WALLET_ENROLLMENT_STATE", "Registration must precede possession verification.");
+    const passkeyName = copyWalletPasskeyName(options.passkeyName);
     // Expensive parsing/crypto precede row locks. The locked snapshot must remain byte-for-byte equal.
-    const verified = await verifyWalletEnrollmentProof(before, proof, options);
+    const verified = await verifyWalletEnrollmentProof(before, proof, options.passkeyChallenge ? { passkeyChallenge: options.passkeyChallenge } : {});
     return this.transaction(async client => {
       const current = await lockWalletEnrollmentInTransaction(client, id);
       if (enrollmentDigest([current.intent, current.candidate, current.creation, current.possession])
@@ -202,10 +209,10 @@ export class PostgresWalletEnrollmentStore {
       const verifiedAt = await assertLive(client, current);
       const accountId = `eip155:8453:${current.creation.address.toLowerCase()}`;
       await client.query(
-        `INSERT INTO rest_wallet_credentials(rp_id,credential_id,enrollment_id,account_id,user_handle,public_key_x,public_key_y,backup_eligible,verified_at)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        `INSERT INTO rest_wallet_credentials(rp_id,credential_id,enrollment_id,account_id,user_handle,public_key_x,public_key_y,backup_eligible,verified_at,passkey_name)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
         [current.intent.rpId, current.candidate.credentialId, id, accountId, current.intent.userHandle,
-          current.candidate.publicKey.x, current.candidate.publicKey.y, current.candidate.backupEligible, verifiedAt],
+          current.candidate.publicKey.x, current.candidate.publicKey.y, current.candidate.backupEligible, verifiedAt, passkeyName],
       );
       const document = walletEnrollmentDocument(current);
       const receipt: WalletEnrollmentReceipt = { id, enrollmentId: id, accountId, credentialId: current.candidate.credentialId,

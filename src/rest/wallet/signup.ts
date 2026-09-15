@@ -97,8 +97,8 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     return status(flowToken);
   }
   async function proveEnrollment(flowToken: string, input: { assertion: WalletAssertion; backupSignature: Hex }) {
-    const proof = copyWalletEnrollmentProof(input), { enrollment } = await context(flowToken);
-    await enrollments.finalize(enrollment.intent.id, proof);
+    const proof = copyWalletEnrollmentProof(input), { flow, enrollment } = await context(flowToken);
+    await enrollments.finalize(enrollment.intent.id, proof, { passkeyName: flow.passkeyName });
     return status(flowToken);
   }
   async function prepareDeployment(flowToken: string) {
@@ -133,7 +133,7 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
       // possession; the recovery owner's signature over the enrollment document rides along.
       if (input.backupSignature === undefined) state();
       await enrollments.finalize(enrollment.intent.id, { assertion: input.assertion, backupSignature: input.backupSignature },
-        { passkeyChallenge: hashTypedData(walletDeploymentDocument(enrollment, operation.approval)) });
+        { passkeyChallenge: hashTypedData(walletDeploymentDocument(enrollment, operation.approval)), passkeyName: flow.passkeyName });
       ({ flow, enrollment } = await context(flowToken));
       if (flow.deploymentId !== approvalId || enrollment.state !== "verified") state();
     }

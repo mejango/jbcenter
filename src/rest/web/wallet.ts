@@ -2,13 +2,13 @@ import { base } from './walletBase.js';
 /** No credentials, assertions, CSRF values or handoff codes are persisted by this page. */
 type Json = Record<string, unknown>;
 type Configuration = { issuer: string; audience: string; rpId: string };
-type Session = { accountId: string; loginId: string; walletAddress: string; chainId: number; expiresAtMs: number };
+type Session = { accountId: string; loginId: string; walletAddress: string; chainId: number; expiresAtMs: number; passkeyName: string | null };
 type Intent = { id: string; callbackUri: string; state: string; expiresAtMs: number };
 type Completion = { loginId: string; assertion: { credentialId: string; userHandle: string | null;
   authenticatorData: string; clientDataJSON: string; signature: string } };
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const status = element("wallet-status"), account = element("wallet-account"), address = element("wallet-address");
+const status = element("wallet-status"), account = element("wallet-account"), address = element("wallet-address"), passkey = element("wallet-passkey"), passkeyLabel = element("wallet-passkey-label");
 const destination = element("wallet-destination");
 const signIn = element<HTMLButtonElement>("wallet-signin"), retry = element<HTMLButtonElement>("wallet-retry");
 const cancel = element<HTMLButtonElement>("wallet-cancel"), signOut = element<HTMLButtonElement>("wallet-logout");
@@ -57,6 +57,7 @@ function render() {
   signOut.hidden = !session; signOut.disabled = busy;
   cancel.hidden = !nativePrompt;
   account.hidden = !session; address.textContent = session?.walletAddress ?? "";
+  passkey.textContent = session?.passkeyName ?? ""; passkey.hidden = passkeyLabel.hidden = !session?.passkeyName;
 }
 async function request(path: string, body?: unknown, csrfToken?: string): Promise<Json> {
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 10_000);
@@ -92,7 +93,8 @@ function acceptSession(value: Json, required = false) {
   if (!/^0x[0-9a-fA-F]{40}$/.test(walletAddress) || current.chainId !== 8453
     || string(current.accountId).toLowerCase() !== `eip155:8453:${walletAddress.toLowerCase()}`) throw new InvalidResponse();
   const nextCsrf = token(value.csrfToken), expiresAtMs = future(current.expiresAtMs);
-  session = { accountId: current.accountId as string, loginId: string(current.loginId, 36), walletAddress, chainId: 8453, expiresAtMs };
+  const passkeyName = current.passkeyName === null || current.passkeyName === undefined ? null : string(current.passkeyName, 120);
+  session = { accountId: current.accountId as string, loginId: string(current.loginId, 36), walletAddress, chainId: 8453, expiresAtMs, passkeyName };
   csrf = nextCsrf; sessionKnown = true;
 }
 async function run(action: () => Promise<void>) {

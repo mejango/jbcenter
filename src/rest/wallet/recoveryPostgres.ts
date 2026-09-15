@@ -6,7 +6,7 @@ import { stable } from '../smartAccounts/service.js';
 import { validateWalletAuthorityContext, validateWalletAuthorityObservation, type WalletAuthorityContext, type WalletAuthorityObservation } from './authority.js';
 import { loadWalletAuthorityContextInTransaction, PostgresWalletAuthorityStore } from './authorityPostgres.js';
 import { enrollmentDigest } from './enrollment.js';
-import { copyWalletEnrollmentProof, copyWalletEnrollmentRegistration } from './enrollmentPostgres.js';
+import { copyWalletEnrollmentProof, copyWalletEnrollmentRegistration, copyWalletPasskeyName } from './enrollmentPostgres.js';
 import { lockWalletCeremonyAdmission, PostgresWalletCeremonyStore, walletCeremonyDatabaseNow } from './ceremoniesPostgres.js';
 import { createWalletRecoveryIntent, createWalletRecoveryMapping, prepareWalletRecoveryCandidate, verifyWalletRecoveryProof,
   type WalletRecoveryIntent, type WalletRecoveryCandidate, type WalletRecoveryProof } from './recovery.js';
@@ -150,9 +150,9 @@ export class PostgresWalletRecoveryStore {
   }
   /** Internal capability boundary. The configured producer must verify complete canonical
    * history and the replacement setup anchor. HTTP must never supply an observation. */
-  async activate(id: string, flowToken: string, input: WalletAssertion): Promise<{ receipt: WalletCredentialRecovery; replayed: boolean }> {
+  async activate(id: string, flowToken: string, input: WalletAssertion, options: { passkeyName?: string } = {}): Promise<{ receipt: WalletCredentialRecovery; replayed: boolean }> {
     if (!this.activationObserver) throw new RestError(503, 'WALLET_RECOVERY_UNAVAILABLE', 'Canonical recovery activation is not configured.');
-    const assertion = copyWalletSignupAssertion(input), before = await this.required(id, flowToken);
+    const assertion = copyWalletSignupAssertion(input), passkeyName = copyWalletPasskeyName(options.passkeyName), before = await this.required(id, flowToken);
     if (before.activation) return this.transaction(async client => {
       const current = await loadWalletAuthorityContextInTransaction(client, before.intent.accountId), row = await this.lock(client, id, flowToken);
       if (!row.activation || stable(row.activation) !== stable(before.activation) || stable(current.credential.recovery) !== stable(row.activation)) conflict();
@@ -197,9 +197,9 @@ export class PostgresWalletRecoveryStore {
       if (superseded.rowCount !== 1) conflict();
       const next = prepared.context.credential;
       await client.query(`INSERT INTO rest_wallet_credentials(rp_id,credential_id,enrollment_id,account_id,user_handle,
-        public_key_x,public_key_y,backup_eligible,verified_at,recovery_receipt) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        public_key_x,public_key_y,backup_eligible,verified_at,recovery_receipt,passkey_name) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [next.rpId, next.credentialId, next.enrollmentId, next.accountId, next.userHandle, next.publicKey.x, next.publicKey.y,
-        next.backupEligible, next.verifiedAtMs, prepared.receipt]);
+        next.backupEligible, next.verifiedAtMs, prepared.receipt, passkeyName]);
       await client.query('UPDATE rest_bot_grants SET revoked_at=GREATEST(created_at,$3) WHERE account_id=$1 AND id<>$2 AND revoked_at IS NULL',
         [next.accountId, setup.grantId, seconds]);
       await client.query('UPDATE rest_wallet_app_grants SET revoked_at=GREATEST(created_at,$2) WHERE account_id=$1 AND revoked_at IS NULL', [next.accountId, seconds]);

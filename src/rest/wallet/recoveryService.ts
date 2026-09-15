@@ -156,7 +156,7 @@ export function createLocalWalletRecovery(options: LocalWalletRecoveryDependenci
     const { flow, record } = await context(flowToken), setup = flow.setup, candidate = record.candidate;
     if (!setup || setup.id !== setupId || !candidate || !record.proof) state();
     if (record.activation) {
-      await recoveries.activate(record.intent.id, flowToken, assertion);
+      await recoveries.activate(record.intent.id, flowToken, assertion, { passkeyName: flow.passkeyName });
       return status(flowToken);
     }
     if ((await rotation.status(record.intent.id)).state !== 'ready') state();
@@ -169,7 +169,7 @@ export function createLocalWalletRecovery(options: LocalWalletRecoveryDependenci
       initializerHash: setup.initializerHash, proofSignature: browserProof,
       signature: encodeSafe7579MessageSignature([{ kind: 'contract', owner: candidate.signerAddress, signature: verified.contractSignature }]) });
     event({ stage: 'setup', outcome: 'committed', recoveryId: record.intent.id });
-    await recoveries.activate(record.intent.id, flowToken, assertion);
+    await recoveries.activate(record.intent.id, flowToken, assertion, { passkeyName: flow.passkeyName });
     event({ stage: 'activation', outcome: 'committed', recoveryId: record.intent.id });
     return status(flowToken);
   }

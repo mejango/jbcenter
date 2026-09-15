@@ -8,7 +8,7 @@ export function walletPage(signup = false, recovery = false, base = '/wallet'): 
 <h1>Your account</h1><p>One account for Juicebox apps.</p>
 <p id="wallet-destination" hidden></p>
 <p id="wallet-status" role="status" aria-live="polite" aria-atomic="true" data-state="loading">Checking your wallet…</p>
-<section id="wallet-account" aria-label="Connected account" hidden><dl><dt>Account address</dt><dd id="wallet-address"></dd><dt>Network</dt><dd>Base</dd></dl></section>
+<section id="wallet-account" aria-label="Connected account" hidden><dl><dt>Account address</dt><dd id="wallet-address"></dd><dt>Network</dt><dd>Base</dd><dt id="wallet-passkey-label">Passkey</dt><dd id="wallet-passkey"></dd></dl></section>
 <div class="actions"><button id="wallet-signin" type="button" hidden>Sign in with a passkey</button>
 <button id="wallet-retry" type="button" hidden>Retry</button>
 <button id="wallet-cancel" type="button" class="secondary" hidden>Cancel</button>

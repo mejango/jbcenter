@@ -23,7 +23,7 @@ import { PostgresWalletLoginStore } from "../../src/rest/wallet/loginPostgres.js
 export const walletLoginFixtureOrigin = "https://wallet.juicebox.center";
 export const walletLoginFixtureRpId = "wallet.juicebox.center";
 export const walletLoginTestMigrations = ["004_rest_accounts.sql", "007_rest_smart_accounts.sql", "012_rest_smart_account_onboarding.sql",
-  "013_rest_wallet_ceremonies.sql", "014_rest_passkey_onboarding.sql", "015_rest_wallet_enrollment.sql",
+  "013_rest_wallet_ceremonies.sql", "014_rest_passkey_onboarding.sql", "015_rest_wallet_enrollment.sql", "041_wallet_passkey_name.sql",
   "017_rest_wallet_policy.sql", "019_rest_wallet_app_grants.sql", "020_rest_wallet_authority.sql", "039_wallet_authority_window.sql", "022_wallet_login.sql", "032_wallet_pending_expiry.sql"];
 export async function createWalletLoginSetup(pool: Pool, options: { lifetimeMs?: number; origin?: string; rpId?: string; manifest?: SmartAccountManifest } = {}) {
   const audience = options.origin ?? walletLoginFixtureOrigin;
@@ -43,7 +43,8 @@ export async function createWalletLoginSetup(pool: Pool, options: { lifetimeMs?:
       rpId: initial.intent.rpId, origin: initial.intent.origin, userHandle: initial.intent.userHandle });
     const pending = await enrollments.acceptRegistration(initial.intent.id, credential.response), document = walletEnrollmentDocument(pending);
     const assertion = signGet({ ...credential, challenge: hashTypedData(document), rpId: pending.intent.rpId, origin: pending.intent.origin });
-    const { record } = await enrollments.finalize(pending.intent.id, { assertion, backupSignature: await signBackupProof(document) });
+    const { record } = await enrollments.finalize(pending.intent.id, { assertion, backupSignature: await signBackupProof(document) },
+      { passkeyName: "Juicebox fixture" });
     return { record, credential };
   }
   /** Explicitly synthetic observer state. The genuine setup signatures below prove consent to

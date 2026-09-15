@@ -239,6 +239,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await proceed('Log in');
     await contains('You are signed in');
     expect((await page.locator('#wallet-address').textContent())?.toLowerCase()).toBe(originalAddress?.toLowerCase());
+    expect(await page.locator('#wallet-passkey').textContent()).toBe('Juicebox test');
     if (recovery) {
       await exerciseRecoveryBrowser({ page, context, cdp, authenticatorId, origin, recovery, login, requestBodies, kitText: recoveryKitText! });
       expect(lostRecoveryPaths.size).toBe(3);

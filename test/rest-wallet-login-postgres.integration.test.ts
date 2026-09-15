@@ -131,6 +131,8 @@ suite("PostgreSQL discoverable wallet login with genuine P256 and synthetic cano
     expect(first.session).toMatchObject({ accountId: value.accountId, loginId: begun.login.id,
       credentialId: value.credential.credentialId, enrollmentId: value.record.intent.id, revokedAtMs: null });
     expect(await store.readSession(first.sessionToken)).toEqual(first.session);
+    // The account page shows the name given to the passkey at enrollment; it is never editable.
+    expect(await store.passkeyName(first.session)).toBe("Juicebox fixture");
     expect(await store.readSession(first.session.id)).toBeNull();
     expect(await storedCeremony(begun.login.id)).toMatchObject({ consumed_at: expect.any(String), result_id: first.session.id });
     const persisted = (await pool.query("SELECT to_jsonb(l)::text AS document FROM rest_wallet_logins l WHERE id=$1", [begun.login.id])).rows[0].document;
