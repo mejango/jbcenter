@@ -351,7 +351,7 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
   });
 
   it("checks the real database deadline after an account lock wait", async () => {
-    const value = await pendingReview({}, 2500), process = await worker(), release = await holdAccount(value.login.accountId);
+    const process = await worker(), value = await pendingReview({}, 5000), release = await holdAccount(value.login.accountId);
     const request = process.request({ action: "approve", id: value.view.draft.id, sessionId: value.login.session.id, assertion: value.assertion });
     try { await waitingForLock(process.backendPid); await waitPast(value.view.draft.expiresAtMs); }
     finally { await release(); }
@@ -359,7 +359,10 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
   });
 
   it.each(["operation", "readiness"])("rolls back approval and ceremony consumption when %s expires after the approval write", async deadline => {
-    const value = await pendingReview({}, deadline === "operation" ? 2500 : 120_000, deadline === "readiness" ? 3000 : 30_000), process = await worker();
+    // Start the worker before issuing short-lived evidence. These cases must
+    // reach the write barrier, then expire against the real database clock.
+    const process = await worker();
+    const value = await pendingReview({}, deadline === "operation" ? 5000 : 120_000, deadline === "readiness" ? 5000 : 30_000);
     const request = process.request({ action: "approve", id: value.view.draft.id, sessionId: value.login.session.id,
       assertion: value.assertion, barrier: "after-review-write" });
     await reachedBarrier(process, request);

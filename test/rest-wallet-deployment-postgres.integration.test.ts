@@ -291,7 +291,7 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
   });
 
   it("rolls back nonce, template and consumed approval when post-write work crosses the DB deadline", async () => {
-    const value = await prepared(configuration(), 3000), child = await worker(), barrier = message(child.child, "barrier");
+    const child = await worker(), value = await prepared(configuration(), 5000), barrier = message(child.child, "barrier");
     const pending = child.request({ ...claimWire(value), barrier: "after-operation", continueBarrier: true });
     await barrier;
     await pool.query("SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.05)", [value.approval.expiresAt]);
