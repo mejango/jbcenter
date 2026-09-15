@@ -5,11 +5,11 @@ import type { WalletDeploymentPool } from "./deploymentPostgres.js";
 import { assertWalletDeploymentObservation, type WalletDeploymentObservation } from "./deploymentObservation.js";
 import { enrollmentDigest } from "./enrollment.js";
 
-/** The local instance ID fences a restarted chain. The Base runtime profile digests the pinned
- * fee predeploy implementations, so a fork that changes pricing rules reads as a changed environment. */
+/** The local instance ID fences a restarted chain. Base never resets, so its identity is the chain
+ * itself; the pinned fee predeploy runtimes are rechecked on every observation and fail closed. */
 export type WalletDeploymentEnvironment =
   | { kind: "unforked-anvil"; genesisHash: Hex; instanceId: Hex }
-  | { kind: "base-mainnet"; genesisHash: Hex; runtimeProfile: Hex };
+  | { kind: "base-mainnet"; genesisHash: Hex };
 export type WalletDeploymentLocalEnvironment = WalletDeploymentEnvironment;
 export interface WalletDeploymentAccountingFence {
   /** allocation-exceeded records an actual finalized debit above the allocation; the debit is retained. */
@@ -83,7 +83,9 @@ export interface WalletDeploymentSettlementReceipt {
   nextNonce: string;
   settledAt: number;
 }
-export const walletDeploymentSettlementLimits = Object.freeze({ evidenceLifetimeMs: 5000, maximumHeadAgeMs: 300000 });
+/** Upper bound on a funding read's validity. Hosted settlement needs roughly a hundred provider
+ * calls between the finalized observation and the debit; the local producer keeps a 5 s window. */
+export const walletDeploymentSettlementLimits = Object.freeze({ evidenceLifetimeMs: 60_000, maximumHeadAgeMs: 300000 });
 function invalid(): never { throw new RestError(409, "WALLET_DEPLOYMENT_SETTLEMENT_INVALID", "Qualified local accounting evidence does not match the durable context."); }
 function exact(value: unknown, keys: string[]): asserts value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== keys.length ||
@@ -106,7 +108,7 @@ function block(value: RestBlockEvidence): void {
   uint(value.blockNumber); uint(value.timestamp); word(value.blockHash);
 }
 function environment(value: WalletDeploymentEnvironment): void {
-  if (value?.kind === "base-mainnet") { exact(value, ["kind", "genesisHash", "runtimeProfile"]); word(value.runtimeProfile); }
+  if (value?.kind === "base-mainnet") exact(value, ["kind", "genesisHash"]);
   else { exact(value, ["kind", "genesisHash", "instanceId"]); if (value.kind !== "unforked-anvil") invalid(); word(value.instanceId); }
   word(value.genesisHash);
 }

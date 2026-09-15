@@ -9,7 +9,7 @@ import { assertWalletDeploymentAccounting, assertWalletDeploymentFundingEvidence
 import { assertWalletDeploymentDispatchAdmission, type WalletDeploymentDispatchAdmission } from "../src/rest/wallet/deploymentDispatch.js";
 import { enrollmentDigest } from "../src/rest/wallet/enrollment.js";
 
-const base: WalletDeploymentEnvironment = { kind: "base-mainnet", genesisHash: `0x${"11".repeat(32)}`, runtimeProfile: `0x${"22".repeat(32)}` };
+const base: WalletDeploymentEnvironment = { kind: "base-mainnet", genesisHash: `0x${"11".repeat(32)}` };
 const baseFees = { profile: "base-fjord-jovian-receipt-v1" as const, executionWei: "500000000000", l1Wei: "16289011957", operatorWei: "7", totalWei: "516289011964" };
 
 async function fixture(now = Date.now()) {
@@ -31,8 +31,8 @@ describe("hosted Base deployment boundary shapes", () => {
     expect(assertWalletDeploymentAccounting(context.pool.accounting, context.pool)).toEqual(context.pool.accounting);
   });
   it.each([
-    (e: any) => { e.instanceId = e.runtimeProfile; }, (e: any) => { delete e.runtimeProfile; }, (e: any) => { e.kind = "base"; },
-    (e: any) => { e.runtimeProfile = "0x" + "00".repeat(32); },
+    (e: any) => { e.instanceId = "0x" + "22".repeat(32); }, (e: any) => { delete e.genesisHash; }, (e: any) => { e.kind = "base"; },
+    (e: any) => { e.runtimeProfile = "0x" + "22".repeat(32); },
   ])("rejects an incoherent base environment %#", async mutate => {
     const { context } = await fixture(); mutate(context.pool.accounting!.environment);
     expect(() => assertWalletDeploymentAccounting(context.pool.accounting, context.pool)).toThrow();

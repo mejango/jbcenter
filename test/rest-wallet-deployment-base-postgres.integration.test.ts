@@ -14,7 +14,7 @@ import { initializedSettlementPool, preparedSettlementUser, settlementDatabaseNo
 
 const connectionString = process.env.TEST_DATABASE_URL, suite = connectionString ? describe : describe.skip;
 const schema = `rest_wallet_base_${randomUUID().replaceAll("-", "")}`;
-const base: WalletDeploymentEnvironment = { kind: "base-mainnet", genesisHash: `0x${"11".repeat(32)}`, runtimeProfile: `0x${"22".repeat(32)}` };
+const base: WalletDeploymentEnvironment = { kind: "base-mainnet", genesisHash: `0x${"11".repeat(32)}` };
 const fees = (l1Wei: string) => ({ profile: "base-fjord-jovian-receipt-v1" as const, executionWei: "500000000000", l1Wei, operatorWei: "7",
   totalWei: String(500000000000n + BigInt(l1Wei) + 7n) });
 let admin: Pool, pool: Pool, store: PostgresWalletDeploymentStore;

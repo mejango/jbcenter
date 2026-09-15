@@ -73,6 +73,23 @@ function transactionHashes(value: unknown): Hex[] {
   return hashes;
 }
 
+/** Parameters of one explicit 178-byte Jovian L1-attributes deposit. Position and canonical
+ * block binding remain the caller's responsibility. Unknown selectors or lengths fail closed. */
+export function baseL1AttributesParameters(input: unknown): { parameters: BaseFeeParameters; daFootprintGasScalar: bigint } {
+  try {
+    const attributes = object(input);
+    if (quantity(field(attributes, "type")) !== 126n) invalid();
+    address(field(attributes, "from"), "0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001");
+    address(field(attributes, "to"), "0x4200000000000000000000000000000000000015");
+    const data = field(attributes, "input");
+    if (typeof data !== "string" || data.length !== 358 || !/^0x3db6be2b[0-9a-fA-F]+$/i.test(data)) invalid();
+    const uint = (start: number, end: number) => BigInt(`0x${data.slice(2 + start * 2, 2 + end * 2)}`);
+    return { parameters: { profile: "fjord-jovian", l1BaseFeeScalar: uint(4, 8), l1BlobBaseFeeScalar: uint(8, 12),
+      l1BaseFee: uint(36, 68), l1BlobBaseFee: uint(68, 100), operatorFeeScalar: uint(164, 168), operatorFeeConstant: uint(168, 176) },
+      daFootprintGasScalar: uint(176, 178) };
+  } catch { return invalid(); }
+}
+
 /** Pure consistency and fee arithmetic, NOT RPC provenance, canonicality, fork qualification,
  * signer authority, treasury settlement or dispatch permission. The production observer must
  * independently bind its exact durable operation and recheck the canonical inclusion block.
@@ -93,15 +110,8 @@ export function verifyBaseReceiptFees(input: BaseReceiptFeeInput): BaseReceiptFe
       if (hash(field(value, "blockHash")) !== blockHash || quantity(field(value, "blockNumber")) !== blockNumber) invalid();
       return quantity(field(value, "transactionIndex"), BigInt(hashes.length - 1));
     }
-    if (position(attributes) !== 0n || hash(field(attributes, "hash")) !== hashes[0] || quantity(field(attributes, "type")) !== 126n) invalid();
-    address(field(attributes, "from"), "0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001");
-    address(field(attributes, "to"), "0x4200000000000000000000000000000000000015");
-    const data = field(attributes, "input");
-    if (typeof data !== "string" || data.length !== 358 || !/^0x3db6be2b[0-9a-fA-F]+$/i.test(data)) invalid();
-    const uint = (start: number, end: number) => BigInt(`0x${data.slice(2 + start * 2, 2 + end * 2)}`);
-    const parameters: BaseFeeParameters = { profile: "fjord-jovian", l1BaseFeeScalar: uint(4, 8), l1BlobBaseFeeScalar: uint(8, 12),
-      l1BaseFee: uint(36, 68), l1BlobBaseFee: uint(68, 100), operatorFeeScalar: uint(164, 168), operatorFeeConstant: uint(168, 176) };
-    const daFootprintGasScalar = uint(176, 178);
+    if (position(attributes) !== 0n || hash(field(attributes, "hash")) !== hashes[0]) invalid();
+    const { parameters, daFootprintGasScalar } = baseL1AttributesParameters(attributes);
     const raw = field(v, "rawTransaction") as Hex;
     const calculated = calculateBaseSignedFees({ rawTransaction: raw, parameters });
     const tx = parseTransaction(raw);

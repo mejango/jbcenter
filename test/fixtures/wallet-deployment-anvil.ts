@@ -43,7 +43,8 @@ export function createWalletDeploymentAnvilRpc(endpoint: string): RestRpc {
   } };
 }
 
-export async function startWalletDeploymentAnvil() {
+/** `setup` runs before the baseline snapshot so `reset()` restores its state too. */
+export async function startWalletDeploymentAnvil(setup?: (rpc: <T = unknown>(method: string, params?: readonly unknown[]) => Promise<T>) => Promise<void>) {
   const server = createServer();
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
   const port = (server.address() as { port: number }).port;
@@ -172,6 +173,7 @@ export async function startWalletDeploymentAnvil() {
       return { pool: { configuration, configurationDigest: enrollmentDigest(configuration), createdAt: now,
         state: "active", activeOperationId: operation.id, revision: 2 }, enrollment, operation };
     }
+    await setup?.(rpc);
     let baseline = await rpc<Hex>("evm_snapshot");
     async function reset() {
       const pending = await rpc<{ transactions: { hash: Hex }[] }>("eth_getBlockByNumber", ["pending", true]);

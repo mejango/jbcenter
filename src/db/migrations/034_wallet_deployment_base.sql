@@ -4,7 +4,7 @@
 CREATE FUNCTION rest_wallet_deployment_environment_shape(e jsonb) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
  SELECT (jsonb_typeof(e)='object' AND e->>'genesisHash' ~ '^0x[0-9a-f]{64}$'
   AND (((e-'kind'-'genesisHash'-'instanceId')='{}'::jsonb AND e->>'kind'='unforked-anvil' AND e->>'instanceId' ~ '^0x[0-9a-f]{64}$')
-    OR ((e-'kind'-'genesisHash'-'runtimeProfile')='{}'::jsonb AND e->>'kind'='base-mainnet' AND e->>'runtimeProfile' ~ '^0x[0-9a-f]{64}$'))) IS TRUE
+    OR ((e-'kind'-'genesisHash')='{}'::jsonb AND e->>'kind'='base-mainnet'))) IS TRUE
 $$;
 CREATE OR REPLACE FUNCTION rest_wallet_deployment_accounting_shape(a jsonb, allocation numeric) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
  SELECT (a IS NULL OR (jsonb_typeof(a)='object' AND octet_length(a::text)<=4096
@@ -221,10 +221,10 @@ BEGIN
       (NEW.receipt->'evidence'->'funding'->'head'->>'timestamp')::numeric*1000+300000
     AND (NEW.receipt->'evidence'->'funding'->'head'->>'timestamp')::numeric*1000<=now_ms+30000
     AND (NEW.receipt->'evidence'->'observation'->>'observedAt')::bigint<=(NEW.receipt->'evidence'->'funding'->>'observedAt')::bigint
-    AND (NEW.receipt->'evidence'->'funding'->>'expiresAt')::bigint<=(NEW.receipt->'evidence'->'observation'->>'observedAt')::bigint+5000
+    AND (NEW.receipt->'evidence'->'funding'->>'expiresAt')::bigint<=(NEW.receipt->'evidence'->'observation'->>'observedAt')::bigint+60000
     AND (NEW.receipt->'evidence'->'funding'->>'expiresAt')::bigint>(NEW.receipt->>'settledAt')::bigint
     AND (NEW.receipt->'evidence'->'funding'->>'expiresAt')::bigint<=
-      (NEW.receipt->'evidence'->'funding'->>'observedAt')::bigint+5000
+      (NEW.receipt->'evidence'->'funding'->>'observedAt')::bigint+60000
     AND NOT EXISTS(SELECT 1 FROM rest_wallet_deployment_dispatches WHERE operation_id=d.id
       AND lease_until>floor(extract(epoch FROM clock_timestamp())*1000)::bigint)) IS NOT TRUE
     THEN RAISE EXCEPTION 'Settlement requires exact finality and accounting' USING ERRCODE='23514'; END IF;
@@ -272,6 +272,42 @@ BEGIN
   IF OLD.accounting IS NOT NULL AND OLD.active_operation_id IS DISTINCT FROM NEW.active_operation_id AND
     (OLD.accounting->'fence'<>'null'::jsonb OR (OLD.active_operation_id IS NOT NULL AND NEW.accounting IS NOT DISTINCT FROM OLD.accounting))
     THEN RAISE EXCEPTION 'No lane release without a qualified settlement' USING ERRCODE='23514'; END IF;
+ END IF;
+ RETURN NEW;
+END $$;
+
+-- Sequential claims share the widened funding-evidence lifetime with settlement.
+CREATE OR REPLACE FUNCTION rest_wallet_deployment_funding_claim() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE p rest_wallet_deployment_pools%ROWTYPE; now_ms bigint := floor(extract(epoch FROM clock_timestamp())*1000)::bigint;
+BEGIN
+ IF TG_OP='INSERT' THEN
+  IF NEW.claim_funding IS NOT NULL THEN RAISE EXCEPTION 'Prepared operation has no spending admission' USING ERRCODE='23514'; END IF;
+  RETURN NEW;
+ END IF;
+ IF OLD.state<>'prepared' AND NEW.claim_funding IS DISTINCT FROM OLD.claim_funding
+  THEN RAISE EXCEPTION 'Claimed funding evidence is immutable' USING ERRCODE='23514'; END IF;
+ IF OLD.state='prepared' AND NEW.state='claimed' THEN
+  SELECT * INTO p FROM rest_wallet_deployment_pools WHERE id=NEW.pool_id;
+  IF p.accounting IS NULL THEN
+   IF NEW.claim_funding IS NOT NULL THEN RAISE EXCEPTION 'Legacy pool cannot adopt a sequential admission' USING ERRCODE='23514'; END IF;
+  ELSIF (p.accounting->'fence'='null'::jsonb AND jsonb_typeof(NEW.claim_funding)='object'
+    AND octet_length(NEW.claim_funding::text)<=4096
+    AND NEW.claim_funding->>'version'='center-wallet-deployment-funding-v1'
+    AND NEW.claim_funding->>'poolId'=p.id::text AND NEW.claim_funding->>'configurationDigest'=p.configuration_digest
+    AND (NEW.claim_funding->>'poolRevision')::bigint=p.revision
+    AND NEW.claim_funding->>'accountingDigest' ~ '^[0-9a-f]{64}$'
+    AND NEW.claim_funding->'environment'=p.accounting->'environment'
+    AND NEW.claim_funding->'previousAnchor'=p.accounting->'lastSettlementAnchor'
+    AND NEW.claim_funding->>'confirmedNonce'=p.accounting->>'nextNonce'
+    AND NEW.claim_funding->>'pendingNonce'=p.accounting->>'nextNonce'
+    AND NEW.nonce::text=p.accounting->>'nextNonce'
+    AND NEW.claim_funding->'head'->>'blockNumber'=NEW.admission->>'blockNumber'
+    AND NEW.claim_funding->'head'->>'blockHash'=NEW.admission->>'blockHash'
+    AND (NEW.claim_funding->>'balanceWei')::numeric>=p.allocation_wei-(p.accounting->>'spentWei')::numeric
+    AND (NEW.template->'transaction'->>'gas')::numeric*(NEW.template->'transaction'->>'maxFeePerGas')::numeric<=p.allocation_wei-(p.accounting->>'spentWei')::numeric
+    AND (NEW.claim_funding->>'observedAt')::bigint<=now_ms AND (NEW.claim_funding->>'expiresAt')::bigint>now_ms
+    AND (NEW.claim_funding->>'expiresAt')::bigint<=(NEW.claim_funding->>'observedAt')::bigint+60000) IS NOT TRUE
+    THEN RAISE EXCEPTION 'Sequential claim requires current exact funding evidence' USING ERRCODE='23514'; END IF;
  END IF;
  RETURN NEW;
 END $$;

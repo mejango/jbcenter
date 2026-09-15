@@ -36,7 +36,7 @@ describe("qualified local sequential deployment accounting", () => {
     (v: any) => { v.extra = true; }, (v: any) => { delete v.accountingDigest; }, (v: any) => { v.accountingDigest = null; },
     (v: any) => { v.poolRevision++; }, (v: any) => { v.version = "base-fees-complete"; },
     (v: any) => { v.environment.instanceId = "0x" + "00".repeat(32); }, (v: any) => { v.environment.kind = "base"; },
-    (v: any) => { v.expiresAt = v.observedAt; }, (v: any) => { v.expiresAt = v.observedAt + 5001; },
+    (v: any) => { v.expiresAt = v.observedAt; }, (v: any) => { v.expiresAt = v.observedAt + 60001; },
     (v: any) => { v.observedAt++; }, (v: any) => { v.balanceWei = "01"; }, (v: any) => { v.balanceWei = String(1n << 256n); },
     (v: any) => { v.confirmedNonce = "9007199254740992"; }, (v: any) => { v.head.timestamp = "0"; },
     (v: any) => { v.previousAnchor = { ...v.head }; },
@@ -69,7 +69,7 @@ describe("qualified local sequential deployment accounting", () => {
     (v: any) => { v.fees.executionWei = "0"; }, (v: any) => { v.fees.profile = "base-complete"; },
     (v: any) => { v.observation.finality.state = "unknown"; v.observation.finality.evidence = null; },
     (v: any) => { v.operationRevision++; }, (v: any) => { v.transactionHash = "0x" + "cd".repeat(32); },
-    (v: any) => { v.observation.fees.totalWei = v.fees.totalWei; }, (v: any) => { v.observation.observedAt -= 1; },
+    (v: any) => { v.observation.fees.totalWei = v.fees.totalWei; }, (v: any) => { v.observation.observedAt -= 60000; },
     (v: any) => { v.observation.transaction.receipt.gasUsed = "1500001"; },
   ])("rejects settlement authority, fee, original clock or exact receipt drift %#", async mutate => {
     const { context, execution, now } = await fixture();
