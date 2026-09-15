@@ -266,7 +266,12 @@ describe("qualified local deployment settlement producer", () => {
       digest: walletDeploymentAccountingDigest(accounting), remainingWei: String(BigInt(fixture.configuration.allocationWei) - BigInt(evidence.fees.totalWei)),
       nextNonce: evidence.finalizedNonce } });
     expect(assertWalletDeploymentDispatchAdmission(admission, second, Date.now())).toEqual(admission);
+    await fixture.rpc("evm_setAutomine", [false]);
     expect(await transport.broadcast(admission)).toBe("accepted");
+    // Provider acceptance can precede block inclusion, including with automining.
+    // Make both states deterministic before asserting the verified creation.
+    expect((await fixture.chain().observeSigned(second)).transaction.state).toBe("pending");
+    await fixture.rpc("anvil_mine", ["0x1", "0x0"]);
     const observed = await fixture.chain().observeSigned(second);
     expect(observed.transaction.state).toBe("canonical-success"); expect(observed.wallet.state).toBe("verified");
     expect(second.operation.template!.transaction.nonce).toBe(evidence.finalizedNonce);
