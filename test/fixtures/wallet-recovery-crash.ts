@@ -1,9 +1,7 @@
 import { fork } from 'node:child_process';
 import type { Pool } from 'pg';
-import { hashTypedData, type Address, type Hex } from 'viem';
-import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
+import type { Address, Hex } from 'viem';
 import { expect } from 'vitest';
-import { PostgresWalletRecoveryFlowStore } from '../../src/rest/wallet/recoveryFlowPostgres.js';
 import { createRecoveryCrashRuntime, type RecoveryCrashConfiguration } from './wallet-recovery-crash-runtime.js';
 import { signGet, signBackupProof, type createRegistration } from './wallet-enrollment-crypto.js';
 
@@ -16,12 +14,7 @@ export async function exerciseRecoverySetupCrash(input: {
 }) {
   const { pool, config, accountId, recoveryId } = input;
   const original = createRecoveryCrashRuntime(pool, config);
-  const browser = privateKeyToAccount(generatePrivateKey());
-  const setup = await original.service.prepareSetup(input.flowToken, { browserPublicAddress: browser.address });
-  const assertion = () => signGet({ ...input.replacement, rpId: config.rpId, origin: config.origin, challenge: setup.signingPayload.digest });
-  expect(setup.passkeySigner).toBe(input.replacementSigner);
-  expect(setup.document.message.initializerHash).toBe(input.initializerHash);
-  const browserProof = await browser.signTypedData(setup.proofDocument);
+  expect((await original.service.status(input.flowToken)).phase).toBe('awaiting_activation');
   const queryRows = async (table: string) => (await pool.query(`SELECT * FROM ${table} WHERE account_id=$1 ORDER BY 1,2`, [accountId])).rows;
   const binding = async () => (await queryRows('rest_smart_account_bindings'))[0];
   const before = await binding();
@@ -51,7 +44,7 @@ export async function exerciseRecoverySetupCrash(input: {
       if (!message || typeof message !== 'object' || !('kind' in message) || message.kind !== 'ready') {
         ipcFailed = true; child.kill('SIGKILL'); return;
       }
-      child.send({ config, flowToken: input.flowToken, setup: { setupId: setup.id, assertion: assertion(), browserProof } }, error => {
+      child.send({ config, flowToken: input.flowToken }, error => {
         if (error) { ipcFailed = true; child.kill('SIGKILL'); }
       });
     });
@@ -61,19 +54,20 @@ export async function exerciseRecoverySetupCrash(input: {
   expect(await queryRows('rest_wallet_authority')).toEqual(authorityBefore);
   const halfBinding = await binding();
   expect(halfBinding.id).toBe(before.id);
-  expect(halfBinding.authorization_digest).toBe(hashTypedData(setup.document));
+  // The replacement binding's consent is the recovery proof itself; no grant was created.
+  const proofDigest = `0x${(await original.recoveries.get(recoveryId, input.flowToken))!.proof!.verificationDigest}`;
+  expect(halfBinding.authorization_digest).toBe(proofDigest);
   expect(halfBinding.authorization_digest).not.toBe(before.authorization_digest);
   const grants = await queryRows('rest_bot_grants'), nonces = await queryRows('rest_smart_account_binding_nonces');
-  expect(grants).toHaveLength(beforeGrantCount + 1);
+  expect(grants).toHaveLength(beforeGrantCount);
   expect(nonces).toHaveLength(beforeNonceCount + 1);
-  expect(grants.find(row => row.id === setup.input.grant.id)?.revoked_at).toBeNull();
   const credentials = (await pool.query('SELECT credential_id,superseded_at FROM rest_wallet_credentials WHERE account_id=$1', [accountId])).rows;
   expect(credentials).toEqual([{ credential_id: input.priorCredentialId, superseded_at: null }]);
   const events: string[] = [];
   const fresh = createRecoveryCrashRuntime(pool, config, event => events.push(`${event.stage}:${event.outcome}`));
   try {
     expect((await fresh.recoveries.get(recoveryId, input.flowToken))!.activation).toBeNull();
-    expect((await fresh.service.status(input.flowToken)).phase).toBe('awaiting_setup');
+    expect((await fresh.service.status(input.flowToken)).phase).toBe('awaiting_activation');
     const resume = await fresh.service.beginResume(recoveryId);
     const resumed = await fresh.service.completeResume({ resumeId: resume.challenge.id, resumeToken: resume.resumeToken,
       assertion: signGet({ ...input.replacement, rpId: config.rpId, origin: config.origin, challenge: resume.challenge.challenge }),
@@ -81,26 +75,22 @@ export async function exerciseRecoverySetupCrash(input: {
     expect(resumed.replayed).toBe(false);
     expect(resumed.flowToken).not.toBe(input.flowToken);
     await expect(fresh.service.status(input.flowToken)).rejects.toThrow();
-    expect((await new PostgresWalletRecoveryFlowStore(pool).authenticate(resumed.flowToken))!.setup!.id).toBe(setup.id);
-    const proof = assertion();
-    expect((await fresh.service.completeSetup(resumed.flowToken, { setupId: setup.id, assertion: proof, browserProof })).phase).toBe('ready_to_sign_in');
+    expect((await fresh.service.activate(resumed.flowToken)).phase).toBe('preparing_sign_in');
     expect(await binding()).toEqual(halfBinding);
-    const completedGrants = await queryRows('rest_bot_grants');
-    expect(completedGrants).toHaveLength(grants.length);
-    expect(completedGrants.filter(row => row.revoked_at === null).map(row => row.id)).toEqual([setup.input.grant.id]);
+    expect(await queryRows('rest_bot_grants')).toHaveLength(beforeGrantCount);
     expect(events).toEqual(['setup:committed', 'activation:committed']);
     expect(await queryRows('rest_smart_account_binding_nonces')).toEqual(nonces);
     expect(await transactions()).toEqual(dispatchHistory);
     expect(await input.rpc('eth_getTransactionCount', [input.relayAddress, 'pending'])).toBe(relayNonce);
-    const activated = await fresh.recoveries.activate(recoveryId, resumed.flowToken, proof);
+    const activated = await fresh.recoveries.activate(recoveryId, resumed.flowToken, null);
     expect(activated.replayed).toBe(true);
-    expect((await fresh.service.completeSetup(resumed.flowToken, { setupId: setup.id, assertion: assertion(), browserProof })).phase).toBe('ready_to_sign_in');
-    expect(events).toEqual(['setup:committed', 'activation:committed']);
+    expect((await fresh.service.activate(resumed.flowToken)).phase).toBe('preparing_sign_in');
+    expect(events).toEqual(['setup:committed', 'activation:committed', 'activation:committed']);
     expect(await transactions()).toEqual(dispatchHistory);
     expect(await input.rpc('eth_getTransactionCount', [input.relayAddress, 'pending'])).toBe(relayNonce);
-    return { assertion: proof, activated, flowToken: resumed.flowToken, crashObservation: {
+    return { activated, flowToken: resumed.flowToken, crashObservation: {
       childExit: result, timedOut, events,
-      grants: { before: beforeGrantCount, afterCommit: grants.length, afterResume: completedGrants.length },
+      grants: { before: beforeGrantCount, afterCommit: grants.length, afterResume: (await queryRows('rest_bot_grants')).length },
       bindingNonces: { before: beforeNonceCount, afterCommit: nonces.length, afterResume: (await queryRows('rest_smart_account_binding_nonces')).length },
       relayNonce: { before: relayNonce, after: await input.rpc('eth_getTransactionCount', [input.relayAddress, 'pending']) },
       rotationTransactions: { before: dispatchHistory.map(row => row.hash), after: (await transactions()).map(row => row.hash) },

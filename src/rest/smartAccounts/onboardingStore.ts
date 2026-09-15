@@ -6,6 +6,7 @@ import {
 } from "../auth/store.js";
 import { RestError } from "../core.js";
 import type { OnboardingStore } from "./onboarding.js";
+import type { SmartAccountBinding } from "./types.js";
 import { fingerprint, stable } from "./service.js";
 import { assertPasskeyOnboardingState, validatePasskeyOnboardingInput } from "./passkeyOnboarding.js";
 
@@ -17,8 +18,22 @@ const time = (value: number) => Number.isSafeInteger(value) && value >= 0;
 /** Verified service output must still agree across every durable authority record. */
 export function assertOnboardingRecord({ account, binding, grant }: OnboardingRecord): void {
   assertAccount(account);
-  assertGrant(grant);
   const auth = binding.authorization;
+  if (auth.method === "center-wallet-passkey-creation-v1") {
+    // Consent bindings carry the passkey's own proof digest and nothing a browser could use.
+    if (grant !== undefined || auth.setup !== undefined || Buffer.byteLength(stable(binding)) > 60_000
+      || binding.id !== fingerprint({ ownerAccountId: account.id, wallet: binding.wallet.address, chainId: binding.wallet.chainId })
+      || binding.ownerAccountId !== account.id || !same(binding.ownerAddress, account.ownerAddress)
+      || binding.state.address !== binding.wallet.address || binding.state.chainId !== binding.wallet.chainId
+      || binding.manifestId !== binding.state.manifestId || !bytes32(auth.nonce) || !bytes32(auth.digest) || !time(auth.expiresAt)
+      || account.authorityChainId !== 8453 || binding.wallet.chainId !== 8453
+      || account.id !== `eip155:8453:${binding.wallet.address.toLowerCase()}` || !same(account.ownerAddress, binding.wallet.address))
+      throw new RestError(400, "SMART_ONBOARDING_INVALID", "The passkey creation consent binding is inconsistent.");
+    assertPasskeyOnboardingState(binding.state);
+    return;
+  }
+  if (!grant) throw new RestError(400, "SMART_ONBOARDING_INVALID", "Owner setup bindings need their browser API grant.");
+  assertGrant(grant);
   const passkey = auth.method === "safe-passkey-owner-threshold-and-api-grant";
   const setup = auth.method === "safe-current-owner-threshold-and-api-grant" || passkey ? auth.setup : undefined;
   if (!setup || Buffer.byteLength(stable(binding)) > 60_000
@@ -56,12 +71,20 @@ export function assertOnboardingRecord({ account, binding, grant }: OnboardingRe
 export function assertOnboardingLive({ binding, grant }: OnboardingRecord, now: number): void {
   assertTime(now);
   const auth = binding.authorization;
+  if (auth.method === "center-wallet-passkey-creation-v1") {
+    if (grant || auth.setup || auth.expiresAt <= now) throw new RestError(409, "SMART_ONBOARDING_EXPIRED", "The passkey creation consent binding expired.");
+    return;
+  }
   if ((auth.method !== "safe-current-owner-threshold-and-api-grant" && auth.method !== "safe-passkey-owner-threshold-and-api-grant") || !auth.setup
-    || auth.setup.issuedAt > now + 30 || auth.expiresAt <= now || grant.expiresAt <= now) {
+    || !grant || auth.setup.issuedAt > now + 30 || auth.expiresAt <= now || grant.expiresAt <= now) {
     throw new RestError(409, "SMART_ONBOARDING_EXPIRED", "The owner setup authorization or browser API grant expired.");
   }
 }
 
+/** A repeated consent binding carries the same consent; only its activation window follows the clock. */
+export function sameConsent(actual: SmartAccountBinding["authorization"], expected: SmartAccountBinding["authorization"]): boolean {
+  return actual.method === expected.method && actual.digest === expected.digest && actual.nonce === expected.nonce && !actual.setup && !expected.setup;
+}
 export function sameOnboardingGrant(actual: BotGrant, expected: BotGrant, now: number): boolean {
   return actual.id === expected.id && actual.accountId === expected.accountId
     && same(actual.botAddress, expected.botAddress) && stable(actual.scopes) === stable(expected.scopes)

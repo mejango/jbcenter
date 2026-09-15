@@ -9,7 +9,7 @@ const view = { phase: 'awaiting_registration', expiresAtMs: Date.now() + 180000,
 function setup(extra: Partial<WalletSignupSiteOptions> = {}) {
   const signup = { begin: vi.fn(async () => ({ flowToken: token, view })), status: vi.fn(async () => view),
     register: vi.fn(async () => view), proveEnrollment: vi.fn(async () => view),
-    prepareDeployment: vi.fn(), approveDeployment: vi.fn(), prepareSetup: vi.fn(), completeSetupPasskey: vi.fn(),
+    prepareDeployment: vi.fn(), approveDeployment: vi.fn(), activate: vi.fn(),
     beginResume: vi.fn(async () => ({ resumeToken: token, challenge: { id: 'resume', challenge: '0x' + '11'.repeat(32) } })),
     completeResume: vi.fn(async () => ({ flowToken: token, flow: { secret: 'internal-only' }, replayed: true })) };
   const app = new Hono();
@@ -63,7 +63,7 @@ describe('signup HTTP authority boundary', () => {
     expect(response.status).toBe(200); expect(await response.json()).toEqual({ view: null });
     expect(response.headers.get('set-cookie')).toMatch(new RegExp(`${walletSignupCookie}=;.*Max-Age=0`));
     expect(signup.status).toHaveBeenCalledTimes(1);
-    for (const fn of [signup.register, signup.proveEnrollment, signup.approveDeployment, signup.completeSetupPasskey]) expect(fn).not.toHaveBeenCalled();
+    for (const fn of [signup.register, signup.proveEnrollment, signup.approveDeployment, signup.activate]) expect(fn).not.toHaveBeenCalled();
   });
   it('rejects missing CSRF, duplicate cookies and client authority fields before mutation', async () => {
     const { app, signup } = setup();

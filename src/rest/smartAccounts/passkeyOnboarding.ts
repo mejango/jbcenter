@@ -24,6 +24,10 @@ const validAddress = (v: unknown): v is Address => typeof v === "string" && isAd
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 function invalid(message: string, status = 400): never { throw new RestError(status, "SMART_ONBOARDING_INVALID", message); }
 
+/** Binding methods that make a passkey wallet a Center account: the original owner-signed setup
+ * document, and the creation consent (the passkey possession proof recorded at enrollment). */
+export const passkeyBindingMethods = ["safe-passkey-owner-threshold-and-api-grant", "center-wallet-passkey-creation-v1"] as const;
+export const passkeyBindingMethodsSql = passkeyBindingMethods.map(method => `'${method}'`).join(",");
 export function validatePasskeyOnboardingInput(input: unknown, now: number, final = false): PasskeyOnboardingInput {
   exactObject(input, [...fields, ...(final ? ["manifestRevision", "initializerHash", "stateHash", "signature", "proofSignature"] : [])], "passkey account setup");
   const value = input as unknown as PasskeyOnboardingFinalizationInput;

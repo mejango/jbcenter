@@ -109,7 +109,8 @@ export interface SmartAccountBinding {
     digest: Hex;
     nonce: Hex;
     expiresAt: number;
-    method: "safe-current-owner-threshold" | "safe-current-owner-threshold-and-api-grant" | "safe-passkey-owner-threshold-and-api-grant";
+    method: "safe-current-owner-threshold" | "safe-current-owner-threshold-and-api-grant" | "safe-passkey-owner-threshold-and-api-grant"
+      | "center-wallet-passkey-creation-v1";
     setup?: {
       manifestRevision: Hex; initializerHash: Hex; issuedAt: number; grantId: string;
       botAddress: Address; scopes: BotScope[]; grantExpiresAt: number; label: string;

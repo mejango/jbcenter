@@ -1,11 +1,10 @@
-import { randomBytes, randomUUID } from "node:crypto";
-import { hashTypedData, isAddress, type Address, type Hex } from "viem";
+import { hashTypedData, type Address, type Hex } from "viem";
 import { RestError } from "../core.js";
 import type { createSmartAccountService } from "../smartAccounts/service.js";
 import type { VerifiedSmartAccountRegistry } from "../smartAccounts/types.js";
 import { enrollmentDigest, walletEnrollmentDocument } from "./enrollment.js";
 import { copyWalletEnrollmentProof, copyWalletEnrollmentRegistration, type PostgresWalletEnrollmentStore } from "./enrollmentPostgres.js";
-import { copyWalletSignupAssertion, type PostgresWalletSignupStore, type WalletSignupSetup } from "./signupPostgres.js";
+import { copyWalletSignupAssertion, type PostgresWalletSignupStore } from "./signupPostgres.js";
 import { prepareWalletDeploymentApproval, walletDeploymentDocument } from "./deployment.js";
 import type { PostgresWalletDeploymentStore, WalletDeploymentRecoveryCursor } from "./deploymentPostgres.js";
 import type { createWalletDeploymentChain } from "./deploymentChain.js";
@@ -14,9 +13,6 @@ import type { createLocalAnvilWalletDeploymentSettlement } from "./deploymentSet
 import type { createWalletAuthorityService } from "./authorityService.js";
 import type { WalletRegistrationResponse } from "./registration.js";
 import type { WalletAssertion } from "./webauthn.js";
-import { verifyWalletAssertion } from "./webauthn.js";
-import { encodeSafe7579MessageSignature } from "../smartAccounts/passkeySignatures.js";
-import { passkeyOnboardingProofDocument } from "../smartAccounts/passkeyOnboarding.js";
 
 export interface LocalWalletSignupDependencies {
   flows: PostgresWalletSignupStore; enrollments: PostgresWalletEnrollmentStore; deployments: PostgresWalletDeploymentStore;
@@ -26,7 +22,7 @@ export interface LocalWalletSignupDependencies {
   onEvent?: (event: { stage: "worker" | "deployment" | "setup"; outcome: string; operationId?: string; elapsedMs?: number; reason?: string; detail?: Record<string, unknown> }) => void;
 }
 export type WalletSignupPhase = "awaiting_registration" | "awaiting_possession" | "awaiting_deployment_approval" |
-  "deploying" | "deployment_failed" | "awaiting_setup" | "preparing_sign_in" | "ready_to_sign_in" | "expired";
+  "deploying" | "deployment_failed" | "awaiting_activation" | "preparing_sign_in" | "ready_to_sign_in" | "expired";
 function state(): never { throw new RestError(409, "WALLET_SIGNUP_STATE", "Reload this signup and complete its current step."); }
 function fields(value: unknown, keys: string[], optional: string[] = []) {
   const own = value && typeof value === "object" ? Reflect.ownKeys(value) : [];
@@ -58,10 +54,15 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     const operation = flow.deploymentId ? await deployments.get(flow.deploymentId) : null;
     if (operation && (operation.enrollmentId !== enrollment.intent.id || operation.poolId !== poolId)) state();
     const receipt = operation ? await deployments.getSettlement(operation.id) : null;
+    // The account exists once a binding carries this wallet's consent: the creation consent (the
+    // enrollment proof, or a later recovery's proof once a replacement passkey took over) or, for
+    // accounts from before it, the owner-signed setup document. Bindings are written only by the
+    // trusted service from proofs on record; the authority context revalidates them.
     const configured = enrollment.receipt ? (await registry.list(enrollment.receipt.accountId)).some(binding =>
       binding.wallet.chainId === 8453 && binding.wallet.address.toLowerCase() === enrollment.creation!.address.toLowerCase() &&
-      binding.authorization.method === "safe-passkey-owner-threshold-and-api-grant" &&
-      binding.authorization.setup?.initializerHash === enrollment.creation!.initializerHash) : false;
+      (binding.authorization.method === "center-wallet-passkey-creation-v1"
+        || (binding.authorization.method === "safe-passkey-owner-threshold-and-api-grant" &&
+          binding.authorization.setup?.initializerHash === enrollment.creation!.initializerHash))) : false;
     // Login needs the worker's verified authority observation (~25 s over a hosted provider);
     // until then the signup is "preparing", and the page polls rather than prompting.
     const current = configured ? await options.authority.currentAuthority(enrollment.receipt!.accountId) : null;
@@ -73,7 +74,7 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     const created = creation?.transaction.state === "canonical-success" && creation.wallet.state === "verified";
     const phase: WalletSignupPhase = enrollment.state !== "verified" ? (enrollment.intent.expiresAt <= now ? "expired" : enrollment.state)
       : configured ? (signInReady ? "ready_to_sign_in" : "preparing_sign_in")
-      : created ? "awaiting_setup"
+      : created ? "awaiting_activation"
       : receipt ? "deployment_failed"
       : !operation || operation.state === "prepared" ? "awaiting_deployment_approval" : "deploying";
     // Explicit DTO. Signed treasury bytes, accounting capability, raw credential and setup
@@ -145,66 +146,17 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     await deployments.claim({ operationId: approvalId, assertion, admission: admission.admission, funding });
     return status(flowToken);
   }
-  async function setupReview(setup: WalletSignupSetup) {
-    const review = await smart.passkeyOnboardingChallenge(setup.input);
-    if (review.state.stateHash !== setup.stateHash || review.state.manifestRevision !== setup.manifestRevision ||
-      review.typedData.message.initializerHash !== setup.initializerHash) state();
-    return { id: setup.id, input: setup.input, document: review.typedData, proofDocument: passkeyOnboardingProofDocument(review.typedData), signingPayload: review.signingPayload,
-      walletAddress: setup.input.address, recoveryOwner: review.state.ownerProfile!.recoveryOwner.address,
-      passkeySigner: review.state.ownerProfile!.signer.address, expiresAtMs: setup.input.expiresAt * 1000 };
-  }
-  async function prepareSetup(flowToken: string, input: { browserPublicAddress: Address }) {
-    fields(input, ["browserPublicAddress"]);
-    const browserPublicAddress = input.browserPublicAddress;
-    if (!isAddress(browserPublicAddress) || BigInt(browserPublicAddress) <= 1n) state();
-    const { flow, enrollment } = await context(flowToken);
-    if ((await status(flowToken)).phase !== "awaiting_setup") state();
-    const now = Math.floor(await flows.now() / 1000);
-    if (flow.setup && flow.setup.input.expiresAt > now) {
-      if (flow.setup.input.grant.botAddress.toLowerCase() !== browserPublicAddress.toLowerCase()) state();
-      return setupReview(flow.setup);
-    }
-    const request = { profile: "center-passkey-v1" as const, address: enrollment.creation!.address,
-      manifestId: enrollment.intent.manifest.id, nonce: `0x${randomBytes(32).toString("hex")}` as Hex,
-      issuedAt: now, expiresAt: now + 300, grant: { id: randomUUID(), botAddress: browserPublicAddress,
-        scopes: ["read", "plan", "relay"] as ["read", "plan", "relay"], expiresAt: now + 3600, label: "Juicebox wallet setup" } };
-    const review = await smart.passkeyOnboardingChallenge(request);
-    const setup: WalletSignupSetup = { id: randomUUID(), input: request, stateHash: review.state.stateHash,
-      manifestRevision: review.state.manifestRevision, initializerHash: review.typedData.message.initializerHash };
-    await flows.associateSetup(flowToken, flow.revision, setup);
-    return setupReview(setup);
-  }
-  async function completeSetup(flowToken: string, input: { setupId: string; signature: Hex; browserProof: Hex }) {
-    fields(input, ["setupId", "signature", "browserProof"]);
-    const { setupId, signature, browserProof } = input;
-    if (typeof signature !== "string" || !/^0x(?:[0-9a-fA-F]{2}){1,8192}$/.test(signature) ||
-      typeof browserProof !== "string" || !/^0x[0-9a-fA-F]{130}$/.test(browserProof)) state();
-    const { flow } = await context(flowToken), setup = flow.setup;
-    if (!setup || setup.id !== setupId) state();
-    // Commit through the existing canonical owner verifier and atomic setup store. Never
-    // reconstruct account, binding or grants from the continuation row itself.
-    await smart.finalizePasskeyOnboarding({ ...setup.input, stateHash: setup.stateHash, manifestRevision: setup.manifestRevision,
-      initializerHash: setup.initializerHash, signature, proofSignature: browserProof });
+  /** Binds the created wallet to its account from the consent the passkey already gave at
+   * enrollment. No prompt and no browser grant; login needs only the worker's verified authority. */
+  async function activate(flowToken: string) {
+    const { enrollment } = await context(flowToken), current = await status(flowToken);
+    if (["preparing_sign_in", "ready_to_sign_in"].includes(current.phase)) return current;
+    if (current.phase !== "awaiting_activation" || !enrollment.receipt) state();
+    await smart.bindPasskeyAccount({ manifestId: enrollment.intent.manifest.id, address: enrollment.creation!.address,
+      consent: { id: enrollment.receipt.enrollmentId, digest: `0x${enrollment.receipt.verificationDigest}` },
+      expected: { signerAddress: enrollment.creation!.bootstrap.signerAddress, initializerHash: enrollment.creation!.initializerHash } });
     event({ stage: "setup", outcome: "committed" });
     return status(flowToken);
-  }
-
-  async function completeSetupPasskey(flowToken: string, input: { setupId: string; assertion: WalletAssertion; browserProof: Hex }) {
-    fields(input, ["setupId", "assertion", "browserProof"]);
-    const assertion = copyWalletSignupAssertion(input.assertion), { setupId, browserProof } = input;
-    if (typeof browserProof !== "string" || !/^0x[0-9a-fA-F]{130}$/.test(browserProof)) state();
-    const { flow, enrollment } = await context(flowToken);
-    if (!flow.setup || flow.setup.id !== setupId || !enrollment.candidate || !enrollment.receipt) state();
-    // A lost response after the setup commit only reads the original account. It does
-    // not consume another ceremony, change owners, or grant a second browser key.
-    if (["preparing_sign_in", "ready_to_sign_in"].includes((await status(flowToken)).phase)) return status(flowToken);
-    const review = await setupReview(flow.setup);
-    const proof = verifyWalletAssertion(assertion, { purpose: "session", challenge: review.signingPayload.digest,
-      rpId: enrollment.intent.rpId, origin: enrollment.intent.origin, requireUserHandle: true,
-      credential: { id: enrollment.candidate.credentialId, userHandle: enrollment.intent.userHandle,
-        publicKey: enrollment.candidate.publicKey, backupEligible: enrollment.candidate.backupEligible } });
-    return completeSetup(flowToken, { setupId, browserProof,
-      signature: encodeSafe7579MessageSignature([{ kind: "contract", owner: review.passkeySigner, signature: proof.contractSignature }]) });
   }
 
   let cursor: WalletDeploymentRecoveryCursor | null = null, running: Promise<void> | null = null;
@@ -263,6 +215,6 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     try { return await Promise.race([running.then(() => true, () => true), new Promise<boolean>(resolve => { timeout = setTimeout(() => resolve(false), 5000); })]); }
     finally { if (timeout) clearTimeout(timeout); }
   }
-  return { begin, status, register, proveEnrollment, prepareDeployment, approveDeployment, prepareSetup, completeSetup, completeSetupPasskey,
+  return { begin, status, register, proveEnrollment, prepareDeployment, approveDeployment, activate,
     beginResume: flows.beginResume.bind(flows), completeResume: flows.completeResume.bind(flows), tick, start, stop };
 }

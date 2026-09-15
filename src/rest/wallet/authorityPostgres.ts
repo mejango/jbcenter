@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg";
+import { passkeyBindingMethods } from "../smartAccounts/passkeyOnboarding.js";
 import { RestError } from "../core.js";
 import type { SmartAccountBinding } from "../smartAccounts/types.js";
 import { stable } from "../smartAccounts/service.js";
@@ -61,7 +62,7 @@ async function readBinding(client: PoolClient, accountId: string): Promise<Bindi
   // Existing binding writers hold the same account row lock. This does not create or un-revoke one.
   const row = (await client.query<BindingRow>(`SELECT document,revoked_at,authorization_digest FROM rest_smart_account_bindings
     WHERE account_id=$1 AND chain_id=8453 AND wallet_address=$2 AND revoked_at IS NULL`, [accountId, accountId.slice("eip155:8453:".length)])).rows[0];
-  if (!row || row.document.authorization.method !== "safe-passkey-owner-threshold-and-api-grant" ||
+  if (!row || !passkeyBindingMethods.includes(row.document.authorization.method as typeof passkeyBindingMethods[number]) ||
       row.document.authorization.digest !== row.authorization_digest) unavailable();
   return row;
 }

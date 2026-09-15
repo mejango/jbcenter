@@ -1,5 +1,4 @@
-import { getAddress, hashTypedData, isAddress, type Address, type Hex, type TypedDataDefinition } from 'viem';
-import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
+import { getAddress, hashTypedData, isAddress, type Address, type Hex } from 'viem';
 import type { createLocalWalletSignup } from '../wallet/signup.js';
 import { base } from './walletBase.js';
 import { createWalletRecoverySecret, recoveryAccountFromPhrase, serializeWalletRecoveryKit,
@@ -47,7 +46,7 @@ const steps: Record<View['phase'], string> = {
   awaiting_deployment_approval: 'Your passkey is ready. Approve creation of your account.',
   deploying: 'Creating your account. This usually takes about a minute. Keep this page open, or come back later with your passkey.',
   deployment_failed: 'Account creation did not complete. Keep this signup for recovery; do not send funds.',
-  awaiting_setup: 'Your account is ready.', preparing_sign_in: 'Preparing your login. This can take up to a minute…',
+  awaiting_activation: 'Your account is ready.', preparing_sign_in: 'Preparing your login. This can take up to a minute…',
   ready_to_sign_in: 'Your account is ready. Log in with your passkey.',
   expired: 'This incomplete signup expired. Its passkey is not an active account credential.',
 };
@@ -85,7 +84,7 @@ async function failure(response: Response) {
   catch { return new HttpFailure(response.status); }
 }
 // Setup reviews inspect the wallet on Base (tens of provider reads); they get a longer budget.
-const slowPaths = new Set(['setup/review', 'setup/complete', 'login/complete']);
+const slowPaths = new Set(['activate', 'login/complete']);
 async function request(path: string, body?: unknown, proof = csrf): Promise<any> {
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), slowPaths.has(path) ? 90000 : 15000);
   try {
@@ -104,8 +103,7 @@ function accept(result: { view: View | null; csrfToken?: string }) {
   view = result.view; known = true;
   if (result.csrfToken) { if (decode(result.csrfToken).length !== 32) throw new Error('Invalid signup context.'); csrf = result.csrfToken; }
   if (view?.phase === 'deploying') messageLinked('Creating', steps.deploying.slice('Creating'.length));
-  else message(view ? steps[view.phase] + (view.phase === 'awaiting_setup' ? mode() === 'kit' ? recoverySecret ? ' Now, save your backup password.' : '' : ' Continue to log in.' : '') : '');
-  if (view?.phase === 'ready_to_sign_in') sessionStorage.removeItem('center:signup:browser:' + view.enrollmentId);
+  else message(view ? steps[view.phase] + (view.phase === 'awaiting_activation' ? mode() === 'kit' ? recoverySecret ? ' Now, save your backup password.' : '' : ' Continue to log in.' : '') : '');
   if (view?.phase === 'ready_to_sign_in' && kitSavedWallet === view.walletAddress) recoverySecret = null;
 }
 function render() {
@@ -114,7 +112,7 @@ function render() {
   name.disabled = busy;
   // The kit is presented once the wallet exists. Earlier phases still need the words in memory
   // to sign the enrollment; a reload before then strands the signup, so say so and offer a fresh start.
-  const kitPhase = !!view && ['awaiting_setup', 'preparing_sign_in', 'ready_to_sign_in'].includes(view.phase);
+  const kitPhase = !!view && ['awaiting_activation', 'preparing_sign_in', 'ready_to_sign_in'].includes(view.phase);
   const stranded = kitMode() && !recoverySecret && !!view && ['awaiting_registration', 'awaiting_possession'].includes(view.phase);
   // A stranded attempt that never created a passkey lost nothing worth mentioning: show the clean form.
   if (stranded) message(view!.phase === 'awaiting_possession' ? 'Your last signup cannot continue without its backup password. Sign up again with a new passkey.' : '');
@@ -144,7 +142,7 @@ function render() {
   el('signup-address').textContent = view?.walletAddress ?? 'Not created yet';
   const label = view?.phase === 'awaiting_registration' ? 'Create passkey'
     : view?.phase === 'awaiting_possession' || view?.phase === 'awaiting_deployment_approval' ? 'Create account'
-    : view?.phase === 'awaiting_setup' ? 'Continue' : view?.phase === 'ready_to_sign_in' ? 'Log in' : view?.phase === 'expired' ? 'Start a new signup' : null;
+    : view?.phase === 'awaiting_activation' ? 'Continue' : view?.phase === 'ready_to_sign_in' ? 'Log in' : view?.phase === 'expired' ? 'Start a new signup' : null;
   next.hidden = !label || !!pending || stranded; next.textContent = label; next.disabled = busy;
   el<HTMLButtonElement>('recovery-show').disabled = busy; el<HTMLButtonElement>('recovery-copy').disabled = busy;
   el('signup-intro').hidden = !known || !!view; // "log in" resumes with a passkey; a finished wallet lands at sign-in.
@@ -199,14 +197,6 @@ async function assertion(challenge: string, rpId: string, credentialId?: string)
   return { credentialId: encode(value.rawId), userHandle: response.userHandle ? encode(response.userHandle) : null,
     authenticatorData: encode(response.authenticatorData), clientDataJSON: encode(response.clientDataJSON), signature: encode(response.signature) };
 }
-function browserKey() {
-  if (!view) throw new Error('Reload your signup.');
-  const key = 'center:signup:browser:' + view.enrollmentId;
-  let stored = sessionStorage.getItem(key);
-  if (!stored) { stored = generatePrivateKey(); sessionStorage.setItem(key, stored); }
-  if (sessionStorage.getItem(key) !== stored || !/^0x[0-9a-f]{64}$/.test(stored)) throw new Error('This tab could not preserve its browser setup.');
-  return privateKeyToAccount(stored as Hex);
-}
 async function advance() {
   if (!view) return;
   if (view.phase === 'expired') {
@@ -246,27 +236,16 @@ async function advance() {
     await approve(backupSignature as Hex);
   } else if (view.phase === 'awaiting_deployment_approval') {
     await approve();
-  } else if (view.phase === 'awaiting_setup') {
+  } else if (view.phase === 'awaiting_activation') {
     if (mode() === 'kit' && recoverySecret && kitSavedWallet !== view.walletAddress) {
       // Nothing saved, shared or copied: say so once, then respect the choice.
       await announce('Nothing saved yet', 'Without the backup password you cannot get back into this account if you lose the passkey. Continue anyway?');
       kitSavedWallet = view.walletAddress;
     }
-    // One click authorizes this browser for an hour of read, plan and relay access (it cannot approve
-    // payments on its own), then logs in: two prompts.
-    const browser = browserKey();
+    // The passkey already consented to this account when it created the wallet; Center binds the
+    // account from that proof. No prompt: reading and preparing need no grant, payments still do.
     messageLinked('Checking', ' your new account. This can take up to a minute…');
-    const setup: Awaited<ReturnType<Signup['prepareSetup']>> = await request('setup/review', { browserPublicAddress: browser.address });
-    if (setup.walletAddress.toLowerCase() !== view.walletAddress?.toLowerCase() || getAddress(setup.input.grant.botAddress) !== browser.address ||
-      setup.input.grant.scopes.join(',') !== 'read,plan,relay') throw new Error('The browser setup review changed.');
-    await announce('Authorize this browser', 'A passkey prompt lets this browser read your account and prepare requests for one hour. It cannot move funds on its own.');
-    message('Authorize this browser in the prompt.');
-    const proof = await assertion(setup.signingPayload.digest, view.rpId);
-    // The server re-inspects the account and checks the signature on Base before committing.
-    message('Confirming this browser. This can take up to a minute…');
-    const browserProof = await browser.signTypedData(setup.proofDocument as TypedDataDefinition);
-    await send('setup/complete', { setupId: setup.id, assertion: proof, browserProof });
-    if (current()?.phase === 'ready_to_sign_in') await login();
+    await send('activate', {});
   } else if (view.phase === 'ready_to_sign_in') {
     await login();
   }

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { passkeyBindingMethodsSql } from "../smartAccounts/passkeyOnboarding.js";
 import type { Pool, PoolClient } from "pg";
 import { RestAuthError } from "../auth/store.js";
 import { RestError } from "../core.js";
@@ -62,7 +63,7 @@ async function readyUntil(client: PoolClient, accountId: string): Promise<number
     WHERE a.account_id=$1 AND a.snapshot->>'readiness'='verified' AND a.snapshot->'bootstrapRequired'='false'::jsonb
       AND a.snapshot->'activeFence'='null'::jsonb AND a.ready_until_ms IS NOT NULL
       AND b.chain_id=8453 AND 'eip155:8453:' || b.wallet_address=a.account_id
-      AND b.document->'authorization'->>'method'='safe-passkey-owner-threshold-and-api-grant'
+      AND b.document->'authorization'->>'method' IN (${passkeyBindingMethodsSql})
       AND b.document->'authorization'->>'digest'=a.binding_authorization_digest`, [accountId])).rows[0];
   if (!row) inactiveWalletAppGrant();
   const deadline = Number(row.ready_until_ms);

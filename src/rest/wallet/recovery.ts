@@ -172,14 +172,21 @@ export function createWalletRecoveryMapping(record: { intent: WalletRecoveryInte
     || !Number.isSafeInteger(proof.verifiedAtMs) || proof.verifiedAtMs < intent.issuedAtMs || proof.verifiedAtMs >= intent.expiresAtMs
     || !Number.isSafeInteger(nowMs) || nowMs < proof.verifiedAtMs || context.accountId !== intent.accountId
     || enrollmentDigest(context.enrollment) !== intent.enrollmentDigest || enrollmentDigest(context.credential) !== intent.priorCredentialDigest) invalid();
-  const b = context.binding, a = b.authorization, setup = a.setup;
-  if (!setup || a.digest === intent.priorBindingDigest || a.expiresAt * 1000 <= nowMs
-    || setup.issuedAt < Math.floor(proof.verifiedAtMs / 1000) || setup.issuedAt * 1000 > nowMs + 30000) invalid();
-  const input: PasskeyOnboardingInput = { profile: 'center-passkey-v1', address: b.wallet.address, manifestId: b.manifestId,
-    nonce: a.nonce, issuedAt: setup.issuedAt, expiresAt: a.expiresAt,
-    grant: { id: setup.grantId, botAddress: setup.botAddress, scopes: setup.scopes, expiresAt: setup.grantExpiresAt, label: setup.label } };
-  const setupDocument = passkeyOnboardingDocument(setupAudience, input, b.state);
-  if (hashTypedData(setupDocument) !== a.digest) invalid();
+  const b = context.binding, a = b.authorization, setup = a.setup, consent = a.method === 'center-wallet-passkey-creation-v1';
+  if (a.digest === intent.priorBindingDigest || a.expiresAt * 1000 <= nowMs) invalid();
+  let setupDocument: ReturnType<typeof passkeyOnboardingDocument> | null = null;
+  if (consent) {
+    // The replacement binding's consent is this recovery's own proof: the replacement passkey and
+    // the recovery owner both signed the recovery document. No setup document or grant exists.
+    if (setup || a.digest.toLowerCase() !== `0x${proof.verificationDigest}`) invalid();
+  } else {
+    if (!setup || setup.issuedAt < Math.floor(proof.verifiedAtMs / 1000) || setup.issuedAt * 1000 > nowMs + 30000) invalid();
+    const input: PasskeyOnboardingInput = { profile: 'center-passkey-v1', address: b.wallet.address, manifestId: b.manifestId,
+      nonce: a.nonce, issuedAt: setup.issuedAt, expiresAt: a.expiresAt,
+      grant: { id: setup.grantId, botAddress: setup.botAddress, scopes: setup.scopes, expiresAt: setup.grantExpiresAt, label: setup.label } };
+    setupDocument = passkeyOnboardingDocument(setupAudience, input, b.state);
+    if (hashTypedData(setupDocument) !== a.digest) invalid();
+  }
   const receipt: WalletCredentialRecovery = { version: 'center-wallet-credential-recovery-v1', id: intent.id, accountId: intent.accountId,
     enrollmentId: intent.enrollmentId, enrollmentDigest: intent.enrollmentDigest, priorCredentialDigest: intent.priorCredentialDigest,
     priorBindingDigest: intent.priorBindingDigest, priorSigner: intent.priorSigner, signerAddress: candidate.signerAddress,

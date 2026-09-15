@@ -24,8 +24,7 @@ import { inspectPasskeyOwnerProfile } from "./passkeyProfile.js";
 import { onboardingDocument, validateOnboardingInput, verifyOnboardingSignatures, type OnboardingFinalizationInput } from "./onboarding.js";
 import {
   passkeyOnboardingDocument, passkeyOnboardingSigningPayload, validatePasskeyOnboardingInput,
-  verifyPasskeyOnboardingSignatures, type PasskeyOnboardingFinalizationInput,
-} from "./passkeyOnboarding.js";
+  verifyPasskeyOnboardingSignatures, type PasskeyOnboardingFinalizationInput, assertPasskeyOnboardingState } from "./passkeyOnboarding.js";
 import { createPasskeyContractSignatureVerifier } from "./passkeyContractVerifier.js";
 import type {
   SmartAccountBinding,
@@ -34,6 +33,7 @@ import type {
   SmartAccountState,
   SmartSnapshot,
 } from "./types.js";
+import { walletPasskeyConsentBinding } from "../wallet/bindingConsent.js";
 
 const safeAbi = parseAbi([
   "function VERSION() view returns (string)",
@@ -615,6 +615,25 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
     signal?.throwIfAborted();
     return { state, typedData, digest: hashTypedData(typedData), signingPayload: passkeyOnboardingSigningPayload(typedData) };
   }
+  /** Binds a wallet the passkey created through Center to its account from the consent that passkey
+   * already gave (its enrollment or recovery proof). No prompt, no owner signature over Center state,
+   * no browser grant: reads and preparation need none, every execution still takes the passkey. */
+  async function bindPasskeyAccount(input: { manifestId: string; address: Address; consent: { id: string; digest: Hex };
+    expected: { signerAddress: Address; initializerHash: Hex } }, signal?: AbortSignal) {
+    if (!options.onboarding) fail("SMART_ONBOARDING_UNAVAILABLE", "Account setup is not configured.", 503);
+    const state = await inspect({ manifestId: input.manifestId, address: input.address }, signal);
+    // The consent names one passkey signer and one initializer; a wallet in any other state is not
+    // bound, so a stale or divergent read can never write a binding the credential cannot use.
+    const observed = assertPasskeyOnboardingState(state);
+    if (!same(observed.profile.signer.address, input.expected.signerAddress) || !same(observed.initializerHash, input.expected.initializerHash))
+      fail("SMART_ACCOUNT_CHANGED", "The wallet is not in the state its passkey consented to.", 409);
+    await snapshot(state.chainId, signal, state.evidence);
+    const current = Math.floor(now() / 1000);
+    requireFreshOnboardingState(state, current);
+    signal?.throwIfAborted();
+    return options.onboarding.finalize(walletPasskeyConsentBinding({ accountId: `eip155:8453:${state.address.toLowerCase()}`, state,
+      consent: input.consent, nowSeconds: current }));
+  }
   /** Fresh current-owner approval and browser possession commit through the existing atomic setup store. */
   async function finalizePasskeyOnboarding(input: unknown, signal?: AbortSignal) {
     if (!options.onboarding) fail("SMART_ONBOARDING_UNAVAILABLE", "Account setup is not configured.", 503);
@@ -890,6 +909,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
     onboardingChallenge,
     passkeyOnboardingChallenge,
     finalizePasskeyOnboarding,
+    bindPasskeyAccount,
     finalizeOnboarding,
     bind,
     current,

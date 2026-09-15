@@ -1,7 +1,6 @@
 import { Pool } from 'pg';
 import { createRecoveryCrashRuntime, type RecoveryCrashConfiguration } from './wallet-recovery-crash-runtime.js';
 
-type Setup = Parameters<ReturnType<typeof createRecoveryCrashRuntime>['service']['completeSetup']>[1];
 async function main() {
   const schema = process.env.WALLET_RECOVERY_CRASH_SCHEMA, connectionString = process.env.TEST_DATABASE_URL;
   if (!schema || !/^rest_wallet_signup_[a-f0-9]{32}$/.test(schema) || !connectionString || !process.connected)
@@ -13,7 +12,7 @@ async function main() {
   const timeout = setTimeout(() => process.exit(2), 20_000);
   const disconnected = () => process.exit(2);
   process.once('disconnect', disconnected);
-  const input = await new Promise<{ config: RecoveryCrashConfiguration; flowToken: string; setup: Setup }>(resolve => {
+  const input = await new Promise<{ config: RecoveryCrashConfiguration; flowToken: string }>(resolve => {
     process.once('message', resolve);
     process.send?.({ kind: 'ready' });
   });
@@ -22,7 +21,7 @@ async function main() {
     if (event.stage === 'setup' && event.outcome === 'committed') process.kill(process.pid, 'SIGKILL');
   });
   try {
-    await runtime.service.completeSetup(input.flowToken, input.setup);
+    await runtime.service.activate(input.flowToken);
   } finally {
     await runtime.service.stop(); await pool.end(); clearTimeout(timeout);
     process.off('disconnect', disconnected);

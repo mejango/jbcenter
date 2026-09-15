@@ -27,7 +27,8 @@ export interface OnboardingFinalizationInput extends OnboardingInput {
 export interface OnboardingResult {
   account: Account;
   binding: SmartAccountBinding;
-  grant: BotGrant;
+  /** Absent for a passkey wallet bound by its creation consent; reads and preparation need no grant. */
+  grant?: BotGrant;
 }
 /** The verified records are committed together, or none of them are committed. */
 export interface OnboardingStore {

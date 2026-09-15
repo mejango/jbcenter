@@ -127,7 +127,7 @@ suite("PostgreSQL typed app-grant storage (trusted fixture; no browser authentic
       VALUES($1,$2,$3,ARRAY['read'],'legacy',1,9007199254740991)`, [legacyId, accountId, signerAddress]);
     await pool.query(await readFile(new URL("../src/db/migrations/017_rest_wallet_policy.sql", import.meta.url), "utf8"));
     await pool.query(await readFile(new URL("../src/db/migrations/019_rest_wallet_app_grants.sql", import.meta.url), "utf8"));
-    for (const filename of ["007_rest_smart_accounts.sql", "012_rest_smart_account_onboarding.sql", "014_rest_passkey_onboarding.sql", "020_rest_wallet_authority.sql", "039_wallet_authority_window.sql"])
+    for (const filename of ["007_rest_smart_accounts.sql", "012_rest_smart_account_onboarding.sql", "014_rest_passkey_onboarding.sql", "042_wallet_binding_consent.sql", "020_rest_wallet_authority.sql", "039_wallet_authority_window.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${filename}`, import.meta.url), "utf8"));
     backfilled = (await pool.query("SELECT id,kind,account_id FROM rest_grant_ids WHERE id=$1", [legacyId])).rows;
     await pool.query("CREATE TABLE wallet_app_claims(id uuid PRIMARY KEY,principal_id text NOT NULL)");

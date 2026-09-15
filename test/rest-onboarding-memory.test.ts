@@ -78,7 +78,7 @@ function enrollmentRequest(account: Account): VerifiedRequest {
 async function browserRequest(input: OnboardingRecord, now = NOW): Promise<SignedRequestInput> {
   const body = new Uint8Array();
   const claims = {
-    accountId: input.account.id, signer: browser.address, grantId: input.grant.id, method: "GET",
+    accountId: input.account.id, signer: browser.address, grantId: input.grant!.id, method: "GET",
     requestTarget: `/api/v1/smart-accounts/${input.binding.id}`, contentType: "",
     bodyHash: keccak256(body), issuedAt: now, expiresAt: now + 60, nonce: hex(now), idempotencyKey: "",
   };
@@ -98,7 +98,7 @@ describe("atomic memory account onboarding", () => {
     const input = record(n), address = input.binding.wallet.address, signer = "0x9999999999999999999999999999999999999999";
     input.account.id = accountIdFor(address, 8453);
     input.account.ownerAddress = address;
-    input.grant.accountId = input.account.id;
+    input.grant!.accountId = input.account.id;
     input.binding.ownerAccountId = input.account.id;
     input.binding.ownerAddress = address;
     input.binding.id = fingerprint({ ownerAccountId: input.account.id, wallet: address, chainId: 8453 });
@@ -113,9 +113,9 @@ describe("atomic memory account onboarding", () => {
     const test = fixture(), input = passkeyRecord();
     const results = await Promise.all(Array.from({ length: 12 }, () => test.store.finalize(input)));
     expect(results.every((value) => value.account.id === accountIdFor(input.binding.wallet.address, 8453))).toBe(true);
-    expect(await test.accounts.listBots(input.account.id)).toEqual([input.grant]);
+    expect(await test.accounts.listBots(input.account.id)).toEqual([input.grant!]);
     const principal = await test.auth.authenticate(await browserRequest(input));
-    expect(principal).toMatchObject({ account: input.account, grantId: input.grant.id, isOwner: false });
+    expect(principal).toMatchObject({ account: input.account, grantId: input.grant!.id, isOwner: false });
     await expect(test.auth.assertActive(principal, "relay", true)).rejects.toMatchObject({ code: "FORBIDDEN" });
     input.binding.authorization.digest = hex(1000);
     await expect(test.store.finalize(input)).rejects.toThrow();
@@ -144,16 +144,16 @@ describe("atomic memory account onboarding", () => {
     const test = fixture(), input = record();
     expect(await test.store.finalize(input)).toEqual(input);
     expect(await test.accounts.getAccount(input.account.id)).toEqual(input.account);
-    expect(await test.accounts.listBots(input.account.id)).toEqual([input.grant]);
+    expect(await test.accounts.listBots(input.account.id)).toEqual([input.grant!]);
     expect(await test.registry.get(input.account.id, input.binding.id)).toEqual(input.binding);
     test.setClock(NOW + 301);
     await expect(test.store.finalize(input)).rejects.toThrow();
     const principal = await test.auth.authenticate(await browserRequest(input, NOW + 301));
-    expect(principal).toMatchObject({ principalId: `bot:${input.grant.id}`, grantId: input.grant.id, isOwner: false });
+    expect(principal).toMatchObject({ principalId: `bot:${input.grant!.id}`, grantId: input.grant!.id, isOwner: false });
     expect(await test.registry.get(principal.account.id, input.binding.id)).toEqual(input.binding);
     await expect(test.auth.assertActive(principal, "relay", true)).rejects.toMatchObject({ code: "FORBIDDEN" });
-    test.setClock(input.grant.expiresAt);
-    await expect(test.auth.authenticate(await browserRequest(input, input.grant.expiresAt))).rejects.toMatchObject({ code: "FORBIDDEN" });
+    test.setClock(input.grant!.expiresAt);
+    await expect(test.auth.authenticate(await browserRequest(input, input.grant!.expiresAt))).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("preserves an enrolled profile and does not expose mutable authority records", async () => {
@@ -163,18 +163,18 @@ describe("atomic memory account onboarding", () => {
     const saved = await test.store.finalize(input);
     expect(saved.account).toEqual(existing);
     saved.binding.authorization.digest = hex(777);
-    saved.grant.scopes.length = 0;
+    saved.grant!.scopes.length = 0;
     input.account.profile.displayName = "Overwritten";
     expect(await test.accounts.getAccount(existing.id)).toEqual(existing);
-    expect(await test.accounts.listBots(existing.id)).toEqual([input.grant]);
+    expect(await test.accounts.listBots(existing.id)).toEqual([input.grant!]);
     expect((await test.registry.get(existing.id, input.binding.id))?.authorization.digest).toBe(input.binding.authorization.digest);
   });
 
   it("keeps concurrent identical finalizations idempotent and rejects a changed digest for the consumed nonce", async () => {
     const test = fixture(), input = record();
     const saved = await Promise.all(Array.from({ length: 20 }, () => test.store.finalize(input)));
-    expect(saved.every((value) => value.grant.id === input.grant.id)).toBe(true);
-    expect(await test.accounts.listBots(input.account.id)).toEqual([input.grant]);
+    expect(saved.every((value) => value.grant!.id === input.grant!.id)).toBe(true);
+    expect(await test.accounts.listBots(input.account.id)).toEqual([input.grant!]);
     expect(await test.registry.list(input.account.id)).toEqual([input.binding]);
     const changed = structuredClone(input);
     changed.binding.authorization.digest = hex(700);
@@ -185,7 +185,7 @@ describe("atomic memory account onboarding", () => {
   it.each(["grant", "binding", "superseded binding"] as const)("never restores a revoked or %s through old consent", async (kind) => {
     const test = fixture(), input = record();
     await test.store.finalize(input);
-    if (kind === "grant") await test.accounts.revokeBot(input.account.id, input.grant.id, NOW);
+    if (kind === "grant") await test.accounts.revokeBot(input.account.id, input.grant!.id, NOW);
     else if (kind === "binding") await test.registry.revoke(input.account.id, input.binding.id);
     else {
       const replacement = structuredClone(input.binding);
@@ -208,7 +208,7 @@ describe("atomic memory account onboarding", () => {
     await test.store.finalize(input);
     const results = await Promise.allSettled([
       test.store.finalize(input),
-      kind === "grant" ? test.accounts.revokeBot(input.account.id, input.grant.id, NOW)
+      kind === "grant" ? test.accounts.revokeBot(input.account.id, input.grant!.id, NOW)
         : test.registry.revoke(input.account.id, input.binding.id),
     ]);
     expect(results[1]?.status).toBe("fulfilled");
@@ -222,13 +222,13 @@ describe("atomic memory account onboarding", () => {
   ] as const)("leaves no binding or claimed setup nonce when the %s rejects finalization", async (kind, limits) => {
     const test = fixture(limits), input = record(), occupied = record(2, kind === "account cap" ? other : owner);
     await test.accounts.enroll(occupied.account, enrollmentRequest(occupied.account));
-    if (kind === "grant cap") await test.accounts.registerBot(occupied.grant);
+    if (kind === "grant cap") await test.accounts.registerBot(occupied.grant!);
     await expect(test.store.finalize(input)).rejects.toMatchObject({
       code: kind === "grant cap" ? "SMART_ONBOARDING_GRANT_LIMIT" : "STORAGE_LIMIT", status: 429,
     });
     expect(await test.registry.get(input.account.id, input.binding.id)).toBeUndefined();
     expect(await test.accounts.getAccount(input.account.id)).toEqual(kind === "account cap" ? null : occupied.account);
-    if (kind === "grant cap") expect(await test.accounts.listBots(input.account.id)).toEqual([occupied.grant]);
+    if (kind === "grant cap") expect(await test.accounts.listBots(input.account.id)).toEqual([occupied.grant!]);
     const changed = structuredClone(input.binding);
     changed.authorization.digest = hex(800);
     await expect(test.registry.bind(changed)).resolves.toEqual(changed);
@@ -258,7 +258,7 @@ describe("atomic memory account onboarding", () => {
     const test = fixture({ maxAccounts: 1, maxGrantsPerAccount: 1 }, 1), input = record(), competitor = record(2, other);
     if (kind === "grant registration") await test.accounts.enroll(input.account, enrollmentRequest(input.account));
     const ordinary = () => kind === "enrollment" ? test.accounts.enroll(competitor.account, enrollmentRequest(competitor.account))
-      : kind === "grant registration" ? test.accounts.registerBot({ ...competitor.grant, accountId: input.account.id })
+      : kind === "grant registration" ? test.accounts.registerBot({ ...competitor.grant!, accountId: input.account.id })
         : test.registry.bind(competitor.binding);
     const results = await Promise.allSettled([test.store.finalize(input), ordinary()]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
@@ -289,13 +289,13 @@ describe("atomic memory account onboarding", () => {
   });
 
   it.each([
-    ["different grant UUID", (input: OnboardingRecord) => { input.grant.id = randomUUID(); }],
+    ["different grant UUID", (input: OnboardingRecord) => { input.grant!.id = randomUUID(); }],
     ["broader grant scope", (input: OnboardingRecord) => { input.binding.authorization.setup!.scopes = ["read"]; }],
-    ["different browser key", (input: OnboardingRecord) => { input.grant.botAddress = other; }],
-    ["different account", (input: OnboardingRecord) => { input.grant.accountId = accountIdFor(other, 8453); }],
+    ["different browser key", (input: OnboardingRecord) => { input.grant!.botAddress = other; }],
+    ["different account", (input: OnboardingRecord) => { input.grant!.accountId = accountIdFor(other, 8453); }],
     ["long consent", (input: OnboardingRecord) => { input.binding.authorization.expiresAt = NOW + 301; }],
     ["long grant", (input: OnboardingRecord) => {
-      input.grant.expiresAt = NOW + 3_601; input.binding.authorization.setup!.grantExpiresAt = input.grant.expiresAt;
+      input.grant!.expiresAt = NOW + 3_601; input.binding.authorization.setup!.grantExpiresAt = input.grant!.expiresAt;
     }],
   ] as const)("rejects %s without leaving enrollment or nonce state", async (_, change) => {
     const test = fixture(), input = record(), changed = structuredClone(input);

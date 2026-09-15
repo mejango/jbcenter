@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg";
+import { passkeyBindingMethods } from "../smartAccounts/passkeyOnboarding.js";
 import { RestError } from "../core.js";
 import type { SmartAccountBinding } from "../smartAccounts/types.js";
 import { stable } from "../smartAccounts/service.js";
@@ -43,7 +44,7 @@ async function lockedContext(client: PoolClient, accountId: string, enrollmentId
       WHERE account_id=$1 AND chain_id=8453 AND wallet_address=$2 AND revoked_at IS NULL`,
     [accountId, accountId.slice("eip155:8453:".length)])).rows[0];
   if (!credential || credential.account_id !== accountId || !binding ||
-      binding.document.authorization.method !== "safe-passkey-owner-threshold-and-api-grant" ||
+      !passkeyBindingMethods.includes(binding.document.authorization.method as typeof passkeyBindingMethods[number]) ||
       binding.document.authorization.digest !== binding.authorization_digest || binding.document.id !== binding.id) inactive();
   return { accountId, enrollment, authority, credential, binding };
 }

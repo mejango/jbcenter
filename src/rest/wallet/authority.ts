@@ -259,21 +259,29 @@ function contextShape(v: WalletAuthorityContext): void {
   assertWalletAuthorityCredential(c, e);
   if (receipt.accountId !== v.accountId || c.accountId !== v.accountId) invalid();
   fields(b, ["id", "ownerAccountId", "ownerAddress", "wallet", "manifestId", "authorization", "state"]);
-  fields(b.wallet, ["chainId", "address"]); fields(b.authorization, ["digest", "nonce", "expiresAt", "method", "setup"]);
-  const a = b.authorization, setup = a.setup!;
-  fields(setup, ["manifestRevision", "initializerHash", "issuedAt", "grantId", "botAddress", "scopes", "grantExpiresAt", "label"]);
+  fields(b.wallet, ["chainId", "address"]);
+  const a = b.authorization, consent = a.method === "center-wallet-passkey-creation-v1";
+  fields(a, consent ? ["digest", "nonce", "expiresAt", "method"] : ["digest", "nonce", "expiresAt", "method", "setup"]);
   word(b.id); word(a.digest); word(a.nonce);
   if (b.ownerAccountId !== v.accountId || typeof b.ownerAddress !== "string" || typeof b.wallet.address !== "string" ||
     b.ownerAddress.toLowerCase() !== e.creation!.address.toLowerCase() || b.wallet.address.toLowerCase() !== e.creation!.address.toLowerCase() ||
     b.wallet.chainId !== 8453 || b.id !== fingerprint({ ownerAccountId: v.accountId, wallet: b.wallet.address, chainId: 8453 }) ||
     b.manifestId !== e.intent.manifest.id || b.state.manifestId !== b.manifestId || b.state.address !== b.wallet.address ||
-    b.state.manifestRevision !== e.intent.manifest.revision || a.method !== "safe-passkey-owner-threshold-and-api-grant" ||
-    setup.manifestRevision !== e.intent.manifest.revision || setup.initializerHash !== e.creation!.initializerHash) invalid();
+    b.state.manifestRevision !== e.intent.manifest.revision || (!consent && a.method !== "safe-passkey-owner-threshold-and-api-grant")) invalid();
+  // A consent binding's digest is the passkey proof already on record for this credential: the
+  // enrollment possession proof, or the recovery proof for a replacement passkey.
+  if (consent && (!Number.isSafeInteger(a.expiresAt) || a.expiresAt <= 0 ||
+    a.digest.toLowerCase() !== (c.recovery ? c.recovery.bindingDigest.toLowerCase() : `0x${receipt.verificationDigest}`))) invalid();
+  const setup = consent ? null : a.setup!;
+  if (setup) {
+    fields(setup, ["manifestRevision", "initializerHash", "issuedAt", "grantId", "botAddress", "scopes", "grantExpiresAt", "label"]);
+    if (setup.manifestRevision !== e.intent.manifest.revision || setup.initializerHash !== e.creation!.initializerHash) invalid();
+  }
   const observed = assertPasskeyOnboardingState(b.state);
   if (observed.initializerHash !== e.creation!.initializerHash || !equal({ x: observed.profile.signer.x, y: observed.profile.signer.y }, c.publicKey) ||
     observed.profile.signer.address.toLowerCase() !== (c.recovery?.signerAddress ?? e.creation!.bootstrap.signerAddress).toLowerCase() ||
     observed.profile.recoveryOwner.address.toLowerCase() !== e.intent.recoveryOwner.toLowerCase()) invalid();
-  validatePasskeyOnboardingInput({ profile: "center-passkey-v1", address: b.wallet.address, manifestId: b.manifestId,
+  if (setup) validatePasskeyOnboardingInput({ profile: "center-passkey-v1", address: b.wallet.address, manifestId: b.manifestId,
     nonce: a.nonce, issuedAt: setup.issuedAt, expiresAt: a.expiresAt,
     grant: { id: setup.grantId, botAddress: setup.botAddress, scopes: setup.scopes, expiresAt: setup.grantExpiresAt, label: setup.label } }, setup.issuedAt);
   if (Buffer.byteLength(JSON.stringify(b)) > 60000) invalid();

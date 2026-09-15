@@ -150,9 +150,9 @@ export class PostgresWalletRecoveryStore {
   }
   /** Internal capability boundary. The configured producer must verify complete canonical
    * history and the replacement setup anchor. HTTP must never supply an observation. */
-  async activate(id: string, flowToken: string, input: WalletAssertion, options: { passkeyName?: string } = {}): Promise<{ receipt: WalletCredentialRecovery; replayed: boolean }> {
+  async activate(id: string, flowToken: string, input: WalletAssertion | null, options: { passkeyName?: string } = {}): Promise<{ receipt: WalletCredentialRecovery; replayed: boolean }> {
     if (!this.activationObserver) throw new RestError(503, 'WALLET_RECOVERY_UNAVAILABLE', 'Canonical recovery activation is not configured.');
-    const assertion = copyWalletSignupAssertion(input), passkeyName = copyWalletPasskeyName(options.passkeyName), before = await this.required(id, flowToken);
+    const assertion = input === null ? null : copyWalletSignupAssertion(input), passkeyName = copyWalletPasskeyName(options.passkeyName), before = await this.required(id, flowToken);
     if (before.activation) return this.transaction(async client => {
       const current = await loadWalletAuthorityContextInTransaction(client, before.intent.accountId), row = await this.lock(client, id, flowToken);
       if (!row.activation || stable(row.activation) !== stable(before.activation) || stable(current.credential.recovery) !== stable(row.activation)) conflict();
@@ -160,10 +160,15 @@ export class PostgresWalletRecoveryStore {
     });
     const raw = await this.transaction(client => loadWalletAuthorityContextInTransaction(client, before.intent.accountId));
     const prepared = createWalletRecoveryMapping(before, raw, await this.now(), this.activationObserver.audience), expected = stable(raw);
-    verifyWalletAssertion(assertion, { purpose: 'session', challenge: passkeyOnboardingSigningPayload(prepared.setupDocument).digest,
-      rpId: prepared.receipt.rpId, origin: prepared.receipt.origin, requireUserHandle: true,
-      credential: { id: prepared.context.credential.credentialId, userHandle: prepared.context.credential.userHandle,
-        publicKey: prepared.context.credential.publicKey, backupEligible: prepared.context.credential.backupEligible } });
+    // An owner-setup binding is activated by a fresh assertion over its setup document; a consent
+    // binding already carries this recovery's proof as its digest, so no further prompt exists.
+    if (prepared.setupDocument) {
+      if (!assertion) conflict();
+      verifyWalletAssertion(assertion, { purpose: 'session', challenge: passkeyOnboardingSigningPayload(prepared.setupDocument).digest,
+        rpId: prepared.receipt.rpId, origin: prepared.receipt.origin, requireUserHandle: true,
+        credential: { id: prepared.context.credential.credentialId, userHandle: prepared.context.credential.userHandle,
+          publicKey: prepared.context.credential.publicKey, backupEligible: prepared.context.credential.backupEligible } });
+    } else if (assertion) conflict();
     const observation = validateWalletAuthorityObservation(await this.activationObserver.observe(prepared.context), prepared.context);
     const fresh = (now: number) => {
       const head = observation.head, anchor = prepared.receipt.anchor;
@@ -184,13 +189,16 @@ export class PostgresWalletRecoveryStore {
         return { receipt: row.activation, replayed: true };
       }
       if (stable(current) !== expected) conflict();
-      const now = await walletCeremonyDatabaseNow(client), seconds = Math.floor(now / 1000), setup = prepared.context.binding.authorization.setup!;
+      const now = await walletCeremonyDatabaseNow(client), seconds = Math.floor(now / 1000), setup = prepared.context.binding.authorization.setup;
       fresh(now);
-      const grant = (await client.query<{ account_id: string; bot_address: string; scopes: string[]; expires_at: string; revoked_at: string | null }>(
-        'SELECT account_id,bot_address,scopes,expires_at,revoked_at FROM rest_bot_grants WHERE id=$1 FOR UPDATE', [setup.grantId])).rows[0];
-      if (!grant || grant.account_id !== current.accountId || grant.bot_address !== setup.botAddress.toLowerCase()
-        || stable(grant.scopes) !== stable(setup.scopes) || Number(grant.expires_at) !== setup.grantExpiresAt
-        || Number(grant.expires_at) <= seconds || grant.revoked_at !== null) conflict();
+      if (setup) {
+        // An owner-setup binding keeps exactly its browser grant; a consent binding has none to keep.
+        const grant = (await client.query<{ account_id: string; bot_address: string; scopes: string[]; expires_at: string; revoked_at: string | null }>(
+          'SELECT account_id,bot_address,scopes,expires_at,revoked_at FROM rest_bot_grants WHERE id=$1 FOR UPDATE', [setup.grantId])).rows[0];
+        if (!grant || grant.account_id !== current.accountId || grant.bot_address !== setup.botAddress.toLowerCase()
+          || stable(grant.scopes) !== stable(setup.scopes) || Number(grant.expires_at) !== setup.grantExpiresAt
+          || Number(grant.expires_at) <= seconds || grant.revoked_at !== null) conflict();
+      }
       // One account-locked commit switches identity and fences every old authority generation.
       const superseded = await client.query(`UPDATE rest_wallet_credentials SET superseded_at=$3
         WHERE rp_id=$1 AND credential_id=$2 AND superseded_at IS NULL`, [current.credential.rpId, current.credential.credentialId, now]);
@@ -201,7 +209,7 @@ export class PostgresWalletRecoveryStore {
       [next.rpId, next.credentialId, next.enrollmentId, next.accountId, next.userHandle, next.publicKey.x, next.publicKey.y,
         next.backupEligible, next.verifiedAtMs, prepared.receipt, passkeyName]);
       await client.query('UPDATE rest_bot_grants SET revoked_at=GREATEST(created_at,$3) WHERE account_id=$1 AND id<>$2 AND revoked_at IS NULL',
-        [next.accountId, setup.grantId, seconds]);
+        [next.accountId, setup?.grantId ?? '', seconds]);
       await client.query('UPDATE rest_wallet_app_grants SET revoked_at=GREATEST(created_at,$2) WHERE account_id=$1 AND revoked_at IS NULL', [next.accountId, seconds]);
       if (current.prior) {
         const fenced = await client.query(`UPDATE rest_wallet_authority SET authority_epoch=authority_epoch+1,session_epoch=session_epoch+1,

@@ -98,7 +98,7 @@ export async function exerciseWalletRecoveryEvm(options: {
   expect((await fixture.rpc<{ from: Address }>('eth_getTransactionByHash', [rotationTransaction])).from.toLowerCase()).toBe(relay.address.toLowerCase());
   expect(relay.address.toLowerCase()).not.toBe(enrollmentBackupAccount.address.toLowerCase());
   expect(relay.address.toLowerCase()).not.toBe(fixture.sender.toLowerCase());
-  const { assertion, activated, flowToken, crashObservation } = await exerciseRecoverySetupCrash({ pool, accountId, recoveryId: intent.id,
+  const { activated, flowToken, crashObservation } = await exerciseRecoverySetupCrash({ pool, accountId, recoveryId: intent.id,
     flowToken: begun.flowToken, replacement, initializerHash: enrollment.creation!.initializerHash, replacementSigner: candidate.signerAddress, priorCredentialId: options.originalKey.credentialId, relayAddress: relay.address, rpc: fixture.rpc,
     config: { endpoint: fixture.endpoint, expectedGenesisHash: fixture.expectedGenesisHash, manifest: fixture.manifest,
       utility: fixture.utility, origin, rpId, audience: options.audience, ...(base ? { relay: 'base' as const } : {}) } });
@@ -113,7 +113,7 @@ export async function exerciseWalletRecoveryEvm(options: {
   expect(signedIn.session.accountId).toBe(accountId);
   const current = await new PostgresWalletAuthorityStore(pool).loadContext(accountId);
   expect(current.enrollment).toEqual(enrollment); expect(current.credential.credentialId).toBe(replacement.credentialId);
-  expect(await recovery.activate(intent.id, flowToken, assertion)).toEqual({ ...activated, replayed: true });
+  expect(await recovery.activate(intent.id, flowToken, null)).toEqual({ ...activated, replayed: true });
   const flows = new PostgresWalletSignupStore(pool, { rpId, origin, manifest: fixture.manifest }), resume = await flows.beginResume();
   await expect(flows.completeResume({ resumeId: resume.challenge.id, resumeToken: resume.resumeToken,
     assertion: signGet({ ...options.originalKey, rpId, origin, challenge: resume.challenge.challenge }) })).rejects.toThrow();

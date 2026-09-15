@@ -8,7 +8,7 @@ import {
 import { accountStoreLimits, RestAuthError, type AccountStoreLimits, type AccountStoreOptions } from "../auth/store.js";
 import { RestError } from "../core.js";
 import type { OnboardingStore } from "./onboarding.js";
-import { assertOnboardingLive, assertOnboardingRecord, sameOnboardingGrant, type OnboardingRecord } from "./onboardingStore.js";
+import { assertOnboardingLive, assertOnboardingRecord, sameOnboardingGrant, type OnboardingRecord, sameConsent } from "./onboardingStore.js";
 import { bindSmartAccountInTransaction } from "./postgres.js";
 import { stable } from "./service.js";
 
@@ -33,7 +33,11 @@ export class PostgresOnboardingStore implements OnboardingStore {
       assertOnboardingLive(record, now);
       const { binding, replayed } = await bindSmartAccountInTransaction(client, record.binding, now);
       let grant;
-      if (replayed) {
+      if (!record.grant) {
+        // A consent binding commits the account and binding only; there is no grant to restore.
+        if (replayed && !sameConsent(binding.authorization, record.binding.authorization))
+          throw new RestError(409, "SMART_ONBOARDING_REPLAY", "A changed binding cannot be restored by a previous consent.");
+      } else if (replayed) {
         grant = await getGrant(client, record.grant.id);
         if (!grant || !sameOnboardingGrant(grant, record.grant, now)
           || stable(binding.authorization) !== stable(record.binding.authorization)) {
@@ -49,7 +53,7 @@ export class PostgresOnboardingStore implements OnboardingStore {
           throw error;
         }
       }
-      const result = { account, binding, grant };
+      const result = { account, binding, ...(grant ? { grant } : {}) };
       // An authorization that expires during I/O must roll back every write.
       assertOnboardingLive(result, await databaseNow(client));
       await client.query("COMMIT");

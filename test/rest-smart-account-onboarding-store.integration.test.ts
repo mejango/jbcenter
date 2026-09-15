@@ -116,7 +116,7 @@ suite("atomic PostgreSQL smart account onboarding", () => {
   it("commits the versioned Safe identity once across concurrent store instances and preserves it after owner rotation", async () => {
     const input = passkeyRecord(1), peer = new PostgresOnboardingStore(pool);
     const results = await Promise.all(Array.from({ length: 12 }, (_, n) => (n % 2 ? peer : store).finalize(input)));
-    expect(results.every((result) => result.account.id === input.account.id && result.grant.id === input.grant.id)).toBe(true);
+    expect(results.every((result) => result.account.id === input.account.id && result.grant!.id === input.grant.id)).toBe(true);
     expect(await usage(input.account.id)).toEqual({ accounts: 1, bindings: 1, nonces: 1, grants: 1 });
     const next = passkeyRecord(2, input.binding.wallet.address);
     next.binding.state.ownerProfile!.recoveryOwner.address = otherOwner;

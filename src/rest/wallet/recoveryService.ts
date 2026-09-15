@@ -1,4 +1,3 @@
-import { randomBytes, randomUUID } from 'node:crypto';
 import { getAddress, hashTypedData, isAddress, type Address, type Hex } from 'viem';
 import { RestError } from '../core.js';
 import { validateAudience } from '../auth/signatures.js';
@@ -12,13 +11,9 @@ import type { createSmartAccountService } from '../smartAccounts/service.js';
 import type { createWalletAuthorityService } from './authorityService.js';
 import type { WalletRegistrationResponse } from './registration.js';
 import type { WalletAssertion } from './webauthn.js';
-import { verifyWalletAssertion } from './webauthn.js';
-import { copyWalletSignupAssertion, type WalletSignupSetup } from './signupPostgres.js';
-import { passkeyOnboardingProofDocument } from '../smartAccounts/passkeyOnboarding.js';
-import { encodeSafe7579MessageSignature } from '../smartAccounts/passkeySignatures.js';
 
 export type WalletRecoveryPhase = 'awaiting_registration' | 'awaiting_possession' | 'awaiting_rotation_approval'
-  | 'rotating' | 'rotation_failed' | 'awaiting_setup' | 'ready_to_sign_in' | 'expired';
+  | 'rotating' | 'rotation_failed' | 'awaiting_activation' | 'preparing_sign_in' | 'ready_to_sign_in' | 'expired';
 export interface WalletRecoveryView {
   id: string; passkeyName: string; rpId: string; origin: string; audience: string; expiresAtMs: number; proofExpiresAtMs: number;
   walletAddress: Address; recoveryOwner: Address; initializerHash: Hex; priorSigner: Address; replacementSigner: Address | null;
@@ -65,15 +60,16 @@ export function createLocalWalletRecovery(options: LocalWalletRecoveryDependenci
     if (activation) {
       // Old completed recovery continuations cannot claim to be the current identity.
       if (!await recoveries.isCurrentActivation(intent.id, flowToken)) state();
-      const current = await authority.refreshAuthority(intent.accountId);
-      if (current.snapshot.readiness !== 'verified') state();
-      phase = 'ready_to_sign_in';
+      // Login needs the worker's verified observation of the replaced owner (~25 s hosted); the
+      // page polls the "preparing" phase and the site asks the worker for it.
+      const current = await authority.currentAuthority(intent.accountId);
+      phase = current?.readiness === 'verified' && !current.bootstrapRequired ? 'ready_to_sign_in' : 'preparing_sign_in';
     } else if (!proof) {
       phase = intent.expiresAtMs <= Date.now() ? 'expired' : candidate ? 'awaiting_possession' : 'awaiting_registration';
     } else {
       const observed = await rotation.status(intent.id);
       transactionHashes = Object.values(observed.transactions).filter((value): value is Hex => value !== null);
-      phase = observed.state === 'review' ? 'awaiting_rotation_approval' : observed.state === 'ready' ? 'awaiting_setup'
+      phase = observed.state === 'review' ? 'awaiting_rotation_approval' : observed.state === 'ready' ? 'awaiting_activation'
         : observed.state === 'failed' ? 'rotation_failed' : 'rotating';
     }
     return { id: intent.id, passkeyName: flow.passkeyName, rpId: intent.rpId, origin: intent.origin, audience,
@@ -119,57 +115,19 @@ export function createLocalWalletRecovery(options: LocalWalletRecoveryDependenci
     event({ stage: 'rotation', outcome: 'checked_original_attempt', recoveryId: record.intent.id });
     return status(flowToken);
   }
-  async function setupReview(setup: WalletSignupSetup) {
-    const review = await smart.passkeyOnboardingChallenge(setup.input);
-    if (review.state.stateHash !== setup.stateHash || review.state.manifestRevision !== setup.manifestRevision
-      || review.typedData.message.initializerHash !== setup.initializerHash) state();
-    return { id: setup.id, input: setup.input, document: review.typedData, proofDocument: passkeyOnboardingProofDocument(review.typedData),
-      signingPayload: review.signingPayload, walletAddress: setup.input.address,
-      recoveryOwner: review.state.ownerProfile!.recoveryOwner.address, passkeySigner: review.state.ownerProfile!.signer.address,
-      expiresAtMs: setup.input.expiresAt * 1000 };
-  }
-  async function prepareSetup(flowToken: string, input: { browserPublicAddress: Address }) {
-    fields(input, ['browserPublicAddress']);
-    if (!isAddress(input.browserPublicAddress) || BigInt(input.browserPublicAddress) <= 1n) state();
-    const { flow, record } = await context(flowToken);
-    if (!record.candidate || !record.proof || (await status(flowToken)).phase !== 'awaiting_setup') state();
-    const now = Math.floor(Date.now() / 1000);
-    if (flow.setup && flow.setup.input.expiresAt > now) {
-      if (flow.setup.input.grant.botAddress.toLowerCase() !== input.browserPublicAddress.toLowerCase()) state();
-      return setupReview(flow.setup);
+  /** Binds the wallet under its replacement passkey from this recovery's own proof, then activates
+   * the replacement credential. No prompt and no browser grant. Idempotent across lost replies. */
+  async function activate(flowToken: string) {
+    const { flow, record } = await context(flowToken), candidate = record.candidate;
+    if (!candidate || !record.proof) state();
+    if (!record.activation) {
+      if ((await rotation.status(record.intent.id)).state !== 'ready') state();
+      await smart.bindPasskeyAccount({ manifestId: record.intent.manifest.id, address: record.intent.accountId.slice(12) as Address,
+        consent: { id: record.intent.id, digest: `0x${record.proof.verificationDigest}` },
+        expected: { signerAddress: candidate.signerAddress, initializerHash: record.intent.initializerHash } });
+      event({ stage: 'setup', outcome: 'committed', recoveryId: record.intent.id });
     }
-    const request = { profile: 'center-passkey-v1' as const, address: record.intent.accountId.slice(12) as Address,
-      manifestId: record.intent.manifest.id, nonce: `0x${randomBytes(32).toString('hex')}` as Hex,
-      issuedAt: now, expiresAt: now + 300, grant: { id: randomUUID(), botAddress: input.browserPublicAddress,
-        scopes: ['read', 'plan', 'relay'] as ['read', 'plan', 'relay'], expiresAt: now + 3600, label: 'Juicebox wallet recovery' } };
-    const review = await smart.passkeyOnboardingChallenge(request);
-    if (review.state.ownerProfile!.signer.address.toLowerCase() !== record.candidate.signerAddress.toLowerCase()
-      || review.typedData.message.initializerHash !== record.intent.initializerHash) state();
-    const setup: WalletSignupSetup = { id: randomUUID(), input: request, stateHash: review.state.stateHash,
-      manifestRevision: review.state.manifestRevision, initializerHash: review.typedData.message.initializerHash };
-    await flows.associateSetup(flowToken, flow.revision, setup); return setupReview(setup);
-  }
-  async function completeSetup(flowToken: string, input: { setupId: string; assertion: WalletAssertion; browserProof: Hex }) {
-    fields(input, ['setupId', 'assertion', 'browserProof']);
-    const assertion = copyWalletSignupAssertion(input.assertion), { setupId, browserProof } = input;
-    if (typeof browserProof !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(browserProof)) state();
-    const { flow, record } = await context(flowToken), setup = flow.setup, candidate = record.candidate;
-    if (!setup || setup.id !== setupId || !candidate || !record.proof) state();
-    if (record.activation) {
-      await recoveries.activate(record.intent.id, flowToken, assertion, { passkeyName: flow.passkeyName });
-      return status(flowToken);
-    }
-    if ((await rotation.status(record.intent.id)).state !== 'ready') state();
-    const review = await setupReview(setup);
-    const verified = verifyWalletAssertion(assertion, { purpose: 'session', challenge: review.signingPayload.digest,
-      rpId: record.intent.rpId, origin: record.intent.origin, requireUserHandle: true,
-      credential: { id: candidate.credential.credentialId, userHandle: candidate.credential.userHandle,
-        publicKey: candidate.credential.publicKey, backupEligible: candidate.credential.backupEligible } });
-    await smart.finalizePasskeyOnboarding({ ...setup.input, stateHash: setup.stateHash, manifestRevision: setup.manifestRevision,
-      initializerHash: setup.initializerHash, proofSignature: browserProof,
-      signature: encodeSafe7579MessageSignature([{ kind: 'contract', owner: candidate.signerAddress, signature: verified.contractSignature }]) });
-    event({ stage: 'setup', outcome: 'committed', recoveryId: record.intent.id });
-    await recoveries.activate(record.intent.id, flowToken, assertion, { passkeyName: flow.passkeyName });
+    await recoveries.activate(record.intent.id, flowToken, null, { passkeyName: flow.passkeyName });
     event({ stage: 'activation', outcome: 'committed', recoveryId: record.intent.id });
     return status(flowToken);
   }
@@ -191,7 +149,7 @@ export function createLocalWalletRecovery(options: LocalWalletRecoveryDependenci
     stopped = true; controller.abort(); if (timer) clearTimeout(timer);
     await running?.catch(() => {});
   }
-  return { begin, status, register, prove, prepareRotation, approveRotation, prepareSetup, completeSetup, tick, start, stop,
+  return { begin, status, register, prove, prepareRotation, approveRotation, activate, tick, start, stop,
     restart: (flowToken: string) => flows.assertRestartable(flowToken),
     beginResume: (id: string) => flows.beginResume(id),
     completeResume: (input: Parameters<PostgresWalletRecoveryFlowStore['completeResume']>[0]) => flows.completeResume(input) };

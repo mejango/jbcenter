@@ -319,6 +319,21 @@ is sized to it, and `test/rest-wallet-runtime.test.ts` pins the production value
   signup site asks the worker on every such view and the page polls state every 2 s. Recovery
   still refreshes inline in its status call (open item).
 
+## Account binding by creation consent (2026-09-15 late)
+
+Signup and recovery no longer ask for the "Authorize this browser" prompt. The account binding
+uses method `center-wallet-passkey-creation-v1` (src/rest/wallet/bindingConsent.ts): its
+digest is the passkey proof already on record, the enrollment possession proof at signup
+(`0x` + `enrollment.receipt.verificationDigest`) or the recovery proof for a replacement
+(`0x` + `record.proof.verificationDigest`); no setup document, no browser grant. The page calls
+`POST signup/activate` (or `recovery/activate`) after creation (or rotation) with no prompt;
+phases run `awaiting_activation` → `preparing_sign_in` → `ready_to_sign_in`, and both sites ask
+the refresh worker while preparing. Accounts from before keep the owner-signed setup binding
+(`safe-passkey-owner-threshold-and-api-grant`); both methods are accepted by the authority
+context, the login store, the app-grant readiness join, the refresh eligibility SQL and the
+bindings CHECK constraint (migration 042). Reads and prepared requests need no grant; execution
+always takes the passkey. Public read/prepare on the signed app API is a separate slice.
+
 ## Passkey name (2026-09-15)
 
 `rest_wallet_credentials.passkey_name` (migration 041) keeps the name typed at signup or recovery;

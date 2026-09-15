@@ -38,7 +38,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     if (kitMode && request.method === 'POST') requestBodies.push(await request.clone().text());
     const response = await app.fetch(request), path = new URL(request.url).pathname;
     observed.push({ path, status: response.status });
-    if (kitMode && response.ok && ['/recovery/register', '/recovery/rotation/approve', '/recovery/setup/complete'].includes(path)
+    if (kitMode && response.ok && ['/recovery/register', '/recovery/rotation/approve', '/recovery/activate'].includes(path)
       && !lostRecoveryPaths.has(path)) {
       lostRecoveryPaths.add(path); return new Response('Unavailable after commit', { status: 503 });
     }
@@ -46,7 +46,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     // proves the single "Continue" click carries the user from setup into the signed-in wallet.
     // The kit journey loses the registration and setup replies and recovers by hand; the wallet
     // journey keeps them and proves one click runs create, check and approve, then setup and login.
-    if (response.ok && kitMode && ((path === '/signup/register' && !lostRegistration) || (path === '/signup/setup/complete' && !lostSetup))) {
+    if (response.ok && kitMode && ((path === '/signup/register' && !lostRegistration) || (path === '/signup/activate' && !lostSetup))) {
       if (path.endsWith('/register')) lostRegistration = true; else lostSetup = true;
       return new Response('Unavailable after commit', { status: 503 });
     }
@@ -223,7 +223,6 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await page.setViewportSize({ width: 1000, height: 850 });
     refreshHold = new Promise<void>(resolve => { releaseRefresh = resolve; });
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await proceed('Authorize this browser');
     if (kitMode) {
       await contains('Check the original signup');
       await page.getByRole('button', { name: 'Check signup' }).click();
@@ -241,7 +240,8 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     expect((await page.locator('#wallet-address').textContent())?.toLowerCase()).toBe(originalAddress?.toLowerCase());
     expect(await page.locator('#wallet-passkey').textContent()).toBe('Juicebox test');
     if (recovery) {
-      await exerciseRecoveryBrowser({ page, context, cdp, authenticatorId, origin, recovery, login, requestBodies, kitText: recoveryKitText! });
+      await exerciseRecoveryBrowser({ page, context, cdp, authenticatorId, origin, recovery, login, requestBodies, kitText: recoveryKitText!,
+        hold: { arm: () => { refreshHold = new Promise<void>(resolve => { releaseRefresh = resolve; }); }, release: () => { releaseRefresh(); refreshHold = Promise.resolve(); } } });
       expect(lostRecoveryPaths.size).toBe(3);
     }
     expect(errors).toEqual([]); expect(lostRegistration).toBe(kitMode); expect(lostSetup).toBe(kitMode);

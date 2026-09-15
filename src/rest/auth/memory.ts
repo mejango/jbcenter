@@ -7,7 +7,7 @@ import {
   assertOnboardingRecord,
   sameOnboardingGrant,
   type OnboardingRecord,
-} from "../smartAccounts/onboardingStore.js";
+ sameConsent } from "../smartAccounts/onboardingStore.js";
 import {
   accountStoreLimits,
   actorGrantId,
@@ -162,6 +162,18 @@ export class MemoryAccountStore implements AccountStore {
       assertOnboardingLive(record, currentTime);
       const account = this.enrollmentAccount({ ...record.account, createdAt: currentTime, updatedAt: currentTime });
       const binding = registry.currentOnboardingBinding(record.binding);
+      if (!record.grant) {
+        // A consent binding commits the account and binding only; nothing a browser could use.
+        if (binding) {
+          if (!this.accounts.has(account.id) || !sameConsent(binding.authorization, record.binding.authorization))
+            throw new RestError(409, "SMART_ONBOARDING_REPLAY", "A changed binding cannot be restored by a previous consent.");
+          return structuredClone({ account, binding });
+        }
+        const result = structuredClone({ account, binding: record.binding });
+        registry.bindOnboarding(record.binding);
+        this.saveEnrollment(account);
+        return result;
+      }
       const existingGrant = this.bots.get(record.grant.id);
       if (binding) {
         if (!this.accounts.has(account.id) || !existingGrant

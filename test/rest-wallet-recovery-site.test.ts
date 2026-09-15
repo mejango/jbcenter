@@ -11,7 +11,7 @@ const assertion = { credentialId: token, userHandle: token, authenticatorData: B
 function setup(extra: Partial<WalletRecoverySiteOptions> = {}) {
   const recovery = { begin: vi.fn(async () => ({ flowToken: token, view })), status: vi.fn(async () => view),
     register: vi.fn(async () => view), prove: vi.fn(async () => view), prepareRotation: vi.fn(), approveRotation: vi.fn(async () => view),
-    prepareSetup: vi.fn(), completeSetup: vi.fn(async () => view), restart: vi.fn(async () => {}),
+    activate: vi.fn(async () => view), restart: vi.fn(async () => {}),
     beginResume: vi.fn(async () => ({ resumeToken: token, challenge: { id: 'resume', document: { purpose: 'resume' } } })),
     completeResume: vi.fn(async () => ({ flowToken: token, flow: { secret: 'internal-only' }, replayed: true })) };
   const app = new Hono();

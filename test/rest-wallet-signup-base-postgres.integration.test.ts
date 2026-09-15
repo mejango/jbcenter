@@ -117,17 +117,10 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
       await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.leaseUntil - Date.now() + 15)));
       await signup.tick();
       expect((await deployments.get(operation.id))!.observation).toMatchObject({ transaction: { state: "canonical-success" }, wallet: { state: "verified" }, finality: { state: "unfinalized" } });
-      expect((await signup.status(flowToken)).phase).toBe("awaiting_setup");
+      expect((await signup.status(flowToken)).phase).toBe("awaiting_activation");
       expect(await deployments.getSettlement(operation.id)).toBeNull();
-      // Setup and fresh login complete before treasury finality, as on the local pilot.
-      const browser = privateKeyToAccount(generatePrivateKey());
-      const setupReview = await signup.prepareSetup(flowToken, { browserPublicAddress: browser.address });
-      const setup = (await flows.authenticate(flowToken))!.setup!.input, onboarding = await smart.passkeyOnboardingChallenge(setup);
-      const setupAssertion = signGet({ ...credential, challenge: onboarding.signingPayload.digest, rpId, origin: issuer });
-      const verified = verifyWalletAssertion(setupAssertion, { purpose: "session", challenge: onboarding.signingPayload.digest, rpId, origin: issuer,
-        credential: { id: credential.credentialId, userHandle: credential.userHandle, publicKey: credential.publicKey, backupEligible: true }, requireUserHandle: true });
-      expect((await signup.completeSetup(flowToken, { setupId: setupReview.id, browserProof: await browser.signTypedData(passkeyOnboardingProofDocument(onboarding.typedData)),
-        signature: encodeSafe7579MessageSignature([{ kind: "contract", owner: onboarding.state.ownerProfile!.signer.address, signature: verified.contractSignature }]) })).phase).toBe("preparing_sign_in");
+      // Activation and fresh login complete before treasury finality, as on the local pilot.
+      expect((await signup.activate(flowToken)).phase).toBe("preparing_sign_in");
       expect((await authority.refreshAuthority(record.receipt!.accountId)).snapshot.readiness).toBe("verified");
       expect((await signup.status(flowToken)).phase).toBe("ready_to_sign_in");
       const begunLogin = await login.begin(), loggedIn = await login.complete({ loginId: begunLogin.login.id, flowToken: begunLogin.flowToken,

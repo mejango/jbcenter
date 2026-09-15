@@ -196,7 +196,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   }
   if (options.recovery) {
     if (!options.recoveryBrowserScript) reject(503, 'WALLET_RECOVERY_UNAVAILABLE');
-    mountWalletRecovery(app, { origin, recovery: options.recovery, browserScript: options.recoveryBrowserScript, basePath: base });
+    mountWalletRecovery(app, { origin, recovery: options.recovery, browserScript: options.recoveryBrowserScript, basePath: base, refresh });
   }
   // A bare visit without a session is a signup (which also logs in), served right here so nothing
   // redirects or repaints. App returns and stale cookies still get the landing page.

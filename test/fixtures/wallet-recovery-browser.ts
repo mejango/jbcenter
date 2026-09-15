@@ -11,6 +11,8 @@ export async function exerciseRecoveryBrowser(options: {
   page: Page; context: BrowserContext; cdp: CDPSession; authenticatorId: string; origin: string;
   recovery: ReturnType<typeof createLocalWalletRecovery>; login: PostgresWalletLoginStore; kitText: string;
   requestBodies: string[];
+  /** Holds the worker's refresh so the "preparing" phase is observable before login opens. */
+  hold: { arm(): void; release(): void };
 }) {
   const { page, context, cdp, authenticatorId, origin, recovery, login } = options, kit = JSON.parse(options.kitText);
   const openBackup = () => page.getByLabel('Open your backup file').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(options.kitText) });
@@ -62,7 +64,7 @@ export async function exerciseRecoveryBrowser(options: {
     }
   }
   await page.getByRole('button', { name: 'Check recovery' }).click();
-  await contains('Authorize this browser');
+  await contains('replacement passkey is in place');
   await context.clearCookies({ name: walletRecoveryCookie });
   await page.reload();
   await contains('Resume the original recovery');
@@ -70,15 +72,20 @@ export async function exerciseRecoveryBrowser(options: {
   await openBackup();
   await page.getByText('Resume an existing recovery', { exact: true }).click();
   await page.getByRole('button', { name: 'Resume recovery', exact: true }).click();
-  await contains('Authorize this browser');
+  await contains('replacement passkey is in place');
   const newFlow = (await context.cookies()).find(cookie => cookie.name === walletRecoveryCookie)!;
   expect(newFlow.value).not.toBe(originalFlow.value);
   await expect(recovery.status(originalFlow.value)).rejects.toThrow();
   expect((await recovery.status(newFlow.value)).id).toBe(before.id);
-  await page.getByRole('button', { name: 'Review browser setup' }).click();
-  await page.getByRole('button', { name: 'Approve browser setup' }).click();
+  // One click, no prompt: the recovery's own proof is the consent; the first reply is lost and
+  // checking the recovery finds activation committed and the login being prepared.
+  options.hold.arm();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await contains('could not be confirmed');
   await page.getByRole('button', { name: 'Check recovery' }).click();
+  await contains('Preparing your login');
+  expect(await page.locator('#wallet-status').getAttribute('data-state')).toBe('busy');
+  options.hold.release();
   await contains('Your replacement passkey is ready');
   expect(await login.readSession(originalSession.value)).toBeNull();
   const persisted = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));

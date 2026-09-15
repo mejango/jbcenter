@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { passkeyBindingMethodsSql } from "../smartAccounts/passkeyOnboarding.js";
 import type { Pool, PoolClient } from "pg";
 import { RestError } from "../core.js";
 import { walletAppAccount, walletAppFields, walletAppUuid } from "./appGrants.js";
@@ -29,7 +30,7 @@ const eligible = (account: string) => `EXISTS (SELECT 1 FROM rest_accounts a
     AND b.wallet_address=a.owner_address AND b.revoked_at IS NULL
   WHERE a.id=${account} AND a.authority_chain_id=8453
     AND a.id='eip155:8453:' || a.owner_address
-    AND b.document->'authorization'->>'method'='safe-passkey-owner-threshold-and-api-grant'
+    AND b.document->'authorization'->>'method' IN (${passkeyBindingMethodsSql})
     AND b.document->'authorization'->>'digest'=b.authorization_digest)`;
 function invalid(): never {
   throw new RestError(400, "WALLET_AUTHORITY_REFRESH_INVALID", "Authority refresh fields or bounds are invalid.");

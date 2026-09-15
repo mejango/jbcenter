@@ -13,7 +13,9 @@ export interface WalletRecoverySiteOptions {
   /** Mount path of the wallet pages on this host ('' on the dedicated host). */
   basePath?: string;
   recovery: Pick<ReturnType<typeof createLocalWalletRecovery>, 'begin' | 'status' | 'register' | 'prove' | 'prepareRotation'
-    | 'approveRotation' | 'prepareSetup' | 'completeSetup' | 'beginResume' | 'completeResume' | 'restart'>;
+    | 'approveRotation' | 'activate' | 'beginResume' | 'completeResume' | 'restart'>;
+  /** The authority refresh worker hooks; a "preparing" view asks it to verify the replaced owner. */
+  refresh?: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
 }
 function invalid(status = 400): never { throw new RestError(status, 'WALLET_RECOVERY_HTTP_INVALID', 'Check the original recovery and retry its current step.'); }
 /** Dedicated wallet-host capability. App allowlisting never grants access to recovery cookies. */
@@ -34,8 +36,16 @@ export function mountWalletRecovery(app: Hono, options: WalletRecoverySiteOption
     const value = await readWalletJson(c.req.raw);
     try { return walletAppFields(value, keys); } catch { return invalid(); }
   }
-  const json = (c: Context, value: unknown) => c.body(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? String(item) : item), 200,
-    { 'Content-Type': 'application/json' });
+  const json = (c: Context, value: unknown) => {
+    // A view still preparing the login asks the worker for the observation login needs; the queue
+    // dedupes by account and the page keeps polling state meanwhile.
+    const view = (value as { view?: { phase?: string; walletAddress?: string | null } } | null)?.view;
+    if (options.refresh && view?.phase === 'preparing_sign_in' && view.walletAddress) {
+      const refresh = options.refresh, accountId = `eip155:8453:${view.walletAddress.toLowerCase()}`;
+      void refresh.request(accountId).then(() => refresh.tick()).catch(() => { /* The page polls; the worker retries. */ });
+    }
+    return c.body(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? String(item) : item), 200, { 'Content-Type': 'application/json' });
+  };
   function result(c: Context, token: string, view: Awaited<ReturnType<typeof recovery.status>>, replayed?: boolean) {
     c.header('Set-Cookie', walletCookie(walletRecoveryCookie, token, Math.max(1, Math.min(86400, Math.floor((view.expiresAtMs - Date.now()) / 1000)))), { append: true });
     return { view, csrfToken: walletCsrfToken(token), ...(replayed === undefined ? {} : { replayed }) };
@@ -87,14 +97,9 @@ export function mountWalletRecovery(app: Hono, options: WalletRecoverySiteOption
     const input = await body(c, ['backupSignature']), token = cookie(c, walletRecoveryCookie);
     return json(c, { view: await recovery.approveRotation(token, input.backupSignature as Hex) });
   });
-  app.post(`${base}/recovery/setup/review`, async c => {
-    const input = await body(c, ['browserPublicAddress']), token = cookie(c, walletRecoveryCookie);
-    return json(c, await recovery.prepareSetup(token, { browserPublicAddress: input.browserPublicAddress as Address }));
-  });
-  app.post(`${base}/recovery/setup/complete`, async c => {
-    const input = await body(c, ['setupId', 'assertion', 'browserProof']), token = cookie(c, walletRecoveryCookie);
-    return json(c, { view: await recovery.completeSetup(token, { setupId: input.setupId as string,
-      assertion: walletHttpAssertion(input.assertion), browserProof: input.browserProof as Hex }) });
+  app.post(`${base}/recovery/activate`, async c => {
+    await body(c, []);
+    return json(c, { view: await recovery.activate(cookie(c, walletRecoveryCookie)) });
   });
   app.post(`${base}/recovery/resume/begin`, async c => {
     const input = await body(c, ['recoveryId']);

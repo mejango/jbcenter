@@ -94,7 +94,7 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       expect((await new PostgresWalletEnrollmentStore(pool).finalize(initial.intent.id, enrollmentProof)).replayed).toBe(true);
       const accountId = record.receipt!.accountId; accounts.push(accountId);
       expect(await count("rest_accounts")).toBe(index);
-      expect(await count("rest_bot_grants")).toBe(index);
+      expect(await count("rest_bot_grants")).toBe(0);
       expect(await count("rest_wallet_logins")).toBe(index * 2);
       const premature = await login.begin();
       await expect(login.complete({ loginId: premature.login.id, flowToken: premature.flowToken,
@@ -121,7 +121,7 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       expect((await deployments.loadFundingContext(fixture.configuration.id)).pool.activeOperationId).toBe(operation.id);
       expect(await count("rest_accounts")).toBe(index);
 
-      expect((await signup.status(flowToken)).phase).toBe("awaiting_setup");
+      expect((await signup.status(flowToken)).phase).toBe("awaiting_activation");
       const browser = privateKeyToAccount(generatePrivateKey());
       if (index === 0) {
         const read = fixture.readOnlyRpc.request;
@@ -131,58 +131,39 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
         expect((await deployments.get(operation.id))!.historicalCanonicalObservation).toMatchObject({
           transaction: { state: "canonical-success" }, wallet: { state: "verified" } });
         expect((await signup.status(flowToken)).phase).toBe("deploying");
-        await expect(signup.prepareSetup(flowToken, { browserPublicAddress: browser.address }))
-          .rejects.toMatchObject({ code: "WALLET_SIGNUP_STATE" });
+        await expect(signup.activate(flowToken)).rejects.toMatchObject({ code: "WALLET_SIGNUP_STATE" });
         await signup.tick();
-        expect((await signup.status(flowToken)).phase).toBe("awaiting_setup");
+        expect((await signup.status(flowToken)).phase).toBe("awaiting_activation");
       }
-      const setupReview = await signup.prepareSetup(flowToken, { browserPublicAddress: browser.address });
-      const setup = (await flows.authenticate(flowToken))!.setup!.input;
-      expect((await signup.prepareSetup(flowToken, { browserPublicAddress: browser.address })).id).toBe(setupReview.id);
-      const review = await smart.passkeyOnboardingChallenge(setup);
-      expect(review.state.evidence.source).toBe("onchain");
-      expect(review.typedData.message.initializerHash).toBe(record.creation!.initializerHash);
-      expect(review.typedData.message.accountId).toBe(accountId);
-      const assertion = signGet({ ...credential, challenge: review.signingPayload.digest, rpId, origin: issuer });
-      const verified = verifyWalletAssertion(assertion, { purpose: "session", challenge: review.signingPayload.digest, rpId, origin: issuer,
-        credential: { id: credential.credentialId, userHandle: credential.userHandle, publicKey: credential.publicKey, backupEligible: true }, requireUserHandle: true });
-      const complete = { ...setup, stateHash: review.state.stateHash, manifestRevision: review.state.manifestRevision,
-        initializerHash: record.creation!.initializerHash,
-        signature: encodeSafe7579MessageSignature([{ kind: "contract", owner: review.state.ownerProfile!.signer.address, signature: verified.contractSignature }]),
-        proofSignature: await browser.signTypedData(passkeyOnboardingProofDocument(review.typedData)) };
       if (beforeCreation) {
-        // The readiness view is not setup authority: roll back the actual creation
-        // after review, with PostgreSQL still retaining its original signed winner.
+        // The readiness view is not account authority: roll back the actual creation after the
+        // observation, with PostgreSQL still retaining its original signed winner.
         expect(await fixture.rpc("evm_revert", [beforeCreation])).toBe(true);
-        await expect(signup.completeSetup(flowToken, { setupId: setupReview.id, signature: complete.signature,
-          browserProof: complete.proofSignature })).rejects.toBeInstanceOf(Error);
+        await expect(signup.activate(flowToken)).rejects.toBeInstanceOf(Error);
         expect(await count("rest_accounts")).toBe(index);
-        expect(await count("rest_bot_grants")).toBe(index);
         expect(await deployments.getSettlement(operation.id)).toBeNull();
         expect((await deployments.loadFundingContext(fixture.configuration.id)).pool.activeOperationId).toBe(operation.id);
         await signup.tick();
         expect((await signup.status(flowToken)).phase).toBe("deploying");
-        await expect(signup.prepareSetup(flowToken, { browserPublicAddress: browser.address }))
-          .rejects.toMatchObject({ code: "WALLET_SIGNUP_STATE" });
+        await expect(signup.activate(flowToken)).rejects.toMatchObject({ code: "WALLET_SIGNUP_STATE" });
         // Reach the retained head watermark, then let the normal worker resend
         // only the already journaled bytes. No replacement nonce or approval.
         await fixture.rpc("anvil_mine", ["0x1", "0x0"]);
         await signup.tick();
         await signup.tick();
         expect((await deployments.get(operation.id))!.signed).toEqual(included.signed);
-        expect((await signup.status(flowToken)).phase).toBe("awaiting_setup");
+        expect((await signup.status(flowToken)).phase).toBe("awaiting_activation");
       }
-      // Setup commits at once; login waits for the worker's verified authority observation.
-      expect((await signup.completeSetup(flowToken, { setupId: setupReview.id, signature: complete.signature,
-        browserProof: complete.proofSignature })).phase).toBe("preparing_sign_in");
-      const configured = await smart.finalizePasskeyOnboarding(complete);
-      expect((await signup.completeSetup(flowToken, { setupId: setupReview.id, signature: complete.signature,
-        browserProof: complete.proofSignature })).phase).toBe("preparing_sign_in");
+      // Activation binds the account from the enrollment consent, with no prompt and no browser
+      // grant; login then waits for the worker's verified authority observation.
+      expect((await signup.activate(flowToken)).phase).toBe("preparing_sign_in");
+      expect((await signup.activate(flowToken)).phase).toBe("preparing_sign_in");
       expect((await authority.refreshAuthority(accountId)).snapshot.readiness).toBe("verified");
       expect((await signup.status(flowToken)).phase).toBe("ready_to_sign_in");
-      expect(configured.account.id).toBe(accountId);
-      expect(configured.binding.authorization.method).toBe("safe-passkey-owner-threshold-and-api-grant");
-      expect(await count("rest_accounts")).toBe(index + 1); expect(await count("rest_bot_grants")).toBe(index + 1);
+      const configured = (await new PostgresSmartAccountRegistry(pool).list(accountId)).find(binding => binding.wallet.address.toLowerCase() === record.creation!.address.toLowerCase())!;
+      expect(configured.authorization).toMatchObject({ method: "center-wallet-passkey-creation-v1", digest: `0x${record.receipt!.verificationDigest}` });
+      expect(configured.authorization.setup).toBeUndefined();
+      expect(await count("rest_accounts")).toBe(index + 1); expect(await count("rest_bot_grants")).toBe(0);
       expect((await authority.refreshAuthority(accountId)).snapshot.readiness).toBe("verified");
       const begun = await login.begin();
       await expect(login.complete({ loginId: begun.login.id, flowToken: begun.flowToken, assertion: enrollmentProof.assertion })).rejects.toBeInstanceOf(Error);

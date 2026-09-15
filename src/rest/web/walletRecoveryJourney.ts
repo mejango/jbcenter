@@ -1,12 +1,9 @@
 import { base } from './walletBase.js';
-import { getAddress, hashTypedData, isAddress, keccak256, stringToHex, type Address, type Hex, type TypedDataDefinition } from 'viem';
-import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
+import { getAddress, hashTypedData, isAddress, type Address, type Hex, type TypedDataDefinition } from 'viem';
 import type { WalletRecoveryView } from '../wallet/recoveryService.js';
-import type { createLocalWalletSignup } from '../wallet/signup.js';
 import { readWalletRecoveryKit, recoveryAccountFromPhrase, type WalletRecoveryKit, type WalletRecoverySecret } from './walletRecoveryKit.js';
 import { assertWalletRecoveryRotationReview } from './walletRecoveryReview.js';
 
-type Setup = Awaited<ReturnType<ReturnType<typeof createLocalWalletSignup>['prepareSetup']>>;
 type Ethereum = { request(input: { method: string; params?: unknown[] }): Promise<unknown> };
 type TypedDocument = { domain: Record<string, any>; types: Record<string, { name: string; type: string }[]>; primaryType: string; message: Record<string, any> };
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -16,7 +13,7 @@ const resume = el<HTMLButtonElement>('recovery-resume'), reference = el<HTMLInpu
 const status = el('wallet-status'), locatorKey = 'center:recovery:reference';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/, word = /^0x[0-9a-f]{64}$/;
 let view: WalletRecoveryView | null = null, known = false, busy = false, csrf = '', native: AbortController | null = null;
-let pending: { path: string; body: unknown; csrf: string } | null = null, setup: Setup | null = null;
+let pending: { path: string; body: unknown; csrf: string } | null = null;
 let rotation: Parameters<typeof assertWalletRecoveryRotationReview>[0] | null = null;
 let secret: WalletRecoverySecret | null = null, kit: WalletRecoveryKit | null = null, selectedWallet: Address | null = null;
 let disposed = false, pollCount = 0;
@@ -25,11 +22,14 @@ const steps: Record<WalletRecoveryView['phase'], string> = {
   awaiting_registration: 'Create your replacement passkey.', awaiting_possession: 'Prove access to the replacement passkey and original recovery owner.',
   awaiting_rotation_approval: 'Review and approve replacement of the lost passkey.', rotating: 'Replacing your passkey. Check this recovery for its original transaction results.',
   rotation_failed: 'The replacement did not complete. Check this recovery before approving any new attempt.',
-  awaiting_setup: 'Authorize this browser to read and prepare requests. Every payment still needs your approval.',
+  awaiting_activation: 'Your replacement passkey is in place. Continue to finish setting up your account.',
+  preparing_sign_in: 'Preparing your login. This can take up to a minute…',
   ready_to_sign_in: 'Your replacement passkey is ready. Sign in with a fresh passkey prompt.', expired: 'This unfinished recovery expired. Its replacement passkey is not active.',
 };
 // While work is in flight the status line's mark spins (Croptop's text ticker) instead of showing the lightning.
-const waiting = () => busy || view?.phase === 'rotating';
+// A native prompt waiting on the person is not work in flight; the mark holds still for it.
+const polling = () => view?.phase === 'rotating' || view?.phase === 'preparing_sign_in';
+const waiting = () => (busy && !native) || polling();
 function message(value: string, error = false) { status.textContent = value; status.dataset.state = error ? 'error' : waiting() ? 'busy' : 'ready'; }
 function spin() { if (waiting()) { if (status.dataset.state !== 'error') status.dataset.state = 'busy'; } else if (status.dataset.state === 'busy') status.dataset.state = 'ready'; }
 function invalid(): never { throw new Error('The recovery review changed. Check the original recovery before continuing.'); }
@@ -52,7 +52,8 @@ function decode(value: string): Uint8Array<ArrayBuffer> {
 function challengeBytes(value: string) { if (!/^0x[0-9a-fA-F]{64}$/.test(value)) invalid(); return Uint8Array.from(value.slice(2).match(/../g)!.map(pair => parseInt(pair, 16))); }
 class HttpFailure extends Error { constructor(readonly status: number) { super('Recovery could not be confirmed. Check the original recovery and retry.'); } }
 async function request(path: string, body?: unknown, proof = csrf): Promise<any> {
-  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15000);
+  // Activation re-inspects the wallet over the hosted provider; give it the long budget.
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), path === 'activate' ? 90000 : 15000);
   try {
     const response = await fetch(`${base}/recovery/` + path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal,
       ...(body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json', 'x-center-wallet-request': '1',
@@ -79,7 +80,7 @@ function accept(result: { view: WalletRecoveryView | null; csrfToken?: string })
     sessionStorage.setItem(locatorKey, value.id); reference.value = value.id;
   }
   if (result.csrfToken) { if (decode(result.csrfToken).length !== 32) invalid(); csrf = result.csrfToken; }
-  if (!value || value.phase !== view?.phase) { rotation = null; setup = null; pollCount = 0; }
+  if (!value || value.phase !== view?.phase) { rotation = null; pollCount = 0; }
   view = value; known = true;
   if (value?.phase === 'ready_to_sign_in') { secret = null; kit = null; sessionStorage.removeItem('center:recovery:browser:' + value.id); }
   message(value ? steps[value.phase] : reference.value ? 'Resume the original recovery with its replacement passkey and recovery owner.' : 'Open your backup file, or use your original recovery wallet.');
@@ -100,7 +101,7 @@ function render() {
   el('recovery-review').hidden = !rotation;
   const label = view?.phase === 'awaiting_registration' ? 'Create replacement passkey' : view?.phase === 'awaiting_possession' ? 'Verify both owners'
     : view?.phase === 'awaiting_rotation_approval' ? rotation ? 'Approve passkey replacement' : 'Review passkey replacement'
-    : view?.phase === 'awaiting_setup' ? setup ? 'Approve browser setup' : 'Review browser setup' : null;
+    : view?.phase === 'awaiting_activation' ? 'Continue' : null;
   next.hidden = !label || !!pending; next.textContent = label; next.disabled = busy;
   check.hidden = !known || (!view && !pending); check.disabled = busy; cancel.hidden = !native;
   el<HTMLButtonElement>('recovery-restart').hidden = view?.phase !== 'expired' || !!pending;
@@ -135,7 +136,7 @@ async function run(action: () => Promise<void>) {
   try { await action(); }
   catch (error) {
     if (error instanceof HttpFailure && error.status >= 400 && error.status < 500) {
-      pending = null; rotation = null; setup = null;
+      pending = null; rotation = null;
       try { accept(await request('state')); } catch { /* Fresh resume proves both owners if the cookie was lost. */ }
     }
     message(error instanceof DOMException && ['NotAllowedError', 'AbortError'].includes(error.name) && native
@@ -188,38 +189,6 @@ function possessionDocument() {
     || BigInt(value.expiresAtMs) > BigInt(value.issuedAtMs) + 300000n || hash(document) !== view.possession.challenge) invalid();
   return document as unknown as TypedDataDefinition;
 }
-function browserKey() {
-  if (!view) invalid(); const key = 'center:recovery:browser:' + view.id;
-  let stored = sessionStorage.getItem(key);
-  if (!stored) { stored = generatePrivateKey(); sessionStorage.setItem(key, stored); }
-  if (sessionStorage.getItem(key) !== stored || !word.test(stored)) throw new Error('This tab could not preserve its browser setup.');
-  return privateKeyToAccount(stored as Hex);
-}
-function setupDocument(value: Setup, browser: Address) {
-  if (!view) invalid();
-  const document = value.document as unknown as TypedDocument, message = document.message, input = value.input, now = Math.floor(Date.now() / 1000);
-  schema(document, 'SetupAccount', [['accountId','string'],['profile','string'],['ownerProfileHash','bytes32'],['manifestId','string'],['manifestRevision','bytes32'],
-    ['initializerHash','bytes32'],['stateHash','bytes32'],['nonce','bytes32'],['issuedAt','uint64'],['expiresAt','uint64'],['grantId','string'],['botAddress','address'],
-    ['scopes','string[]'],['grantExpiresAt','uint64'],['label','string']], ['name','version','chainId','verifyingContract','salt']);
-  if (document.domain.name !== 'Juicebox Center Account Setup' || document.domain.version !== '2' || document.domain.chainId !== 8453 || !word.test(document.domain.salt)
-    || typeof view.audience !== 'string' || document.domain.salt !== keccak256(stringToHex(view.audience))
-    || !sameAddress(document.domain.verifyingContract, view.walletAddress) || !sameAddress(value.walletAddress, view.walletAddress)
-    || !sameAddress(value.recoveryOwner, view.recoveryOwner) || !sameAddress(value.passkeySigner, view.replacementSigner)
-    || input.profile !== 'center-passkey-v1' || !sameAddress(input.address, view.walletAddress) || message.accountId !== 'eip155:8453:' + view.walletAddress.toLowerCase()
-    || message.profile !== input.profile || message.manifestId !== input.manifestId || message.initializerHash !== view.initializerHash || message.nonce !== input.nonce
-    || !word.test(input.nonce) || BigInt(message.issuedAt) !== BigInt(input.issuedAt) || BigInt(message.expiresAt) !== BigInt(input.expiresAt)
-    || input.issuedAt > now + 30 || input.expiresAt <= now || input.expiresAt > input.issuedAt + 300 || value.expiresAtMs !== input.expiresAt * 1000
-    || message.grantId !== input.grant.id || !uuid.test(input.grant.id) || !sameAddress(message.botAddress, browser) || !sameAddress(input.grant.botAddress, browser)
-    || JSON.stringify(input.grant.scopes) !== '["read","plan","relay"]' || JSON.stringify(message.scopes) !== '["read","plan","relay"]'
-    || BigInt(message.grantExpiresAt) !== BigInt(input.grant.expiresAt) || input.grant.expiresAt <= input.expiresAt || input.grant.expiresAt > input.issuedAt + 3600
-    || message.label !== input.grant.label) invalid();
-  const proof = { domain: document.domain, types: { CenterSetupProof: [{ name: 'setupDigest', type: 'bytes32' }] }, primaryType: 'CenterSetupProof', message: { setupDigest: hash(document) } };
-  schema(value.proofDocument as unknown as TypedDocument, 'CenterSetupProof', [['setupDigest','bytes32']], ['name','version','chainId','verifyingContract','salt']);
-  const safe = { domain: { chainId: 8453, verifyingContract: getAddress(view.walletAddress) }, types: { SafeMessage: [{ name: 'message', type: 'bytes' }] },
-    primaryType: 'SafeMessage', message: { message: hash(document) } };
-  if (hash(proof) !== hash(value.proofDocument) || value.signingPayload.scheme !== 'eip712-safe7579-message' || hash(safe) !== value.signingPayload.digest) invalid();
-  return proof as TypedDataDefinition;
-}
 async function advance() {
   if (!view) return;
   if (view.phase === 'awaiting_registration' && view.registration) {
@@ -248,16 +217,11 @@ async function advance() {
       const document = assertWalletRecoveryRotationReview(rotation, selected), backupSignature = await signBackup(document, view.recoveryOwner);
       await send('rotation/approve', { backupSignature }); rotation = null;
     }
-  } else if (view.phase === 'awaiting_setup') {
-    const browser = browserKey();
-    if (!setup) {
-      const result = await request('setup/review', { browserPublicAddress: browser.address }); setupDocument(result, browser.address); setup = result;
-      message('Authorize this browser for one hour of read, plan and relay access. It cannot approve payments on its own.');
-    } else {
-      const document = setupDocument(setup, browser.address), proof = await assertion(setup.signingPayload.digest, view.rpId, view.possession?.credentialId);
-      const browserProof = await browser.signTypedData(document);
-      await send('setup/complete', { setupId: setup.id, assertion: proof, browserProof }); setup = null;
-    }
+  } else if (view.phase === 'awaiting_activation') {
+    // The replacement passkey and the recovery owner already signed this recovery; Center binds
+    // the account from that proof and activates the passkey. No prompt, no browser grant.
+    message('Activating your replacement passkey. This can take up to a minute…');
+    await send('activate', {});
   }
 }
 async function resumeRecovery() {
@@ -283,7 +247,7 @@ async function resumeRecovery() {
   if (decode(begun.csrfToken).length !== 32) invalid();
   const backupSignature = await signBackup(document as unknown as TypedDataDefinition, owner), proof = await assertion(challenge.challenge, challenge.rpId, challenge.credentialId);
   if (proof.userHandle !== challenge.userHandle || proof.credentialId !== challenge.credentialId) invalid();
-  await send('resume/complete', { resumeId: challenge.id, assertion: proof, backupSignature }, begun.csrfToken); rotation = null; setup = null;
+  await send('resume/complete', { resumeId: challenge.id, assertion: proof, backupSignature }, begun.csrfToken); rotation = null;
 }
 form.addEventListener('submit', event => { event.preventDefault(); void run(async () => {
   if (reference.value || pending) throw new Error('Resume or check the original recovery before starting another.');
@@ -313,7 +277,7 @@ next.addEventListener('click', () => { void run(advance); }); check.addEventList
 el('recovery-restart').addEventListener('click', () => { void run(() => send('restart', {})); });
 resume.addEventListener('click', () => { void run(resumeRecovery); }); cancel.addEventListener('click', () => native?.abort());
 const timer = setInterval(() => {
-  if (!busy && !pending && view?.phase === 'rotating' && !document.hidden && navigator.onLine && pollCount++ < 60) void run(observe);
+  if (!busy && !pending && polling() && !document.hidden && navigator.onLine && pollCount++ < 90) void run(observe);
 }, 2000);
 window.addEventListener('pagehide', () => { disposed = true; native?.abort(); clearInterval(timer); secret = null; kit = null;
   el<HTMLTextAreaElement>('recovery-words').value = ''; el<HTMLInputElement>('recovery-file').value = ''; }, { once: true });

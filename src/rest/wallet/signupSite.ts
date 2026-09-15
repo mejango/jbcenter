@@ -15,7 +15,7 @@ export interface WalletSignupSiteOptions {
   /** The authority refresh worker hooks; a "preparing" view asks it to verify the new wallet. */
   refresh?: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
   signup: Pick<ReturnType<typeof createLocalWalletSignup>, 'begin' | 'status' | 'register' | 'proveEnrollment' |
-    'prepareDeployment' | 'approveDeployment' | 'prepareSetup' | 'completeSetupPasskey' | 'beginResume' | 'completeResume'>;
+    'prepareDeployment' | 'approveDeployment' | 'activate' | 'beginResume' | 'completeResume'>;
 }
 function invalid(status = 400): never { throw new RestError(status, 'WALLET_SIGNUP_HTTP_INVALID', 'Reload the original signup and retry its current step.'); }
 /** Installed only by the dedicated wallet host. No trusted-app CORS grants signup access. */
@@ -105,14 +105,9 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
     return json(c, { view: await signup.approveDeployment(token, { approvalId: input.approvalId as string, assertion: walletHttpAssertion(input.assertion),
       ...(input.backupSignature === undefined ? {} : { backupSignature: input.backupSignature as Hex }) }) });
   });
-  app.post(`${base}/signup/setup/review`, async c => {
-    const input = await body(c, ['browserPublicAddress']), token = cookie(c, walletSignupCookie);
-    return json(c, await signup.prepareSetup(token, { browserPublicAddress: input.browserPublicAddress as Address }));
-  });
-  app.post(`${base}/signup/setup/complete`, async c => {
-    const input = await body(c, ['setupId', 'assertion', 'browserProof']), token = cookie(c, walletSignupCookie);
-    return json(c, { view: await signup.completeSetupPasskey(token, { setupId: input.setupId as string,
-      assertion: walletHttpAssertion(input.assertion), browserProof: input.browserProof as Hex }) });
+  app.post(`${base}/signup/activate`, async c => {
+    await body(c, []);
+    return json(c, { view: await signup.activate(cookie(c, walletSignupCookie)) });
   });
   app.post(`${base}/signup/resume/begin`, async c => {
     await body(c, []);
