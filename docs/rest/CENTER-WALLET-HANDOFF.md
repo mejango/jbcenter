@@ -30,6 +30,43 @@ than repeating already-passed localhost passkey probes.
 
 ## Current state: start here
 
+**Update 2026-09-15 (evening): the production pilot is live and has created its
+first wallet.** Center main `c8aff02` is deployed on Railway; `wallet.juicebox.center`
+serves signup, the landing page redirects bare visits to `/wallet/create`, and the
+root `/` redirects to `/wallet`. The first real signups surfaced four production
+faults, all fixed with red-then-green tests against the Base-shaped fixture
+([test/fixtures/wallet-base-anvil.ts](../../test/fixtures/wallet-base-anvil.ts)):
+
+1. **Head pairing on a two-second chain.** The approval read the chain twice
+   (preflight, then funding) and the claim refused two heads; settlement re-read
+   funding at `latest` and required it to equal the observation's head from ~20 s
+   earlier. Rule: every multi-read evidence bundle pins its later reads to the first
+   read's block by number. Reproduce such races by mining one block from the
+   fixture's `faults.after` hook, never with interval mining.
+2. **Dwellir plan limits.** `eth_getLogs` windows are capped at 500 blocks
+   (error -32005). The disposable wallet inspector proved creation by scanning the
+   factory from genesis, which can never finish. It now receives the ProxyCreation log
+   verified in the treasury receipt (CREATE2 cannot reuse an occupied address and
+   post-Cancun Base cannot vacate one) and pages logs at 500 blocks. The fixture
+   enforces the limit. A live inspection measured 85 calls / ~18 s within the 30 s
+   observation budget; `debug_traceTransaction` works on the archive host.
+3. **Swallowed worker errors.** The creation worker now logs the `RestError` code
+   and bounded scalar details for every pending pass.
+4. **Signup page.** One click runs create, check and approve; a small in-page note
+   precedes every native passkey prompt; "Check signup" answers visibly; "Start over"
+   drops the continuation cookie at any phase; the busy treasury lane is named.
+
+Throughput is pilot-grade: one treasury lane is held from send to Base finality
+(~15-20 min), so roughly four creations per hour. Before public launch: release the
+lane at canonical inclusion and settle at finality, add treasuries (pools), and
+parallelise the inspector's independent reads. Fewer than five passkey prompts
+(create, check, approve, setup, login) needs protocol changes (fold possession into
+the creation approval; fold the setup grant into login).
+
+The paragraphs below describe the state before activation and remain accurate for
+the composition and the review history.
+
+
 Application source on Center main is
 `ac6e48d52fb43d5c90205e9892fff4ccaa011484`; the handoff is a later documentation
 commit. That application revision passed 4,583 checks with zero failures/skips,
