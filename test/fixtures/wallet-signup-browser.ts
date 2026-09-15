@@ -102,10 +102,9 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await page.goto(origin + '/wallet/create');
     await page.getByLabel('Passkey name').fill('Juicebox test');
     if (!kitMode) await page.getByLabel('A wallet you already have').check();
-    await page.getByRole('button', { name: 'Sign up' }).click();
-    await contains('Create your named passkey');
+    // Sign up opens the passkey prompt at once; a cancelled prompt leaves the explicit button as the fallback.
     await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
-    await page.getByRole('button', { name: 'Create passkey', exact: true }).click();
+    await page.getByRole('button', { name: 'Sign up' }).click();
     await page.getByRole('button', { name: 'Cancel prompt' }).click();
     await contains('cancelled');
     await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
@@ -178,7 +177,6 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: new URL('signup-mobile.png', out).pathname, fullPage: true });
     await page.getByRole('link', { name: 'Sign in with your passkey' }).click();
-    await page.getByRole('button', { name: 'Sign in with a passkey' }).click();
     await contains('You are signed in');
     expect((await page.locator('#wallet-address').textContent())?.toLowerCase()).toBe(originalAddress?.toLowerCase());
     if (recovery) {

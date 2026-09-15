@@ -161,6 +161,8 @@ async function continueSession() {
     location.replace(`/wallet/payment?review=${paymentReviewId}`);
   }
   else if (session && intent) await issue();
+  // A direct visit without a session or an app return belongs on the signup page, which also logs in.
+  else if (!session && !intent && !paymentReviewId && document.getElementById("wallet-create")) location.replace("/wallet/create");
   else setStatus(session ? "signed-in" : "ready", session ? "You are signed in." : "Sign in with your existing wallet passkey.");
 }
 async function login() {

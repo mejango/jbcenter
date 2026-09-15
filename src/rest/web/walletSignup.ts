@@ -94,7 +94,8 @@ function render() {
   // Saving the kit unlocks browser setup; after a reload the words are gone and only a saved kit can be checked.
   if (view?.phase === 'awaiting_setup' && kitMode() && recoverySecret && kitSavedWallet !== view.walletAddress) next.disabled = true;
   el('signup-intro').hidden = !known || !!view; // "log in" resumes with a passkey; a finished wallet lands at sign-in.
-  check.hidden = (!view && !pending && known) || stranded; check.disabled = busy;
+  // "Check signup" only matters for a lost reply or while creation is in progress.
+  check.hidden = stranded || !(pending || view?.phase === 'deploying'); check.disabled = busy;
   cancel.hidden = !native; signIn.hidden = view?.phase !== 'ready_to_sign_in';
 }
 async function send(path: string, body: unknown, proof = csrf) {
@@ -212,6 +213,9 @@ form.addEventListener('submit', event => { event.preventDefault(); void run(asyn
   if (kitMode() && !recoverySecret) recoverySecret = createWalletRecoverySecret();
   const owner = kitMode() ? recoverySecret!.recoveryOwner : await recoveryOwner();
   await send('begin', { recoveryOwner: owner, passkeyName });
+  // Go straight into the passkey prompts; a cancelled prompt leaves the explicit buttons as the fallback.
+  if (view?.phase === 'awaiting_registration') await advance();
+  if (view?.phase === 'awaiting_possession') await advance();
 }); });
 el('recovery-method').addEventListener('change', render);
 el('recovery-download').addEventListener('click', () => { void run(async () => {
@@ -243,9 +247,35 @@ el('recovery-restore').addEventListener('click', () => { void run(async () => {
 next.addEventListener('click', () => { void run(advance); });
 check.addEventListener('click', () => { void run(observe); });
 cancel.addEventListener('click', () => native?.abort());
-resume.addEventListener('click', event => { event.preventDefault(); if (busy || pending) return; void run(async () => {
+async function walletRequest(path: string, body: unknown, proof?: string): Promise<any> {
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal, method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-center-wallet-request': '1', ...(proof ? { 'x-center-wallet-csrf': proof } : {}) }, body: JSON.stringify(body) });
+    if (!response.ok) throw new HttpFailure(response.status);
+    return await response.json();
+  } finally { clearTimeout(timer); }
+}
+/** The same sign-in as the wallet landing page, then that page shows the session (and any app return). */
+async function login() {
+  const begun = await walletRequest('/wallet/login/begin', {}), publicKey = begun.publicKey;
+  if (publicKey?.rpId !== location.hostname || publicKey.userVerification !== 'required' || typeof begun.loginId !== 'string' || typeof begun.csrfToken !== 'string') throw new Error('The wallet host changed.');
+  const challenge = decode(publicKey.challenge); if (challenge.length !== 32) throw new Error('Invalid passkey challenge.');
+  message('Use your passkey to log in.');
+  const proof = await assertion('0x' + Array.from(challenge, byte => byte.toString(16).padStart(2, '0')).join(''), publicKey.rpId);
+  const result = await walletRequest('/wallet/login/complete', { loginId: begun.loginId, assertion: proof }, begun.csrfToken);
+  if (result?.session?.loginId !== begun.loginId) throw new Error('Sign-in could not be confirmed.');
+  location.replace('/wallet' + location.search);
+}
+async function resumeSignup() {
   const begun = await request('resume/begin', {}), proof = await assertion(begun.challenge.challenge, begun.challenge.rpId);
   await send('resume/complete', { resumeId: begun.challenge.id, assertion: proof }, begun.csrfToken);
+}
+signIn.addEventListener('click', event => { event.preventDefault(); if (busy) return; void run(login); });
+resume.addEventListener('click', event => { event.preventDefault(); if (busy || pending) return; void run(async () => {
+  // A passkey with a finished wallet logs in; one from an unfinished signup resumes it.
+  try { await login(); return; } catch (error) { if (!(error instanceof HttpFailure) || ![400, 401, 403, 404, 410].includes(error.status)) throw error; }
+  await resumeSignup();
   deployment = null; setup = null;
 }); });
 const timer = setInterval(() => {
