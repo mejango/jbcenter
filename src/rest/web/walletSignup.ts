@@ -69,7 +69,8 @@ function render() {
   form.hidden = !known || !!view; form.querySelector('button')!.disabled = busy;
   name.disabled = busy; details.hidden = !view;
   const recoveryPhase = !view || ['awaiting_registration', 'awaiting_possession', 'awaiting_deployment_approval'].includes(view.phase);
-  el<HTMLFieldSetElement>('recovery-method').hidden = !known || !recoveryPhase;
+  // The recovery choice is fixed once signup begins; only the initial form offers it.
+  el('recovery-choice').hidden = !known || !!view;
   el<HTMLFieldSetElement>('recovery-method').disabled = busy;
   el('signup-begin').textContent = kitMode() ? 'Create passkey wallet' : 'Connect recovery wallet';
   el('recovery-kit').hidden = !view || !recoveryPhase || !kitMode() || (kitVerifiedWallet !== null && kitVerifiedWallet === view.walletAddress);

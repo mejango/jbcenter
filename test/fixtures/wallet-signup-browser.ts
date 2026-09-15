@@ -101,7 +101,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
   try {
     await page.goto(origin + '/wallet/create');
     await page.getByLabel('Passkey name').fill('Juicebox test');
-    if (!kitMode) await page.getByLabel('Use my existing wallet').check();
+    if (!kitMode) { await page.locator('#recovery-choice summary').click(); await page.getByLabel('Use my existing wallet').check(); }
     await page.getByRole('button', { name: kitMode ? 'Create passkey wallet' : 'Connect recovery wallet' }).click();
     await contains('Create your named passkey');
     await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
