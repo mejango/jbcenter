@@ -1,5 +1,6 @@
 import type { Context, Hono } from 'hono';
-import type { Address, Hex } from 'viem';
+import { isAddress, type Address, type Hex } from 'viem';
+import type { PostgresWalletBackupStore } from './backupPostgres.js';
 import { RestError } from '../core.js';
 import { walletAppFields } from './appGrants.js';
 import type { createLocalWalletRecovery } from './recoveryService.js';
@@ -10,6 +11,8 @@ import { assertWalletHttpHost, assertWalletHttpRequest, assertWalletCsrf, readWa
 
 export interface WalletRecoverySiteOptions {
   origin: string; browserScript: string;
+  /** Chosen-password backups: sealed envelopes handed back by wallet address for recovery. */
+  backups?: Pick<PostgresWalletBackupStore, 'read'>;
   recovery: Pick<ReturnType<typeof createLocalWalletRecovery>, 'begin' | 'status' | 'register' | 'prove' | 'prepareRotation'
     | 'approveRotation' | 'prepareSetup' | 'completeSetup' | 'beginResume' | 'completeResume' | 'restart'>;
 }
@@ -38,7 +41,15 @@ export function mountWalletRecovery(app: Hono, options: WalletRecoverySiteOption
     c.header('Set-Cookie', walletCookie(walletRecoveryCookie, token, Math.max(1, Math.min(86400, Math.floor((view.expiresAtMs - Date.now()) / 1000)))), { append: true });
     return { view, csrfToken: walletCsrfToken(token), ...(replayed === undefined ? {} : { replayed }) };
   }
-  app.get('/wallet/recover', c => c.html(walletRecoveryPage()));
+  app.get('/wallet/recover', c => c.html(walletRecoveryPage({ passwordBackups: !!options.backups })));
+  // Pre-authentication by design: the password never leaves the browser and the store limits reads.
+  app.post('/wallet/recovery/backup', async c => {
+    const input = await body(c, ['walletAddress']);
+    if (typeof input.walletAddress !== 'string' || !isAddress(input.walletAddress)) invalid();
+    const found = options.backups ? await options.backups.read(input.walletAddress) : null;
+    if (!found) throw new RestError(404, 'WALLET_BACKUP_NOT_FOUND', 'No chosen-password backup exists for this wallet.');
+    return json(c, found);
+  });
   app.get('/wallet/assets/wallet-recovery.js', c => c.body(options.browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
   app.get('/wallet/assets/wallet-recovery.css', c => c.body(walletRecoveryCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
   app.get('/wallet/recovery/state', async c => {

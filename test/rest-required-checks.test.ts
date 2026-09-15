@@ -55,6 +55,7 @@ describe("release check cannot silently omit required verification", () => {
       "rest-wallet-deployment-settlement-evm-postgres.integration.test.ts",
       "rest-wallet-deployment-base-postgres.integration.test.ts", "rest-wallet-signup-base-postgres.integration.test.ts",
       "rest-wallet-base-host-postgres.integration.test.ts", "rest-wallet-recovery-base-postgres.integration.test.ts",
+      "rest-wallet-backup-postgres.integration.test.ts",
     ].sort();
     const testDirectory = new URL(".", import.meta.url);
     const files = await readdir(testDirectory);

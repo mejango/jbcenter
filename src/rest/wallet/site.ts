@@ -32,6 +32,8 @@ export interface WalletSiteOptions {
   signupBrowserScript?: string;
   recovery?: WalletRecoverySiteOptions['recovery'];
   recoveryBrowserScript?: string;
+  /** Chosen-password backups, when a wrap key is configured. */
+  backups?: WalletRecoverySiteOptions['backups'];
   login: Pick<PostgresWalletLoginStore, 'begin' | 'identifyCompletion' | 'complete' | 'identifySession' | 'readSession' | 'logout'>;
   handoff: Pick<PostgresWalletHandoffStore, 'prepare' | 'getIntent' | 'issue' | 'identifyExchange' | 'exchange'>;
   policy: Pick<PostgresWalletPolicyStore, 'readActivePolicy'>;
@@ -163,11 +165,11 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   });
   if (options.signup) {
     if (!options.signupBrowserScript) reject(503, 'WALLET_SIGNUP_UNAVAILABLE');
-    mountWalletSignup(app, { origin, signup: options.signup, browserScript: options.signupBrowserScript });
+    mountWalletSignup(app, { origin, signup: options.signup, browserScript: options.signupBrowserScript, passwordBackups: !!options.backups });
   }
   if (options.recovery) {
     if (!options.recoveryBrowserScript) reject(503, 'WALLET_RECOVERY_UNAVAILABLE');
-    mountWalletRecovery(app, { origin, recovery: options.recovery, browserScript: options.recoveryBrowserScript });
+    mountWalletRecovery(app, { origin, recovery: options.recovery, browserScript: options.recoveryBrowserScript, ...(options.backups ? { backups: options.backups } : {}) });
   }
   // A bare visit without a session belongs on the signup page (which also logs in); deciding it
   // here avoids painting the landing page first. App returns and stale cookies still land here.

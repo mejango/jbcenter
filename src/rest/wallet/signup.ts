@@ -83,7 +83,7 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
         challenge: hashTypedData(walletEnrollmentDocument(enrollment)) } : null,
       deploymentId: operation?.id ?? null, transactionHash: operation?.signed?.hash ?? null };
   }
-  async function begin(input: { recoveryOwner: Address; passkeyName: string }) {
+  async function begin(input: { recoveryOwner: Address; passkeyName: string; backup?: unknown }) {
     const begun = await flows.begin(input);
     return { flowToken: begun.flowToken, view: await status(begun.flowToken) };
   }

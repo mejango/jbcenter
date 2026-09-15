@@ -9,17 +9,34 @@ import type { PostgresWalletLoginStore } from '../../src/rest/wallet/loginPostgr
  * local gas funding are fixtures. The recovery kit remains in memory and is never an artifact. */
 export async function exerciseRecoveryBrowser(options: {
   page: Page; context: BrowserContext; cdp: CDPSession; authenticatorId: string; origin: string;
-  recovery: ReturnType<typeof createLocalWalletRecovery>; login: PostgresWalletLoginStore; kitText: string;
+  recovery: ReturnType<typeof createLocalWalletRecovery>; login: PostgresWalletLoginStore; kitText?: string;
+  /** Chosen-password backup instead of a file: the journey fetches and opens the sealed words. */
+  password?: { value: string; walletAddress: string };
   requestBodies: string[];
 }) {
-  const { page, context, cdp, authenticatorId, origin, recovery, login } = options, kit = JSON.parse(options.kitText);
+  const { page, context, cdp, authenticatorId, origin, recovery, login } = options;
+  const kit = options.kitText ? JSON.parse(options.kitText) : { walletAddress: options.password!.walletAddress };
+  const openBackup = async () => {
+    if (options.kitText) { await page.getByLabel('Open your backup file').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(options.kitText) }); return; }
+    await page.getByLabel('My password').check();
+    await page.getByLabel('Wallet address').fill(options.password!.walletAddress);
+    await page.getByLabel('Your password').fill(options.password!.value);
+  };
   const contains = async (value: string) => expect.poll(() => page.locator('#wallet-status').textContent(), { timeout: 15000 }).toContain(value);
   const originalSession = (await context.cookies()).find(cookie => cookie.name === walletSessionCookie)!;
   expect(await login.readSession(originalSession.value)).not.toBeNull();
   await cdp.send('WebAuthn.clearCredentials', { authenticatorId });
   await page.goto(origin + '/wallet/recover');
-  await page.getByLabel('Open your backup file').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(options.kitText) });
+  await openBackup();
   await page.getByLabel('New passkey name').fill('Juicebox replacement');
+  if (options.password) {
+    // A wrong password opens nothing and starts nothing.
+    await page.getByLabel('Your password').fill('orange-tree-43');
+    await page.getByRole('button', { name: 'Start recovery', exact: true }).click();
+    await contains('does not open');
+    expect((await context.cookies()).some(cookie => cookie.name === walletRecoveryCookie)).toBe(false);
+    await page.getByLabel('Your password').fill(options.password.value);
+  }
   await page.getByRole('button', { name: 'Start recovery', exact: true }).click();
   await contains('Create your replacement passkey');
   await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
@@ -36,9 +53,11 @@ export async function exerciseRecoveryBrowser(options: {
   const originalFlow = (await context.cookies()).find(cookie => cookie.name === walletRecoveryCookie)!;
   const before = await recovery.status(originalFlow.value);
   expect(before.walletAddress.toLowerCase()).toBe(kit.walletAddress.toLowerCase());
-  const wrongKit = JSON.stringify({ ...kit, walletAddress: '0x' + '66'.repeat(20) });
-  await page.getByLabel('Open your backup file').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(wrongKit) });
-  await contains('does not match');
+  if (options.kitText) {
+    const wrongKit = JSON.stringify({ ...kit, walletAddress: '0x' + '66'.repeat(20) });
+    await page.getByLabel('Open your backup file').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(wrongKit) });
+    await contains('does not match');
+  }
   await page.getByRole('button', { name: 'Check recovery' }).click();
   await page.getByRole('button', { name: 'Review passkey replacement' }).click();
   await page.getByRole('button', { name: 'Approve passkey replacement' }).click();
@@ -63,7 +82,7 @@ export async function exerciseRecoveryBrowser(options: {
   await page.reload();
   await contains('Resume the original recovery');
   expect(await page.locator('#recovery-words').inputValue()).toBe('');
-  await page.getByLabel('Open your backup file').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(options.kitText) });
+  await openBackup();
   await page.getByText('Resume an existing recovery', { exact: true }).click();
   await page.getByRole('button', { name: 'Resume recovery', exact: true }).click();
   await contains('Authorize this browser');

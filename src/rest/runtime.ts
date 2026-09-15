@@ -72,6 +72,7 @@ import { createWalletAuthorityRefresh } from "./wallet/authorityRefresh.js";
 import { PostgresWalletAuthorityRefreshQueue } from "./wallet/authorityRefreshPostgres.js";
 import { validateWalletPolicyOrigin } from "./wallet/policy.js";
 import { createWalletSite } from "./wallet/site.js";
+import { PostgresWalletBackupStore } from "./wallet/backupPostgres.js";
 import { PostgresWalletPaymentReviewStore } from './wallet/paymentReviewsPostgres.js';
 import type { WalletV6UsdcPaymentConfig } from './userOperations/semantics.js';
 import type { createLocalWalletSignup } from './wallet/signup.js';
@@ -81,6 +82,8 @@ export interface RestWalletConfiguration {
   origin: string;
   /** Former wallet origins whose hosts redirect to `origin`. */
   legacyOrigins?: string[];
+  /** 32-byte hex key wrapping chosen-password backup envelopes at rest; unset disables the option. */
+  backupWrapKey?: `0x${string}`;
   manifest: SmartAccountManifest;
   utility: ContractPin;
   payments?: Omit<WalletV6UsdcPaymentConfig, 'chainId'>;
@@ -96,6 +99,7 @@ export interface RestWalletRuntime {
   payments?: PostgresWalletPaymentReviewStore;
   signup?: ReturnType<typeof createLocalWalletSignup>;
   recovery?: ReturnType<typeof createLocalWalletRecovery>;
+  backups?: PostgresWalletBackupStore;
   /** Internal operator transition; startup never activates policy. */
   activatePolicy: PostgresWalletPolicyStore["activate"];
 }
@@ -513,6 +517,7 @@ export async function createRestRuntime(options: {
     openapi,
   });
   const assets = await readRestAssets();
+  if (wallet && walletConfiguration?.backupWrapKey) wallet.backups = new PostgresWalletBackupStore(options.pool, { wrapKey: walletConfiguration.backupWrapKey });
   if (options.walletSignup && !wallet) throw new RestError(503, 'WALLET_SIGNUP_UNAVAILABLE', 'Signup requires the dedicated wallet host.');
   if (wallet && options.walletSignup) wallet.signup = await options.walletSignup({ pool: options.pool, rpc: backendRpc, wallet, audience: auth.audience, smart: smartAccounts });
   if (options.walletRecovery && !wallet) throw new RestError(503, 'WALLET_RECOVERY_UNAVAILABLE', 'Recovery requires the dedicated wallet host.');
@@ -523,6 +528,7 @@ export async function createRestRuntime(options: {
     ...(walletPayments ? { payments: walletPayments, paymentBrowserScript: assets.walletPaymentScript } : {}),
     ...(wallet.signup ? { signup: wallet.signup, signupBrowserScript: assets.walletSignupScript } : {}),
     ...(wallet.recovery ? { recovery: wallet.recovery, recoveryBrowserScript: assets.walletRecoveryScript } : {}),
+    ...(wallet.backups ? { backups: wallet.backups } : {}),
     onEvent: event => console.info(JSON.stringify({ service: "wallet", ...event })),
   }) : undefined;
   if (options.startMaintenance !== false) wallet?.signup?.start();

@@ -355,6 +355,7 @@ The remaining controls are environment variables:
 - `MAX_STORAGE_BYTES_PER_CLIENT` — lifetime stored envelope bytes per client; default 1 GiB.
 - `WALLET_ORIGIN` — hosted passkey wallet origin (for example `https://my.juicebox.center`); mounts the wallet site with the reviewed Base manifest.
 - `WALLET_LEGACY_ORIGINS` — optional comma-separated former wallet origins; requests on those hosts redirect (301) to the same path on `WALLET_ORIGIN`.
+- `WALLET_BACKUP_WRAP_KEY` — optional 32-byte hex key. When set, signup offers "a password you choose": the browser seals the backup words under that password (scrypt + AES-GCM), Center wraps the ciphertext under this key and returns it for recovery by wallet address (five reads per wallet per hour). Rotating the key strands stored backups.
 - `WALLET_CREATION_SIGNER_KEY`, `WALLET_CREATION_POOL_ID`, `WALLET_CREATION_ALLOCATION_WEI`, `WALLET_CREATION_INITIAL_NONCE` — together, the dedicated Base creation treasury: its private key, permanent pool UUID, whole allocation in wei and the sender's expected first nonce. Startup fails if only some are set; see [WALLET_SIGNUP.md](WALLET_SIGNUP.md).
 - `WALLET_RECOVERY_SIGNER_KEY`, `WALLET_RECOVERY_MAX_OPERATIONS`, `WALLET_RECOVERY_MAX_COST_WEI` — together, the dedicated Base recovery relay: its private key (distinct from creation), the lifetime operation cap and the whole fee budget in wei.
 - `PARA_API_KEY` — public browser API key for account sign-in; authorize the Center origin in the Para dashboard. No Para server secret is used.

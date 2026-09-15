@@ -10,6 +10,7 @@ import type { TypedDataDefinition } from 'viem';
 import { toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createLocalWalletSignup, type LocalWalletSignupDependencies } from '../../src/rest/wallet/signup.js';
+import { PostgresWalletBackupStore } from '../../src/rest/wallet/backupPostgres.js';
 import { PostgresWalletSignupStore } from '../../src/rest/wallet/signupPostgres.js';
 import { PostgresWalletLoginStore } from '../../src/rest/wallet/loginPostgres.js';
 import { PostgresWalletRecoveryStore } from '../../src/rest/wallet/recoveryPostgres.js';
@@ -27,18 +28,19 @@ import type { startWalletDeploymentAnvil } from './wallet-deployment-anvil.js';
  * authenticator and independent test recovery wallet are simulated. */
 export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDependencies, 'flows'> & {
   pool: Pool; fixture: Awaited<ReturnType<typeof startWalletDeploymentAnvil>>;
-  recoveryMode?: 'wallet' | 'kit'; expectedNextNonce?: string;
+  recoveryMode?: 'wallet' | 'kit' | 'password'; expectedNextNonce?: string;
 }) {
   let app = new Hono(), lostRegistration = false, lostSetup = false;
   let recoveryKitText: string | null = null;
   const lostRecoveryPaths = new Set<string>();
-  const kitMode = options.recoveryMode === 'kit', requestBodies: string[] = [];
+  const kitMode = options.recoveryMode === 'kit', passwordMode = options.recoveryMode === 'password', secretMode = kitMode || passwordMode;
+  const chosenPassword = 'orange-tree-42', requestBodies: string[] = [];
   const observed: { path: string; status: number }[] = [];
   const server = serve({ port: 0, hostname: '127.0.0.1', fetch: async request => {
-    if (kitMode && request.method === 'POST') requestBodies.push(await request.clone().text());
+    if (secretMode && request.method === 'POST') requestBodies.push(await request.clone().text());
     const response = await app.fetch(request), path = new URL(request.url).pathname;
     observed.push({ path, status: response.status });
-    if (kitMode && response.ok && ['/wallet/recovery/register', '/wallet/recovery/rotation/approve', '/wallet/recovery/setup/complete'].includes(path)
+    if (secretMode && response.ok && ['/wallet/recovery/register', '/wallet/recovery/rotation/approve', '/wallet/recovery/setup/complete'].includes(path)
       && !lostRecoveryPaths.has(path)) {
       lostRecoveryPaths.add(path); return new Response('Unavailable after commit', { status: 503 });
     }
@@ -55,23 +57,24 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
   if (!server.listening) await once(server, 'listening');
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('No local signup listener.');
   const origin = `http://localhost:${address.port}`;
-  const flows = new PostgresWalletSignupStore(options.pool, { origin, rpId: 'localhost', manifest: options.fixture.manifest });
+  const backups = passwordMode ? new PostgresWalletBackupStore(options.pool, { wrapKey: `0x${'42'.repeat(32)}` }) : undefined;
+  const flows = new PostgresWalletSignupStore(options.pool, { origin, rpId: 'localhost', manifest: options.fixture.manifest, ...(backups ? { backups } : {}) });
   const signup = createLocalWalletSignup({ ...options, flows });
   const login = new PostgresWalletLoginStore(options.pool, { origin, rpId: 'localhost' });
   const recoveryObserver = createWalletAuthorityChain({ rpc: options.fixture.readOnlyRpc, manifest: options.fixture.manifest, utility: options.fixture.utility });
   const relay = privateKeyToAccount(`0x${'77'.repeat(32)}`);
-  const recovery = kitMode ? createLocalWalletRecovery({ audience: 'https://juicebox.center', smart: options.smart, authority: options.authority,
+  const recovery = secretMode ? createLocalWalletRecovery({ audience: 'https://juicebox.center', smart: options.smart, authority: options.authority,
     recoveries: new PostgresWalletRecoveryStore(options.pool, { origin, rpId: 'localhost' },
       { audience: 'https://juicebox.center', observe: context => recoveryObserver.observe(context) }),
     flows: new PostgresWalletRecoveryFlowStore(options.pool),
     rotation: createLocalAnvilWalletRecovery({ pool: options.pool, endpoint: options.fixture.endpoint, expectedGenesisHash: options.fixture.expectedGenesisHash,
       signer: relay, manifest: options.fixture.manifest, utility: options.fixture.utility, maximumOperations: 2, maximumCostWei: '1000000000000000000' }) }) : null;
-  if (kitMode) await options.fixture.rpc('anvil_setBalance', [relay.address, toHex(10n ** 20n)]);
+  if (secretMode) await options.fixture.rpc('anvil_setBalance', [relay.address, toHex(10n ** 20n)]);
   const bundle = async (entry: string) => (await build({ entryPoints: [entry], bundle: true, platform: 'browser', format: 'esm', write: false })).outputFiles[0]!.text;
   const [browserScript, signupBrowserScript] = await Promise.all([bundle('src/rest/web/wallet.ts'), bundle('src/rest/web/walletSignup.ts')]);
   const recoveryBrowserScript = recovery ? await bundle('src/rest/web/walletRecoveryJourney.ts') : undefined;
   app = createWalletSite({ origin, audience: 'https://juicebox.center', browserScript, signup, signupBrowserScript, login,
-    ...(recovery ? { recovery, recoveryBrowserScript: recoveryBrowserScript! } : {}),
+    ...(recovery ? { recovery, recoveryBrowserScript: recoveryBrowserScript! } : {}), ...(backups ? { backups } : {}),
     // No app handoff is involved in this signup/login observation.
     handoff: {} as never, policy: {} as never,
     refresh: { request: accountId => options.authority.refreshAuthority(accountId), tick: async () => ({}) } });
@@ -81,7 +84,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
   page.on('pageerror', error => errors.push(error.name));
   page.setDefaultTimeout(15000);
   await page.exposeFunction('recoveryTestRequest', async (input: { method: string; params?: unknown[] }) => {
-    if (kitMode) throw new Error('First-time signup must not request an external wallet.');
+    if (secretMode) throw new Error('First-time signup must not request an external wallet.');
     if (input.method === 'eth_requestAccounts') return [enrollmentBackupAccount.address];
     if (input.method === 'eth_signTypedData_v4') {
       expect(input.params?.[0]).toBe(enrollmentBackupAccount.address);
@@ -109,8 +112,28 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
   };
   try {
     await page.goto(origin + '/wallet/create');
-    await page.getByLabel('Passkey name').fill('Juicebox test');
-    if (!kitMode) await page.getByLabel('A wallet you already have').check();
+    const fillForm = async () => {
+      await page.getByLabel('Passkey name').fill('Juicebox test');
+      if (options.recoveryMode === 'wallet' || !options.recoveryMode) await page.getByLabel('A wallet you already have').check();
+      if (passwordMode) {
+        await page.getByLabel('A password you choose').check();
+        await page.getByLabel('Choose a password').fill(chosenPassword);
+        await page.getByLabel('Type it again').fill(chosenPassword);
+      }
+    };
+    await fillForm();
+    if (passwordMode) {
+      // Weak or mismatched passwords are refused before anything is sent.
+      await page.getByLabel('Type it again').fill('orange-tree-43');
+      await page.getByRole('button', { name: 'Sign up' }).click();
+      await contains('do not match');
+      await page.getByLabel('Choose a password').fill('short1');
+      await page.getByLabel('Type it again').fill('short1');
+      await page.getByRole('button', { name: 'Sign up' }).click();
+      await contains('at least 8');
+      await page.getByLabel('Choose a password').fill(chosenPassword);
+      await page.getByLabel('Type it again').fill(chosenPassword);
+    }
     // Sign up opens the passkey prompt at once; a cancelled prompt leaves the explicit button as the fallback.
     await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
     await page.getByRole('button', { name: 'Sign up' }).click();
@@ -121,8 +144,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await page.getByRole('button', { name: 'Start over' }).click();
     await expect.poll(() => page.getByLabel('Passkey name').isVisible()).toBe(true);
     expect((await context.cookies()).some(item => item.name === walletSignupCookie)).toBe(false);
-    await page.getByLabel('Passkey name').fill('Juicebox test');
-    if (!kitMode) await page.getByLabel('A wallet you already have').check();
+    await fillForm();
     await page.getByRole('button', { name: 'Sign up' }).click();
     // Declining the note leaves the explicit button as the fallback, like a cancelled prompt.
     await expect.poll(() => page.locator('#explain-title').textContent()).toBe('Create your passkey');
@@ -146,7 +168,8 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await proceed('Approve creating your wallet');
     await contains('Creating your wallet');
     const originalAddress = await page.locator('#signup-address').textContent();
-    if (!kitMode) expect((await page.locator('#signup-recovery').textContent())?.toLowerCase()).toBe(enrollmentBackupAccount.address.toLowerCase());
+    if (!secretMode) expect((await page.locator('#signup-recovery').textContent())?.toLowerCase()).toBe(enrollmentBackupAccount.address.toLowerCase());
+    if (passwordMode) expect(await page.locator('#signup-recovery').textContent()).toBe('The password you chose');
     // A manual check while creation is still running answers at once; the page's own polling then
     // notices the created wallet, so the kit appears without another click.
     await page.getByRole('button', { name: 'Check signup' }).click();
@@ -180,6 +203,12 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       expect(kit.mnemonic.split(' ')).toHaveLength(24);
       expect(kit.mnemonic).toBe(shown);
       expect(await page.getByRole('button', { name: 'Continue', exact: true }).isDisabled()).toBe(false);
+    }
+    if (passwordMode) {
+      await contains('Continue when ready');
+      expect(await page.getByRole('button', { name: 'Save backup file' }).isVisible()).toBe(false);
+      expect(await page.getByRole('button', { name: 'Continue', exact: true }).isDisabled()).toBe(false);
+      expect(await page.locator('#password-ready').isVisible()).toBe(true);
     }
     await context.clearCookies({ name: walletSignupCookie });
     await page.reload();
@@ -228,14 +257,17 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await contains('You are signed in');
     expect((await page.locator('#wallet-address').textContent())?.toLowerCase()).toBe(originalAddress?.toLowerCase());
     if (recovery) {
-      await exerciseRecoveryBrowser({ page, context, cdp, authenticatorId, origin, recovery, login, kitText: recoveryKitText!, requestBodies });
+      await exerciseRecoveryBrowser({ page, context, cdp, authenticatorId, origin, recovery, login, requestBodies,
+        ...(passwordMode ? { password: { value: chosenPassword, walletAddress: originalAddress! } } : { kitText: recoveryKitText! }) });
       expect(lostRecoveryPaths.size).toBe(3);
+      if (passwordMode) expect(requestBodies.some(body => body.includes(chosenPassword))).toBe(false);
     }
     expect(errors).toEqual([]); expect(lostRegistration).toBe(kitMode); expect(lostSetup).toBe(kitMode);
     expect((await options.deployments.getSettlement(deploymentId))?.nextNonce).toBe(options.expectedNextNonce ?? '5');
     await writeFile(new URL('summary.json', out), JSON.stringify({ passed: true, browser: browser.version(),
       evidence: 'real HTTP, PostgreSQL, unforked Anvil; virtual authenticator and test EOA',
       recoveryMode: options.recoveryMode ?? 'wallet', ...(kitMode ? { backupPasswordRestoredAfterReload: true, phraseAbsentFromStorageAndRequests: true } : {}),
+      ...(passwordMode ? { chosenPasswordAbsentFromRequests: true, weakAndMismatchedPasswordsRefused: true } : {}),
       cancelledPrompt: true, lostRegistrationReplyRecovered: lostRegistration, lostSetupReplyRecovered: lostSetup,
       cookieLossResumedSameWallet: true, separateFreshLogin: true, mobileWidth: 320, pageErrors: errors, requests: observed }, null, 2));
   } finally { await recovery?.stop(); await signup.stop(); await browser.close(); await new Promise<void>(resolve => server.close(() => resolve())); }

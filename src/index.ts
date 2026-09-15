@@ -73,8 +73,12 @@ const walletStack = walletOrigin ? await createBaseWalletProductionStack() : und
 const dwellirBaseUrl = `https://${DWELLIR_RPC_HOSTS[8453]}/${process.env.DWELLIR_API_KEY}`;
 // WALLET_LEGACY_ORIGINS: comma-separated former wallet origins that now redirect to WALLET_ORIGIN.
 const walletLegacyOrigins = (process.env.WALLET_LEGACY_ORIGINS ?? "").split(",").map(value => value.trim()).filter(Boolean);
+// WALLET_BACKUP_WRAP_KEY: 32-byte hex; wraps chosen-password backup envelopes at rest. Unset disables that option.
+const walletBackupWrapKey = process.env.WALLET_BACKUP_WRAP_KEY;
+if (walletBackupWrapKey !== undefined && !/^0x[0-9a-fA-F]{64}$/.test(walletBackupWrapKey)) throw new Error("WALLET_BACKUP_WRAP_KEY must be 32 bytes of hex");
 const wallet: RestWalletConfiguration | undefined = walletOrigin && walletStack
-  ? { origin: walletOrigin, manifest: walletStack.manifest, utility: walletStack.utility, ...(walletLegacyOrigins.length ? { legacyOrigins: walletLegacyOrigins } : {}) } : undefined;
+  ? { origin: walletOrigin, manifest: walletStack.manifest, utility: walletStack.utility, ...(walletLegacyOrigins.length ? { legacyOrigins: walletLegacyOrigins } : {}),
+      ...(walletBackupWrapKey ? { backupWrapKey: walletBackupWrapKey as `0x${string}` } : {}) } : undefined;
 const rest = await createRestRuntime({
   ...(process.env.PARA_API_KEY ? { para: { apiKey: process.env.PARA_API_KEY, environment: paraEnvironment } } : {}),
   ...(wallet ? { wallet } : {}),

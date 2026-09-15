@@ -1,6 +1,7 @@
 import { getAddress, hashTypedData, isAddress, type Address, type Hex, type TypedDataDefinition } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import type { createLocalWalletSignup } from '../wallet/signup.js';
+import { checkWalletBackupPassword, sealWalletBackup } from './walletBackupPassword.js';
 import { createWalletRecoverySecret, recoveryAccountFromPhrase, serializeWalletRecoveryKit,
   type WalletRecoveryKitIdentity, type WalletRecoverySecret } from './walletRecoveryKit.js';
 
@@ -27,8 +28,16 @@ let disposed = false, pollCount = 0;
 let recoverySecret: WalletRecoverySecret | null = null, kitSavedWallet: string | null = null;
 const downloadUrls = new Set<string>();
 // The choice outlives the form: a resumed signup reads it back by enrollment.
-const kitChoice = () => el<HTMLFieldSetElement>('recovery-method').querySelector<HTMLInputElement>('input:checked')?.value === 'kit';
-const kitMode = () => view ? localStorage.getItem('center:signup:kit:' + view.enrollmentId) === '1' : kitChoice();
+type RecoveryChoice = 'kit' | 'wallet' | 'password';
+const choice = (): RecoveryChoice => (el<HTMLFieldSetElement>('recovery-method').querySelector<HTMLInputElement>('input:checked')?.value ?? 'kit') as RecoveryChoice;
+const modeKey = (id: string) => 'center:signup:kit:' + id;
+const mode = (): RecoveryChoice => {
+  if (!view) return choice();
+  const stored = localStorage.getItem(modeKey(view.enrollmentId));
+  return stored === '1' || stored === 'kit' ? 'kit' : stored === 'password' ? 'password' : 'wallet';
+};
+/** The backup words live in this browser (made-for-you password or chosen password) rather than in an external wallet. */
+const kitMode = () => mode() !== 'wallet';
 function kitIdentity(): WalletRecoveryKitIdentity {
   if (!view?.walletAddress || !view.initializerHash) throw new Error('Create your passkey before saving the complete backup file.');
   return { network: 'base', chainId: 8453, walletAddress: view.walletAddress, recoveryOwner: view.recoveryOwner, initializerHash: view.initializerHash };
@@ -79,7 +88,7 @@ function accept(result: { view: View | null; csrfToken?: string }) {
   }
   view = result.view; known = true;
   if (result.csrfToken) { if (decode(result.csrfToken).length !== 32) throw new Error('Invalid signup context.'); csrf = result.csrfToken; }
-  message(view ? steps[view.phase] + (view.phase === 'awaiting_setup' ? kitMode() ? ' Now, save your backup password.' : ' Continue to log in.' : '') : '');
+  message(view ? steps[view.phase] + (view.phase === 'awaiting_setup' ? mode() === 'kit' ? ' Now, save your backup password.' : mode() === 'password' ? ' Continue when ready.' : ' Continue to log in.' : '') : '');
   if (view?.phase === 'ready_to_sign_in') sessionStorage.removeItem('center:signup:browser:' + view.enrollmentId);
   if (view?.phase === 'ready_to_sign_in' && kitSavedWallet === view.walletAddress) recoverySecret = null;
 }
@@ -99,8 +108,11 @@ function render() {
     name.value = `juicebox.center ${now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} ${now.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`;
   }
   el<HTMLFieldSetElement>('recovery-method').disabled = busy; // Inside the form: gone once signup begins.
-  const showKit = kitPhase && kitMode();
+  el('password-fields').hidden = form.hidden || choice() !== 'password';
+  el<HTMLInputElement>('backup-password').disabled = busy; el<HTMLInputElement>('backup-password-again').disabled = busy;
+  const showKit = kitPhase && mode() === 'kit';
   el('recovery-kit').hidden = !showKit;
+  el('password-ready').hidden = !(kitPhase && mode() === 'password');
   const phrase = el<HTMLInputElement>('recovery-phrase');
   phrase.value = recoverySecret?.mnemonic ?? ''; el('recovery-secret').hidden = !(showKit && recoverySecret);
   el('recovery-show').textContent = phrase.type === 'password' ? 'Show' : 'Hide';
@@ -114,15 +126,16 @@ function render() {
   el<HTMLTextAreaElement>('recovery-words').disabled = busy;
   el<HTMLButtonElement>('recovery-restore').disabled = busy;
   el('signup-name').textContent = view?.passkeyName ?? '';
-  el('signup-recovery-label').textContent = !kitMode() ? 'Recovery wallet' : showKit && recoverySecret ? 'Backup password' : 'Recovery';
-  el('signup-recovery').textContent = kitMode() ? kitPhase ? recoverySecret ? '' : 'Your backup password (saved earlier)' : 'A backup password you get once the wallet exists' : view?.recoveryOwner ?? '';
+  el('signup-recovery-label').textContent = mode() === 'wallet' ? 'Recovery wallet' : showKit && recoverySecret ? 'Backup password' : 'Recovery';
+  el('signup-recovery').textContent = mode() === 'wallet' ? view?.recoveryOwner ?? '' : mode() === 'password' ? 'The password you chose'
+    : kitPhase ? recoverySecret ? '' : 'Your backup password (saved earlier)' : 'A backup password you get once the wallet exists';
   el('signup-address').textContent = view?.walletAddress ?? 'Not created yet';
   const label = view?.phase === 'awaiting_registration' ? 'Create passkey'
     : view?.phase === 'awaiting_possession' || view?.phase === 'awaiting_deployment_approval' ? 'Create wallet'
     : view?.phase === 'awaiting_setup' ? 'Continue' : view?.phase === 'ready_to_sign_in' ? 'Log in' : view?.phase === 'expired' ? 'Start a new signup' : null;
   next.hidden = !label || !!pending || stranded; next.textContent = label; next.disabled = busy;
   // Saving the kit unlocks browser setup; after a reload the words are gone and only a saved kit can be checked.
-  if (view?.phase === 'awaiting_setup' && kitMode() && recoverySecret && kitSavedWallet !== view.walletAddress) next.disabled = true;
+  if (view?.phase === 'awaiting_setup' && mode() === 'kit' && recoverySecret && kitSavedWallet !== view.walletAddress) next.disabled = true;
   el<HTMLButtonElement>('recovery-show').disabled = busy; el<HTMLButtonElement>('recovery-copy').disabled = busy;
   el('signup-intro').hidden = !known || !!view; // "log in" resumes with a passkey; a finished wallet lands at sign-in.
   // "Check signup" only matters for a lost reply or while creation is in progress.
@@ -222,7 +235,7 @@ async function advance() {
   } else if (view.phase === 'awaiting_deployment_approval') {
     await approve();
   } else if (view.phase === 'awaiting_setup') {
-    if (kitMode() && recoverySecret && kitSavedWallet !== view.walletAddress) throw new Error('Save your backup file before continuing.');
+    if (mode() === 'kit' && recoverySecret && kitSavedWallet !== view.walletAddress) throw new Error('Save your backup file before continuing.');
     // One click authorizes this browser for an hour of read, plan and relay access (it cannot approve
     // payments on its own), then logs in: two prompts.
     const browser = browserKey();
@@ -250,11 +263,21 @@ async function approve(backupSignature?: Hex) {
   await send('deployment/approve', { approvalId: deployment.id, assertion: proof, ...(backupSignature ? { backupSignature } : {}) });
 }
 form.addEventListener('submit', event => { event.preventDefault(); void run(async () => {
-  const passkeyName = name.value.trim(), kit = kitChoice();
-  if (kit && !recoverySecret) recoverySecret = createWalletRecoverySecret();
-  const owner = kit ? recoverySecret!.recoveryOwner : await recoveryOwner();
-  await send('begin', { recoveryOwner: owner, passkeyName });
-  if (kit) localStorage.setItem('center:signup:kit:' + view!.enrollmentId, '1');
+  const passkeyName = name.value.trim(), selected = choice();
+  const passwordField = el<HTMLInputElement>('backup-password'), againField = el<HTMLInputElement>('backup-password-again');
+  let backup: Awaited<ReturnType<typeof sealWalletBackup>> | undefined;
+  if (selected === 'password') {
+    // The chosen password never leaves this browser: it only seals the words that are stored.
+    const password = passwordField.value, problem = checkWalletBackupPassword(password, { passkeyName });
+    if (problem) throw new Error(problem);
+    if (password !== againField.value) throw new Error('The two passwords do not match.');
+    recoverySecret = createWalletRecoverySecret();
+    message('Sealing your backup…'); backup = await sealWalletBackup(password, recoverySecret);
+    passwordField.value = ''; againField.value = '';
+  } else if (selected === 'kit' && !recoverySecret) recoverySecret = createWalletRecoverySecret();
+  const owner = selected === 'wallet' ? await recoveryOwner() : recoverySecret!.recoveryOwner;
+  await send('begin', { recoveryOwner: owner, passkeyName, ...(backup ? { backup } : {}) });
+  localStorage.setItem(modeKey(view!.enrollmentId), selected);
   // Go straight into the passkey prompt; a cancelled prompt leaves the explicit button as the fallback.
   if (view?.phase === 'awaiting_registration') await advance();
 }); });

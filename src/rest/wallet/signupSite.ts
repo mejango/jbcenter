@@ -10,6 +10,8 @@ import { assertWalletHttpHost, assertWalletHttpRequest, assertWalletCsrf, readWa
 
 export interface WalletSignupSiteOptions {
   origin: string; browserScript: string;
+  /** Offer "a password you choose": the browser seals the backup words and begin stores them. */
+  passwordBackups?: boolean;
   signup: Pick<ReturnType<typeof createLocalWalletSignup>, 'begin' | 'status' | 'register' | 'proveEnrollment' |
     'prepareDeployment' | 'approveDeployment' | 'prepareSetup' | 'completeSetupPasskey' | 'beginResume' | 'completeResume'>;
 }
@@ -38,7 +40,7 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
   }
   // All typed-data uints are decimal JSON strings; no credential-bearing rows are serialized.
   const json = (c: Context, value: unknown) => c.body(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? String(item) : item), 200, { 'Content-Type': 'application/json' });
-  app.get('/wallet/create', c => c.html(walletSignupPage()));
+  app.get('/wallet/create', c => c.html(walletSignupPage({ passwordBackups: !!options.passwordBackups })));
   app.get('/wallet/assets/wallet-signup.js', c => c.body(options.browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
   app.get('/wallet/assets/wallet-signup.css', c => c.body(walletSignupCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
   app.get('/wallet/signup/state', async c => {
@@ -54,9 +56,11 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
     }
   });
   app.post('/wallet/signup/begin', async c => {
-    const input = await body(c, ['recoveryOwner', 'passkeyName']);
+    const input = await body(c, ['recoveryOwner', 'passkeyName'], options.passwordBackups ? ['backup'] : []);
     if (readWalletCookie(c.req.raw, walletSignupCookie)) invalid(409);
-    const started = await signup.begin({ recoveryOwner: input.recoveryOwner as Address, passkeyName: input.passkeyName as string });
+    if (input.backup !== undefined && (!input.backup || typeof input.backup !== 'object' || JSON.stringify(input.backup).length > 4096)) invalid();
+    const started = await signup.begin({ recoveryOwner: input.recoveryOwner as Address, passkeyName: input.passkeyName as string,
+      ...(input.backup === undefined ? {} : { backup: input.backup }) });
     return c.json(result(c, started.flowToken, started.view), 201);
   });
   app.post('/wallet/signup/restart', async c => {
