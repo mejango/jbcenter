@@ -32,7 +32,6 @@ jobs:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       ANVIL_BINARY: anvil
       FORGE_BINARY: forge
-      CENTER_V6_SOURCE_ROOT: ${{ runner.temp }}/center-v6-payment
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -52,7 +51,10 @@ jobs:
       - name: Install pinned Chromium for WebAuthn producer checks
         run: npx playwright install --with-deps --only-shell chromium
       - name: Prepare verified local V6 payment fixture
-        run: node scripts/rest/prepare-v6-payment-fixture.mjs --output "$CENTER_V6_SOURCE_ROOT"
+        run: |
+          fixture="$RUNNER_TEMP/center-v6-payment"
+          node scripts/rest/prepare-v6-payment-fixture.mjs --output "$fixture"
+          echo "CENTER_V6_SOURCE_ROOT=$fixture" >> "$GITHUB_ENV"
       - name: Verify artifacts, run Foundry and Anvil tests, and check application
         run: npm run check
       - run: npm audit --omit=dev --audit-level=high

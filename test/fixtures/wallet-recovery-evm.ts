@@ -1,10 +1,11 @@
-import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import type { Pool } from 'pg';
 import { hashTypedData, toHex, type Address, type Hex } from 'viem';
-import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
+import { privateKeyToAccount } from 'viem/accounts';
 import { expect, vi } from 'vitest';
 import type { WalletEnrollment } from '../../src/rest/wallet/enrollment.js';
+import { exerciseRecoverySetupCrash } from './wallet-recovery-crash.js';
+import { PostgresWalletRecoveryFlowStore } from '../../src/rest/wallet/recoveryFlowPostgres.js';
 import { PostgresWalletRecoveryStore } from '../../src/rest/wallet/recoveryPostgres.js';
 import { PostgresWalletAuthorityStore } from '../../src/rest/wallet/authorityPostgres.js';
 import { PostgresWalletLoginStore } from '../../src/rest/wallet/loginPostgres.js';
@@ -12,9 +13,6 @@ import { PostgresWalletSignupStore } from '../../src/rest/wallet/signupPostgres.
 import { createWalletAuthorityChain } from '../../src/rest/wallet/authorityChain.js';
 import type { createWalletAuthorityService } from '../../src/rest/wallet/authorityService.js';
 import type { createSmartAccountService } from '../../src/rest/smartAccounts/service.js';
-import { passkeyOnboardingProofDocument } from '../../src/rest/smartAccounts/passkeyOnboarding.js';
-import { encodeSafe7579MessageSignature } from '../../src/rest/smartAccounts/passkeySignatures.js';
-import { verifyWalletAssertion } from '../../src/rest/wallet/webauthn.js';
 import { walletRecoveryDocument } from '../../src/rest/wallet/recovery.js';
 import { walletRecoveryRotationDocument } from '../../src/rest/wallet/recoveryRotation.js';
 import { createLocalAnvilWalletRecovery } from '../../src/rest/wallet/recoveryLocalAnvil.js';
@@ -29,10 +27,11 @@ export async function exerciseWalletRecoveryEvm(options: {
   enrollment: WalletEnrollment; originalKey: ReturnType<typeof createRegistration>; originalSessionToken: string;
   audience: string;
 }) {
-  const { pool, fixture, enrollment, smart } = options, rpId = enrollment.intent.rpId, origin = enrollment.intent.origin;
+  const { pool, fixture, enrollment } = options, rpId = enrollment.intent.rpId, origin = enrollment.intent.origin;
   const observer = createWalletAuthorityChain({ rpc: fixture.readOnlyRpc, manifest: fixture.manifest, utility: fixture.utility });
   const recovery = new PostgresWalletRecoveryStore(pool, { rpId, origin, lifetimeMs: 2000 }, { audience: options.audience, observe: context => observer.observe(context) });
   const accountId = enrollment.receipt!.accountId, begun = await recovery.begin(accountId), intent = begun.record.intent;
+  await new PostgresWalletRecoveryFlowStore(pool).initialize({ recoveryId: intent.id, flowToken: begun.flowToken, passkeyName: 'Juicebox replacement' });
   const replacement = createRegistration({ rpId, origin, userHandle: intent.userHandle,
     challenge: `0x${Buffer.from(intent.registration.challenge, 'base64url').toString('hex')}` });
   const pending = await recovery.register(intent.id, begun.flowToken, replacement.response), document = walletRecoveryDocument(pending.candidate!);
@@ -44,7 +43,7 @@ export async function exerciseWalletRecoveryEvm(options: {
   // The independent backup approves the exact SafeTx using only typed-data signing.
   const relay = privateKeyToAccount(`0x${'55'.repeat(32)}`);
   await fixture.rpc('anvil_setBalance', [relay.address, toHex(10n ** 20n)]);
-  const candidate = pending.candidate!, wallet = enrollment.creation!.address;
+  const candidate = pending.candidate!;
   const transport = createLocalAnvilWalletRecovery({ pool, endpoint: fixture.endpoint, expectedGenesisHash: fixture.expectedGenesisHash,
     signer: relay, manifest: fixture.manifest, utility: fixture.utility, maximumOperations: 2, maximumCostWei: '1000000000000000000' });
   const rotation = await transport.prepare(intent.id);
@@ -60,13 +59,13 @@ export async function exerciseWalletRecoveryEvm(options: {
   });
   let dispatched: Awaited<ReturnType<typeof transport.approve>>;
   try {
-    dispatched = await transport.approve(intent.id, rotation, ownerSignature);
+    dispatched = await transport.approve(intent.id, rotation, ownerSignature, begun.flowToken);
     for (let attempt = 0; dispatched.state === 'unknown' && attempt < 20; attempt++) {
       await new Promise(resolve => setTimeout(resolve, 25));
-      dispatched = await transport.approve(intent.id, rotation, ownerSignature);
+      dispatched = await transport.approve(intent.id, rotation, ownerSignature, begun.flowToken);
     }
     expect(dispatched.state).toBe('ready'); expect(sends).toBe(2);
-    expect(await transport.approve(intent.id, rotation, ownerSignature)).toEqual(dispatched);
+    expect(await transport.approve(intent.id, rotation, ownerSignature, begun.flowToken)).toEqual(dispatched);
     expect(await transport.status(intent.id)).toEqual(dispatched); expect(sends).toBe(2);
   } finally { network.mockRestore(); }
   const signerTransaction = dispatched.transactions.createSigner!, rotationTransaction = dispatched.transactions.rotateOwner!;
@@ -76,23 +75,10 @@ export async function exerciseWalletRecoveryEvm(options: {
   expect((await fixture.rpc<{ from: Address }>('eth_getTransactionByHash', [rotationTransaction])).from.toLowerCase()).toBe(relay.address.toLowerCase());
   expect(relay.address.toLowerCase()).not.toBe(enrollmentBackupAccount.address.toLowerCase());
   expect(relay.address.toLowerCase()).not.toBe(fixture.sender.toLowerCase());
-  const browser = privateKeyToAccount(generatePrivateKey()), now = Math.floor(Date.now() / 1000);
-  const input = { profile: 'center-passkey-v1' as const, address: wallet, manifestId: fixture.manifest.id,
-    nonce: `0x${randomUUID().replaceAll('-', '').repeat(2)}` as Hex, issuedAt: now, expiresAt: now + 300,
-    grant: { id: randomUUID(), botAddress: browser.address, scopes: ['read', 'plan', 'relay'] as ('read' | 'plan' | 'relay')[],
-      expiresAt: now + 3600, label: 'Fresh browser after passkey recovery' } };
-  const review = await smart.passkeyOnboardingChallenge(input);
-  expect(review.state.ownerProfile!.signer.address).toBe(candidate.signerAddress);
-  expect(review.typedData.message.initializerHash).toBe(enrollment.creation!.initializerHash);
-  const assertion = signGet({ ...replacement, rpId, origin, challenge: review.signingPayload.digest });
-  const verified = verifyWalletAssertion(assertion, { purpose: 'session', challenge: review.signingPayload.digest, rpId, origin, requireUserHandle: true,
-    credential: { id: replacement.credentialId, userHandle: replacement.userHandle, publicKey: replacement.publicKey, backupEligible: true } });
-  await smart.finalizePasskeyOnboarding({ ...input, stateHash: review.state.stateHash, manifestRevision: review.state.manifestRevision,
-    initializerHash: enrollment.creation!.initializerHash,
-    signature: encodeSafe7579MessageSignature([{ kind: 'contract', owner: candidate.signerAddress, signature: verified.contractSignature }]),
-    proofSignature: await browser.signTypedData(passkeyOnboardingProofDocument(review.typedData)) });
-  const activated = await recovery.activate(intent.id, begun.flowToken, assertion);
-  expect(activated.replayed).toBe(false);
+  const { assertion, activated, flowToken } = await exerciseRecoverySetupCrash({ pool, accountId, recoveryId: intent.id,
+    flowToken: begun.flowToken, replacement, initializerHash: enrollment.creation!.initializerHash, replacementSigner: candidate.signerAddress, priorCredentialId: options.originalKey.credentialId, relayAddress: relay.address, rpc: fixture.rpc,
+    config: { endpoint: fixture.endpoint, expectedGenesisHash: fixture.expectedGenesisHash, manifest: fixture.manifest,
+      utility: fixture.utility, origin, rpId, audience: options.audience } });
   expect((await options.authority.refreshAuthority(accountId)).snapshot.readiness).toBe('verified');
   const login = new PostgresWalletLoginStore(pool, { rpId, origin });
   expect(await login.readSession(options.originalSessionToken)).toBeNull();
@@ -104,7 +90,7 @@ export async function exerciseWalletRecoveryEvm(options: {
   expect(signedIn.session.accountId).toBe(accountId);
   const current = await new PostgresWalletAuthorityStore(pool).loadContext(accountId);
   expect(current.enrollment).toEqual(enrollment); expect(current.credential.credentialId).toBe(replacement.credentialId);
-  expect(await recovery.activate(intent.id, begun.flowToken, assertion)).toEqual({ ...activated, replayed: true });
+  expect(await recovery.activate(intent.id, flowToken, assertion)).toEqual({ ...activated, replayed: true });
   const flows = new PostgresWalletSignupStore(pool, { rpId, origin, manifest: fixture.manifest }), resume = await flows.beginResume();
   await expect(flows.completeResume({ resumeId: resume.challenge.id, resumeToken: resume.resumeToken,
     assertion: signGet({ ...options.originalKey, rpId, origin, challenge: resume.challenge.challenge }) })).rejects.toThrow();
@@ -120,6 +106,7 @@ export async function exerciseWalletRecoveryEvm(options: {
   await writeFile(new URL('summary.json', out), JSON.stringify({ passed: true, evidence: 'actual PostgreSQL, unforked Anvil, P256 and independent test EOA',
     signerTransaction, rotationTransaction, separateSyntheticRelayer: true, backupTypedDataSignature: true,
     acceptedTransactionLostReplyRecovered: true, physicalSends: sends, exactDispatchBytesRetainedAfterRollback: true,
-    sameSafe: true, originalGenesisRetained: true, newPasskeyLogin: true, oldSessionAndPasskeyRejected: true,
+    sameSafe: true, originalGenesisRetained: true, killedAfterSetupCommit: true, freshServiceRecoveryResumed: true,
+    noDuplicateGrantOrRotationAfterCrash: true, newPasskeyLogin: true, oldSessionAndPasskeyRejected: true,
     oldSignupResumeRejected: true, exactActivationRetry: true, chainRollbackFailsClosedWithoutRevertingCredentials: true }, null, 2));
 }
