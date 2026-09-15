@@ -47,6 +47,19 @@ configuration, and the checked session guard still requires a verified deploymen
 chain. Live capabilities report configured availability. Gas sponsorship is separate from permission
 to spend funds.
 
+## Shared passkey wallets
+
+Center is building shared passkey wallets for Homerun and Beep, including signup
+without an existing wallet and recovery to the same account. Shared contracts
+are deployed across eight chains; the local signup and recovery journeys are
+tested. **Consumer production signup remains disabled while hosted Base creation
+and recovery services are completed.** Center retains its Para integration.
+
+Read the [delivery report](docs/rest/CENTER-WALLET-DELIVERY.md) for what is built,
+the evidence and remaining production gates. The
+[implementation handoff](docs/rest/CENTER-WALLET-HANDOFF.md) identifies the next
+slice, repository state, operating constraints and validation commands.
+
 ## Ecosystem directory
 
 `https://juicebox.center/` is a public V6 directory. Eight connected question maps lead to apps,

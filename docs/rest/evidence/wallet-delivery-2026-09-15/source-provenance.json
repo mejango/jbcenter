@@ -1,0 +1,38 @@
+{
+  "scope": "Provenance reconstructed from completed downloads and their retained bytes. The oversized genesis JSON download failed and is not part of this record.",
+  "baseSources": [
+    {
+      "file": "config.rs",
+      "upstreamPath": "crates/common/chains/src/config.rs",
+      "commit": "9469da27403d6836634639b4899a6e4a0964720f",
+      "url": "https://raw.githubusercontent.com/base/base/9469da27403d6836634639b4899a6e4a0964720f/crates/common/chains/src/config.rs",
+      "bytes": 34703,
+      "sha256": "4bd06c812f54ed842cf274934bee9ac95eb6521cb956353ae22979bfdbfd87cd"
+    },
+    {
+      "file": "lib.rs",
+      "upstreamPath": "crates/common/chains/src/lib.rs",
+      "commit": "9469da27403d6836634639b4899a6e4a0964720f",
+      "url": "https://raw.githubusercontent.com/base/base/9469da27403d6836634639b4899a6e4a0964720f/crates/common/chains/src/lib.rs",
+      "bytes": 744,
+      "sha256": "c5c6a2846aa492cf1072baca132c6ffd7b9eb9a8164428f6ef9fbfe4057374b7"
+    }
+  ],
+  "sourcify": [
+    {
+      "address": "0x3ba4007f5c922fbb33c454b41ea7a1f11e83df2c",
+      "url": "https://sourcify.dev/server/v2/contract/8453/0x3ba4007f5c922fbb33c454b41ea7a1f11e83df2c?fields=all",
+      "sha256": "41a3e645fc21df81cb17de43c248b821834b32f05995cae09583b3552098eb2f"
+    },
+    {
+      "address": "0x420000000000000000000000000000000000000f",
+      "url": "https://sourcify.dev/server/v2/contract/8453/0x420000000000000000000000000000000000000f?fields=all",
+      "sha256": "e54b46db040a793471187700fb026b41675f30d8773f109eeec42a1b843cbcd7"
+    },
+    {
+      "address": "0x4f1db3c6abd250ba86e0928471a8f7db3afd88f1",
+      "url": "https://sourcify.dev/server/v2/contract/8453/0x4f1db3c6abd250ba86e0928471a8f7db3afd88f1?fields=all",
+      "sha256": "a753ad78e3ace8434233e6ece11226e874336e7235539f999b977ac37f8ec308"
+    }
+  ]
+}

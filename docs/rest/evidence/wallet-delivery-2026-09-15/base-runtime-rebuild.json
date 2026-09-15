@@ -1,0 +1,86 @@
+{
+  "compiler": {
+    "url": "https://raw.githubusercontent.com/ethereum/solc-bin/gh-pages/macosx-amd64/solc-macosx-amd64-v0.8.15+commit.e14f2714",
+    "catalogUrl": "https://raw.githubusercontent.com/ethereum/solc-bin/gh-pages/macosx-amd64/list.json",
+    "catalogSha256": "22e8ba1c7c8d0fc5eb60964083b238d267ea2c1afec9757521fea20c45b206af",
+    "build": {
+      "path": "solc-macosx-amd64-v0.8.15+commit.e14f2714",
+      "version": "0.8.15",
+      "build": "commit.e14f2714",
+      "longVersion": "0.8.15+commit.e14f2714",
+      "keccak256": "0xcd862fb2d2e2f83738c2d08632cea128bee9278a4840053262b0e2495f9216ce",
+      "sha256": "0x00656dc73224e4c0702940df10310bdc024b60f4a7598e774d305bc3b94f7d79",
+      "urls": [
+        "dweb:/ipfs/QmSJmnXuyPy4TtxnUSwD6f2vF5MSzcvN4cohtZfeJc8H6p"
+      ]
+    },
+    "bytes": 38488928
+  },
+  "contracts": [
+    {
+      "address": "0x3ba4007f5c922fbb33c454b41ea7a1f11e83df2c",
+      "name": "L1Block",
+      "fullyQualifiedName": "src/L2/L1Block.sol:L1Block",
+      "runtimeBytes": 1813,
+      "fullRuntimeMatchesDwellir": true,
+      "metadataStripped": false,
+      "transformations": [],
+      "compilerSettingsAdjustments": [],
+      "compilerInputSha256": "554dadd9f85911ef5985d8371a1da5a6f7e8ffc0f37628cd1e14ff342db98eba",
+      "compilerOutputSha256": "14a348c878d46245210e0134abeef4435dc91786c230534f092c957621ed3a18",
+      "verificationRecordSha256": "41a3e645fc21df81cb17de43c248b821834b32f05995cae09583b3552098eb2f",
+      "sources": {
+        "src/L2/L1Block.sol": "2537f4dca7ea447deac0729fea85dd1041f6f34e864dcb7aab747f742e948920",
+        "src/libraries/Constants.sol": "0b39d47948c2c9fa06e9a3db89dd1d7f163729990c293527727042746858c6a9",
+        "interfaces/universal/ISemver.sol": "f99418bb0e92ae42b2148222cde9332c19656a48b5077e6d226598b7b728f122",
+        "interfaces/L1/IResourceMetering.sol": "33d1370dfac9bedcbe7920e413553605204498aa0fd6260c9a4e2d1426f4695c"
+      }
+    },
+    {
+      "address": "0x420000000000000000000000000000000000000f",
+      "name": "Proxy",
+      "fullyQualifiedName": "Proxy.sol:Proxy",
+      "runtimeBytes": 2055,
+      "fullRuntimeMatchesDwellir": true,
+      "metadataStripped": false,
+      "transformations": [],
+      "compilerSettingsAdjustments": [
+        "metadata.bytecodeHash=none (observed onchain CBOR; no byte patching)"
+      ],
+      "compilerInputSha256": "1a30c8011bba26baa2d5723972fc8da268265402574c6d9415e6aba6154dce94",
+      "compilerOutputSha256": "f77fa9604dc94d0764d1af188ac34daf460b5239f5aa7745d89aa7958143d916",
+      "verificationRecordSha256": "e54b46db040a793471187700fb026b41675f30d8773f109eeec42a1b843cbcd7",
+      "sources": {
+        "Proxy.sol": "5c41ab9da8506407dacb7a3a8ab941e5bd490034547451bb43d352ca020deab1"
+      }
+    },
+    {
+      "address": "0x4f1db3c6abd250ba86e0928471a8f7db3afd88f1",
+      "name": "GasPriceOracle",
+      "fullyQualifiedName": "src/L2/GasPriceOracle.sol:GasPriceOracle",
+      "runtimeBytes": 7848,
+      "fullRuntimeMatchesDwellir": true,
+      "metadataStripped": false,
+      "transformations": [],
+      "compilerSettingsAdjustments": [],
+      "compilerInputSha256": "f0bfdb21b4529bf40db1afabcfcc2bb7abea7a919969aa224531ddbeb8eef9f7",
+      "compilerOutputSha256": "c8518dc7fef9a3e668f0d791a0799ff4defd2caf9b5ab1783184892370c33b34",
+      "verificationRecordSha256": "a753ad78e3ace8434233e6ece11226e874336e7235539f999b977ac37f8ec308",
+      "sources": {
+        "lib/forge-std/src/Vm.sol": "f88ff92aecb55986328e1e4158dc5971258c9b95f2244b0fef8e08f1655af085",
+        "src/L2/GasPriceOracle.sol": "3e5c921edeee84b3fe6b986e55a5066377e289cb54c5df6412cc7007e5d0a777",
+        "interfaces/L2/IL1Block.sol": "a82108267194b2ca452e7616d521147a4a771f39fc11df314252ec817fc4baa3",
+        "src/libraries/Constants.sol": "0b39d47948c2c9fa06e9a3db89dd1d7f163729990c293527727042746858c6a9",
+        "scripts/libraries/Config.sol": "1c59db7aad0df82cbf83118c33ab1a5efa7d53129f339019abdeaa5e67485e0c",
+        "src/libraries/Arithmetic.sol": "75e899760857c51153a1f9a916f782fdabba29daf56829c4f6bd9e20362bb630",
+        "src/libraries/Predeploys.sol": "c2d21c97440955d45af339e32bdbbe9d75671bd297a0f5e7164580979a262b86",
+        "lib/solady/src/utils/LibZip.sol": "0a34cf3ff06ca525212bcecb31720ea5213d89e292ef3d47ff6c6b8a0ddb3b44",
+        "interfaces/universal/ISemver.sol": "f99418bb0e92ae42b2148222cde9332c19656a48b5077e6d226598b7b728f122",
+        "interfaces/L1/IResourceMetering.sol": "33d1370dfac9bedcbe7920e413553605204498aa0fd6260c9a4e2d1426f4695c",
+        "lib/solmate/src/utils/FixedPointMathLib.sol": "d3121e2524f26fbf7790f498f15a89b72af683ee4d99c826fbff9c68fd71ebfb",
+        "lib/openzeppelin-contracts/contracts/utils/math/SignedMath.sol": "27125c61cb6f30d84019da07d2d8847a84d0224abeb4ec20849081240b5c3da4"
+      }
+    }
+  ],
+  "scope": "Byte-for-byte local compilation against Dwellir-observed implementation and proxy runtimes at the recorded Base inclusions; no metadata stripping or byte patching. This alone is not deployment authority or complete fork/treasury qualification."
+}

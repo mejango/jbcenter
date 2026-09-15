@@ -4,6 +4,8 @@ Center can compose the existing passkey enrollment, deployment, canonical setup 
 fresh sign-in services into one resumable browser journey at `/wallet/create`.
 This checkpoint supports the unforked local pilot, including the recovery journey
 at `/wallet/recover`. It does not enable production Base deployment or recovery.
+See the [delivery report](docs/rest/CENTER-WALLET-DELIVERY.md) for the current
+production boundary and the [handoff](docs/rest/CENTER-WALLET-HANDOFF.md) to continue.
 
 The browser lets the user name a discoverable P-256 passkey. First-time users can
 create a recovery kit without connecting an existing wallet. The browser generates
@@ -35,9 +37,11 @@ These local-test kits must not be used for real funds.
 3. A separate passkey approval claims the exact deployment. The existing worker
    preserves signed bytes, sender nonce, accounting reservation and settlement
    evidence across retries. Polling never creates a replacement transaction.
-4. Once canonical settlement proves the wallet exists, the user approves initial
-   browser setup. Its separate key proves possession and receives only read,
-   plan and relay access for one hour. It cannot approve spending.
+4. Once the latest canonical observation proves creation and wallet readiness,
+   the user approves initial browser setup. Treasury settlement can finalize
+   later; its sender lane remains held meanwhile. The separate browser key proves
+   possession and receives only read, plan and relay access for one hour. It
+   cannot approve spending.
 5. A separate fresh W6 login establishes the central session. Enrollment, signup
    continuation and setup completion never act as login credentials.
 

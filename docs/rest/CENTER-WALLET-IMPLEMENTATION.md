@@ -1,5 +1,11 @@
 # Shared wallet implementation record
 
+For the current delivery state and remaining work, read the
+[delivery report](CENTER-WALLET-DELIVERY.md) and
+[implementation handoff](CENTER-WALLET-HANDOFF.md), updated on 2026-09-15 UTC.
+The sections below retain chronological checkpoints: an early statement that a
+component is planned, unpushed or undeployed is not a current rollout claim.
+
 Implementation started from Center main `d5ec4af1877cca8d1dda806cdd217aa18b16b3b6` in the isolated `feat/shared-passkey-wallet` worktree. An inventory of local branches and worktrees confirmed that existing Center source work was already represented on main, including squashed deployment and sponsorship changes. Historical dev ancestry does not need merging. No remote push or production activation accompanies this checkpoint.
 
 This is an experimental Base account profile with shared sign-in, app connections and exact payment approval for already enrolled pilot wallets. Public signup and production deployment remain incomplete. The [strategy](CENTER-WALLET-PLAN.md) and [specification](CENTER-WALLET-SPEC.md) remain the delivery contract.
