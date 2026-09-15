@@ -397,7 +397,7 @@ suite("PostgreSQL typed app-grant storage (trusted fixture; no browser authentic
     expect((await pool.query("SELECT count(*)::int AS count FROM wallet_app_claims")).rows[0].count).toBe(1);
   });
   it("rejects a grant expiring while account admission waits and a request expiring before final commit", async () => {
-    const grant = await store.insert(await input({ expiresAt: await now() + 2 })), a = await worker(), lock = await pool.connect();
+    const a = await worker(), grant = await store.insert(await input({ expiresAt: await now() + 2 })), lock = await pool.connect();
     try {
       await lock.query("BEGIN"); await lock.query("SELECT id FROM rest_accounts WHERE id=$1 FOR UPDATE", [accountId]);
       const pending = a.request({ action: "claim", id: grant.id, context: actorContext(grant), claimId: randomUUID() });

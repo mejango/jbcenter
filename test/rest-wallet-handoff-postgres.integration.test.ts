@@ -439,8 +439,9 @@ suite("PostgreSQL wallet handoff with genuine request-key proofs and credentiall
   });
 
   it.each(["code", "readiness"] as const)("rechecks %s expiry after a real account lock wait before first consume", async boundary => {
-    const value = await issuedHandoff({ codeLifetimeMs: boundary === "code" ? 2500 : 60_000 }, boundary === "readiness" ? 2500 : 30_000);
-    const process = await worker(), release = await holdAccount(value.login.accountId);
+    const process = await worker();
+    const value = await issuedHandoff({ codeLifetimeMs: boundary === "code" ? 3000 : 60_000 }, boundary === "readiness" ? 3000 : 30_000);
+    const release = await holdAccount(value.login.accountId);
     const deadline = boundary === "code" ? Number((await handoffRow(value.prepared.id)).code_expires_at_ms) : value.login.observation.validUntilMs!;
     expect(await nowMs()).toBeLessThan(deadline);
     const response = process.request({ action: "exchange", input: value.exchange });
@@ -451,8 +452,9 @@ suite("PostgreSQL wallet handoff with genuine request-key proofs and credentiall
   });
 
   it.each(["code", "readiness"] as const)("rolls back grant and receipt when %s expires after their writes", async boundary => {
-    const value = await issuedHandoff({ codeLifetimeMs: boundary === "code" ? 2500 : 60_000 }, boundary === "readiness" ? 2500 : 30_000);
-    const process = await worker(), barrier = message(process.child, "barrier");
+    const process = await worker();
+    const value = await issuedHandoff({ codeLifetimeMs: boundary === "code" ? 3000 : 60_000 }, boundary === "readiness" ? 3000 : 30_000);
+    const barrier = message(process.child, "barrier");
     const deadline = boundary === "code" ? Number((await handoffRow(value.prepared.id)).code_expires_at_ms) : value.login.observation.validUntilMs!;
     const response = process.request({ action: "exchange", input: value.exchange, barrier: "after-receipt-write" });
     expect((await barrier).boundary).toBe("after-receipt-write");
