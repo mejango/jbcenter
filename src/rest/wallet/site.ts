@@ -127,7 +127,9 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     const known = error instanceof RestError || error instanceof RestAuthError;
     const status = known && error.status >= 400 && error.status <= 599 ? error.status : 503;
     const code = known && /^[A-Z0-9_]{1,80}$/.test(error.code) ? error.code : 'WALLET_UNAVAILABLE';
-    emit('request', status >= 500 ? 'unavailable' : 'rejected', code, scalars(error));
+    // Unknown failures (database, provider) keep a bounded reason so the log names them.
+    emit('request', status >= 500 ? 'unavailable' : 'rejected', code, known ? scalars(error)
+      : { reason: String((error as { message?: unknown })?.message ?? error).slice(0, 160), path: c.req.path.slice(0, 80) });
     if (c.req.path === `${base}/launch` && c.req.header('Sec-Fetch-Mode') === 'navigate')
       return c.html('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connection unavailable</title><link rel="stylesheet" href=`${base}/assets/wallet.css`></head><body><main><h1>Connection unavailable</h1><p>This connection expired or could not be verified. Return to the app and connect again.</p></main></body></html>', status as ContentfulStatusCode);
     return c.json({ error: { code, message: status >= 500 ? 'Wallet service is temporarily unavailable. Try again.' : 'Wallet request could not be completed. Try again or start over.' } }, status as ContentfulStatusCode);

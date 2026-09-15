@@ -19,7 +19,7 @@ export function walletSignupPage(options: { base?: string } = {}) {
 <div class="secret" id="recovery-secret" hidden><input id="recovery-phrase" type="password" readonly aria-label="Backup password" autocomplete="off">
 <button type="button" id="recovery-show" class="quiet">Show</button><button type="button" id="recovery-copy" class="quiet">Copy</button></div></dd></dl></section>
 <section id="recovery-kit" hidden aria-label="Backup password">
-<p>Anyone with this backup password can control your account. A lost backup password can't be recovered.</p>
+<p id="recovery-warning" hidden>Anyone with this backup password can control your account. A lost backup password can't be recovered.</p>
 <p id="recovery-kit-note">The backup file holds this password and your account address. Save it somewhere private you'll remember, or share it with someone you trust with your money.</p>
 <div class="actions"><button type="button" id="recovery-download" class="secondary">Save backup file</button><button type="button" id="recovery-share" class="secondary" hidden>Share</button></div>
 <p id="recovery-restore-box" class="hint" hidden>If you didn't save your backup password, <a href="#" id="recovery-restart-link">start over</a>.</p></section>

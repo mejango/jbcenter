@@ -57,6 +57,8 @@ function render() {
   signOut.hidden = !session; signOut.disabled = busy;
   cancel.hidden = !nativePrompt;
   account.hidden = !session; address.textContent = session?.walletAddress ?? "";
+  // Signed in, the page is the account; the ways in belong to the signed-out page only.
+  const links = document.getElementById("wallet-links"); if (links) links.hidden = !!session;
   passkey.textContent = session?.passkeyName ?? ""; passkey.hidden = passkeyLabel.hidden = !session?.passkeyName;
 }
 async function request(path: string, body?: unknown, csrfToken?: string): Promise<Json> {

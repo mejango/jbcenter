@@ -77,7 +77,7 @@ const selectIntent = `
 `;
 
 export function createPool(connectionString: string): Pool {
-  return new Pool({
+  const pool = new Pool({
     connectionString,
     max: 10,
     connectionTimeoutMillis: 5_000,
@@ -85,6 +85,14 @@ export function createPool(connectionString: string): Pool {
     query_timeout: 12_000,
     idle_in_transaction_session_timeout: 10_000,
   });
+  // A connection the server terminates (idle-in-transaction timeout, restart) emits "error" on
+  // the client that holds it. Without a listener that is an uncaught exception and the whole
+  // process dies; with one, the query in flight rejects and the caller reports it.
+  const report = (source: string) => (error: Error) =>
+    console.error(JSON.stringify({ level: "error", service: "db", code: "PG_CONNECTION_ERROR", source, message: String(error.message).slice(0, 200) }));
+  pool.on("error", report("idle"));
+  pool.on("connect", (client) => client.on("error", report("client")));
+  return pool;
 }
 
 export class PostgresStore implements Store {

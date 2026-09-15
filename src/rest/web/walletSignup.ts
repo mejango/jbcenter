@@ -130,7 +130,7 @@ function render() {
   el('recovery-show').textContent = phrase.type === 'password' ? 'Show' : 'Hide';
   // Only a reload before saving loses the password from memory; pasting it back allows the file save.
   el('recovery-restore-box').hidden = !showKit || !!recoverySecret;
-  el('recovery-kit-note').hidden = !recoverySecret; el<HTMLButtonElement>('recovery-download').hidden = !recoverySecret;
+  el('recovery-kit-note').hidden = !recoverySecret; el('recovery-warning').hidden = !recoverySecret; el<HTMLButtonElement>('recovery-download').hidden = !recoverySecret;
   el<HTMLButtonElement>('recovery-download').disabled = busy;
   el<HTMLButtonElement>('recovery-share').hidden = !recoverySecret || typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function';
   el<HTMLButtonElement>('recovery-share').disabled = busy;
