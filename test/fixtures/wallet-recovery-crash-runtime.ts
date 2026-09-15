@@ -15,6 +15,8 @@ import { createLocalAnvilWalletRecovery } from '../../src/rest/wallet/recoveryLo
 import { createLocalWalletRecovery, type LocalWalletRecoveryDependencies } from '../../src/rest/wallet/recoveryService.js';
 import { createWalletDeploymentAnvilRpc, type startWalletDeploymentAnvil } from './wallet-deployment-anvil.js';
 
+export const recoveryFixtureRelay = privateKeyToAccount(`0x${'55'.repeat(32)}`);
+
 export type RecoveryCrashConfiguration = Pick<Awaited<ReturnType<typeof startWalletDeploymentAnvil>>,
   'endpoint' | 'expectedGenesisHash' | 'manifest' | 'utility'> & { origin: string; rpId: string; audience: string };
 export function createRecoveryCrashRuntime(pool: Pool, config: RecoveryCrashConfiguration,
@@ -32,7 +34,7 @@ export function createRecoveryCrashRuntime(pool: Pool, config: RecoveryCrashConf
     flows: new PostgresWalletRecoveryFlowStore(pool), ...(onEvent ? { onEvent } : {}),
     rotation: createLocalAnvilWalletRecovery({ pool, endpoint: config.endpoint, expectedGenesisHash: config.expectedGenesisHash,
       // Same public fixture key as the completed parent rotation; no production wallet.
-      signer: privateKeyToAccount(`0x${'55'.repeat(32)}`), manifest: config.manifest, utility: config.utility,
+      signer: recoveryFixtureRelay, manifest: config.manifest, utility: config.utility,
       maximumOperations: 2, maximumCostWei: '1000000000000000000' }) });
   return { service, recoveries };
 }

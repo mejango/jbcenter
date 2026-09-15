@@ -1,9 +1,9 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import type { Pool } from 'pg';
 import { hashTypedData, toHex, type Address, type Hex } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
 import { expect, vi } from 'vitest';
 import type { WalletEnrollment } from '../../src/rest/wallet/enrollment.js';
+import { recoveryFixtureRelay } from './wallet-recovery-crash-runtime.js';
 import { exerciseRecoverySetupCrash } from './wallet-recovery-crash.js';
 import { PostgresWalletRecoveryFlowStore } from '../../src/rest/wallet/recoveryFlowPostgres.js';
 import { PostgresWalletRecoveryStore } from '../../src/rest/wallet/recoveryPostgres.js';
@@ -41,7 +41,7 @@ export async function exerciseWalletRecoveryEvm(options: {
   const beforeRotation = await fixture.rpc<Hex>('evm_snapshot');
   // This public fixture key has no owner role and no relation to the signup treasury.
   // The independent backup approves the exact SafeTx using only typed-data signing.
-  const relay = privateKeyToAccount(`0x${'55'.repeat(32)}`);
+  const relay = recoveryFixtureRelay;
   await fixture.rpc('anvil_setBalance', [relay.address, toHex(10n ** 20n)]);
   const candidate = pending.candidate!;
   const transport = createLocalAnvilWalletRecovery({ pool, endpoint: fixture.endpoint, expectedGenesisHash: fixture.expectedGenesisHash,
@@ -75,7 +75,7 @@ export async function exerciseWalletRecoveryEvm(options: {
   expect((await fixture.rpc<{ from: Address }>('eth_getTransactionByHash', [rotationTransaction])).from.toLowerCase()).toBe(relay.address.toLowerCase());
   expect(relay.address.toLowerCase()).not.toBe(enrollmentBackupAccount.address.toLowerCase());
   expect(relay.address.toLowerCase()).not.toBe(fixture.sender.toLowerCase());
-  const { assertion, activated, flowToken } = await exerciseRecoverySetupCrash({ pool, accountId, recoveryId: intent.id,
+  const { assertion, activated, flowToken, crashObservation } = await exerciseRecoverySetupCrash({ pool, accountId, recoveryId: intent.id,
     flowToken: begun.flowToken, replacement, initializerHash: enrollment.creation!.initializerHash, replacementSigner: candidate.signerAddress, priorCredentialId: options.originalKey.credentialId, relayAddress: relay.address, rpc: fixture.rpc,
     config: { endpoint: fixture.endpoint, expectedGenesisHash: fixture.expectedGenesisHash, manifest: fixture.manifest,
       utility: fixture.utility, origin, rpId, audience: options.audience } });
@@ -106,7 +106,6 @@ export async function exerciseWalletRecoveryEvm(options: {
   await writeFile(new URL('summary.json', out), JSON.stringify({ passed: true, evidence: 'actual PostgreSQL, unforked Anvil, P256 and independent test EOA',
     signerTransaction, rotationTransaction, separateSyntheticRelayer: true, backupTypedDataSignature: true,
     acceptedTransactionLostReplyRecovered: true, physicalSends: sends, exactDispatchBytesRetainedAfterRollback: true,
-    sameSafe: true, originalGenesisRetained: true, killedAfterSetupCommit: true, freshServiceRecoveryResumed: true,
-    noDuplicateGrantOrRotationAfterCrash: true, newPasskeyLogin: true, oldSessionAndPasskeyRejected: true,
+    sameSafe: true, originalGenesisRetained: true, crashObservation, newPasskeyLogin: true, oldSessionAndPasskeyRejected: true,
     oldSignupResumeRejected: true, exactActivationRetry: true, chainRollbackFailsClosedWithoutRevertingCredentials: true }, null, 2));
 }

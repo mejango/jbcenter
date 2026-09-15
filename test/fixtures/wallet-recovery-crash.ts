@@ -34,20 +34,30 @@ export async function exerciseRecoverySetupCrash(input: {
   await original.service.stop();
   const schema = String((await pool.query('SELECT current_schema() AS schema')).rows[0].schema);
   const child = fork(new URL('./wallet-recovery-crash-process.ts', import.meta.url), [], {
-    execArgv: ['--import', 'tsx'], serialization: 'advanced', stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+    execArgv: ['--import', 'tsx'], serialization: 'advanced', stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
     env: { PATH: process.env.PATH, TEST_DATABASE_URL: process.env.TEST_DATABASE_URL, WALLET_RECOVERY_CRASH_SCHEMA: schema },
   });
-  let timedOut = false;
+  let timedOut = false, diagnostic = '';
+  child.stderr?.on('data', chunk => { diagnostic = (diagnostic + String(chunk)).slice(0, 512); });
   const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, 25_000);
     child.once('error', error => { clearTimeout(timer); reject(error); });
-    child.once('exit', (code, signal) => { clearTimeout(timer); resolve({ code, signal }); });
-    child.send({ config, flowToken: input.flowToken, setup: { setupId: setup.id, assertion: assertion(), browserProof } }, error => {
-      if (error) { clearTimeout(timer); child.kill('SIGKILL'); reject(new Error('Recovery fixture IPC failed')); }
+    let ipcFailed = false;
+    child.once('close', (code, signal) => {
+      clearTimeout(timer);
+      if (ipcFailed) reject(new Error('Recovery fixture IPC failed')); else resolve({ code, signal });
+    });
+    child.once('message', message => {
+      if (!message || typeof message !== 'object' || !('kind' in message) || message.kind !== 'ready') {
+        ipcFailed = true; child.kill('SIGKILL'); return;
+      }
+      child.send({ config, flowToken: input.flowToken, setup: { setupId: setup.id, assertion: assertion(), browserProof } }, error => {
+        if (error) { ipcFailed = true; child.kill('SIGKILL'); }
+      });
     });
   });
   expect(timedOut).toBe(false);
-  expect(result).toEqual({ code: null, signal: 'SIGKILL' });
+  expect(result, diagnostic).toEqual({ code: null, signal: 'SIGKILL' });
   expect(await queryRows('rest_wallet_authority')).toEqual(authorityBefore);
   const halfBinding = await binding();
   expect(halfBinding.id).toBe(before.id);
@@ -88,6 +98,12 @@ export async function exerciseRecoverySetupCrash(input: {
     expect(events).toEqual(['setup:committed', 'activation:committed']);
     expect(await transactions()).toEqual(dispatchHistory);
     expect(await input.rpc('eth_getTransactionCount', [input.relayAddress, 'pending'])).toBe(relayNonce);
-    return { assertion: proof, activated, flowToken: resumed.flowToken };
+    return { assertion: proof, activated, flowToken: resumed.flowToken, crashObservation: {
+      childExit: result, timedOut, events,
+      grants: { before: beforeGrantCount, afterCommit: grants.length, afterResume: completedGrants.length },
+      bindingNonces: { before: beforeNonceCount, afterCommit: nonces.length, afterResume: (await queryRows('rest_smart_account_binding_nonces')).length },
+      relayNonce: { before: relayNonce, after: await input.rpc('eth_getTransactionCount', [input.relayAddress, 'pending']) },
+      rotationTransactions: { before: dispatchHistory.map(row => row.hash), after: (await transactions()).map(row => row.hash) },
+    } };
   } finally { await fresh.service.stop(); }
 }
