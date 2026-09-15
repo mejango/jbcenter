@@ -1,7 +1,7 @@
 import { beforeAll, expect, it } from "vitest";
 import type { Hex } from "viem";
 import { createWalletAuthorityIdentity, reconcileWalletAuthority, validateWalletAuthorityContext, validateWalletAuthorityObservation,
-  validateWalletAuthoritySnapshot, walletAuthorityContextDigest, walletAuthorityExpectedAnchor, walletAuthorityIdentityDigest,
+  validateWalletAuthoritySnapshot, walletAuthorityContextDigest, walletAuthorityMaximumAgeMs, walletAuthorityExpectedAnchor, walletAuthorityIdentityDigest,
   type WalletAuthorityContext, type WalletAuthorityObservation, type WalletAuthoritySnapshot } from "../src/rest/wallet/authority.js";
 import { createWalletAuthorityContextFixture } from "./fixtures/wallet-authority-context.js";
 
@@ -17,7 +17,7 @@ const identity = (c: WalletAuthorityContext, stateHash = hash("b"), epoch = "0")
 function observation(c: WalletAuthorityContext, changes: Partial<WalletAuthorityObservation> = {}): WalletAuthorityObservation {
   const anchor = walletAuthorityExpectedAnchor(c);
   return { version: "center-wallet-authority-observation-v1", accountId: c.accountId, contextDigest: walletAuthorityContextDigest(c),
-    observedAtMs: now, validUntilMs: now + 30000, head: block(),
+    observedAtMs: now, validUntilMs: now + walletAuthorityMaximumAgeMs, head: block(),
     priorAnchor: anchor ? { status: "same", expected: anchor, observed: anchor } : { status: "none", expected: null, observed: null },
     identity: identity(c), eligibility: "matched", reason: null, ...changes };
 }
@@ -39,7 +39,7 @@ it("binds session-administration ABA without changing legacy stateHash", () => {
 it("initializes matched authority at epochs1/1 with a deadline from observation start", () => {
   const c = context(), result = reconcileWalletAuthority(c, observation(c), now + 100);
   expect(result).toMatchObject({ accountId: c.accountId, authorityEpoch: "1", sessionEpoch: "1", revision: "1",
-    readiness: "verified", bootstrapRequired: false, validUntilMs: now + 30000 });
+    readiness: "verified", bootstrapRequired: false, validUntilMs: now + walletAuthorityMaximumAgeMs });
   expect(validateWalletAuthoritySnapshot(result)).toEqual(result);
 });
 
@@ -161,7 +161,7 @@ it.each(["revision", "authorityEpoch", "sessionEpoch"] as const)("fails closed a
 it.each(["matched", "changed", "conflict"])("rejects %s evidence at its absolute deadline after waits", kind => {
   const c = context(initialized()), o = kind === "conflict" ? replacement(c) : observation(c,
     kind === "changed" ? { eligibility: "changed", validUntilMs: null, reason: "authority-changed" } : {});
-  expect(() => reconcileWalletAuthority(c, o, now + 30000)).toThrowError(expect.objectContaining({ status: 410 }));
+  expect(() => reconcileWalletAuthority(c, o, now + walletAuthorityMaximumAgeMs)).toThrowError(expect.objectContaining({ status: 410 }));
 });
 it("rejects lower complete heads and backwards clocks without replacing durable evidence", () => {
   const c = context(initialized()), low = observation(c, { head: block("99", "9") });
@@ -202,7 +202,7 @@ it.each([
   ["wrong chain", (o: WalletAuthorityObservation) => { o.head!.chainId = 1; }],
   ["unproved prior replacement", (o: WalletAuthorityObservation) => { o.priorAnchor.status = "replaced"; }],
   ["wrong context commitment", (o: WalletAuthorityObservation) => { o.contextDigest = hash("9"); }],
-  ["extended validity", (o: WalletAuthorityObservation) => { o.validUntilMs = now + 30001; }],
+  ["extended validity", (o: WalletAuthorityObservation) => { o.validUntilMs = now + walletAuthorityMaximumAgeMs + 1; }],
   ["stale head", (o: WalletAuthorityObservation) => { o.head!.timestamp = String(now / 1000 - 301); }],
   ["future head", (o: WalletAuthorityObservation) => { o.head!.timestamp = String(now / 1000 + 31); }],
   ["unsafe reason", (o: WalletAuthorityObservation) => { o.reason = "https://secret.example"; }],
