@@ -324,6 +324,8 @@ export async function createRestRuntime(options: {
               utility: execution.stacks[0]!.utility,
               inspectSessions: installedVerifier.inspectAllAt,
               ...(factoryHistory ? {creationLogs: factoryHistory.creationLogs.bind(factoryHistory), maxLogRangeBlocks: 500} : {}),
+              // A complete inspection over the hosted provider measured ~85 serial reads; leave room for latency.
+              timeoutMs: 90_000,
               checkpointStore: new PostgresSafe7579CheckpointStore(
                 options.pool,
               ),
