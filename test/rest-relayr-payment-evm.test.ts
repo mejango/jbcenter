@@ -26,7 +26,12 @@ describe.skipIf(!available)('actual pinned Relayr payment bytecode on unforked A
     const raw = await account.signTransaction({ type: 'eip1559', chainId: 1, nonce, to: RELAYR_PAYMENT_ADDRESS, data, value,
       gas: 150000n, maxFeePerGas: 100000000000n, maxPriorityFeePerGas: 1000000000n, accessList: [] });
     expect(await rpc('eth_sendRawTransaction', [raw])).toBe(keccak256(raw));
-    return rpc<{ status: Hex; logs: unknown[]; transactionHash: Hex; blockHash: Hex; blockNumber: Hex }>('eth_getTransactionReceipt', [keccak256(raw)]);
+    let receipt: { status: Hex; logs: unknown[]; transactionHash: Hex; blockHash: Hex; blockNumber: Hex } | null = null;
+    await expect.poll(async () => {
+      receipt = await rpc<typeof receipt>('eth_getTransactionReceipt', [keccak256(raw)]);
+      return receipt;
+    }).not.toBeNull();
+    return receipt!;
   }
   beforeAll(async () => {
     expect(keccak256(RELAYR_PAYMENT_RUNTIME)).toBe(RELAYR_PAYMENT_CODE_HASH);

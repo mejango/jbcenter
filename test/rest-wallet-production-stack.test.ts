@@ -23,6 +23,8 @@ describe('production wallet dependency plan against real local constructors', ()
     baseline = await fixture.rpc<Hex>('evm_snapshot');
   }
   const inspect = (rpc?: RestRpc) => inspectBaseWalletProductionStack({ rpc: rpc ?? fixture.readOnlyRpc });
+  const mined = (hash: Hex) => expect.poll(async () =>
+    (await fixture.rpc<{ status: string } | null>('eth_getTransactionReceipt', [hash]))?.status).toBe('0x1');
 
   it('returns only the two exact missing deployments and proves constructor addresses and the complete atomic Safe initializer', async () => {
     await reset();
@@ -32,7 +34,7 @@ describe('production wallet dependency plan against real local constructors', ()
     expect(before.missing.every(item => item.transaction.value === '0' && BigInt(item.estimatedGas) > 0n)).toBe(true);
     for (const item of before.missing) {
       const hash = await fixture.rpc<Hex>('eth_sendTransaction', [{ from: fixture.sender, ...item.transaction, value: '0x0', gas: '0x7a1200' }]);
-      expect((await fixture.rpc<{status: string}>('eth_getTransactionReceipt', [hash])).status).toBe('0x1');
+      await mined(hash);
     }
     const after = await inspect();
     expect(after.status).toBe('dependencies-verified');
@@ -47,7 +49,7 @@ describe('production wallet dependency plan against real local constructors', ()
     const creation = preparePasskeySafe7579Creation({ manifest: stack.manifest, publicKey: credential.publicKey,
       recoveryOwner: enrollmentBackupAccount.address, saltNonce: '123' });
     const hash = await fixture.rpc<Hex>('eth_sendTransaction', [{ from: fixture.sender, ...creation.transaction, value: '0x0', gas: '0x7a1200' }]);
-    expect((await fixture.rpc<{status: string}>('eth_getTransactionReceipt', [hash])).status).toBe('0x1');
+    await mined(hash);
     expect(await fixture.rpc('eth_getCode', [creation.address, 'latest'])).not.toBe('0x');
     const owners = await fixture.rpc('eth_call', [{ to: creation.address, data: encodeFunctionData({ abi: parseAbi(['function getOwners() view returns(address[])']), functionName: 'getOwners' }) }, 'latest']);
     expect(String(owners).toLowerCase()).toContain(creation.bootstrap.signerAddress.slice(2).toLowerCase());

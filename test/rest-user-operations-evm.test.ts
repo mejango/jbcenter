@@ -214,10 +214,8 @@ describe.skipIf(!available)(
       const hash = await rpc<Hex>("eth_sendTransaction", [
         { from: sender, to: artifact.address, data },
       ]);
-      expect(
-        (await rpc<{ status: Hex }>("eth_getTransactionReceipt", [hash]))
-          .status,
-      ).toBe("0x1");
+      await expect.poll(async () =>
+        (await rpc<{ status: Hex } | null>("eth_getTransactionReceipt", [hash]))?.status).toBe("0x1");
       expect(await read(key)).toBe((key << 64n) + 1n);
       expect(await read(key + 1n)).toBe((key + 1n) << 64n);
     });

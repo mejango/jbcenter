@@ -199,7 +199,7 @@ describe("explicit unforked local Anvil deployment transport", () => {
     expect(await value.broadcast(admission)).toBe("unknown"); expect(sends()).toHaveLength(1);
     expect(sends()[0]!.params).toEqual([context.operation.signed!.rawTransaction]);
     await expect(value.broadcast(admission)).rejects.toMatchObject({ status: 403 });
-    if (fault !== "redirect") expect(await fixture.rpc("eth_getTransactionReceipt", [context.operation.signed!.hash])).not.toBeNull();
+    if (fault !== "redirect") await expect.poll(() => fixture.rpc("eth_getTransactionReceipt", [context.operation.signed!.hash])).not.toBeNull();
     else expect(await fixture.rpc("eth_getTransactionReceipt", [context.operation.signed!.hash])).toBeNull();
   });
 
