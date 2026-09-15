@@ -88,7 +88,7 @@ function accept(result: { view: View | null; csrfToken?: string }) {
   }
   view = result.view; known = true;
   if (result.csrfToken) { if (decode(result.csrfToken).length !== 32) throw new Error('Invalid signup context.'); csrf = result.csrfToken; }
-  message(view ? steps[view.phase] + (view.phase === 'awaiting_setup' ? mode() === 'kit' ? ' Now, save your backup password.' : mode() === 'password' ? ' Continue when ready.' : ' Continue to log in.' : '') : '');
+  message(view ? steps[view.phase] + (view.phase === 'awaiting_setup' ? mode() === 'kit' ? recoverySecret ? ' Now, save your backup password.' : '' : mode() === 'password' ? ' Continue when ready.' : ' Continue to log in.' : '') : '');
   if (view?.phase === 'ready_to_sign_in') sessionStorage.removeItem('center:signup:browser:' + view.enrollmentId);
   if (view?.phase === 'ready_to_sign_in' && kitSavedWallet === view.walletAddress) recoverySecret = null;
 }
@@ -118,17 +118,15 @@ function render() {
   el('recovery-show').textContent = phrase.type === 'password' ? 'Show' : 'Hide';
   // Only a reload before saving loses the password from memory; pasting it back allows the file save.
   el('recovery-restore-box').hidden = !showKit || !!recoverySecret;
-  el('recovery-hint').textContent = 'Reloading hid the backup password. Paste it here to save the backup file.';
   el('recovery-kit-note').hidden = !recoverySecret; el<HTMLButtonElement>('recovery-download').hidden = !recoverySecret;
   el<HTMLButtonElement>('recovery-download').disabled = busy;
   el<HTMLButtonElement>('recovery-share').hidden = !recoverySecret || typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function';
   el<HTMLButtonElement>('recovery-share').disabled = busy;
-  el<HTMLTextAreaElement>('recovery-words').disabled = busy;
-  el<HTMLButtonElement>('recovery-restore').disabled = busy;
   el('signup-name').textContent = view?.passkeyName ?? '';
-  el('signup-recovery-label').textContent = mode() === 'wallet' ? 'Recovery wallet' : showKit && recoverySecret ? 'Backup password' : 'Recovery';
+  el('signup-recovery-label').textContent = mode() === 'wallet' ? 'Recovery wallet' : showKit && recoverySecret ? 'Backup password'
+    : showKit ? 'Backup password address' : 'Recovery';
   el('signup-recovery').textContent = mode() === 'wallet' ? view?.recoveryOwner ?? '' : mode() === 'password' ? 'The password you chose'
-    : kitPhase ? recoverySecret ? '' : 'Your backup password (saved earlier)' : 'A backup password you get once the wallet exists';
+    : kitPhase ? recoverySecret ? '' : view?.recoveryOwner ?? '' : 'A backup password you get once the wallet exists';
   el('signup-address').textContent = view?.walletAddress ?? 'Not created yet';
   const label = view?.phase === 'awaiting_registration' ? 'Create passkey'
     : view?.phase === 'awaiting_possession' || view?.phase === 'awaiting_deployment_approval' ? 'Create wallet'
@@ -318,14 +316,8 @@ el('recovery-copy').addEventListener('click', () => { void run(async () => {
   await navigator.clipboard.writeText(recoverySecret.mnemonic);
   message('Backup password copied. Paste it somewhere private, then clear your clipboard.');
 }); });
-el('recovery-restore').addEventListener('click', () => { void run(async () => {
-  if (!view) throw new Error('Resume your signup first.');
-  const input = el<HTMLTextAreaElement>('recovery-words'), mnemonic = input.value; input.value = '';
-  const account = recoveryAccountFromPhrase(mnemonic, view.recoveryOwner);
-  recoverySecret = { mnemonic: mnemonic.trim().toLowerCase().replace(/\s+/g, ' '), recoveryOwner: account.address };
-  message('Backup password restored. Save the backup file before continuing.');
-}); });
 next.addEventListener('click', () => { void run(advance); });
+el('recovery-restart-link').addEventListener('click', event => { event.preventDefault(); restart.click(); });
 restart.addEventListener('click', () => { void run(async () => {
   await send('restart', {}); csrf = ''; pending = null; recoverySecret = null; kitSavedWallet = null;
 }); });
@@ -371,7 +363,7 @@ const timer = setInterval(() => {
 }, 2000);
 window.addEventListener('pagehide', () => {
   disposed = true; native?.abort(); clearInterval(timer); recoverySecret = null;
-  el<HTMLInputElement>('recovery-phrase').value = ''; el<HTMLTextAreaElement>('recovery-words').value = '';
+  el<HTMLInputElement>('recovery-phrase').value = '';
   for (const url of downloadUrls) URL.revokeObjectURL(url); downloadUrls.clear();
 }, { once: true });
 void run(async () => {

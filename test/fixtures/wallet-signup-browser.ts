@@ -223,16 +223,12 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       expect(await page.locator('#recovery-phrase').inputValue()).toBe('');
       await page.setViewportSize({ width: 320, height: 844 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      // A reload before saving offers a paste box; restoring the password brings the file save back.
-      await page.getByLabel('Backup password', { exact: true }).last().fill(kit.mnemonic);
-      await page.getByRole('button', { name: 'Restore backup password' }).click();
-      await contains('Backup password restored');
-      expect(await page.locator('#recovery-phrase').inputValue()).toBe(kit.mnemonic);
-      // The restored password must be saved (or shared) again before setup continues.
-      expect(await page.getByRole('button', { name: 'Continue', exact: true }).isDisabled()).toBe(true);
-      const savedAgain = page.waitForEvent('download');
-      await page.getByRole('button', { name: 'Save backup file' }).click();
-      await savedAgain;
+      // After a reload the words are gone: the page names the backup password's address and offers a start over.
+      expect(await page.locator('#recovery-restore-box').isVisible()).toBe(true);
+      expect(await page.getByRole('link', { name: 'start over' }).isVisible()).toBe(true);
+      expect(await page.locator('#signup-recovery-label').textContent()).toBe('Backup password address');
+      expect((await page.locator('#signup-recovery').textContent())?.toLowerCase()).toBe(String(kit.recoveryOwner).toLowerCase());
+      expect(await page.getByRole('button', { name: 'Continue', exact: true }).isDisabled()).toBe(false);
       const persisted = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
       expect(persisted.includes(kit.mnemonic)).toBe(false);
       expect(requestBodies.some(body => body.includes(kit.mnemonic))).toBe(false);
@@ -266,7 +262,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     expect((await options.deployments.getSettlement(deploymentId))?.nextNonce).toBe(options.expectedNextNonce ?? '5');
     await writeFile(new URL('summary.json', out), JSON.stringify({ passed: true, browser: browser.version(),
       evidence: 'real HTTP, PostgreSQL, unforked Anvil; virtual authenticator and test EOA',
-      recoveryMode: options.recoveryMode ?? 'wallet', ...(kitMode ? { backupPasswordRestoredAfterReload: true, phraseAbsentFromStorageAndRequests: true } : {}),
+      recoveryMode: options.recoveryMode ?? 'wallet', ...(kitMode ? { reloadOffersStartOver: true, phraseAbsentFromStorageAndRequests: true } : {}),
       ...(passwordMode ? { chosenPasswordAbsentFromRequests: true, weakAndMismatchedPasswordsRefused: true } : {}),
       cancelledPrompt: true, lostRegistrationReplyRecovered: lostRegistration, lostSetupReplyRecovered: lostSetup,
       cookieLossResumedSameWallet: true, separateFreshLogin: true, mobileWidth: 320, pageErrors: errors, requests: observed }, null, 2));
