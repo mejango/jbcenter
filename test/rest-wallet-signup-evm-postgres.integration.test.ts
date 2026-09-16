@@ -150,7 +150,10 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
         // only the already journaled bytes. No replacement nonce or approval.
         await fixture.rpc("anvil_mine", ["0x1", "0x0"]);
         await signup.tick();
-        await signup.tick();
+        // The resent bytes land with the interval chain's next block; keep observing until they do.
+        for (let attempt = 0; attempt < 12 && (await signup.status(flowToken)).phase !== "awaiting_activation"; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 500)); await signup.tick();
+        }
         expect((await deployments.get(operation.id))!.signed).toEqual(included.signed);
         expect((await signup.status(flowToken)).phase).toBe("awaiting_activation");
       }

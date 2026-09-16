@@ -76,6 +76,12 @@ import { PostgresWalletPaymentReviewStore } from './wallet/paymentReviewsPostgre
 import type { WalletV6UsdcPaymentConfig } from './userOperations/semantics.js';
 import type { createLocalWalletSignup } from './wallet/signup.js';
 import type { createLocalWalletRecovery } from './wallet/recoveryService.js';
+import { createWalletNetworks } from "./wallet/networks.js";
+import { PostgresWalletNetworksStore } from "./wallet/networksPostgres.js";
+import { PostgresWalletEnrollmentStore } from "./wallet/enrollmentPostgres.js";
+import { RelayrProvider } from "./sponsorship/provider.js";
+import { privateKeyToAccount } from "viem/accounts";
+import type { Hex } from "viem";
 
 export interface RestWalletConfiguration {
   origin: string;
@@ -86,9 +92,12 @@ export interface RestWalletConfiguration {
   manifest: SmartAccountManifest;
   utility: ContractPin;
   payments?: Omit<WalletV6UsdcPaymentConfig, 'chainId'>;
+  /** Private key of the account that funds Relayr bundles for the account-on-more-chains feature. */
+  networksPayerKey?: Hex;
 }
 export interface RestWalletRuntime {
   origin: string;
+  networks?: ReturnType<typeof createWalletNetworks>;
   login: PostgresWalletLoginStore;
   appGrants: PostgresWalletAppGrantStore;
   policy: PostgresWalletPolicyStore;
@@ -200,7 +209,12 @@ export async function createRestRuntime(options: {
       service: createWalletAuthorityService({ store: authority, chain }), attemptTimeoutMs: 100_000,
       onEvent: event => console.info(JSON.stringify({ service: "wallet", action: "authority_refresh", outcome: event })),
     });
-    return { origin, login, policy, handoff, appGrants, authority, refresh, activatePolicy: policy.activate.bind(policy) };
+    const networks = walletConfiguration.networksPayerKey ? (() => {
+      const account = privateKeyToAccount(walletConfiguration.networksPayerKey);
+      return createWalletNetworks({ enrollments: new PostgresWalletEnrollmentStore(options.pool), authority, store: new PostgresWalletNetworksStore(options.pool),
+        provider: new RelayrProvider(), rpc, payer: { address: account.address, signTransaction: transaction => account.signTransaction(transaction) } });
+    })() : undefined;
+    return { origin, login, policy, handoff, appGrants, authority, refresh, activatePolicy: policy.activate.bind(policy), ...(networks ? { networks } : {}) };
   })() : undefined;
   const accountStore = new PostgresAccountStore(options.pool, wallet ? { walletRefresh: wallet.refresh } : {});
   const verifyContractOwner = createContractOwnerVerifier(
@@ -524,6 +538,7 @@ export async function createRestRuntime(options: {
     ...(walletPayments ? { payments: walletPayments, paymentBrowserScript: assets.walletPaymentScript } : {}),
     ...(wallet.signup ? { signup: wallet.signup, signupBrowserScript: assets.walletSignupScript } : {}),
     ...(wallet.recovery ? { recovery: wallet.recovery, recoveryBrowserScript: assets.walletRecoveryScript } : {}),
+    ...(wallet.networks ? { networks: wallet.networks } : {}),
     onEvent: event => console.info(JSON.stringify({ service: "wallet", ...event })),
   }) : undefined;
   if (options.startMaintenance !== false) wallet?.signup?.start();

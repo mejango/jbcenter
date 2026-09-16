@@ -75,7 +75,12 @@ const dwellirBaseUrl = `https://${DWELLIR_RPC_HOSTS[8453]}/${process.env.DWELLIR
 const walletLegacyOrigins = (process.env.WALLET_LEGACY_ORIGINS ?? "").split(",").map(value => value.trim()).filter(Boolean);
 const wallet: RestWalletConfiguration | undefined = walletOrigin && walletStack
   ? { origin: walletOrigin, manifest: walletStack.manifest, utility: walletStack.utility, ...(walletLegacyOrigins.length ? { legacyOrigins: walletLegacyOrigins } : {}),
-      basePath: "" } : undefined;
+      basePath: "",
+      // WALLET_NETWORKS_PAYER_KEY funds Relayr bundles that deploy the account on more chains (Base
+      // for Optimism/Arbitrum, Base Sepolia for testnets). Absent, "Add more" stays off.
+      ...(process.env.WALLET_NETWORKS_PAYER_KEY ? { networksPayerKey: process.env.WALLET_NETWORKS_PAYER_KEY as `0x${string}` } : {}) } : undefined;
+if (process.env.WALLET_NETWORKS_PAYER_KEY && !/^0x[0-9a-fA-F]{64}$/.test(process.env.WALLET_NETWORKS_PAYER_KEY))
+  throw new Error("WALLET_NETWORKS_PAYER_KEY must be a 32-byte hex private key");
 const rest = await createRestRuntime({
   ...(process.env.PARA_API_KEY ? { para: { apiKey: process.env.PARA_API_KEY, environment: paraEnvironment } } : {}),
   ...(wallet ? { wallet } : {}),

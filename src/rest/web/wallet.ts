@@ -9,6 +9,11 @@ type Completion = { loginId: string; assertion: { credentialId: string; userHand
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = element("wallet-status"), account = element("wallet-account"), address = element("wallet-address"), passkey = element("wallet-passkey"), passkeyLabel = element("wallet-passkey-label");
+// The account on more chains: a list, an "Add more" text button, a chain picker, one quote and one passkey approval.
+type NetworksView = { networks: { chainId: number; name: string; state: string; txHash: string | null }[];
+  offered: { chainId: number; name: string; family: string; centerPays: boolean }[]; pending: { id: string; state: string; chainIds: number[] }[] };
+const networksList = element("wallet-networks"), networksAdd = element<HTMLButtonElement>("wallet-networks-add"), networksForm = element<HTMLFormElement>("wallet-networks-form");
+let networksView: NetworksView | null = null, networksQuote: { bundleId: string; challenge: string } | null = null, networksTimer: ReturnType<typeof setInterval> | null = null, networksOpen = false, networksPolls = 0;
 const destination = element("wallet-destination");
 const signIn = element<HTMLButtonElement>("wallet-signin"), retry = element<HTMLButtonElement>("wallet-retry");
 const cancel = element<HTMLButtonElement>("wallet-cancel"), signOut = element<HTMLButtonElement>("wallet-logout");
@@ -59,10 +64,11 @@ function render() {
   account.hidden = !session; address.textContent = session?.walletAddress ?? "";
   // Signed in, the page is the account; the ways in belong to the signed-out page only.
   const links = document.getElementById("wallet-links"); if (links) links.hidden = !!session;
+  renderNetworks();
   passkey.textContent = session?.passkeyName ?? ""; passkey.hidden = passkeyLabel.hidden = !session?.passkeyName;
 }
-async function request(path: string, body?: unknown, csrfToken?: string): Promise<Json> {
-  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 10_000);
+async function request(path: string, body?: unknown, csrfToken?: string, timeoutMs = 10_000): Promise<Json> {
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(path, { credentials: "same-origin", cache: "no-store", redirect: "error", signal: controller.signal,
       ...(body === undefined ? {} : { method: "POST", body: JSON.stringify(body), headers: {
@@ -98,6 +104,7 @@ function acceptSession(value: Json, required = false) {
   const passkeyName = current.passkeyName === null || current.passkeyName === undefined ? null : string(current.passkeyName, 120);
   session = { accountId: current.accountId as string, loginId: string(current.loginId, 36), walletAddress, chainId: 8453, expiresAtMs, passkeyName };
   csrf = nextCsrf; sessionKnown = true;
+  void refreshNetworks().catch(() => { /* The list stays at Base until the next load. */ });
 }
 async function run(action: () => Promise<void>) {
   if (busy) return;
@@ -234,6 +241,88 @@ async function logout() {
   if (result.loggedOut !== true) throw new InvalidResponse();
   session = null; csrf = ""; pending = null; completionAttempted = false; sessionKnown = true;
   setStatus("ready", "You are signed out. You can sign in again with your passkey.");
+}
+function networkView(value: Json): NetworksView {
+  const v = record(value);
+  const list = (items: unknown, keys: string[]) => (Array.isArray(items) ? items : []).map(item => { const r = record(item); for (const key of keys) if (!(key in r)) throw new InvalidResponse(); return r; });
+  return { networks: list(v.networks, ["chainId", "name", "state"]).map(r => ({ chainId: Number(r.chainId), name: string(r.name, 40), state: string(r.state, 20), txHash: typeof r.txHash === "string" ? r.txHash : null })),
+    offered: list(v.offered, ["chainId", "name", "family", "centerPays"]).map(r => ({ chainId: Number(r.chainId), name: string(r.name, 40), family: string(r.family, 10), centerPays: r.centerPays === true })),
+    pending: list(v.pending, ["id", "state", "chainIds"]).map(r => ({ id: string(r.id, 36), state: string(r.state, 20), chainIds: (r.chainIds as unknown[]).map(Number) })) };
+}
+function renderNetworks() {
+  if (!networksList || !networksAdd || !networksForm) return;
+  const view = session ? networksView : null;
+  const label = (item: NetworksView["networks"][number]) => item.state === "deployed" ? item.name : item.state === "failed" ? `${item.name} (did not deploy)` : `${item.name} (deploying…)`;
+  networksList.textContent = view ? view.networks.map(label).join("\n") : "Base";
+  networksAdd.hidden = !view || !view.offered.length || networksOpen || busy;
+  networksForm.hidden = !view || !networksOpen;
+  const quoteText = element("wallet-networks-quote"), deploy = element<HTMLButtonElement>("wallet-networks-deploy"), getQuote = element<HTMLButtonElement>("wallet-networks-quote-button");
+  quoteText.hidden = !networksQuote; deploy.hidden = !networksQuote; getQuote.hidden = !!networksQuote;
+  deploy.disabled = getQuote.disabled = busy;
+  // Polling runs beside the busy gate so a click is never dropped; it stops after ten minutes or when nothing is pending.
+  if (view && view.pending.length && !networksTimer) networksTimer = setInterval(() => {
+    if (busy || document.hidden || !navigator.onLine || networksPolls++ > 200) return;
+    networksStatus().catch(() => { /* The next poll reads again. */ });
+  }, 3000);
+  if (view && !view.pending.length && networksTimer) { clearInterval(networksTimer); networksTimer = null; networksPolls = 0; }
+}
+function openNetworks() {
+  if (!networksView) return;
+  const choices = element("wallet-networks-choices");
+  for (const node of [...choices.querySelectorAll("label")]) node.remove();
+  for (const item of networksView.offered) {
+    const label = document.createElement("label"), input = document.createElement("input"); label.className = "choice";
+    input.type = "checkbox"; input.value = String(item.chainId); input.dataset.family = item.family; input.name = "chain";
+    label.append(input, document.createTextNode(item.centerPays ? item.name : `${item.name} (you pay)`)); choices.append(label);
+  }
+  networksQuote = null; networksOpen = true; render();
+}
+function chosenChains(): number[] {
+  return [...element("wallet-networks-choices").querySelectorAll<HTMLInputElement>("input:checked")].map(input => Number(input.value));
+}
+async function refreshNetworks() { if (!session || !networksList) return; networksView = networkView(await request(`${base}/networks`)); render(); }
+async function networksQuoteAction() {
+  const chainIds = chosenChains();
+  if (!chainIds.length) { setStatus("ready", "Choose at least one network."); return; }
+  const families = new Set([...element("wallet-networks-choices").querySelectorAll<HTMLInputElement>("input:checked")].map(input => input.dataset.family));
+  if (families.size > 1) { setStatus("ready", "Choose mainnets or testnets, not both at once."); return; }
+  setStatus("checking", "Getting a quote…");
+  const result = record(await request(`${base}/networks/quote`, { chainIds }, csrf, 60_000));
+  networksView = networkView(result.view as Json);
+  if (result.bundle === null) { networksOpen = false; networksQuote = null; setStatus("ready", "Your account is already on those networks."); return; }
+  const bundle = record(result.bundle), payment = record(bundle.payment), names = (bundle.networks as { name: string }[]).map(item => item.name);
+  const wei = BigInt(string(payment.value, 80)), eth = `${wei / 10n ** 18n}.${(wei % 10n ** 18n).toString().padStart(18, "0").slice(0, 6)} ETH`;
+  networksQuote = { bundleId: string(bundle.id, 36), challenge: string(result.challenge, 66) };
+  element("wallet-networks-quote").textContent = `Adding ${names.join(" and ")} costs ${eth}. Center pays. One passkey prompt confirms it.`;
+  setStatus("ready", "Quote ready. Deploy when you are.");
+}
+async function networksDeploy() {
+  if (!networksQuote || !configuration) throw new InvalidResponse();
+  const challenge = networksQuote.challenge; if (!/^0x[0-9a-fA-F]{64}$/.test(challenge)) throw new InvalidResponse();
+  nativePrompt = new AbortController(); setStatus("authenticating", "Approve the new networks with your passkey."); render();
+  const credential = await navigator.credentials.get({ publicKey: { rpId: configuration.rpId, challenge: Uint8Array.from(challenge.slice(2).match(/../g)!.map(pair => parseInt(pair, 16))),
+    userVerification: "required", timeout: 90_000 }, signal: nativePrompt.signal });
+  if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAssertionResponse)) throw new InvalidResponse();
+  const response = credential.response; nativePrompt = null;
+  setStatus("checking", "Funding the deployments…");
+  const result = record(await request(`${base}/networks/approve`, { bundleId: networksQuote.bundleId, assertion: { credentialId: encode(credential.rawId),
+    userHandle: response.userHandle ? encode(response.userHandle) : null, authenticatorData: encode(response.authenticatorData),
+    clientDataJSON: encode(response.clientDataJSON), signature: encode(response.signature) } }, csrf, 60_000));
+  networksView = networkView(result.view as Json); networksQuote = null; networksOpen = false;
+  setStatus("checking", "Deploying your account on the new networks. This can take a few minutes…");
+}
+async function networksStatus() {
+  if (!session) return;
+  networksView = networkView(await request(`${base}/networks/status`, {}, csrf, 60_000));
+  render();
+  if (networksView.pending.length) setStatus("checking", "Deploying your account on the new networks. This can take a few minutes…");
+  else setStatus("ready", `Your account is on ${networksView.networks.filter(item => item.state === "deployed").length} networks.`);
+}
+if (networksAdd && networksForm) {
+  networksAdd.addEventListener("click", () => openNetworks());
+  networksForm.addEventListener("submit", event => { event.preventDefault(); void run(networksQuoteAction); });
+  element("wallet-networks-deploy").addEventListener("click", () => void run(networksDeploy));
+  element("wallet-networks-cancel").addEventListener("click", () => { networksOpen = false; networksQuote = null; render(); });
 }
 signIn.addEventListener("click", () => void run(login));
 retry.addEventListener("click", () => { if (retryAction) void run(retryAction); });

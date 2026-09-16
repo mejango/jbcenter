@@ -18,6 +18,7 @@ import type { PostgresWalletLoginStore } from './loginPostgres.js';
 import type { PostgresWalletHandoffStore } from './handoffPostgres.js';
 import type { PostgresWalletPolicyStore } from './policyPostgres.js';
 import type { PostgresWalletPaymentReviewStore } from './paymentReviewsPostgres.js';
+import type { createWalletNetworks } from './networks.js';
 import { publicWalletPaymentCentralReview } from './paymentPublic.js';
 import { mountWalletSignup, type WalletSignupSiteOptions } from './signupSite.js';
 import { mountWalletRecovery, type WalletRecoverySiteOptions } from './recoverySite.js';
@@ -40,6 +41,8 @@ export interface WalletSiteOptions {
   policy: Pick<PostgresWalletPolicyStore, 'readActivePolicy'>;
   refresh: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
   payments?: Pick<PostgresWalletPaymentReviewStore, 'getForSession' | 'approve' | 'cancel'>;
+  /** The account on more chains (quote, one passkey approval, Center-paid Relayr bundle, per-chain status). */
+  networks?: Pick<ReturnType<typeof createWalletNetworks>, 'list' | 'quote' | 'approve' | 'status'>;
   onEvent?: (event: { action: string; outcome: 'ok' | 'rejected' | 'unavailable'; code?: string; detail?: Record<string, unknown> }) => void;
 }
 
@@ -95,7 +98,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   });
   // The wallet's own paths under `base`. On the credential host nothing else may execute.
   const walletPrefixes = ['/assets/', '/authorize/', '/config', '/create', '/handoff/', '/launch', '/login/', '/logout', '/payment',
-    '/payment-reviews/', '/recover', '/recovery/', '/session', '/signup/'];
+    '/networks', '/payment-reviews/', '/recover', '/recovery/', '/session', '/signup/'];
   const isWalletPath = (path: string) => path === (base || '/') || path === `${base}/` || walletPrefixes.some(prefix => path.startsWith(base + prefix));
   const legacyPrefix = '/wallet';
   if (base === '') app.use('*', async (c, next) => {
@@ -276,6 +279,27 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     if (!session) reject(403, 'WALLET_HTTP_SESSION');
     return session;
   };
+  const networks = () => { if (!options.networks) reject(503, 'WALLET_NETWORKS_UNAVAILABLE'); return options.networks; };
+  app.get(`${base}/networks`, async c => { const service = networks(), session = await paymentSession(c, false); return c.json(await service.list(session)); });
+  app.post(`${base}/networks/status`, async c => {
+    const service = networks(), session = await paymentSession(c, true);
+    fields(await readWalletJson(c.req.raw), []);
+    return c.json(await service.status(session));
+  });
+  app.post(`${base}/networks/quote`, async c => {
+    const service = networks(), session = await paymentSession(c, true);
+    const body = fields(await readWalletJson(c.req.raw), ['chainIds']);
+    const result = await service.quote(session, { chainIds: body.chainIds as number[] });
+    emit('networks_quote', 'ok');
+    return c.json({ bundle: result.bundle, challenge: result.challenge ?? null, view: result.view });
+  });
+  app.post(`${base}/networks/approve`, async c => {
+    const service = networks(), session = await paymentSession(c, true);
+    const body = fields(await readWalletJson(c.req.raw), ['bundleId', 'assertion']);
+    const result = await service.approve(session, { bundleId: body.bundleId as string, assertion: assertion(body.assertion) });
+    emit('networks_approve', 'ok');
+    return c.json(result);
+  });
   app.get(`${base}/payment-reviews/:id`, async c => {
     const service = payments(), session = await paymentSession(c, false);
     return c.json(publicWalletPaymentCentralReview(await service.getForSession(c.req.param('id'), session.id)));

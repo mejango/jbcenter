@@ -50,6 +50,8 @@ export const requiredVitestSuites = [
   "test/rest-wallet-signup-postgres.integration.test.ts",
   "test/rest-wallet-signup-evm-postgres.integration.test.ts",
   "test/rest-wallet-signup-site.test.ts",
+  "test/rest-wallet-networks.test.ts",
+  "test/rest-wallet-networks-postgres.integration.test.ts",
   "test/rest-wallet-passkey-recovery.test.ts",
   "test/rest-wallet-passkey-recovery-postgres.integration.test.ts",
   "test/rest-wallet-recovery-kit.test.ts",

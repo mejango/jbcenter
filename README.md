@@ -354,6 +354,7 @@ The remaining controls are environment variables:
 - `MAX_INTENTS_PER_CLIENT` — lifetime intent count per client; default `10000`.
 - `MAX_STORAGE_BYTES_PER_CLIENT` — lifetime stored envelope bytes per client; default 1 GiB.
 - `WALLET_ORIGIN` — hosted passkey wallet origin (for example `https://my.juicebox.center`); mounts the wallet site with the reviewed Base manifest.
+- `WALLET_NETWORKS_PAYER_KEY` — optional private key funding Relayr bundles that deploy an account on more chains (Base ETH for Optimism and Arbitrum, Base Sepolia ETH for the testnets). A separate key: the creation and recovery keys track their own nonces.
 - `WALLET_LEGACY_ORIGINS` — optional comma-separated former wallet origins; requests on those hosts redirect (301) to the same path on `WALLET_ORIGIN`.
 - `WALLET_CREATION_SIGNER_KEY`, `WALLET_CREATION_POOL_ID`, `WALLET_CREATION_ALLOCATION_WEI`, `WALLET_CREATION_INITIAL_NONCE` — together, the dedicated Base creation treasury: its private key, permanent pool UUID, whole allocation in wei and the sender's expected first nonce. Startup fails if only some are set; see [WALLET_SIGNUP.md](WALLET_SIGNUP.md).
 - `WALLET_RECOVERY_SIGNER_KEY`, `WALLET_RECOVERY_MAX_OPERATIONS`, `WALLET_RECOVERY_MAX_COST_WEI` — together, the dedicated Base recovery relay: its private key (distinct from creation), the lifetime operation cap and the whole fee budget in wei.

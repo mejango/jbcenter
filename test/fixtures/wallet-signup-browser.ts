@@ -17,6 +17,11 @@ import { PostgresWalletRecoveryFlowStore } from '../../src/rest/wallet/recoveryF
 import { createLocalAnvilWalletRecovery } from '../../src/rest/wallet/recoveryLocalAnvil.js';
 import { createLocalWalletRecovery } from '../../src/rest/wallet/recoveryService.js';
 import { createWalletAuthorityChain } from '../../src/rest/wallet/authorityChain.js';
+import { createWalletNetworks } from '../../src/rest/wallet/networks.js';
+import { PostgresWalletAuthorityStore } from '../../src/rest/wallet/authorityPostgres.js';
+import { PostgresWalletNetworksStore } from '../../src/rest/wallet/networksPostgres.js';
+import { RELAYR_NATIVE_TOKEN, RELAYR_PAYMENT_ADDRESS, RELAYR_PAYMENT_SELECTOR } from '../../src/rest/sponsorship/constants.js';
+import { RELAYR_PAYMENT_RUNTIME } from './relayr-payment.js';
 import { exerciseRecoveryBrowser } from './wallet-recovery-browser.js';
 import { createWalletSite } from '../../src/rest/wallet/site.js';
 import { walletSignupCookie } from '../../src/rest/wallet/http.js';
@@ -68,11 +73,39 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     rotation: createLocalAnvilWalletRecovery({ pool: options.pool, endpoint: options.fixture.endpoint, expectedGenesisHash: options.fixture.expectedGenesisHash,
       signer: relay, manifest: options.fixture.manifest, utility: options.fixture.utility, maximumOperations: 2, maximumCostWei: '1000000000000000000' }) }) : null;
   if (kitMode) await options.fixture.rpc('anvil_setBalance', [relay.address, toHex(10n ** 20n)]);
+  // The account on more chains: Relayr is faked (one quote, then "Included" once the payment landed),
+  // Optimism reads are faked (code appears after the payment), the payment itself lands on the Base anvil.
+  const networksPayer = privateKeyToAccount(`0x${'88'.repeat(32)}`), networksBundleUuid = 'c0ffee00-4444-4111-aaaa-333333333333';
+  let networksPaid = false;
+  await options.fixture.rpc('anvil_setBalance', [networksPayer.address, toHex(10n ** 18n)]);
+  await options.fixture.rpc('anvil_setCode', [RELAYR_PAYMENT_ADDRESS, RELAYR_PAYMENT_RUNTIME]);
+  const networksProvider = { entries: [] as { chain: number; target: string; data: string; value: string }[],
+    async createIndependent(entries: { chain: number; target: string; data: string; value: string }[]) {
+      networksProvider.entries = entries; const deadline = Math.floor(Date.now() / 1000) + 900;
+      return { bundle_uuid: networksBundleUuid, tx_uuids: entries.map((_, i) => `d1d1d1d1-0000-4000-8000-00000000000${i}`),
+        payment_info: [{ chain: 8453, target: RELAYR_PAYMENT_ADDRESS, token: RELAYR_NATIVE_TOKEN, amount: '12000000000000', payment_deadline: String(deadline),
+          calldata: `${RELAYR_PAYMENT_SELECTOR}${networksBundleUuid.replaceAll('-', '')}${'0'.repeat(32)}${deadline.toString(16).padStart(64, '0')}` }] }; },
+    async status(uuid: string) { return { bundle_uuid: uuid, transactions: networksProvider.entries.map((entry, i) => ({ tx_uuid: `d1d1d1d1-0000-4000-8000-00000000000${i}`,
+      request: entry, status: { state: networksPaid ? 'Included' : 'Pending', data: networksPaid ? { hash: `0x${'ab'.repeat(32)}` } : {} } })) }; } };
+  let networksWalletAddress = '';
+  const networksRpc = { async request(chainId: number, method: string, params: readonly unknown[]) {
+    if (chainId === 8453) { const result = await options.fixture.rpc(method, params); if (method === 'eth_sendRawTransaction') networksPaid = true; return result; }
+    // Optimism: the creation stack reads come from the same anvil bytes; the account appears once the payment landed.
+    if (method === 'eth_getCode') {
+      const address = String(params[0]).toLowerCase();
+      if (address === networksWalletAddress) return networksPaid ? '0x6001' : '0x';
+      return options.fixture.rpc(method, params);
+    }
+    if (method === 'eth_call') return `0x${'00'.repeat(12)}${networksWalletAddress.slice(2)}`;
+    throw new Error(`Unexpected ${method} on chain ${chainId}`); } };
+  const networks = createWalletNetworks({ enrollments: options.enrollments, authority: new PostgresWalletAuthorityStore(options.pool),
+    store: new PostgresWalletNetworksStore(options.pool), provider: networksProvider, rpc: networksRpc,
+    payer: { address: networksPayer.address, signTransaction: transaction => networksPayer.signTransaction(transaction) } });
   const bundle = async (entry: string) => (await build({ entryPoints: [entry], bundle: true, platform: 'browser', format: 'esm', write: false })).outputFiles[0]!.text;
   const [browserScript, signupBrowserScript] = await Promise.all([bundle('src/rest/web/wallet.ts'), bundle('src/rest/web/walletSignup.ts')]);
   const recoveryBrowserScript = recovery ? await bundle('src/rest/web/walletRecoveryJourney.ts') : undefined;
   app = createWalletSite({ origin, basePath: '', audience: 'https://juicebox.center', browserScript, signup, signupBrowserScript, login,
-    ...(recovery ? { recovery, recoveryBrowserScript: recoveryBrowserScript! } : {}),
+    ...(recovery ? { recovery, recoveryBrowserScript: recoveryBrowserScript! } : {}), networks,
     // No app handoff is involved in this signup/login observation.
     handoff: {} as never, policy: {} as never,
     // The site kicks the authority refresh after setup; holding it makes the "preparing" phase
@@ -153,6 +186,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await proceed('Approve creating your account');
     await contains('Creating your account');
     const originalAddress = await page.locator('#signup-address').textContent();
+    networksWalletAddress = (originalAddress ?? '').toLowerCase();
     if (!kitMode) expect((await page.locator('#signup-recovery').textContent())?.toLowerCase()).toBe(enrollmentBackupAccount.address.toLowerCase());
     // A manual check while creation is still running answers at once; the page's own polling then
     // notices the created wallet, so the kit appears without another click.
@@ -239,6 +273,22 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await contains('You are signed in');
     expect((await page.locator('#wallet-address').textContent())?.toLowerCase()).toBe(originalAddress?.toLowerCase());
     expect(await page.locator('#wallet-passkey').textContent()).toBe('Juicebox test');
+    if (!kitMode) {
+      // "Add more": one quote, one passkey prompt, Center pays on Base, Optimism shows the account.
+      await expect.poll(() => page.getByRole('button', { name: 'Add more' }).isVisible()).toBe(true);
+      await page.getByRole('button', { name: 'Add more' }).click();
+      await page.getByLabel('Optimism', { exact: true }).check();
+      await page.getByRole('button', { name: 'Get quote' }).click();
+      await expect.poll(() => page.locator('#wallet-networks-quote').textContent(), { timeout: 15000 }).toContain('Adding Optimism costs 0.000012 ETH. Center pays.');
+      expect(networksProvider.entries).toHaveLength(1);
+      expect(networksProvider.entries[0]).toMatchObject({ chain: 10, target: options.fixture.manifest.factory.address, value: '0' });
+      expect(networksProvider.entries[0]!.data.startsWith('0x1688f0b9')).toBe(true); // createProxyWithNonce, the same call that created it on Base
+      await page.getByRole('button', { name: 'Deploy', exact: true }).click();
+      await expect.poll(() => page.locator('#wallet-networks').textContent(), { timeout: 30000 }).toBe('Base\nOptimism');
+      await contains('Your account is on 2 networks');
+      const payment = await options.fixture.rpc<{ to: string; value: string }[]>('eth_getBlockByNumber', ['latest', true]).then(block => (block as unknown as { transactions: { to: string; value: string }[] }).transactions);
+      expect(payment.some(tx => tx.to?.toLowerCase() === RELAYR_PAYMENT_ADDRESS.toLowerCase() && BigInt(tx.value) === 12000000000000n)).toBe(true);
+    }
     if (recovery) {
       await exerciseRecoveryBrowser({ page, context, cdp, authenticatorId, origin, recovery, login, requestBodies, kitText: recoveryKitText!,
         hold: { arm: () => { refreshHold = new Promise<void>(resolve => { releaseRefresh = resolve; }); }, release: () => { releaseRefresh(); refreshHold = Promise.resolve(); } } });

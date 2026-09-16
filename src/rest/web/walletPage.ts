@@ -8,7 +8,11 @@ export function walletPage(signup = false, recovery = false, base = '/wallet'): 
 <h1>Your account</h1><p>Seamless access to approved Juicebox apps.</p>
 <p id="wallet-destination" hidden></p>
 <p id="wallet-status" role="status" aria-live="polite" aria-atomic="true" data-state="loading">Checking your wallet…</p>
-<section id="wallet-account" aria-label="Connected account" hidden><dl><dt>Account address</dt><dd id="wallet-address"></dd><dt>Network</dt><dd>Base</dd><dt id="wallet-passkey-label">Passkey</dt><dd id="wallet-passkey"></dd></dl></section>
+<section id="wallet-account" aria-label="Connected account" hidden><dl><dt>Account address</dt><dd id="wallet-address"></dd><dt>Networks</dt><dd id="wallet-networks">Base</dd><dt id="wallet-passkey-label">Passkey</dt><dd id="wallet-passkey"></dd></dl>
+<p><button id="wallet-networks-add" class="quiet" type="button" hidden>Add more</button></p>
+<form id="wallet-networks-form" hidden><fieldset id="wallet-networks-choices"><legend>Add your account to</legend></fieldset>
+<p id="wallet-networks-quote" hidden></p>
+<div class="actions"><button id="wallet-networks-quote-button" type="submit">Get quote</button><button id="wallet-networks-deploy" type="button" hidden>Deploy</button><button id="wallet-networks-cancel" class="quiet" type="button">Cancel</button></div></form></section>
 <div class="actions"><button id="wallet-signin" type="button" hidden>Sign in with a passkey</button>
 <button id="wallet-retry" type="button" hidden>Retry</button>
 <button id="wallet-cancel" type="button" class="secondary" hidden>Cancel</button>
@@ -25,7 +29,7 @@ export function walletCss(): string {
 *{box-sizing:border-box}body{margin:0}main{width:min(100%,38rem);margin:clamp(1rem,10vh,6rem) auto;padding:1.5rem}
 [hidden]{display:none!important}.brand{color:inherit;font-size:.8rem;letter-spacing:.06em}h1{font-size:clamp(1.6rem,6vw,2.2rem);line-height:1.15;margin:2.5rem 0 1rem}
 p{line-height:1.6;overflow-wrap:anywhere}#wallet-status{color:#172019;font-weight:700;min-height:3rem;margin:1.75rem 0;font-size:.95rem;position:relative}#wallet-status::before{content:"⚡\\FE0E";position:absolute;left:-1.05em;top:0;font-size:1.4em;line-height:1.143em;text-align:center;-webkit-text-stroke:.045em currentColor}#wallet-status[data-state=error]::before,#wallet-status[data-state=retry]::before{content:"!"}#wallet-status:empty::before{content:none}
-#wallet-status[data-state=error],#wallet-status[data-state=retry]{color:#9c3028}#wallet-status a{color:inherit}@keyframes spin{to{transform:rotate(360deg)}}#wallet-status[data-state=busy]::before,#wallet-status[data-state=loading]::before,#wallet-status[data-state=checking]::before,#wallet-status[data-state=returning]::before{content:"⚡\\FE0E";display:inline-block;animation:spin 1s steps(8) infinite}dl{margin:0 0 1.5rem}dt{font-size:.8rem;color:#53614f}dd{margin:.5rem 0 1.2rem;overflow-wrap:anywhere}
+#wallet-status[data-state=error],#wallet-status[data-state=retry]{color:#9c3028}#wallet-status a{color:inherit}fieldset{border:0;padding:0;margin:0 0 1rem}legend{color:#4b5a4e;font-size:.9rem;margin-bottom:.5rem}label.choice{display:flex;gap:.6rem;align-items:center;margin:.4rem 0}#wallet-networks{white-space:pre-line}@keyframes spin{to{transform:rotate(360deg)}}#wallet-status[data-state=busy]::before,#wallet-status[data-state=loading]::before,#wallet-status[data-state=checking]::before,#wallet-status[data-state=returning]::before{content:"⚡\\FE0E";display:inline-block;animation:spin 1s steps(8) infinite}dl{margin:0 0 1.5rem}dt{font-size:.8rem;color:#53614f}dd{margin:.5rem 0 1.2rem;overflow-wrap:anywhere}
 .actions{display:flex;flex-wrap:wrap;gap:.75rem}button{min-height:3rem;padding:.75rem 1rem;font:inherit;border:1px solid #172019;border-radius:0;background:#172019;color:#fff;cursor:pointer;max-width:100%}
 button.secondary{background:transparent;color:inherit}button:disabled{cursor:wait;opacity:.55}button:hover:not(:disabled){background:#364532;color:white}
 :focus-visible{outline:3px solid #5275d1;outline-offset:4px}.note{font-size:.8rem;color:#53614f;margin-top:2rem}

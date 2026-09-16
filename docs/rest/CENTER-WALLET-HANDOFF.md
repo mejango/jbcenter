@@ -334,6 +334,22 @@ context, the login store, the app-grant readiness join, the refresh eligibility 
 bindings CHECK constraint (migration 042). Reads and prepared requests need no grant; execution
 always takes the passkey. Public read/prepare on the signed app API is a separate slice.
 
+## The account on more chains ("Add more", 2026-09-15 late)
+
+`src/rest/wallet/networks.ts`: the Base creation calldata carries no chain id, so replaying the
+exact `createProxyWithNonce` call reaches the same CREATE2 address on every chain where the stack
+sits at the same addresses; all 13 pins (Safe stack + passkey dependencies) verified by runtime
+hash on chains 1, 10, 42161, 8453, 11155111, 11155420, 84532, 421614 on 2026-09-15. Relayr runs
+the calls from one prepaid bundle per family (`createIndependent`, nonce mode Disabled); the
+payment is one `prepayment` call on Base (mainnets) or Base Sepolia (testnets) from Center's payer
+(`WALLET_NETWORKS_PAYER_KEY`, its own nonce space). One passkey prompt approves the chain list,
+bundle uuid, payment and calldata hash (`walletNetworksDocument`). `status()` treats code at the
+address on a chain as deployed. Offered now: Optimism, Arbitrum and the four testnets (Center
+pays). Ethereum mainnet is listed but not offered until the account-pays path exists.
+Routes: `GET /networks`, `GET /networks/status`, `POST /networks/quote`, `POST /networks/approve`
+(session cookie, CSRF on mutations). Tables: `rest_wallet_network_bundles`, `rest_wallet_networks`
+(migration 043).
+
 ## Passkey name (2026-09-15)
 
 `rest_wallet_credentials.passkey_name` (migration 041) keeps the name typed at signup or recovery;

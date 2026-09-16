@@ -111,7 +111,7 @@ suite("real PostgreSQL workers and unforked Anvil exact deployment recovery", ()
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 4 });
     // Distinct connection pool: visibility here proves the worker's journal and bytes committed.
     deliveryReader = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 1, query_timeout: 3000 });
-    for (const name of ["013_rest_wallet_ceremonies.sql", "015_rest_wallet_enrollment.sql", "041_wallet_passkey_name.sql", "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql",
+    for (const name of ["013_rest_wallet_ceremonies.sql", "015_rest_wallet_enrollment.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql",
       "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     store = new PostgresWalletDeploymentStore(pool); enrollments = new PostgresWalletEnrollmentStore(pool);
