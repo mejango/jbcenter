@@ -17,14 +17,17 @@ let pending: { path: string; body: unknown; csrf: string } | null = null;
 let rotation: Parameters<typeof assertWalletRecoveryRotationReview>[0] | null = null;
 let secret: WalletRecoverySecret | null = null, kit: WalletRecoveryKit | null = null, selectedWallet: Address | null = null;
 let disposed = false, pollCount = 0;
-const kitMode = () => el<HTMLFieldSetElement>('recovery-method').querySelector<HTMLInputElement>('input:checked')?.value === 'kit';
+const method = () => el<HTMLFieldSetElement>('recovery-method').querySelector<HTMLInputElement>('input:checked')?.value ?? 'kit';
+// Backup file and backup password both hold the backup key; a wallet signs with the browser's provider instead.
+const kitMode = () => method() !== 'wallet';
+const words = () => el<HTMLTextAreaElement>('recovery-words');
 const steps: Record<WalletRecoveryView['phase'], string> = {
-  awaiting_registration: 'Create your replacement passkey.', awaiting_possession: 'Prove access to the replacement passkey and original recovery owner.',
-  awaiting_rotation_approval: 'Review and approve replacement of the lost passkey.', rotating: 'Replacing your passkey. Check this recovery for its original transaction results.',
-  rotation_failed: 'The replacement did not complete. Check this recovery before approving any new attempt.',
+  awaiting_registration: 'Create your replacement passkey.', awaiting_possession: 'Prove access to the replacement passkey and your backup key.',
+  awaiting_rotation_approval: 'Review and approve replacement of the lost passkey.', rotating: 'Replacing your passkey. Check again for the transaction results.',
+  rotation_failed: 'The replacement did not complete. Check again before approving a new attempt.',
   awaiting_activation: 'Your replacement passkey is in place. Continue to finish setting up your account.',
   preparing_sign_in: 'Preparing your login. This can take up to a minute…',
-  ready_to_sign_in: 'Your replacement passkey is ready. Sign in with a fresh passkey prompt.', expired: 'This unfinished recovery expired. Its replacement passkey is not active.',
+  ready_to_sign_in: 'Your replacement passkey is ready. Sign in with it.', expired: 'This unfinished recovery expired. Its replacement passkey is not active.',
 };
 // While work is in flight the status line's mark spins (Croptop's text ticker) instead of showing the lightning.
 // A native prompt waiting on the person is not work in flight; the mark holds still for it.
@@ -64,8 +67,8 @@ async function request(path: string, body?: unknown, proof = csrf): Promise<any>
 }
 function kitMatches(identity: { walletAddress: string; recoveryOwner: string; initializerHash: string }) {
   if (kit && (!sameAddress(kit.walletAddress, identity.walletAddress) || !sameAddress(kit.recoveryOwner, identity.recoveryOwner) || kit.initializerHash !== identity.initializerHash))
-    throw new Error('This backup file does not match the selected wallet.');
-  if (secret && !sameAddress(secret.recoveryOwner, identity.recoveryOwner)) throw new Error('Use the original backup password for this wallet.');
+    throw new Error('This backup file does not match this account.');
+  if (secret && !sameAddress(secret.recoveryOwner, identity.recoveryOwner)) throw new Error('Use the backup password for this account.');
 }
 function accept(result: { view: WalletRecoveryView | null; csrfToken?: string }) {
   const value = result.view;
@@ -83,7 +86,7 @@ function accept(result: { view: WalletRecoveryView | null; csrfToken?: string })
   if (!value || value.phase !== view?.phase) { rotation = null; pollCount = 0; }
   view = value; known = true;
   if (value?.phase === 'ready_to_sign_in') { secret = null; kit = null; sessionStorage.removeItem('center:recovery:browser:' + value.id); }
-  message(value ? steps[value.phase] : reference.value ? 'Resume the original recovery with its replacement passkey and recovery owner.' : 'Open your backup file, or use your original recovery wallet.');
+  message(value ? steps[value.phase] : reference.value ? 'Resume the original recovery with its replacement passkey and your backup.' : 'Open your backup file, or choose another way in below.');
 }
 function render() {
   spin();
@@ -91,9 +94,11 @@ function render() {
   name.disabled = busy; wallet.disabled = busy;
   const recoverable = view?.phase !== 'ready_to_sign_in';
   el<HTMLFieldSetElement>('recovery-method').hidden = !known || !recoverable; el<HTMLFieldSetElement>('recovery-method').disabled = busy;
-  el('recovery-kit').hidden = !known || !recoverable || !kitMode();
-  el<HTMLInputElement>('recovery-file').disabled = busy; el<HTMLTextAreaElement>('recovery-words').disabled = busy;
-  el<HTMLButtonElement>('recovery-restore').disabled = busy;
+  el('recovery-kit').hidden = !known || !recoverable || method() !== 'kit';
+  el('recovery-password').hidden = !known || !recoverable || method() !== 'password';
+  // The backup file carries the account address; the other ways in ask for it.
+  el('recovery-wallet-box').hidden = method() === 'kit';
+  el<HTMLInputElement>('recovery-file').disabled = busy; words().disabled = busy;
   el('recovery-details').hidden = !view;
   el('recovery-name').textContent = view?.passkeyName ?? ''; el('recovery-address').textContent = view?.walletAddress ?? '';
   el('recovery-owner').textContent = view?.recoveryOwner ?? ''; el('recovery-prior').textContent = view?.priorSigner ?? '';
@@ -118,7 +123,7 @@ async function send(path: string, body: unknown, proof = csrf) {
     fields(result, ['restarted', 'view']); if (result.restarted !== true || result.view !== null) invalid();
     sessionStorage.removeItem(locatorKey); reference.value = ''; wallet.value = '';
     secret = null; kit = null; selectedWallet = null; csrf = '';
-    el<HTMLTextAreaElement>('recovery-words').value = ''; el<HTMLInputElement>('recovery-file').value = '';
+    words().value = ''; el<HTMLInputElement>('recovery-file').value = '';
   }
   accept(result); pending = null;
   if (path === 'restart') message('Expired recovery closed. Start again to create a new replacement passkey.');
@@ -146,11 +151,11 @@ async function run(action: () => Promise<void>) {
 }
 function provider(): Ethereum {
   const value = (window as unknown as { ethereum?: Ethereum }).ethereum;
-  if (!value?.request) throw new Error('Open this page with your original recovery wallet browser extension available.'); return value;
+  if (!value?.request) throw new Error('Open this page in the browser that has the wallet you chose at signup.'); return value;
 }
 async function recoveryOwner(expected?: string) {
   const accounts = await provider().request({ method: 'eth_requestAccounts' });
-  if (!Array.isArray(accounts) || !isAddress(accounts[0]) || (expected && !sameAddress(accounts[0], expected))) throw new Error('Select the original recovery wallet before continuing.');
+  if (!Array.isArray(accounts) || !isAddress(accounts[0]) || (expected && !sameAddress(accounts[0], expected))) throw new Error('Select the wallet you chose at signup before continuing.');
   return getAddress(accounts[0]);
 }
 async function signBackup(document: TypedDataDefinition, owner: string) {
@@ -164,7 +169,7 @@ async function signBackup(document: TypedDataDefinition, owner: string) {
   return signature;
 }
 async function assertion(challenge: string, rpId: string) {
-  if (rpId !== location.hostname || !window.isSecureContext) throw new Error('Open the original secure wallet page.');
+  if (rpId !== location.hostname || !window.isSecureContext) throw new Error('Open the original secure account page.');
   native = new AbortController(); render();
   const value = await navigator.credentials.get({ publicKey: { rpId, challenge: challengeBytes(challenge), userVerification: 'required', timeout: 90000 }, signal: native.signal });
   if (!(value instanceof PublicKeyCredential) || !(value.response instanceof AuthenticatorAssertionResponse)) throw new Error('The passkey response is unavailable.');
@@ -211,7 +216,7 @@ async function advance() {
       const result = await request('rotation/review', {}); assertWalletRecoveryRotationReview(result, selected); rotation = result;
       el('recovery-nonce').textContent = result.review.safeNonce; el('recovery-factory').textContent = result.review.createSigner.to;
       el('recovery-calls').textContent = JSON.stringify({ createSigner: result.review.createSigner, swapOwner: result.review.swapOwner }, null, 2);
-      message('Review the wallet and both exact calls below, then approve replacement with your recovery owner.');
+      message('Review the account and both exact calls below, then approve the replacement with your backup.');
     } else {
       const document = assertWalletRecoveryRotationReview(rotation, selected), backupSignature = await signBackup(document, view.recoveryOwner);
       await send('rotation/approve', { backupSignature }); rotation = null;
@@ -226,8 +231,9 @@ async function advance() {
 async function resumeRecovery() {
   const recoveryId = reference.value.trim(); if (!uuid.test(recoveryId)) throw new Error('Enter the recovery reference from the original recovery.');
   const expectedWallet = view?.walletAddress ?? kit?.walletAddress ?? wallet.value.trim();
-  if (!isAddress(expectedWallet)) throw new Error('Enter the original wallet address or open its backup file.');
+  if (!isAddress(expectedWallet)) throw new Error('Enter the account address or open its backup file.');
   selectedWallet = getAddress(expectedWallet);
+  if (method() === 'password') loadPassword();
   const owner = kitMode() ? secret?.recoveryOwner : await recoveryOwner(view?.recoveryOwner);
   if (!owner) throw new Error('Open your backup file or enter your backup password again.');
   const begun = await request('resume/begin', { recoveryId }), challenge = begun.challenge, document = challenge.document as TypedDocument, value = document.message;
@@ -250,28 +256,30 @@ async function resumeRecovery() {
 }
 form.addEventListener('submit', event => { event.preventDefault(); void run(async () => {
   if (reference.value || pending) throw new Error('Resume or check the original recovery before starting another.');
-  const address = wallet.value.trim(); if (!isAddress(address)) throw new Error('Enter the wallet address from your backup file.');
+  if (method() === 'password') loadPassword();
+  const address = wallet.value.trim(); if (!isAddress(address)) throw new Error(method() === 'kit' ? 'Open your backup file first.' : 'Enter the account address. It is in your backup file.');
   if (kitMode() && !secret) throw new Error('Open your backup file or enter your backup password first.');
-  if (kit && !sameAddress(kit.walletAddress, address)) throw new Error('Use the wallet address in your backup file.');
+  if (kit && !sameAddress(kit.walletAddress, address)) throw new Error('Use the account address in your backup file.');
   if (!kitMode()) await recoveryOwner(); selectedWallet = getAddress(address);
   await send('begin', { walletAddress: selectedWallet, passkeyName: name.value.trim() });
 }); });
-el('recovery-method').addEventListener('change', () => { if (!kitMode()) { secret = null; kit = null; el<HTMLTextAreaElement>('recovery-words').value = ''; } render(); });
+el('recovery-method').addEventListener('change', () => { secret = null; kit = null; words().value = ''; if (!view) wallet.value = ''; render(); });
 el<HTMLInputElement>('recovery-file').addEventListener('change', event => { void run(async () => {
   const input = event.target as HTMLInputElement, file = input.files?.[0]; input.value = '';
-  if (!file || file.size > 8192) throw new Error('Choose the backup file you saved for this wallet.');
+  if (!file || file.size > 8192) throw new Error('Choose the backup file you saved for this account.');
   const value = readWalletRecoveryKit(await file.text(), view ? { network: 'base', chainId: 8453, walletAddress: view.walletAddress,
     recoveryOwner: view.recoveryOwner, initializerHash: view.initializerHash } : undefined);
   kit = value; secret = { mnemonic: value.mnemonic, recoveryOwner: value.recoveryOwner }; wallet.value = value.walletAddress;
-  el<HTMLTextAreaElement>('recovery-words').value = ''; el('recovery-kit-status').textContent = 'Backup file loaded in this tab.';
+  words().value = ''; el('recovery-kit-status').textContent = 'Backup file loaded in this tab.';
   message('Backup file loaded. Continue the original recovery, or name your replacement passkey.');
 }); });
-el('recovery-restore').addEventListener('click', () => { void run(async () => {
-  const input = el<HTMLTextAreaElement>('recovery-words'), mnemonic = input.value; input.value = '';
+/** The backup password is read at the moment it is needed and never kept in the field. */
+function loadPassword() {
+  const mnemonic = words().value; if (!mnemonic.trim()) { if (secret) return; throw new Error('Enter your backup password.'); }
+  words().value = '';
   const account = recoveryAccountFromPhrase(mnemonic, view?.recoveryOwner); kit = null;
   secret = { mnemonic: mnemonic.trim().toLowerCase().replace(/\s+/g, ' '), recoveryOwner: account.address };
-  el('recovery-kit-status').textContent = 'Backup password loaded in this tab.'; message('Backup password loaded. Use the original wallet address.');
-}); });
+}
 next.addEventListener('click', () => { void run(advance); }); check.addEventListener('click', () => { void run(observe); });
 el('recovery-restart').addEventListener('click', () => { void run(() => send('restart', {})); });
 resume.addEventListener('click', () => { void run(resumeRecovery); }); cancel.addEventListener('click', () => native?.abort());
@@ -279,7 +287,7 @@ const timer = setInterval(() => {
   if (!busy && !pending && polling() && !document.hidden && navigator.onLine && pollCount++ < 90) void run(observe);
 }, 2000);
 window.addEventListener('pagehide', () => { disposed = true; native?.abort(); clearInterval(timer); secret = null; kit = null;
-  el<HTMLTextAreaElement>('recovery-words').value = ''; el<HTMLInputElement>('recovery-file').value = ''; }, { once: true });
+  words().value = ''; el<HTMLInputElement>('recovery-file').value = ''; }, { once: true });
 void run(async () => {
   const url = new URL(location.href);
   if (url.hash || url.searchParams.size > 1 || [...url.searchParams].some(([key, value]) => key === 'intent' ? !/^[A-Za-z0-9_-]{43}$/.test(value)

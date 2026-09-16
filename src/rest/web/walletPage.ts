@@ -5,7 +5,7 @@ export function walletPage(signup = false, recovery = false, base = '/wallet'): 
 <meta name="referrer" content="no-referrer"><title>Your account | Juicebox</title>
 <link rel="stylesheet" href="${base}/assets/wallet.css"><script type="module" src="${base}/assets/wallet.js"></script></head>
 <body><main><a class="brand" href="${base || '/'}">JUICEBOX CENTER</a>
-<h1>Your account</h1><p>Seamless access to approved Juicebox apps.</p>
+<h1>Your account</h1>
 <p id="wallet-destination" hidden></p>
 <p id="wallet-status" role="status" aria-live="polite" aria-atomic="true" data-state="loading">Checking your wallet…</p>
 <section id="wallet-account" aria-label="Connected account" hidden><dl><dt>Account address</dt><dd id="wallet-address"></dd><dt id="wallet-passkey-label">Passkey</dt><dd id="wallet-passkey"></dd><dt>Networks</dt><dd><span id="wallet-networks">Base</span> <button id="wallet-networks-add" class="link" type="button" hidden>Add more</button></dd></dl>
@@ -18,12 +18,11 @@ export function walletPage(signup = false, recovery = false, base = '/wallet'): 
 <p id="wallet-device-hint">Open this link on the other device. It creates its own passkey for this account; you approve it here.</p>
 <div id="wallet-device-code" class="qr"></div><p><a id="wallet-device-link" target="_blank" rel="noopener"></a></p>
 <div class="actions"><button id="wallet-device-approve" type="button" hidden>Approve this device</button><button id="wallet-device-cancel" class="link" type="button">Close</button></div></section></section>
-<div class="actions"><button id="wallet-signin" type="button" hidden>Sign in with a passkey</button>
+<div class="actions"><button id="wallet-signin" type="button" hidden>Sign in</button>
 <button id="wallet-retry" type="button" hidden>Retry</button>
 <button id="wallet-cancel" type="button" class="link" hidden>Cancel</button>
 <button id="wallet-logout" type="button" class="secondary" hidden>Sign out</button></div>
-<div id="wallet-links"><p class="note">Use a passkey already linked to your Center account. Payments still require your approval.</p>
-${signup ? '<p><a id="wallet-create" href="${base}/create" hidden>Create an account</a></p>' : ''}
+<div id="wallet-links">${signup ? '<p><a id="wallet-create" href="${base}/create" hidden>Sign up</a></p>' : ''}
 ${recovery ? '<p><a id="wallet-recover" href="${base}/recover" hidden>Recover a lost passkey</a></p>' : ''}</div>
 <noscript><p>Enable JavaScript to sign in with your passkey.</p></noscript>
 </main></body></html>`;

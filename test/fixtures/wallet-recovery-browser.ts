@@ -26,7 +26,7 @@ export async function exerciseRecoveryBrowser(options: {
   await contains('Open your backup file');
   await openBackup();
   await page.getByLabel('New passkey name').fill('Juicebox replacement');
-  await page.getByRole('button', { name: 'Start recovery', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await contains('Create your replacement passkey');
   await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
   await page.getByRole('button', { name: 'Create replacement passkey', exact: true }).click();
@@ -35,7 +35,7 @@ export async function exerciseRecoveryBrowser(options: {
   await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
   await page.getByRole('button', { name: 'Create replacement passkey', exact: true }).click();
   await contains('could not be confirmed');
-  await page.getByRole('button', { name: 'Check recovery' }).click();
+  await page.getByRole('button', { name: 'Check again' }).click();
   await contains('Prove access');
   await page.getByRole('button', { name: 'Verify both owners' }).click();
   await contains('Review and approve');
@@ -45,11 +45,11 @@ export async function exerciseRecoveryBrowser(options: {
   const wrongKit = JSON.stringify({ ...kit, walletAddress: '0x' + '66'.repeat(20) });
   await page.getByLabel('Open your backup file').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(wrongKit) });
   await contains('does not match');
-  await page.getByRole('button', { name: 'Check recovery' }).click();
+  await page.getByRole('button', { name: 'Check again' }).click();
   await page.getByRole('button', { name: 'Review passkey replacement' }).click();
   await page.getByRole('button', { name: 'Approve passkey replacement' }).click();
   await contains('could not be confirmed');
-  await page.getByRole('button', { name: 'Check recovery' }).click();
+  await page.getByRole('button', { name: 'Check again' }).click();
   await contains('Replacing your passkey');
   // Only the host worker may advance retained exact approval; GET merely reconciles.
   // The real page can poll status while the host progresses the same lane.
@@ -63,15 +63,15 @@ export async function exerciseRecoveryBrowser(options: {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
   }
-  await page.getByRole('button', { name: 'Check recovery' }).click();
+  await page.getByRole('button', { name: 'Check again' }).click();
   await contains('replacement passkey is in place');
   await context.clearCookies({ name: walletRecoveryCookie });
   await page.reload();
   await contains('Resume the original recovery');
   expect(await page.locator('#recovery-words').inputValue()).toBe('');
   await openBackup();
-  await page.getByText('Resume an existing recovery', { exact: true }).click();
-  await page.getByRole('button', { name: 'Resume recovery', exact: true }).click();
+  await page.getByText('Resume a recovery you started', { exact: true }).click();
+  await page.getByRole('button', { name: 'Resume', exact: true }).click();
   await contains('replacement passkey is in place');
   const newFlow = (await context.cookies()).find(cookie => cookie.name === walletRecoveryCookie)!;
   expect(newFlow.value).not.toBe(originalFlow.value);
@@ -82,7 +82,7 @@ export async function exerciseRecoveryBrowser(options: {
   options.hold.arm();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await contains('could not be confirmed');
-  await page.getByRole('button', { name: 'Check recovery' }).click();
+  await page.getByRole('button', { name: 'Check again' }).click();
   await contains('Preparing your login');
   expect(await page.locator('#wallet-status').getAttribute('data-state')).toBe('busy');
   options.hold.release();
@@ -97,7 +97,7 @@ export async function exerciseRecoveryBrowser(options: {
   await page.setViewportSize({ width: 320, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: new URL('recovery-mobile.png', out).pathname, fullPage: true });
-  await page.getByRole('link', { name: 'Sign in with your new passkey' }).click();
+  await page.getByRole('link', { name: 'Sign in', exact: true }).click();
   // A direct landing visit lands on the signup page; its "log in" link, or the finished signup's button, performs the sign-in.
   await page.getByRole('link', { name: 'log in' }).or(page.getByRole('button', { name: 'Log in', exact: true })).click();
   await expect.poll(() => page.locator('#explain-title').textContent()).toBe('Log in');

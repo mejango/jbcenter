@@ -84,6 +84,8 @@ describe("served Center signup page", () => {
     expect(box.statusLeft).toBeGreaterThanOrEqual(box.mainLeft - 0.5);
     expect(box.markLeft).toBeGreaterThanOrEqual(0);
     await page.setViewportSize({ width: 1200, height: 900 });
+    // Under load the held log-in request may not have reached the server yet.
+    await expect.poll(() => releaseLogin !== null, { timeout: 10_000 }).toBe(true);
     releaseLogin!();
     await expect.poll(() => page.locator("#signup-form").isVisible()).toBe(true);
     expect(await page.locator("body").textContent()).not.toContain("private-detail");

@@ -38,10 +38,10 @@ describe('recovery browser continuation and secret handling with modeled HTTP', 
       await page.getByRole('button', { name: 'Start again', exact: true }).click();
       await expect.poll(() => page.locator('#wallet-status').textContent()).toContain('could not be confirmed');
       expect(await page.getByRole('button', { name: 'Start again', exact: true }).isHidden()).toBe(true);
-      await page.getByRole('button', { name: 'Check recovery', exact: true }).click();
+      await page.getByRole('button', { name: 'Check again', exact: true }).click();
       await expect.poll(() => page.locator('#wallet-status').textContent()).toContain('Expired recovery closed');
       expect(await page.evaluate(() => sessionStorage.getItem('center:recovery:reference'))).toBeNull();
-      expect(await page.getByRole('button', { name: 'Start recovery', exact: true }).isVisible()).toBe(true);
+      expect(await page.getByRole('button', { name: 'Continue', exact: true }).isVisible()).toBe(true);
       expect(restarts).toBe(2); expect(begins).toBe(0);
       view = { id, passkeyName: 'Accepted attempt', rpId: 'localhost', origin, expiresAtMs: Date.now() + 3600000,
         proofExpiresAtMs: Date.now() - 1, walletAddress, recoveryOwner: secret.recoveryOwner, initializerHash,
@@ -89,19 +89,28 @@ describe('recovery browser continuation and secret handling with modeled HTTP', 
     const contains = async (text: string) => expect.poll(() => page.locator('#wallet-status').textContent()).toContain(text);
     try {
       await page.goto(origin + '/wallet/recover');
+      // The file carries the account address, so that field only appears for the other ways in.
+      await expect.poll(() => page.locator('#recovery-wallet-box').isHidden()).toBe(true);
+      await page.getByLabel('My backup password').check();
+      await expect.poll(() => page.locator('#recovery-wallet-box').isVisible()).toBe(true);
+      await page.getByRole('button', { name: 'Continue', exact: true }).click(); await contains('Enter your backup password');
+      await page.getByLabel('Backup password', { exact: true }).fill(secret.mnemonic);
+      await page.getByRole('button', { name: 'Continue', exact: true }).click(); await contains('Enter the account address');
+      expect(await page.getByLabel('Backup password', { exact: true }).inputValue()).toBe('');
+      await page.getByLabel('My backup file').check();
       await page.getByLabel('Open your backup file').setInputFiles({ name: 'kit.json', mimeType: 'application/json', buffer: Buffer.from(encoded) });
       await page.getByLabel('New passkey name').fill('Juicebox replacement');
-      expect(await page.getByLabel('Wallet address', { exact: true }).inputValue()).toBe(walletAddress);
-      await page.getByRole('button', { name: 'Start recovery', exact: true }).click();
+      expect(await page.getByLabel('Account address', { exact: true }).inputValue()).toBe(walletAddress);
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
       await contains('Check the original recovery');
-      await page.getByRole('button', { name: 'Check recovery', exact: true }).click();
+      await page.getByRole('button', { name: 'Check again', exact: true }).click();
       await contains('Create your replacement passkey'); expect(begins).toBe(1);
       await page.getByRole('button', { name: 'Create replacement passkey', exact: true }).click();
       await page.getByRole('button', { name: 'Cancel prompt' }).click(); await contains('cancelled');
       await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
       await page.getByRole('button', { name: 'Create replacement passkey', exact: true }).click();
       await contains('Check the original recovery');
-      await page.getByRole('button', { name: 'Check recovery', exact: true }).click(); await contains('Prove access');
+      await page.getByRole('button', { name: 'Check again', exact: true }).click(); await contains('Prove access');
       expect(registrations).toHaveLength(2); expect(registrations[0]).toBe(registrations[1]);
       await page.reload(); await contains('Prove access');
       expect(await page.getByLabel('Backup password', { exact: true }).inputValue()).toBe('');
