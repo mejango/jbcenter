@@ -40,6 +40,30 @@ describe("served Center signup page", () => {
   });
   afterAll(async () => { await browser?.close(); await new Promise<void>(resolve => server?.close(() => resolve())); });
 
+  it("shows one filled button at a time, with clear space between buttons, on a phone", async () => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.goto(`${origin}/wallet`);
+    await expect.poll(() => page.locator("#signup-form").isVisible()).toBe(true);
+    // A signup begin that got no answer leaves the form up and offers a check; the check must not
+    // compete with the form's own button, nor touch it.
+    releaseLogin = null;
+    await page.route("**/wallet/signup/begin", route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "private-detail" } }) }));
+    await page.locator("#signup-begin").click();
+    await expect.poll(() => page.locator("#signup-check").isVisible(), { timeout: 10_000 }).toBe(true);
+    const layout = await page.evaluate(() => {
+      const visible = [...document.querySelectorAll("button")].filter(button => button.offsetParent !== null);
+      const filled = visible.filter(button => getComputedStyle(button).backgroundColor !== "rgba(0, 0, 0, 0)");
+      const begin = document.getElementById("signup-begin")!.getBoundingClientRect(), check = document.getElementById("signup-check")!.getBoundingClientRect();
+      const actions = document.getElementById("signup-check")!.parentElement!;
+      return { visible: visible.map(button => `${button.id}:${getComputedStyle(button).backgroundColor}`), filled: filled.map(button => button.id), gap: check.top - begin.bottom,
+        debug: { begin: [begin.top, begin.bottom], check: [check.top, check.bottom], actionsTop: actions.getBoundingClientRect().top, actionsMargin: getComputedStyle(actions).marginTop, checkClass: document.getElementById("signup-check")!.className, formHidden: document.getElementById("signup-form")!.hidden } };
+    });
+    expect(layout.filled, JSON.stringify(layout.visible)).toEqual(["signup-begin"]);
+    expect(layout.gap, JSON.stringify(layout.debug)).toBeGreaterThanOrEqual(12);
+    await page.unroute("**/wallet/signup/begin");
+    await page.setViewportSize({ width: 1200, height: 900 });
+  });
+
   it("hides the signup form while a log-in is in progress, and offers it again after a failure", async () => {
     await page.goto(`${origin}/wallet`);
     await expect.poll(() => page.locator("#signup-form").isVisible()).toBe(true);
@@ -50,6 +74,16 @@ describe("served Center signup page", () => {
     await expect.poll(() => page.locator("#wallet-status").textContent()).toContain("Logging in");
     expect(await page.locator("#signup-form").isHidden()).toBe(true);
     expect(await page.locator("#signup-intro").isHidden()).toBe(true);
+    // On a phone the status mark (a ::before pseudo-element) must sit inside the page gutter.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const box = await page.evaluate(() => {
+      const status = document.getElementById("wallet-status")!, main = document.querySelector("main")!;
+      return { statusLeft: status.getBoundingClientRect().left, mainLeft: main.getBoundingClientRect().left + parseFloat(getComputedStyle(main).paddingLeft),
+        markLeft: parseFloat(getComputedStyle(status, "::before").left) };
+    });
+    expect(box.statusLeft).toBeGreaterThanOrEqual(box.mainLeft - 0.5);
+    expect(box.markLeft).toBeGreaterThanOrEqual(0);
+    await page.setViewportSize({ width: 1200, height: 900 });
     releaseLogin!();
     await expect.poll(() => page.locator("#signup-form").isVisible()).toBe(true);
     expect(await page.locator("body").textContent()).not.toContain("private-detail");

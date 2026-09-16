@@ -152,6 +152,8 @@ function render() {
   el('signup-intro').hidden = !known || loggingIn || (!!view && view.phase !== 'expired' && view.phase !== 'awaiting_registration');
   // "Check signup" only matters for a lost reply or while creation is in progress.
   check.hidden = stranded || !(pending || view?.phase === 'deploying'); check.disabled = busy;
+  // One filled button per page: the check is the primary only when it stands alone.
+  check.classList.toggle('link', !form.hidden); check.classList.toggle('secondary', form.hidden && !next.hidden);
   cancel.hidden = !native;
   // Forgetting this browser's continuation; the signup and its passkey stay usable through "log in".
   restart.hidden = !view || stranded || view.phase === 'expired'; restart.disabled = busy;

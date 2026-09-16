@@ -136,7 +136,7 @@ describe("actual Chromium WebAuthn producer and Center verification", () => {
 
 describe("served Center wallet UI (local HTTP contract, virtual authenticator)", () => {
   let server: Server, browser: Browser, page: Page, origin: string, script: string;
-  let pageHtml: string, css: string;
+  let pageHtml: string, css: string, productionWaysHtml: string;
   const csrf = encode(Buffer.alloc(32, 9)), intentId = encode(Buffer.alloc(32, 10));
   const state = encode(Buffer.alloc(32, 11)), code = encode(Buffer.alloc(32, 12));
   const challenge = encode(Buffer.alloc(32, 13)), handle = encode(Buffer.alloc(32, 14));
@@ -160,16 +160,17 @@ describe("served Center wallet UI (local HTTP contract, virtual authenticator)",
       bundle: true, platform: "browser", format: "esm", target: "es2022", write: false });
     script = built.outputFiles[0]!.text;
     const productionPage = await import("../src/rest/web/walletPage.js");
-    pageHtml = productionPage.walletPage(); css = productionPage.walletCss();
+    pageHtml = productionPage.walletPage(); css = productionPage.walletCss(); productionWaysHtml = productionPage.walletPage(true, true);
     server = createServer(async (request, response) => {
       const path = new URL(request.url!, origin).pathname;
       const json = (value: unknown, status = 200) => {
         response.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
         response.end(JSON.stringify(value));
       };
-      if (path === "/wallet") {
+      if (path === "/wallet" || path === "/wallet/ways") {
+        // /wallet/ways renders the landing with signup and recovery offered, as production does for an app intent.
         response.writeHead(200, { "content-type": "text/html", "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" });
-        response.end(pageHtml); return;
+        response.end(path === "/wallet/ways" ? productionWaysHtml : pageHtml); return;
       }
       if (path === "/wallet/assets/wallet.js" || path === "/wallet/assets/wallet.css") {
         response.writeHead(200, { "content-type": path.endsWith(".js") ? "text/javascript" : "text/css" });
@@ -259,6 +260,18 @@ describe("served Center wallet UI (local HTTP contract, virtual authenticator)",
         authenticatorSelection: { residentKey: "required", userVerification: "required" }, attestation: "none" } });
     }, { handle });
   }
+
+  it("offers the other ways in as quiet text links under one primary button", async () => {
+    authenticated = false;
+    // An app return without a session is where the other ways in are offered.
+    await page.goto(`${origin}/wallet/ways?intent=${intentId}`); await status("ready");
+    const links = await page.evaluate(() => [...document.querySelectorAll("#wallet-links a")].map(a => ({
+      text: a.textContent!.trim(), color: getComputedStyle(a).color, size: parseFloat(getComputedStyle(a).fontSize) })));
+    expect(links.map(link => link.text)).toEqual(["Create an account", "Recover a lost passkey"]);
+    const body = parseFloat(await page.evaluate(() => getComputedStyle(document.body).fontSize));
+    for (const link of links) { expect(link.color).not.toBe("rgb(0, 0, 238)"); expect(link.size).toBeLessThan(body); }
+    expect(await page.evaluate(() => [...document.querySelectorAll("button")].filter(b => b.offsetParent !== null && getComputedStyle(b).backgroundColor !== "rgba(0, 0, 0, 0)").length)).toBe(1);
+  });
 
   it("signs in only on a real click, sends canonical assertion bytes with CSRF, and logs out", async () => {
     await loadAndEnroll();
