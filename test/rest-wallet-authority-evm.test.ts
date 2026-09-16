@@ -399,7 +399,8 @@ describe.skipIf(!available)("canonical wallet authority from genuine enrollment 
     const production = new MemorySafe7579CheckpointStore();
     const sized = () => createWalletAuthorityChain({ rpc: transport, manifest, utility: pin(utility), now: () => clock, checkpointStore: production, onError: code => failures.push(code) });
     clock = Date.now(); expect((await sized().observe(withPrior(null))).eligibility).toBe("matched");
-    for (let chunk = 0; chunk < 6; chunk++) await rpc("anvil_mine", [toHex(1_400)]);
+    // Small chunks: each call must answer inside the helper's 10 s fetch timeout, even under gate load.
+    for (let chunk = 0; chunk < 24; chunk++) await rpc("anvil_mine", [toHex(350)]);
     clock = Date.now(); observed.length = 0; const first = await sized().observe(withPrior(null));
     expect(first.reason, JSON.stringify(failures)).toBe("authority-history-catching-up"); expect(observed.length).toBeLessThanOrEqual(256);
     expect(observed.filter(call => call.method === "eth_getLogs").length).toBeLessThanOrEqual(3 * 17);

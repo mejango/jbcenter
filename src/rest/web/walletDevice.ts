@@ -54,7 +54,8 @@ async function run(action: () => Promise<void>) {
   busy = true; render();
   try { await action(); }
   catch (error) {
-    message(error instanceof DOMException && ['NotAllowedError', 'AbortError'].includes(error.name) && native ? 'Passkey prompt cancelled. You can try again.'
+    message(error instanceof DOMException && native && (error.name === 'AbortError' || (error.name === 'NotAllowedError' && native.signal.aborted)) ? 'Passkey prompt cancelled. You can try again.'
+      : error instanceof DOMException && native ? `The passkey prompt did not complete (${error.name}${error.message ? ': ' + error.message : ''}). If your passkey manager just saved this passkey, wait a moment and try again.`
       : error instanceof Error ? error.message : 'Adding the device is unavailable. Check again.', true);
   } finally { native = null; busy = false; if (!disposed) render(); }
 }

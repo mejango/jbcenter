@@ -50,7 +50,7 @@ const steps: Record<View['phase'], string> = {
   deployment_failed: 'Account creation did not complete. Keep this signup for recovery; do not send funds.',
   awaiting_activation: 'Your account is ready.', preparing_sign_in: 'Preparing your login. This can take up to a minute…',
   ready_to_sign_in: 'Your account is ready. Log in with your passkey.',
-  expired: 'This incomplete signup expired. Its passkey is not an active account credential.',
+  expired: "This recent signup wasn't completed in time. Try again.",
 };
 // While work is in flight the status line's mark spins (Croptop's text ticker) instead of showing the lightning.
 // A native prompt waiting on the user is not work in flight, so the mark holds still for it.
@@ -144,7 +144,7 @@ function render() {
   el('signup-address').textContent = view?.walletAddress ?? 'Not created yet';
   const label = view?.phase === 'awaiting_registration' ? 'Create passkey'
     : view?.phase === 'awaiting_possession' || view?.phase === 'awaiting_deployment_approval' ? 'Create account'
-    : view?.phase === 'awaiting_activation' ? 'Continue' : view?.phase === 'ready_to_sign_in' ? 'Log in' : view?.phase === 'expired' ? 'Start a new signup' : null;
+    : view?.phase === 'awaiting_activation' ? 'Continue' : view?.phase === 'ready_to_sign_in' ? 'Log in' : view?.phase === 'expired' ? 'Sign up' : null;
   next.hidden = !label || !!pending || stranded; next.textContent = label; next.disabled = busy;
   el<HTMLButtonElement>('recovery-show').disabled = busy; el<HTMLButtonElement>('recovery-copy').disabled = busy;
   // "log in" resumes with a passkey; a finished wallet lands at sign-in. Once the state is known (or its load failed),
@@ -176,8 +176,10 @@ async function run(action: () => Promise<void>) {
       pending = null;
       try { accept(await request('state')); } catch { /* Resume with a fresh proof if the cookie is no longer valid. */ }
     }
-    message(error instanceof DOMException && ['NotAllowedError', 'AbortError'].includes(error.name) && native
-      ? 'Passkey prompt cancelled or unavailable. You can try again.'
+    message(error instanceof DOMException && native && (error.name === 'AbortError' || (error.name === 'NotAllowedError' && native.signal.aborted))
+      ? 'Passkey prompt cancelled. You can try again.'
+      : error instanceof DOMException && native
+      ? `The passkey prompt did not complete (${error.name}${error.message ? ': ' + error.message : ''}). If your passkey manager just saved this passkey, wait a moment and try again.`
       : error instanceof DOMException && error.name === 'AbortError'
       ? 'The account service took too long to answer. Try again.'
       : error instanceof Error ? error.message : 'Signup is unavailable. Check the original signup again.', true);

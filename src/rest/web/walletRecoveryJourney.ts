@@ -144,8 +144,10 @@ async function run(action: () => Promise<void>) {
       pending = null; rotation = null;
       try { accept(await request('state')); } catch { /* Fresh resume proves both owners if the cookie was lost. */ }
     }
-    message(error instanceof DOMException && ['NotAllowedError', 'AbortError'].includes(error.name) && native
-      ? 'Passkey prompt cancelled or unavailable. You can try again.'
+    message(error instanceof DOMException && native && (error.name === 'AbortError' || (error.name === 'NotAllowedError' && native.signal.aborted))
+      ? 'Passkey prompt cancelled. You can try again.'
+      : error instanceof DOMException && native
+      ? `The passkey prompt did not complete (${error.name}${error.message ? ': ' + error.message : ''}). If your passkey manager just saved this passkey, wait a moment and try again.`
       : error instanceof Error ? error.message : 'Recovery is unavailable. Check the original recovery again.', true);
   } finally { native = null; busy = false; if (!disposed) render(); }
 }
