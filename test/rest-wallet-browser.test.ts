@@ -143,6 +143,7 @@ describe("served Center wallet UI (local HTTP contract, virtual authenticator)",
   const walletAddress = `0x${"03".repeat(20)}`;
   const requests: { path: string; body: any; headers: Record<string, string | string[] | undefined> }[] = [];
   let authenticated: boolean, unavailableSessions: number, unavailableCompletions: number, droppedCompletion: boolean;
+  let unavailableIssues = 0;
   let requireSessionCookie: boolean, recoveredLoginId: string | undefined;
   let redirectOverride: string | undefined, sessionReads: number, begins: number, completions: number, issues: number;
   let authenticatorId: string, cdp: CDPSession;
@@ -209,6 +210,7 @@ describe("served Center wallet UI (local HTTP contract, virtual authenticator)",
       }
       if (path === "/wallet/authorize/issue") {
         issues++;
+        if (unavailableIssues-- > 0) return json({ error: { code: "WALLET_AUTHORITY_CHECKING", message: "private-provider-detail" } }, 503);
         return json({ redirectUri: redirectOverride ?? `${callback()}?${new URLSearchParams({ code, state, iss: origin })}` });
       }
       if (path === "/wallet/logout") { authenticated = false; return json({ loggedOut: true, replayed: false }); }
@@ -352,6 +354,19 @@ describe("served Center wallet UI (local HTTP contract, virtual authenticator)",
     await cdp.send("WebAuthn.setAutomaticPresenceSimulation", { authenticatorId, enabled: true });
     await page.locator("#wallet-signin").click(); await status("signed-in");
     expect(begins).toBe(2); expect(completions).toBe(1);
+  });
+
+  it("waits through an authority check before issuing the handoff, without a retry click", async () => {
+    authenticated = true; unavailableIssues = 3;
+    await page.goto(`${origin}/wallet?intent=${intentId}`);
+    await status("checking");
+    // Leaving for the app, the page shows nothing it has not shown yet: no account block, no sign-out.
+    expect(await page.locator("#wallet-account").count()).toBe(1);
+    expect(await page.locator("#wallet-account").isHidden()).toBe(true);
+    expect(await page.locator("#wallet-logout").isHidden()).toBe(true);
+    await expect.poll(() => new URL(page.url()).pathname, { timeout: 20_000 }).toBe("/app/callback");
+    expect(issues).toBe(4); expect(begins).toBe(0);
+    expect(await page.locator("body").textContent()).not.toContain("private-provider-detail");
   });
 
   it("automatically issues one allowlisted handoff and returns to the exact callback", async () => {

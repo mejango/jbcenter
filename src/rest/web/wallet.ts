@@ -59,9 +59,11 @@ function render() {
   signIn.hidden = !sessionKnown || !!session || !!pending;
   signIn.disabled = busy;
   retry.hidden = !retryAction || busy;
-  signOut.hidden = !session; signOut.disabled = busy;
+  // A page that is leaving for an app shows nothing it has not shown yet.
+  const leaving = !!intent && busy;
+  signOut.hidden = !session || leaving; signOut.disabled = busy;
   cancel.hidden = !nativePrompt;
-  account.hidden = !session; address.textContent = session?.walletAddress ?? "";
+  account.hidden = !session || leaving; address.textContent = session?.walletAddress ?? "";
   // Signed in, the page is the account; the ways in belong to the signed-out page only.
   // The signed-out links belong to a page that knows there is no session, not to a check in progress or a failed one.
   const links = document.getElementById("wallet-links"); if (links) links.hidden = !!session || !sessionKnown;
@@ -86,13 +88,16 @@ async function request(path: string, body?: unknown, csrfToken?: string, timeout
     return record(await response.json());
   } finally { clearTimeout(timer); }
 }
-async function readyRequest(path: string, body?: unknown, csrfToken?: string, timeoutMs?: number): Promise<Json> {
+/** Retries a 503 while the wallet's authority is being checked. Reads stop after three quick
+ * attempts; an action the user is waiting on (`attempts`, `delayMs`) may wait for a hosted
+ * authority refresh, which takes tens of seconds after the account has been idle. */
+async function readyRequest(path: string, body?: unknown, csrfToken?: string, timeoutMs?: number, attempts = 3, delayMs?: number): Promise<Json> {
   for (let attempt = 0; ; attempt++) {
     try { return await request(path, body, csrfToken, timeoutMs); }
     catch (error) {
-      if (!(error instanceof HttpFailure) || error.status !== 503 || attempt === 2) throw error;
+      if (!(error instanceof HttpFailure) || error.status !== 503 || attempt === attempts - 1) throw error;
       setStatus("checking", "Checking current wallet access. This may take a moment…");
-      await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 400));
+      await new Promise(resolve => setTimeout(resolve, delayMs ?? (attempt + 1) * 400));
     }
   }
 }
@@ -230,7 +235,8 @@ async function issue() {
   if (!intent || !session) throw new InvalidResponse();
   future(intent.expiresAtMs); future(session.expiresAtMs);
   setStatus("returning", "Returning to your Juicebox app…");
-  const result = await request(`${base}/authorize/issue`, { intentId: intent.id }, csrf);
+  // Issuing needs fresh on-chain authority; after idle that is a hosted refresh of ~25 s.
+  const result = await readyRequest(`${base}/authorize/issue`, { intentId: intent.id }, csrf, undefined, 90, 1000);
   const redirectUri = string(result.redirectUri, 4096), redirect = new URL(redirectUri);
   const keys = [...redirect.searchParams.keys()];
   if (redirectUri.split("?")[0] !== intent.callbackUri || redirect.hash || keys.length !== 3
