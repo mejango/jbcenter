@@ -49,7 +49,7 @@ import {
   userOperationCommitment,
 } from "./codec.js";
 import { observeUserOperation } from "./execution.js";
-import { verifyWalletV6UsdcPaymentEffects, type WalletV6UsdcPaymentConfig } from "./semantics.js";
+import { walletV6UsdcPaymentDomain, verifyWalletV6UsdcPaymentEffects, type WalletV6UsdcPaymentConfig } from "./semantics.js";
 import { UserOperationProvider } from "./provider.js";
 import { createSessionGasEstimation } from "./estimation.js";
 import { passkeyDummySignature, passkeyEstimateProvider } from "./passkeyEstimation.js";
@@ -845,9 +845,11 @@ export class UserOperationService {
         await this.options.verifyHistoricalAccount(plan, evidence, signal);
       },
       verifySemantics: async (receipt: StoredReceipt) => {
-        // Once this host opts into the strict Base pay domain, rejected plans
-        // cannot downgrade into weaker legacy single-step economic evidence.
-        if (this.options.v6UsdcPayment && record.chainId === this.options.v6UsdcPayment.chainId && plan.draft.operation === "pay") {
+        // A pay of the configured token through the configured terminal is the strict Base pay
+        // domain: a rejected one cannot downgrade into weaker legacy single-step economic
+        // evidence. Pays in other tokens or to other terminals keep the generic verification.
+        if (this.options.v6UsdcPayment && record.chainId === this.options.v6UsdcPayment.chainId
+          && walletV6UsdcPaymentDomain(plan, this.options.v6UsdcPayment)) {
           return verifyWalletV6UsdcPaymentEffects(plan, record.stepIndexes, this.options.v6UsdcPayment, receipt);
         }
         const results = await Promise.all(

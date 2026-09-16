@@ -137,6 +137,21 @@ export function recognizeWalletV6UsdcPayment(
   } catch { return null; }
 }
 
+/** Whether a plan is a pay of the configured token through the configured terminal, however
+ * well or badly formed. Such a plan is verified only by the strict effects check below and never
+ * falls back to weaker per-step evidence; any other pay on the chain (another token, another
+ * terminal) keeps the generic verification. */
+export function walletV6UsdcPaymentDomain(plan: Pick<StoredPlan, "draft">, config: WalletV6UsdcPaymentConfig): boolean {
+  try {
+    const draft = plan.draft;
+    if (config.chainId !== 8453 || draft.operation !== "pay" || !Array.isArray(draft.calls) || !draft.calls.length) return false;
+    const last = draft.calls[draft.calls.length - 1]!;
+    if (!same(address(last.to), address(config.directV6Terminal))) return false;
+    const decoded = decodeFunctionData({ abi: terminalAbi, data: last.data as Hex });
+    return decoded.functionName === "pay" && same(decoded.args[1] as string, address(config.token));
+  } catch { return false; }
+}
+
 /** Caller must already prove exact atomic Safe7579 invocation and EntryPoint operation log scope. */
 export function verifyWalletV6UsdcPaymentEffects(
   plan: Pick<StoredPlan, "draft">,

@@ -210,6 +210,25 @@ describe("UserOperationService configured payment semantic routing", () => {
     const { observation } = await routed(() => {}, [2]);
     expect(observation?.semantic?.status).toBe("unknown");
   });
+  it("verifies a Base pay in another token the generic way even with payments configured", async () => {
+    // Only the configured token through the configured terminal is the strict domain; an ETH pay is not.
+    const native = "0x000000000000000000000000000000000000EEEe" as Address;
+    const eth = await routed(p => {
+      p.draft.calls = [{ chainId: 8453, to: terminal, value: "100", dependsOn: [],
+        data: encodeFunctionData({ abi: payAbi, functionName: "pay", args: [7n, native, 100n, beneficiary, 5n, "reviewed memo", "0x1234"] }) }] as never;
+      (p.draft.summary as Record<string, unknown>).payment = { token: native, amount: "100", unit: "token-base-units" };
+    }, [0]);
+    expect(eth.observation?.semantic?.status).toBe("verified"); expect(eth.legacy).toHaveBeenCalledTimes(1);
+    // A pay of the configured token to another terminal is not the strict domain either.
+    const other = "0x5555555555555555555555555555555555555555" as Address;
+    const elsewhere = await routed(p => {
+      const calls = p.draft.calls.map(call => ({ ...call }));
+      calls[calls.length - 1]!.to = other; p.draft.calls = calls as never;
+      Object.assign(p.draft.summary as Record<string, unknown>, { terminal: other, terminalPath: [other] });
+    }, [0, 1, 2]);
+    expect(elsewhere.observation?.semantic?.status).toBe("unknown"); // generic multi-step uncertainty, as before payments were configured
+    expect(elsewhere.legacy).toHaveBeenCalledTimes(3);
+  });
   it("retains generic batch uncertainty and unconfigured legacy behavior", async () => {
     const generic = await routed(p => { p.draft.operation = "contract_calls"; }, [0, 1, 2]);
     expect(generic.observation?.semantic?.status).toBe("unknown"); expect(generic.legacy).toHaveBeenCalledTimes(3);
