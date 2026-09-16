@@ -177,6 +177,7 @@ production variables under staging names the application does not read yet:
 | --- | --- | --- | --- |
 | Creation treasury | `0xa347d65309D1254a9d7a366B4F4b5F255c549310` | `CENTER_WALLET_CREATION_TREASURY_PRIVATE_KEY`, `..._ADDRESS` | funded 0.006 ETH; allocation 0.005 ETH |
 | Recovery relay | `0x518bEc74014Eed3a517faF0E33c3E3f651C8cB63` | `CENTER_WALLET_RECOVERY_RELAY_PRIVATE_KEY`, `..._ADDRESS` | funded 0.002 ETH; budget 0.002 ETH |
+| Networks payer | `0x9e0A97A470379DD7cb8a4a8CbB196d00Be9b62a2` | `WALLET_NETWORKS_PAYER_KEY` (read directly; set 2026-09-16) | fund Base ETH (about 0.01) and Base Sepolia ETH; caps 0.003 / 0.01 ETH per bundle |
 
 Both are fresh EOAs with nonce 0. The first provisioning was rotated the same day after
 a variable listing exposed key prefixes in a session log; only these addresses are valid.
