@@ -266,7 +266,7 @@ export class PostgresWalletLoginStore {
     const mapping = (await this.pool.query<{ account_id: string; enrollment_id: string }>(
       "SELECT account_id,enrollment_id FROM rest_wallet_credentials WHERE rp_id=$1 AND credential_id=$2 AND superseded_at IS NULL",
       [draft.rpId, input.assertion.credentialId])).rows[0];
-    if (!mapping) unauthorized();
+    if (!mapping) throw new RestError(403, "WALLET_LOGIN_UNKNOWN_PASSKEY", "No account here uses this passkey.");
     const context = await this.authority.loadContext(mapping.account_id);
     // The signed-in passkey is the primary or one of the account's devices.
     const signedIn = walletSessionCredential(context, input.assertion.credentialId);

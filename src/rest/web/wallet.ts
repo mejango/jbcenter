@@ -129,6 +129,9 @@ async function run(action: () => Promise<void>) {
     } else if (error instanceof InvalidResponse) {
       setStatus("error", "This wallet request could not be verified. Return to the app and start again.");
       // An unverified result never makes a previously unknown session safe to replace.
+    } else if (error instanceof HttpFailure && error.code === 'WALLET_LOGIN_UNKNOWN_PASSKEY') {
+      pending = null; csrf = ""; completionAttempted = false;
+      setStatus("ready", "That passkey isn't linked to an account here. It may be left over from a signup that didn't finish. Try another passkey, or sign up.");
     } else if (error instanceof HttpFailure && [400, 401, 403, 404, 410].includes(error.status)) {
       if (pending) {
         pending = null; csrf = ""; completionAttempted = false;

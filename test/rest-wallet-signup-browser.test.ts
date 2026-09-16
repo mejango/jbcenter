@@ -74,15 +74,18 @@ describe("served Center signup page", () => {
     await expect.poll(() => page.locator("#wallet-status").textContent()).toContain("Logging in");
     expect(await page.locator("#signup-form").isHidden()).toBe(true);
     expect(await page.locator("#signup-intro").isHidden()).toBe(true);
-    // On a phone the status mark (a ::before pseudo-element) must sit inside the page gutter.
+    // On a phone every line of text shares one left edge and the status mark (a ::before
+    // pseudo-element) hangs in the gutter, clear of the screen edge.
     await page.setViewportSize({ width: 390, height: 844 });
     const box = await page.evaluate(() => {
-      const status = document.getElementById("wallet-status")!, main = document.querySelector("main")!;
-      return { statusLeft: status.getBoundingClientRect().left, mainLeft: main.getBoundingClientRect().left + parseFloat(getComputedStyle(main).paddingLeft),
-        markLeft: parseFloat(getComputedStyle(status, "::before").left) };
+      const status = document.getElementById("wallet-status")!, main = document.querySelector("main")!, heading = document.querySelector("h1")!;
+      const statusLeft = status.getBoundingClientRect().left;
+      return { statusLeft, headingLeft: heading.getBoundingClientRect().left, mainLeft: main.getBoundingClientRect().left + parseFloat(getComputedStyle(main).paddingLeft),
+        markScreenLeft: statusLeft + parseFloat(getComputedStyle(status, "::before").left) };
     });
     expect(box.statusLeft).toBeGreaterThanOrEqual(box.mainLeft - 0.5);
-    expect(box.markLeft).toBeGreaterThanOrEqual(0);
+    expect(Math.abs(box.headingLeft - box.statusLeft)).toBeLessThan(1);
+    expect(box.markScreenLeft).toBeGreaterThanOrEqual(12);
     await page.setViewportSize({ width: 1200, height: 900 });
     // Under load the held log-in request may not have reached the server yet.
     await expect.poll(() => releaseLogin !== null, { timeout: 10_000 }).toBe(true);

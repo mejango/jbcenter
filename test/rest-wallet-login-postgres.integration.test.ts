@@ -176,7 +176,6 @@ suite("PostgreSQL discoverable wallet login with genuine P256 and synthetic cano
     const attempts = [
       { ...input, flowToken: Buffer.alloc(32, 1).toString("base64url") },
       { ...input, assertion: { ...input.assertion, userHandle: Buffer.alloc(32, 2).toString("base64url") } },
-      { ...input, assertion: { ...input.assertion, credentialId: Buffer.alloc(32, 3).toString("base64url") } },
       { ...input, assertion: signGet({ ...value.credential, challenge: `0x${"01".repeat(32)}`, rpId, origin: audience }) },
       { ...input, assertion: signGet({ ...value.credential, challenge: begun.login.challenge, rpId, origin: "https://other.juicebox.center" }) },
       missingUv,
@@ -185,6 +184,11 @@ suite("PostgreSQL discoverable wallet login with genuine P256 and synthetic cano
       await expect(store.identifyCompletion(attempt)).rejects.toMatchObject({ code: "WALLET_LOGIN_UNAUTHORIZED" });
       await expect(store.complete(attempt)).rejects.toMatchObject({ code: "WALLET_LOGIN_UNAUTHORIZED" });
     }
+    // A passkey no account here knows (one left over from an unfinished signup) is named as such,
+    // so the page can point at signing up instead of "try again"; nothing else is revealed.
+    const unknown = { ...input, assertion: { ...input.assertion, credentialId: Buffer.alloc(32, 3).toString("base64url") } };
+    await expect(store.identifyCompletion(unknown)).rejects.toMatchObject({ code: "WALLET_LOGIN_UNKNOWN_PASSKEY", status: 403 });
+    await expect(store.complete(unknown)).rejects.toMatchObject({ code: "WALLET_LOGIN_UNKNOWN_PASSKEY", status: 403 });
     expect(await completionCount()).toBe(0);
     expect((await store.complete(input)).replayed).toBe(false);
   });
