@@ -165,6 +165,8 @@ async function recoveryOwner(expected?: string) {
 async function signBackup(document: TypedDataDefinition, owner: string) {
   let signature: unknown;
   if (kitMode()) {
+    // After a reload the password field is the only place the backup can come from mid-recovery.
+    if (method() === 'password') loadPassword();
     if (!secret) throw new Error('Open your backup file or enter your backup password again.');
     signature = await recoveryAccountFromPhrase(secret.mnemonic, getAddress(owner)).signTypedData(document);
   } else signature = await provider().request({ method: 'eth_signTypedData_v4', params: [await recoveryOwner(owner),
@@ -266,6 +268,9 @@ form.addEventListener('submit', event => { event.preventDefault(); void run(asyn
   if (kit && !sameAddress(kit.walletAddress, address)) throw new Error('Use the account address in your backup file.');
   if (!kitMode()) await recoveryOwner(); selectedWallet = getAddress(address);
   await send('begin', { walletAddress: selectedWallet, passkeyName: name.value.trim() });
+  // Wallet mode: say so now if the connected wallet is not this account's backup, before a passkey is created for nothing.
+  if (!kitMode() && view && !sameAddress(await recoveryOwner(), view.recoveryOwner))
+    throw new Error("The connected wallet is not this account's backup wallet. Switch wallets before creating the replacement passkey.");
 }); });
 el('recovery-method').addEventListener('change', () => { secret = null; kit = null; words().value = ''; if (!view) wallet.value = ''; render(); });
 el<HTMLInputElement>('recovery-file').addEventListener('change', event => { void run(async () => {

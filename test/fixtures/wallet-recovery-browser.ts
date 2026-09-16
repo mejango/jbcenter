@@ -37,8 +37,13 @@ export async function exerciseRecoveryBrowser(options: {
   await contains('could not be confirmed');
   await page.getByRole('button', { name: 'Check again' }).click();
   await contains('Prove access');
+  // A reload mid-recovery drops the backup from memory; the backup password typed afterwards must carry the proof.
+  await page.reload(); await contains('Prove access');
+  await page.getByLabel('My backup password').check();
+  await page.getByLabel('Backup password', { exact: true }).fill(kit.mnemonic);
   await page.getByRole('button', { name: 'Verify both owners' }).click();
   await contains('Review and approve');
+  expect(await page.getByLabel('Backup password', { exact: true }).inputValue()).toBe('');
   const originalFlow = (await context.cookies()).find(cookie => cookie.name === walletRecoveryCookie)!;
   const before = await recovery.status(originalFlow.value);
   expect(before.walletAddress.toLowerCase()).toBe(kit.walletAddress.toLowerCase());
