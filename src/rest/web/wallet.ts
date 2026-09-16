@@ -63,7 +63,8 @@ function render() {
   cancel.hidden = !nativePrompt;
   account.hidden = !session; address.textContent = session?.walletAddress ?? "";
   // Signed in, the page is the account; the ways in belong to the signed-out page only.
-  const links = document.getElementById("wallet-links"); if (links) links.hidden = !!session;
+  // The signed-out links belong to a page that knows there is no session, not to a check in progress or a failed one.
+  const links = document.getElementById("wallet-links"); if (links) links.hidden = !!session || !sessionKnown;
   renderNetworks();
   passkey.textContent = session?.passkeyName ?? ""; passkey.hidden = passkeyLabel.hidden = !session?.passkeyName;
 }
@@ -164,7 +165,8 @@ async function load() {
 }
 async function readSession() {
   nextRetry = readSession; setStatus("checking", "Checking current wallet access…");
-  acceptSession(await readyRequest(`${base}/session`));
+  // The session read may refresh the account's authority on Base first; the site holds it up to 90 s.
+  acceptSession(await readyRequest(`${base}/session`, undefined, undefined, 100_000));
   await continueSession();
 }
 async function continueSession() {
