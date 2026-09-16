@@ -85,9 +85,9 @@ async function request(path: string, body?: unknown, csrfToken?: string, timeout
     return record(await response.json());
   } finally { clearTimeout(timer); }
 }
-async function readyRequest(path: string, body?: unknown, csrfToken?: string): Promise<Json> {
+async function readyRequest(path: string, body?: unknown, csrfToken?: string, timeoutMs?: number): Promise<Json> {
   for (let attempt = 0; ; attempt++) {
-    try { return await request(path, body, csrfToken); }
+    try { return await request(path, body, csrfToken, timeoutMs); }
     catch (error) {
       if (!(error instanceof HttpFailure) || error.status !== 503 || attempt === 2) throw error;
       setStatus("checking", "Checking current wallet access. This may take a moment…");
@@ -215,7 +215,9 @@ async function completeLogin() {
     // A different tab's session must neither replace this identity nor its flow CSRF.
   }
   completionAttempted = true;
-  const result = await readyRequest(`${base}/login/complete`, pending, csrf);
+  // Completion may refresh the account's authority on Base first; the site holds the request up to 90 s.
+  setStatus("checking", "Checking your account. This can take up to a minute…");
+  const result = await readyRequest(`${base}/login/complete`, pending, csrf, 100_000);
   if (record(result.session).loginId !== pending.loginId) throw new InvalidResponse();
   acceptSession(result, true);
   pending = null; completionAttempted = false;
@@ -266,15 +268,23 @@ function renderNetworks() {
   }, 3000);
   if (view && !view.pending.length && networksTimer) { clearInterval(networksTimer); networksTimer = null; networksPolls = 0; }
 }
-function openNetworks() {
+function chosenFamily(): string {
+  return (networksForm?.querySelector<HTMLInputElement>("input[name=family]:checked")?.value) ?? "mainnet";
+}
+// Relayr never mixes mainnets and testnets in one bundle, so the picker shows one family at a time.
+function renderChoices() {
   if (!networksView) return;
-  const choices = element("wallet-networks-choices");
+  const choices = element("wallet-networks-choices"), family = chosenFamily();
   for (const node of [...choices.querySelectorAll("label")]) node.remove();
-  for (const item of networksView.offered) {
+  for (const item of networksView.offered.filter(item => item.family === family)) {
     const label = document.createElement("label"), input = document.createElement("input"); label.className = "choice";
     input.type = "checkbox"; input.value = String(item.chainId); input.dataset.family = item.family; input.name = "chain";
     label.append(input, document.createTextNode(item.centerPays ? item.name : `${item.name} (you pay)`)); choices.append(label);
   }
+}
+function openNetworks() {
+  if (!networksView) return;
+  renderChoices();
   networksQuote = null; networksOpen = true; render();
 }
 function chosenChains(): number[] {
@@ -321,6 +331,7 @@ async function networksStatus() {
 if (networksAdd && networksForm) {
   networksAdd.addEventListener("click", () => openNetworks());
   networksForm.addEventListener("submit", event => { event.preventDefault(); void run(networksQuoteAction); });
+  for (const radio of networksForm.querySelectorAll<HTMLInputElement>("input[name=family]")) radio.addEventListener("change", () => { networksQuote = null; renderChoices(); render(); });
   element("wallet-networks-deploy").addEventListener("click", () => void run(networksDeploy));
   element("wallet-networks-cancel").addEventListener("click", () => { networksOpen = false; networksQuote = null; render(); });
 }

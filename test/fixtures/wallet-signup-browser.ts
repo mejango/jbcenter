@@ -195,8 +195,9 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     const cookie = (await context.cookies()).find(item => item.name === walletSignupCookie)!;
     const flow = (await flows.authenticate(cookie.value))!, deploymentId = flow.deploymentId!;
     await signup.tick();
-    const dispatch = (await options.deployments.getDispatch(deploymentId))!;
-    await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.leaseUntil - Date.now() + 20)));
+    // Under load the dispatch may already have settled by now; only an open lease needs waiting out.
+    const dispatch = await options.deployments.getDispatch(deploymentId);
+    if (dispatch) await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.leaseUntil - Date.now() + 20)));
     await options.fixture.rpc('anvil_mine', ['0x41', '0x0']); await signup.tick();
     let encoded = '';
     if (kitMode) {
@@ -277,7 +278,14 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       // "Add more": one quote, one passkey prompt, Center pays on Base, Optimism shows the account.
       await expect.poll(() => page.getByRole('button', { name: 'Add more' }).isVisible()).toBe(true);
       await page.getByRole('button', { name: 'Add more' }).click();
+      // One family at a time: Relayr never mixes mainnets and testnets in a bundle.
+      await expect.poll(() => page.getByLabel('Base Sepolia', { exact: true }).count()).toBe(0);
+      await page.getByLabel('Testnets', { exact: true }).check();
+      await expect.poll(() => page.getByLabel('Base Sepolia', { exact: true }).count()).toBe(1);
+      expect(await page.getByLabel('Optimism', { exact: true }).count()).toBe(0);
+      await page.getByLabel('Mainnets', { exact: true }).check();
       await page.getByLabel('Optimism', { exact: true }).check();
+      await page.screenshot({ path: new URL('networks-picker.png', out).pathname, fullPage: true });
       await page.getByRole('button', { name: 'Get quote' }).click();
       await expect.poll(() => page.locator('#wallet-networks-quote').textContent(), { timeout: 15000 }).toContain('Adding Optimism costs 0.000012 ETH. Center pays.');
       expect(networksProvider.entries).toHaveLength(1);
@@ -286,6 +294,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       await page.getByRole('button', { name: 'Deploy', exact: true }).click();
       await expect.poll(() => page.locator('#wallet-networks').textContent(), { timeout: 30000 }).toBe('Base\nOptimism');
       await contains('Your account is on 2 networks');
+      await page.screenshot({ path: new URL('networks-done.png', out).pathname, fullPage: true });
       const payment = await options.fixture.rpc<{ to: string; value: string }[]>('eth_getBlockByNumber', ['latest', true]).then(block => (block as unknown as { transactions: { to: string; value: string }[] }).transactions);
       expect(payment.some(tx => tx.to?.toLowerCase() === RELAYR_PAYMENT_ADDRESS.toLowerCase() && BigInt(tx.value) === 12000000000000n)).toBe(true);
     }

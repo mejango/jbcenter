@@ -312,8 +312,9 @@ check.addEventListener('click', () => { void run(async () => {
   if (view?.phase === 'deploying') message('Still creating your account. Checked just now; this page keeps checking while it is open.');
 }); });
 cancel.addEventListener('click', () => native?.abort());
-async function walletRequest(path: string, body: unknown, proof?: string): Promise<any> {
-  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15000);
+// Login completion may refresh the account's authority on Base first (the site waits up to 90 s for it).
+async function walletRequest(path: string, body: unknown, proof?: string, timeoutMs = 15000): Promise<any> {
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal, method: 'POST',
       headers: { 'content-type': 'application/json', 'x-center-wallet-request': '1', ...(proof ? { 'x-center-wallet-csrf': proof } : {}) }, body: JSON.stringify(body) });
@@ -329,7 +330,8 @@ async function login() {
   const challenge = decode(publicKey.challenge); if (challenge.length !== 32) throw new Error('Invalid passkey challenge.');
   message('Log in with the prompt.');
   const proof = await assertion('0x' + Array.from(challenge, byte => byte.toString(16).padStart(2, '0')).join(''), publicKey.rpId);
-  const result = await walletRequest(`${base}/login/complete`, { loginId: begun.loginId, assertion: proof }, begun.csrfToken);
+  message('Checking your account. This can take up to a minute…');
+  const result = await walletRequest(`${base}/login/complete`, { loginId: begun.loginId, assertion: proof }, begun.csrfToken, 100000);
   if (result?.session?.loginId !== begun.loginId) throw new Error('Sign-in could not be confirmed.');
   location.replace((base || '/') + location.search);
 }
