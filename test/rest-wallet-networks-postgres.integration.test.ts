@@ -71,6 +71,10 @@ describeIf("wallet networks against real PostgreSQL", () => {
     expect(provider.requests[0]).toEqual([10, 42161].map(chain => ({ chain, target: creation.transaction.to, data: creation.transaction.data, value: "0" })));
     expect(quoted.bundle).toMatchObject({ state: "quoted", chainIds: [10, 42161], centerPays: true, payment: { chainId: 8453, value: amount } });
     expect(quoted.challenge).toMatch(/^0x[0-9a-f]{64}$/);
+    // The Base creation stack is read once per quote, not once per destination.
+    const homeReads = calls.filter(call => call.chainId === 8453 && call.method === "eth_getCode").map(call => String(call.params[0]).toLowerCase());
+    expect(new Set(homeReads).size).toBe(homeReads.length);
+    expect(calls.some(call => call.chainId === 42161 && call.method === "eth_call")).toBe(true);
     expect(quoted.view.networks.map(item => `${item.chainId}:${item.state}`)).toEqual(["8453:deployed", "10:quoted", "42161:quoted"]);
 
     const rpId = session.rpId, origin = fixture.record.intent.origin;

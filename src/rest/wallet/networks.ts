@@ -156,17 +156,23 @@ export function createWalletNetworks(options: WalletNetworksDependencies) {
       if (now() >= bundle.document.expiresAtMs || bundle.chainIds.some(chainId => replacing.includes(chainId))) await fail(bundle, "quoted");
     }
   }
+  /** The creation stack bytes on Base, read once per quote and compared on every destination. */
+  async function homeStack(enrollment: WalletEnrollment) {
+    const pins = creationPins(enrollment.intent.manifest);
+    const codes = await Promise.all(pins.map(address => rpc.request(WALLET_HOME_NETWORK.chainId, "eth_getCode", [address, "latest"])));
+    return pins.map((address, index) => {
+      const bytes = hexBytes(codes[index]);
+      if (bytes === "0x") throw new RestError(409, "WALLET_NETWORKS_DESTINATION", `Base no longer carries the account's creation stack (${address}).`);
+      return { address, hash: keccak256(bytes) };
+    });
+  }
   /** The exact Base call must succeed on the destination against the same creation stack bytes. */
-  async function verifyDestination(chainId: number, enrollment: WalletEnrollment) {
-    const creation = enrollment.creation!, pins = creationPins(enrollment.intent.manifest);
-    const [home, there] = await Promise.all([
-      Promise.all(pins.map(address => rpc.request(WALLET_HOME_NETWORK.chainId, "eth_getCode", [address, "latest"]))),
-      Promise.all(pins.map(address => rpc.request(chainId, "eth_getCode", [address, "latest"]))),
-    ]);
-    for (const [index, address] of pins.entries()) {
-      const base = hexBytes(home[index]), destination = hexBytes(there[index]);
-      if (base === "0x" || keccak256(base) !== keccak256(destination))
-        throw new RestError(409, "WALLET_NETWORKS_DESTINATION", `${name(chainId)} does not carry the account's creation stack (${address}).`);
+  async function verifyDestination(chainId: number, enrollment: WalletEnrollment, home: { address: Address; hash: Hex }[]) {
+    const creation = enrollment.creation!;
+    const there = await Promise.all(home.map(pin => rpc.request(chainId, "eth_getCode", [pin.address, "latest"])));
+    for (const [index, pin] of home.entries()) {
+      if (keccak256(hexBytes(there[index])) !== pin.hash)
+        throw new RestError(409, "WALLET_NETWORKS_DESTINATION", `${name(chainId)} does not carry the account's creation stack (${pin.address}).`);
     }
     let predicted: unknown;
     try { predicted = await rpc.request(chainId, "eth_call", [{ to: creation.transaction.to, data: creation.transaction.data, value: "0x0" }, "latest"]); }
@@ -187,11 +193,17 @@ export function createWalletNetworks(options: WalletNetworksDependencies) {
       if (existing.some(row => input.chainIds.includes(row.chainId) && row.state !== "failed")) state();
       const funded = (await store.listBundles(session.accountId)).filter(bundle => bundle.family === family && ["paying", "paid", "settled"].includes(bundle.state));
       if (funded.length >= maximumBundles) throw new RestError(429, "WALLET_NETWORKS_LIMIT", "This account has used its network deployments for now.");
+      // Every chosen chain is checked at once against one read of the Base stack; the first failure ends the quote.
+      const home = await homeStack(enrollment);
+      const checked = await Promise.all(input.chainIds.map(async chainId => {
+        if (await deployedOn(chainId, address)) return { chainId, deployed: true };
+        await verifyDestination(chainId, enrollment, home);
+        return { chainId, deployed: false };
+      }));
       const remaining: number[] = [];
-      for (const chainId of input.chainIds) {
-        if (await deployedOn(chainId, address)) { await store.upsertNetwork(session.accountId, { chainId, state: "deployed", bundleId: null, txHash: null }, now()); continue; }
-        await verifyDestination(chainId, enrollment);
-        remaining.push(chainId);
+      for (const { chainId, deployed } of checked) {
+        if (deployed) await store.upsertNetwork(session.accountId, { chainId, state: "deployed", bundleId: null, txHash: null }, now());
+        else remaining.push(chainId);
       }
       if (!remaining.length) return { bundle: null, challenge: null, view: await view(session.accountId) };
       const entries = walletNetworkEntries(creation, remaining);
