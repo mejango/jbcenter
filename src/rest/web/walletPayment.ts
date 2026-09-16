@@ -169,8 +169,7 @@ async function approvePayment() {
   if (!window.isSecureContext || !navigator.credentials?.get) { blocked = true; setStatus('error', 'This browser cannot use passkeys here. Open Center in a browser that supports passkeys.'); return; }
   // No network await precedes get(): it runs from the explicit approval click.
   nativePrompt = new AbortController(); setStatus('authenticating', 'Use your passkey to approve this payment.'); render();
-  const credential = await navigator.credentials.get({ publicKey: { rpId, challenge: decode(review.passkey.challenge),
-    allowCredentials: [{ type: 'public-key', id: decode(review.passkey.credentialId) }], userVerification: 'required', timeout: 90_000 }, signal: nativePrompt.signal });
+  const credential = await navigator.credentials.get({ publicKey: { rpId, challenge: decode(review.passkey.challenge), userVerification: 'required', timeout: 90_000 }, signal: nativePrompt.signal });
   if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAssertionResponse) ||
     encode(credential.rawId) !== review.passkey.credentialId) throw new InvalidResponse();
   const response = credential.response;

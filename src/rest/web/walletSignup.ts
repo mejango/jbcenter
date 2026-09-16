@@ -190,11 +190,12 @@ async function recoveryOwner(expected?: Address) {
     throw new Error('Select the original recovery wallet before continuing.');
   return getAddress(accounts[0]);
 }
-async function assertion(challenge: string, rpId: string, credentialId?: string) {
+/** Discoverable on purpose: Center pins the expected passkey when it verifies; an allow list only lets
+ * iOS refuse a passkey it cannot preselect. */
+async function assertion(challenge: string, rpId: string) {
   if (rpId !== location.hostname || !window.isSecureContext) throw new Error('Open the original secure wallet page.');
   native = new AbortController(); render();
-  const value = await navigator.credentials.get({ publicKey: { rpId, challenge: hexBytes(challenge), userVerification: 'required', timeout: 90000,
-    ...(credentialId ? { allowCredentials: [{ type: 'public-key', id: decode(credentialId) }] } : {}) }, signal: native.signal });
+  const value = await navigator.credentials.get({ publicKey: { rpId, challenge: hexBytes(challenge), userVerification: 'required', timeout: 90000 }, signal: native.signal });
   if (!(value instanceof PublicKeyCredential) || !(value.response instanceof AuthenticatorAssertionResponse)) throw new Error('The passkey response is unavailable.');
   const response = value.response; native = null;
   return { credentialId: encode(value.rawId), userHandle: response.userHandle ? encode(response.userHandle) : null,
@@ -260,7 +261,7 @@ async function approve(backupSignature?: Hex) {
     || deployment.initializerHash !== view!.initializerHash) throw new Error('The account creation review changed.');
   await announce('Approve creating your account', 'A passkey prompt approves creating your account, making it yours.');
   message('Approve creating your account: use your passkey in the prompt.');
-  const proof = await assertion(deployment.challenge, view!.rpId, deployment.credentialId);
+  const proof = await assertion(deployment.challenge, view!.rpId);
   await send('deployment/approve', { approvalId: deployment.id, assertion: proof, ...(backupSignature ? { backupSignature } : {}) });
 }
 form.addEventListener('submit', event => { event.preventDefault(); void run(async () => {

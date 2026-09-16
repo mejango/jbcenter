@@ -163,11 +163,10 @@ async function signBackup(document: TypedDataDefinition, owner: string) {
   if (typeof signature !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(signature)) throw new Error('The recovery owner signature is unavailable.');
   return signature;
 }
-async function assertion(challenge: string, rpId: string, credentialId?: string) {
+async function assertion(challenge: string, rpId: string) {
   if (rpId !== location.hostname || !window.isSecureContext) throw new Error('Open the original secure wallet page.');
   native = new AbortController(); render();
-  const value = await navigator.credentials.get({ publicKey: { rpId, challenge: challengeBytes(challenge), userVerification: 'required', timeout: 90000,
-    ...(credentialId ? { allowCredentials: [{ type: 'public-key', id: decode(credentialId) }] } : {}) }, signal: native.signal });
+  const value = await navigator.credentials.get({ publicKey: { rpId, challenge: challengeBytes(challenge), userVerification: 'required', timeout: 90000 }, signal: native.signal });
   if (!(value instanceof PublicKeyCredential) || !(value.response instanceof AuthenticatorAssertionResponse)) throw new Error('The passkey response is unavailable.');
   const response = value.response; native = null;
   return { credentialId: encode(value.rawId), userHandle: response.userHandle ? encode(response.userHandle) : null,
@@ -203,7 +202,7 @@ async function advance() {
       clientDataJSON: encode(value.response.clientDataJSON), attestationObject: encode(value.response.attestationObject) });
   } else if (view.phase === 'awaiting_possession' && view.possession) {
     const document = possessionDocument(), backupSignature = await signBackup(document, view.recoveryOwner);
-    const proof = await assertion(view.possession.challenge, view.rpId, view.possession.credentialId);
+    const proof = await assertion(view.possession.challenge, view.rpId);
     await send('prove', { assertion: proof, backupSignature });
   } else if (view.phase === 'awaiting_rotation_approval') {
     if (!view.replacementSigner || !view.candidateDigest || !view.rotationContext) invalid();
@@ -245,7 +244,7 @@ async function resumeRecovery() {
     || hash(document) !== challenge.challenge) invalid();
   kitMatches({ walletAddress: selectedWallet, recoveryOwner: owner, initializerHash: challenge.initializerHash });
   if (decode(begun.csrfToken).length !== 32) invalid();
-  const backupSignature = await signBackup(document as unknown as TypedDataDefinition, owner), proof = await assertion(challenge.challenge, challenge.rpId, challenge.credentialId);
+  const backupSignature = await signBackup(document as unknown as TypedDataDefinition, owner), proof = await assertion(challenge.challenge, challenge.rpId);
   if (proof.userHandle !== challenge.userHandle || proof.credentialId !== challenge.credentialId) invalid();
   await send('resume/complete', { resumeId: challenge.id, assertion: proof, backupSignature }, begun.csrfToken); rotation = null;
 }

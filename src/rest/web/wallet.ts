@@ -321,10 +321,9 @@ async function networksDeploy() {
   if (!configuration) throw new InvalidResponse();
   const challenge = networksQuote.challenge; if (!/^0x[0-9a-fA-F]{64}$/.test(challenge)) throw new InvalidResponse();
   // Only the account's passkey can approve, so the prompt offers that one instead of every passkey for the site.
-  const allowCredentials = [{ type: "public-key" as const, id: decode(string(quoted.credentialId, 1023)) }];
   nativePrompt = new AbortController(); setStatus("authenticating", "Approve the new networks with your passkey."); render();
   const credential = await navigator.credentials.get({ publicKey: { rpId: configuration.rpId, challenge: Uint8Array.from(challenge.slice(2).match(/../g)!.map(pair => parseInt(pair, 16))),
-    allowCredentials, userVerification: "required", timeout: 90_000 }, signal: nativePrompt.signal });
+    userVerification: "required", timeout: 90_000 }, signal: nativePrompt.signal });
   if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAssertionResponse)) throw new InvalidResponse();
   const response = credential.response; nativePrompt = null;
   setStatus("checking", "Funding the deployments…");
