@@ -19,7 +19,12 @@ function invalid(): never { throw new Error('The recovery rotation review change
 /** Browser-compatible standard SafeTx builder, shared with the server's validated review.
  * This returns signing data only; callers must establish the selected review's provenance. */
 export function walletRecoveryRotationSafeTx(walletAddress: Address, data: Hex, safeNonce: string) {
-  if (!isAddress(walletAddress) || !/^0x[0-9a-f]{200}$/.test(data)
+  if (!/^0x[0-9a-f]{200}$/.test(data)) invalid();
+  return walletOwnerChangeSafeTx(walletAddress, data, safeNonce);
+}
+/** The same standard SafeTx for any reviewed owner change: a swap (100 bytes) or an addition (68 bytes). */
+export function walletOwnerChangeSafeTx(walletAddress: Address, data: Hex, safeNonce: string) {
+  if (!isAddress(walletAddress) || !/^0x[0-9a-f]{136}$|^0x[0-9a-f]{200}$/.test(data)
     || !/^(0|[1-9][0-9]{0,77})$/.test(safeNonce) || BigInt(safeNonce) >= 1n << 256n) invalid();
   return { domain: { chainId: 8453, verifyingContract: walletAddress }, types, primaryType: 'SafeTx' as const,
     message: { to: walletAddress, value: 0n, data, operation: 0, safeTxGas: 0n, baseGas: 0n,
@@ -45,7 +50,11 @@ function canonical(value: unknown, depth = 0, budget = { nodes: 0, bytes: 0 }): 
 export function assertWalletRecoveryRotationReview(input: unknown, selected: WalletRecoveryReviewSelection) {
   const received = canonical(input); canonical(selected);
   const value = input as { review: WalletRecoveryRotation; document: unknown }, review = value.review;
-  if (!review || typeof review.previousOwner !== 'string' || ![sentinel, selected.recoveryOwner].includes(review.previousOwner)) invalid();
+  // The previous owner is the sentinel, the recovery owner, or a device passkey's signer (devices sit
+  // ahead of the primary in the Safe list). A wrong value only reverts the swap; the rotating signers
+  // themselves are rebuilt from the selection below, so they can never be the link.
+  const previous = review?.previousOwner;
+  if (!review || typeof previous !== 'string' || !isAddress(previous, { strict: true }) || previous === zeroAddress || previous === selected.priorSigner || previous === selected.replacementSigner) invalid();
   const p = selected.rotationContext;
   if (!p || !/^0x[0-9a-f]{64}$/.test(p.publicKey?.x) || !/^0x[0-9a-f]{64}$/.test(p.publicKey?.y)
     || !/^0x[0-9a-fA-F]{1,44}$/.test(p.verifiers) || BigInt(p.verifiers) <= 1n

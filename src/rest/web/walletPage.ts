@@ -12,7 +12,12 @@ export function walletPage(signup = false, recovery = false, base = '/wallet'): 
 <form id="wallet-networks-form" hidden><fieldset id="wallet-networks-family"><legend>Add your account to</legend>
 <label class="choice"><input type="radio" name="family" value="mainnet" checked>Mainnets</label><label class="choice"><input type="radio" name="family" value="testnet">Testnets</label></fieldset>
 <fieldset id="wallet-networks-choices"></fieldset>
-<div class="actions"><button id="wallet-networks-deploy" type="submit">Deploy</button><button id="wallet-networks-cancel" class="link" type="button">Cancel</button></div></form></section>
+<div class="actions"><button id="wallet-networks-deploy" type="submit">Deploy</button><button id="wallet-networks-cancel" class="link" type="button">Cancel</button></div></form>
+<p id="wallet-devices-row"><button id="wallet-device-add" class="link" type="button">Add a device</button></p>
+<section id="wallet-device" hidden aria-label="Add a device"><h2>Add a device</h2>
+<p id="wallet-device-hint">Open this link on the other device. It creates its own passkey for this account; you approve it here.</p>
+<div id="wallet-device-code" class="qr"></div><p><a id="wallet-device-link" target="_blank" rel="noopener"></a></p>
+<div class="actions"><button id="wallet-device-approve" type="button" hidden>Approve this device</button><button id="wallet-device-cancel" class="link" type="button">Close</button></div></section></section>
 <div class="actions"><button id="wallet-signin" type="button" hidden>Sign in with a passkey</button>
 <button id="wallet-retry" type="button" hidden>Retry</button>
 <button id="wallet-cancel" type="button" class="link" hidden>Cancel</button>
@@ -33,5 +38,5 @@ p{line-height:1.6;overflow-wrap:anywhere}#wallet-status{color:#172019;font-weigh
 .actions{display:flex;flex-wrap:wrap;gap:1rem;align-items:baseline}button{min-height:3rem;padding:.75rem 1rem;font:inherit;border:1px solid #172019;border-radius:0;background:#172019;color:#fff;cursor:pointer;max-width:100%}
 button.secondary{background:transparent;color:inherit}button:disabled{cursor:wait;opacity:.55}button:hover:not(:disabled){background:#364532;color:white}button.secondary:hover:not(:disabled){background:#e8ece4;color:inherit}
 :focus-visible{outline:3px solid #5275d1;outline-offset:4px}.note{font-size:.8rem;color:#53614f;margin-top:2rem}#wallet-links a{color:#4b5a4e;font-size:.9rem;text-underline-offset:.15em}#wallet-links a:hover{color:#172019}#wallet-links p{margin:.5rem 0}
-@media(max-width:40rem){#wallet-status{padding-left:1.7em}#wallet-status::before{left:0}}@media(max-width:400px){main{padding:1.1rem}.actions{flex-direction:column;align-items:stretch}.actions button{width:100%}.actions button.link{width:auto;align-self:flex-start}}`;
+.qr{width:min(100%,16rem);margin:1rem 0}.qr svg{width:100%;height:auto;display:block}#wallet-device h2{font-size:1.1rem;margin:1.5rem 0 .5rem}@media(max-width:40rem){#wallet-status{padding-left:1.7em}#wallet-status::before{left:0}}@media(max-width:400px){main{padding:1.1rem}.actions{flex-direction:column;align-items:stretch}.actions button{width:100%}.actions button.link{width:auto;align-self:flex-start}}`;
 }

@@ -10,7 +10,7 @@ import { createCenterMcp } from "./mcp.js";
 import { createCenterServer } from "./server.js";
 import { createRestRuntime, type RestWalletConfiguration } from "./rest/runtime.js";
 import { createBaseWalletProductionStack } from "./rest/wallet/productionStack.js";
-import { createBaseWalletRecoveryHost, createBaseWalletSignupHost } from "./rest/wallet/baseHost.js";
+import { createBaseWalletDeviceHost, createBaseWalletRecoveryHost, createBaseWalletSignupHost } from "./rest/wallet/baseHost.js";
 import { DWELLIR_RPC_HOSTS } from "./rpc.js";
 import { readRestExecutionConfiguration } from "./rest/executionConfig.js";
 import { Metrics } from "./observability.js";
@@ -91,6 +91,11 @@ const rest = await createRestRuntime({
       manifest: walletStack.manifest, utility: walletStack.utility,
       // Idle worker passes happen every second; only work and failures are worth a log line.
       onEvent: event => { if (event.stage !== "worker" || event.outcome !== "pass") console.info(JSON.stringify({ service: "wallet", action: "creation", ...event })); } }) } : {}),
+  ...(wallet && walletStack && recoveryConfigured.length ? { walletDevices: (context: Parameters<typeof createBaseWalletDeviceHost>[0]) =>
+    createBaseWalletDeviceHost(context, { url: dwellirBaseUrl, signerKey: process.env.WALLET_RECOVERY_SIGNER_KEY as `0x${string}`,
+      maximumOperations: Number(process.env.WALLET_RECOVERY_MAX_OPERATIONS), maximumCostWei: process.env.WALLET_RECOVERY_MAX_COST_WEI as string,
+      manifest: walletStack.manifest, utility: walletStack.utility,
+      onDeviceEvent: event => console.info(JSON.stringify({ service: "wallet", action: "device", ...event })) }) } : {}),
   ...(wallet && walletStack && recoveryConfigured.length ? { walletRecovery: (context: Parameters<typeof createBaseWalletRecoveryHost>[0]) =>
     createBaseWalletRecoveryHost(context, { url: dwellirBaseUrl, signerKey: process.env.WALLET_RECOVERY_SIGNER_KEY as `0x${string}`,
       maximumOperations: positiveInteger("WALLET_RECOVERY_MAX_OPERATIONS", 1), maximumCostWei: process.env.WALLET_RECOVERY_MAX_COST_WEI!,

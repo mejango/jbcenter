@@ -62,7 +62,9 @@ export async function exerciseRecoverySetupCrash(input: {
   expect(grants).toHaveLength(beforeGrantCount);
   expect(nonces).toHaveLength(beforeNonceCount + 1);
   const credentials = (await pool.query('SELECT credential_id,superseded_at FROM rest_wallet_credentials WHERE account_id=$1', [accountId])).rows;
-  expect(credentials).toEqual([{ credential_id: input.priorCredentialId, superseded_at: null }]);
+  // Mid-recovery the primary is still live and unsuperseded; device passkeys, if any, stay live beside it.
+  expect(credentials.filter(row => row.credential_id === input.priorCredentialId)).toEqual([{ credential_id: input.priorCredentialId, superseded_at: null }]);
+  expect(credentials.every(row => row.superseded_at === null)).toBe(true);
   const events: string[] = [];
   const fresh = createRecoveryCrashRuntime(pool, config, event => events.push(`${event.stage}:${event.outcome}`));
   try {

@@ -1,7 +1,7 @@
 import { createHash, createPublicKey, timingSafeEqual, verify } from "node:crypto";
 import { encodeAbiParameters, type Hex } from "viem";
 
-export type WalletAssertionPurpose = "registration" | "login" | "deploy" | "session" | "payment" | "rotate" | "signup-resume" | "networks";
+export type WalletAssertionPurpose = "registration" | "login" | "deploy" | "session" | "payment" | "rotate" | "signup-resume" | "networks" | "device";
 export type WalletAssertion = {
   credentialId: string;
   authenticatorData: Uint8Array;
@@ -30,7 +30,7 @@ export class WalletAssertionError extends Error {
 }
 
 const P256_ORDER = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551n;
-const PURPOSES = ["registration", "login", "deploy", "session", "payment", "rotate", "signup-resume", "networks"];
+const PURPOSES = ["registration", "login", "deploy", "session", "payment", "rotate", "signup-resume", "networks", "device"];
 const sha256 = (input: string | Uint8Array) => createHash("sha256").update(input).digest();
 const hex = (input: Uint8Array): Hex => `0x${Buffer.from(input).toString("hex")}`;
 function invalid(message = "Invalid wallet assertion"): never { throw new WalletAssertionError(message); }

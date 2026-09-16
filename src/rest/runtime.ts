@@ -76,6 +76,7 @@ import { PostgresWalletPaymentReviewStore } from './wallet/paymentReviewsPostgre
 import type { WalletV6UsdcPaymentConfig } from './userOperations/semantics.js';
 import type { createLocalWalletSignup } from './wallet/signup.js';
 import type { createLocalWalletRecovery } from './wallet/recoveryService.js';
+import { createLocalWalletDevices } from "./wallet/deviceService.js";
 import { createWalletNetworks } from "./wallet/networks.js";
 import { PostgresWalletNetworksStore } from "./wallet/networksPostgres.js";
 import { PostgresWalletEnrollmentStore } from "./wallet/enrollmentPostgres.js";
@@ -107,6 +108,7 @@ export interface RestWalletRuntime {
   payments?: PostgresWalletPaymentReviewStore;
   signup?: ReturnType<typeof createLocalWalletSignup>;
   recovery?: ReturnType<typeof createLocalWalletRecovery>;
+  devices?: ReturnType<typeof createLocalWalletDevices>;
   /** Internal operator transition; startup never activates policy. */
   activatePolicy: PostgresWalletPolicyStore["activate"];
 }
@@ -126,6 +128,8 @@ export async function createRestRuntime(options: {
     smart: ReturnType<typeof createSmartAccountService> }) => ReturnType<typeof createLocalWalletSignup> | Promise<ReturnType<typeof createLocalWalletSignup>>;
   walletRecovery?: (context: { pool: Pool; rpc: RestRpc; wallet: RestWalletRuntime; audience: string;
     smart: ReturnType<typeof createSmartAccountService> }) => ReturnType<typeof createLocalWalletRecovery> | Promise<ReturnType<typeof createLocalWalletRecovery>>;
+  walletDevices?: (context: { pool: Pool; rpc: RestRpc; wallet: RestWalletRuntime; audience: string;
+    smart: ReturnType<typeof createSmartAccountService> }) => ReturnType<typeof createLocalWalletDevices> | Promise<ReturnType<typeof createLocalWalletDevices>>;
   rpcSiteLimitPerMinute?: number;
   smartAccountManifests?: readonly SmartAccountManifest[];
   smartAccountModuleInspectors?: readonly SmartModuleInspector[];
@@ -531,6 +535,8 @@ export async function createRestRuntime(options: {
   if (wallet && options.walletSignup) wallet.signup = await options.walletSignup({ pool: options.pool, rpc: backendRpc, wallet, audience: auth.audience, smart: smartAccounts });
   if (options.walletRecovery && !wallet) throw new RestError(503, 'WALLET_RECOVERY_UNAVAILABLE', 'Recovery requires the dedicated wallet host.');
   if (wallet && options.walletRecovery) wallet.recovery = await options.walletRecovery({ pool: options.pool, rpc: backendRpc, wallet, audience: auth.audience, smart: smartAccounts });
+  if (options.walletDevices && !wallet) throw new RestError(503, 'WALLET_DEVICE_UNAVAILABLE', 'Adding devices requires the dedicated wallet host.');
+  if (wallet && options.walletDevices) wallet.devices = await options.walletDevices({ pool: options.pool, rpc: backendRpc, wallet, audience: auth.audience, smart: smartAccounts });
   const walletSite = wallet ? createWalletSite({ origin: wallet.origin, audience: auth.audience, ...(options.wallet?.legacyOrigins ? { legacyOrigins: options.wallet.legacyOrigins } : {}),
     ...(options.wallet?.basePath !== undefined ? { basePath: options.wallet.basePath } : {}),
     browserScript: assets.walletScript, login: wallet.login, policy: wallet.policy,
@@ -538,11 +544,13 @@ export async function createRestRuntime(options: {
     ...(walletPayments ? { payments: walletPayments, paymentBrowserScript: assets.walletPaymentScript } : {}),
     ...(wallet.signup ? { signup: wallet.signup, signupBrowserScript: assets.walletSignupScript } : {}),
     ...(wallet.recovery ? { recovery: wallet.recovery, recoveryBrowserScript: assets.walletRecoveryScript } : {}),
+    ...(wallet.devices ? { devices: wallet.devices, deviceBrowserScript: assets.walletDeviceScript } : {}),
     ...(wallet.networks ? { networks: wallet.networks } : {}),
     onEvent: event => console.info(JSON.stringify({ service: "wallet", ...event })),
   }) : undefined;
   if (options.startMaintenance !== false) wallet?.signup?.start();
   if (options.startMaintenance !== false) wallet?.recovery?.start();
+  if (options.startMaintenance !== false) wallet?.devices?.start();
   const metrics = options.metrics ?? new Metrics();
   if (options.startMaintenance !== false) metrics.startRestRecovery();
   let stopped = false;
@@ -615,6 +623,7 @@ export async function createRestRuntime(options: {
       await wallet?.refresh.stop();
       await wallet?.signup?.stop();
       await wallet?.recovery?.stop();
+      await wallet?.devices?.stop();
       await factoryHistory?.stop();
       if (maintenance) await maintenance;
     },

@@ -31,6 +31,18 @@ describe('browser recovery rotation review', () => {
     const value = fixture();
     expect(hashTypedData(assertWalletRecoveryRotationReview(value.response, value.selected))).toBe(hashTypedData(value.document));
   });
+  it('accepts a device passkey as the previous owner once the account has devices, and rejects the rotating signers there', () => {
+    const device = `0x${'ab'.repeat(20)}` as const;
+    const review = prepareWalletRecoveryRotation(candidate, { owners: [device, candidate.intent.priorSigner, candidate.intent.recoveryOwner], threshold: 1, safeNonce: '5' });
+    expect(review.previousOwner.toLowerCase()).toBe(device);
+    const { selected } = fixture(), document = walletRecoveryRotationDocument(review);
+    const response = JSON.parse(JSON.stringify({ review, document }, (_key, value) => typeof value === 'bigint' ? String(value) : value));
+    expect(hashTypedData(assertWalletRecoveryRotationReview(response, selected))).toBe(hashTypedData(document));
+    for (const previous of [selected.priorSigner, selected.replacementSigner, zeroAddress, '0xab', 'ab'.repeat(20)]) {
+      const changed = structuredClone(response); changed.review.previousOwner = previous;
+      expect(() => assertWalletRecoveryRotationReview(changed, selected)).toThrow();
+    }
+  });
   it('rejects wrong Safe, generation, signer, factory, extra calls and appended calldata', () => {
     const { selected, response } = fixture();
     for (const mutate of [

@@ -8,6 +8,8 @@ import { createRegistration, enrollmentBackupAccount, enrollmentManifest, signBa
 
 /** Genuine W3 crypto with a pure receipt stand-in; synthetic chain and setup-binding metadata.
  * This fixture proves neither database admission nor canonical deployment or live setup possession. */
+/** The primary passkey's signing material for the most recent fixture, for tests that must sign as it. */
+export let lastFixturePrimary: { credentialId: string; key: import("node:crypto").KeyObject; publicKey: { x: Hex; y: Hex }; userHandle: string } | null = null;
 export async function createWalletAuthorityContextFixture(now = 1_800_000_120_000): Promise<WalletAuthorityContext> {
   const hash = (byte: string): Hex => `0x${byte.repeat(64)}`;
   const block = () => ({ chainId: 8453, blockNumber: "100", blockHash: hash("a"), timestamp: String(Math.floor(now / 1000)), source: "onchain" as const });
@@ -19,6 +21,7 @@ export async function createWalletAuthorityContextFixture(now = 1_800_000_120_00
     candidateDigest: null, creation: null, possession: null, receipt: null };
   const credential = createRegistration({ challenge: `0x${Buffer.from(intent.registration.challenge, "base64url").toString("hex")}`,
     rpId: intent.rpId, origin: intent.origin, userHandle: intent.userHandle });
+  lastFixturePrimary = { credentialId: credential.credentialId, key: credential.key, publicKey: credential.publicKey, userHandle: intent.userHandle };
   const pending: WalletEnrollment = { ...empty, ...prepareWalletEnrollmentCandidate(empty, credential.response), state: "awaiting_possession" };
   const document = walletEnrollmentDocument(pending);
   const proof = await verifyWalletEnrollmentProof(pending, { assertion: signGet({ ...credential, challenge: hashTypedData(document),

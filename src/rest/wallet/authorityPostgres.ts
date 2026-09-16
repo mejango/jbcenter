@@ -98,6 +98,11 @@ export class PostgresWalletAuthorityStore {
     // Expensive context/creation/profile validation occurs only after every row lock is released.
     return validateWalletAuthorityContext(context);
   }
+  /** The stored rows without validation, for an activation that is about to make them consistent
+   * (a rebound account whose new device row is not written yet). Never an authority. */
+  async loadContextRaw(accountId: string): Promise<WalletAuthorityContext> {
+    return this.transaction(client => loadWalletAuthorityContextInTransaction(client, accountId));
+  }
   async get(accountId: string): Promise<WalletAuthoritySnapshot | null> {
     account(accountId);
     const row = await readAuthority(this.pool, accountId);

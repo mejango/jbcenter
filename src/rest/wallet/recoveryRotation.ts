@@ -65,8 +65,14 @@ export function walletRecoveryRotationDocument(input: WalletRecoveryRotation) {
 export async function verifyWalletRecoveryRotation(input: WalletRecoveryCandidate, inputReview: WalletRecoveryRotation, inputSignature: Hex) {
   assertWalletRecoveryCandidate(input); enrollmentDigest(inputReview);
   const candidate = structuredClone(input), review = structuredClone(inputReview), signature = canonicalEoaSignature(inputSignature);
-  const owners = review.previousOwner === sentinel ? [candidate.intent.priorSigner, candidate.intent.recoveryOwner]
-    : [candidate.intent.recoveryOwner, candidate.intent.priorSigner];
+  // Only the nonce and the previous-owner link are read from the review; every owner fact is rebuilt
+  // from the candidate. A device signer ahead of the primary is a valid previous owner; the relay's
+  // inspection vouched for it when the review was prepared.
+  if (typeof review.previousOwner !== 'string' || !isAddress(review.previousOwner)) invalid();
+  const previous = review.previousOwner.toLowerCase();
+  const owners = previous === sentinel ? [candidate.intent.priorSigner, candidate.intent.recoveryOwner]
+    : previous === candidate.intent.recoveryOwner ? [candidate.intent.recoveryOwner, candidate.intent.priorSigner]
+    : [review.previousOwner, candidate.intent.priorSigner, candidate.intent.recoveryOwner];
   const expected = prepareWalletRecoveryRotation(candidate, { owners, threshold: 1, safeNonce: review.safeNonce });
   if (enrollmentDigest(expected) !== enrollmentDigest(review)) invalid();
   const document = walletRecoveryRotationDocument(expected), safeTxHash = hashTypedData(document);

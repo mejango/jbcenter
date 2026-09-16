@@ -45,7 +45,7 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
     for (const name of [...new Set([...walletLoginTestMigrations, "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql", "018_rest_wallet_deployment_observations.sql",
       "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "027_wallet_signup.sql", "028_wallet_recovery.sql",
       "029_wallet_recovery_mapping.sql", "033_wallet_unproved_recovery_expiry.sql", "030_wallet_recovery_flow.sql", "031_wallet_recovery_dispatch.sql",
-      "034_wallet_deployment_base.sql", "035_wallet_recovery_base.sql"])].sort())
+      "034_wallet_deployment_base.sql", "035_wallet_recovery_base.sql", "045_wallet_device_addition.sql"])].sort())
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     fixture = await startWalletBaseAnvil();
   }, 60_000);

@@ -22,6 +22,7 @@ import type { createWalletNetworks } from './networks.js';
 import { publicWalletPaymentCentralReview } from './paymentPublic.js';
 import { mountWalletSignup, type WalletSignupSiteOptions } from './signupSite.js';
 import { mountWalletRecovery, type WalletRecoverySiteOptions } from './recoverySite.js';
+import { mountWalletDevices, type WalletDeviceSiteOptions } from './deviceSite.js';
 
 export interface WalletSiteOptions {
   origin: string;
@@ -36,6 +37,8 @@ export interface WalletSiteOptions {
   signupBrowserScript?: string;
   recovery?: WalletRecoverySiteOptions['recovery'];
   recoveryBrowserScript?: string;
+  devices?: WalletDeviceSiteOptions['devices'];
+  deviceBrowserScript?: string;
   login: Pick<PostgresWalletLoginStore, 'begin' | 'identifyCompletion' | 'complete' | 'identifySession' | 'readSession' | 'viewSession' | 'logout' | 'passkeyName'>;
   handoff: Pick<PostgresWalletHandoffStore, 'prepare' | 'getIntent' | 'issue' | 'identifyExchange' | 'exchange'>;
   policy: Pick<PostgresWalletPolicyStore, 'readActivePolicy'>;
@@ -98,7 +101,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   });
   // The wallet's own paths under `base`. On the credential host nothing else may execute.
   const walletPrefixes = ['/assets/', '/authorize/', '/config', '/create', '/handoff/', '/launch', '/login/', '/logout', '/payment',
-    '/networks', '/payment-reviews/', '/recover', '/recovery/', '/session', '/signup/'];
+    '/networks', '/payment-reviews/', '/recover', '/recovery/', '/session', '/signup/', '/add', '/devices/'];
   const isWalletPath = (path: string) => path === (base || '/') || path === `${base}/` || walletPrefixes.some(prefix => path.startsWith(base + prefix));
   const legacyPrefix = '/wallet';
   if (base === '') app.use('*', async (c, next) => {
@@ -202,6 +205,11 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   if (options.recovery) {
     if (!options.recoveryBrowserScript) reject(503, 'WALLET_RECOVERY_UNAVAILABLE');
     mountWalletRecovery(app, { origin, recovery: options.recovery, browserScript: options.recoveryBrowserScript, basePath: base, refresh });
+  }
+  if (options.devices) {
+    if (!options.deviceBrowserScript) reject(503, 'WALLET_DEVICE_UNAVAILABLE');
+    mountWalletDevices(app, { origin, devices: options.devices, browserScript: options.deviceBrowserScript, basePath: base,
+      session: (c, mutate) => paymentSession(c, mutate), onEvent: (action, outcome) => emit(action, outcome) });
   }
   // A bare visit without a session is a signup (which also logs in), served right here so nothing
   // redirects or repaints. App returns and stale cookies still get the landing page.

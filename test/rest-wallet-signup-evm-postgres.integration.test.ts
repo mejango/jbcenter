@@ -32,6 +32,7 @@ import { PostgresWalletSignupStore } from "../src/rest/wallet/signupPostgres.js"
 import { createLocalWalletSignup } from "../src/rest/wallet/signup.js";
 import { exerciseSignupBrowser } from "./fixtures/wallet-signup-browser.js";
 import { exerciseWalletRecoveryEvm } from "./fixtures/wallet-recovery-evm.js";
+import { exerciseWalletDeviceEvm } from "./fixtures/wallet-device-evm.js";
 
 const connectionString = process.env.TEST_DATABASE_URL;
 const suite = connectionString ? describe : describe.skip;
@@ -46,7 +47,7 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 5 });
     for (const name of [...new Set([...walletLoginTestMigrations, "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql",
       "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "027_wallet_signup.sql",
-      "028_wallet_recovery.sql", "029_wallet_recovery_mapping.sql", "033_wallet_unproved_recovery_expiry.sql", "030_wallet_recovery_flow.sql", "031_wallet_recovery_dispatch.sql", "035_wallet_recovery_base.sql"])].sort())
+      "028_wallet_recovery.sql", "029_wallet_recovery_mapping.sql", "033_wallet_unproved_recovery_expiry.sql", "030_wallet_recovery_flow.sql", "031_wallet_recovery_dispatch.sql", "035_wallet_recovery_base.sql", "045_wallet_device_addition.sql"])].sort())
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     fixture = await startWalletDeploymentAnvil();
   }, 30_000);
@@ -196,7 +197,9 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
     expect(new Set(accounts).size).toBe(2); expect(new Set(receipts).size).toBe(2);
     expect((await deployments.listUnresolved()).items).toEqual([]);
     expect(await fixture.rpc<Hex>("eth_getTransactionCount", [fixture.sender, "latest"])).toBe("0x4");
-    await exerciseWalletRecoveryEvm({ pool, fixture, smart, authority, ...recoveryTarget!, audience: 'https://juicebox.center' });
+    // The same account gains a device first; recovery then replaces the primary with the device kept.
+    const added = await exerciseWalletDeviceEvm({ pool, fixture, smart, authority, ...recoveryTarget!, audience: 'https://juicebox.center' });
+    await exerciseWalletRecoveryEvm({ pool, fixture, smart, authority, ...recoveryTarget!, originalSessionToken: added.primarySessionToken, audience: 'https://juicebox.center' });
     await exerciseSignupBrowser({ pool, fixture, enrollments, deployments, settlement, execution, smart, authority,
       registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id });
     await exerciseSignupBrowser({ pool, fixture, enrollments, deployments, settlement, execution, smart, authority,

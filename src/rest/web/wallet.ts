@@ -1,4 +1,5 @@
 import { base } from './walletBase.js';
+import { qrSvg } from "./qr.js";
 /** No credentials, assertions, CSRF values or handoff codes are persisted by this page. */
 type Json = Record<string, unknown>;
 type Configuration = { issuer: string; audience: string; rpId: string };
@@ -15,6 +16,10 @@ type NetworksView = { networks: { chainId: number; name: string; state: string; 
 const networksList = element("wallet-networks"), networksAdd = element<HTMLButtonElement>("wallet-networks-add"), networksForm = element<HTMLFormElement>("wallet-networks-form");
 let networksView: NetworksView | null = null, networksQuote: { bundleId: string; challenge: string } | null = null, networksTimer: ReturnType<typeof setInterval> | null = null, networksOpen = false, networksPolls = 0;
 const destination = element("wallet-destination");
+// Adding a device: begin here, show the other device its link, approve with this passkey once it has proved its own.
+type DeviceView = { id: string; phase: string; passkeyName: string | null; deviceSigner: string | null; expiresAtMs: number; transactionHashes: string[] };
+const deviceAdd = element<HTMLButtonElement>("wallet-device-add"), devicePanel = element("wallet-device"), deviceApprove = element<HTMLButtonElement>("wallet-device-approve");
+let device: { view: DeviceView; link: string } | null = null, deviceTimer: ReturnType<typeof setInterval> | null = null;
 const signIn = element<HTMLButtonElement>("wallet-signin"), retry = element<HTMLButtonElement>("wallet-retry");
 const cancel = element<HTMLButtonElement>("wallet-cancel"), signOut = element<HTMLButtonElement>("wallet-logout");
 let configuration: Configuration, intent: Intent | null = null, session: Session | null = null;
@@ -67,7 +72,7 @@ function render() {
   // Signed in, the page is the account; the ways in belong to the signed-out page only.
   // The signed-out links belong to a page that knows there is no session, not to a check in progress or a failed one.
   const links = document.getElementById("wallet-links"); if (links) links.hidden = !!session || !sessionKnown;
-  renderNetworks();
+  renderNetworks(); renderDevice();
   passkey.textContent = session?.passkeyName ?? ""; passkey.hidden = passkeyLabel.hidden = !session?.passkeyName;
 }
 async function request(path: string, body?: unknown, csrfToken?: string, timeoutMs = 10_000): Promise<Json> {
@@ -349,6 +354,76 @@ if (networksAdd && networksForm) {
   networksForm.addEventListener("submit", event => { event.preventDefault(); void run(networksDeploy); });
   for (const radio of networksForm.querySelectorAll<HTMLInputElement>("input[name=family]")) radio.addEventListener("change", () => { networksQuote = null; renderChoices(); render(); });
   element("wallet-networks-cancel").addEventListener("click", () => { networksOpen = false; networksQuote = null; render(); });
+}
+// The last hex characters of the new device's signer show on both pages, so a swapped device is visible before approval.
+const deviceTag = (signer: string | null) => typeof signer === "string" && /^0x[0-9a-fA-F]{40}$/.test(signer) ? signer.slice(-6).toUpperCase() : "";
+function deviceText(phase: string, signer: string | null = device?.view.deviceSigner ?? null) {
+  return phase === "awaiting_registration" || phase === "awaiting_possession" ? "Waiting for the other device to create its passkey…"
+    : phase === "awaiting_approval" ? `The other device is ready. Approve it with your passkey if it shows ${deviceTag(signer)}.` : phase === "adding" ? "Adding the device to your account…"
+    : phase === "awaiting_activation" ? "Finishing…" : phase === "ready" ? "The device is added. Sign in again on this device to continue."
+    : phase === "addition_failed" ? "Adding the device did not complete. Try again." : "The link expired. Start again.";
+}
+function renderDevice() {
+  if (!deviceAdd || !devicePanel) return;
+  const open = !!session && !!device;
+  deviceAdd.hidden = !session || open || busy;
+  devicePanel.hidden = !open;
+  if (!open) { if (deviceTimer) { clearInterval(deviceTimer); deviceTimer = null; } return; }
+  const phase = device!.view.phase;
+  element("wallet-device-hint").hidden = phase === "ready" || phase === "expired" || phase === "addition_failed";
+  element("wallet-device-code").hidden = phase !== "awaiting_registration" && phase !== "awaiting_possession";
+  const link = element<HTMLAnchorElement>("wallet-device-link"); link.hidden = element("wallet-device-code").hidden;
+  deviceApprove.hidden = phase !== "awaiting_approval" || busy; deviceApprove.disabled = busy;
+  element<HTMLButtonElement>("wallet-device-cancel").textContent = phase === "ready" || phase === "expired" || phase === "addition_failed" ? "Close" : "Cancel";
+  if (!deviceTimer && ["awaiting_registration", "awaiting_possession", "adding", "awaiting_activation"].includes(phase)) deviceTimer = setInterval(() => {
+    if (busy || document.hidden || !navigator.onLine) return;
+    devicePoll().catch(() => { /* The next poll reads again. */ });
+  }, 3000);
+}
+async function deviceBegin() {
+  setStatus("checking", "Preparing a link for the other device…");
+  const result = record(await request(`${base}/devices/begin`, { passkeyName: null }, csrf, 60_000)), view = record(result.view) as unknown as DeviceView, link = string(result.link, 4096);
+  if (!link.startsWith(`${location.origin}${base}/add#`)) throw new InvalidResponse();
+  device = { view, link };
+  element("wallet-device-code").innerHTML = qrSvg(link, "Link for the other device");
+  const anchor = element<HTMLAnchorElement>("wallet-device-link"); anchor.href = link; anchor.textContent = "Open the link on this device instead";
+  setStatus("checking", deviceText(view.phase));
+}
+async function devicePoll() {
+  if (!session || !device) return;
+  const result = record(await request(`${base}/devices/${device.view.id}`)), view = record(result.view) as unknown as DeviceView;
+  device = { ...device, view };
+  if (view.phase === "awaiting_activation") { await run(deviceActivate); return; }
+  render(); setStatus(["ready", "expired", "addition_failed"].includes(view.phase) ? "ready" : "checking", deviceText(view.phase));
+}
+async function deviceApproveNow() {
+  if (!device || !configuration) return;
+  setStatus("checking", "Preparing the approval…");
+  const prepared = record(await request(`${base}/devices/${device.view.id}/review`, {}, csrf, 60_000));
+  const challenge = string(prepared.challenge, 66); if (!/^0x[0-9a-fA-F]{64}$/.test(challenge)) throw new InvalidResponse();
+  nativePrompt = new AbortController(); setStatus("authenticating", "Approve the new device with your passkey."); render();
+  const credential = await navigator.credentials.get({ publicKey: { rpId: configuration.rpId, challenge: Uint8Array.from(challenge.slice(2).match(/../g)!.map(pair => parseInt(pair, 16))),
+    userVerification: "required", timeout: 90_000 }, signal: nativePrompt.signal });
+  if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAssertionResponse)) throw new InvalidResponse();
+  const response = credential.response; nativePrompt = null;
+  setStatus("checking", "Adding the device to your account…");
+  const result = record(await request(`${base}/devices/${device.view.id}/approve`, { review: prepared.review, assertion: { credentialId: encode(credential.rawId),
+    userHandle: response.userHandle ? encode(response.userHandle) : null, authenticatorData: encode(response.authenticatorData),
+    clientDataJSON: encode(response.clientDataJSON), signature: encode(response.signature) } }, csrf, 60_000));
+  device = { ...device, view: record(result.view) as unknown as DeviceView };
+  setStatus("checking", deviceText(device.view.phase));
+}
+async function deviceActivate() {
+  if (!device) return;
+  setStatus("checking", "Finishing…");
+  const result = record(await request(`${base}/devices/${device.view.id}/activate`, {}, csrf, 100_000));
+  device = { ...device, view: record(result.view) as unknown as DeviceView };
+  setStatus("ready", deviceText(device.view.phase));
+}
+if (deviceAdd && devicePanel) {
+  deviceAdd.addEventListener("click", () => void run(deviceBegin));
+  deviceApprove.addEventListener("click", () => void run(deviceApproveNow));
+  element("wallet-device-cancel").addEventListener("click", () => { device = null; render(); });
 }
 signIn.addEventListener("click", () => void run(login));
 retry.addEventListener("click", () => { if (retryAction) void run(retryAction); });

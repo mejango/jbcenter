@@ -16,7 +16,7 @@ suite("hosted Base recovery lane accounting", () => {
       "013_rest_wallet_ceremonies.sql", "014_rest_passkey_onboarding.sql", "042_wallet_binding_consent.sql", "015_rest_wallet_enrollment.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql", "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql",
       "017_rest_wallet_policy.sql", "019_rest_wallet_app_grants.sql", "020_rest_wallet_authority.sql", "039_wallet_authority_window.sql", "028_wallet_recovery.sql",
       "029_wallet_recovery_mapping.sql", "033_wallet_unproved_recovery_expiry.sql", "030_wallet_recovery_flow.sql", "031_wallet_recovery_dispatch.sql",
-      "035_wallet_recovery_base.sql"])
+      "035_wallet_recovery_base.sql", "045_wallet_device_addition.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
   });
   afterAll(async () => { await pool?.end(); if (admin) { await admin.query(`DROP SCHEMA ${schema} CASCADE`); await admin.end(); } });

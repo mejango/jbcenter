@@ -280,9 +280,12 @@ function contextShape(v: WalletAuthorityContext): void {
     b.state.manifestRevision !== e.intent.manifest.revision || (!consent && a.method !== "safe-passkey-owner-threshold-and-api-grant")) invalid();
   // A consent binding's digest is the passkey proof already on record for this credential: the
   // enrollment possession proof, or the recovery proof for a replacement passkey.
-  // With devices, the binding was renewed by the latest device addition and carries its consent digest.
+  // The binding carries the consent that rebound the account most recently: the enrollment proof,
+  // the primary's recovery proof, or the latest device addition, whichever was accepted last.
   const latestDevice = devices.reduce<WalletAuthorityDevice | null>((latest, device) => !latest || device.device.acceptedAtMs > latest.device.acceptedAtMs ? device : latest, null);
-  const consentDigest = latestDevice ? latestDevice.device.bindingDigest.toLowerCase() : c.recovery ? c.recovery.bindingDigest.toLowerCase() : `0x${receipt.verificationDigest}`;
+  const recoveryAt = c.recovery?.acceptedAtMs ?? 0, deviceAt = latestDevice?.device.acceptedAtMs ?? 0;
+  const consentDigest = latestDevice && deviceAt >= recoveryAt ? latestDevice.device.bindingDigest.toLowerCase()
+    : c.recovery ? c.recovery.bindingDigest.toLowerCase() : `0x${receipt.verificationDigest}`;
   if (consent && (!Number.isSafeInteger(a.expiresAt) || a.expiresAt <= 0 || a.digest.toLowerCase() !== consentDigest)) invalid();
   if (latestDevice && !consent) invalid();
   const setup = consent ? null : a.setup!;

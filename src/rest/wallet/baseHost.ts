@@ -16,6 +16,9 @@ import { PostgresWalletEnrollmentStore } from "./enrollmentPostgres.js";
 import { createLocalWalletSignup } from "./signup.js";
 import { PostgresWalletSignupStore } from "./signupPostgres.js";
 import { createBaseWalletRecovery } from "./recoveryBase.js";
+import { createBaseWalletDeviceRelay } from "./deviceBase.js";
+import { createLocalWalletDevices } from "./deviceService.js";
+import { PostgresWalletDeviceStore } from "./devicesPostgres.js";
 import { PostgresWalletRecoveryStore } from "./recoveryPostgres.js";
 import { PostgresWalletRecoveryFlowStore } from "./recoveryFlowPostgres.js";
 import { createLocalWalletRecovery } from "./recoveryService.js";
@@ -82,6 +85,21 @@ export interface BaseWalletRecoveryHostOptions {
   manifest: SmartAccountManifest;
   utility: ContractPin;
   onEvent?: Parameters<typeof createLocalWalletRecovery>[0]["onEvent"];
+}
+/** Explicit host composition for adding devices on hosted Base. It shares the recovery relay's
+ * signer key and lane (one owner change at a time per sender); the lane row is created on first use. */
+export function createBaseWalletDeviceHost(context: BaseWalletHostContext, options: BaseWalletRecoveryHostOptions & { onDeviceEvent?: Parameters<typeof createLocalWalletDevices>[0]["onEvent"] }) {
+  if (typeof options.signerKey !== "string" || !/^0x[0-9a-f]{64}$/i.test(options.signerKey))
+    throw new RestError(500, "WALLET_DEVICE_CONFIG_INVALID", "Adding devices requires the dedicated relay signer key.");
+  const reader = createBaseWalletDeploymentReader({ url: options.url, ...(options.genesisHash ? { genesisHash: options.genesisHash } : {}) });
+  const chain = createWalletAuthorityChain({ rpc: reader.reads, manifest: options.manifest, utility: options.utility });
+  const origin = context.wallet.origin, rpId = new URL(origin).hostname;
+  return createLocalWalletDevices({ audience: context.audience, smart: context.smart, authority: new PostgresWalletAuthorityStore(context.pool),
+    devices: new PostgresWalletDeviceStore(context.pool, { origin, rpId }, { audience: context.audience, observe: value => chain.observe(value) }),
+    ...(options.onDeviceEvent ? { onEvent: options.onDeviceEvent } : {}),
+    addition: createBaseWalletDeviceRelay({ pool: context.pool, url: options.url, ...(options.genesisHash ? { genesisHash: options.genesisHash } : {}),
+      signer: privateKeyToAccount(options.signerKey), manifest: options.manifest, utility: options.utility,
+      maximumOperations: options.maximumOperations, maximumCostWei: options.maximumCostWei }) });
 }
 /** Explicit host composition for hosted Base recovery. The lane row is created on first use. */
 export function createBaseWalletRecoveryHost(context: BaseWalletHostContext, options: BaseWalletRecoveryHostOptions) {

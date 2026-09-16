@@ -619,13 +619,18 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
    * already gave (its enrollment or recovery proof). No prompt, no owner signature over Center state,
    * no browser grant: reads and preparation need none, every execution still takes the passkey. */
   async function bindPasskeyAccount(input: { manifestId: string; address: Address; consent: { id: string; digest: Hex };
-    expected: { signerAddress: Address; initializerHash: Hex } }, signal?: AbortSignal) {
+    expected: { signerAddress: Address; initializerHash: Hex; deviceSigners?: Address[] } }, signal?: AbortSignal) {
     if (!options.onboarding) fail("SMART_ONBOARDING_UNAVAILABLE", "Account setup is not configured.", 503);
     const state = await inspect({ manifestId: input.manifestId, address: input.address }, signal);
-    // The consent names one passkey signer and one initializer; a wallet in any other state is not
-    // bound, so a stale or divergent read can never write a binding the credential cannot use.
+    // The consent names one passkey signer, one initializer and, when devices were added, exactly
+    // those device signers; a wallet in any other state is not bound, so a stale or divergent read
+    // can never write a binding the credential cannot use.
     const observed = assertPasskeyOnboardingState(state);
-    if (!same(observed.profile.signer.address, input.expected.signerAddress) || !same(observed.initializerHash, input.expected.initializerHash))
+    // Recovery leaves devices alone and passes none to check; a device addition names the whole set.
+    const devices = (observed.profile.devices ?? []).map(device => device.address.toLowerCase()).sort();
+    const expectedDevices = input.expected.deviceSigners?.map(device => device.toLowerCase()).sort();
+    if (!same(observed.profile.signer.address, input.expected.signerAddress) || !same(observed.initializerHash, input.expected.initializerHash)
+      || (expectedDevices && (devices.length !== expectedDevices.length || devices.some((device, index) => device !== expectedDevices[index]))))
       fail("SMART_ACCOUNT_CHANGED", "The wallet is not in the state its passkey consented to.", 409);
     await snapshot(state.chainId, signal, state.evidence);
     const current = Math.floor(now() / 1000);
