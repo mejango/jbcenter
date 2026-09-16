@@ -260,9 +260,7 @@ function renderNetworks() {
   networksList.textContent = view ? view.networks.map(label).join("\n") : "Base";
   networksAdd.hidden = !view || !view.offered.length || networksOpen || busy;
   networksForm.hidden = !view || !networksOpen;
-  const quoteText = element("wallet-networks-quote"), deploy = element<HTMLButtonElement>("wallet-networks-deploy"), getQuote = element<HTMLButtonElement>("wallet-networks-quote-button");
-  quoteText.hidden = !networksQuote; deploy.hidden = !networksQuote; getQuote.hidden = !!networksQuote;
-  deploy.disabled = getQuote.disabled = busy;
+  element<HTMLButtonElement>("wallet-networks-deploy").disabled = busy;
   // Polling runs beside the busy gate so a click is never dropped; it stops after ten minutes or when nothing is pending.
   if (view && view.pending.length && !networksTimer) networksTimer = setInterval(() => {
     if (busy || document.hidden || !navigator.onLine || networksPolls++ > 200) return;
@@ -293,23 +291,19 @@ function chosenChains(): number[] {
   return [...element("wallet-networks-choices").querySelectorAll<HTMLInputElement>("input:checked")].map(input => Number(input.value));
 }
 async function refreshNetworks() { if (!session || !networksList) return; networksView = networkView(await request(`${base}/networks`)); render(); }
-async function networksQuoteAction() {
+// Center pays for every offered network, so the quote stays inside one click: quote, one passkey prompt, funding.
+async function networksDeploy() {
   const chainIds = chosenChains();
   if (!chainIds.length) { setStatus("ready", "Choose at least one network."); return; }
   const families = new Set([...element("wallet-networks-choices").querySelectorAll<HTMLInputElement>("input:checked")].map(input => input.dataset.family));
   if (families.size > 1) { setStatus("ready", "Choose mainnets or testnets, not both at once."); return; }
-  setStatus("checking", "Getting a quote…");
-  const result = record(await request(`${base}/networks/quote`, { chainIds }, csrf, 60_000));
-  networksView = networkView(result.view as Json);
-  if (result.bundle === null) { networksOpen = false; networksQuote = null; setStatus("ready", "Your account is already on those networks."); return; }
-  const bundle = record(result.bundle), payment = record(bundle.payment), names = (bundle.networks as { name: string }[]).map(item => item.name);
-  const wei = BigInt(string(payment.value, 80)), eth = `${wei / 10n ** 18n}.${(wei % 10n ** 18n).toString().padStart(18, "0").slice(0, 6)} ETH`;
-  networksQuote = { bundleId: string(bundle.id, 36), challenge: string(result.challenge, 66) };
-  element("wallet-networks-quote").textContent = `Adding ${names.join(" and ")} costs ${eth}. Center pays. One passkey prompt confirms it.`;
-  setStatus("ready", "Quote ready. Deploy when you are.");
-}
-async function networksDeploy() {
-  if (!networksQuote || !configuration) throw new InvalidResponse();
+  setStatus("checking", "Preparing the deployments…");
+  const quoted = record(await request(`${base}/networks/quote`, { chainIds }, csrf, 60_000));
+  networksView = networkView(quoted.view as Json);
+  if (quoted.bundle === null) { networksOpen = false; networksQuote = null; setStatus("ready", "Your account is already on those networks."); return; }
+  const bundle = record(quoted.bundle);
+  networksQuote = { bundleId: string(bundle.id, 36), challenge: string(quoted.challenge, 66) };
+  if (!configuration) throw new InvalidResponse();
   const challenge = networksQuote.challenge; if (!/^0x[0-9a-fA-F]{64}$/.test(challenge)) throw new InvalidResponse();
   nativePrompt = new AbortController(); setStatus("authenticating", "Approve the new networks with your passkey."); render();
   const credential = await navigator.credentials.get({ publicKey: { rpId: configuration.rpId, challenge: Uint8Array.from(challenge.slice(2).match(/../g)!.map(pair => parseInt(pair, 16))),
@@ -332,9 +326,8 @@ async function networksStatus() {
 }
 if (networksAdd && networksForm) {
   networksAdd.addEventListener("click", () => openNetworks());
-  networksForm.addEventListener("submit", event => { event.preventDefault(); void run(networksQuoteAction); });
+  networksForm.addEventListener("submit", event => { event.preventDefault(); void run(networksDeploy); });
   for (const radio of networksForm.querySelectorAll<HTMLInputElement>("input[name=family]")) radio.addEventListener("change", () => { networksQuote = null; renderChoices(); render(); });
-  element("wallet-networks-deploy").addEventListener("click", () => void run(networksDeploy));
   element("wallet-networks-cancel").addEventListener("click", () => { networksOpen = false; networksQuote = null; render(); });
 }
 signIn.addEventListener("click", () => void run(login));

@@ -275,7 +275,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     expect((await page.locator('#wallet-address').textContent())?.toLowerCase()).toBe(originalAddress?.toLowerCase());
     expect(await page.locator('#wallet-passkey').textContent()).toBe('Juicebox test');
     if (!kitMode) {
-      // "Add more": one quote, one passkey prompt, Center pays on Base, Optimism shows the account.
+      // "Add more": one click quotes and prompts the passkey once, Center pays on Base, Optimism shows the account.
       await expect.poll(() => page.getByRole('button', { name: 'Add more' }).isVisible()).toBe(true);
       await page.getByRole('button', { name: 'Add more' }).click();
       // One family at a time: Relayr never mixes mainnets and testnets in a bundle.
@@ -286,13 +286,11 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       await page.getByLabel('Mainnets', { exact: true }).check();
       await page.getByLabel('Optimism', { exact: true }).check();
       await page.screenshot({ path: new URL('networks-picker.png', out).pathname, fullPage: true });
-      await page.getByRole('button', { name: 'Get quote' }).click();
-      await expect.poll(() => page.locator('#wallet-networks-quote').textContent(), { timeout: 15000 }).toContain('Adding Optimism costs 0.000012 ETH. Center pays.');
+      await page.getByRole('button', { name: 'Deploy', exact: true }).click();
+      await expect.poll(() => page.locator('#wallet-networks').textContent(), { timeout: 30000 }).toBe('Base\nOptimism');
       expect(networksProvider.entries).toHaveLength(1);
       expect(networksProvider.entries[0]).toMatchObject({ chain: 10, target: options.fixture.manifest.factory.address, value: '0' });
       expect(networksProvider.entries[0]!.data.startsWith('0x1688f0b9')).toBe(true); // createProxyWithNonce, the same call that created it on Base
-      await page.getByRole('button', { name: 'Deploy', exact: true }).click();
-      await expect.poll(() => page.locator('#wallet-networks').textContent(), { timeout: 30000 }).toBe('Base\nOptimism');
       await contains('Your account is on 2 networks');
       await page.screenshot({ path: new URL('networks-done.png', out).pathname, fullPage: true });
       const payment = await options.fixture.rpc<{ to: string; value: string }[]>('eth_getBlockByNumber', ['latest', true]).then(block => (block as unknown as { transactions: { to: string; value: string }[] }).transactions);

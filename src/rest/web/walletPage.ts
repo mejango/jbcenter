@@ -12,8 +12,7 @@ export function walletPage(signup = false, recovery = false, base = '/wallet'): 
 <form id="wallet-networks-form" hidden><fieldset id="wallet-networks-family"><legend>Add your account to</legend>
 <label class="choice"><input type="radio" name="family" value="mainnet" checked>Mainnets</label><label class="choice"><input type="radio" name="family" value="testnet">Testnets</label></fieldset>
 <fieldset id="wallet-networks-choices"></fieldset>
-<p id="wallet-networks-quote" hidden></p>
-<div class="actions"><button id="wallet-networks-quote-button" type="submit">Get quote</button><button id="wallet-networks-deploy" type="button" hidden>Deploy</button><button id="wallet-networks-cancel" class="secondary" type="button">Cancel</button></div></form></section>
+<div class="actions"><button id="wallet-networks-deploy" type="submit">Deploy</button><button id="wallet-networks-cancel" class="secondary" type="button">Cancel</button></div></form></section>
 <div class="actions"><button id="wallet-signin" type="button" hidden>Sign in with a passkey</button>
 <button id="wallet-retry" type="button" hidden>Retry</button>
 <button id="wallet-cancel" type="button" class="secondary" hidden>Cancel</button>
