@@ -22,6 +22,8 @@ function announce(title: string, text: string) {
   });
 }
 let view: View | null = null, known = false, busy = false, csrf = '', native: AbortController | null = null;
+// A log-in in progress is the whole page; the signup form waits until it fails.
+let loggingIn = false;
 let pending: { path: string; body: unknown; csrf: string } | null = null;
 let disposed = false, pollCount = 0;
 let recoverySecret: WalletRecoverySecret | null = null, kitSavedWallet: string | null = null;
@@ -116,7 +118,7 @@ function render() {
   const stranded = kitMode() && !recoverySecret && !!view && ['awaiting_registration', 'awaiting_possession'].includes(view.phase);
   // A stranded attempt that never created a passkey lost nothing worth mentioning: show the clean form.
   if (stranded) message(view!.phase === 'awaiting_possession' ? 'Your last signup cannot continue without its backup password. Sign up again with a new passkey.' : '');
-  form.hidden = !known || (!!view && !stranded); details.hidden = !view || stranded;
+  form.hidden = !known || (!!view && !stranded) || loggingIn; details.hidden = !view || stranded;
   // A default name that tells passkeys apart later: the site, then when it was made.
   if (!form.hidden && !name.value) {
     const now = new Date();
@@ -147,7 +149,7 @@ function render() {
   el<HTMLButtonElement>('recovery-show').disabled = busy; el<HTMLButtonElement>('recovery-copy').disabled = busy;
   // "log in" resumes with a passkey; a finished wallet lands at sign-in. Once the state is known (or its load failed),
   // it stays offered unless a signup with a passkey is under way, so a returning user is never without a way in.
-  el('signup-intro').hidden = !known || (!!view && view.phase !== 'expired' && view.phase !== 'awaiting_registration');
+  el('signup-intro').hidden = !known || loggingIn || (!!view && view.phase !== 'expired' && view.phase !== 'awaiting_registration');
   // "Check signup" only matters for a lost reply or while creation is in progress.
   check.hidden = stranded || !(pending || view?.phase === 'deploying'); check.disabled = busy;
   cancel.hidden = !native;
@@ -328,7 +330,12 @@ async function walletRequest(path: string, body: unknown, proof?: string, timeou
 }
 /** The same sign-in as the wallet landing page, then that page shows the session (and any app return). */
 async function login() {
+  loggingIn = true; render();
+  try { await loginFlow(); } finally { loggingIn = false; }
+}
+async function loginFlow() {
   await announce('Log in', 'A passkey prompt logs you in to your account.');
+  message('Logging in…');
   const begun = await walletRequest(`${base}/login/begin`, {}), publicKey = begun.publicKey;
   if (publicKey?.rpId !== location.hostname || publicKey.userVerification !== 'required' || typeof begun.loginId !== 'string' || typeof begun.csrfToken !== 'string') throw new Error('The account host changed.');
   const challenge = decode(publicKey.challenge); if (challenge.length !== 32) throw new Error('Invalid passkey challenge.');
