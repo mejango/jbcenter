@@ -63,6 +63,14 @@ export async function exerciseWalletDeviceEvm(options: {
   const owners = await fixture.readOnlyRpc.request(8453, 'eth_call', [{ to: accountId.slice(12), data: '0xa0e67e2b' }, 'latest']) as Hex; // getOwners()
   expect(owners.toLowerCase()).toContain(proved.deviceSigner!.slice(2).toLowerCase());
 
+  // Mined but not yet activated: the account cannot review a second addition until this one is recorded.
+  const second = await service.begin(session, { passkeyName: 'Second phone' });
+  const secondDevice = createRegistration({ rpId, origin, userHandle: second.view.registration!.userHandle,
+    challenge: `0x${Buffer.from(second.view.registration!.challenge, 'base64url').toString('hex')}` });
+  const secondRegistered = await service.register(second.linkToken, secondDevice.response);
+  await service.prove(second.linkToken, signGet({ ...secondDevice, rpId, origin, challenge: secondRegistered.possession!.challenge }));
+  await expect(service.prepareAddition(second.view.id, session)).rejects.toMatchObject({ status: 503 });
+
   // Either page: activate. The account is rebound with the device as an owner.
   const activated = await service.activateForLink(begun.linkToken);
   expect(activated.phase).toBe('ready');

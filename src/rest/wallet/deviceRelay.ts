@@ -44,6 +44,7 @@ export function createWalletDeviceRelay(options: {
     current: (record, context) => enrollmentDigest(context.enrollment) === record.intent.enrollmentDigest
       && enrollmentDigest(context.credential) === record.intent.primaryCredentialDigest
       && context.binding.authorization.digest === record.intent.bindingDigest && !record.activation,
+    devices: record => record.intent.existingSigners,
     candidate: record => record.candidate,
     expectedSigner: record => record.intent.primarySigner,
     changed: (record, profile) => (profile.devices ?? []).some(device => addressSame(device.address, record.candidate.signerAddress)

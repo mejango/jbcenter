@@ -31,6 +31,8 @@ export interface WalletOwnerRelaySource<Record, Review extends { safeNonce: stri
   load(id: string): Promise<Record>;
   /** The record is still the account's current, unfinished change under this context. */
   current(record: Record, context: WalletAuthorityContext): boolean;
+  /** The device signers the account has recorded; the Safe must hold exactly these beside the primary and recovery owner before a change. */
+  devices(record: Record, context: WalletAuthorityContext): Address[];
   candidate(record: Record): { intent: { accountId: string; initializerHash: Hex; recoveryOwner: Address; origin: string; manifest: SmartAccountManifest }; credential: { publicKey: { x: Hex; y: Hex } }; signerAddress: Address };
   /** The owner-profile signer expected before and after the change. */
   expectedSigner(record: Record, after: boolean): Address;
@@ -174,7 +176,7 @@ export function createWalletOwnerRelay<Record, Review extends { safeNonce: strin
     if (observed === null || !same(head(observed), latest)) return fence(client, 'canonical-anchor-replaced');
     rpc.check();
   }
-  async function inspect(record: Record, rpc: Scope, latest: RestBlockEvidence, replacement: boolean) {
+  async function inspect(record: Record, rpc: Scope, latest: RestBlockEvidence, replacement: boolean, context?: WalletAuthorityContext) {
     const intent = source.candidate(record).intent;
     const scoped: RestRpc = { request(chain, method, params) { if (chain !== 8453) unavailable(); return rpc.request(method, params); } };
     const smart = createSmartAccountService({ rpc: scoped, manifests: [manifest], registry: new MemorySmartAccountRegistry(), audience: intent.origin,
@@ -188,6 +190,12 @@ export function createWalletOwnerRelay<Record, Review extends { safeNonce: strin
       || !addressSame(checked.profile.recoveryOwner.address, intent.recoveryOwner)
       || !addressSame(checked.profile.signer.address, source.expectedSigner(record, replacement))) unavailable();
     if (replacement && !source.changed(record, checked.profile)) unavailable();
+    if (context) {
+      // Before a change, the Safe holds exactly the recorded devices: an owner from an addition that
+      // was mined but never activated would otherwise strand the account behind a stale binding.
+      const observed = (checked.profile.devices ?? []).map(device => device.address.toLowerCase()), expected = source.devices(record, context).map(entry => entry.toLowerCase());
+      if (observed.length !== expected.length || expected.some(entry => !observed.includes(entry))) unavailable();
+    }
     return { state, creation: details.provenance.creationTransaction.toLowerCase() as Hex };
   }
   const dispatch = async (client: PoolClient, id: string) => (await client.query<Dispatch<Review, Approval>>(`SELECT * FROM ${T.dispatch} WHERE ${T.idColumn}=$1 AND sender=$2`, [id, sender])).rows[0];
@@ -261,10 +269,14 @@ export function createWalletOwnerRelay<Record, Review extends { safeNonce: strin
     for (let step = 0; step < 2; step++) {
       const txs = await transactions(client, id), tx = txs[step]!;
       if (tx.attempted_at_ms || (step === 1 && txs[0]!.receipt?.status !== 'success')) continue;
-      const record = await required(id); await current(record);
+      const record = await required(id);
+      // A durable approval whose account moved on (another change activated meanwhile) fences the
+      // lane visibly instead of failing on every tick with the lane still held.
+      const context = await current(record).catch(() => null);
+      if (!context) return fence(client, 'approved-record-stale');
       const { value, latest } = await lane(client, rpc);
       if ((value as unknown as { [key: string]: string | null })[T.activeColumn] !== id) invalid();
-      const observed = await inspect(record, rpc, latest, false);
+      const observed = await inspect(record, rpc, latest, false, context);
       if (observed.creation !== operation.creation_transaction || !same(source.review(record, {
         owners: observed.state.owners, threshold: observed.state.threshold, safeNonce: observed.state.safeNonce }), operation.review)) invalid();
       if (step === 1) {
@@ -312,8 +324,8 @@ export function createWalletOwnerRelay<Record, Review extends { safeNonce: strin
       return locked(async (client, rpc) => {
         const record = await required(id), saved = await dispatch(client, id);
         if (saved) return saved.review;
-        await current(record);
-        const { value, latest } = await lane(client, rpc), observed = await inspect(record, rpc, latest, false);
+        const context = await current(record);
+        const { value, latest } = await lane(client, rpc), observed = await inspect(record, rpc, latest, false, context);
         const review = source.review(record, { owners: observed.state.owners, threshold: observed.state.threshold, safeNonce: observed.state.safeNonce });
         await canonical(client, rpc, value, latest);
         await client.query(`INSERT INTO ${T.dispatch}(${T.idColumn},sender,review,creation_transaction,created_at_ms)
@@ -328,10 +340,10 @@ export function createWalletOwnerRelay<Record, Review extends { safeNonce: strin
         const saved = await dispatch(client, id);
         if (!saved || !same(saved.review, review)) invalid();
         if (saved.approval) { if (!same(saved.approval, approval)) invalid(); return progress(client, rpc, id); }
-        await current(record);
+        const context = await current(record);
         const { value, latest } = await lane(client, rpc);
         if (value.active_recovery || value.active_device || value.operations >= config.maximumOperations) unavailable();
-        const observed = await inspect(record, rpc, latest, false);
+        const observed = await inspect(record, rpc, latest, false, context);
         if (!same(source.review(record, { owners: observed.state.owners, threshold: observed.state.threshold, safeNonce: observed.state.safeNonce }), review)) invalid();
         const confirmed = quantity(await rpc.request('eth_getTransactionCount', [sender, tag(latest)]));
         if (confirmed !== BigInt(value.next_nonce) || confirmed !== quantity(await rpc.request('eth_getTransactionCount', [sender, 'pending'])))

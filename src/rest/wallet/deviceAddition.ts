@@ -171,7 +171,10 @@ export function prepareWalletDeviceAddition(input: WalletDeviceCandidate, inputS
     || state.owners.length < 2 || state.owners.length > maximumPasskeySigners || state.owners.some(entry => typeof entry !== 'string' || !isAddress(entry))) invalid();
   nonce(state.safeNonce);
   const owners = state.owners.map(entry => entry.toLowerCase());
-  if (new Set(owners).size !== owners.length || !owners.includes(intent.primarySigner) || !owners.includes(intent.recoveryOwner)
+  // Exactly the recorded owners: primary, recovery owner and the devices this intent captured. An
+  // owner the account has not recorded (an addition mined but not activated) blocks any new review.
+  const expected = [intent.primarySigner, intent.recoveryOwner, ...intent.existingSigners].map(entry => entry.toLowerCase());
+  if (new Set(owners).size !== owners.length || owners.length !== expected.length || expected.some(entry => !owners.includes(entry))
     || owners.includes(candidate.signerAddress.toLowerCase())) invalid();
   const walletAddress = getAddress(intent.accountId.slice(12));
   return { version: 'center-wallet-device-addition-v1', deviceId: intent.id, candidateDigest: enrollmentDigest(candidate),

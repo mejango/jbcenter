@@ -43,6 +43,7 @@ export function createWalletRecoveryRelay(options: {
     current: (record, context) => enrollmentDigest(context.enrollment) === record.intent.enrollmentDigest
       && enrollmentDigest(context.credential) === record.intent.priorCredentialDigest
       && context.binding.authorization.digest === record.intent.priorBindingDigest && !record.activation,
+    devices: (_record, context) => (context.devices ?? []).map(entry => entry.device.signerAddress),
     candidate: record => record.candidate,
     expectedSigner: (record, after) => after ? record.candidate.signerAddress : record.intent.priorSigner,
     changed: (record, profile) => addressSame(profile.signer.x, record.candidate.credential.publicKey.x) && addressSame(profile.signer.y, record.candidate.credential.publicKey.y),

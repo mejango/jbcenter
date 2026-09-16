@@ -54,6 +54,8 @@ describe('adding a device', () => {
     expect(() => verifyWalletDeviceAddition(candidate, { ...review, safeNonce: '5' }, assertion, primaryPasskey())).toThrow();
     expect(() => prepareWalletDeviceAddition(candidate, { owners: [...owners(), candidate.signerAddress], threshold: 1, safeNonce: '4' })).toThrow();
     expect(() => prepareWalletDeviceAddition(candidate, { owners: owners(), threshold: 2, safeNonce: '4' })).toThrow();
+    // An owner the account has not recorded (an earlier addition mined but never activated) blocks any new review.
+    expect(() => prepareWalletDeviceAddition(candidate, { owners: [`0x${'ee'.repeat(20)}`, ...owners()], threshold: 1, safeNonce: '4' })).toThrow();
     expect(() => prepareWalletDeviceAddition(candidate, { owners: [owners()[0]!], threshold: 1, safeNonce: '4' })).toThrow();
   });
 });
