@@ -1,7 +1,9 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { getAddress, hashTypedData, isAddress, keccak256, parseTransaction, serializeTransaction, type Address, type Hex } from "viem";
 import { RestError } from "../core.js";
-import { assertWalletCeremonyDraft, walletCeremonyMaxLifetimeMs, type WalletCeremonyDraft } from "./ceremonies.js";
+import { assertWalletCeremonyDraft, type WalletCeremonyDraft } from "./ceremonies.js";
+/** A deployment approval stays a five-minute decision; only the signup window grew. */
+const walletDeploymentApprovalMaxLifetimeMs = 300_000;
 import { assertRegisteredWalletEnrollment, assertVerifiedWalletEnrollment, enrollmentDigest, type WalletEnrollment } from "./enrollment.js";
 import { verifyWalletAssertion, type WalletAssertion } from "./webauthn.js";
 import { validateSignedTransaction } from "../transactions/signed.js";
@@ -63,7 +65,7 @@ function fields(value: unknown, keys: readonly string[]): void {
 function timestamp(value: number): boolean { return Number.isSafeInteger(value) && value > 0; }
 function lifetime(times: { issuedAt: number; expiresAt: number }, verifiedAt: number): void {
   if (!timestamp(times.issuedAt) || !timestamp(times.expiresAt) || times.issuedAt < verifiedAt ||
-      times.expiresAt <= times.issuedAt || times.expiresAt - times.issuedAt > walletCeremonyMaxLifetimeMs) invalid();
+      times.expiresAt <= times.issuedAt || times.expiresAt - times.issuedAt > walletDeploymentApprovalMaxLifetimeMs) invalid();
 }
 
 const documentTypes = { WalletDeployment: [

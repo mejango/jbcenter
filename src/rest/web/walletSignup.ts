@@ -110,8 +110,8 @@ function accept(result: { view: View | null; csrfToken?: string }) {
 }
 function render() {
   spin();
-  form.querySelector('button')!.disabled = busy;
-  name.disabled = busy;
+  form.querySelector('button')!.disabled = engaged;
+  name.disabled = engaged;
   // The kit is presented once the wallet exists. Earlier phases still need the words in memory
   // to sign the enrollment; a reload before then strands the signup, so say so and offer a fresh start.
   const kitPhase = !!view && ['awaiting_activation', 'preparing_sign_in', 'ready_to_sign_in'].includes(view.phase);
@@ -124,7 +124,7 @@ function render() {
     const now = new Date();
     name.value = `${location.hostname} ${now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} ${now.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`;
   }
-  el<HTMLFieldSetElement>('recovery-method').disabled = busy; // Inside the form: gone once signup begins.
+  el<HTMLFieldSetElement>('recovery-method').disabled = engaged; // Inside the form: gone once signup begins.
   const showKit = kitPhase && mode() === 'kit';
   el('recovery-kit').hidden = !showKit;
   const phrase = el<HTMLInputElement>('recovery-phrase');
@@ -133,9 +133,9 @@ function render() {
   // Only a reload before saving loses the password from memory; pasting it back allows the file save.
   el('recovery-restore-box').hidden = !showKit || !!recoverySecret;
   el('recovery-kit-note').hidden = !recoverySecret; el('recovery-warning').hidden = !recoverySecret; el<HTMLButtonElement>('recovery-download').hidden = !recoverySecret;
-  el<HTMLButtonElement>('recovery-download').disabled = busy;
+  el<HTMLButtonElement>('recovery-download').disabled = engaged;
   el<HTMLButtonElement>('recovery-share').hidden = !recoverySecret || typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function';
-  el<HTMLButtonElement>('recovery-share').disabled = busy;
+  el<HTMLButtonElement>('recovery-share').disabled = engaged;
   el('signup-name').textContent = view?.passkeyName ?? '';
   el('signup-recovery-label').textContent = mode() === 'wallet' ? 'Recovery wallet' : showKit && recoverySecret ? 'Backup password'
     : showKit ? 'Backup password address' : 'Recovery';
@@ -145,18 +145,18 @@ function render() {
   const label = view?.phase === 'awaiting_registration' ? 'Create passkey'
     : view?.phase === 'awaiting_possession' || view?.phase === 'awaiting_deployment_approval' ? 'Create account'
     : view?.phase === 'awaiting_activation' ? 'Continue' : view?.phase === 'ready_to_sign_in' ? 'Log in' : view?.phase === 'expired' ? 'Sign up' : null;
-  next.hidden = !label || !!pending || stranded; next.textContent = label; next.disabled = busy;
-  el<HTMLButtonElement>('recovery-show').disabled = busy; el<HTMLButtonElement>('recovery-copy').disabled = busy;
+  next.hidden = !label || !!pending || stranded; next.textContent = label; next.disabled = engaged;
+  el<HTMLButtonElement>('recovery-show').disabled = engaged; el<HTMLButtonElement>('recovery-copy').disabled = engaged;
   // "log in" resumes with a passkey; a finished wallet lands at sign-in. Once the state is known (or its load failed),
   // it stays offered unless a signup with a passkey is under way, so a returning user is never without a way in.
   el('signup-intro').hidden = !known || loggingIn || (!!view && view.phase !== 'expired' && view.phase !== 'awaiting_registration');
   // "Check signup" only matters for a lost reply or while creation is in progress.
-  check.hidden = stranded || !(pending || view?.phase === 'deploying'); check.disabled = busy;
+  check.hidden = stranded || !(pending || view?.phase === 'deploying'); check.disabled = engaged;
   // One filled button per page: the check is the primary only when it stands alone.
   check.classList.toggle('link', !form.hidden); check.classList.toggle('secondary', form.hidden && !next.hidden);
   cancel.hidden = !native;
   // Forgetting this browser's continuation; the signup and its passkey stay usable through "log in".
-  restart.hidden = !view || stranded || view.phase === 'expired'; restart.disabled = busy;
+  restart.hidden = !view || stranded || view.phase === 'expired'; restart.disabled = engaged;
 }
 async function send(path: string, body: unknown, proof = csrf) {
   pending = { path, body, csrf: proof };
@@ -166,9 +166,12 @@ async function observe() {
   if (pending) { const saved = pending; await send(saved.path, saved.body, saved.csrf); }
   else accept(await request('state'));
 }
-async function run(action: () => Promise<void>) {
+// A background poll (`quiet`) guards re-entrancy like any run but never dims the controls: the
+// person is not waiting on a button, so nothing should flash every couple of seconds.
+let engaged = false;
+async function run(action: () => Promise<void>, quiet = false) {
   if (busy || disposed) return;
-  busy = true; render();
+  busy = true; engaged = !quiet; render();
   try { await action(); }
   catch (error) {
     known = true; // Whatever failed, the page stops waiting and offers its ways in.
@@ -183,7 +186,7 @@ async function run(action: () => Promise<void>) {
       : error instanceof DOMException && error.name === 'AbortError'
       ? 'The account service took too long to answer. Try again.'
       : error instanceof Error ? error.message : 'Signup is unavailable. Check the original signup again.', true);
-  } finally { native = null; busy = false; if (!disposed) render(); }
+  } finally { native = null; busy = false; engaged = false; if (!disposed) render(); }
 }
 function provider(): Ethereum {
   const value = (window as unknown as { ethereum?: Ethereum }).ethereum;
@@ -362,7 +365,7 @@ resume.addEventListener('click', event => { event.preventDefault(); if (busy || 
   await resumeSignup();
 }); });
 const timer = setInterval(() => {
-  if (!busy && !pending && polling() && !document.hidden && navigator.onLine && pollCount++ < 150) void run(observe);
+  if (!busy && !pending && polling() && !document.hidden && navigator.onLine && pollCount++ < 150) void run(observe, true);
 }, 2000);
 window.addEventListener('pagehide', () => {
   disposed = true; native?.abort(); clearInterval(timer); recoverySecret = null;

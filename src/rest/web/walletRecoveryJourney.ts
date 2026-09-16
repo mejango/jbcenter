@@ -90,15 +90,15 @@ function accept(result: { view: WalletRecoveryView | null; csrfToken?: string })
 }
 function render() {
   spin();
-  form.hidden = !known || !!view; form.querySelector('button')!.disabled = busy || !!pending || !!reference.value;
-  name.disabled = busy; wallet.disabled = busy;
+  form.hidden = !known || !!view; form.querySelector('button')!.disabled = engaged || !!pending || !!reference.value;
+  name.disabled = engaged; wallet.disabled = engaged;
   const recoverable = view?.phase !== 'ready_to_sign_in';
-  el<HTMLFieldSetElement>('recovery-method').hidden = !known || !recoverable; el<HTMLFieldSetElement>('recovery-method').disabled = busy;
+  el<HTMLFieldSetElement>('recovery-method').hidden = !known || !recoverable; el<HTMLFieldSetElement>('recovery-method').disabled = engaged;
   el('recovery-kit').hidden = !known || !recoverable || method() !== 'kit';
   el('recovery-password').hidden = !known || !recoverable || method() !== 'password';
   // The backup file carries the account address; the other ways in ask for it.
   el('recovery-wallet-box').hidden = method() === 'kit';
-  el<HTMLInputElement>('recovery-file').disabled = busy; words().disabled = busy;
+  el<HTMLInputElement>('recovery-file').disabled = engaged; words().disabled = engaged;
   el('recovery-details').hidden = !view;
   el('recovery-name').textContent = view?.passkeyName ?? ''; el('recovery-address').textContent = view?.walletAddress ?? '';
   el('recovery-owner').textContent = view?.recoveryOwner ?? ''; el('recovery-prior').textContent = view?.priorSigner ?? '';
@@ -107,11 +107,11 @@ function render() {
   const label = view?.phase === 'awaiting_registration' ? 'Create replacement passkey' : view?.phase === 'awaiting_possession' ? 'Verify both owners'
     : view?.phase === 'awaiting_rotation_approval' ? rotation ? 'Approve passkey replacement' : 'Review passkey replacement'
     : view?.phase === 'awaiting_activation' ? 'Continue' : null;
-  next.hidden = !label || !!pending; next.textContent = label; next.disabled = busy;
-  check.hidden = !known || (!view && !pending); check.disabled = busy; cancel.hidden = !native;
+  next.hidden = !label || !!pending; next.textContent = label; next.disabled = engaged;
+  check.hidden = !known || (!view && !pending); check.disabled = engaged; cancel.hidden = !native;
   el<HTMLButtonElement>('recovery-restart').hidden = view?.phase !== 'expired' || !!pending;
-  el<HTMLButtonElement>('recovery-restart').disabled = busy;
-  el('recovery-resume-section').hidden = !known || !recoverable; reference.disabled = busy || !!view; resume.disabled = busy || !!pending;
+  el<HTMLButtonElement>('recovery-restart').disabled = engaged;
+  el('recovery-resume-section').hidden = !known || !recoverable; reference.disabled = engaged || !!view; resume.disabled = engaged || !!pending;
   signIn.hidden = view?.phase !== 'ready_to_sign_in';
   el('recovery-transactions').hidden = !view?.transactionHashes.length;
   el('recovery-hashes').replaceChildren(...(view?.transactionHashes ?? []).map(hash => { const item = document.createElement('li'); item.textContent = hash; return item; }));
@@ -136,8 +136,10 @@ async function observe() {
   } else if (pending) { const saved = pending; await send(saved.path, saved.body, saved.csrf); }
   else accept(await request('state'));
 }
-async function run(action: () => Promise<void>) {
-  if (busy || disposed) return; busy = true; render();
+// A background poll (`quiet`) guards re-entrancy like any run but never dims the controls.
+let engaged = false;
+async function run(action: () => Promise<void>, quiet = false) {
+  if (busy || disposed) return; busy = true; engaged = !quiet; render();
   try { await action(); }
   catch (error) {
     if (error instanceof HttpFailure && error.status >= 400 && error.status < 500) {
@@ -149,7 +151,7 @@ async function run(action: () => Promise<void>) {
       : error instanceof DOMException && native
       ? `The passkey prompt did not complete (${error.name}${error.message ? ': ' + error.message : ''}). If your passkey manager just saved this passkey, wait a moment and try again.`
       : error instanceof Error ? error.message : 'Recovery is unavailable. Check the original recovery again.', true);
-  } finally { native = null; busy = false; if (!disposed) render(); }
+  } finally { native = null; busy = false; engaged = false; if (!disposed) render(); }
 }
 function provider(): Ethereum {
   const value = (window as unknown as { ethereum?: Ethereum }).ethereum;
@@ -286,7 +288,7 @@ next.addEventListener('click', () => { void run(advance); }); check.addEventList
 el('recovery-restart').addEventListener('click', () => { void run(() => send('restart', {})); });
 resume.addEventListener('click', () => { void run(resumeRecovery); }); cancel.addEventListener('click', () => native?.abort());
 const timer = setInterval(() => {
-  if (!busy && !pending && polling() && !document.hidden && navigator.onLine && pollCount++ < 90) void run(observe);
+  if (!busy && !pending && polling() && !document.hidden && navigator.onLine && pollCount++ < 90) void run(observe, true);
 }, 2000);
 window.addEventListener('pagehide', () => { disposed = true; native?.abort(); clearInterval(timer); secret = null; kit = null;
   words().value = ''; el<HTMLInputElement>('recovery-file').value = ''; }, { once: true });

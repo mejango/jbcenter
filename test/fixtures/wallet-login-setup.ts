@@ -25,7 +25,7 @@ import { predictPasskeySignerAddress } from "../../src/rest/smartAccounts/passke
 export const walletLoginFixtureOrigin = "https://wallet.juicebox.center";
 export const walletLoginFixtureRpId = "wallet.juicebox.center";
 export const walletLoginTestMigrations = ["004_rest_accounts.sql", "007_rest_smart_accounts.sql", "012_rest_smart_account_onboarding.sql",
-  "013_rest_wallet_ceremonies.sql", "014_rest_passkey_onboarding.sql", "042_wallet_binding_consent.sql", "015_rest_wallet_enrollment.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql",
+  "013_rest_wallet_ceremonies.sql", "014_rest_passkey_onboarding.sql", "042_wallet_binding_consent.sql", "015_rest_wallet_enrollment.sql", "046_wallet_signup_window.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql",
   "017_rest_wallet_policy.sql", "019_rest_wallet_app_grants.sql", "020_rest_wallet_authority.sql", "039_wallet_authority_window.sql", "022_wallet_login.sql", "032_wallet_pending_expiry.sql"];
 export async function createWalletLoginSetup(pool: Pool, options: { lifetimeMs?: number; origin?: string; rpId?: string; manifest?: SmartAccountManifest } = {}) {
   const audience = options.origin ?? walletLoginFixtureOrigin;

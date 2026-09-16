@@ -60,6 +60,8 @@ suite("PostgreSQL wallet ceremony storage (does not verify authentication)", () 
     await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 8 });
     await pool.query(await readFile(new URL("../src/db/migrations/013_rest_wallet_ceremonies.sql", import.meta.url), "utf8"));
+    await pool.query(await readFile(new URL("../src/db/migrations/015_rest_wallet_enrollment.sql", import.meta.url), "utf8"));
+    await pool.query(await readFile(new URL("../src/db/migrations/046_wallet_signup_window.sql", import.meta.url), "utf8"));
     store = new PostgresWalletCeremonyStore(pool);
   });
   beforeEach(async () => { await pool.query("TRUNCATE rest_wallet_ceremonies"); });
@@ -99,7 +101,7 @@ suite("PostgreSQL wallet ceremony storage (does not verify authentication)", () 
 
   it("uses database time despite a caller clock that tries to extend a challenge", async () => {
     await expect(store.issue({ ...draft(), expiresAt: Date.now() - 1 })).rejects.toMatchObject({ code: "WALLET_CEREMONY_EXPIRED" });
-    await expect(store.issue({ ...draft(), expiresAt: Date.now() + 600_000 })).rejects.toMatchObject({ code: "WALLET_CEREMONY_INVALID" });
+    await expect(store.issue({ ...draft(), expiresAt: Date.now() + 1_200_000 })).rejects.toMatchObject({ code: "WALLET_CEREMONY_INVALID" });
   });
 
   it("rejects malformed receipt IDs and duplicate challenges without leaking a database error", async () => {

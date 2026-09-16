@@ -91,7 +91,7 @@ describe('Center browser wallet connection', () => {
     const f = fixture(); await f.client().prepareConnection(); f.loseExchange();
     await expect(f.client().completeConnection(f.callback())).rejects.toMatchObject({ code: 'WALLET_NETWORK_ERROR' });
     expect(f.href()).toBe(callbackUri); const first = f.calls.at(-1)!.body;
-    f.advance(301_000);
+    f.advance(901_000);
     await expect(f.client().prepareConnection()).rejects.toMatchObject({ code: 'WALLET_HANDOFF_PENDING' });
     const recovered = await f.client().retryConnection();
     expect(recovered.accountId).toBe(accountId); expect(f.calls.at(-1)!.body).toEqual(first);

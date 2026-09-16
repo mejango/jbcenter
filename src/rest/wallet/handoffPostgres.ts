@@ -32,7 +32,8 @@ interface HandoffRow {
 function invalid(): never { throw new RestError(400, "WALLET_HANDOFF_INVALID", "Wallet handoff input is invalid."); }
 function inactive(): never { throw new RestError(403, "WALLET_HANDOFF_INACTIVE", "Wallet handoff authority is unavailable."); }
 function conflict(): never { throw new RestError(409, "WALLET_HANDOFF_CONFLICT", "This handoff cannot be reused; begin a fresh request."); }
-function expired(): never { throw new RestError(410, "WALLET_HANDOFF_EXPIRED", "Wallet handoff admission expired."); }
+/** The app's public origin rides along so the account page can send the person back to it. */
+function expired(origin?: string): never { throw new RestError(410, "WALLET_HANDOFF_EXPIRED", "Wallet handoff admission expired.", origin ? { origin } : undefined); }
 function fields(value: unknown, required: string[], optional: string[] = []): Record<string, unknown> {
   try { return walletAppFields(value, required, optional); } catch { return invalid(); }
 }
@@ -89,7 +90,7 @@ export class PostgresWalletHandoffStore {
     if (request.issuer !== this.issuer || request.audience !== this.audience || (origin !== undefined && origin !== request.origin)) inactive();
   }
   private liveRequest(request: WalletHandoffRequest, time: number) {
-    if (request.expiresAtMs <= time) expired();
+    if (request.expiresAtMs <= time) expired(request.origin);
     if (request.issuedAtMs > time + walletHandoffFutureClockAllowanceMs) invalid();
   }
   async prepare(input: { request: WalletHandoffRequest; signature: Hex }, origin: string): Promise<WalletHandoffIntent> {

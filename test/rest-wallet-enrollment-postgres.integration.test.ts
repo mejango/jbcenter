@@ -77,7 +77,7 @@ suite("PostgreSQL wallet enrollment without deployment or sessions", () => {
   beforeAll(async () => {
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 4 });
-    for (const name of ["013_rest_wallet_ceremonies.sql", "015_rest_wallet_enrollment.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql"])
+    for (const name of ["013_rest_wallet_ceremonies.sql", "015_rest_wallet_enrollment.sql", "046_wallet_signup_window.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     store = new PostgresWalletEnrollmentStore(pool);
   });

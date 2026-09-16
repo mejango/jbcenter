@@ -78,11 +78,11 @@ export class PostgresWalletSignupStore {
   private readonly ceremonies: PostgresWalletCeremonyStore;
   constructor(private readonly pool: Pool, options: WalletSignupPolicy) {
     this.policy = { maxFlows: 100_000, maxResumes: 100_000, flowLifetimeMs: 1_800_000,
-      enrollmentLifetimeMs: 300_000, resumeLifetimeMs: 180_000, ...structuredClone(options) };
+      enrollmentLifetimeMs: 900_000, resumeLifetimeMs: 180_000, ...structuredClone(options) };
     const p = this.policy;
     validateWalletRpConfiguration(p);
     for (const [value, maximum] of [[p.maxFlows, 1_000_000], [p.maxResumes, 1_000_000], [p.flowLifetimeMs, 86_400_000],
-      [p.enrollmentLifetimeMs, 300_000], [p.resumeLifetimeMs, 300_000]] as const)
+      [p.enrollmentLifetimeMs, 900_000], [p.resumeLifetimeMs, 300_000]] as const)
       if (!Number.isSafeInteger(value) || value < 1 || value > maximum) invalid();
     // Validate the configured immutable profile at construction, without creating authority.
     createWalletEnrollmentIntent({ manifest: p.manifest, rpId: p.rpId, origin: p.origin,

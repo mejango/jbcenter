@@ -50,7 +50,7 @@ describe("wallet handoff bounded public request", () => {
     const value = request(), checked = validateWalletHandoffRequest(value);
     expect(checked).toEqual({ ...value, requestKey: key.address.toLowerCase() });
     expect(checked).not.toBe(value); expect(Object.isFrozen(checked)).toBe(true);
-    expect(walletHandoffMaximumLifetimeMs).toBe(300_000); expect(walletHandoffFutureClockAllowanceMs).toBe(30_000);
+    expect(walletHandoffMaximumLifetimeMs).toBe(900_000); expect(walletHandoffFutureClockAllowanceMs).toBe(30_000);
     expect(validateWalletHandoffRequest({ ...request(), issuedAtMs: 1, expiresAtMs: 2 }).issuedAtMs).toBe(1);
     expect(validateWalletHandoffRequest({ ...request(), issuer: "https://alternate.test", audience: "https://api.test/v1" }).issuer).toBe("https://alternate.test");
   });
@@ -71,7 +71,7 @@ describe("wallet handoff bounded public request", () => {
     { requestKey: `0x${"00".repeat(19)}01` }, { nonce: "0x01" }, { nonce: `0x${"AB".repeat(32)}` },
     { nonce: `0x${"03".repeat(33)}` }, { state: `${token(1)}=` }, { codeChallenge: "plain" },
     { issuedAtMs: 0 }, { issuedAtMs: NaN }, { issuedAtMs: 1.1 }, { issuedAtMs: "1800000000000" },
-    { expiresAtMs: 1_800_000_000_000 }, { expiresAtMs: 1_800_000_300_001 }, { expiresAtMs: Infinity },
+    { expiresAtMs: 1_800_000_000_000 }, { expiresAtMs: 1_800_000_900_001 }, { expiresAtMs: Infinity },
     { expiresAtMs: Number.MAX_SAFE_INTEGER + 1 },
   ])("rejects malformed, aliased, injected or unbounded fields %j", change => {
     expect(() => validateWalletHandoffRequest({ ...request(), ...change })).toThrowError(expect.objectContaining(invalid));

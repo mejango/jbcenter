@@ -141,7 +141,7 @@ export function createCenterWalletClient(options: CenterWalletClientOptions) {
     if (r.version !== 'center-wallet-handoff-request-v1' || r.issuer !== issuer || r.audience !== audience ||
       r.origin !== origin || r.callbackUri !== callbackUri || !integer(r.appGeneration) ||
       !integer(r.issuedAtMs) || !integer(r.expiresAtMs) || r.expiresAtMs <= r.issuedAtMs ||
-      r.expiresAtMs - r.issuedAtMs > 300_000 || typeof r.requestKey !== 'string' ||
+      r.expiresAtMs - r.issuedAtMs > 900_000 || typeof r.requestKey !== 'string' ||
       !/^0x[0-9a-f]{40}$/.test(r.requestKey) || BigInt(r.requestKey) <= 1n ||
       typeof r.nonce !== 'string' || !/^0x[0-9a-f]{64}$/.test(r.nonce)) invalid();
     try { validateWalletHandoffToken(r.state); validateWalletHandoffToken(r.codeChallenge); } catch { invalid(); }
@@ -323,7 +323,7 @@ export function createCenterWalletClient(options: CenterWalletClientOptions) {
       const key = generatePrivateKey(), signer = privateKeyToAccount(key), verifier = randomToken(), issuedAtMs = clock();
       const request: WalletHandoffRequest = { version: 'center-wallet-handoff-request-v1', issuer, audience, origin, callbackUri,
         appGeneration: app.generation, requestKey: signer.address.toLowerCase() as Address, state: randomToken(), codeChallenge: walletHandoffPkceChallenge(verifier),
-        nonce: toHex(crypto.getRandomValues(new Uint8Array(32))), issuedAtMs, expiresAtMs: issuedAtMs + 300_000 };
+        nonce: toHex(crypto.getRandomValues(new Uint8Array(32))), issuedAtMs, expiresAtMs: issuedAtMs + 900_000 };
       const value: Saved = { version: 'center-wallet-client-v1', key, verifier, request, signature: await signer.signTypedData(walletHandoffRequestDocument(request)) };
       if (startingVersion !== disconnectVersion) fail('WALLET_HANDOFF_CHANGED', 'This tab disconnected its wallet connection.');
       pending = { value, encoded: save(value, null) };

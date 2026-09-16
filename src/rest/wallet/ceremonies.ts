@@ -3,7 +3,8 @@ import { RestError } from "../core.js";
 
 export const walletCeremonyPurposes = ["registration", "login", "session", "deploy", "payment", "rotate", "signup-resume", "device"] as const;
 export type WalletCeremonyPurpose = typeof walletCeremonyPurposes[number];
-export const walletCeremonyMaxLifetimeMs = 300_000;
+/** A signup ceremony lives as long as the signup (15 minutes); every other purpose stays far shorter. */
+export const walletCeremonyMaxLifetimeMs = 900_000;
 export const walletCeremonyRetentionMs = 86_400_000;
 
 /** Server-owned input only. Never renew an old ID/challenge with a different expiry. */

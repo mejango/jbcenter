@@ -81,7 +81,7 @@ export function walletCookie(name: WalletCookieName, token: string | null, maxAg
   cookieName(name);
   // New proofs expire after 3min in the store. A flow bearer survives that deadline solely
   // to recover the original live 1h session when its committed response was lost.
-  const maximum = name === walletLaunchCookie ? 330 : name === walletFlowCookie ? 3780 : [walletSignupCookie, walletSignupResumeCookie, walletRecoveryCookie, walletRecoveryResumeCookie].includes(name) ? 86400 : 3600;
+  const maximum = name === walletLaunchCookie ? 930 : name === walletFlowCookie ? 3780 : [walletSignupCookie, walletSignupResumeCookie, walletRecoveryCookie, walletRecoveryResumeCookie].includes(name) ? 86400 : 3600;
   if (!Number.isSafeInteger(maxAge) || maxAge < 0 || maxAge > maximum
     || ((token === null) !== (maxAge === 0))) invalid();
   return `${name}=${token === null ? '' : cookieToken(name, token)}; Path=/; Max-Age=${maxAge}; Secure; HttpOnly; SameSite=Lax`;

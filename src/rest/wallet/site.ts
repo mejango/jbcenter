@@ -138,7 +138,10 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
       : { reason: String((error as { message?: unknown })?.message ?? error).slice(0, 160), path: c.req.path.slice(0, 80) });
     if (c.req.path === `${base}/launch` && c.req.header('Sec-Fetch-Mode') === 'navigate')
       return c.html('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connection unavailable</title><link rel="stylesheet" href=`${base}/assets/wallet.css`></head><body><main><h1>Connection unavailable</h1><p>This connection expired or could not be verified. Return to the app and connect again.</p></main></body></html>', status as ContentfulStatusCode);
-    return c.json({ error: { code, message: status >= 500 ? 'Wallet service is temporarily unavailable. Try again.' : 'Wallet request could not be completed. Try again or start over.' } }, status as ContentfulStatusCode);
+    // An expired app request names the app's public origin so the page can send the person back.
+    const appOrigin = code === 'WALLET_HANDOFF_EXPIRED' && known ? (scalars(error)?.origin as unknown) : undefined;
+    const app = typeof appOrigin === 'string' && /^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?$/.test(appOrigin) ? { app: { origin: appOrigin } } : {};
+    return c.json({ error: { code, message: status >= 500 ? 'Wallet service is temporarily unavailable. Try again.' : 'Wallet request could not be completed. Try again or start over.' }, ...app }, status as ContentfulStatusCode);
   });
   const central = (c: Context) => assertWalletHttpRequest(c.req.raw, origin, 'central');
   const cookie = (c: Context, name: typeof walletSessionCookie | typeof walletFlowCookie) => {
@@ -350,7 +353,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     await verifyWalletHandoffLaunchSignature({ request: intent.request, intentId: intent.id }, claim.signature);
     const remaining = Math.floor((intent.expiresAtMs - Date.now()) / 1000);
     if (remaining < 1) reject(410, 'WALLET_HANDOFF_EXPIRED');
-    c.header('Set-Cookie', walletCookie(walletLaunchCookie, `${claim.intentId}.${claim.signature}`, Math.min(330, remaining)), { append: true });
+    c.header('Set-Cookie', walletCookie(walletLaunchCookie, `${claim.intentId}.${claim.signature}`, Math.min(930, remaining)), { append: true });
     emit('handoff_launch', 'ok');
     return c.redirect(origin + (base || '/') + '?intent=' + intent.id, 303);
   });

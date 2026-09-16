@@ -7,7 +7,9 @@ import * as shared from "./sharedHandoff.js";
 import type { WalletHandoffExchangeDocumentInput, WalletHandoffLaunchDocumentInput, WalletHandoffRequest } from "./sharedHandoff.js";
 export type { WalletHandoffExchangeDocumentInput, WalletHandoffRequest } from "./sharedHandoff.js";
 
-export const walletHandoffMaximumLifetimeMs = 300_000;
+/** Long enough to create an account inside one app request: a passkey, a backup file, and a
+ * passkey manager that needs a moment. A plain sign-in uses a fraction of it. */
+export const walletHandoffMaximumLifetimeMs = 900_000;
 export const walletHandoffFutureClockAllowanceMs = 30_000;
 
 export interface WalletHandoffExchangeInput {

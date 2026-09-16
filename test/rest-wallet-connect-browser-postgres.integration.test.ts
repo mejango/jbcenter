@@ -66,7 +66,7 @@ suite("real browser shared-wallet connection with PostgreSQL (synthetic chain re
     await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString: database, max: 3, connectionTimeoutMillis: 3_000, query_timeout: 10_000,
       options: `-c search_path=${schema} -c statement_timeout=10000 -c lock_timeout=5000` });
-    for (const name of [...walletLoginTestMigrations, "024_wallet_handoff.sql"])
+    for (const name of [...walletLoginTestMigrations, "024_wallet_handoff.sql", "047_wallet_handoff_window.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     const [wallet, app] = await Promise.all(["../src/rest/web/wallet.ts", "./fixtures/wallet-connect-app.ts"].map(entry =>
       build({ entryPoints: [fileURLToPath(new URL(entry, import.meta.url))], platform: "browser", format: "esm", target: "es2022", bundle: true, write: false })));

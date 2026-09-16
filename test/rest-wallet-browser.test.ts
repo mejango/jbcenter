@@ -151,6 +151,7 @@ describe("served Center wallet UI (local HTTP contract, virtual authenticator)",
   const loginId = "11111111-1111-4111-8111-111111111111";
   const publicSession = () => ({ accountId: `eip155:8453:${walletAddress}`, loginId, walletAddress, chainId: 8453, expiresAtMs: Date.now() + 3_600_000 });
   const callback = () => `${origin}/app/callback`;
+  let intentExpired = false;
   const intent = () => ({ id: intentId, state: "prepared", createdAtMs: Date.now() - 1_000, expiresAtMs: Date.now() + 180_000,
     request: { origin, callbackUri: callback(), state, issuer: origin, audience: `${origin}/v1` } });
 
@@ -187,7 +188,8 @@ describe("served Center wallet UI (local HTTP contract, virtual authenticator)",
         return json(authenticated && (!requireSessionCookie || request.headers.cookie?.includes("test-session=opaque"))
           ? { session: publicSession(), csrfToken: csrf } : { session: null });
       }
-      if (path === `/wallet/authorize/${intentId}`) return json(intent());
+      if (path === `/wallet/authorize/${intentId}`) return intentExpired
+        ? json({ error: { code: "WALLET_HANDOFF_EXPIRED", message: "private-detail" }, app: { origin: "https://beep.example" } }, 410) : json(intent());
       if (path === "/wallet/login/begin") {
         begins++;
         response.setHeader("set-cookie", "test-flow=opaque; HttpOnly; SameSite=Lax; Path=/wallet");
@@ -434,5 +436,17 @@ describe("served Center wallet UI (local HTTP contract, virtual authenticator)",
     await page.goto(`${origin}/wallet?intent=${intentId}`); await status("error");
     expect(new URL(page.url()).pathname).toBe("/wallet"); expect(issues).toBe(1);
     expect(await page.locator("body").textContent()).not.toContain(code);
+  });
+
+  it("sends an expired app request back to the app instead of offering a retry", async () => {
+    intentExpired = true;
+    try {
+      await page.goto(`${origin}/wallet?intent=${intentId}`); await status("error");
+      const text = (await page.locator("#wallet-status").textContent())!;
+      expect(text).toContain("timed out"); expect(text).toContain("beep.example");
+      expect(await page.locator("#wallet-retry").isHidden()).toBe(true);
+      expect(await page.locator("#wallet-signin").isHidden()).toBe(true);
+      expect(await page.locator("#wallet-status a").getAttribute("href")).toBe("https://beep.example/");
+    } finally { intentExpired = false; }
   });
 });

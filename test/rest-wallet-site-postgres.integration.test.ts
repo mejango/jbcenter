@@ -193,7 +193,7 @@ suite("real wallet HTTP sign-in, PostgreSQL handoff and signed app requests", ()
   beforeAll(async () => {
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
     database = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 1 }); pool = observedClockPool(database);
-    for (const name of [...walletLoginTestMigrations, "023_wallet_authority_refresh.sql", "040_wallet_authority_refresh_settings.sql", "024_wallet_handoff.sql"])
+    for (const name of [...walletLoginTestMigrations, "023_wallet_authority_refresh.sql", "040_wallet_authority_refresh_settings.sql", "024_wallet_handoff.sql", "047_wallet_handoff_window.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
   });
   beforeEach(async () => {

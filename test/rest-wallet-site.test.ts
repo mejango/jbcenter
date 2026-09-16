@@ -38,6 +38,15 @@ function request(path:string,body:unknown,headers:Record<string,string>={}) {
 }
 
 describe('central payment approval HTTP boundary',()=>{
+  it('names the app origin when the app request expired, and nothing else', async () => {
+    const {app,options}=setup();
+    vi.mocked(options.handoff.getIntent).mockRejectedValueOnce(new RestError(410,'WALLET_HANDOFF_EXPIRED','private',{origin:'https://beep.example',secret:'x'}));
+    const response=await app.fetch(new Request(`${origin}/wallet/authorize/${flow}`));
+    expect(response.status).toBe(410);expect(await response.json()).toEqual({error:{code:'WALLET_HANDOFF_EXPIRED',message:expect.any(String)},app:{origin:'https://beep.example'}});
+    vi.mocked(options.handoff.getIntent).mockRejectedValueOnce(new RestError(403,'WALLET_HANDOFF_INACTIVE','private',{origin:'https://beep.example'}));
+    const inactive=await app.fetch(new Request(`${origin}/wallet/authorize/${flow}`));
+    expect(await inactive.json()).not.toHaveProperty('app');
+  });
   it('preserves the exact discovery contract for installed clients when signup is enabled', async () => {
     const { app } = setup({ signup: {} as never, signupBrowserScript: '/* signup */' });
     const response = await app.fetch(new Request(origin + '/wallet/config', { headers: { origin: appOrigin } }));

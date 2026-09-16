@@ -30,7 +30,7 @@ let nativePrompt: AbortController | null = null, retryAction: (() => Promise<voi
 let nextRetry: () => Promise<void> = load;
 
 class InvalidResponse extends Error {}
-class HttpFailure extends Error { constructor(readonly status: number, readonly code?: string) { super("Wallet request failed"); } }
+class HttpFailure extends Error { constructor(readonly status: number, readonly code?: string, readonly appOrigin?: string) { super("Wallet request failed"); } }
 function record(value: unknown): Json {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new InvalidResponse();
   return value as Json;
@@ -83,12 +83,19 @@ async function request(path: string, body?: unknown, csrfToken?: string, timeout
         "content-type": "application/json", "x-center-wallet-request": "1", ...(csrfToken ? { "x-center-wallet-csrf": csrfToken } : {}),
       } }) });
     if (!response.ok) {
-      let code: string | undefined;
+      let code: string | undefined, appOrigin: string | undefined;
       if (path === `${base}/authorize/issue` && response.status === 403) {
         const body = await response.json().catch(() => null);
         if (body?.error?.code === 'WALLET_HANDOFF_UNCLAIMED') code = 'WALLET_HANDOFF_UNCLAIMED';
+      } else if (path.startsWith(`${base}/authorize/`) && response.status === 410) {
+        // The app's request timed out; its public origin lets this page point back to it.
+        const body = await response.json().catch(() => null), origin = body?.app?.origin;
+        if (body?.error?.code === 'WALLET_HANDOFF_EXPIRED') { code = 'WALLET_HANDOFF_EXPIRED'; if (typeof origin === 'string' && /^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?$/.test(origin)) appOrigin = origin; }
+      } else if (response.status >= 400 && response.status < 500) {
+        const body = await response.json().catch(() => null);
+        if (typeof body?.error?.code === 'string' && /^[A-Z0-9_]{1,80}$/.test(body.error.code)) code = body.error.code;
       }
-      throw new HttpFailure(response.status, code);
+      throw new HttpFailure(response.status, code, appOrigin);
     }
     return record(await response.json());
   } finally { clearTimeout(timer); }
@@ -122,7 +129,12 @@ async function run(action: () => Promise<void>) {
   busy = true; retryAction = null; render();
   try { await action(); }
   catch (error) {
-    if (error instanceof HttpFailure && error.code === 'WALLET_HANDOFF_UNCLAIMED') {
+    if (error instanceof HttpFailure && error.code === 'WALLET_HANDOFF_EXPIRED') {
+      const host = error.appOrigin ? new URL(error.appOrigin).host : "the app";
+      setStatus("error", `Your sign-in from ${host} timed out. Go back to ${host} and connect again.`);
+      if (error.appOrigin) { const link = document.createElement("a"); link.href = new URL("/", error.appOrigin).href; link.textContent = `Open ${host}`; status.append(" ", link); }
+      sessionKnown = false;
+    } else if (error instanceof HttpFailure && error.code === 'WALLET_HANDOFF_UNCLAIMED') {
       setStatus('error', 'This connection belongs to another tab or has expired. Return to the app and connect again.');
     } else if (error instanceof DOMException && ["NotAllowedError", "AbortError"].includes(error.name) && nativePrompt) {
       setStatus("ready", "Sign-in cancelled. You can try your passkey again.");
