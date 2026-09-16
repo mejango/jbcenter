@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { encodeFunctionData, keccak256, parseAbi, type Hex } from 'viem';
 import { createBaseWalletProductionStack, inspectBaseWalletProductionStack } from '../src/rest/wallet/productionStack.js';
@@ -25,6 +26,13 @@ describe('production wallet dependency plan against real local constructors', ()
   const inspect = (rpc?: RestRpc) => inspectBaseWalletProductionStack({ rpc: rpc ?? fixture.readOnlyRpc });
   const mined = (hash: Hex) => expect.poll(async () =>
     (await fixture.rpc<{ status: string } | null>('eth_getTransactionReceipt', [hash]))?.status).toBe('0x1');
+
+  it('carries the trusted Base payment configuration: USDC and the catalog-pinned v6 terminal', () => {
+    // Payment reviews recognise exactly one token and one terminal; both come from the host, never from a request.
+    expect(stack.payments).toEqual({ token: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', directV6Terminal: '0x130f5Dd2bD8805443Cf41755253D778a75a67f53' });
+    const pinned = JSON.parse(readFileSync(new URL('../src/rest/smartAccounts/targets-evidence/publications.json', import.meta.url), 'utf8')) as { deployments: { chainId: number; name: string; deployment: { address: string } }[] };
+    expect(pinned.deployments.find(d => d.chainId === 8453 && d.name === 'JBMultiTerminal')!.deployment.address).toBe(stack.payments.directV6Terminal);
+  });
 
   it('returns only the two exact missing deployments and proves constructor addresses and the complete atomic Safe initializer', async () => {
     await reset();

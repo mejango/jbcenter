@@ -1,4 +1,5 @@
-import { decodeFunctionResult, encodeFunctionData, keccak256, parseAbi, type Hex } from 'viem';
+import { decodeFunctionResult, encodeFunctionData, getAddress, isAddress, keccak256, parseAbi, type Address, type Hex } from 'viem';
+import publications from '../smartAccounts/targets-evidence/publications.json' with { type: 'json' };
 import { RestError, type RestRpc } from '../core.js';
 import { createConfiguredSmartAccountStack } from '../smartAccounts/stack/config.js';
 import { preparePasskeyDependencyDeployment } from '../smartAccounts/passkeyProfile.js';
@@ -24,7 +25,16 @@ export async function createBaseWalletProductionStack() {
     } } };
   const manifest: SmartAccountManifest = { ...body, revision: fingerprint(body) };
   validatePasskeyCreationManifest(manifest);
-  return { manifest, utility: base.utility, senderCreator: base.senderCreator, ...passkey };
+  return { manifest, utility: base.utility, senderCreator: base.senderCreator, payments: basePaymentConfiguration(), ...passkey };
+}
+
+/** Payment reviews recognise one token and one terminal on Base: USDC and the JBMultiTerminal the
+ * verified V6 catalog pins. Trusted host configuration; a request can never supply these. */
+const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const;
+function basePaymentConfiguration(): { token: Address; directV6Terminal: Address } {
+  const pinned = publications.deployments.find(entry => entry.chainId === 8453 && entry.name === 'JBMultiTerminal');
+  if (!pinned || !isAddress(pinned.deployment.address)) invalid('The V6 catalog does not pin JBMultiTerminal on Base.');
+  return { token: BASE_USDC, directV6Terminal: getAddress(pinned.deployment.address) };
 }
 
 const singletonAbi = parseAbi(['function SINGLETON() view returns(address)']);

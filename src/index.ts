@@ -76,6 +76,8 @@ const walletLegacyOrigins = (process.env.WALLET_LEGACY_ORIGINS ?? "").split(",")
 const wallet: RestWalletConfiguration | undefined = walletOrigin && walletStack
   ? { origin: walletOrigin, manifest: walletStack.manifest, utility: walletStack.utility, ...(walletLegacyOrigins.length ? { legacyOrigins: walletLegacyOrigins } : {}),
       basePath: "",
+      // Payment reviews: Base USDC through the catalog-pinned V6 terminal.
+      payments: walletStack.payments,
       // WALLET_NETWORKS_PAYER_KEY funds Relayr bundles that deploy the account on more chains (Base
       // for Optimism/Arbitrum, Base Sepolia for testnets). Absent, "Add more" stays off.
       ...(process.env.WALLET_NETWORKS_PAYER_KEY ? { networksPayerKey: process.env.WALLET_NETWORKS_PAYER_KEY as `0x${string}` } : {}) } : undefined;
