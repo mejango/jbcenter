@@ -303,6 +303,13 @@ interface Provenance {
  * revision. Unknown fallback/type-0 history is rejected because the selector mapping is not
  * enumerable. Complete canonical traces also exclude hidden owner delegatecalls which could
  * transiently replace the Safe singleton and suppress or forge ordinary module events. */
+/** The durable history checkpoint namespace: one chain, wallet, creation profile and utility runtime. */
+export function safe7579HistoryKey(manifest: SmartAccountManifest, utility: ContractPin, account: Address): string {
+  const profileCommitment = manifest.creationProfile ? fingerprint({
+    profile: "safe7579-f22a194-passkey-bootstrap-v1", manifest, utility,
+  }) : manifest.revision;
+  return `${manifest.chainId}:${account.toLowerCase()}:${profileCommitment}:${utility.runtimeCodeHash}`;
+}
 export function createSafe7579Inspector(
   options: Safe7579InspectorOptions,
 ): SmartModuleInspector {
@@ -577,7 +584,7 @@ export function createSafe7579Inspector(
       const profileCommitment = m.creationProfile ? fingerprint({
         profile: "safe7579-f22a194-passkey-bootstrap-v1", manifest: m, utility: options.utility,
       }) : m.revision;
-      const key = `${m.chainId}:${account.toLowerCase()}:${profileCommitment}:${options.utility.runtimeCodeHash}`;
+      const key = safe7579HistoryKey(m, options.utility, account);
       const candidates: Provenance[] = [];
       const cached = cache.get(key);
       if (cached) candidates.push(cached);

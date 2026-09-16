@@ -319,6 +319,14 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
       expect(retry).toBeGreaterThanOrEqual(before + options.backoffBaseMs!);
       expect(retry).toBeLessThanOrEqual(after + options.backoffMaxMs!);
     }
+    // A history catching up in stages is progress: retried at the base delay, the failure count reset.
+    await untilDatabaseTime(Number((await job(first)).due_at_ms));
+    const staged = await store.claim(); expect(staged?.accountId).toBe(first);
+    const beforeProgress = await databaseNow();
+    expect(await store.complete(staged!, { outcome: "progress", readyUntilMs: null })).toBe(true);
+    expect((await job(first)).failures).toBe(0);
+    expect(Number((await job(first)).due_at_ms)).toBeLessThanOrEqual(await databaseNow() + options.backoffBaseMs!);
+    expect(Number((await job(first)).due_at_ms)).toBeGreaterThanOrEqual(beforeProgress);
     await untilDatabaseTime(Number((await job(first)).due_at_ms));
     const recovered = await store.claim();
     expect(await store.complete(recovered!, { outcome: "verified", readyUntilMs: await databaseNow() + 1000 })).toBe(true);

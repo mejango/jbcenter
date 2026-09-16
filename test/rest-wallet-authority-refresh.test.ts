@@ -39,7 +39,7 @@ describe('bounded internal wallet authority refresh worker', () => {
     expect(f.service.refreshAuthority).toHaveBeenCalledOnce();
     expect(f.service.refreshAuthority.mock.calls[0]![0]).toBe(account);
     expect(f.queue.complete).toHaveBeenCalledExactlyOnceWith(lease(), { outcome: 'verified', readyUntilMs: now + 30_000 });
-    expect(result).toEqual({ claimed: 1, verified: 1, unready: 0, conflicts: 0, failed: 0, leaseLost: 0, queueFailed: 0 });
+    expect(result).toEqual({ claimed: 1, verified: 1, unready: 0, progress: 0, conflicts: 0, failed: 0, leaseLost: 0, queueFailed: 0 });
     expect(f.events).toEqual(['verified']);
     expect(await f.worker.stats()).toEqual(await f.queue.stats());
     await f.worker.stop();
@@ -50,6 +50,15 @@ describe('bounded internal wallet authority refresh worker', () => {
     f.service.refreshAuthority.mockResolvedValue({ snapshot: snapshot(deadline), replayed: true });
     expect(await f.worker.tick()).toMatchObject({ verified: 0, unready: 1 });
     expect(f.queue.complete).toHaveBeenCalledWith(lease(), { outcome: 'unready', readyUntilMs: null });
+    await f.worker.stop();
+  });
+
+  it('reports a history still catching up as progress, not as an unready failure', async () => {
+    const f = fixture({ concurrency: 1 });
+    f.service.refreshAuthority.mockResolvedValue({ snapshot: { ...snapshot(null, 'unknown'),
+      latestObservation: { reason: 'authority-history-catching-up' } } as WalletAuthoritySnapshot, replayed: false });
+    expect(await f.worker.tick()).toMatchObject({ progress: 1, unready: 0, verified: 0 });
+    expect(f.queue.complete).toHaveBeenCalledWith(lease(), { outcome: 'progress', readyUntilMs: null });
     await f.worker.stop();
   });
 

@@ -22,6 +22,7 @@ import { verifyWalletAssertion } from "../src/rest/wallet/webauthn.js";
 import { createWalletEnrollmentIntent, enrollmentDigest, prepareWalletEnrollmentCandidate,
   verifyWalletEnrollmentProof, walletEnrollmentDocument, type WalletEnrollment } from "../src/rest/wallet/enrollment.js";
 import { createWalletAuthorityChain } from "../src/rest/wallet/authorityChain.js";
+import { MemorySafe7579CheckpointStore } from "../src/rest/smartAccounts/checkpoints.js";
 import { reconcileWalletAuthority, validateWalletAuthorityObservation, walletAuthorityIdentityDigest,
   walletAuthorityMaximumAgeMs, type WalletAuthorityContext, type WalletAuthorityObservation, type WalletAuthoritySnapshot } from "../src/rest/wallet/authority.js";
 import { createRegistration, enrollmentBackupAccount, signBackupProof, signGet } from "./fixtures/wallet-enrollment-crypto.js";
@@ -56,7 +57,7 @@ describe.skipIf(!available)("canonical wallet authority from genuine enrollment 
       body: JSON.stringify({ jsonrpc: "2.0", id: ++requestId, method, params }),
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000) });
     const result = await response.json() as { result: T; error?: { message: string } };
-    if (result.error) throw new Error(`${method}: ${result.error.message}`); return result.result;
+    if (result.error) { if (process.env.DEBUG_RPC) console.info('rpc error', method, result.error.message.slice(0, 200)); throw new Error(`${method}: ${result.error.message}`); } return result.result;
   }
   // Only setup helpers below can mutate Anvil. The configured authority producer gets read methods.
   const transport: RestRpc = { request: (chainId, method, params, signal) => {
@@ -366,4 +367,46 @@ describe.skipIf(!available)("canonical wallet authority from genuine enrollment 
     expect(observed.length).toBeLessThanOrEqual(4);
     expect(await unchangedState()).toEqual(before);
   });
+
+  // Ages the chain past what anvil can trace, so it runs last.
+  it("catches a long dormant history up in bounded stages through the durable checkpoint, then verifies at the head", async () => {
+    // Hosted providers cap eth_getLogs windows, so a full-history rescan grows with the account's age.
+    // With a checkpoint store, each observation advances at most catchUpBlocks and reports that it is
+    // still catching up; the refresh worker's next attempt continues from the retained checkpoint.
+    const checkpoints = new MemorySafe7579CheckpointStore(), failures: string[] = [];
+    const staged = () => createWalletAuthorityChain({ rpc: transport, manifest, utility: pin(utility), now: () => clock,
+      checkpointStore: checkpoints, limits: { catchUpBlocks: 100 }, onError: code => failures.push(code) });
+    await rpc("anvil_mine", [toHex(350)]);
+    const reasons: (string | null)[] = [], calls: number[] = [];
+    for (let attempt = 0; attempt < 8; attempt++) {
+      // Blocks are mined at real time; the observation clock must not fall behind them under load.
+      clock = Date.now(); observed.length = 0;
+      const result = await staged().observe(withPrior(null));
+      reasons.push(result.reason); calls.push(observed.length);
+      if (result.reason !== "authority-history-catching-up") break;
+      unknown(result); expect(result.head).toBeNull();
+    }
+    expect(reasons.slice(0, -1).every(reason => reason === "authority-history-catching-up")).toBe(true);
+    expect(reasons.length).toBeGreaterThanOrEqual(4); expect(reasons.at(-1)).toBeNull();
+    expect(Math.max(...calls)).toBeLessThanOrEqual(256); expect(failures).toEqual([]);
+    // Once caught up, a repeat observation is cheap: it scans only the blocks since the checkpoint.
+    clock = Date.now(); observed.length = 0; const again = await staged().observe(withPrior(null));
+    expect(again.eligibility).toBe("matched");
+    expect(observed.filter(call => call.method === "eth_getLogs").length).toBeLessThanOrEqual(12);
+    // At the production stage size with 500-block pages, one stage plus the final leg stay in budget.
+    // (Anvil serves historical state only a few hundred blocks back, so the checkpoint is seeded at
+    // the current head first and the stage block lands within that window.)
+    const production = new MemorySafe7579CheckpointStore();
+    const sized = () => createWalletAuthorityChain({ rpc: transport, manifest, utility: pin(utility), now: () => clock, checkpointStore: production, onError: code => failures.push(code) });
+    clock = Date.now(); expect((await sized().observe(withPrior(null))).eligibility).toBe("matched");
+    for (let chunk = 0; chunk < 6; chunk++) await rpc("anvil_mine", [toHex(1_400)]);
+    clock = Date.now(); observed.length = 0; const first = await sized().observe(withPrior(null));
+    expect(first.reason, JSON.stringify(failures)).toBe("authority-history-catching-up"); expect(observed.length).toBeLessThanOrEqual(256);
+    expect(observed.filter(call => call.method === "eth_getLogs").length).toBeLessThanOrEqual(3 * 17);
+    clock = Date.now(); observed.length = 0; const last = await sized().observe(withPrior(null));
+    expect(last.eligibility).toBe("matched"); expect(observed.length).toBeLessThanOrEqual(256); expect(failures).toEqual([]);
+    // The failure code reaches the observer when an observation cannot complete.
+    clock = Date.now(); const exhausted = createWalletAuthorityChain({ rpc: transport, manifest, utility: pin(utility), now: () => clock, limits: { rpcCalls: 4 }, onError: code => failures.push(code) });
+    unknown(await exhausted.observe(withPrior(null))); expect(failures).toEqual(["WALLET_DEPLOYMENT_RPC_BUDGET"]);
+  }, 120_000);
 });

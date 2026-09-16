@@ -2,7 +2,8 @@ import { isAddress, keccak256, padHex, stringToHex, toHex, type Address, type He
 import { RestError, type RestBlockEvidence, type RestRpc } from "../core.js";
 import type { ContractPin, SmartAccountManifest, SmartAccountState } from "../smartAccounts/types.js";
 import { createSmartAccountService, stable } from "../smartAccounts/service.js";
-import { createSafe7579Inspector, SAFE7579_INSPECTOR_ID, SAFE7579_STORAGE_SOURCE } from "../smartAccounts/inspector.js";
+import { createSafe7579Inspector, safe7579HistoryKey, SAFE7579_INSPECTOR_ID, SAFE7579_STORAGE_SOURCE } from "../smartAccounts/inspector.js";
+import type { Safe7579CheckpointStore } from "../smartAccounts/checkpoints.js";
 import { createInstalledSessionVerifier } from "../smartAccounts/installed.js";
 import { MemorySmartAccountRegistry } from "../smartAccounts/registry.js";
 import { validatePasskeyCreationManifest } from "../smartAccounts/creation.js";
@@ -15,7 +16,11 @@ import { enrollmentDigest } from "./enrollment.js";
 import { operationRpc, walletObservationRpcBounds } from "./operationRpc.js";
 
 /** A complete inspection over a hosted provider measured ~25 s; the observation budget leaves room. */
-export const walletAuthorityObservationBounds = Object.freeze({ ...walletObservationRpcBounds, totalTimeoutMs: 90_000 });
+/** Hosted providers cap an eth_getLogs window (Dwellir: 500 blocks), so a history rescan costs about
+ * one call per 500 blocks of account age. catchUpBlocks bounds the span one observation may add to
+ * the durable checkpoint: three log streams over 8 000 blocks are 48 calls beside ~90 fixed reads,
+ * which leaves the budget room for roughly 30 traced transactions inside the stage. */
+export const walletAuthorityObservationBounds = Object.freeze({ ...walletObservationRpcBounds, totalTimeoutMs: 90_000, catchUpBlocks: 8_000 });
 const creationTopic = keccak256(stringToHex("ProxyCreation(address,address)"));
 function provenanceTransaction(state: SmartAccountState): Hex | null {
   const details = state.modules?.details, provenance = object(details) && object(details.provenance) ? details.provenance : null;
@@ -27,7 +32,12 @@ export interface WalletAuthorityChainOptions {
   utility: ContractPin;
   now?: () => number;
   /** Host overrides may only reduce the existing read-only observation caps. */
-  limits?: Partial<Record<keyof typeof walletObservationRpcBounds, number>>;
+  limits?: Partial<Record<keyof typeof walletAuthorityObservationBounds, number>>;
+  /** Durable, reorg-checked history checkpoints shared with the smart-account service. Without one
+   * every observation rescans from creation, which outgrows the call budget in days. */
+  checkpointStore?: Safe7579CheckpointStore;
+  /** Observation failures are otherwise silent; this receives the failure's error code only. */
+  onError?: (code: string) => void;
 }
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -127,6 +137,14 @@ export function createWalletAuthorityChain(options: WalletAuthorityChainOptions)
         // The inspector still checks that log against the canonical header; a receipt without
         // the exact factory log proves nothing and never falls back to a history scan.
         const creationTransaction = provenanceTransaction(context.binding.state);
+        async function historyStart(store: Safe7579CheckpointStore, account: Address): Promise<bigint | null> {
+          const retained = await store.get(safe7579HistoryKey(manifest, utility, account));
+          const covered = retained.map(candidate => BigInt(candidate.lastBlock)).filter(last => last <= BigInt(head.blockNumber));
+          if (covered.length) return covered.reduce((a, b) => a > b ? a : b) + 1n;
+          if (!creationTransaction) return null;
+          const receipt = await rpc.request("eth_getTransactionReceipt", [creationTransaction]);
+          return object(receipt) && typeof receipt.blockNumber === "string" ? quantity(receipt.blockNumber) : null;
+        }
         const creationLogs = async (chainId: number, factory: Address, account: Address, end: bigint): Promise<Record<string, unknown>[]> => {
           if (chainId !== 8453 || !creationTransaction) return [];
           const receipt = await rpc.request("eth_getTransactionReceipt", [creationTransaction]);
@@ -136,11 +154,26 @@ export function createWalletAuthorityChain(options: WalletAuthorityChainOptions)
             String(log.topics[1]).toLowerCase() === padHex(account, { size: 32 }).toLowerCase() && word(log.blockHash) &&
             quantity(log.blockNumber) <= end);
         };
+        const address = context.enrollment.creation!.address;
         const accounts = createSmartAccountService({ rpc: scoped, manifests: [manifest], registry: new MemorySmartAccountRegistry(),
           audience: context.enrollment.intent.origin, now, moduleInspectors: [createSafe7579Inspector({ rpc: scoped, utility,
             inspectSessions: createInstalledSessionVerifier({ rpc: scoped }).inspectAllAt,
-            creationLogs, maxLogRangeBlocks: 500, timeoutMs: limits.totalTimeoutMs })] });
-        const state = await accounts.inspect({ manifestId: manifest.id, address: context.enrollment.creation!.address }, signal, head);
+            creationLogs, maxLogRangeBlocks: 500, timeoutMs: limits.totalTimeoutMs,
+            ...(options.checkpointStore ? { checkpointStore: options.checkpointStore } : {}) })] });
+        if (options.checkpointStore) {
+          // A history far behind the head is caught up one bounded stage per observation: the
+          // inspector verifies and retains a checkpoint at the stage block, and the next refresh
+          // attempt continues from it. Readiness stays unknown until one observation reaches the head.
+          const behind = await historyStart(options.checkpointStore, address);
+          if (behind !== null && BigInt(head.blockNumber) - behind > BigInt(limits.catchUpBlocks)) {
+            const stageNumber = behind + BigInt(limits.catchUpBlocks);
+            const stage = anchor(await rpc.request("eth_getBlockByNumber", [toHex(stageNumber), false]), String(stageNumber));
+            await accounts.inspect({ manifestId: manifest.id, address }, signal, stage);
+            await canonical(head);
+            return validateWalletAuthorityObservation({ ...structuredClone(empty), reason: "authority-history-catching-up" }, context);
+          }
+        }
+        const state = await accounts.inspect({ manifestId: manifest.id, address }, signal, head);
         const inspected = assertPasskeyOnboardingState(state), details = state.modules!.details;
         if (!same(state.address, context.enrollment.creation!.address) || state.manifestId !== manifest.id ||
           state.manifestRevision !== manifest.revision || stable(state.evidence) !== stable(head) ||
@@ -160,9 +193,10 @@ export function createWalletAuthorityChain(options: WalletAuthorityChainOptions)
           BigInt(head.timestamp) * 1000n + BigInt(walletAuthorityMaximumHeadAgeMs) ? BigInt(observedAtMs + walletAuthorityMaximumAgeMs) :
           BigInt(head.timestamp) * 1000n + BigInt(walletAuthorityMaximumHeadAgeMs));
         await canonical(head); return finish();
-      } catch {
+      } catch (error) {
         // Partial reads cannot refresh readiness or turn an unavailable prior-anchor check into
         // canonical replacement. The durable store retains prior proofs and any existing fence.
+        try { options.onError?.(error instanceof RestError ? error.code : error instanceof Error ? error.name : "unknown"); } catch { /* observation only */ }
         return validateWalletAuthorityObservation(empty, context);
       } finally { rpc.close(); }
     },

@@ -125,7 +125,7 @@ export class PostgresWalletAuthorityRefreshQueue implements AuthorityRefreshQueu
     const lease = fields(inputLease, ["accountId", "token", "untilMs"]);
     const result = fields(inputResult, ["outcome", "readyUntilMs"]);
     if (!walletAppAccount(lease.accountId) || !walletAppUuid(lease.token) || !milliseconds(lease.untilMs)
-      || !["verified", "unready", "conflict", "failed"].includes(result.outcome as string)
+      || !["verified", "unready", "progress", "conflict", "failed"].includes(result.outcome as string)
       || (result.outcome === "verified" ? !milliseconds(result.readyUntilMs) : result.readyUntilMs !== null)) invalid();
     const until = lease.untilMs, readyUntil = result.readyUntilMs as number | null;
     try {
@@ -136,10 +136,11 @@ export class PostgresWalletAuthorityRefreshQueue implements AuthorityRefreshQueu
         [lease.accountId, lease.token, until])).rows[0];
         const now = await databaseNow(client);
         if (!job || until <= now) return false;
-        const verified = result.outcome === "verified" && readyUntil! > now;
-        const failures = verified ? 0 : Math.min(16, job.failures + 1);
+        const verified = result.outcome === "verified" && readyUntil! > now, progress = result.outcome === "progress";
+        const failures = verified || progress ? 0 : Math.min(16, job.failures + 1);
         const delay = verified
           ? Math.max(this.settings.verifiedMinRetryMs, Math.min(readyUntil!, now + walletAuthorityMaximumAgeMs) - now - this.settings.refreshLeadMs)
+          : progress ? this.settings.backoffBaseMs
           : Math.min(this.settings.backoffMaxMs, this.settings.backoffBaseMs * 2 ** (failures - 1));
         const changed = await client.query(`UPDATE rest_wallet_authority_refresh_jobs
           SET lease_token=NULL,lease_until_ms=NULL,due_at_ms=$4,failures=$5

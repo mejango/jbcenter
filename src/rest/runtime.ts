@@ -199,7 +199,9 @@ export async function createRestRuntime(options: {
   const wallet: RestWalletRuntime | undefined = walletConfiguration ? (() => {
     const origin = validateWalletPolicyOrigin(walletConfiguration.origin);
     const chain = createWalletAuthorityChain({ rpc, manifest: walletConfiguration.manifest,
-      utility: walletConfiguration.utility, limits: { totalTimeoutMs: 90_000 } });
+      utility: walletConfiguration.utility, limits: { totalTimeoutMs: 90_000 },
+      checkpointStore: new PostgresSafe7579CheckpointStore(options.pool),
+      onError: code => console.info(JSON.stringify({ service: "wallet", action: "authority_observe", outcome: "failed", code })) });
     const login = new PostgresWalletLoginStore(options.pool, { origin, rpId: new URL(origin).hostname });
     const policy = new PostgresWalletPolicyStore(options.pool);
     const appGrants = new PostgresWalletAppGrantStore(options.pool);

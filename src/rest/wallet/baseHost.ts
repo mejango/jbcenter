@@ -7,6 +7,7 @@ import { PostgresSmartAccountRegistry } from "../smartAccounts/postgres.js";
 import type { ContractPin, SmartAccountManifest } from "../smartAccounts/types.js";
 import { PostgresWalletAuthorityStore } from "./authorityPostgres.js";
 import { createWalletAuthorityChain } from "./authorityChain.js";
+import { PostgresSafe7579CheckpointStore } from "../smartAccounts/checkpoints.js";
 import { createWalletAuthorityService } from "./authorityService.js";
 import { createBaseWalletDeploymentReader, createBaseWalletDeploymentSettlement, createBaseWalletDeploymentTransport } from "./deploymentBase.js";
 import { createWalletDeploymentChain } from "./deploymentChain.js";
@@ -26,6 +27,12 @@ import type { RestWalletRuntime } from "../runtime.js";
 
 export interface BaseWalletHostContext { pool: Pool; rpc: RestRpc; wallet: RestWalletRuntime; audience: string;
   smart: ReturnType<typeof createSmartAccountService> }
+/** Every hosted observation shares the durable history checkpoints, so a refresh scans only what is new. */
+function authorityChain(context: BaseWalletHostContext, rpc: RestRpc, options: { manifest: SmartAccountManifest; utility: ContractPin }) {
+  return createWalletAuthorityChain({ rpc, manifest: options.manifest, utility: options.utility,
+    checkpointStore: new PostgresSafe7579CheckpointStore(context.pool),
+    onError: code => console.info(JSON.stringify({ service: "wallet", action: "authority_observe", outcome: "failed", code })) });
+}
 export interface BaseWalletSignupHostOptions {
   url: string;
   genesisHash?: Hex;
@@ -67,7 +74,7 @@ export async function createBaseWalletSignupHost(context: BaseWalletHostContext,
   const chain = createWalletDeploymentChain({ rpc: reader.reads, configuration, manifest: options.manifest, utility: options.utility });
   const execution = createWalletDeploymentExecution({ store: deployments, chain, signer, experimentalTransport: createBaseWalletDeploymentTransport(base) });
   const authority = createWalletAuthorityService({ store: new PostgresWalletAuthorityStore(context.pool),
-    chain: createWalletAuthorityChain({ rpc: reader.reads, manifest: options.manifest, utility: options.utility }) });
+    chain: authorityChain(context, reader.reads, options) });
   return createLocalWalletSignup({ flows: new PostgresWalletSignupStore(context.pool, { rpId: new URL(context.wallet.origin).hostname,
       origin: context.wallet.origin, manifest: options.manifest }),
     enrollments: new PostgresWalletEnrollmentStore(context.pool),
@@ -92,7 +99,7 @@ export function createBaseWalletDeviceHost(context: BaseWalletHostContext, optio
   if (typeof options.signerKey !== "string" || !/^0x[0-9a-f]{64}$/i.test(options.signerKey))
     throw new RestError(500, "WALLET_DEVICE_CONFIG_INVALID", "Adding devices requires the dedicated relay signer key.");
   const reader = createBaseWalletDeploymentReader({ url: options.url, ...(options.genesisHash ? { genesisHash: options.genesisHash } : {}) });
-  const chain = createWalletAuthorityChain({ rpc: reader.reads, manifest: options.manifest, utility: options.utility });
+  const chain = authorityChain(context, reader.reads, options);
   const origin = context.wallet.origin, rpId = new URL(origin).hostname;
   return createLocalWalletDevices({ audience: context.audience, smart: context.smart, authority: new PostgresWalletAuthorityStore(context.pool),
     devices: new PostgresWalletDeviceStore(context.pool, { origin, rpId }, { audience: context.audience, observe: value => chain.observe(value) }),
@@ -106,7 +113,7 @@ export function createBaseWalletRecoveryHost(context: BaseWalletHostContext, opt
   if (typeof options.signerKey !== "string" || !/^0x[0-9a-f]{64}$/i.test(options.signerKey))
     throw new RestError(500, "WALLET_RECOVERY_CONFIG_INVALID", "Hosted recovery requires a dedicated relay signer key.");
   const reader = createBaseWalletDeploymentReader({ url: options.url, ...(options.genesisHash ? { genesisHash: options.genesisHash } : {}) });
-  const chain = createWalletAuthorityChain({ rpc: reader.reads, manifest: options.manifest, utility: options.utility });
+  const chain = authorityChain(context, reader.reads, options);
   const origin = context.wallet.origin, rpId = new URL(origin).hostname;
   return createLocalWalletRecovery({ audience: context.audience, smart: context.smart,
     authority: createWalletAuthorityService({ store: new PostgresWalletAuthorityStore(context.pool), chain }),

@@ -4,7 +4,8 @@ import { RestError } from '../core.js';
 import { walletAppAccount, walletAppUuid } from './appGrants.js';
 
 export interface AuthorityRefreshLease { accountId: string; token: string; untilMs: number }
-export type AuthorityRefreshOutcome = 'verified' | 'unready' | 'conflict' | 'failed';
+/** 'progress': not ready yet, but the account's history checkpoint advanced; retry soon, not with backoff. */
+export type AuthorityRefreshOutcome = 'verified' | 'unready' | 'progress' | 'conflict' | 'failed';
 export interface AuthorityRefreshResult { outcome: AuthorityRefreshOutcome; readyUntilMs: number | null }
 export interface AuthorityRefreshRequest { status: 'queued' | 'coalesced' | 'overloaded'; retryAtMs: number | null }
 export interface AuthorityRefreshStats {
@@ -18,10 +19,10 @@ export interface AuthorityRefreshQueue {
   stats(): Promise<AuthorityRefreshStats>;
 }
 export interface AuthorityRefreshTick {
-  claimed: number; verified: number; unready: number; conflicts: number;
+  claimed: number; verified: number; unready: number; progress: number; conflicts: number;
   failed: number; leaseLost: number; queueFailed: number;
 }
-export type AuthorityRefreshEvent = 'verified' | 'unready' | 'conflict' | 'failed' | 'lease_lost'
+export type AuthorityRefreshEvent = 'verified' | 'unready' | 'progress' | 'conflict' | 'failed' | 'lease_lost'
   | 'queue_failed' | 'attempt_timeout' | 'shutdown_timeout';
 export interface AuthorityRefreshOptions {
   queue: AuthorityRefreshQueue;
@@ -56,7 +57,7 @@ export function createWalletAuthorityRefresh(options: AuthorityRefreshOptions): 
   let currentClaims: Promise<Promise<void>[]> | undefined;
   const inFlight = new Set<Promise<void>>();
   let stopped = false, closing: Promise<void> | undefined;
-  const empty = (): AuthorityRefreshTick => ({ claimed: 0, verified: 0, unready: 0, conflicts: 0, failed: 0, leaseLost: 0, queueFailed: 0 });
+  const empty = (): AuthorityRefreshTick => ({ claimed: 0, verified: 0, unready: 0, progress: 0, conflicts: 0, failed: 0, leaseLost: 0, queueFailed: 0 });
   const emit = (event: AuthorityRefreshEvent) => { try { observer?.(event); } catch { /* Metrics cannot change scheduling or authority. */ } };
   const assertRunning = () => {
     if (stopped) throw new RestError(503, 'WALLET_AUTHORITY_STOPPED', 'Authority refresh is stopping.');
@@ -76,7 +77,7 @@ export function createWalletAuthorityRefresh(options: AuthorityRefreshOptions): 
       if (!controller.signal.aborted && lease.untilMs > now()) {
         const { snapshot } = await refresh(lease.accountId, controller.signal);
         if (snapshot.accountId !== lease.accountId) throw new Error('Mismatched authority account');
-        result = { outcome: 'unready', readyUntilMs: null };
+        result = { outcome: snapshot.latestObservation?.reason === 'authority-history-catching-up' ? 'progress' : 'unready', readyUntilMs: null };
         if (snapshot.readiness === 'verified' && !snapshot.bootstrapRequired && snapshot.activeFence === null
           && fresh({ outcome: 'verified', readyUntilMs: snapshot.validUntilMs }))
           result = { outcome: 'verified', readyUntilMs: snapshot.validUntilMs };
