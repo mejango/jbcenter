@@ -37,7 +37,7 @@ function fixture() {
     }
     if (url === issuer + '/wallet/handoff/exchange') {
       await verifyWalletHandoffExchange(body);
-      expect(href).toBe(callbackUri);
+      expect(href.includes('?')).toBe(false); // The code never stays in an address bar.
       expect(body.code).toBe(code); expect(body.intentId).toBe(intentId);
       exchanges++;
       if (exchangeLoss) { exchangeLoss = false; throw new Error('private upstream details'); }
@@ -95,6 +95,27 @@ describe('Center browser wallet connection', () => {
     await expect(f.client().prepareConnection()).rejects.toMatchObject({ code: 'WALLET_HANDOFF_PENDING' });
     const recovered = await f.client().retryConnection();
     expect(recovered.accountId).toBe(accountId); expect(f.calls.at(-1)!.body).toEqual(first);
+  });
+
+  it('completes a callback delivered from another window without touching this page, and launches into a named window', async () => {
+    const f = fixture(), client = f.client(), page = f.href();
+    const prepared = await client.prepareConnection();
+    // The callback URL arrives by message from the popup; this page's address stays as it was.
+    const delivered = walletHandoffCallback({ request: JSON.parse([...f.data.values()][0]!).request, code });
+    expect((await client.completeConnection(delivered)).accountId).toBe(accountId);
+    expect(f.href()).toBe(page);
+    // launch() targets the window the app opened, and only accepts a plain window name.
+    const forms: any[] = [];
+    const g = globalThis as any, saved = { location: g.location, document: g.document, HTMLFormElement: g.HTMLFormElement };
+    g.location = { origin }; g.HTMLFormElement = { prototype: { submit(this: any) { forms.push(this); } } };
+    g.document = { body: { append() {} }, createElement: (tag: string) => ({ tag, target: '_self', hidden: false, children: [] as any[], append(child: any) { this.children.push(child); }, remove() {} }) };
+    try {
+      const again = f.client(); f.storage.removeItem([...f.data.keys()][0]!);
+      const launch = (await again.prepareConnection()).launch;
+      launch({ target: 'juicebox-center' }); expect(forms.at(-1)).toMatchObject({ target: 'juicebox-center', method: 'POST', action: issuer + '/wallet/launch' });
+      launch(); expect(forms.at(-1).target).toBe('_self');
+      expect(() => launch({ target: '_blank' })).toThrow(); expect(() => launch({ target: 'a b' })).toThrow();
+    } finally { Object.assign(g, saved); }
   });
 
   it('preserves the callback code before yielding to asynchronous proof signing', async () => {

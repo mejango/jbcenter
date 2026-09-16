@@ -43,7 +43,8 @@ export interface CenterWalletPreparedConnection {
   /** Public locator only. Use launch() to establish browser continuity before navigation. */
   readonly authorizationUrl: string;
   readonly expiresAtMs: number;
-  readonly launch: () => void;
+  /** Navigates this tab, or a window the app opened by name (`target`), to Center. */
+  readonly launch: (options?: { target?: string }) => void;
 }
 interface Intent {
   id: string;
@@ -263,13 +264,16 @@ export function createCenterWalletClient(options: CenterWalletClientOptions) {
     const signature = await privateKeyToAccount(pending.value.key).signTypedData(walletHandoffLaunchDocument({request:intent.request,intentId:intent.id}));
     if (raw() !== pending.encoded) fail('WALLET_HANDOFF_CHANGED', 'This tab changed its wallet connection. Start again from the app.');
     return Object.freeze({ intentId: intent.id, authorizationUrl: issuer + '/wallet?intent=' + intent.id, expiresAtMs: intent.expiresAtMs,
-      launch() {
+      launch(launchOptions?: { target?: string }) {
+        const target = launchOptions?.target ?? '_self';
+        if (target !== '_self' && !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(target))
+          fail('WALLET_LAUNCH_UNAVAILABLE', 'Launch into this tab or a plainly named window the app opened.');
         if (raw() !== pending.encoded || intent.expiresAtMs <= clock())
           fail('WALLET_HANDOFF_CHANGED', 'This tab changed or expired its wallet connection. Start again from the app.');
         if (globalThis.location?.origin !== origin || !globalThis.document?.body)
           fail('WALLET_LAUNCH_UNAVAILABLE', 'Open the wallet connection from its original app tab.');
         const form = document.createElement('form');
-        form.method = 'POST'; form.action = issuer + '/wallet/launch'; form.target = '_self'; form.hidden = true;
+        form.method = 'POST'; form.action = issuer + '/wallet/launch'; form.target = target; form.hidden = true;
         for (const [name, value] of Object.entries({intentId:intent.id, signature})) {
           const input = document.createElement('input'); input.type = 'hidden'; input.name = name; input.value = value; form.append(input);
         }
@@ -350,7 +354,9 @@ export function createCenterWalletClient(options: CenterWalletClientOptions) {
   }
   async function completeConnection(callbackUrl?: string): Promise<CenterWalletConnection> {
     const incoming = callbackUrl ?? location.href();
-    try { location.replace(callbackUri); }
+    // Clear the code from this page's address only when it is there: a callback delivered from
+    // another window (a popup the app opened) leaves this page where it is.
+    try { if (location.href().slice(0, callbackUri.length) === callbackUri) location.replace(callbackUri); }
     catch { return fail('WALLET_CALLBACK_INVALID', 'The wallet callback could not be cleared safely.'); }
     let pending = read();
     if (!pending?.value.intent || pending.value.grant) fail('WALLET_CALLBACK_INVALID', 'There is no matching wallet callback pending in this tab.');
