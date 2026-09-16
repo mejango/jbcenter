@@ -106,6 +106,13 @@ describe("bounded Base fee observation at the retained canonical inclusion", () 
       return block;
     }, { responseBytes: 1_000_000 })).rejects.toMatchObject({ code: "WALLET_BASE_FEE_OBSERVATION_INVALID" });
   });
+  it("refuses every request after close, so a late caller cannot reuse a released budget", async () => {
+    const { calls, transport } = fixture(), rpc = operationRpc(transport, limits, undefined, true);
+    expect(await rpc.request("eth_chainId", [])).toBe("0x2105");
+    rpc.close();
+    await expect(rpc.request("eth_chainId", [])).rejects.toMatchObject({ code: "WALLET_DEPLOYMENT_CANCELLED" });
+    expect(calls).toHaveLength(1);
+  });
   it("cancels between the first read and canonical recheck", async () => {
     const controller = new AbortController();
     await expect(run((method, _n, value) => {

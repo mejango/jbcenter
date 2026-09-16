@@ -976,6 +976,58 @@ describe.skipIf(!available)(
       if (failure === "quota") expect(failedRanges).toHaveLength(1);
       expect(await checkpointStore.get(checkpointKey)).toEqual(retained);
     }, 20000);
+    it("stops at the next read when the caller cancels, even through a transport that ignores the signal, and writes no checkpoint", async () => {
+      const checkpointStore = new MemorySafe7579CheckpointStore();
+      const checkpointKey = `${manifest.chainId}:${account.toLowerCase()}:${manifest.revision}:${utility.runtimeCodeHash}`;
+      const controller = new AbortController();
+      let afterCancel = 0;
+      const deaf = {
+        request: async (chain: number, method: string, params: readonly unknown[]) => {
+          if (controller.signal.aborted) afterCancel += 1;
+          const result = await transport.request(chain, method, params);
+          if (method === "eth_getLogs") controller.abort();
+          return result;
+        },
+      };
+      const subject = createSafe7579Inspector({
+        rpc: deaf,
+        utility: pin(utility),
+        checkpointStore,
+        inspectSessions: createInstalledSessionVerifier({ rpc: deaf }).inspectAllAt,
+      });
+      await expect(subject.inspect({ account, manifest, snapshot: await snapshot(), signal: controller.signal }))
+        .rejects.toMatchObject({ name: "AbortError" });
+      // Reads already in flight when the cancel landed may finish; nothing new starts.
+      expect(afterCancel).toBe(0);
+      expect(await checkpointStore.get(checkpointKey)).toEqual([]);
+    }, 20000);
+    it("a cancel landing as the state reads are assembled rejects once, with nothing left unhandled", async () => {
+      const controller = new AbortController();
+      const leaked: unknown[] = [];
+      const onLeak = (reason: unknown) => leaked.push(reason);
+      process.on("unhandledRejection", onLeak);
+      try {
+        const deaf = {
+          request: async (chain: number, method: string, params: readonly unknown[]) => {
+            const result = await transport.request(chain, method, params);
+            // The last history read before the state section: the cancel lands as it resolves.
+            if (method === "eth_getBlockByNumber") controller.abort();
+            return result;
+          },
+        };
+        const subject = createSafe7579Inspector({
+          rpc: deaf,
+          utility: pin(utility),
+          inspectSessions: createInstalledSessionVerifier({ rpc: deaf }).inspectAllAt,
+        });
+        await expect(subject.inspect({ account, manifest, snapshot: await snapshot(), signal: controller.signal }))
+          .rejects.toMatchObject({ name: "AbortError" });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(leaked).toEqual([]);
+      } finally {
+        process.off("unhandledRejection", onLeak);
+      }
+    }, 20000);
     it("proves a dormant month's account history with candidate traces and still catches later hidden code changes", async () => {
       // A month of idle time and more elapsed blocks than this inspector's two-active-block
       // budget. Small local block counts keep this test independent of Anvil archive pruning.

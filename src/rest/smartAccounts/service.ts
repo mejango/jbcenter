@@ -275,17 +275,19 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
         );
       return { address, runtimeCodeHash: keccak256(code) };
     }
-    const codeHashes = await Promise.all([
-      requireCode(account, m.proxyRuntimeCodeHash),
-      ...pins(m).map(pin => requireCode(pin.address, pin.runtimeCodeHash)),
-    ]);
-    const [singleton, fallback, guard] = await Promise.all(
-      [slot0, fallbackSlot, guardSlot].map(async (slot) =>
-        addressFromSlot(
-          await snap.request("eth_getStorageAt", [account, slot]),
+    const [codeHashes, [singleton, fallback, guard]] = await Promise.all([
+      Promise.all([
+        requireCode(account, m.proxyRuntimeCodeHash),
+        ...pins(m).map(pin => requireCode(pin.address, pin.runtimeCodeHash)),
+      ]),
+      Promise.all(
+        [slot0, fallbackSlot, guardSlot].map(async (slot) =>
+          addressFromSlot(
+            await snap.request("eth_getStorageAt", [account, slot]),
+          ),
         ),
       ),
-    );
+    ]);
     if (
       !same(singleton!, m.singleton.address) ||
       !same(fallback!, m.safe7579.address) ||
@@ -295,127 +297,143 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
         "SMART_ACCOUNT_LAYOUT_UNSUPPORTED",
         "The Safe singleton, fallback handler or guard differs from the reviewed account layout.",
       );
-    async function read(
-      functionName: string,
-      args: readonly unknown[] = [],
-    ): Promise<unknown> {
-      const data = encodeFunctionData({
-        abi: safeAbi as Abi,
-        functionName,
-        args,
-      });
-      const result = rpcHex(
-        await snap.request("eth_call", [{ to: account, data, gas: "0xf4240" }]),
-        "Safe read",
-      );
-      return decodeFunctionResult({
-        abi: safeAbi as Abi,
-        functionName,
-        data: result,
-      });
-    }
-    const [version, ownersRaw, thresholdRaw, nonceRaw, moduleList] =
-      await Promise.all([
-        read("VERSION"),
-        read("getOwners"),
-        read("getThreshold"),
-        read("nonce"),
-        read("getModulesPaginated", [sentinel, 33n]),
-      ]);
-    if (
-      version !== m.safeVersion ||
-      !Array.isArray(ownersRaw) ||
-      ownersRaw.length < 1 ||
-      ownersRaw.length > 16 ||
-      !ownersRaw.every(
-        (entry) => typeof entry === "string" && isAddress(entry),
-      ) ||
-      typeof thresholdRaw !== "bigint" ||
-      thresholdRaw < 1n ||
-      thresholdRaw > BigInt(ownersRaw.length) ||
-      typeof nonceRaw !== "bigint"
-    )
-      fail(
-        "SMART_ACCOUNT_OWNERS_INVALID",
-        "The Safe owner configuration is unsupported.",
-      );
-    const owners = ownersRaw.map((entry) => getAddress(entry as string));
-    if (
-      new Set(owners.map((entry) => entry.toLowerCase())).size !==
-        owners.length ||
-      owners.some((entry) => same(entry, zeroAddress))
-    )
-      fail("SMART_ACCOUNT_OWNERS_INVALID", "Invalid Safe owner set.");
-    const passkey = m.ownerProfile ? await inspectPasskeyOwnerProfile({
-      manifest: m, owners, threshold: Number(thresholdRaw), snapshot: snap,
-    }) : undefined;
-    if (passkey) codeHashes.push(...passkey.codeHashes);
-    // An absent profile preserves the legacy EOA-only authority and state hash exactly.
-    for (const address of passkey ? [] : owners)
-      if (
-        rpcHex(await snap.request("eth_getCode", [address]), "owner code") !==
-        "0x"
-      )
-        fail(
-          "SMART_CONTRACT_OWNER_UNSUPPORTED",
-          "Contract or delegated Safe owners require a separately reviewed owner-signature adapter.",
-        );
-    if (
-      !Array.isArray(moduleList) ||
-      !Array.isArray(moduleList[0]) ||
-      moduleList[0].length !== 1 ||
-      !same(String(moduleList[0][0]), m.safe7579.address) ||
-      !same(String(moduleList[1]), sentinel)
-    )
-      fail(
-        "SMART_SAFE_MODULES_UNSUPPORTED",
-        "The Safe must enable only the pinned Safe7579 adapter; pagination must be complete.",
-      );
+    // The module inspection is the slow read; it runs alongside the owner checks below, past the
+    // layout gate so an unrecognised layout never starts it. Its result is only read after those
+    // checks, so which failure surfaces first is unchanged; a failed check cancels it and waits.
     const inspector = options.moduleInspectors?.find(
       (item) => item.id === m.moduleInspectorId,
     );
-    const modules = inspector
-      ? await inspector.inspect({ account, manifest: m, snapshot: snap })
+    const abort = new AbortController();
+    const inspecting = inspector
+      ? inspector.inspect({ account, manifest: m, snapshot: snap, signal: abort.signal }).then(
+          (value) => ({ value, failure: null as unknown }),
+          (failure: unknown) => ({ value: null, failure }),
+        )
       : null;
-    if (
-      modules &&
-      (!bytes32(modules.stateHash) ||
-        modules.complete !== true ||
-        modules.arbitrarySigningDisabled !== true ||
-        modules.wildcardExecutionDisabled !== true ||
-        Buffer.byteLength(stable(modules)) > 8192)
-    )
-      fail(
-        "SMART_MODULE_PROOF_INVALID",
-        "Complete bounded module and signing-policy evidence is required.",
-      );
-    const stateHash = fingerprint({
-      address: account.toLowerCase(),
-      manifestRevision: m.revision,
-      owners: owners.map((a) => a.toLowerCase()).sort(),
-      threshold: String(thresholdRaw),
-      singleton,
-      fallback,
-      guard,
-      modules: modules?.stateHash ?? null,
-      ...(passkey ? { ownerProfile: { pins: m.ownerProfile, state: passkey.ownerProfile } } : {}),
-    });
-    return {
-      chainId: m.chainId,
-      address: account,
-      manifestId: m.id,
-      manifestRevision: m.revision,
-      owners,
-      threshold: Number(thresholdRaw),
-      safeNonce: String(nonceRaw),
-      stateHash,
-      evidence: snap.evidence,
-      codeHashes,
-      modules,
-      moduleConfigurationVerified: modules !== null,
-      executionVerified: false,
-      ...(passkey ? { ownerProfile: passkey.ownerProfile } : {}),
-    };
+    try {
+      async function read(
+        functionName: string,
+        args: readonly unknown[] = [],
+      ): Promise<unknown> {
+        const data = encodeFunctionData({
+          abi: safeAbi as Abi,
+          functionName,
+          args,
+        });
+        const result = rpcHex(
+          await snap.request("eth_call", [{ to: account, data, gas: "0xf4240" }]),
+          "Safe read",
+        );
+        return decodeFunctionResult({
+          abi: safeAbi as Abi,
+          functionName,
+          data: result,
+        });
+      }
+      const [version, ownersRaw, thresholdRaw, nonceRaw, moduleList] =
+        await Promise.all([
+          read("VERSION"),
+          read("getOwners"),
+          read("getThreshold"),
+          read("nonce"),
+          read("getModulesPaginated", [sentinel, 33n]),
+        ]);
+      if (
+        version !== m.safeVersion ||
+        !Array.isArray(ownersRaw) ||
+        ownersRaw.length < 1 ||
+        ownersRaw.length > 16 ||
+        !ownersRaw.every(
+          (entry) => typeof entry === "string" && isAddress(entry),
+        ) ||
+        typeof thresholdRaw !== "bigint" ||
+        thresholdRaw < 1n ||
+        thresholdRaw > BigInt(ownersRaw.length) ||
+        typeof nonceRaw !== "bigint"
+      )
+        fail(
+          "SMART_ACCOUNT_OWNERS_INVALID",
+          "The Safe owner configuration is unsupported.",
+        );
+      const owners = ownersRaw.map((entry) => getAddress(entry as string));
+      if (
+        new Set(owners.map((entry) => entry.toLowerCase())).size !==
+          owners.length ||
+        owners.some((entry) => same(entry, zeroAddress))
+      )
+        fail("SMART_ACCOUNT_OWNERS_INVALID", "Invalid Safe owner set.");
+      const passkey = m.ownerProfile ? await inspectPasskeyOwnerProfile({
+        manifest: m, owners, threshold: Number(thresholdRaw), snapshot: snap,
+      }) : undefined;
+      if (passkey) codeHashes.push(...passkey.codeHashes);
+      // An absent profile preserves the legacy EOA-only authority and state hash exactly.
+      for (const address of passkey ? [] : owners)
+        if (
+          rpcHex(await snap.request("eth_getCode", [address]), "owner code") !==
+          "0x"
+        )
+          fail(
+            "SMART_CONTRACT_OWNER_UNSUPPORTED",
+            "Contract or delegated Safe owners require a separately reviewed owner-signature adapter.",
+          );
+      if (
+        !Array.isArray(moduleList) ||
+        !Array.isArray(moduleList[0]) ||
+        moduleList[0].length !== 1 ||
+        !same(String(moduleList[0][0]), m.safe7579.address) ||
+        !same(String(moduleList[1]), sentinel)
+      )
+        fail(
+          "SMART_SAFE_MODULES_UNSUPPORTED",
+          "The Safe must enable only the pinned Safe7579 adapter; pagination must be complete.",
+        );
+      const inspected = inspecting ? await inspecting : null;
+      if (inspected?.failure) throw inspected.failure;
+      const modules = inspected?.value ?? null;
+      if (
+        modules &&
+        (!bytes32(modules.stateHash) ||
+          modules.complete !== true ||
+          modules.arbitrarySigningDisabled !== true ||
+          modules.wildcardExecutionDisabled !== true ||
+          Buffer.byteLength(stable(modules)) > 8192)
+      )
+        fail(
+          "SMART_MODULE_PROOF_INVALID",
+          "Complete bounded module and signing-policy evidence is required.",
+        );
+      const stateHash = fingerprint({
+        address: account.toLowerCase(),
+        manifestRevision: m.revision,
+        owners: owners.map((a) => a.toLowerCase()).sort(),
+        threshold: String(thresholdRaw),
+        singleton,
+        fallback,
+        guard,
+        modules: modules?.stateHash ?? null,
+        ...(passkey ? { ownerProfile: { pins: m.ownerProfile, state: passkey.ownerProfile } } : {}),
+      });
+      return {
+        chainId: m.chainId,
+        address: account,
+        manifestId: m.id,
+        manifestRevision: m.revision,
+        owners,
+        threshold: Number(thresholdRaw),
+        safeNonce: String(nonceRaw),
+        stateHash,
+        evidence: snap.evidence,
+        codeHashes,
+        modules,
+        moduleConfigurationVerified: modules !== null,
+        executionVerified: false,
+        ...(passkey ? { ownerProfile: passkey.ownerProfile } : {}),
+      };
+    } catch (error) {
+      abort.abort();
+      if (inspecting) await inspecting;
+      throw error;
+    }
   }
   async function challenge(
     principal: RestPrincipal,

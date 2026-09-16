@@ -167,6 +167,7 @@ function fixture(
     },
   );
   const registry = new MemorySmartAccountRegistry();
+  const inspections: (AbortSignal | null)[] = [];
   const service = createSmartAccountService({
     rpc: { request },
     manifests: [manifest],
@@ -178,13 +179,17 @@ function fixture(
           moduleInspectors: [
             {
               id: manifest.moduleInspectorId,
-              inspect: async () => ({
-                stateHash: zeroHash,
-                complete: true as const,
-                arbitrarySigningDisabled: true as const,
-                wildcardExecutionDisabled: true as const,
-                details: { fixture: true },
-              }),
+              inspect: async (input: { signal?: AbortSignal }) => {
+                inspections.push(input.signal ?? null);
+                await new Promise((resolve) => setTimeout(resolve, 20));
+                return {
+                  stateHash: zeroHash,
+                  complete: true as const,
+                  arbitrarySigningDisabled: true as const,
+                  wildcardExecutionDisabled: true as const,
+                  details: { fixture: true },
+                };
+              },
             },
           ],
         }
@@ -213,7 +218,7 @@ function fixture(
     };
     return { record: await service.bind(principal, payload), payload };
   }
-  return { service, registry, request, state, bind };
+  return { service, registry, request, state, bind, inspections };
 }
 describe("smart account ownership and module boundaries", () => {
   it("retains exact older manifest bindings when new creation defaults are introduced", async () => {
@@ -316,6 +321,24 @@ describe("smart account ownership and module boundaries", () => {
       ).rejects.toBeInstanceOf(Error);
     },
   );
+  it("never starts the module inspection for an address that fails the layout gate, and cancels it when a later check fails", async () => {
+    // Before the layout gate: runtime code and Safe storage layout. The inspector runs only past it.
+    for (const options of [{ runtimeMismatch: true }, { guard: pin(18).address }]) {
+      const test = fixture({ ...options, inspector: true });
+      await expect(test.service.inspect({ manifestId: manifest.id, address: wallet })).rejects.toBeInstanceOf(Error);
+      expect(test.inspections).toEqual([]);
+    }
+    // Past the gate but failing an owner check: the inspection was started alongside and is cancelled.
+    const owner = fixture({ contractOwner: true, inspector: true });
+    await expect(owner.service.inspect({ manifestId: manifest.id, address: wallet })).rejects.toBeInstanceOf(Error);
+    expect(owner.inspections).toHaveLength(1);
+    expect(owner.inspections[0]?.aborted).toBe(true);
+    // A clean account: one inspection, never cancelled.
+    const clean = fixture({ inspector: true });
+    await clean.service.inspect({ manifestId: manifest.id, address: wallet });
+    expect(clean.inspections).toHaveLength(1);
+    expect(clean.inspections[0]?.aborted).toBe(false);
+  });
   it("requires the current owner threshold and prevents a revoked signature from restoring its binding", async () => {
     const test = fixture({ threshold: 2 });
     const { record, payload } = await test.bind();

@@ -285,10 +285,12 @@ export function createWalletNetworks(options: WalletNetworksDependencies) {
           observed = parseIndependentStatus(raw, bundle.quote);
         } catch { /* The next read tries again; code on the chain is the proof either way. */ }
         let settled = true;
+        // One read per chain, all at once; the rows are then settled in Relayr's order.
+        const deployedFlags = await Promise.all(bundle.quote.entries.map(entry => deployedOn(entry.entry.chain, bundle.document.walletAddress)));
         for (const [index, entry] of bundle.quote.entries.entries()) {
           // The parser lists rows in Relayr's order and names the quote step on each.
           const chainId = entry.entry.chain, item = observed.find(row => row.step === index), current = now();
-          if (await deployedOn(chainId, bundle.document.walletAddress)) { await store.upsertNetwork(session.accountId, { chainId, state: "deployed", bundleId: bundle.id, txHash: item?.hash ?? null }, current); continue; }
+          if (deployedFlags[index]) { await store.upsertNetwork(session.accountId, { chainId, state: "deployed", bundleId: bundle.id, txHash: item?.hash ?? null }, current); continue; }
           if (item && /fail|revert|cancel|reject|expire/i.test(item.providerState)) { await store.upsertNetwork(session.accountId, { chainId, state: "failed", bundleId: bundle.id, txHash: item.hash ?? null }, current); continue; }
           settled = false;
         }

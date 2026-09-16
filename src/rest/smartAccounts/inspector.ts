@@ -355,6 +355,7 @@ export function createSafe7579Inspector(
       account,
       manifest: m,
       snapshot,
+      signal,
     }): Promise<ModuleStateEvidence> {
       if (m.creationProfile) validatePasskeyCreationManifest(m);
       const bootstrapPins = m.creationProfile ? [m.creationProfile.multiSend,
@@ -381,9 +382,21 @@ export function createSafe7579Inspector(
         );
       account = getAddress(account);
       const end = BigInt(snapshot.evidence.blockNumber);
-      const deadline = AbortSignal.timeout(limits.timeout);
-      const rpc = (method: string, params: readonly unknown[]) =>
-        options.rpc.request(m.chainId, method, params, deadline);
+      const deadline = AbortSignal.any([
+        AbortSignal.timeout(limits.timeout),
+        ...(signal ? [signal] : []),
+      ]);
+      // Checked here, not only by the transport: a caller's cancel must stop the next read even
+      // through a transport that ignores the signal. Async, so an abort is a rejection every
+      // Promise.all above sees, never a throw while a batch of reads is still being assembled.
+      const rpc = async (method: string, params: readonly unknown[]) => {
+        deadline.throwIfAborted();
+        return options.rpc.request(m.chainId, method, params, deadline);
+      };
+      const at = async (method: string, params: readonly unknown[]) => {
+        deadline.throwIfAborted();
+        return snapshot.request(method, params);
+      };
       if (quantity(await rpc("eth_chainId", [])) !== BigInt(m.chainId))
         fail(
           "SMART_INSPECTION_CHAIN_MISMATCH",
@@ -442,6 +455,8 @@ export function createSafe7579Inspector(
       }
       function checkLogRead() {
         if (logFailure !== undefined) throw logFailure;
+        // The caller's cancel is not a history timeout; it surfaces as itself.
+        signal?.throwIfAborted();
         if (deadline.aborted)
           failLogs("SMART_HISTORY_TIMEOUT", "Complete account history could not be read within the inspection deadline.");
       }
@@ -1312,24 +1327,6 @@ export function createSafe7579Inspector(
           503,
         );
 
-      await Promise.all([
-        m.factory,
-        m.singleton,
-        m.safe7579,
-        m.launchpad,
-        m.smartSessions,
-        m.entryPoint,
-        options.utility,
-        ...bootstrapPins,
-      ].map(async pin => {
-        const code = hex(await snapshot.request("eth_getCode", [pin.address]));
-        if (code === "0x" || !same(keccak256(code), pin.runtimeCodeHash))
-          fail(
-            "SMART_INSPECTION_CODE_MISMATCH",
-            "The current stack no longer matches its reviewed code identity.",
-          );
-      }));
-
       async function call(
         name:
           | "getValidatorsPaginated"
@@ -1349,7 +1346,7 @@ export function createSafe7579Inspector(
           abi: MODULE_ABI,
           functionName: name,
           data: hex(
-            await snapshot.request("eth_call", [
+            await at("eth_call", [
               { from: account, to: m.safe7579.address, data },
             ]),
           ),
@@ -1357,7 +1354,7 @@ export function createSafe7579Inspector(
       }
       async function storage(slot: Hex) {
         return storedAddress(
-          await snapshot.request("eth_getStorageAt", [
+          await at("eth_getStorageAt", [
             m.safe7579.address,
             slot,
           ]),
@@ -1412,7 +1409,47 @@ export function createSafe7579Inspector(
           "Module enumeration exceeds the supported bound.",
         );
       }
-      const [validators, executors] = await Promise.all([list(2), list(3)]);
+      // Every read below is at the same snapshot and independent of the others, so they are
+      // issued together; the results are then checked in the original order, so the first
+      // failure reported is the same one a sequential walk would have found.
+      const staged = await Promise.allSettled([
+        Promise.all([
+          m.factory,
+          m.singleton,
+          m.safe7579,
+          m.launchpad,
+          m.smartSessions,
+          m.entryPoint,
+          options.utility,
+          ...bootstrapPins,
+        ].map(async pin => ({ pin, code: hex(await at("eth_getCode", [pin.address])) }))),
+        Promise.all([list(2), list(3)]),
+        Promise.all([
+          Promise.all([call("getActiveHook"), call("getPrevalidationHook", [9n]), call("getPrevalidationHook", [8n])]) as Promise<Address[]>,
+          Promise.all([5, 7, 8].map(slot => storage(safe7579MappingSlot(account, slot)))),
+        ]),
+        Promise.all([storage(safe7579MappingSlot(account, 0)), call("entryPoint")]),
+        Promise.all([
+          call("getNonce", [account, m.smartSessions.address]) as Promise<bigint>,
+          at("eth_call", [{
+            to: ENTRY_POINT,
+            data: encodeFunctionData({ abi: ENTRY_ABI, functionName: "getNonce", args: [account, BigInt(m.smartSessions.address) << 32n] }),
+          }]),
+        ]),
+        options.inspectSessions({ account, manifest: m, snapshot }),
+      ] as const);
+      const settled = <T,>(index: number): T => {
+        const result = staged[index]!;
+        if (result.status === "rejected") throw result.reason;
+        return result.value as T;
+      };
+      for (const { pin, code } of settled<{ pin: { runtimeCodeHash: Hex }; code: Hex }[]>(0))
+        if (code === "0x" || !same(keccak256(code), pin.runtimeCodeHash))
+          fail(
+            "SMART_INSPECTION_CODE_MISMATCH",
+            "The current stack no longer matches its reviewed code identity.",
+          );
+      const [validators, executors] = settled<[Address[], Address[]]>(1);
       if (
         validators.length !== 1 ||
         !same(validators[0]!, m.smartSessions.address) ||
@@ -1422,10 +1459,7 @@ export function createSafe7579Inspector(
           "SMART_MODULE_CONFIGURATION_UNSUPPORTED",
           "Only the reviewed SmartSession validator and no executors may be installed.",
         );
-      const [hooks, hookStorage] = await Promise.all([
-        Promise.all([call("getActiveHook"), call("getPrevalidationHook", [9n]), call("getPrevalidationHook", [8n])]) as Promise<Address[]>,
-        Promise.all([5, 7, 8].map(slot => storage(safe7579MappingSlot(account, slot)))),
-      ]);
+      const [hooks, hookStorage] = settled<[Address[], Hex[]]>(2);
       for (let i = 0; i < 3; i++)
         if (
           !same(
@@ -1438,7 +1472,7 @@ export function createSafe7579Inspector(
             "SMART_MODULE_CONFIGURATION_UNSUPPORTED",
             "Global and prevalidation hooks must be absent.",
           );
-      const [registryAddress, adapterEntryPoint] = await Promise.all([storage(safe7579MappingSlot(account, 0)), call("entryPoint")]);
+      const [registryAddress, adapterEntryPoint] = settled<[Hex, unknown]>(3);
       if (!same(registryAddress, zeroAddress))
         fail(
           "SMART_REGISTRY_STATE_UNSUPPORTED",
@@ -1449,37 +1483,19 @@ export function createSafe7579Inspector(
           "SMART_ENTRYPOINT_MISMATCH",
           "The adapter EntryPoint differs from its reviewed immutable source.",
         );
-      const nonce = (await call("getNonce", [
-        account,
-        m.smartSessions.address,
-      ])) as bigint;
+      const [nonce, directNonceRaw] = settled<[bigint, unknown]>(4);
       const expectedKey = BigInt(m.smartSessions.address) << 32n;
       const directNonce = decodeFunctionResult({
         abi: ENTRY_ABI,
         functionName: "getNonce",
-        data: hex(
-          await snapshot.request("eth_call", [
-            {
-              to: ENTRY_POINT,
-              data: encodeFunctionData({
-                abi: ENTRY_ABI,
-                functionName: "getNonce",
-                args: [account, expectedKey],
-              }),
-            },
-          ]),
-        ),
+        data: hex(directNonceRaw),
       });
       if (nonce !== directNonce || nonce >> 64n !== expectedKey)
         fail(
           "SMART_NONCE_LAYOUT_MISMATCH",
           "The validator/lane/sequence nonce does not match the pinned EntryPoint state.",
         );
-      const sessions = await options.inspectSessions({
-        account,
-        manifest: m,
-        snapshot,
-      });
+      const sessions = settled<Awaited<ReturnType<typeof options.inspectSessions>>>(5);
       if (
         !isWord(sessions.stateHash) ||
         sessions.arbitrarySigningDisabled !== true ||

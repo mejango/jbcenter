@@ -81,7 +81,7 @@ export function operationRpc(rpc: RestRpc, limits: Record<keyof typeof walletPre
   }
   return {
     check,
-    close() { clearTimeout(deadline); signal?.removeEventListener("abort", cancel); controller.abort(); },
+    close() { clearTimeout(deadline); signal?.removeEventListener("abort", cancel); cancel(); },
     async request(method: string, params: readonly unknown[]): Promise<unknown> {
       check();
       const trace = observation && method === "debug_traceTransaction";

@@ -86,6 +86,8 @@ export interface SmartModuleInspector {
     account: Address;
     manifest: SmartAccountManifest;
     snapshot: SmartSnapshot;
+    /** The caller no longer needs the result (a parallel check failed); stop reading. */
+    signal?: AbortSignal;
   }): Promise<ModuleStateEvidence>;
 }
 export interface SmartAccountState {
