@@ -35,6 +35,8 @@ export async function exerciseWalletDeviceEvm(options: {
       quote: async () => ({ gas: 3_000_000n, maxFeePerGas: 20_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n }),
       fees: async (_rpc, _raw, receipt) => ({ executionWei: String(receipt.gasUsed * receipt.effectiveGasPrice) }), releaseAfterFinality: false } });
   const service = createLocalWalletDevices({ audience: options.audience, devices: store, addition, smart: options.smart, authority: new PostgresWalletAuthorityStore(pool) });
+  // The runtime starts the worker right after creation; it must be startable and stoppable at once.
+  service.start(); service.start(); await service.stop();
   const login = new PostgresWalletLoginStore(pool, { rpId, origin });
   const session = (await login.readSession(options.originalSessionToken))!;
   expect(session.accountId).toBe(accountId);

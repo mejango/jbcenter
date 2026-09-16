@@ -35,6 +35,9 @@ function unauthorized(): never { throw new RestError(403, 'WALLET_DEVICE_UNAUTHO
 export function createLocalWalletDevices(options: LocalWalletDeviceDependencies) {
   const { devices, addition, smart, authority } = options, audience = validateAudience(options.audience);
   const event = (value: Parameters<NonNullable<LocalWalletDeviceDependencies['onEvent']>>[0]) => { try { options.onEvent?.(value); } catch { /* observation only */ } };
+  // Worker state sits ahead of the returned object: the runtime calls start() right after creation.
+  let stopped = false, timer: ReturnType<typeof setTimeout> | null = null, running: Promise<void> | null = null;
+  const controller = new AbortController();
   async function view(record: WalletDeviceRecord): Promise<WalletDeviceView> {
     const { intent, candidate, proof, activation } = record;
     let phase: WalletDevicePhase, transactionHashes: Hex[] = [];
@@ -111,8 +114,6 @@ export function createLocalWalletDevices(options: LocalWalletDeviceDependencies)
     tick, start, stop, audience, stable,
   };
   function tick(signal?: AbortSignal) { return addition.tick(signal); }
-  let stopped = false, timer: ReturnType<typeof setTimeout> | null = null, running: Promise<void> | null = null;
-  const controller = new AbortController();
   /** One bounded relay pass per second while an addition is active, like recovery. */
   function start() {
     if (stopped || timer) return;
