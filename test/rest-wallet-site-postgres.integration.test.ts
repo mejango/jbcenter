@@ -280,18 +280,18 @@ suite("real wallet HTTP sign-in, PostgreSQL handoff and signed app requests", ()
     expect(jar.value(walletSessionCookie)).toBe(originalCookie);
   }, 15000);
 
-  it("preserves the cookie during observer outage and restores the same session through the real refresh queue", async () => {
+  it("shows the account during an observer outage and restores the same session through the real refresh queue", async () => {
     const value = await start(), jar = new CookieJar(), begun = await value.begin(jar);
     const completed = await value.post("/wallet/login/complete", begun.input, jar, { "x-center-wallet-csrf": begun.csrf });
     expect(completed.status).toBe(200); jar.accept(completed); await completed.body?.cancel();
     const originalCookie = jar.value(walletSessionCookie); value.outage(true); clockOffsetMs = 31_000;
-    const unavailable = await value.getSession(jar); expect(unavailable.status).toBe(503);
-    expect((await unavailable.json()).error.code).toBe("WALLET_AUTHORITY_CHECKING"); jar.accept(unavailable);
+    // The account still shows while its authority record is stale; the refresh runs in the background.
+    const stale = await value.getSession(jar); expect(stale.status).toBe(200);
+    expect((await stale.json()).session.accountId).toBe(value.setup.accountId); jar.accept(stale);
     expect(jar.value(walletSessionCookie)).toBe(originalCookie);
     value.outage(false); clockOffsetMs += 3000;
     const recovered = await value.getSession(jar); expect(recovered.status).toBe(200);
     expect((await recovered.json()).session.accountId).toBe(value.setup.accountId);
     expect(jar.value(walletSessionCookie)).toBe(originalCookie);
-    expect(value.events).toContainEqual({ action: "request", outcome: "unavailable", code: "WALLET_AUTHORITY_CHECKING" });
   }, 15000);
 });

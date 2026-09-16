@@ -256,8 +256,9 @@ function networkView(value: Json): NetworksView {
 function renderNetworks() {
   if (!networksList || !networksAdd || !networksForm) return;
   const view = session ? networksView : null;
-  const label = (item: NetworksView["networks"][number]) => item.state === "deployed" ? item.name : item.state === "failed" ? `${item.name} (did not deploy)` : `${item.name} (deploying…)`;
-  networksList.textContent = view ? view.networks.map(label).join("\n") : "Base";
+  // The list shows where the account is and where it is arriving; quotes and failures stay out of it.
+  const shown = view ? view.networks.filter(item => item.state === "deployed" || item.state === "pending") : [];
+  networksList.textContent = view ? shown.map(item => item.state === "deployed" ? item.name : `${item.name} (deploying…)`).join("\n") : "Base";
   networksAdd.hidden = !view || !view.offered.length || networksOpen || busy;
   networksForm.hidden = !view || !networksOpen;
   element<HTMLButtonElement>("wallet-networks-deploy").disabled = busy;
@@ -305,9 +306,11 @@ async function networksDeploy() {
   networksQuote = { bundleId: string(bundle.id, 36), challenge: string(quoted.challenge, 66) };
   if (!configuration) throw new InvalidResponse();
   const challenge = networksQuote.challenge; if (!/^0x[0-9a-fA-F]{64}$/.test(challenge)) throw new InvalidResponse();
+  // Only the account's passkey can approve, so the prompt offers that one instead of every passkey for the site.
+  const allowCredentials = [{ type: "public-key" as const, id: decode(string(quoted.credentialId, 1023)) }];
   nativePrompt = new AbortController(); setStatus("authenticating", "Approve the new networks with your passkey."); render();
   const credential = await navigator.credentials.get({ publicKey: { rpId: configuration.rpId, challenge: Uint8Array.from(challenge.slice(2).match(/../g)!.map(pair => parseInt(pair, 16))),
-    userVerification: "required", timeout: 90_000 }, signal: nativePrompt.signal });
+    allowCredentials, userVerification: "required", timeout: 90_000 }, signal: nativePrompt.signal });
   if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAssertionResponse)) throw new InvalidResponse();
   const response = credential.response; nativePrompt = null;
   setStatus("checking", "Funding the deployments…");
@@ -315,13 +318,17 @@ async function networksDeploy() {
     userHandle: response.userHandle ? encode(response.userHandle) : null, authenticatorData: encode(response.authenticatorData),
     clientDataJSON: encode(response.clientDataJSON), signature: encode(response.signature) } }, csrf, 60_000));
   networksView = networkView(result.view as Json); networksQuote = null; networksOpen = false;
-  setStatus("checking", "Deploying your account on the new networks. This can take a few minutes…");
+  setStatus("checking", deployingText());
+}
+function deployingText() {
+  const names = networksView?.networks.filter(item => item.state === "pending").map(item => item.name) ?? [];
+  return `Deploying on ${names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0] ?? "the new networks"}…`;
 }
 async function networksStatus() {
   if (!session) return;
   networksView = networkView(await request(`${base}/networks/status`, {}, csrf, 60_000));
   render();
-  if (networksView.pending.length) setStatus("checking", "Deploying your account on the new networks. This can take a few minutes…");
+  if (networksView.pending.length) setStatus("checking", deployingText());
   else setStatus("ready", `Your account is on ${networksView.networks.filter(item => item.state === "deployed").length} networks.`);
 }
 if (networksAdd && networksForm) {

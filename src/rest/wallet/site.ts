@@ -36,7 +36,7 @@ export interface WalletSiteOptions {
   signupBrowserScript?: string;
   recovery?: WalletRecoverySiteOptions['recovery'];
   recoveryBrowserScript?: string;
-  login: Pick<PostgresWalletLoginStore, 'begin' | 'identifyCompletion' | 'complete' | 'identifySession' | 'readSession' | 'logout' | 'passkeyName'>;
+  login: Pick<PostgresWalletLoginStore, 'begin' | 'identifyCompletion' | 'complete' | 'identifySession' | 'readSession' | 'viewSession' | 'logout' | 'passkeyName'>;
   handoff: Pick<PostgresWalletHandoffStore, 'prepare' | 'getIntent' | 'issue' | 'identifyExchange' | 'exchange'>;
   policy: Pick<PostgresWalletPolicyStore, 'readActivePolicy'>;
   refresh: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
@@ -242,8 +242,13 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   });
   app.get(`${base}/session`, async c => {
     const token = readWalletCookie(c.req.raw, walletSessionCookie);
-    const session = token ? await sessionFor(token) : null;
-    return c.json(session && token ? { session: publicSession(session, await login.passkeyName(session)), csrfToken: walletCsrfToken(token) } : { session: null });
+    if (!token) return c.json({ session: null });
+    // Showing the account needs identity only; a stale authority record refreshes in the background
+    // and every action still waits for it through sessionFor.
+    let session = await login.readSession(token);
+    if (session) void demand(session.accountId, false);
+    else { session = await login.viewSession(token); if (session) void demand(session.accountId, false); }
+    return c.json(session ? { session: publicSession(session, await login.passkeyName(session)), csrfToken: walletCsrfToken(token) } : { session: null });
   });
   app.post(`${base}/logout`, async c => {
     central(c); const token = cookie(c, walletSessionCookie); fields(await readWalletJson(c.req.raw), []);
@@ -291,7 +296,8 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     const body = fields(await readWalletJson(c.req.raw), ['chainIds']);
     const result = await service.quote(session, { chainIds: body.chainIds as number[] });
     emit('networks_quote', 'ok');
-    return c.json({ bundle: result.bundle, challenge: result.challenge ?? null, view: result.view });
+    // The account's own passkey id lets the browser prompt offer only that passkey (it already holds the id).
+    return c.json({ bundle: result.bundle, challenge: result.challenge ?? null, credentialId: result.bundle ? session.credentialId : null, view: result.view });
   });
   app.post(`${base}/networks/approve`, async c => {
     const service = networks(), session = await paymentSession(c, true);

@@ -206,6 +206,8 @@ export class PostgresWalletLoginStore {
     const session = await this.session(token, false); return session ? { accountId: session.accountId } : null;
   }
   async readSession(token: string): Promise<WalletCentralSession | null> { return this.session(token, true); }
+  /** The same session without the fresh-authority requirement: enough to show the account, never to act for it. */
+  async viewSession(token: string): Promise<WalletCentralSession | null> { return this.session(token, false); }
   /** The name given to the session's passkey at enrollment or recovery; display only, never authority. */
   async passkeyName(session: Pick<WalletCentralSession, "rpId" | "credentialId">): Promise<string | null> {
     const row = (await this.pool.query<{ passkey_name: string | null }>(

@@ -25,7 +25,7 @@ export function walletSignupPage(options: { base?: string } = {}) {
 <p id="recovery-restore-box" class="hint" hidden>If you didn't save your backup password, <a href="#" id="recovery-restart-link">start over</a>.</p></section>
 <div class="actions"><button type="button" id="signup-next" hidden></button>
 <button type="button" id="signup-check" class="secondary" hidden>Check signup</button>
-<button type="button" id="signup-cancel" class="secondary" hidden>Cancel prompt</button></div>
+<button type="button" id="signup-cancel" class="link" hidden>Cancel prompt</button></div>
 <button type="button" id="signup-restart" class="quiet" hidden>Start over</button>
 <dialog id="signup-explain"><form method="dialog"><h2 id="explain-title"></h2><p id="explain-text"></p>
 <div class="actions"><button value="continue" id="explain-continue">Continue</button><button value="cancel" class="quiet">Cancel</button></div></form></dialog>
