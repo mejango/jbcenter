@@ -240,15 +240,16 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     emit('login_complete', 'ok');
     return c.json({ session: publicSession(result.session, await login.passkeyName(result.session)), csrfToken: walletCsrfToken(result.sessionToken), replayed: result.replayed });
   });
-  app.get(`${base}/session`, async c => {
-    const token = readWalletCookie(c.req.raw, walletSessionCookie);
-    if (!token) return c.json({ session: null });
-    // Showing the account needs identity only; a stale authority record refreshes in the background
-    // and every action still waits for it through sessionFor.
-    let session = await login.readSession(token);
+  // Showing the account needs identity only; a stale authority record refreshes in the background
+  // and every action still waits for it through sessionFor.
+  const viewFor = async (token: string) => {
+    const session = (await login.readSession(token)) ?? (await login.viewSession(token));
     if (session) void demand(session.accountId, false);
-    else { session = await login.viewSession(token); if (session) void demand(session.accountId, false); }
-    return c.json(session ? { session: publicSession(session, await login.passkeyName(session)), csrfToken: walletCsrfToken(token) } : { session: null });
+    return session;
+  };
+  app.get(`${base}/session`, async c => {
+    const token = readWalletCookie(c.req.raw, walletSessionCookie), session = token ? await viewFor(token) : null;
+    return c.json(session && token ? { session: publicSession(session, await login.passkeyName(session)), csrfToken: walletCsrfToken(token) } : { session: null });
   });
   app.post(`${base}/logout`, async c => {
     central(c); const token = cookie(c, walletSessionCookie); fields(await readWalletJson(c.req.raw), []);
@@ -285,7 +286,11 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     return session;
   };
   const networks = () => { if (!options.networks) reject(503, 'WALLET_NETWORKS_UNAVAILABLE'); return options.networks; };
-  app.get(`${base}/networks`, async c => { const service = networks(), session = await paymentSession(c, false); return c.json(await service.list(session)); });
+  app.get(`${base}/networks`, async c => {
+    const service = networks(), token = readWalletCookie(c.req.raw, walletSessionCookie), session = token ? await viewFor(token) : null;
+    if (!session) reject(403, 'WALLET_HTTP_SESSION');
+    return c.json(await service.list(session));
+  });
   app.post(`${base}/networks/status`, async c => {
     const service = networks(), session = await paymentSession(c, true);
     fields(await readWalletJson(c.req.raw), []);

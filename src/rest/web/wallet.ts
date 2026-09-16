@@ -291,7 +291,15 @@ function openNetworks() {
 function chosenChains(): number[] {
   return [...element("wallet-networks-choices").querySelectorAll<HTMLInputElement>("input:checked")].map(input => Number(input.value));
 }
-async function refreshNetworks() { if (!session || !networksList) return; networksView = networkView(await request(`${base}/networks`)); render(); }
+// A quiet read: a 503 (authority still refreshing, or no networks service) retries a few times without touching the status line.
+async function refreshNetworks(attempt = 0) {
+  if (!session || !networksList) return;
+  try { networksView = networkView(await request(`${base}/networks`)); render(); }
+  catch (error) {
+    if (error instanceof HttpFailure && error.status === 503 && attempt < 5) setTimeout(() => { refreshNetworks(attempt + 1).catch(() => { /* The list stays as it is. */ }); }, 3000);
+    else throw error;
+  }
+}
 // Center pays for every offered network, so the quote stays inside one click: quote, one passkey prompt, funding.
 async function networksDeploy() {
   const chainIds = chosenChains();

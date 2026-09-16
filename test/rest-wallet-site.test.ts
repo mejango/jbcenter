@@ -278,6 +278,14 @@ describe('dedicated Center wallet HTTP journey',()=>{
     vi.mocked(options.login.viewSession).mockResolvedValue(null);
     expect(await(await app.fetch(new Request(origin+'/wallet/session',{headers:{cookie:`${walletSessionCookie}=${token}`}}))).json()).toEqual({session:null});
   });
+  it('lists networks while authority is being refreshed',async()=>{
+    const list=vi.fn(async()=>({networks:[],offered:[],pending:[]}));
+    const {app,options}=setup({networks:{list} as never});vi.mocked(options.login.readSession).mockResolvedValue(null);
+    const response=await app.fetch(new Request(origin+'/wallet/networks',{headers:{cookie:`${walletSessionCookie}=${token}`}}));
+    expect(response.status).toBe(200);expect(list).toHaveBeenCalledWith(expect.objectContaining({accountId}));expect(options.refresh.request).toHaveBeenCalledWith(accountId);
+    vi.mocked(options.login.viewSession).mockResolvedValue(null);
+    expect((await app.fetch(new Request(origin+'/wallet/networks',{headers:{cookie:`${walletSessionCookie}=${token}`}}))).status).toBe(403);
+  });
   it('does not request provider work for an invalid session',async()=>{
     const {app,options}=setup();vi.mocked(options.login.identifySession).mockResolvedValue(null);vi.mocked(options.login.readSession).mockResolvedValue(null);
     vi.mocked(options.login.viewSession).mockResolvedValue(null);
