@@ -145,9 +145,9 @@ function render() {
     : view?.phase === 'awaiting_activation' ? 'Continue' : view?.phase === 'ready_to_sign_in' ? 'Log in' : view?.phase === 'expired' ? 'Start a new signup' : null;
   next.hidden = !label || !!pending || stranded; next.textContent = label; next.disabled = busy;
   el<HTMLButtonElement>('recovery-show').disabled = busy; el<HTMLButtonElement>('recovery-copy').disabled = busy;
-  // "log in" resumes with a passkey; a finished wallet lands at sign-in. It stays offered whenever no signup is in progress,
-  // including before the state has loaded or after a failed load, so a returning user is never without a way in.
-  el('signup-intro').hidden = !!view;
+  // "log in" resumes with a passkey; a finished wallet lands at sign-in. Once the state is known (or its load failed),
+  // it stays offered unless a signup with a passkey is under way, so a returning user is never without a way in.
+  el('signup-intro').hidden = !known || (!!view && view.phase !== 'expired' && view.phase !== 'awaiting_registration');
   // "Check signup" only matters for a lost reply or while creation is in progress.
   check.hidden = stranded || !(pending || view?.phase === 'deploying'); check.disabled = busy;
   cancel.hidden = !native;
@@ -167,6 +167,7 @@ async function run(action: () => Promise<void>) {
   busy = true; render();
   try { await action(); }
   catch (error) {
+    known = true; // Whatever failed, the page stops waiting and offers its ways in.
     if (error instanceof HttpFailure && error.status >= 400 && error.status < 500) {
       pending = null;
       try { accept(await request('state')); } catch { /* Resume with a fresh proof if the cookie is no longer valid. */ }

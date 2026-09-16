@@ -168,6 +168,8 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await expect.poll(() => page.locator('#explain-title').textContent()).toBe('Create your passkey');
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
     await contains('Cancelled');
+    // A begun signup without a passkey yet still offers "log in" for someone who already has an account.
+    expect(await page.getByRole('link', { name: 'log in' }).isVisible()).toBe(true);
     await page.getByRole('button', { name: 'Create passkey', exact: true }).click();
     await proceed('Create your passkey');
     await page.getByRole('button', { name: 'Cancel prompt' }).click();
@@ -287,7 +289,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       await page.getByLabel('Optimism', { exact: true }).check();
       await page.screenshot({ path: new URL('networks-picker.png', out).pathname, fullPage: true });
       await page.getByRole('button', { name: 'Deploy', exact: true }).click();
-      await expect.poll(() => page.locator('#wallet-networks').textContent(), { timeout: 30000 }).toBe('Base\nOptimism');
+      await expect.poll(() => page.locator('#wallet-networks').textContent(), { timeout: 30000 }).toBe('Base, Optimism');
       expect(networksProvider.entries).toHaveLength(1);
       expect(networksProvider.entries[0]).toMatchObject({ chain: 10, target: options.fixture.manifest.factory.address, value: '0' });
       expect(networksProvider.entries[0]!.data.startsWith('0x1688f0b9')).toBe(true); // createProxyWithNonce, the same call that created it on Base

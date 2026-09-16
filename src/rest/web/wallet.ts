@@ -258,7 +258,7 @@ function renderNetworks() {
   const view = session ? networksView : null;
   // The list shows where the account is and where it is arriving; quotes and failures stay out of it.
   const shown = view ? view.networks.filter(item => item.state === "deployed" || item.state === "pending") : [];
-  networksList.textContent = view ? shown.map(item => item.state === "deployed" ? item.name : `${item.name} (deploying…)`).join("\n") : "Base";
+  networksList.textContent = view ? shown.map(item => item.state === "deployed" ? item.name : `${item.name} (deploying…)`).join(", ") : "Base";
   networksAdd.hidden = !view || !view.offered.length || networksOpen || busy;
   networksForm.hidden = !view || !networksOpen;
   element<HTMLButtonElement>("wallet-networks-deploy").disabled = busy;
