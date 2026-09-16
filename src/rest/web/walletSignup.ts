@@ -145,7 +145,9 @@ function render() {
     : view?.phase === 'awaiting_activation' ? 'Continue' : view?.phase === 'ready_to_sign_in' ? 'Log in' : view?.phase === 'expired' ? 'Start a new signup' : null;
   next.hidden = !label || !!pending || stranded; next.textContent = label; next.disabled = busy;
   el<HTMLButtonElement>('recovery-show').disabled = busy; el<HTMLButtonElement>('recovery-copy').disabled = busy;
-  el('signup-intro').hidden = !known || !!view; // "log in" resumes with a passkey; a finished wallet lands at sign-in.
+  // "log in" resumes with a passkey; a finished wallet lands at sign-in. It stays offered whenever no signup is in progress,
+  // including before the state has loaded or after a failed load, so a returning user is never without a way in.
+  el('signup-intro').hidden = !!view;
   // "Check signup" only matters for a lost reply or while creation is in progress.
   check.hidden = stranded || !(pending || view?.phase === 'deploying'); check.disabled = busy;
   cancel.hidden = !native;
