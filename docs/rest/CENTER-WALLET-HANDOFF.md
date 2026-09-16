@@ -351,6 +351,21 @@ Routes: `GET /networks`, `GET /networks/status`, `POST /networks/quote`, `POST /
 (session cookie, CSRF on mutations). Tables: `rest_wallet_network_bundles`, `rest_wallet_networks`
 (migration 043).
 
+## App connections: npm package and allowlist (2026-09-16)
+
+- Apps integrate through the npm package `@me.jango/center-wallet` (built from
+  `src/rest/client/wallet-package.ts` by `scripts/rest/build-client.mjs`, manifest in `wallet-client/`).
+  It carries only the connection and payment-review surface; bots and the CLI keep using the full
+  client archive at `/api/client/`. `.github/workflows/publish.yml` publishes a new version on push to
+  `main` when `wallet-client/package.json` names one that npm does not have yet (`NPM_TOKEN`, scope
+  `@me.jango`). The Juicebox SDK wraps this package; Homerun and Beep should depend on the SDK.
+- The app allowlist is database state and starts inactive. Activate or replace it from inside the
+  production container, which holds `DATABASE_URL`:
+  `railway ssh --service juice-central -- node dist/src/rest/wallet/policyCli.js --expected <revision> https://homerun.money /center/callback https://beep.biz /center/callback`
+  (`--expected 0` for the first activation). Verify from outside with
+  `curl -H "Origin: https://homerun.money" https://my.juicebox.center/config`, which returns the app
+  entry when allowlisted and `WALLET_POLICY_INACTIVE` when no policy exists.
+
 ## Passkey name (2026-09-15)
 
 `rest_wallet_credentials.passkey_name` (migration 041) keeps the name typed at signup or recovery;
