@@ -25,7 +25,7 @@ const nowSql = "floor(extract(epoch FROM clock_timestamp())*1000)::bigint";
 const eligible = (account: string) => `EXISTS (SELECT 1 FROM rest_accounts a
   JOIN rest_wallet_enrollments e ON e.account_id=a.id AND e.state='verified'
   JOIN rest_wallet_credentials c ON c.account_id=a.id AND c.enrollment_id=e.id
-    AND c.user_handle=e.user_handle AND c.superseded_at IS NULL
+    AND c.user_handle=e.user_handle AND c.superseded_at IS NULL AND c.device_receipt IS NULL
   JOIN rest_smart_account_bindings b ON b.account_id=a.id AND b.chain_id=8453
     AND b.wallet_address=a.owner_address AND b.revoked_at IS NULL
   WHERE a.id=${account} AND a.authority_chain_id=8453

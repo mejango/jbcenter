@@ -261,14 +261,20 @@ export function copyWalletPaymentReviewAssertion(assertion: WalletAssertion): Wa
 }
 /** Verification never consumes a review. A durable first winner must retain its original
  * signature: later valid assertions can share this semantic digest but have different bytes. */
-export function verifyWalletPaymentReviewProof(input: WalletPaymentReviewDraft, assertion: WalletAssertion): WalletPaymentReviewProof {
+/** The passkey that approves: the draft's primary by default, or one of the account's devices,
+ * which signs the same digest as its own Safe owner. The store resolves it from the session. */
+export interface WalletPaymentReviewApprover {
+  credential: WalletPaymentReviewDraft["authority"]["credential"]; signer: Address;
+}
+export function verifyWalletPaymentReviewProof(input: WalletPaymentReviewDraft, assertion: WalletAssertion, approver?: WalletPaymentReviewApprover): WalletPaymentReviewProof {
   try {
     const draft = validateWalletPaymentReviewDraft(input), owned = copyWalletPaymentReviewAssertion(assertion);
-    const c = draft.authority.credential;
+    const c = approver?.credential ?? draft.authority.credential, signer = approver ? address(approver.signer) : draft.authority.signer;
+    if (approver && (c.accountId !== draft.authority.accountId || c.enrollmentId !== draft.authority.enrollmentId || c.rpId !== draft.authority.credential.rpId)) invalid();
     const proof = verifyWalletAssertion(owned, { purpose: "payment", challenge: draft.signing.digest, rpId: c.rpId, origin: draft.issuer,
       credential: { id: c.credentialId, userHandle: c.userHandle, publicKey: c.publicKey, backupEligible: c.backupEligible }, requireUserHandle: false });
     const signature = encodeSafe7579PasskeyOwnerSignature({ ...draft.signing,
-      signatures: [{ kind: "contract", owner: draft.authority.signer, signature: proof.contractSignature }] });
+      signatures: [{ kind: "contract", owner: signer, signature: proof.contractSignature }] });
     if (size(signature) > PASSKEY_MAX_SIGNATURE_BYTES) invalid();
     return freeze({ proofDigest: digest(["center-wallet-payment-review-proof-v1", draft.ceremony.contextDigest,
       draft.signing.digest, draft.authority.authorityIdentityDigest, c]).slice(2), signature,

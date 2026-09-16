@@ -13,7 +13,7 @@ suite("hosted Base recovery lane accounting", () => {
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 3 });
     for (const name of ["004_rest_accounts.sql", "007_rest_smart_accounts.sql", "012_rest_smart_account_onboarding.sql",
-      "013_rest_wallet_ceremonies.sql", "014_rest_passkey_onboarding.sql", "042_wallet_binding_consent.sql", "015_rest_wallet_enrollment.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql",
+      "013_rest_wallet_ceremonies.sql", "014_rest_passkey_onboarding.sql", "042_wallet_binding_consent.sql", "015_rest_wallet_enrollment.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql", "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql",
       "017_rest_wallet_policy.sql", "019_rest_wallet_app_grants.sql", "020_rest_wallet_authority.sql", "039_wallet_authority_window.sql", "028_wallet_recovery.sql",
       "029_wallet_recovery_mapping.sql", "033_wallet_unproved_recovery_expiry.sql", "030_wallet_recovery_flow.sql", "031_wallet_recovery_dispatch.sql",
       "035_wallet_recovery_base.sql"])

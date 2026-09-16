@@ -9,6 +9,7 @@ import { walletCeremonyRetentionMs } from "./ceremonies.js";
 import type { WalletRegistrationResponse } from "./registration.js";
 import type { WalletAssertion } from "./webauthn.js";
 import type { Hex } from "viem";
+import type { WalletCredentialDevice } from "./devices.js";
 import type { WalletCredentialRecovery } from "./credentialRecovery.js";
 
 type EnrollmentRow = {
@@ -77,13 +78,14 @@ export interface CurrentWalletCredentialRow {
   rp_id: string; credential_id: string; enrollment_id: string; account_id: string; user_handle: string;
   public_key_x: Hex; public_key_y: Hex; backup_eligible: boolean; verified_at: string; superseded_at: string | null;
   recovery_receipt?: WalletCredentialRecovery | null;
+  device_receipt?: WalletCredentialDevice | null;
 }
 /** The caller owns transaction and lock order. This preserves W4's exact current-mapping check;
  * it acquires no account lock and performs no proof verification or external reads. */
 export async function currentWalletCredentialInTransaction(client: PoolClient, enrollment: WalletEnrollment): Promise<CurrentWalletCredentialRow | null> {
   const candidate = enrollment.candidate!, receipt = enrollment.receipt!;
   const row = (await client.query<CurrentWalletCredentialRow>(
-    "SELECT * FROM rest_wallet_credentials WHERE account_id=$1 AND superseded_at IS NULL FOR UPDATE", [receipt.accountId])).rows[0];
+    "SELECT * FROM rest_wallet_credentials WHERE account_id=$1 AND superseded_at IS NULL AND device_receipt IS NULL FOR UPDATE", [receipt.accountId])).rows[0];
   if (!row || row.enrollment_id !== enrollment.intent.id || row.account_id !== receipt.accountId || row.user_handle !== candidate.userHandle || row.rp_id !== enrollment.intent.rpId) return null;
   // Bounded metadata only under locks. Full immutable lineage validation runs in the
   // authority loader after release; a receipt's JSON shape is never provenance.
@@ -98,6 +100,14 @@ export async function currentWalletCredentialInTransaction(client: PoolClient, e
       row.public_key_x !== candidate.publicKey.x || row.public_key_y !== candidate.publicKey.y || row.backup_eligible !== candidate.backupEligible ||
       row.superseded_at !== null) return null;
   return row;
+}
+/** Live device rows of the enrollment's account, in insertion order; each carries its own receipt. */
+export async function currentWalletDevicesInTransaction(client: PoolClient, enrollment: WalletEnrollment): Promise<CurrentWalletCredentialRow[]> {
+  const rows = (await client.query<CurrentWalletCredentialRow>(
+    "SELECT * FROM rest_wallet_credentials WHERE account_id=$1 AND superseded_at IS NULL AND device_receipt IS NOT NULL ORDER BY verified_at, credential_id FOR UPDATE",
+    [enrollment.receipt!.accountId])).rows;
+  return rows.filter(row => row.enrollment_id === enrollment.intent.id && row.user_handle === enrollment.intent.userHandle && row.rp_id === enrollment.intent.rpId
+    && row.device_receipt && row.device_receipt.credential?.credentialId === row.credential_id);
 }
 
 /** Internal trusted service only. None of these methods create REST principals, login sessions,

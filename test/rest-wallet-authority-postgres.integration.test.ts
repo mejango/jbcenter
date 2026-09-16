@@ -19,6 +19,8 @@ import { passkeyOnboardingDocument, passkeyOnboardingProofDocument, passkeyOnboa
 import { encodeSafe7579MessageSignature } from "../src/rest/smartAccounts/passkeySignatures.js";
 import type { SmartAccountBinding, SmartAccountState } from "../src/rest/smartAccounts/types.js";
 import { createRegistration, enrollmentBackupAccount, enrollmentManifest, signBackupProof, signGet } from "./fixtures/wallet-enrollment-crypto.js";
+import { parseWalletRegistration } from "../src/rest/wallet/registration.js";
+import { predictPasskeySignerAddress } from "../src/rest/smartAccounts/passkeyCreation.js";
 
 const connectionString = process.env.TEST_DATABASE_URL;
 const suite = connectionString ? describe : describe.skip;
@@ -205,7 +207,7 @@ suite("PostgreSQL canonical wallet authority with genuine enrollment and explici
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 4 });
     for (const name of ["004_rest_accounts.sql", "007_rest_smart_accounts.sql", "012_rest_smart_account_onboarding.sql",
-      "013_rest_wallet_ceremonies.sql", "014_rest_passkey_onboarding.sql", "042_wallet_binding_consent.sql", "015_rest_wallet_enrollment.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql",
+      "013_rest_wallet_ceremonies.sql", "014_rest_passkey_onboarding.sql", "042_wallet_binding_consent.sql", "015_rest_wallet_enrollment.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql",
       "017_rest_wallet_policy.sql", "019_rest_wallet_app_grants.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     enrollments = new PostgresWalletEnrollmentStore(pool);
@@ -237,6 +239,46 @@ suite("PostgreSQL canonical wallet authority with genuine enrollment and explici
     expect((await pool.query(`SELECT (SELECT count(*)::int FROM rest_wallet_authority) AS authority,
       (SELECT count(*)::int FROM rest_bot_grants) AS bots,(SELECT count(*)::int FROM rest_wallet_app_grants) AS apps`)).rows[0])
       .toEqual({ authority: 0, bots: 0, apps: 0 });
+  });
+
+  it("loads a device passkey beside the primary once the account is rebound with the device owner", async () => {
+    const value = await authorizedFixture(), now = await databaseNow();
+    // A second registration under the same account and user handle is a device: its own signer.
+    const device = createRegistration({ challenge: word("55"), rpId: value.record.intent.rpId, origin: value.record.intent.origin, userHandle: value.record.intent.userHandle });
+    const candidate = parseWalletRegistration(device.response, { challenge: word("55"), rpId: value.record.intent.rpId, origin: value.record.intent.origin, userHandle: value.record.intent.userHandle });
+    const signerAddress = predictPasskeySignerAddress({ manifest: value.record.intent.manifest, publicKey: candidate.publicKey }).toLowerCase() as Hex;
+    const receipt = { version: "center-wallet-device-v1", id: randomUUID(), accountId: value.accountId, enrollmentId: value.record.intent.id,
+      rpId: value.record.intent.rpId, origin: value.record.intent.origin, credential: candidate, signerAddress, approvalDigest: word("56"),
+      transactionHash: word("57"), anchor: { chainId: 8453, blockNumber: "101", blockHash: word("11"), timestamp: String(Math.floor(now / 1000)), source: "onchain" },
+      bindingDigest: word("58"), verifiedAtMs: now, acceptedAtMs: now };
+    await pool.query(`INSERT INTO rest_wallet_credentials(rp_id,credential_id,enrollment_id,account_id,user_handle,public_key_x,public_key_y,backup_eligible,verified_at,device_receipt)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)`, [value.record.intent.rpId, candidate.credentialId, value.record.intent.id, value.accountId, candidate.userHandle,
+      candidate.publicKey.x, candidate.publicKey.y, candidate.backupEligible, now, JSON.stringify(receipt)]);
+    // A second primary is still refused; a second device is not.
+    await expect(pool.query(`INSERT INTO rest_wallet_credentials(rp_id,credential_id,enrollment_id,account_id,user_handle,public_key_x,public_key_y,backup_eligible,verified_at)
+      VALUES($1,'another',$2,$3,$4,$5,$6,true,$7)`, [value.record.intent.rpId, value.record.intent.id, value.accountId, candidate.userHandle, word("01"), word("02"), now])).rejects.toThrow();
+    // Until the account is rebound with the device as an owner, the context is not a valid authority.
+    await expect(store.loadContext(value.accountId)).rejects.toMatchObject({ code: "WALLET_AUTHORITY_INVALID" });
+    const state: SmartAccountState = { ...value.state, owners: [signerAddress, ...value.state.owners], stateHash: word("34"),
+      ownerProfile: { ...value.state.ownerProfile!, devices: [{ address: signerAddress, kind: "contract", x: candidate.publicKey.x, y: candidate.publicKey.y,
+        verifiers: value.state.ownerProfile!.signer.verifiers, runtimeCodeHash: word("35") }] } };
+    const binding: SmartAccountBinding = { ...value.binding, authorization: { digest: word("58"), nonce: keccak256(toHex(randomUUID())), expiresAt: Math.floor(now / 1000) + 300,
+      method: "center-wallet-passkey-creation-v1" }, state };
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN"); await client.query("SELECT id FROM rest_accounts WHERE id=$1 FOR UPDATE", [value.accountId]);
+      await bindSmartAccountInTransaction(client, binding, Math.floor(now / 1000)); await client.query("COMMIT");
+    } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+    const context = await store.loadContext(value.accountId);
+    expect(context.credential.credentialId).toBe(value.credential.credentialId);
+    expect(context.devices!.map(entry => entry.credentialId)).toEqual([candidate.credentialId]);
+    expect(context.devices![0]!.device.signerAddress).toBe(signerAddress);
+    // The identity commits to the device set.
+    const identity = (state: SmartAccountState) => createWalletAuthorityIdentity({ ...context, binding: { ...context.binding, state } },
+      { stateHash: state.stateHash, sessionAdministration: { epoch: "0", hash: word("33") }, creationTransaction: word("36") });
+    const { devices: _devices, ...withoutDevices } = context;
+    expect(identity(state).credentialCommitment).not.toBe(createWalletAuthorityIdentity({ ...withoutDevices, binding: value.binding },
+      { stateHash: value.state.stateHash, sessionAdministration: { epoch: "0", hash: word("33") }, creationTransaction: word("36") }).credentialCommitment);
   });
 
   it("initializes absent authority at epochs one and one from a complete matching observation", async () => {

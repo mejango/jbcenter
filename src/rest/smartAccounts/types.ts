@@ -21,17 +21,22 @@ export interface PasskeyOwnerProfile {
   /** Reviewed Solidity FCL verifier only. No implicit chain precompile assumption. */
   p256Verifier: ContractPin;
 }
+export interface PasskeySignerState {
+  address: Address;
+  kind: "contract";
+  x: Hex;
+  y: Hex;
+  verifiers: Hex;
+  runtimeCodeHash: Hex;
+}
 export interface PasskeyOwnerState {
   version: "center-passkey-v1";
-  signer: {
-    address: Address;
-    kind: "contract";
-    x: Hex;
-    y: Hex;
-    verifiers: Hex;
-    runtimeCodeHash: Hex;
-  };
+  /** The primary passkey: the last contract owner in the Safe's list, which additions never move. */
+  signer: PasskeySignerState;
   recoveryOwner: { address: Address; kind: "ecdsa" };
+  /** Further passkeys added as devices, in the Safe's owner order. Absent when there are none, so
+   * states without devices keep their exact prior shape and digests. */
+  devices?: PasskeySignerState[];
 }
 export interface PasskeyCreationProfile {
   version: "center-passkey-bootstrap-v1";

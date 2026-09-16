@@ -34,10 +34,16 @@ describe('exact recovery owner rotation', () => {
     expect(execution.args).toEqual([draft.walletAddress, 0n, document.message.data, 0, 0n, 0n, 0n, zeroAddress, zeroAddress, signature]);
     expect(calls.safeTxHash).toBe(hashTypedData(document));
     expect(review('7', true).previousOwner).toBe(candidate.intent.recoveryOwner);
+    // A device owner ahead of the primary in the Safe's list is the previous owner of the swap.
+    const device = `0x${'ab'.repeat(20)}` as const;
+    const withDevice = prepareWalletRecoveryRotation(candidate, { owners: [device, candidate.intent.priorSigner, candidate.intent.recoveryOwner], threshold: 1, safeNonce: '7' });
+    expect(withDevice.previousOwner).toBe(device);
+    expect(prepareWalletRecoveryRotation(candidate, { owners: [candidate.intent.priorSigner, device, candidate.intent.recoveryOwner], threshold: 1, safeNonce: '7' }).previousOwner).toBe(sentinel);
   });
   it('rejects changed owners, thresholds, missing owners and non-canonical nonces before signing', () => {
     for (const owners of [[], [candidate.intent.priorSigner], [candidate.intent.priorSigner, candidate.intent.priorSigner],
-      [candidate.intent.recoveryOwner, candidate.signerAddress], [candidate.intent.priorSigner, candidate.intent.recoveryOwner, zeroAddress]])
+      [candidate.intent.recoveryOwner, candidate.signerAddress], [candidate.intent.priorSigner, candidate.intent.recoveryOwner, zeroAddress],
+      [candidate.intent.priorSigner, candidate.intent.recoveryOwner, candidate.signerAddress]])
       expect(() => prepareWalletRecoveryRotation(candidate, { owners, threshold: 1, safeNonce: '7' })).toThrow();
     for (const safeNonce of ['-1', '01', '0x7', String(1n << 256n)]) expect(() => prepareWalletRecoveryRotation(candidate,
       { owners: [candidate.intent.priorSigner, candidate.intent.recoveryOwner], threshold: 1, safeNonce })).toThrow();

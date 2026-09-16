@@ -16,12 +16,13 @@ import { PostgresWalletHandoffStore } from "../src/rest/wallet/handoffPostgres.j
 import { walletHandoffRequestDocument, walletHandoffExchangeDocument, walletHandoffCodeHash, walletHandoffLaunchDocument,
   walletHandoffPkceChallenge, type WalletHandoffRequest } from "../src/rest/wallet/handoff.js";
 import { walletAppPrincipalId } from "../src/rest/wallet/appGrants.js";
-import { completeWalletLoginFixture, walletLoginFixtureOrigin, walletLoginFixtureRpId } from "./fixtures/wallet-login-setup.js";
+import { addWalletLoginDevice, completeWalletLoginFixture, walletLoginFixtureOrigin, walletLoginFixtureRpId } from "./fixtures/wallet-login-setup.js";
 import { signGet } from "./fixtures/wallet-enrollment-crypto.js";
 import { digest } from "../src/rest/sponsorship/validation.js";
 import { PostgresWalletPaymentReviewStore, type WalletPaymentReviewStoreOptions } from "../src/rest/wallet/paymentReviewsPostgres.js";
 import { verifyWalletPaymentReviewProof } from "../src/rest/wallet/paymentReviews.js";
 import { PostgresWalletLoginStore } from "../src/rest/wallet/loginPostgres.js";
+import { decodeSafe7579PasskeyOwnerSignature } from "../src/rest/smartAccounts/passkeySignatures.js";
 import type { WalletAssertion } from "../src/rest/wallet/webauthn.js";
 import { userOperationCommitment } from "../src/rest/userOperations/codec.js";
 
@@ -205,6 +206,37 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
     expect(await value.store.approve(value.view.draft.id, value.login.session.id, fresh)).toEqual({ view: approved.view, replayed: true });
     expect(await value.store.getForApp(value.actor, value.view.draft.id)).toEqual(original);
     expect(await counts()).toMatchObject({ reviews: 1, approved: 1, ceremonies: 1, consumed: 1, nonces: 0 });
+  });
+
+  it("lets a device passkey approve a review prepared for the account, signing as its own owner", async () => {
+    // The device joins first: a review is a promise about the authority it was prepared under.
+    const first = await completeWalletLoginFixture(pool, { lifetimeMs: 30_000, manifest });
+    const added = await addWalletLoginDevice(pool, first, { origin: issuer, rpId: walletLoginFixtureRpId });
+    // Adding a device rebinds the account, so every earlier session is over; the primary signs in again.
+    const logins = new PostgresWalletLoginStore(pool, { rpId: walletLoginFixtureRpId, origin: issuer });
+    await expect(logins.readSession(first.sessionToken)).resolves.toBeNull();
+    const primaryBegun = await logins.begin(), primaryLogin = await logins.complete({ loginId: primaryBegun.login.id, flowToken: primaryBegun.flowToken,
+      assertion: signGet({ ...first.credential, challenge: primaryBegun.login.challenge, rpId: walletLoginFixtureRpId, origin: issuer }) });
+    const login = { ...first, ...primaryLogin, binding: added.binding, state: added.state };
+    const context = await appContext(30_000, login), prepared = await preparedOperation(context);
+    const store = new PostgresWalletPaymentReviewStore(pool, options()), key = `review:${prepared.plan.id}`;
+    const view = await store.prepare(context.actor, { operationId: prepared.record.id, state: token() }, key);
+    const value = { ...context, ...prepared, store, view, assertion: signGet({ ...login.credential, challenge: view.draft.signing.digest, rpId: walletLoginFixtureRpId, origin: issuer }) };
+    // The device signs in on its own; the review stays the one the app prepared.
+    const begun = await logins.begin();
+    const deviceLogin = await logins.complete({ loginId: begun.login.id, flowToken: begun.flowToken,
+      assertion: signGet({ ...added.device, challenge: begun.login.challenge, rpId: walletLoginFixtureRpId, origin: issuer }) });
+    const assertion = signGet({ ...added.device, challenge: value.view.draft.signing.digest, rpId: walletLoginFixtureRpId, origin: issuer });
+    // The primary's assertion is refused for the device's session, and the device's for the primary's.
+    await expect(value.store.approve(value.view.draft.id, deviceLogin.session.id, value.assertion)).rejects.toMatchObject({ status: 403 });
+    await expect(value.store.approve(value.view.draft.id, value.login.session.id, assertion)).rejects.toMatchObject({ status: 403 });
+    const approved = await value.store.approve(value.view.draft.id, deviceLogin.session.id, assertion);
+    expect(approved.view.status).toBe("approved");
+    const original = await value.store.getForApp(value.actor, value.view.draft.id);
+    const owners = decodeSafe7579PasskeyOwnerSignature({ signature: original.approval!.signature, validAfter: value.view.draft.signing.validAfter,
+      validUntil: value.view.draft.signing.validUntil, threshold: 1 });
+    expect(owners.map(entry => entry.kind === "contract" ? entry.owner.toLowerCase() : entry.kind)).toEqual([added.signerAddress]);
+    expect(await counts()).toMatchObject({ reviews: 1, approved: 1 });
   });
 
   it("serializes twenty competing genuine approvals across two processes and retains the first winning envelope", async () => {

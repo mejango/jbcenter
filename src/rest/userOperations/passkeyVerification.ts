@@ -12,15 +12,16 @@ const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
  * A manifest flag never turns legacy cached EOA evidence into passkey authority.
  */
 export function userOperationPasskeyProfile(binding: SmartAccountBinding, manifest: SmartAccountManifest) {
-  const profile = binding.state.ownerProfile;
+  const profile = binding.state.ownerProfile, devices = profile?.devices ?? [];
   if (!profile && !manifest.ownerProfile) return undefined;
   if (profile?.version !== "center-passkey-v1" || manifest.ownerProfile?.version !== profile.version ||
       binding.wallet.chainId !== 8453 || binding.state.chainId !== 8453 || manifest.chainId !== 8453 ||
-      binding.state.evidence.chainId !== 8453 || binding.state.threshold !== 1 || binding.state.owners.length !== 2 ||
+      binding.state.evidence.chainId !== 8453 || binding.state.threshold !== 1 || binding.state.owners.length !== 2 + devices.length ||
       profile.signer.kind !== "contract" || profile.recoveryOwner.kind !== "ecdsa" ||
       same(profile.signer.address, profile.recoveryOwner.address) ||
       !binding.state.owners.some((owner) => same(owner, profile.signer.address)) ||
-      !binding.state.owners.some((owner) => same(owner, profile.recoveryOwner.address)))
+      !binding.state.owners.some((owner) => same(owner, profile.recoveryOwner.address)) ||
+      devices.some((device) => device.kind !== "contract" || !binding.state.owners.some((owner) => same(owner, device.address))))
     throw new RestError(409, "USER_OPERATION_OWNER_PROFILE_CHANGED", "The current owner state must match the exact reviewed passkey profile.");
   return profile;
 }
@@ -48,7 +49,7 @@ export async function verifyPasskeyUserOperation(input: {
     validAfter: input.validAfter, validUntil: input.validUntil });
   const evidence = binding.state.evidence;
   await verifySafeOwnerSignatures({ ...payload, signatures: sliceHex(operation.signature, 12),
-    owners: [profile.signer, profile.recoveryOwner], threshold: binding.state.threshold,
+    owners: [profile.signer, ...(profile.devices ?? []), profile.recoveryOwner], threshold: binding.state.threshold,
     verifyContractSignature: input.verifyContractSignature,
   });
   await chain.canonical(evidence);

@@ -1,5 +1,5 @@
 import {
-  encodeAbiParameters, getAddress, hashTypedData, isAddress, keccak256, recoverAddress,
+  concatHex, encodeAbiParameters, getAddress, hashTypedData, isAddress, keccak256, recoverAddress,
   sliceHex, stringToHex, type Address, type Hex,
 } from "viem";
 import { RestError } from "../core.js";
@@ -61,24 +61,32 @@ export function validatePasskeyOnboardingInput(input: unknown, now: number, fina
 
 /** Caller supplies only the service's freshly inspected, block-pinned state, never client owner claims. */
 export function assertPasskeyOnboardingState(state: SmartAccountState): { profile: PasskeyOwnerState; initializerHash: Hex; ownerProfileHash: Hex } {
-  const profile = state.ownerProfile;
+  const profile = state.ownerProfile, devices = profile?.devices ?? [];
   const details = state.modules?.details as { sessions?: { permissionIds?: unknown }; provenance?: { initializerHash?: unknown } } | null;
   if (state.chainId !== 8453 || state.evidence.chainId !== 8453 || !validAddress(state.address)
     || profile?.version !== "center-passkey-v1" || profile.signer?.kind !== "contract" || profile.recoveryOwner?.kind !== "ecdsa"
     || !validAddress(profile.signer.address) || !validAddress(profile.recoveryOwner.address)
     || same(profile.signer.address, profile.recoveryOwner.address) || same(profile.signer.address, state.address) || same(profile.recoveryOwner.address, state.address)
-    || state.threshold !== 1 || state.owners.length !== 2
+    || state.threshold !== 1 || state.owners.length !== 2 + devices.length
     || !state.owners.some((owner) => same(owner, profile.signer.address)) || !state.owners.some((owner) => same(owner, profile.recoveryOwner.address))
+    || devices.some((device) => device.kind !== "contract" || !validAddress(device.address) || !word(device.x) || !word(device.y) || !word(device.runtimeCodeHash)
+      || typeof device.verifiers !== "string" || !/^0x[0-9a-fA-F]{44}$/.test(device.verifiers) || !state.owners.some((owner) => same(owner, device.address))
+      || same(device.address, profile.signer.address) || same(device.address, profile.recoveryOwner.address) || same(device.address, state.address))
+    || new Set(devices.map((device) => device.address.toLowerCase())).size !== devices.length
+    || (profile.devices !== undefined && devices.length === 0)
     || !word(state.stateHash) || !word(state.manifestRevision) || !word(profile.signer.x) || !word(profile.signer.y) || !word(profile.signer.runtimeCodeHash)
     || typeof profile.signer.verifiers !== "string" || !/^0x[0-9a-fA-F]{44}$/.test(profile.signer.verifiers)
     || !state.moduleConfigurationVerified || !state.modules?.complete || !state.modules.arbitrarySigningDisabled || !state.modules.wildcardExecutionDisabled
     || !Array.isArray(details?.sessions?.permissionIds) || details.sessions.permissionIds.length !== 0 || !word(details?.provenance?.initializerHash))
     invalid("Setup requires a canonically verified Base passkey pilot with independent recovery and no spending sessions.", 403);
-  const ownerProfileHash = keccak256(encodeAbiParameters(
+  // Devices extend the commitment only when present, so accounts without devices keep their hash.
+  const ownerProfileHash = keccak256(concatHex([encodeAbiParameters(
     [{ type: "string" }, { type: "address" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bytes22" }, { type: "bytes32" }, { type: "address" }, { type: "uint256" }],
     [profile.version, profile.signer.address, profile.signer.x, profile.signer.y, profile.signer.verifiers,
       profile.signer.runtimeCodeHash, profile.recoveryOwner.address, BigInt(state.threshold)],
-  ));
+  ), ...devices.map((device) => encodeAbiParameters(
+    [{ type: "address" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bytes22" }, { type: "bytes32" }],
+    [device.address, device.x, device.y, device.verifiers, device.runtimeCodeHash]))]));
   return { profile, initializerHash: details.provenance.initializerHash, ownerProfileHash };
 }
 

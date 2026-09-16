@@ -19,11 +19,13 @@ import { encodeSafe7579MessageSignature } from "../../src/rest/smartAccounts/pas
 import type { SmartAccountBinding, SmartAccountManifest, SmartAccountState } from "../../src/rest/smartAccounts/types.js";
 import { createRegistration, enrollmentBackupAccount, enrollmentManifest, signBackupProof, signGet } from "./wallet-enrollment-crypto.js";
 import { PostgresWalletLoginStore } from "../../src/rest/wallet/loginPostgres.js";
+import { parseWalletRegistration } from "../../src/rest/wallet/registration.js";
+import { predictPasskeySignerAddress } from "../../src/rest/smartAccounts/passkeyCreation.js";
 
 export const walletLoginFixtureOrigin = "https://wallet.juicebox.center";
 export const walletLoginFixtureRpId = "wallet.juicebox.center";
 export const walletLoginTestMigrations = ["004_rest_accounts.sql", "007_rest_smart_accounts.sql", "012_rest_smart_account_onboarding.sql",
-  "013_rest_wallet_ceremonies.sql", "014_rest_passkey_onboarding.sql", "042_wallet_binding_consent.sql", "015_rest_wallet_enrollment.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql",
+  "013_rest_wallet_ceremonies.sql", "014_rest_passkey_onboarding.sql", "042_wallet_binding_consent.sql", "015_rest_wallet_enrollment.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql",
   "017_rest_wallet_policy.sql", "019_rest_wallet_app_grants.sql", "020_rest_wallet_authority.sql", "039_wallet_authority_window.sql", "022_wallet_login.sql", "032_wallet_pending_expiry.sql"];
 export async function createWalletLoginSetup(pool: Pool, options: { lifetimeMs?: number; origin?: string; rpId?: string; manifest?: SmartAccountManifest } = {}) {
   const audience = options.origin ?? walletLoginFixtureOrigin;
@@ -138,4 +140,44 @@ export async function completeWalletLoginFixture(pool: Pool, options: { lifetime
     assertion: signGet({ ...value.credential, challenge: begun.login.challenge,
       rpId, origin }) };
   return { ...value, ...begun, input, ...await store.complete(input) };
+}
+
+/** Adds a device passkey to a set-up account the way activation will: a second registration under
+ * the same user handle, a device row with its receipt, the account rebound by consent with the
+ * device as an owner, and the authority reconciled to the new identity. Synthetic evidence only. */
+export async function addWalletLoginDevice(pool: Pool, value: Awaited<ReturnType<typeof createWalletLoginSetup>>, options: { origin?: string; rpId?: string } = {}) {
+  const origin = options.origin ?? walletLoginFixtureOrigin, rpId = options.rpId ?? new URL(origin).hostname;
+  const authority = new PostgresWalletAuthorityStore(pool), word = (byte: string): Hex => `0x${byte.repeat(32)}`;
+  const now = Number((await pool.query("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::text AS now")).rows[0].now);
+  const record = value.record, challenge = keccak256(toHex(randomUUID()));
+  const device = createRegistration({ challenge, rpId, origin, userHandle: record.intent.userHandle });
+  const candidate = parseWalletRegistration(device.response, { challenge, rpId, origin, userHandle: record.intent.userHandle });
+  const signerAddress = predictPasskeySignerAddress({ manifest: record.intent.manifest, publicKey: candidate.publicKey }).toLowerCase() as Hex;
+  const bindingDigest = keccak256(toHex(`device-binding-${randomUUID()}`));
+  const receipt = { version: "center-wallet-device-v1", id: randomUUID(), accountId: value.accountId, enrollmentId: record.intent.id,
+    rpId, origin, credential: candidate, signerAddress, approvalDigest: keccak256(toHex("approval")), transactionHash: keccak256(toHex("tx")),
+    anchor: { chainId: 8453, blockNumber: "101", blockHash: word("11"), timestamp: String(Math.floor(now / 1000)), source: "onchain" },
+    bindingDigest, verifiedAtMs: now, acceptedAtMs: now };
+  const state: SmartAccountState = { ...value.state, owners: [signerAddress, ...value.state.owners], stateHash: keccak256(toHex(`state-${randomUUID()}`)),
+    ownerProfile: { ...value.state.ownerProfile!, devices: [{ address: signerAddress, kind: "contract", x: candidate.publicKey.x, y: candidate.publicKey.y,
+      verifiers: value.state.ownerProfile!.signer.verifiers, runtimeCodeHash: word("35") }] } };
+  const binding: SmartAccountBinding = { ...value.binding, authorization: { digest: bindingDigest, nonce: keccak256(toHex(randomUUID())),
+    expiresAt: Math.floor(now / 1000) + 300, method: "center-wallet-passkey-creation-v1" }, state };
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN"); await client.query("SELECT id FROM rest_accounts WHERE id=$1 FOR UPDATE", [value.accountId]);
+    await client.query(`INSERT INTO rest_wallet_credentials(rp_id,credential_id,enrollment_id,account_id,user_handle,public_key_x,public_key_y,backup_eligible,verified_at,device_receipt,passkey_name)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,'Fixture phone')`, [rpId, candidate.credentialId, record.intent.id, value.accountId, candidate.userHandle,
+      candidate.publicKey.x, candidate.publicKey.y, candidate.backupEligible, now, JSON.stringify(receipt)]);
+    await bindSmartAccountInTransaction(client, binding, Math.floor(now / 1000)); await client.query("COMMIT");
+  } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+  const context = await authority.loadContext(value.accountId), observedAtMs = now + 1, expected = walletAuthorityExpectedAnchor(context);
+  const blockNumber = (BigInt(context.prior?.highestObservedBlock ?? "99") + 1n).toString();
+  const head = { chainId: 8453, blockNumber, blockHash: keccak256(toHex(`device-block-${blockNumber}`)), timestamp: String(Math.floor(observedAtMs / 1000)), source: "onchain" as const };
+  await authority.reconcile(context, { version: "center-wallet-authority-observation-v1", accountId: context.accountId,
+    contextDigest: walletAuthorityContextDigest(context), observedAtMs, validUntilMs: observedAtMs + 30000, head,
+    priorAnchor: { status: expected ? "same" : "none", expected, observed: expected ? structuredClone(expected) : null },
+    identity: createWalletAuthorityIdentity(context, { stateHash: state.stateHash, sessionAdministration: { epoch: "0", hash: word("33") }, creationTransaction: word("34") }),
+    eligibility: "matched", reason: null });
+  return { device: { ...device, credentialId: candidate.credentialId }, candidate, signerAddress, context, state, binding };
 }

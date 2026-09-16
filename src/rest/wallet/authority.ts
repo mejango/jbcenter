@@ -6,6 +6,8 @@ import { fingerprint } from "../smartAccounts/service.js";
 import { assertPasskeyOnboardingState, validatePasskeyOnboardingInput } from "../smartAccounts/passkeyOnboarding.js";
 import { enrollmentDigest, type WalletEnrollment } from "./enrollment.js";
 import { assertWalletAuthorityCredential, type WalletCredentialRecovery } from "./credentialRecovery.js";
+import { assertWalletAuthorityDevice, type WalletAuthorityDevice } from "./devices.js";
+import { maximumPasskeySigners } from "../smartAccounts/passkeyProfile.js";
 
 // A hosted-provider observation takes ~25 s from its observedAt; the window must outlast it by
 // enough for the person to log in and for the worker to refresh ahead of expiry.
@@ -32,7 +34,11 @@ export interface WalletAuthorityContext {
   version: "center-wallet-authority-context-v1";
   accountId: string;
   enrollment: WalletEnrollment;
+  /** The primary passkey. */
   credential: WalletAuthorityCredential;
+  /** Further passkeys added as devices, each with its own on-chain signer. Absent when none, so a
+   * context without devices keeps its exact prior shape and digest. */
+  devices?: WalletAuthorityDevice[];
   binding: SmartAccountBinding;
   prior: WalletAuthoritySnapshot | null;
 }
@@ -252,11 +258,15 @@ function snapshotShape(v: WalletAuthoritySnapshot): void {
     v.highestObservedBlock !== null || v.activeFence || v.lastClosedFence)) invalid();
 }
 function contextShape(v: WalletAuthorityContext): void {
-  fields(v, ["version", "accountId", "enrollment", "credential", "binding", "prior"]);
+  fields(v, ["version", "accountId", "enrollment", "credential", "binding", "prior"], ["devices"]);
   if (v.version !== "center-wallet-authority-context-v1") invalid();
   account(v.accountId);
   const e = v.enrollment, c = v.credential, b = v.binding, receipt = e.receipt!;
   assertWalletAuthorityCredential(c, e);
+  const devices = v.devices ?? [];
+  if (Object.hasOwn(v, "devices") && (!Array.isArray(v.devices) || !v.devices.length || v.devices.length > maximumPasskeySigners - 1)) invalid();
+  for (const device of devices) { assertWalletAuthorityDevice(device, e); if (device.accountId !== v.accountId || device.credentialId === c.credentialId) invalid(); }
+  if (new Set(devices.map(device => device.credentialId)).size !== devices.length) invalid();
   if (receipt.accountId !== v.accountId || c.accountId !== v.accountId) invalid();
   fields(b, ["id", "ownerAccountId", "ownerAddress", "wallet", "manifestId", "authorization", "state"]);
   fields(b.wallet, ["chainId", "address"]);
@@ -270,8 +280,11 @@ function contextShape(v: WalletAuthorityContext): void {
     b.state.manifestRevision !== e.intent.manifest.revision || (!consent && a.method !== "safe-passkey-owner-threshold-and-api-grant")) invalid();
   // A consent binding's digest is the passkey proof already on record for this credential: the
   // enrollment possession proof, or the recovery proof for a replacement passkey.
-  if (consent && (!Number.isSafeInteger(a.expiresAt) || a.expiresAt <= 0 ||
-    a.digest.toLowerCase() !== (c.recovery ? c.recovery.bindingDigest.toLowerCase() : `0x${receipt.verificationDigest}`))) invalid();
+  // With devices, the binding was renewed by the latest device addition and carries its consent digest.
+  const latestDevice = devices.reduce<WalletAuthorityDevice | null>((latest, device) => !latest || device.device.acceptedAtMs > latest.device.acceptedAtMs ? device : latest, null);
+  const consentDigest = latestDevice ? latestDevice.device.bindingDigest.toLowerCase() : c.recovery ? c.recovery.bindingDigest.toLowerCase() : `0x${receipt.verificationDigest}`;
+  if (consent && (!Number.isSafeInteger(a.expiresAt) || a.expiresAt <= 0 || a.digest.toLowerCase() !== consentDigest)) invalid();
+  if (latestDevice && !consent) invalid();
   const setup = consent ? null : a.setup!;
   if (setup) {
     fields(setup, ["manifestRevision", "initializerHash", "issuedAt", "grantId", "botAddress", "scopes", "grantExpiresAt", "label"]);
@@ -281,6 +294,10 @@ function contextShape(v: WalletAuthorityContext): void {
   if (observed.initializerHash !== e.creation!.initializerHash || !equal({ x: observed.profile.signer.x, y: observed.profile.signer.y }, c.publicKey) ||
     observed.profile.signer.address.toLowerCase() !== (c.recovery?.signerAddress ?? e.creation!.bootstrap.signerAddress).toLowerCase() ||
     observed.profile.recoveryOwner.address.toLowerCase() !== e.intent.recoveryOwner.toLowerCase()) invalid();
+  // Every device on record is an owner, and every device owner is on record: the two sets agree exactly.
+  const onchain = (observed.profile.devices ?? []).map(entry => `${entry.address.toLowerCase()}:${entry.x}:${entry.y}`).sort();
+  const recorded = devices.map(device => `${device.device.signerAddress.toLowerCase()}:${device.publicKey.x}:${device.publicKey.y}`).sort();
+  if (onchain.length !== recorded.length || onchain.some((entry, index) => entry !== recorded[index])) invalid();
   if (setup) validatePasskeyOnboardingInput({ profile: "center-passkey-v1", address: b.wallet.address, manifestId: b.manifestId,
     nonce: a.nonce, issuedAt: setup.issuedAt, expiresAt: a.expiresAt,
     grant: { id: setup.grantId, botAddress: setup.botAddress, scopes: setup.scopes, expiresAt: setup.grantExpiresAt, label: setup.label } }, setup.issuedAt);
@@ -301,7 +318,7 @@ export function createWalletAuthorityIdentity(context: WalletAuthorityContext, s
   fields(s, ["stateHash", "sessionAdministration", "creationTransaction"]);
   const result: WalletAuthorityIdentity = { version: "center-wallet-authority-identity-v1", accountId: c.accountId,
     manifestCommitment: digest(c.enrollment.intent.manifest), manifestRevision: c.enrollment.intent.manifest.revision,
-    enrollmentCommitment: digest(c.enrollment), credentialCommitment: digest(c.credential), bindingId: c.binding.id,
+    enrollmentCommitment: digest(c.enrollment), credentialCommitment: digest(c.devices ? { credential: c.credential, devices: c.devices } : c.credential), bindingId: c.binding.id,
     bindingAuthorizationDigest: c.binding.authorization.digest, creationCommitment: digest(c.enrollment.creation),
     initializerHash: c.enrollment.creation!.initializerHash, ...s };
   identityShape(result); return result;

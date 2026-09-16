@@ -9,7 +9,9 @@ import { getPostgresTransports } from "../transactions/transport-reservations.js
 import { assertPlan, digest, type UserOperationRecord } from "../userOperations/store.js";
 import type { WalletAssertion } from "./webauthn.js";
 import { assertWalletPaymentReviewContext, copyWalletPaymentReviewAssertion, createWalletPaymentReviewDraft, validateWalletPaymentReviewDraft,
-  verifyWalletPaymentReviewProof, type WalletPaymentReviewContext, type WalletPaymentReviewDraft } from "./paymentReviews.js";
+  verifyWalletPaymentReviewProof, type WalletPaymentReviewApprover, type WalletPaymentReviewContext, type WalletPaymentReviewDraft } from "./paymentReviews.js";
+import { walletSessionCredential } from "./loginPostgres.js";
+import type { WalletAuthorityDevice } from "./devices.js";
 import { parseWalletAppPrincipalId, walletAppAccount, walletAppAudience, walletAppFields,
   walletAppPrincipalId, walletAppUuid } from "./appGrants.js";
 import { assertWalletAppGrantActiveInTransaction, getWalletAppGrantInTransaction } from "./appGrantsPostgres.js";
@@ -190,9 +192,10 @@ export class PostgresWalletPaymentReviewStore {
   async approve(inputId: string, inputSessionId: string, assertion: WalletAssertion): Promise<{ view: WalletPaymentReviewView; replayed: boolean }> {
     const id = uuid(inputId), sessionId = uuid(inputSessionId), ownedAssertion = copyWalletPaymentReviewAssertion(assertion);
     const hint = await this.hint(id);
-    // Local WebAuthn/P256/ABI verification is complete before transactional lock acquisition.
-    const proof = verifyWalletPaymentReviewProof(validateWalletPaymentReviewDraft(hint.draft), ownedAssertion);
     const captured = await this.capture(this.rowActor(hint), hint.operation_id), draft = this.assertHint(hint, captured);
+    // Local WebAuthn/P256/ABI verification is complete before transactional lock acquisition. The
+    // session names the approving passkey: the primary, or one of the account's devices.
+    const proof = verifyWalletPaymentReviewProof(draft, ownedAssertion, await this.approver(captured, draft, sessionId));
     return this.transaction(async client => {
       await this.guard(client, captured, draft, sessionId);
       const { operation, plan } = await this.lockExecution(client, captured), row = await this.lockReview(client, hint);
@@ -270,11 +273,21 @@ export class PostgresWalletPaymentReviewStore {
     try { assertWalletPaymentReviewContext(draft, captured.context); } catch { return inactive(); }
     return draft;
   }
+  /** The session's passkey and its own Safe owner; a device signs as its device signer. */
+  private async approver(captured: Captured, draft: WalletPaymentReviewDraft, sessionId: string): Promise<WalletPaymentReviewApprover> {
+    const row = (await this.pool.query<{ credential_id: string | null }>("SELECT credential_id FROM rest_wallet_logins WHERE session_id=$1 AND revoked_at_ms IS NULL", [sessionId])).rows[0];
+    const passkey = row?.credential_id ? walletSessionCredential(captured.context.authority, row.credential_id) : null;
+    if (!passkey) inactive();
+    if (!("device" in passkey)) return { credential: draft.authority.credential, signer: draft.authority.signer };
+    const { recovery: _recovery, device, ...credential } = passkey as WalletAuthorityDevice & { recovery?: unknown };
+    return { credential, signer: device.signerAddress };
+  }
   private async guard(client: PoolClient, captured: Captured, draft: WalletPaymentReviewDraft, sessionId: string | null): Promise<void> {
     if (sessionId) {
       const session = await assertWalletCentralSessionActiveInTransaction(client, sessionId), a = draft.authority;
-      if (session.accountId !== a.accountId || session.enrollmentId !== a.enrollmentId || session.credentialId !== a.credential.credentialId ||
-        session.rpId !== a.credential.rpId || session.userHandle !== a.credential.userHandle || session.authorityEpoch !== a.authorityEpoch ||
+      const passkey = walletSessionCredential(captured.context.authority, session.credentialId);
+      if (session.accountId !== a.accountId || session.enrollmentId !== a.enrollmentId || !passkey ||
+        session.rpId !== passkey.rpId || session.userHandle !== passkey.userHandle || session.authorityEpoch !== a.authorityEpoch ||
         session.sessionEpoch !== a.sessionEpoch || session.bindingId !== a.bindingId ||
         session.bindingAuthorizationDigest !== a.bindingAuthorizationDigest || session.authorityIdentityDigest !== a.authorityIdentityDigest) inactive();
     }

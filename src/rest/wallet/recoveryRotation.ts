@@ -1,5 +1,6 @@
 import { encodeFunctionData, getAddress, hashTypedData, isAddress, parseAbi, recoverAddress, zeroAddress, type Address, type Hex } from 'viem';
 import { RestError } from '../core.js';
+import { maximumPasskeySigners } from '../smartAccounts/passkeyProfile.js';
 import { canonicalEoaSignature } from '../smartAccounts/accountExecution.js';
 import { enrollmentDigest } from './enrollment.js';
 import { assertWalletRecoveryCandidate, type WalletRecoveryCandidate } from './recovery.js';
@@ -27,12 +28,18 @@ export function prepareWalletRecoveryRotation(input: WalletRecoveryCandidate,
   inputState: { owners: Address[]; threshold: number; safeNonce: string }): WalletRecoveryRotation {
   assertWalletRecoveryCandidate(input); enrollmentDigest(inputState);
   const candidate = structuredClone(input), state = structuredClone(inputState), intent = candidate.intent;
+  // Owners are the primary signer, the recovery owner, and any device signers (added at the
+  // head of the Safe's list). The swap replaces the primary in place, so the previous owner is
+  // whichever owner the list holds just before it. The relay's inspection vouches for the devices.
   if (Object.keys(state).sort().join(',') !== 'owners,safeNonce,threshold' || !Array.isArray(state.owners)
-    || state.owners.length !== 2 || state.threshold !== 1 || state.owners.some(owner => typeof owner !== 'string' || !isAddress(owner))) invalid();
+    || state.owners.length < 2 || state.owners.length > maximumPasskeySigners + 1 || state.threshold !== 1
+    || state.owners.some(owner => typeof owner !== 'string' || !isAddress(owner))) invalid();
   nonce(state.safeNonce);
   const owners = state.owners.map(owner => owner.toLowerCase());
-  if (new Set(owners).size !== 2 || !owners.includes(intent.priorSigner) || !owners.includes(intent.recoveryOwner)) invalid();
-  const walletAddress = getAddress(intent.accountId.slice(12)), previousOwner = owners[0] === intent.priorSigner ? sentinel : intent.recoveryOwner;
+  if (new Set(owners).size !== owners.length || !owners.includes(intent.priorSigner) || !owners.includes(intent.recoveryOwner)
+    || owners.includes(candidate.signerAddress.toLowerCase()) || owners.includes(zeroAddress)) invalid();
+  const index = owners.indexOf(intent.priorSigner);
+  const walletAddress = getAddress(intent.accountId.slice(12)), previousOwner = index === 0 ? sentinel : owners[index - 1]! as Address;
   return { version: 'center-wallet-recovery-rotation-v1', recoveryId: intent.id, candidateDigest: enrollmentDigest(candidate),
     walletAddress, initializerHash: intent.initializerHash, recoveryOwner: intent.recoveryOwner, priorSigner: intent.priorSigner,
     replacementSigner: candidate.signerAddress, previousOwner, safeNonce: state.safeNonce,

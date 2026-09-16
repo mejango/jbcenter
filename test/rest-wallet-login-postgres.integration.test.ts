@@ -12,6 +12,7 @@ import { createWalletLoginDraft, type WalletLoginChallenge, type WalletLoginComp
 import { signGet } from "./fixtures/wallet-enrollment-crypto.js";
 import { createWalletLoginSetup, completeWalletLoginFixture, walletLoginTestMigrations,
   walletLoginFixtureOrigin as audience, walletLoginFixtureRpId as rpId } from "./fixtures/wallet-login-setup.js";
+import { addWalletLoginDevice } from "./fixtures/wallet-login-setup.js";
 
 const connectionString = process.env.TEST_DATABASE_URL;
 const suite = connectionString ? describe : describe.skip;
@@ -137,6 +138,22 @@ suite("PostgreSQL discoverable wallet login with genuine P256 and synthetic cano
     expect(await storedCeremony(begun.login.id)).toMatchObject({ consumed_at: expect.any(String), result_id: first.session.id });
     const persisted = (await pool.query("SELECT to_jsonb(l)::text AS document FROM rest_wallet_logins l WHERE id=$1", [begun.login.id])).rows[0].document;
     expect(persisted).not.toContain(begun.flowToken); expect(persisted).not.toContain(first.sessionToken);
+  });
+
+  it("logs in with a device passkey, names it, and keeps the primary's session apart", async () => {
+    const value = await initialized(), added = await addWalletLoginDevice(pool, value);
+    const begun = await store.begin();
+    const input: WalletLoginCompletion = { loginId: begun.login.id, flowToken: begun.flowToken,
+      assertion: signGet({ ...added.device, challenge: begun.login.challenge, rpId, origin: audience }) };
+    const completed = await store.complete(input);
+    expect(completed.session).toMatchObject({ accountId: value.accountId, credentialId: added.device.credentialId, enrollmentId: value.record.intent.id });
+    expect(await store.readSession(completed.sessionToken)).toEqual(completed.session);
+    expect(await store.passkeyName(completed.session)).toBe("Fixture phone");
+    // The primary still logs in to the same account with its own session.
+    const again = await store.begin(), primary = await store.complete(proof(value, again));
+    expect(primary.session.credentialId).toBe(value.credential.credentialId);
+    expect(primary.session.accountId).toBe(completed.session.accountId);
+    expect(primary.session.id).not.toBe(completed.session.id);
   });
 
   it("identifies only a proved current mapping for refresh without consuming the ceremony or issuing a session", async () => {

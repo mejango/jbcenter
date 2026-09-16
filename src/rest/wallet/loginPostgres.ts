@@ -3,9 +3,9 @@ import { passkeyBindingMethods } from "../smartAccounts/passkeyOnboarding.js";
 import { RestError } from "../core.js";
 import type { SmartAccountBinding } from "../smartAccounts/types.js";
 import { stable } from "../smartAccounts/service.js";
-import { walletAuthorityIdentityDigest, walletAuthorityMaximumAgeMs, type WalletAuthorityContext, type WalletAuthorityIdentity, type WalletAuthoritySnapshot } from "./authority.js";
+import { walletAuthorityIdentityDigest, walletAuthorityMaximumAgeMs, type WalletAuthorityContext, type WalletAuthorityCredential, type WalletAuthorityIdentity, type WalletAuthoritySnapshot } from "./authority.js";
 import { PostgresWalletAuthorityStore } from "./authorityPostgres.js";
-import { currentWalletCredentialInTransaction, lockWalletEnrollmentInTransaction } from "./enrollmentPostgres.js";
+import { currentWalletCredentialInTransaction, currentWalletDevicesInTransaction, lockWalletEnrollmentInTransaction } from "./enrollmentPostgres.js";
 import { PostgresWalletCeremonyStore, lockWalletCeremonyAdmission, walletCeremonyDatabaseNow } from "./ceremoniesPostgres.js";
 import { copyWalletLoginCompletion, createWalletLoginDraft, deriveWalletCentralSessionToken, validateWalletCentralSession,
   validateWalletLoginDraft, verifyWalletLoginProof, walletCentralSessionLifetimeMs, walletCentralSessionTokenHash,
@@ -39,6 +39,7 @@ async function lockedContext(client: PoolClient, accountId: string, enrollmentId
   const enrollment = await lockWalletEnrollmentInTransaction(client, enrollmentId);
   const authority = (await client.query<AuthorityRow>("SELECT * FROM rest_wallet_authority WHERE account_id=$1 FOR UPDATE", [accountId])).rows[0];
   const credential = await currentWalletCredentialInTransaction(client, enrollment);
+  const devices = await currentWalletDevicesInTransaction(client, enrollment);
   const binding = (await client.query<{ id: string; document: SmartAccountBinding; authorization_digest: string }>(
     `SELECT id,document,authorization_digest FROM rest_smart_account_bindings
       WHERE account_id=$1 AND chain_id=8453 AND wallet_address=$2 AND revoked_at IS NULL`,
@@ -46,9 +47,19 @@ async function lockedContext(client: PoolClient, accountId: string, enrollmentId
   if (!credential || credential.account_id !== accountId || !binding ||
       !passkeyBindingMethods.includes(binding.document.authorization.method as typeof passkeyBindingMethods[number]) ||
       binding.document.authorization.digest !== binding.authorization_digest || binding.document.id !== binding.id) inactive();
-  return { accountId, enrollment, authority, credential, binding };
+  return { accountId, enrollment, authority, credential, devices, binding };
 }
 type LockedContext = Awaited<ReturnType<typeof lockedContext>>;
+
+/** The passkey a session or proof names: the primary, or one of the account's devices. */
+export function walletSessionCredential(context: WalletAuthorityContext, credentialId: string) {
+  if (context.credential.credentialId === credentialId) return context.credential;
+  return context.devices?.find(device => device.credentialId === credentialId) ?? null;
+}
+function lockedSessionCredential(context: LockedContext, session: { credentialId: string; userHandle: string; rpId: string }) {
+  const rows = [context.credential, ...context.devices];
+  return rows.find(row => row.credential_id === session.credentialId && row.user_handle === session.userHandle && row.rp_id === session.rpId) ?? null;
+}
 function sameCaptured(locked: LockedContext, expected: WalletAuthorityContext): void {
   const c = locked.credential;
   if (stable(locked.enrollment) !== stable(expected.enrollment) || stable(locked.binding.document) !== stable(expected.binding) ||
@@ -74,7 +85,7 @@ function active(row: LoginRow, context: LockedContext, now: number, requireReady
   const session = validateWalletCentralSession(row.session_document), a = context.authority;
   if (!a || !a.snapshot || a.snapshot.bootstrapRequired || a.snapshot.activeFence !== null ||
       session.id !== row.session_id || session.accountId !== context.accountId || session.enrollmentId !== context.enrollment.intent.id ||
-      session.credentialId !== context.credential.credential_id || session.userHandle !== context.credential.user_handle || session.rpId !== context.credential.rp_id ||
+      !lockedSessionCredential(context, session) ||
       session.authorityEpoch !== a.authority_epoch || session.sessionEpoch !== a.session_epoch || session.createdAtMs > now || session.expiresAtMs <= now ||
       session.revokedAtMs !== null || session.bindingId !== context.binding.id || session.bindingAuthorizationDigest !== context.binding.authorization_digest ||
       !row.authority_identity || stable(row.authority_identity) !== stable(a.snapshot.identity)) inactive();
@@ -180,7 +191,7 @@ export class PostgresWalletLoginStore {
       const createdAtMs = await walletCeremonyDatabaseNow(client);
       const session = validateWalletCentralSession({ id: proof.draft.sessionId, loginId: proof.draft.id,
         accountId: proof.context.accountId, enrollmentId: proof.context.enrollment.intent.id,
-        rpId: proof.context.credential.rpId, credentialId: proof.context.credential.credentialId, userHandle: proof.context.credential.userHandle,
+        rpId: proof.signedIn.rpId, credentialId: proof.signedIn.credentialId, userHandle: proof.signedIn.userHandle,
         authorityEpoch: locked.authority!.authority_epoch, sessionEpoch: locked.authority!.session_epoch,
         bindingId: identity.bindingId, bindingAuthorizationDigest: identity.bindingAuthorizationDigest, authorityIdentityDigest: identityDigest,
         createdAtMs, expiresAtMs: createdAtMs + walletCentralSessionLifetimeMs, revokedAtMs: null });
@@ -257,11 +268,13 @@ export class PostgresWalletLoginStore {
       [draft.rpId, input.assertion.credentialId])).rows[0];
     if (!mapping) unauthorized();
     const context = await this.authority.loadContext(mapping.account_id);
-    if (context.credential.credentialId !== input.assertion.credentialId || context.enrollment.intent.id !== mapping.enrollment_id) unauthorized();
+    // The signed-in passkey is the primary or one of the account's devices.
+    const signedIn = walletSessionCredential(context, input.assertion.credentialId);
+    if (!signedIn || context.enrollment.intent.id !== mapping.enrollment_id) unauthorized();
     // The full context above validates immutable lineage; the possession verifier needs
     // only the current key. Keep the existing proof format and compare lineage under locks.
-    const { recovery: _recovery, ...proofCredential } = context.credential;
-    return { input, draft, context, proof: verifyWalletLoginProof(draft, input.flowToken, proofCredential, input.assertion) };
+    const { recovery: _recovery, device: _device, ...proofCredential } = signedIn as WalletAuthorityCredential & { device?: unknown };
+    return { input, draft, context, signedIn, proof: verifyWalletLoginProof(draft, input.flowToken, proofCredential, input.assertion) };
   }
   private async lockLogin(client: PoolClient, id: string): Promise<LoginRow> {
     const row = (await client.query<LoginRow>("SELECT * FROM rest_wallet_logins WHERE id=$1 FOR UPDATE", [id])).rows[0];

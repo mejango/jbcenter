@@ -8,7 +8,7 @@ import { reconcileWalletAuthority, validateWalletAuthorityContext, validateWalle
   walletAuthorityMaximumAgeMs, walletAuthorityMaximumHeadAgeMs,
   type WalletAuthorityContext, type WalletAuthorityCredential, type WalletAuthorityObservation, type WalletAuthoritySnapshot } from "./authority.js";
 import { enrollmentDigest } from "./enrollment.js";
-import { currentWalletCredentialInTransaction, lockWalletEnrollmentInTransaction,
+import { currentWalletCredentialInTransaction, currentWalletDevicesInTransaction, lockWalletEnrollmentInTransaction,
   type CurrentWalletCredentialRow } from "./enrollmentPostgres.js";
 
 interface AuthorityRow {
@@ -83,8 +83,11 @@ export async function loadWalletAuthorityContextInTransaction(client: PoolClient
   const authority = await readAuthority(client, accountId, true);
   const credential = await currentWalletCredentialInTransaction(client, enrollment);
   if (!credential) unavailable();
+  const devices = await currentWalletDevicesInTransaction(client, enrollment);
   return { version: "center-wallet-authority-context-v1", accountId, enrollment,
-    credential: credentialOf(credential), binding: currentBinding.document, prior: authority ? snapshotOf(authority) : null };
+    credential: credentialOf(credential),
+    ...(devices.length ? { devices: devices.map(row => ({ ...credentialOf(row), device: row.device_receipt! })) } : {}),
+    binding: currentBinding.document, prior: authority ? snapshotOf(authority) : null };
 }
 
 /** Internal trusted storage composition only. No chain transport or public grant issuance. */

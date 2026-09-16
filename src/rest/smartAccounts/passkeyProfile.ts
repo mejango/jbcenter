@@ -7,7 +7,7 @@ import {
 } from "viem";
 import { RestError } from "../core.js";
 import { rpcHex } from "../protocol/code.js";
-import type { ContractPin, PasskeyOwnerProfile, PasskeyOwnerState, SmartAccountManifest, SmartSnapshot } from "./types.js";
+import type { PasskeySignerState, ContractPin, PasskeyOwnerProfile, PasskeyOwnerState, SmartAccountManifest, SmartSnapshot } from "./types.js";
 
 const SOURCE = "https://github.com/safe-fndn/safe-modules";
 const COMMIT = "dfd3b05966e727dbb7a2fdeef52e4b230f63304e";
@@ -152,34 +152,41 @@ export async function inspectPasskeyCreationSigner(input: {
 }
 
 /** Only accepts an opt-in server manifest and owners already read from the Safe at this snapshot.
- * Exactly one immutable passkey plus one independent EOA is the pilot's complete authority set.
+ * One independent EOA plus one to `maximumPasskeySigners` canonical passkey signers, threshold one,
+ * is the complete authority set: the primary passkey is the last contract owner in the Safe's list
+ * (additions go to the head), and every other passkey signer is a device.
  */
+export const maximumPasskeySigners = 6;
 export async function inspectPasskeyOwnerProfile(input: {
   manifest: SmartAccountManifest; owners: readonly Address[]; threshold: number; snapshot: SmartSnapshot;
 }): Promise<{ ownerProfile: PasskeyOwnerState; codeHashes: { address: Address; runtimeCodeHash: Hex }[] }> {
   const { manifest, snapshot, owners } = input;
   if (!manifest.ownerProfile || manifest.ownerProfile.version !== "center-passkey-v1" || manifest.chainId !== 8453 || snapshot.evidence.chainId !== 8453)
     invalid("The experimental passkey owner profile requires its explicit version on Base.");
-  if (input.threshold !== 1 || owners.length !== 2 || owners.some((a) => !isAddress(a) || BigInt(a) <= 1n) || same(owners[0]!, owners[1]!))
-    unsupported("The passkey pilot requires exactly one passkey signer and one independent EOA, with threshold one.");
+  if (input.threshold !== 1 || owners.length < 2 || owners.length > maximumPasskeySigners + 1 || owners.some((a) => !isAddress(a) || BigInt(a) <= 1n)
+    || new Set(owners.map((a) => a.toLowerCase())).size !== owners.length)
+    unsupported("The passkey pilot requires at least one passkey signer and one independent EOA, with threshold one.");
   const [{ a, profile, codeHashes, read }, observed] = await Promise.all([inspectDependencies(manifest, snapshot),
     Promise.all(owners.map(async (address) => ({ address: getAddress(address),
       code: rpcHex(await snapshot.request("eth_getCode", [address]), "owner code") })))]);
   const eoa = observed.filter((o) => o.code === "0x"), contracts = observed.filter((o) => o.code !== "0x");
-  if (eoa.length !== 1 || contracts.length !== 1)
+  if (eoa.length !== 1 || contracts.length < 1)
     unsupported("The recovery owner must be an independent EOA without delegated or contract code.");
-  const signer = contracts[0]!;
-  const config = await read(signer.address, "getConfiguration");
-  if (!Array.isArray(config) || config.length !== 3 || config.some((v) => typeof v !== "bigint"))
-    unsupported("The signer configuration is malformed.");
-  const [x, y, verifiers] = config as [bigint, bigint, bigint];
-  const { expectedRuntime, predicted } = signerIdentity(a, profile, x, y, verifiers);
-  if (!same(signer.code, expectedRuntime) || !same(signer.address, predicted) ||
-    !same(String(await read(profile.signerFactory.address, "getSigner", [x, y, verifiers])), predicted))
-    unsupported("The passkey signer differs from the canonical factory address or immutable runtime.");
-  const runtimeCodeHash = keccak256(signer.code);
-  codeHashes.push({ address: signer.address, runtimeCodeHash });
-  return { ownerProfile: { version: profile.version, signer: { address: signer.address, kind: "contract",
-    x: toHex(x, { size: 32 }), y: toHex(y, { size: 32 }), verifiers: toHex(verifiers, { size: 22 }), runtimeCodeHash },
-    recoveryOwner: { address: eoa[0]!.address, kind: "ecdsa" } }, codeHashes };
+  const signers: PasskeySignerState[] = await Promise.all(contracts.map(async (signer) => {
+    const config = await read(signer.address, "getConfiguration");
+    if (!Array.isArray(config) || config.length !== 3 || config.some((v) => typeof v !== "bigint"))
+      unsupported("The signer configuration is malformed.");
+    const [x, y, verifiers] = config as [bigint, bigint, bigint];
+    const { expectedRuntime, predicted } = signerIdentity(a, profile, x, y, verifiers);
+    if (!same(signer.code, expectedRuntime) || !same(signer.address, predicted) ||
+      !same(String(await read(profile.signerFactory.address, "getSigner", [x, y, verifiers])), predicted))
+      unsupported("The passkey signer differs from the canonical factory address or immutable runtime.");
+    const runtimeCodeHash = keccak256(signer.code);
+    codeHashes.push({ address: signer.address, runtimeCodeHash });
+    return { address: signer.address, kind: "contract" as const, x: toHex(x, { size: 32 }), y: toHex(y, { size: 32 }),
+      verifiers: toHex(verifiers, { size: 22 }), runtimeCodeHash };
+  }));
+  const signer = signers[signers.length - 1]!, devices = signers.slice(0, -1);
+  return { ownerProfile: { version: profile.version, signer, recoveryOwner: { address: eoa[0]!.address, kind: "ecdsa" },
+    ...(devices.length ? { devices } : {}) }, codeHashes };
 }

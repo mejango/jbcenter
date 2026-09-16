@@ -225,6 +225,37 @@ describe.skipIf(!available)("canonical passkey owner profile in the pinned local
     await expect(verifyPasskeyOnboardingSignatures(changed, state, approved.signature, changedProof, verifier(state)))
       .rejects.toMatchObject({ code: "SMART_OWNER_SIGNATURE_INVALID" });
   });
+  it("inspects a second passkey signer as a device owner, keeping the original as the primary signer", async () => {
+    // A device is another canonical passkey signer added at the head of the owner list; the primary
+    // stays the last contract owner, so recovery and existing bindings keep their meaning.
+    const device = passkey(7n);
+    const args = [BigInt(device.publicKey.x), BigInt(device.publicKey.y), BigInt(manifest.ownerProfile!.p256Verifier.address)];
+    const deviceSigner = getAddress(await read(signerFactory.abi, manifest.ownerProfile!.signerFactory.address, "getSigner", args) as Address);
+    await send(encodeFunctionData({ abi: signerFactory.abi, functionName: "createSigner", args }), manifest.ownerProfile!.signerFactory.address);
+    const add = encodeFunctionData({ abi: safe.abi, functionName: "addOwnerWithThreshold", args: [deviceSigner, 1n] });
+    const directBackupApproval = concatHex([padHex(backup, { size: 32 }), zeroHash, "0x01"]);
+    await send(encodeFunctionData({ abi: safe.abi, functionName: "execTransaction", args: [account, 0n, add, 0,
+      0n, 0n, 0n, zeroAddress, zeroAddress, directBackupApproval] }), account, backup);
+    const owners = await read(safe.abi, account, "getOwners") as Address[];
+    expect(owners.map((owner) => owner.toLowerCase())).toEqual([deviceSigner, signer, backup].map((owner) => owner.toLowerCase()));
+    const profile = await inspectOwners({ owners });
+    expect(profile.ownerProfile.signer.address).toBe(signer);
+    expect(profile.ownerProfile.devices!.map((entry) => entry.address)).toEqual([deviceSigner]);
+    expect(profile.ownerProfile.devices![0]).toMatchObject({ kind: "contract", x: device.publicKey.x, y: device.publicKey.y });
+    expect(profile.codeHashes.some((entry) => entry.address === deviceSigner)).toBe(true);
+    const state = await inspect();
+    expect(state.ownerProfile!.devices!.map((entry) => entry.address)).toEqual([deviceSigner]);
+    expect(state.owners.length).toBe(3);
+    // Two EOAs, or a contract owner that is not a canonical signer, are still refused.
+    await expect(inspectOwners({ owners: [deviceSigner, signer, backup, sender] })).rejects.toMatchObject({ code: "SMART_PASSKEY_PROFILE_UNSUPPORTED" });
+    await expect(inspectOwners({ owners: [account, signer, backup] })).rejects.toMatchObject({ code: "SMART_PASSKEY_PROFILE_UNSUPPORTED" });
+    // Put the account back for the cases that follow.
+    const remove = encodeFunctionData({ abi: safe.abi, functionName: "removeOwner", args: ["0x0000000000000000000000000000000000000001", deviceSigner, 1n] });
+    await send(encodeFunctionData({ abi: safe.abi, functionName: "execTransaction", args: [account, 0n, remove, 0,
+      0n, 0n, 0n, zeroAddress, zeroAddress, directBackupApproval] }), account, backup);
+    expect((await read(safe.abi, account, "getOwners") as Address[]).length).toBe(2);
+  });
+
   it("keeps the same Safe principal after real backup-owner rotation and rejects old setup and signer authority", async () => {
     const before = await inspect(), old = await approvedSetup(before), replacement = passkey(2n);
     const args = [BigInt(replacement.publicKey.x), BigInt(replacement.publicKey.y), BigInt(manifest.ownerProfile!.p256Verifier.address)];
