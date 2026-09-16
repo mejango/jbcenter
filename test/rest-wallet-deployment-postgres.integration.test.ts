@@ -222,6 +222,28 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
     expect((await pool.query("SELECT count(*)::int AS count FROM rest_wallet_ceremonies WHERE purpose='deploy'")).rows[0].count).toBe(1);
   });
 
+  it("keeps an expired unverified enrollment that a creation review still references, and keeps admitting signups", async () => {
+    // Production 2026-09-16: a reviewed signup was abandoned on the device, its enrollment expired
+    // unverified, and every later signup failed at cleanup on the review row's foreign key.
+    const config = configuration(); await store.configurePool(config);
+    const short = async () => enrollments.begin(createWalletEnrollmentIntent({ manifest: enrollmentManifest,
+      rpId: "wallet.juicebox.center", origin: "https://wallet.juicebox.center", recoveryOwner: enrollmentBackupAccount.address,
+      expiresAt: await databaseNow() + 1500 }));
+    const initial = await short();
+    const credential = createRegistration({ challenge: fromBase64(initial.intent.registration.challenge),
+      rpId: initial.intent.rpId, origin: initial.intent.origin, userHandle: initial.intent.userHandle });
+    const pending = await enrollments.acceptRegistration(initial.intent.id, credential.response), issuedAt = await databaseNow();
+    await store.prepare({ poolId: config.id, approval: prepareWalletDeploymentApproval(pending, { issuedAt, expiresAt: issuedAt + 1000 }) });
+    // An abandoned sibling without a review row is deleted; the reviewed one is kept for its review.
+    const sibling = await short();
+    await new Promise(resolve => setTimeout(resolve, 1600));
+    expect(await enrollments.cleanup()).toBe(1);
+    expect((await pool.query("SELECT id FROM rest_wallet_enrollments WHERE id = ANY($1)", [[pending.intent.id, sibling.intent.id]])).rows.map(row => row.id)).toEqual([pending.intent.id]);
+    expect(await enrollments.begin(createWalletEnrollmentIntent({ manifest: enrollmentManifest,
+      rpId: "wallet.juicebox.center", origin: "https://wallet.juicebox.center", recoveryOwner: enrollmentBackupAccount.address,
+      expiresAt: await databaseNow() + 120000 }))).toBeTruthy();
+  }, 15_000);
+
   it("rejects a genuine assertion for another approval without consuming either ceremony", async () => {
     const value = await prepared(), issuedAt = await databaseNow();
     const other = prepareWalletDeploymentApproval(value.record, { issuedAt, expiresAt: issuedAt + 120000 });

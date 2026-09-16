@@ -235,12 +235,20 @@ export class PostgresWalletEnrollmentStore {
     return this.transaction(client => this.cleanupInTransaction(client, limit));
   }
 
-  /** Internal bounded cleanup; caller owns the transaction. Verified identity is never deleted. */
+  /** Internal bounded cleanup; caller owns the transaction. Verified identity is never deleted.
+   * An expired enrollment that a creation review or a recovery still references (their rows
+   * restrict deletion and keep their own retention) is left for a later pass, so one abandoned
+   * signup can never fail every signup that follows. */
   async cleanupInTransaction(client: PoolClient, limit: number): Promise<number> {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10_000) invalidInput();
+    // Suites compose schemas by hand, so each referencing table is consulted only where it exists.
+    const referencing = (await client.query<{ table: string | null }>(
+      "SELECT to_regclass(name)::text AS table FROM unnest(ARRAY['rest_wallet_deployments','rest_wallet_recoveries']) AS name")).rows
+      .map(row => row.table).filter((table): table is string => table !== null);
+    const untouched = referencing.map(table => `AND NOT EXISTS (SELECT 1 FROM ${table} x WHERE x.enrollment_id=e.id)`).join(" ");
     const result = await client.query(`DELETE FROM rest_wallet_enrollments WHERE id IN
-      (SELECT id FROM rest_wallet_enrollments WHERE state<>'verified' AND expires_at <= ${nowSql}
-       ORDER BY expires_at,id LIMIT $1 FOR UPDATE SKIP LOCKED)`, [limit]);
+      (SELECT e.id FROM rest_wallet_enrollments e WHERE e.state<>'verified' AND e.expires_at <= ${nowSql} ${untouched}
+       ORDER BY e.expires_at,e.id LIMIT $1 FOR UPDATE SKIP LOCKED)`, [limit]);
     return result.rowCount ?? 0;
   }
 
