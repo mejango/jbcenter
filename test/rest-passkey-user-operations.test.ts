@@ -302,10 +302,22 @@ describe("passkey UserOperation estimation", () => {
   it("adds the calldata-byte margin independently to every provider estimate", async () => {
     const estimate = { callGasLimit: "0x1", verificationGasLimit: "0x1", preVerificationGas: toHex(50_000) };
     const original = { estimate: vi.fn(async () => ({ ...estimate })), sponsor: vi.fn() };
-    const wrapper = passkeyEstimateProvider(original as unknown as UserOperationProvider);
+    const wrapper = passkeyEstimateProvider(original as unknown as UserOperationProvider, 1_000_000n);
     const operation = {} as UserOperationV07;
     for (let i = 0; i < 3; i++) expect(BigInt((await wrapper.estimate(8453, operation)).preVerificationGas)).toBe(50_000n + 12n * 2349n);
     expect(estimate.preVerificationGas).toBe(toHex(50_000));
+  });
+  it("leaves the passkey validation headroom the dummy-signature estimate cannot see, within the policy cap", async () => {
+    // A production signature starved the P256 check at the bundler's exact estimate (AA24).
+    const original = { estimate: vi.fn(async () => ({ callGasLimit: "0x1", verificationGasLimit: toHex(190_000), preVerificationGas: "0x1" })), sponsor: vi.fn() };
+    const operation = {} as UserOperationV07;
+    expect(BigInt((await passkeyEstimateProvider(original as unknown as UserOperationProvider, 1_000_000n).estimate(8453, operation)).verificationGasLimit))
+      .toBe(190_000n + 95_000n + 50_000n);
+    expect(BigInt((await passkeyEstimateProvider(original as unknown as UserOperationProvider, 300_000n).estimate(8453, operation)).verificationGasLimit))
+      .toBe(300_000n);
+    // The fixture's 800k estimate plus headroom meets the 1M policy cap.
+    const f = await fixture({}), view = await f.prepare();
+    expect(BigInt(view.operation.verificationGasLimit)).toBe(1_000_000n);
   });
 
   it("prepares the new explicit signature profile with its exact SafeOp preimage", async () => {

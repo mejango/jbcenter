@@ -106,8 +106,15 @@ export class UserOperationChain {
         this.rpc.request(chainId, method, params, controller.signal),
         stopped,
       ]);
-    } catch {
+    } catch (error) {
       this.check();
+      // The public error stays generic; the log names the read and the provider's error class
+      // (and a revert selector) so an operator can tell a timeout from a rejected simulation.
+      const failure = error as { code?: unknown; rpcCode?: unknown; data?: unknown; name?: unknown } | null;
+      console.info(JSON.stringify({ service: "user-operations", action: "chain_rpc", outcome: "failed", method,
+        code: typeof failure?.code === "string" ? failure.code : String(failure?.name ?? "unknown"),
+        ...(typeof failure?.rpcCode === "number" ? { rpcCode: failure.rpcCode } : {}),
+        ...(typeof failure?.data === "string" ? { selector: failure.data.slice(0, 10) } : {}) }));
       return uoError(
         "USER_OPERATION_RPC_UNAVAILABLE",
         "The configured chain could not verify or simulate this operation.",

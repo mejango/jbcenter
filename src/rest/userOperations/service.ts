@@ -472,7 +472,7 @@ export class UserOperationService {
     if (gasEstimation && !stub?.isFinal)
       operation = gasEstimation.fit(operation);
     gasEstimation?.assert(operation);
-    const estimateProvider = passkeyProfile ? passkeyEstimateProvider(provider) : provider;
+    const estimateProvider = passkeyProfile ? passkeyEstimateProvider(provider, policy.gas.maximumVerificationGas) : provider;
     const estimate = await estimateProvider.estimate(
       binding.wallet.chainId,
       { ...operation, signature: dummy() },

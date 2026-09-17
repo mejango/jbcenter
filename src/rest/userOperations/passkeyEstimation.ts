@@ -39,14 +39,24 @@ export function passkeyDummySignature(input: { signer: Address; validAfter: stri
  * This does not bound rollup L1 data fees or FCL computation for every credential/digest.
  * The exact signed operation still needs provider gas evidence and canonical preflight.
  */
-export function passkeyEstimateProvider(provider: Pick<UserOperationProvider, "estimate" | "sponsor">): Pick<UserOperationProvider, "estimate" | "sponsor"> {
+export function passkeyEstimateProvider(
+  provider: Pick<UserOperationProvider, "estimate" | "sponsor">,
+  maximumVerificationGas: bigint,
+): Pick<UserOperationProvider, "estimate" | "sponsor"> {
   return {
     sponsor: (...args) => provider.sponsor(...args),
     estimate: async (...args) => {
       const estimate = await provider.estimate(...args);
-      return { ...estimate, preVerificationGas: toHex(
-        uoQuantity(estimate.preVerificationGas, "estimated pre-verification gas") + 12n * BigInt(PASSKEY_MAX_SIGNATURE_BYTES),
-      ) };
+      // The dummy signature does not exercise the real WebAuthn parse and P256 check, and the
+      // bundler's estimate is the bare minimum for its own simulation; a production signature
+      // starved the P256 call at that exact limit (AA24). Unused verification gas is refunded.
+      const verification = uoQuantity(estimate.verificationGasLimit, "estimated verification gas");
+      const roomy = verification + verification / 2n + 50_000n;
+      return { ...estimate,
+        verificationGasLimit: toHex(roomy > maximumVerificationGas ? maximumVerificationGas : roomy),
+        preVerificationGas: toHex(
+          uoQuantity(estimate.preVerificationGas, "estimated pre-verification gas") + 12n * BigInt(PASSKEY_MAX_SIGNATURE_BYTES),
+        ) };
     },
   };
 }

@@ -38,6 +38,7 @@ import type {
   UserOperationV07,
 } from "../src/rest/userOperations/types.js";
 import type { RestRpc } from "../src/rest/core.js";
+import { RestRpcError } from "../src/rest/rpc.js";
 
 const sender = "0x1111111111111111111111111111111111111111" as Address;
 const target = "0x2222222222222222222222222222222222222222" as Address;
@@ -327,6 +328,20 @@ describe("independent signed user operation preflight", () => {
     await expect(cancelled.snapshot(1)).rejects.toMatchObject({
       code: "USER_OPERATION_CANCELLED",
     });
+  });
+  it("names the method and the provider's error class in the log when a read fails, without its private details", async () => {
+    const log = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const reverted = new UserOperationChain({
+        request: async () => { throw new RestRpcError("RPC_REJECTED", "private provider details", 3, "0xdeadbeef00"); },
+      });
+      await expect(reverted.request(1, "eth_call", [{}, "latest"])).rejects.toMatchObject({ code: "USER_OPERATION_RPC_UNAVAILABLE" });
+      const line = JSON.parse(String(log.mock.calls.at(-1)?.[0])) as Record<string, unknown>;
+      expect(line).toEqual({ service: "user-operations", action: "chain_rpc", outcome: "failed", method: "eth_call", code: "RPC_REJECTED", rpcCode: 3, selector: "0xdeadbeef" });
+      expect(JSON.stringify(log.mock.calls)).not.toContain("private provider details");
+    } finally {
+      log.mockRestore();
+    }
   });
 });
 describe("current sponsorship restricted to a verified bundler origin", () => {
