@@ -179,10 +179,14 @@ function call(
  * Financial quote and calldata boundary. RPC failures propagate as unavailable;
  * no price, allowance, fee flag, or failed preview is replaced by a zero.
  */
+/** A project's payment route (controller, ruleset, hooks, terminal) is kept this long. Payments to
+ * one project arrive minutes apart, and every quote is still previewed live and re-read on a ruleset
+ * change; a terminal or hook swap inside this window only makes the plan's own simulation fail. */
+const routeLifetimeMs = 300_000;
 export class PaymentService {
   constructor(private readonly rpc: RpcProvider) {}
   /** A project's controller, ruleset, hooks and payment terminal change rarely; one read serves
-   * the payments of the next minute. The live preview still binds every quote to the current
+   * the payments of the next minutes. The live preview still binds every quote to the current
    * ruleset, and a disagreement drops the entry and reads again. */
   private readonly recentProjects = new Map<
     string,
@@ -197,14 +201,14 @@ export class PaymentService {
     const key = `${project.chainId}:${uint(project.projectId, 'projectId')}:${token.toLowerCase()}`;
     const now = Date.now();
     const kept = this.recentProjects.get(key);
-    if (kept && now - kept.at < 60_000) return { key, fresh: false, ...kept };
+    if (kept && now - kept.at < routeLifetimeMs) return { key, fresh: false, ...kept };
     const [context, terminal] = await Promise.all([
       this.context(client, project, 'pay'),
       this.paymentTerminal(client, project, token),
     ]);
     // Any caller can name any token; expired entries go on every write so the map stays small.
     for (const [other, entry] of this.recentProjects)
-      if (now - entry.at >= 60_000) this.recentProjects.delete(other);
+      if (now - entry.at >= routeLifetimeMs) this.recentProjects.delete(other);
     this.recentProjects.set(key, { at: now, evidence, context, terminal });
     return { key, fresh: true, evidence, context, terminal };
   }

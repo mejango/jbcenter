@@ -73,6 +73,9 @@ export async function finalizeUserOperationSponsorship(input: {
   provider: Pick<UserOperationProvider, "sponsor" | "estimate">;
   sessionGas?: SessionGasEstimation | undefined;
   signal?: AbortSignal | undefined;
+  /** The caller's gas margins already cover a final sponsorship of the same byte size as its
+   * stub (only calldata byte pricing can differ), so that case needs no further estimate. */
+  marginsCoverSameSizeSponsorship?: boolean;
 }): Promise<{ operation: UserOperationV07; expiresAt: number }> {
   const maximumQuotes = input.profile === "pimlico-v7-current-flags" ? 3 : 1;
   const assertBudget = (operation: UserOperationV07) => {
@@ -101,6 +104,11 @@ export async function finalizeUserOperationSponsorship(input: {
       );
     assertBudget(funded);
     expiresAt = Math.min(expiresAt, quote.proof.validUntil * 1000);
+    if (
+      input.marginsCoverSameSizeSponsorship &&
+      (funded.paymasterData ?? "0x").length === (operation.paymasterData ?? "0x").length
+    )
+      return { operation: funded, expiresAt };
     const estimated = checkedEstimate(await input.provider.estimate(
       input.chainId,
       { ...funded, signature: input.dummySignature(expiresAt) },

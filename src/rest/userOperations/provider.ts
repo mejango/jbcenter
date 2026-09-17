@@ -347,7 +347,16 @@ export class UserOperationProvider {
       maxPriorityFeePerGas: uoQuantity(fast.maxPriorityFeePerGas, "bundler priority fee"),
     };
   }
+  /** A bundler's chain and EntryPoint hold for a minute; every preparation checked both before. */
+  private readonly ready = new Map<number, { until: number; result: Awaited<ReturnType<UserOperationProvider["checkReadiness"]>> }>();
   async readiness(chainId: number, signal?: AbortSignal) {
+    const kept = this.ready.get(chainId);
+    if (kept && kept.until > this.now()) return { ...kept.result };
+    const result = await this.checkReadiness(chainId, signal);
+    this.ready.set(chainId, { until: this.now() + 60_000, result });
+    return result;
+  }
+  private async checkReadiness(chainId: number, signal?: AbortSignal) {
     const config = this.configuration(chainId);
     const [chain, entries] = await Promise.all([
       this.rpc(config, false, "eth_chainId", [], signal),

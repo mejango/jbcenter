@@ -349,6 +349,10 @@ describe("smart account ownership and module boundaries", () => {
       other.service.remember(first);
       expect(await other.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, undefined, true)).toEqual(first);
       expect(other.inspections).toHaveLength(0);
+      // A verification at an older block (a historical check for a receipt) never replaces a newer entry.
+      const older = { ...first, evidence: { ...first.evidence, blockNumber: "1", blockHash: `0x${"0a".repeat(32)}` as Hex, timestamp: String(time - 3000) } };
+      test.service.remember(older);
+      expect((await read()).evidence.blockHash).toBe(first.evidence.blockHash);
       // Past the window the chain is read again.
       time += 91;
       await read();

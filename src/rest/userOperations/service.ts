@@ -504,6 +504,8 @@ export class UserOperationService {
         provider: estimateProvider,
         sessionGas: gasEstimation,
         signal,
+        // The passkey margins (calldata bytes and verification headroom) cover a same-size sponsorship.
+        marginsCoverSameSizeSponsorship: passkeyProfile !== undefined,
       });
       operation = funded.operation;
       expiresAt = funded.expiresAt;

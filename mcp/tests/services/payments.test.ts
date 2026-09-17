@@ -237,7 +237,7 @@ function cashHookMetadata(minimum: bigint, explicit: boolean, direct = 100n): He
 }
 
 describe('payment quotes and approval plans', () => {
-  it('reads the project context and terminal together, keeps them for a minute, and drops them when the live preview disagrees', async () => {
+  it('reads the project context and terminal together, keeps them for minutes, and drops them when the live preview disagrees', async () => {
     const f = fixture();
     const names = () => f.readContract.mock.calls.map(([request]) => request.functionName);
     await f.service.preparePay(payInput);
@@ -294,7 +294,7 @@ describe('payment quotes and approval plans', () => {
     (
       h.service as unknown as { recentProjects: Map<string, { at: number }> }
     ).recentProjects.forEach((entry) => {
-      entry.at -= 61_000;
+      entry.at -= 301_000;
     });
     await h.service.preparePay({
       ...payInput,

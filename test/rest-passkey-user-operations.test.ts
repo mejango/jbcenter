@@ -364,17 +364,17 @@ describe("passkey UserOperation estimation", () => {
     await expect(f.prepare({ sessionId: "00000000-0000-0000-0000-000000000000" })).rejects.toMatchObject({ code: "USER_OPERATION_PASSKEY_SESSION_UNAVAILABLE" });
   });
 
-  it("re-estimates exact sponsor quotes with the same bounded shape and non-accumulating margin", async () => {
+  it("takes the final sponsorship without another estimate: the provider pins its size to the stub and the margins cover the bytes", async () => {
     const f = await fixture({ sponsored: true }); f.state.growth = true;
     const view = await f.prepare();
-    expect(f.state.finalQuotes).toBe(2);
-    expect(f.state.estimated).toHaveLength(3);
-    expect(f.state.estimated.every((operation) => size(operation.signature) === 2349)).toBe(true);
-    expect(BigInt(view.operation.preVerificationGas)).toBe((88_188n * 105n + 99n) / 100n);
+    expect(f.state.finalQuotes).toBe(1);
+    expect(f.state.estimated).toHaveLength(1);
+    expect(size(f.state.estimated[0]!.signature)).toBe(2349);
+    expect(BigInt(view.operation.preVerificationGas)).toBe(50_000n + 12n * 2349n);
   });
 
-  it("stops sponsorship when its bounded quotes do not converge", async () => {
-    const f = await fixture({ sponsored: true }); f.state.growAlways = true;
+  it("still re-estimates and bounds sponsorship for an owner-key operation without those margins", async () => {
+    const f = await fixture({ sponsored: true, legacy: true }); f.state.growAlways = true;
     await expect(f.prepare()).rejects.toMatchObject({ code: "USER_OPERATION_SPONSOR_GAS_CHANGED" });
     expect(f.state.finalQuotes).toBe(3); expect(f.state.sends).toBe(0);
   });

@@ -257,12 +257,20 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
   const recent = new Map<string, SmartAccountState>();
   const reuseMs = options.reuseMs ?? 90_000;
   const keyOf = (manifestId: string, address: string) => `${manifestId}:${address.toLowerCase()}`;
+  // A verification at an older block (a historical check behind a receipt) never replaces a
+  // newer entry: the entry always describes the account at the latest block anyone verified.
+  function keep(state: SmartAccountState) {
+    const key = keyOf(state.manifestId, state.address);
+    const existing = recent.get(key);
+    if (existing && BigInt(existing.evidence.blockNumber) > BigInt(state.evidence.blockNumber)) return false;
+    recent.set(key, structuredClone(state));
+    return true;
+  }
   function remember(state: SmartAccountState) {
     const known = manifests.some((m) => m.id === state.manifestId && m.revision === state.manifestRevision);
-    console.info(JSON.stringify({ service: "smart-accounts", action: "state_remember", outcome: known ? "kept" : "ignored",
+    const kept = known && keep(state);
+    console.info(JSON.stringify({ service: "smart-accounts", action: "state_remember", outcome: kept ? "kept" : known ? "older" : "ignored",
       manifestId: state.manifestId, block: state.evidence.blockNumber }));
-    if (!known) return;
-    recent.set(keyOf(state.manifestId, state.address), structuredClone(state));
   }
   async function inspect(
     input: { manifestId: string; address: Address },
@@ -282,7 +290,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
         manifestId: input.manifestId, ageMs: age === null ? null : Math.round(age), pinned: at !== undefined }));
     if (hit) return structuredClone(cached);
     const state = await inspectFresh(input, signal, at);
-    recent.set(key, structuredClone(state));
+    keep(state);
     return state;
   }
   async function inspectFresh(

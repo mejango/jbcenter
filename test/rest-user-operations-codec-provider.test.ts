@@ -188,6 +188,10 @@ describe("bounded bundler and EIP-7677 transport", () => {
       providerId: "fixture",
       entryPoint,
     });
+    // A bundler's chain and EntryPoint do not change between two preparations a minute apart.
+    const probes = f.fetcher.mock.calls.length;
+    expect(await f.provider.readiness(1)).toMatchObject({ providerId: "fixture" });
+    expect(f.fetcher.mock.calls.length).toBe(probes);
     expect(JSON.stringify(f.provider.capabilities())).not.toContain(
       "private-test-key",
     );

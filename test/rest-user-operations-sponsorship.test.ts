@@ -246,6 +246,23 @@ describe("final user-operation sponsorship", () => {
     expect(coveredEstimate(result.operation)).toEqual(coveredEstimate(f.input.operation));
   });
 
+  it("skips the post-sponsorship estimate when the caller's margins cover a same-size sponsorship", async () => {
+    // The stub and the final data are the same size, so the only gas difference is calldata
+    // byte pricing, which the passkey margin already covers; a different size still re-estimates.
+    const sized = fixture({ quote: (op) => ({ ...op, paymasterData: `0x${"ab".repeat(32)}` as Hex }) });
+    sized.input.operation = Object.freeze({ ...sized.input.operation, paymasterData: `0x${"00".repeat(32)}` as Hex });
+    const result = await finalizeUserOperationSponsorship({ ...sized.input, marginsCoverSameSizeSponsorship: true });
+    expect(sized.provider.sponsor).toHaveBeenCalledTimes(1);
+    expect(sized.provider.estimate).not.toHaveBeenCalled();
+    expect(result.operation).toEqual(sized.quoted[0]);
+    const grown = fixture();
+    await finalizeUserOperationSponsorship({ ...grown.input, marginsCoverSameSizeSponsorship: true });
+    expect(grown.provider.estimate).toHaveBeenCalledTimes(1);
+    const plain = fixture({ quote: (op) => ({ ...op, paymasterData: `0x${"ab".repeat(32)}` as Hex }) });
+    plain.input.operation = Object.freeze({ ...plain.input.operation, paymasterData: `0x${"00".repeat(32)}` as Hex });
+    await finalizeUserOperationSponsorship(plain.input);
+    expect(plain.provider.estimate).toHaveBeenCalledTimes(1);
+  });
   it("fails after three current-profile quotes when estimates keep increasing", async () => {
     const f = fixture({ estimate: (op) => ({
       ...coveredEstimate(op),
