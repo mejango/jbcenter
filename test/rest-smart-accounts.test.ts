@@ -219,7 +219,7 @@ function fixture(
     };
     return { record: await service.bind(principal, payload), payload };
   }
-  return { service, registry, request, state, bind, inspections };
+  return { service, registry, request, state, bind, inspections, options };
 }
 describe("smart account ownership and module boundaries", () => {
   it("retains exact older manifest bindings when new creation defaults are introduced", async () => {
@@ -353,10 +353,20 @@ describe("smart account ownership and module boundaries", () => {
       const older = { ...first, evidence: { ...first.evidence, blockNumber: "1", blockHash: `0x${"0a".repeat(32)}` as Hex, timestamp: String(time - 3000) } };
       test.service.remember(older);
       expect((await read()).evidence.blockHash).toBe(first.evidence.blockHash);
-      // Past the window the chain is read again.
+      // Past the window an opted-in read still answers from the last verification, and the chain is
+      // read again behind it; the next read finds the new state. A read that fails behind the
+      // answer forgets the entry, so the read after it waits on the chain and sees the failure.
       time += 901;
-      await read();
+      expect(await read()).toEqual(first);
+      await vi.waitFor(async () => expect((await read()).evidence.timestamp).toBe(String(time)));
       expect(test.inspections).toHaveLength(3);
+      time += 901;
+      test.options.runtimeMismatch = true;
+      const calls = test.request.mock.calls.length;
+      expect((await read()).evidence.timestamp).toBe(String(time - 901));
+      await vi.waitFor(() => expect(test.request.mock.calls.length).toBeGreaterThan(calls));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await expect(read()).rejects.toMatchObject({ code: "SMART_RUNTIME_MISMATCH" });
     } finally {
       time = started;
     }
@@ -437,10 +447,15 @@ describe("smart account ownership and module boundaries", () => {
       status: 403,
     });
     test.state.threshold = 1;
-    // The binding read reuses the last verification for its window; the change shows once it
-    // lapses (a dispatch-time read at its exact block never reuses a stale state).
+    // The binding read answers from the last verification at any age while the chain is read
+    // again behind it; the change shows on the next read (a dispatch-time read at its exact block
+    // never reuses a stale state).
     time += 901;
     try {
+      const calls = test.request.mock.calls.length;
+      expect((await test.service.current(principal.account.id, record.id)).state.threshold).toBe(2);
+      await vi.waitFor(() => expect(test.request.mock.calls.length).toBeGreaterThan(calls));
+      await new Promise((resolve) => setTimeout(resolve, 50));
       await expect(
         test.service.current(principal.account.id, record.id),
       ).rejects.toMatchObject({ code: "SMART_ACCOUNT_CHANGED" });

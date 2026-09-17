@@ -249,13 +249,24 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
     };
   }
   // Every verification is remembered; only a caller that opts in (the binding read behind a
-  // payment's plan and operation) is served from it, for the reuse window from the verified head
-  // or at the very block already verified. Onboarding, authority and dispatch checks always read
-  // the chain, and a submission verifies the account again at its own head, so the window only
-  // decides whether preparing a payment waits for an inspection: it matches the sign-in identity
-  // window. The wallet authority refresh hands each verified state in through `remember`.
+  // payment's plan and operation) is served from it: at the very block already verified, or at
+  // the latest head at any age, with the chain read again behind the answer once the entry is
+  // older than the reuse window, as sign-in serves a verified identity at any age. Onboarding,
+  // authority and dispatch checks always read the chain, and a submission verifies the account
+  // again at its own head, so a stale answer can only make a payment fail there, never pass. A
+  // read that fails behind the answer forgets the entry, so the next read waits on the chain and
+  // sees the failure. The wallet authority refresh hands each verified state in through `remember`.
   const recent = new Map<string, SmartAccountState>();
+  const refreshing = new Map<string, Promise<void>>();
   const reuseMs = options.reuseMs ?? 900_000;
+  function refresh(key: string, input: { manifestId: string; address: Address }) {
+    if (refreshing.has(key)) return;
+    refreshing.set(key, inspectFresh(input).then(keep, (error: unknown) => {
+      recent.delete(key);
+      console.info(JSON.stringify({ service: "smart-accounts", action: "state_refresh", outcome: "failed",
+        manifestId: input.manifestId, code: error instanceof RestError ? error.code : "unknown" }));
+    }).then(() => undefined).finally(() => refreshing.delete(key)));
+  }
   const keyOf = (manifestId: string, address: string) => `${manifestId}:${address.toLowerCase()}`;
   // A verification at an older block (a historical check behind a receipt) never replaces a
   // newer entry: the entry always describes the account at the latest block anyone verified.
@@ -283,12 +294,14 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
     const cached = recent.get(key);
     const age = cached === undefined ? null : now() - Number(cached.evidence.timestamp) * 1000;
     const fresh = age !== null && age < reuseMs;
-    if (cached && !fresh) recent.delete(key);
-    const hit = reuse && cached !== undefined && (at ? same(cached.evidence.blockHash, at.blockHash) : fresh);
+    const hit = reuse && cached !== undefined && (at ? same(cached.evidence.blockHash, at.blockHash) : true);
     if (reuse)
-      console.info(JSON.stringify({ service: "smart-accounts", action: "state_reuse", outcome: hit ? "hit" : "miss",
+      console.info(JSON.stringify({ service: "smart-accounts", action: "state_reuse", outcome: hit ? fresh ? "hit" : "stale" : "miss",
         manifestId: input.manifestId, ageMs: age === null ? null : Math.round(age), pinned: at !== undefined }));
-    if (hit) return structuredClone(cached);
+    if (hit) {
+      if (!fresh && !at) refresh(key, input);
+      return structuredClone(cached);
+    }
     const state = await inspectFresh(input, signal, at);
     keep(state);
     return state;
