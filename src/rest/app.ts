@@ -1139,6 +1139,7 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
     return response(context, { creation }, 201);
   });
   app.post("/smart-accounts/bindings/:id/plans", async (context) => {
+    const started = Date.now();
     query(context, []);
     const { input, principal } = await authenticate(context, ["plan"]);
     const key = idempotency(principal),
@@ -1163,17 +1164,18 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
             context.get("restSignal"),
           )
         : await draftFor(body.operation, body.input, context.get("restSignal"));
-    return response(
-      context,
-      await deps.transactions.createSmartAccountPlan(
-        actor(principal),
-        context.req.param("id") as Hex,
-        draft,
-        key,
-        hash,
-      ),
-      201,
+    const drafted = Date.now();
+    const plan = await deps.transactions.createSmartAccountPlan(
+      actor(principal),
+      context.req.param("id") as Hex,
+      draft,
+      key,
+      hash,
     );
+    // Where a plan's time goes, for the production log; the request line only has the total.
+    console.info(JSON.stringify({ service: "smart-accounts", action: "plan_stages", operation: body.operation,
+      draftMs: drafted - started, accountMs: Date.now() - drafted }));
+    return response(context, plan, 201);
   });
   const sessions = () => {
     if (!deps.sessions)

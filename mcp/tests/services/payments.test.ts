@@ -304,6 +304,37 @@ describe('payment quotes and approval plans', () => {
       (h.service as unknown as { recentProjects: Map<string, unknown> }).recentProjects.size,
     ).toBe(1);
   });
+  it('answers from a route past half its life and reads it again behind the quote', async () => {
+    const f = fixture();
+    const names = () => f.readContract.mock.calls.map(([request]) => request.functionName);
+    await f.service.preparePay(payInput);
+    const routes = (f.service as unknown as { recentProjects: Map<string, { at: number }> })
+      .recentProjects;
+    routes.forEach((entry) => {
+      entry.at -= 900_000;
+    });
+    f.readContract.mockClear();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const original = f.readContract.getMockImplementation()!;
+    f.readContract.mockImplementation(async (request) => {
+      if (request.functionName === 'controllerOf') await held;
+      return original(request);
+    });
+    // The quote does not wait on the re-read; a second quote meanwhile does not start another.
+    await f.service.preparePay(payInput);
+    await f.service.preparePay(payInput);
+    expect(names().filter((name) => name === 'previewPayFor')).toHaveLength(2);
+    expect(names().filter((name) => name === 'controllerOf')).toHaveLength(1);
+    const before = [...routes.values()][0]!.at;
+    release();
+    await vi.waitFor(() => expect([...routes.values()][0]!.at).toBeGreaterThan(before));
+    f.readContract.mockClear();
+    await f.service.preparePay(payInput);
+    expect(names()).toEqual(['previewPayFor']);
+  });
   it('preserves an invoice memo in exact payment bytes and rejects oversized UTF-8 text', async () => {
     const plan = await fixture().service.preparePay({ ...payInput, memo: 'beep:invoice-123' });
     const decoded = decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data });

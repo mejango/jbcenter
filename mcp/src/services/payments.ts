@@ -183,15 +183,19 @@ function call(
  * one project arrive minutes apart, every quote is still previewed live and the route is re-read on a
  * ruleset change; a terminal or hook swap inside this window only makes the plan's own simulation fail. */
 const routeLifetimeMs = 1_800_000;
+type RouteEntry = {
+  at: number;
+  evidence: BlockEvidence;
+  context: RulesetContext;
+  terminal: PaymentTerminal;
+};
 export class PaymentService {
   constructor(private readonly rpc: RpcProvider) {}
   /** A project's controller, ruleset, hooks and payment terminal change rarely; one read serves
    * the payments of the next minutes. The live preview still binds every quote to the current
    * ruleset, and a disagreement drops the entry and reads again. */
-  private readonly recentProjects = new Map<
-    string,
-    { at: number; evidence: BlockEvidence; context: RulesetContext; terminal: PaymentTerminal }
-  >();
+  private readonly recentProjects = new Map<string, RouteEntry>();
+  private readonly routeReads = new Map<string, Promise<RouteEntry>>();
   private async payRoute(
     client: PublicClient,
     evidence: BlockEvidence,
@@ -201,16 +205,42 @@ export class PaymentService {
     const key = `${project.chainId}:${uint(project.projectId, 'projectId')}:${token.toLowerCase()}`;
     const now = Date.now();
     const kept = this.recentProjects.get(key);
-    if (kept && now - kept.at < routeLifetimeMs) return { key, fresh: false, ...kept };
-    const [context, terminal] = await Promise.all([
-      this.context(client, project, 'pay'),
-      this.paymentTerminal(client, project, token),
-    ]);
-    // Any caller can name any token; expired entries go on every write so the map stays small.
-    for (const [other, entry] of this.recentProjects)
-      if (now - entry.at >= routeLifetimeMs) this.recentProjects.delete(other);
-    this.recentProjects.set(key, { at: now, evidence, context, terminal });
-    return { key, fresh: true, evidence, context, terminal };
+    if (kept && now - kept.at < routeLifetimeMs) {
+      // Past half its life a kept route is read again behind the quote, so a project paid at least
+      // every quarter hour never waits on a cold read. A failed re-read keeps the entry to its end.
+      if (now - kept.at >= routeLifetimeMs / 2)
+        this.readRoute(key, client, evidence, project, token).catch(() => undefined);
+      return { key, fresh: false, ...kept };
+    }
+    return { key, fresh: true, ...(await this.readRoute(key, client, evidence, project, token)) };
+  }
+  /** One read per route at a time; whoever asks meanwhile joins it. */
+  private readRoute(
+    key: string,
+    client: PublicClient,
+    evidence: BlockEvidence,
+    project: ProjectRef,
+    token: Address,
+  ) {
+    let reading = this.routeReads.get(key);
+    if (!reading) {
+      reading = Promise.all([
+        this.context(client, project, 'pay'),
+        this.paymentTerminal(client, project, token),
+      ])
+        .then(([context, terminal]) => {
+          const now = Date.now();
+          // Any caller can name any token; expired entries go on every write so the map stays small.
+          for (const [other, entry] of this.recentProjects)
+            if (now - entry.at >= routeLifetimeMs) this.recentProjects.delete(other);
+          const entry = { at: now, evidence, context, terminal };
+          this.recentProjects.set(key, entry);
+          return entry;
+        })
+        .finally(() => this.routeReads.delete(key));
+      this.routeReads.set(key, reading);
+    }
+    return reading;
   }
 
   async quotePay(input: PayInput) {
@@ -611,8 +641,20 @@ export class PaymentService {
       if (request.functionName === 'previewPayFor' && Array.isArray(result)) fullPreview = result;
     });
     const metadata = input.metadata ?? '0x';
+    const started = Date.now();
     let route = await this.payRoute(client, snapshot.evidence, input.project, input.token);
+    const routed = Date.now();
     let preview = await this.previewFor(client, input, route.terminal.address, amount, metadata);
+    // Where a quote's time goes, for the production log; the request line only has the total.
+    console.info(
+      JSON.stringify({
+        service: 'payments',
+        action: 'pay_quote',
+        route: route.fresh ? 'read' : 'kept',
+        routeMs: routed - started,
+        previewMs: Date.now() - routed,
+      }),
+    );
     const rulesetOf = () => {
       const previewRuleset = fullPreview?.[0];
       return previewRuleset && typeof previewRuleset === 'object' && 'id' in previewRuleset

@@ -355,7 +355,10 @@ export class UserOperationService {
           );
       }
     }
+    const stages: Record<string, number> = {};
+    const stage = ((last) => (name: string) => { const now = Date.now(); stages[name] = now - last; last = now; })(Date.now());
     const { binding, manifest } = await this.account(plan, signal);
+    stage("accountMs");
     const passkeyProfile = userOperationPasskeyProfile(binding, manifest);
     if (passkeyProfile && input.sessionId)
       fail("USER_OPERATION_PASSKEY_SESSION_UNAVAILABLE", "The passkey pilot requires fresh owner approval for every operation.", 422);
@@ -399,6 +402,7 @@ export class UserOperationService {
       chain.request(binding.wallet.chainId, "eth_maxPriorityFeePerGas", []),
       provider.gasPrice(binding.wallet.chainId, signal),
     ]);
+    stage("headMs");
     // Never below the bundler's floor: a cheaper operation is accepted, then waits until it expires.
     const priority = max(uoQuantity(nodePriority, "priority fee"), floor?.maxPriorityFeePerGas ?? 0n);
     const fee = max(uoQuantity(baseFeePerGas, "base fee") * 2n + priority, floor?.maxFeePerGas ?? 0n);
@@ -460,6 +464,7 @@ export class UserOperationService {
           signal,
         )
       : undefined;
+    stage("stubMs");
     if (stub) operation = stub.operation;
     if (gasEstimation && !stub?.isFinal)
       operation = gasEstimation.fit(operation);
@@ -484,6 +489,7 @@ export class UserOperationService {
           );
       expiresAt = Math.min(expiresAt, stub.proof.validUntil * 1000);
     } else operation = applyUserOperationEstimate(operation, estimate);
+    stage("estimateMs");
     gasEstimation?.assert(operation);
     if (sponsored && !stub?.isFinal) {
       const funded = await finalizeUserOperationSponsorship({
@@ -502,6 +508,7 @@ export class UserOperationService {
       operation = funded.operation;
       expiresAt = funded.expiresAt;
     }
+    stage("sponsorMs");
     assertUserOperationGasPolicy(operation, policy.gas);
     gasEstimation?.assert(operation);
     await chain.canonical(evidence);
@@ -547,7 +554,11 @@ export class UserOperationService {
       revision: 0,
       state: "prepared",
     };
-    return this.view(await this.options.store.create(record, this.now()));
+    const view = this.view(await this.options.store.create(record, this.now()));
+    stage("storeMs");
+    // Where a preparation's time goes, for the production log; the request line only has the total.
+    console.info(JSON.stringify({ service: "user-operations", action: "prepare_stages", ...stages }));
+    return view;
   }
 
   private session(
