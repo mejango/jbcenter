@@ -31,7 +31,7 @@ export function createWalletAuthorityService(options: WalletAuthorityServiceDepe
       if (!walletAppAccount(accountId)) invalidAccount();
       return options.store.get ? options.store.get(accountId) : null;
     },
-    async refreshAuthority(accountId: string, signal?: AbortSignal): Promise<{ snapshot: WalletAuthoritySnapshot; replayed: boolean }> {
+    async refreshAuthority(accountId: string, signal?: AbortSignal): Promise<{ snapshot: WalletAuthoritySnapshot; replayed: boolean; catchingUp?: true }> {
       if (!walletAppAccount(accountId)) invalidAccount();
       cancelled(signal);
       // Validation produces a bounded private copy before any configured provider work.
@@ -41,6 +41,11 @@ export function createWalletAuthorityService(options: WalletAuthorityServiceDepe
       const observation = validateWalletAuthorityObservation(
         await observe(validateWalletAuthorityContext(context), signal), context,
       );
+      // A staged history catch-up carries no head and proves nothing about the account: the verified
+      // identity on record stays as it is (storing the stage would read as `unknown` and refuse
+      // sign-in until the last stage). Before any verified observation the stage is stored as before.
+      if (observation.reason === "authority-history-catching-up" && observation.head === null && context.prior?.readiness === "verified")
+        return { snapshot: context.prior, replayed: true, catchingUp: true };
       // A completed observation can prove revoked authority. Persist that fact even if
       // its requester cancelled meanwhile; the store still checks revision and DB time.
       // Never reload/retry here: that could replace the captured logout/authority epochs.

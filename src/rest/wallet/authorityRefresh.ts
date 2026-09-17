@@ -26,7 +26,7 @@ export type AuthorityRefreshEvent = 'verified' | 'unready' | 'progress' | 'confl
   | 'queue_failed' | 'attempt_timeout' | 'shutdown_timeout';
 export interface AuthorityRefreshOptions {
   queue: AuthorityRefreshQueue;
-  service: { refreshAuthority(accountId: string, signal?: AbortSignal): Promise<{ snapshot: WalletAuthoritySnapshot; replayed: boolean }> };
+  service: { refreshAuthority(accountId: string, signal?: AbortSignal): Promise<{ snapshot: WalletAuthoritySnapshot; replayed: boolean; catchingUp?: true }> };
   concurrency?: number; tickMs?: number; attemptTimeoutMs?: number; shutdownTimeoutMs?: number;
   now?: () => number; onEvent?: (event: AuthorityRefreshEvent) => void;
 }
@@ -75,10 +75,10 @@ export function createWalletAuthorityRefresh(options: AuthorityRefreshOptions): 
     let result: AuthorityRefreshResult = { outcome: 'failed', readyUntilMs: null };
     try {
       if (!controller.signal.aborted && lease.untilMs > now()) {
-        const { snapshot } = await refresh(lease.accountId, controller.signal);
+        const { snapshot, catchingUp } = await refresh(lease.accountId, controller.signal);
         if (snapshot.accountId !== lease.accountId) throw new Error('Mismatched authority account');
-        result = { outcome: snapshot.latestObservation?.reason === 'authority-history-catching-up' ? 'progress' : 'unready', readyUntilMs: null };
-        if (snapshot.readiness === 'verified' && !snapshot.bootstrapRequired && snapshot.activeFence === null
+        result = { outcome: catchingUp || snapshot.latestObservation?.reason === 'authority-history-catching-up' ? 'progress' : 'unready', readyUntilMs: null };
+        if (!catchingUp && snapshot.readiness === 'verified' && !snapshot.bootstrapRequired && snapshot.activeFence === null
           && fresh({ outcome: 'verified', readyUntilMs: snapshot.validUntilMs }))
           result = { outcome: 'verified', readyUntilMs: snapshot.validUntilMs };
       }

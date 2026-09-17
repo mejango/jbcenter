@@ -130,7 +130,12 @@ suite('signed app requests renew their own bounded authority refresh interest', 
     [first, second, unknown] = await Promise.all([start(), start(), start('unknown')]);
   }, 20_000);
   beforeEach(async () => {
-    await pool.query('TRUNCATE rest_accounts,rest_wallet_credentials,rest_wallet_enrollments,rest_wallet_ceremonies,rest_wallet_policy,wallet_app_refresh_events,wallet_app_refresh_claims CASCADE');
+    // A previous test's background refresh tick may still be cleaning the queue; a deadlock with
+    // the truncate aborts one side, so the truncate simply tries again.
+    for (let attempt = 0; ; attempt++) {
+      try { await pool.query('TRUNCATE rest_accounts,rest_wallet_credentials,rest_wallet_enrollments,rest_wallet_ceremonies,rest_wallet_policy,wallet_app_refresh_events,wallet_app_refresh_claims CASCADE'); break; }
+      catch (error) { if (attempt >= 5 || (error as { code?: string }).code !== '40P01') throw error; await new Promise(resolve => setTimeout(resolve, 50)); }
+    }
     await pool.query('UPDATE rest_wallet_authority_refresh_control SET configuration=NULL,window_start_ms=0,starts_in_window=0 WHERE id=1');
     await new PostgresWalletPolicyStore(pool).activate({ expectedRevision: 0, nextRevision: 1, configuration: configuration() });
   });

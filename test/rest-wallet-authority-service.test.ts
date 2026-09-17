@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { keccak256, stringToHex } from "viem";
 import { RestError } from "../src/rest/core.js";
 import { createWalletAuthorityService } from "../src/rest/wallet/authorityService.js";
-import { createWalletAuthorityIdentity, reconcileWalletAuthority, walletAuthorityContextDigest,
+import { createWalletAuthorityIdentity, reconcileWalletAuthority, walletAuthorityContextDigest, walletAuthorityExpectedAnchor,
   type WalletAuthorityContext, type WalletAuthorityObservation } from "../src/rest/wallet/authority.js";
 import { createWalletAuthorityContextFixture } from "./fixtures/wallet-authority-context.js";
 
@@ -53,6 +53,24 @@ describe("internal authority refresh orchestration", () => {
     expect(f.store.reconcile).toHaveBeenCalledExactlyOnceWith(f.context, f.observation);
   });
 
+  it("keeps a verified identity untouched while the account's history is still catching up", async () => {
+    // A staged catch-up carries no head and no new fact about the account: storing it would turn a
+    // known identity into `unknown` and refuse every sign-in and app request until the last stage.
+    const f = fixture(), prior = f.result.snapshot;
+    f.context.prior = prior;
+    f.chain.observe.mockResolvedValue({ ...f.observation, contextDigest: walletAuthorityContextDigest(f.context), validUntilMs: null, head: null,
+      identity: null, eligibility: null, priorAnchor: { status: "unavailable", expected: walletAuthorityExpectedAnchor(f.context), observed: null },
+      reason: "authority-history-catching-up" });
+    const result = await f.service.refreshAuthority(f.context.accountId);
+    expect(result).toEqual({ snapshot: prior, replayed: true, catchingUp: true });
+    expect(f.store.reconcile).not.toHaveBeenCalled();
+    // Before the first verified observation there is nothing to keep: the catch-up is stored as today.
+    f.context.prior = null; f.store.reconcile.mockResolvedValue(f.result);
+    f.chain.observe.mockResolvedValue({ ...f.observation, validUntilMs: null, head: null, identity: null, eligibility: null,
+      priorAnchor: { status: "none", expected: null, observed: null }, reason: "authority-history-catching-up" });
+    expect(await f.service.refreshAuthority(f.context.accountId)).toEqual(f.result);
+    expect(f.store.reconcile).toHaveBeenCalledOnce();
+  });
   it("keeps a private bounded context when the observer changes its own copy", async () => {
     const f = fixture(), expected = structuredClone(f.context);
     f.chain.observe.mockImplementation(async observed => {
