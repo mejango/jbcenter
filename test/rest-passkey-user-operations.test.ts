@@ -603,6 +603,24 @@ describe("passkey UserOperation owner admission", () => {
     expect(f.state.sends).toBe(1);
   });
 
+  it("lets a hand-back whose checks fail against the operation the approval already published observe that submission", async () => {
+    const f = await fixture(), view = await f.prepare(), signature = f.signature(view);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    // The hand-back loads the record before the approval's submission lands, then waits in its account check.
+    f.currentBindingAt.mockImplementationOnce(async () => { await held; return f.wallet; });
+    const handBack = f.service.submit(f.principal, view.id, signature, "submit-hand-back");
+    await vi.waitFor(() => expect(f.currentBindingAt).toHaveBeenCalledTimes(1));
+    expect((await f.service.submitApproved({ actor: f.actor, operationId: view.id, signature, key: "review:one",
+      authority: { issuedAt: now / 1000, expiresAt: now / 1000 + 300 } })).state).toBe("pending");
+    expect(f.state.sends).toBe(1);
+    // The bundler now refuses to estimate an operation it already holds.
+    f.state.estimateFailure = true; release();
+    expect((await handBack).state).toBe("pending");
+    expect(f.state.sends).toBe(1);
+    expect((await f.store.get(f.actor, view.id))!.submission!.key).toBe("review:one");
+  });
+
   it("permits only one competing signature to claim the same prepared nonce", async () => {
     const f = await fixture(), view = await f.prepare();
     const results = await Promise.allSettled(Array.from({ length: 25 }, (_, index) =>

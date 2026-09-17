@@ -645,6 +645,39 @@ export class UserOperationService {
     actor: RestActor; principal: RestPrincipal | undefined; record: UserOperationRecord; plan: StoredPlan; operation: UserOperationV07;
     signedCommitment: Hex; key: string; authority: { issuedAt: number; expiresAt: number }; signal: AbortSignal | undefined;
   }) {
+    const { actor, record, signedCommitment, signal } = input;
+    // The approval's own submission and the app's hand-back can run these checks at the same time;
+    // whichever loses (a check failing against an operation the other already published, or the
+    // claim) observes the submission that landed instead of reporting a failure.
+    let claim: Awaited<ReturnType<UserOperationServiceDependencies["store"]["claim"]>>;
+    try { claim = await this.admit(input); }
+    catch (error) {
+      const current = await this.options.store.get(actor, record.id);
+      if (current?.submission && same(current.submission.commitment, signedCommitment)) return this.view(await this.refresh(current, signal));
+      throw error;
+    }
+    if (!claim.dispatch)
+      return this.view(await this.refresh(claim.record, signal));
+    // Admission permanently reserves both plan transport and nonce before the only publication attempt.
+    let state: "pending" | "submission_unknown" = "pending";
+    try {
+      await this.providerForRecord(record).send(record.chainId, input.operation, signal);
+    } catch {
+      state = "submission_unknown";
+    }
+    const submitted = await this.options.store.settle(
+      record.id,
+      signedCommitment,
+      state,
+    );
+    return this.view(submitted);
+  }
+
+  /** Every gate before the nonce claim, then the claim itself. */
+  private async admit(input: {
+    actor: RestActor; principal: RestPrincipal | undefined; record: UserOperationRecord; plan: StoredPlan; operation: UserOperationV07;
+    signedCommitment: Hex; key: string; authority: { issuedAt: number; expiresAt: number }; signal: AbortSignal | undefined;
+  }) {
     const { actor, principal, record, plan, operation, signedCommitment, key, authority: requestAuthority, signal } = input;
     const id = record.id;
     const policy = this.policy(record.chainId);
@@ -756,7 +789,7 @@ export class UserOperationService {
       issuedAt: Math.max(requestAuthority.issuedAt, validAfter),
       expiresAt: Math.min(requestAuthority.expiresAt, validUntil),
     };
-    const claim = await this.options.store.claim({
+    return this.options.store.claim({
       actor,
       id,
       key,
@@ -766,21 +799,6 @@ export class UserOperationService {
       ...(sessionObservationHash ? { sessionObservationHash } : {}),
       now: this.now(),
     });
-    if (!claim.dispatch)
-      return this.view(await this.refresh(claim.record, signal));
-    // Admission permanently reserves both plan transport and nonce before the only publication attempt.
-    let state: "pending" | "submission_unknown" = "pending";
-    try {
-      await provider.send(record.chainId, operation, signal);
-    } catch {
-      state = "submission_unknown";
-    }
-    const submitted = await this.options.store.settle(
-      id,
-      signedCommitment,
-      state,
-    );
-    return this.view(submitted);
   }
 
   async get(principal: RestPrincipal, id: string, signal?: AbortSignal) {
