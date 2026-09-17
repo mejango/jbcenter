@@ -244,8 +244,31 @@ describe('payment quotes and approval plans', () => {
     const first = names();
     expect(first).toContain('controllerOf');
     expect(first).toContain('primaryTerminalOf');
-    // The context reads and the terminal reads are not serialised behind each other.
-    expect(first.indexOf('primaryTerminalOf')).toBeLessThan(first.indexOf('currentRulesetOf'));
+    // The controller, the ruleset and the terminal go out together, ahead of any dependent read.
+    expect(first.slice(0, 3).sort()).toEqual([
+      'controllerOf',
+      'currentRulesetOf',
+      'primaryTerminalOf',
+    ]);
+    {
+      const held = fixture();
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const original = held.readContract.getMockImplementation()!;
+      held.readContract.mockImplementation(async (request) => {
+        if (request.functionName === 'controllerOf') await gate;
+        return original(request);
+      });
+      const quoting = held.service.preparePay(payInput);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const issued = held.readContract.mock.calls.map(([request]) => request.functionName);
+      expect(issued).toContain('currentRulesetOf');
+      expect(issued).toContain('primaryTerminalOf');
+      release();
+      await quoting;
+    }
     f.readContract.mockClear();
     const { client: snapshotClient } = await f.snapshot();
     f.snapshot.mockResolvedValueOnce({
@@ -418,8 +441,28 @@ describe('payment quotes and approval plans', () => {
   });
 
   it('makes reset, exact approval, and payment dependencies explicit without fictitious simulation state', async () => {
-    const { service, simulateContract } = fixture({ allowance: 9n });
+    const { service, simulateContract, readContract } = fixture({ allowance: 9n });
     const plan = await service.preparePay({ ...payInput, token });
+    // The allowance goes out beside the preview rather than after it.
+    {
+      const held = fixture({ allowance: 9n });
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const original = held.readContract.getMockImplementation()!;
+      held.readContract.mockImplementation(async (request) => {
+        if (request.functionName === 'previewPayFor') await gate;
+        return original(request);
+      });
+      const preparing = held.service.preparePay({ ...payInput, token });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(held.readContract.mock.calls.map(([request]) => request.functionName)).toContain(
+        'allowance',
+      );
+      release();
+      await preparing;
+    }
     expect(plan.calls.map((item) => item.dependsOn)).toEqual([[], [0], [1]]);
     expect(plan.calls.map((item) => item.value)).toEqual(['0', '0', '0']);
     expect(decodeFunctionData({ abi: erc20Abi, data: plan.calls[0]!.data }).args).toEqual([

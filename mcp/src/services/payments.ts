@@ -257,16 +257,24 @@ export class PaymentService {
   }
 
   async preparePay(input: PayInput): Promise<PlanDraft> {
-    const { quote, transaction, snapshot } = await this.pay(input);
+    // The allowance depends only on the terminal: read beside the preview, not after it.
+    const {
+      quote,
+      transaction,
+      beside: allowance = 0n,
+    } = await this.pay(input, (client, terminal) =>
+      isNative(input.token)
+        ? Promise.resolve(0n)
+        : client.readContract({
+            address: input.token,
+            abi: erc20Abi,
+            functionName: 'allowance',
+            args: [input.account, terminal],
+          }),
+    );
     const calls: PreparedCall[] = [];
     if (!isNative(input.token)) {
       const amount = uint(input.amount, 'amount');
-      const allowance = await snapshot.client.readContract({
-        address: input.token,
-        abi: erc20Abi,
-        functionName: 'allowance',
-        args: [input.account, transaction.address],
-      });
       if (allowance < amount) {
         if (allowance > 0n) {
           calls.push(
@@ -386,12 +394,16 @@ export class PaymentService {
     operation: 'pay' | 'cashOut' | 'payout',
   ): Promise<RulesetContext> {
     const projectId = uint(project.projectId, 'projectId');
-    const controller = await client.readContract({
-      address: v6Address('JBDirectory', project.chainId),
-      abi: jbDirectoryAbi,
-      functionName: 'controllerOf',
-      args: [projectId],
-    });
+    // The controller and the ruleset depend only on the project: one round trip for both.
+    const [controller, current] = await Promise.all([
+      client.readContract({
+        address: v6Address('JBDirectory', project.chainId),
+        abi: jbDirectoryAbi,
+        functionName: 'controllerOf',
+        args: [projectId],
+      }),
+      getCurrentRuleset(client, { chainId: project.chainId, projectId }),
+    ]);
     if (same(controller, zeroAddress))
       throw new DomainError('PROJECT_NOT_FOUND', 'The project has no current controller.');
     if (!same(controller, v6Address('JBController', project.chainId))) {
@@ -399,7 +411,6 @@ export class PaymentService {
         'The current directory controller is custom. Its economic semantics need an audited adapter before preparing transactions.',
       );
     }
-    const current = await getCurrentRuleset(client, { chainId: project.chainId, projectId });
     if (BigInt(current.ruleset.id) === 0n)
       throw new DomainError(
         'NO_ACTIVE_RULESET',
@@ -431,31 +442,34 @@ export class PaymentService {
         same(hook, canonicalRegistry) ||
         same(hook, v6Address('REVOwner', project.chainId))
       ) {
+        // The revnet's registry, its NFT hook and the registry's hook depend only on the
+        // project: one round trip for all of them.
+        const [registry, tiered, resolved] = await Promise.all([
+          same(hook, v6Address('REVOwner', project.chainId))
+            ? client.readContract({ address: hook, abi: revOwnerAbi, functionName: 'BUYBACK_HOOK' })
+            : undefined,
+          same(hook, v6Address('REVOwner', project.chainId)) && operation === 'pay'
+            ? client.readContract({
+                address: hook,
+                abi: revOwnerAbi,
+                functionName: 'tiered721HookOf',
+                args: [projectId],
+              })
+            : undefined,
+          client.readContract({
+            address: canonicalRegistry,
+            abi: jbBuybackHookRegistryAbi,
+            functionName: 'hookOf',
+            args: [projectId],
+          }),
+        ]);
         if (same(hook, v6Address('REVOwner', project.chainId))) {
           revOwner = hook;
-          const registry = await client.readContract({
-            address: hook,
-            abi: revOwnerAbi,
-            functionName: 'BUYBACK_HOOK',
-          });
-          if (!same(registry, canonicalRegistry))
+          if (!same(registry!, canonicalRegistry))
             unsupported('This revnet uses a custom buyback registry.');
-          if (operation === 'pay') {
-            const tiered = await client.readContract({
-              address: hook,
-              abi: revOwnerAbi,
-              functionName: 'tiered721HookOf',
-              args: [projectId],
-            });
-            if (!same(tiered, zeroAddress)) await verifyTiered(tiered);
-          }
+          if (tiered !== undefined && !same(tiered, zeroAddress)) await verifyTiered(tiered);
         }
-        buybackHook = await client.readContract({
-          address: canonicalRegistry,
-          abi: jbBuybackHookRegistryAbi,
-          functionName: 'hookOf',
-          args: [projectId],
-        });
+        buybackHook = resolved;
         if (
           !same(buybackHook, zeroAddress) &&
           !knownBuybacks.some((address) => same(buybackHook, address))
@@ -535,7 +549,17 @@ export class PaymentService {
         path: [resolved.address],
         gateway: null,
       };
-    const route = await resolveRouterTerminal(client, project, resolved.address);
+    // The route and the project's terminal list depend only on what is known here: one round
+    // trip for both, and the candidate destinations are resolved together.
+    const [route, terminals] = await Promise.all([
+      resolveRouterTerminal(client, project, resolved.address),
+      client.readContract({
+        address: v6Address('JBDirectory', project.chainId),
+        abi: jbDirectoryAbi,
+        functionName: 'terminalsOf',
+        args: [BigInt(project.projectId)],
+      }),
+    ]);
     if (same(route.terminal, zeroAddress))
       throw new DomainError(
         'NO_PAYMENT_ROUTE',
@@ -546,17 +570,16 @@ export class PaymentService {
       unsupported('The resolved payment terminal is custom and has no supported quote adapter.');
     if (!same(route.router, multi)) {
       // A known outer forwarder does not establish the identity of its candidate destinations.
-      const terminals = await client.readContract({
-        address: v6Address('JBDirectory', project.chainId),
-        abi: jbDirectoryAbi,
-        functionName: 'terminalsOf',
-        args: [BigInt(project.projectId)],
-      });
-      for (const terminal of terminals) {
-        if (same(terminal, multi)) continue;
-        const candidate = same(terminal, resolved.address)
-          ? route
-          : await resolveRouterTerminal(client, project, terminal);
+      const candidates = terminals.filter((terminal) => !same(terminal, multi));
+      const resolvedCandidates = await Promise.all(
+        candidates.map((terminal) =>
+          same(terminal, resolved.address)
+            ? route
+            : resolveRouterTerminal(client, project, terminal),
+        ),
+      );
+      for (const [index, terminal] of candidates.entries()) {
+        const candidate = resolvedCandidates[index]!;
         if (
           !same(candidate.router, zeroAddress) &&
           !same(candidate.router, multi) &&
@@ -635,7 +658,11 @@ export class PaymentService {
       metadata,
     });
   }
-  private async pay(input: PayInput) {
+  /** `beside` reads alongside the preview whatever else the plan needs from the resolved terminal. */
+  private async pay<T = undefined>(
+    input: PayInput,
+    beside?: (client: PublicClient, terminal: Address) => Promise<T>,
+  ) {
     if (
       input.memo !== undefined &&
       (typeof input.memo !== 'string' || new TextEncoder().encode(input.memo).length > 256)
@@ -653,7 +680,12 @@ export class PaymentService {
     const started = Date.now();
     let route = await this.payRoute(client, snapshot.evidence, input.project, input.token);
     const routed = Date.now();
-    let preview = await this.previewFor(client, input, route.terminal.address, amount, metadata);
+    const alongside = (terminal: Address) =>
+      Promise.all([
+        this.previewFor(client, input, terminal, amount, metadata),
+        beside?.(client, terminal),
+      ]);
+    let [preview, extra] = await alongside(route.terminal.address);
     // Where a quote's time goes, for the production log; the request line only has the total.
     console.info(
       JSON.stringify({
@@ -674,7 +706,7 @@ export class PaymentService {
       // The kept context is behind the chain (a new ruleset): read it again, once.
       this.recentProjects.delete(route.key);
       route = await this.payRoute(client, snapshot.evidence, input.project, input.token);
-      preview = await this.previewFor(client, input, route.terminal.address, amount, metadata);
+      [preview, extra] = await alongside(route.terminal.address);
     }
     const { context, terminal } = route;
     if (!fullPreview || !Array.isArray(fullPreview[3]))
@@ -794,7 +826,7 @@ export class PaymentService {
       evidence: [snapshot.evidence],
       warnings,
     };
-    return { quote, transaction, snapshot };
+    return { quote, transaction, snapshot, beside: extra };
   }
 
   private async cashOut(input: CashOutInput) {
