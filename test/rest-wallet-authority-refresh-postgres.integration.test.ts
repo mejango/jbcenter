@@ -118,14 +118,20 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
     await pool?.end(); if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
   });
 
-  it("clears the configuration pinned by an earlier release so the new interest is recorded, not refused", async () => {
+  it("replaces a configuration pinned by an earlier revision, and refuses one that differs at its own", async () => {
     const accountId = await eligibleAccount(), store = queue();
+    const pinned = async () => (await pool.query("SELECT configuration FROM rest_wallet_authority_refresh_control WHERE id=1")).rows[0]!.configuration;
+    // An earlier release's copy (no revision, the old interest) gives way during a rollover.
     await pool.query("UPDATE rest_wallet_authority_refresh_control SET configuration=$1::jsonb WHERE id=1",
-      [JSON.stringify({ ...options, interestMs: 120_000 })]);
-    await expect(store.request(accountId)).rejects.toMatchObject({ code: "WALLET_AUTHORITY_REFRESH_CONFIG_CONFLICT" });
-    await pool.query(await readFile(new URL("../src/db/migrations/050_wallet_authority_refresh_interest_day.sql", import.meta.url), "utf8"));
+      [JSON.stringify({ ...options, interestMs: 120_000, revision: undefined })]);
     expect((await store.request(accountId)).status).toBe("queued");
-    expect((await pool.query("SELECT configuration FROM rest_wallet_authority_refresh_control WHERE id=1")).rows[0]!.configuration).toMatchObject(options);
+    expect(await pinned()).toMatchObject({ ...options, revision: 2 });
+    // The old replica, still ticking, now refuses; so does any replica that differs at the same revision.
+    await expect(queue({ ...options, interestMs: 120_000 }).request(accountId)).rejects.toMatchObject({ code: "WALLET_AUTHORITY_REFRESH_CONFIG_CONFLICT" });
+    await pool.query(await readFile(new URL("../src/db/migrations/050_wallet_authority_refresh_interest_day.sql", import.meta.url), "utf8"));
+    expect(await pinned()).toBeNull();
+    expect((await store.request(accountId)).status).toBe("coalesced");
+    expect(await pinned()).toMatchObject(options);
   });
   it("coalesces concurrent demand without authority initialization or queue-order changes", async () => {
     const accountId = await eligibleAccount(), store = queue();

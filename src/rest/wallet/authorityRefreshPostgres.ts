@@ -18,7 +18,10 @@ const defaults = Object.freeze({ maxTracked: 32, maxConcurrent: 2, maxStartsPerM
   // bounds the spend and the account idle longest gives its slot to new demand. A lease outlives
   // one hosted observation (~25 s measured, 90 s budget) and its store round trips.
   interestMs: 86_400_000, leaseMs: 120_000, refreshLeadMs: 60_000,
-  verifiedMinRetryMs: 1_000, backoffBaseMs: 2_000, backoffMaxMs: 30_000 });
+  verifiedMinRetryMs: 1_000, backoffBaseMs: 2_000, backoffMaxMs: 30_000,
+  // Bumped with every change to these settings: a replica with a newer revision replaces the
+  // pinned copy, so a rollover adopts the new settings while the old replica is still ticking.
+  revision: 2 });
 type Settings = typeof defaults;
 type Job = { account_id: string; interested_until_ms: string; due_at_ms: string;
   lease_token: string | null; lease_until_ms: string | null; failures: number };
@@ -211,7 +214,7 @@ export class PostgresWalletAuthorityRefreshQueue implements AuthorityRefreshQueu
     const row = (await client.query<Control>("SELECT * FROM rest_wallet_authority_refresh_control WHERE id=1 FOR UPDATE")).rows[0];
     if (!row) throw new RestError(503, "WALLET_AUTHORITY_REFRESH_UNAVAILABLE", "Authority refresh scheduling is unavailable.");
     const now = await databaseNow(client);
-    if (row.configuration === null) {
+    if (row.configuration === null || Number(row.configuration.revision ?? 0) < this.settings.revision) {
       await client.query("UPDATE rest_wallet_authority_refresh_control SET configuration=$1::jsonb WHERE id=1", [JSON.stringify(this.settings)]);
       row.configuration = this.settings;
     } else if (Object.keys(row.configuration).length !== Object.keys(this.settings).length

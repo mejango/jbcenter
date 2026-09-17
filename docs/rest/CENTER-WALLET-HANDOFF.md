@@ -320,7 +320,7 @@ is sized to it, and `test/rest-wallet-runtime.test.ts` pins the production value
   15 min (migration 049; 039 had 120 s). Every action that changes the account (payment
   submission, device addition, recovery) verifies it again at a fresh block. Refresh queue lease 120 s, refresh lead 60 s, worker
   attempt 100 s. The queue pins its settings in `rest_wallet_authority_refresh_control` for
-  all replicas: changing them needs a migration that clears `configuration` (040 did), or
+  all replicas: changing them means bumping `revision` in the defaults (a newer revision replaces the pinned copy during the rollover), or
   every claim fails with WALLET_AUTHORITY_REFRESH_CONFIG_CONFLICT (`queue_failed` in the log).
 - A payment approval is the send: after the approval is durable, the review store hands the
   operation to `UserOperationService.submitApproved` (`attachSubmission` in `runtime.ts`) on the
