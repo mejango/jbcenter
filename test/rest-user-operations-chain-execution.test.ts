@@ -241,16 +241,18 @@ function fixture() {
     new UserOperationChain({ request: rpc }, { now: () => now });
   const accountVerifier = vi.fn(async () => {});
   const semantic = vi.fn(async () => ({ status: "verified" as const }));
-  const observe = () =>
+  const observe = (extra: { validUntil?: number; transactionHash?: Hex | undefined } = {}) =>
     observeUserOperation({
       chain: chain(),
       binding,
       signedCommitment: userOperationCommitment(operation, entryPoint, 1),
-      transactionHash: txHash,
       confirmations: 1,
       now,
       verifyAccountAtBlock: accountVerifier,
       verifySemantics: semantic,
+      ...("transactionHash" in extra ? {} : { transactionHash: txHash }),
+      ...(extra.validUntil !== undefined ? { validUntil: extra.validUntil } : {}),
+      ...(extra.transactionHash ? { transactionHash: extra.transactionHash } : {}),
     });
   return {
     operation,
@@ -585,6 +587,22 @@ describe("independent EntryPoint receipt and per-operation log proof", () => {
   });
   it("keeps absent onchain receipts pending", async () => {
     expect((await fixture().observe()).state).toBe("pending");
+  });
+  it("ends an unincluded operation once the chain is past its validity, with or without a bundler hash hint", async () => {
+    const f = fixture();
+    // Still includable: the head is within the validity window plus its reorg margin.
+    expect((await f.observe({ validUntil: now / 1000 - 60 })).state).toBe("pending");
+    expect((await f.observe({ validUntil: now / 1000 - 121 })).state).toBe("expired");
+    expect((await f.observe({ validUntil: now / 1000 - 121, transactionHash: undefined })).state).toBe("expired");
+    // A consumed nonce means something executed: without evidence that is unknown, never expired.
+    f.state.nonce = 1n;
+    const consumed = await f.observe({ validUntil: now / 1000 - 121 });
+    expect(consumed.state).toBe("unknown");
+    expect(consumed.reason).toMatch(/nonce/);
+    f.state.nonce = 0n;
+    // An included operation is judged by its receipt, never by the clock.
+    f.state.mined = true;
+    expect((await f.observe({ validUntil: now / 1000 - 121 })).state).not.toBe("expired");
   });
   it.each([
     "operationSignature",

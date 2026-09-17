@@ -124,6 +124,7 @@ const actorOf = (p: RestPrincipal): RestActor => ({
 });
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const dummySignature = `0x${"11".repeat(32)}${"22".repeat(32)}1b` as Hex;
+const max = (a: bigint, b: bigint) => (a > b ? a : b);
 function fail(code: string, message: string, status = 409): never {
   throw new RestError(status, code, message);
 }
@@ -404,15 +405,13 @@ export class UserOperationService {
       "eth_getBlockByNumber",
       [toHex(BigInt(evidence.blockNumber)), false],
     )) as Record<string, unknown>;
-    const priority = uoQuantity(
-      await chain.request(
-        binding.wallet.chainId,
-        "eth_maxPriorityFeePerGas",
-        [],
-      ),
-      "priority fee",
-    );
-    const fee = uoQuantity(block.baseFeePerGas, "base fee") * 2n + priority;
+    const [nodePriority, floor] = await Promise.all([
+      chain.request(binding.wallet.chainId, "eth_maxPriorityFeePerGas", []),
+      provider.gasPrice(binding.wallet.chainId, signal),
+    ]);
+    // Never below the bundler's floor: a cheaper operation is accepted, then waits until it expires.
+    const priority = max(uoQuantity(nodePriority, "priority fee"), floor?.maxPriorityFeePerGas ?? 0n);
+    const fee = max(uoQuantity(block.baseFeePerGas, "base fee") * 2n + priority, floor?.maxFeePerGas ?? 0n);
     if (
       fee > policy.gas.maximumFeePerGas ||
       priority > policy.gas.maximumPriorityFeePerGas
@@ -790,7 +789,8 @@ export class UserOperationService {
   }
 
   private async refresh(record: UserOperationRecord, signal?: AbortSignal) {
-    if (!record.submission) return record;
+    // Expired was proven against the chain and released its nonce; it is never re-observed.
+    if (!record.submission || record.state === "expired") return record;
     const plan = await this.plan(record.actor, record.planId, false);
     const manifest = this.options.manifestForPlan(plan);
     if (
@@ -839,6 +839,8 @@ export class UserOperationService {
       ),
       signedCommitment: record.submission.commitment,
       ...(transactionHash ? { transactionHash } : {}),
+      // The signed validity ends with the preparation; past it the operation can only be redone.
+      validUntil: Math.floor(record.expiresAt / 1000),
       confirmations: this.policy(record.chainId).confirmations,
       now: this.now(),
       verifyAccountAtBlock: async (_execution, evidence) => {

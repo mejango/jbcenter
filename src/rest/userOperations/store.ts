@@ -320,12 +320,16 @@ export function observed(
   if (!Number.isSafeInteger(revision) || revision < 0)
     fail('INVALID_USER_OPERATION', 'Invalid observation revision.', 400);
   if (record.revision !== revision) return conflict();
+  // Expired is proven against the chain and released its nonce; nothing moves it back.
+  if (record.state === 'expired') return conflict();
   if (
     !record.submission ||
     !same(observation.operationHash, record.operationHash) ||
-    !['pending', 'unknown', 'confirming', 'confirmed', 'reverted'].includes(observation.state)
+    !['pending', 'unknown', 'confirming', 'confirmed', 'reverted', 'expired'].includes(observation.state)
   )
     conflict();
+  if (observation.state === 'expired' && (observation.transactionHash !== undefined || observation.receipt))
+    fail('INVALID_USER_OPERATION', 'An expired operation has no execution evidence.', 400);
   if (observation.transactionHash !== undefined && !hash(observation.transactionHash))
     fail('INVALID_USER_OPERATION', 'Invalid transaction hash.', 400);
   if (

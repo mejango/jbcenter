@@ -101,6 +101,8 @@ export function createWalletPaymentClientFixture(nowMs = 1_900_000_000_000) {
   function observation(state: UserOperationObservation["state"] = "confirmed",
     semanticStatus: SemanticResult["status"] = state === "confirmed" ? "verified" : state === "reverted" ? "failed" : "unknown",
   ): UserOperationObservation {
+    if (state === "expired") return { state, operationHash: prepared.operationHash,
+      reason: "The operation's validity ended before any inclusion; it can no longer execute." };
     if (state === "pending" || state === "unknown") return { state, operationHash: prepared.operationHash,
       transactionHash, reason: "Synthetic fixture: independent payment evidence is unavailable." };
     return { state, operationHash: prepared.operationHash, transactionHash,

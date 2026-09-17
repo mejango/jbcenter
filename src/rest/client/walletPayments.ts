@@ -21,7 +21,8 @@ export interface CenterWalletPaymentInput {
   operation: PreparedUserOperation;
   expectedPayment: CenterWalletExpectedPayment;
 }
-export type CenterWalletPaymentState = 'reviewing' | 'approved' | 'submitting' | 'pending' | 'confirming' | 'paid' | 'reverted' | 'cancelled' | 'unknown';
+/** `expired`: published but never included before its signed validity ended; it cannot execute. */
+export type CenterWalletPaymentState = 'reviewing' | 'approved' | 'submitting' | 'pending' | 'confirming' | 'paid' | 'reverted' | 'cancelled' | 'unknown' | 'expired';
 export interface CenterWalletPaymentStatus {
   status: CenterWalletPaymentState;
   accountId: string;
@@ -66,7 +67,8 @@ type Saved = { value: Journal; encoded: string };
 const maximumBytes = 1_048_576;
 const reviewPath = '/api/v1/wallet/payment-reviews';
 const paymentFields = ['kind', 'chainId', 'account', 'token', 'terminal', 'projectId', 'amount', 'beneficiary', 'minimumReturnedTokens', 'memo', 'metadata'] as const;
-const states = ['reviewing', 'approved', 'submitting', 'pending', 'confirming', 'paid', 'reverted', 'cancelled', 'unknown'];
+const states = ['reviewing', 'approved', 'submitting', 'pending', 'confirming', 'paid', 'reverted', 'cancelled', 'unknown', 'expired'];
+const terminal = (status: string) => ['paid', 'reverted', 'cancelled', 'expired'].includes(status);
 const hex32 = (value: unknown): value is Hex => typeof value === 'string' && /^0x[0-9a-fA-F]{64}$/.test(value);
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
 const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
@@ -171,7 +173,7 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
         v.expiresAtMs > saved.grant.expiresAt * 1000 || v.expiresAtMs > v.createdAtMs + 300_000 ||
         (saved.review && (v.createdAtMs !== saved.review.createdAtMs || v.expiresAtMs !== saved.review.expiresAtMs)) ||
         !['pending', 'approved', 'cancelled'].includes(String(v.status)) ||
-        !['prepared', 'submitting', 'submission_unknown', 'pending', 'unknown', 'confirming', 'confirmed', 'reverted'].includes(String(v.operationState))) mismatch();
+        !['prepared', 'submitting', 'submission_unknown', 'pending', 'unknown', 'confirming', 'confirmed', 'reverted', 'expired'].includes(String(v.operationState))) mismatch();
       if (v.status === 'approved' ? !integer(v.approvedAtMs) || v.cancelledAtMs !== null : v.approvedAtMs !== null) mismatch();
       if (v.status === 'cancelled' ? !integer(v.cancelledAtMs) : v.cancelledAtMs !== null) mismatch();
       for (const at of [v.approvedAtMs, v.cancelledAtMs])
@@ -280,6 +282,7 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
       if (operation.state === 'confirmed' && observation?.state === 'confirmed' && canonical && receipt?.status === 'success' && observation.semantic?.status === 'verified') result = 'paid';
       if (operation.state === 'reverted' && observation?.state === 'reverted' && canonical &&
         (receipt?.status === 'reverted' || observation.semantic?.status === 'failed')) result = 'reverted';
+      if (operation.state === 'expired' && observation?.state === 'expired' && observation.transactionHash === undefined && !receipt) result = 'expired';
       return save({ ...saved.value, status: result, ...(observation ? { observation } : {}) }, saved.encoded);
     } catch (error) {
       if (error instanceof RestClientError && ['WALLET_PAYMENT_STORAGE_UNAVAILABLE', 'WALLET_PAYMENT_CHANGED'].includes(error.code)) throw error;
@@ -289,7 +292,7 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
   async function submitPayment(): Promise<CenterWalletPaymentStatus> {
     let saved = pending();
     const client = live(saved.value).client;
-    if (!saved.value.approval || ['paid', 'reverted', 'cancelled'].includes(saved.value.status))
+    if (!saved.value.approval || terminal(saved.value.status))
       fail('WALLET_PAYMENT_NOT_APPROVED', 'Retrieve fresh owner approval for this exact payment before submission.');
     // Once a dispatch may have occurred, retain the original bytes/key even after their first-use window.
     if (!saved.value.submissionStarted && saved.value.operation.expiresAt <= now())
@@ -322,19 +325,19 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
   function clearPayment(): void {
     const saved = pending(), archivedAtMs = now(), signing = saved.value.operation.signing;
     if (!('ownerProfile' in signing)) mismatch();
-    const terminal = ['paid', 'reverted', 'cancelled'].includes(saved.value.status);
+    const settled = terminal(saved.value.status);
     // Explicit local bookkeeping only: this clock and a missing local send marker do not prove an onchain outcome.
     const unsignedWindowElapsed = saved.value.submissionStarted === false && !saved.value.approval &&
       typeof signing.validUntil === 'string' && /^[1-9][0-9]{0,14}$/.test(signing.validUntil) &&
       BigInt(signing.validUntil) < 2n ** 48n && integer(archivedAtMs) &&
       BigInt(Math.floor(archivedAtMs / 1000)) > BigInt(signing.validUntil);
-    if (!terminal && !unsignedWindowElapsed)
+    if (!settled && !unsignedWindowElapsed)
       fail('WALLET_PAYMENT_UNRESOLVED', 'Keep this payment until its outcome is verified or its original approval window has elapsed without a saved approval or local submission.');
     const existing = raw(historyKey);
     try {
       const history = existing === null ? [] : JSON.parse(existing);
       if (!Array.isArray(history) || history.length >= 64) throw new Error();
-      const receipt = { ...status(saved.value), ...(!terminal ? { status: 'unknown', archiveReason: 'no-local-submission-recorded' } : {}),
+      const receipt = { ...status(saved.value), ...(!settled ? { status: 'unknown', archiveReason: 'no-local-submission-recorded' } : {}),
         issuer, audience, callbackUri, archivedAtMs, grantId: saved.value.grant.id, grantIncarnation: saved.value.grant.incarnation,
         planId: saved.value.plan.id, planCommitment: saved.value.plan.commitment, operationCommitment: saved.value.operation.commitment,
         reviewState: saved.value.state, reviewKey: saved.value.reviewKey, submissionKey: saved.value.submissionKey,

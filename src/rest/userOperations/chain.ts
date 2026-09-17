@@ -235,7 +235,8 @@ export class UserOperationChain {
       65_536,
     );
   }
-  private async readNonce(
+  /** The EntryPoint's full nonce for `sender` under `key` at the given canonical block. */
+  async readNonce(
     chainId: number,
     sender: Address,
     key: bigint,

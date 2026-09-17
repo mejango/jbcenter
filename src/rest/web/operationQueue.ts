@@ -181,7 +181,7 @@ export function installOperationQueue(options: {
       const result = await entry.client.userOperation(entry.record.id); check();
       assertSameOperation(result, entry.record); entry.record = result;
       entry.state = entry.attempted && result.state === "prepared" ? "Submission unconfirmed; check before taking another action" : result.state;
-      if (["confirmed", "reverted"].includes(result.state)) removeWalletRecovery(c.accountId, entry.key);
+      if (["confirmed", "reverted", "expired"].includes(result.state)) removeWalletRecovery(c.accountId, entry.key);
       render();
     }
     options.status("Queue status refreshed. Confirmation is tracked separately for each network.");

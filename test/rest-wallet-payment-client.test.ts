@@ -383,6 +383,16 @@ describe('Center browser payment review continuity', () => {
     f.helper().clearPayment(); expect(f.helper().pendingPayment()).toBeNull();
   });
 
+  it('treats an operation the chain never included, past its validity, as final so the app can offer a fresh payment', async () => {
+    const f = fixture(); await f.helper().preparePayment(f.input()); await f.helper().completePayment(f.callback()); await f.helper().submitPayment();
+    f.observed(f.observedOperation('expired'));
+    expect((await f.helper().refreshPayment()).status).toBe('expired');
+    f.helper().clearPayment(); expect(f.helper().pendingPayment()).toBeNull();
+    // Execution evidence next to an expired verdict is a contradiction, never a settled payment.
+    const g = fixture(); await g.helper().preparePayment(g.input()); await g.helper().completePayment(g.callback()); await g.helper().submitPayment();
+    const record = g.observedOperation('expired'); record.observation!.transactionHash = g.transactionHash; g.observed(record);
+    expect((await g.helper().refreshPayment()).status).toBe('unknown');
+  });
   it.each(['receipt', 'canonical', 'hash', 'effects'])('retains uncertainty when confirmed evidence is missing %s', async kind => {
     const f = fixture(); await f.helper().preparePayment(f.input()); await f.helper().completePayment(f.callback()); await f.helper().submitPayment();
     const record = f.observedOperation();

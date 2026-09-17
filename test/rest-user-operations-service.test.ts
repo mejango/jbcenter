@@ -407,6 +407,9 @@ async function fixture(useSession = false, currentProfile = false, useSponsorRou
       case "eth_supportedEntryPoints":
         result = [entryPoint];
         break;
+      case "pimlico_getUserOperationGasPrice":
+        // A bundler without the fee quote; the node's own fees stand.
+        return Response.json({ jsonrpc: "2.0", id: body.id, error: { code: -32601, message: "Method not found" } });
       case "eth_estimateUserOperationGas":
         result = {
           callGasLimit: state.estimatedCallGas,
@@ -697,7 +700,8 @@ describe("UserOperationService integration", () => {
     f.tick(10_000);
     const submittedAt = f.now();
     await f.service.submit(f.principal, prepared.id, await f.sign(prepared), "age-submit");
-    f.tick(31 * 60_000);
+    // Within the operation's validity a silent provider keeps it pending; it is not the chain's verdict.
+    f.tick(60_000);
     f.fetcher.mockRejectedValueOnce(new Error("Provider receipt outage"));
     expect(await f.service.recoverPending()).toMatchObject({
       oldestPendingAt: submittedAt, items: [{ state: "pending" }], broadcastAttempted: false,
@@ -831,12 +835,21 @@ describe("UserOperationService integration", () => {
     ).toBe("submission_unknown");
     f.unlink();
     f.tick(600_000);
-    await f.service.submit(
+    // The chain has moved past the operation's validity; its nonce is untouched, so it is expired.
+    const rpc = f.rpc.getMockImplementation()!;
+    f.rpc.mockImplementation(async (chain, method, params, signal) => {
+      const result = await rpc(chain, method, params, signal);
+      if (method === "eth_getBlockByNumber" && (params[0] === "latest" || params[0] === "0x800"))
+        return { ...(result as object), number: "0x800", hash: h("later-head"), timestamp: toHex(f.now() / 1000) };
+      return result;
+    });
+    const retried = await f.service.submit(
       f.principal,
       prepared.id,
       signature,
       "one-publication",
     );
+    expect(retried.state).toBe("expired");
     expect(f.state.sends).toBe(1);
     await expect(
       f.service.submit(f.principal, prepared.id, signature, "changed-key"),

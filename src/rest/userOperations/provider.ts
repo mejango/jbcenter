@@ -325,6 +325,28 @@ export class UserOperationProvider {
       paymasterConfigured: Boolean(config.paymasterPolicy),
     }));
   }
+  /** The bundler's own fee floor (Pimlico's fast tier, so a quote taken at preparation still
+   * clears the floor minutes later at submission). An operation priced below it waits in the
+   * mempool until it expires. Null only when the bundler answers that it has no such method. */
+  async gasPrice(
+    chainId: number,
+    signal?: AbortSignal,
+  ): Promise<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } | null> {
+    const config = this.configuration(chainId);
+    let value: unknown;
+    try {
+      value = await this.rpc(config, false, "pimlico_getUserOperationGasPrice", [], signal);
+    } catch (error) {
+      if (error instanceof RestError && error.code === "USER_OPERATION_PROVIDER_REJECTED") return null;
+      throw error;
+    }
+    const fast = uoObject(value) && uoObject(value.fast) ? value.fast : uoError(
+      "USER_OPERATION_PROVIDER_RESPONSE", "The bundler fee quote is malformed.", 502);
+    return {
+      maxFeePerGas: uoQuantity(fast.maxFeePerGas, "bundler max fee"),
+      maxPriorityFeePerGas: uoQuantity(fast.maxPriorityFeePerGas, "bundler priority fee"),
+    };
+  }
   async readiness(chainId: number, signal?: AbortSignal) {
     const config = this.configuration(chainId);
     const [chain, entries] = await Promise.all([

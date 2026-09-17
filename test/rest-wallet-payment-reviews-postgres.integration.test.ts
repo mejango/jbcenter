@@ -185,6 +185,14 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
     expect(await store.getForApp(context.actor, view.draft.id)).toEqual({ ...view, approval: null });
   });
 
+  it("refuses a review for an operation whose full nonce another publication already holds", async () => {
+    const context = await appContext(), held = await preparedOperation(context, 120_000, 7n), fresh = await preparedOperation(context, 120_000, 7n);
+    // The claim writes the sender lowercase and the nonce in decimal; the review must look it up the same way.
+    await pool.query("INSERT INTO rest_user_operation_nonces(chain_id,sender,nonce,entry_point,operation_hash,signed_commitment,user_operation_id) VALUES($1,$2,$3,$4,$5,$6,$7)",
+      [held.record.chainId, held.record.sender.toLowerCase(), "7", held.record.entryPoint.toLowerCase(), held.record.operationHash.toLowerCase(), held.record.operationHash.toLowerCase(), held.record.id]);
+    const store = new PostgresWalletPaymentReviewStore(pool, options());
+    await expect(store.prepare(context.actor, { operationId: fresh.record.id, state: token() }, `review:${fresh.plan.id}`)).rejects.toMatchObject({ status: 409 });
+  });
   it("retries preparation with the original tuple and rejects changed state or operation", async () => {
     const value = await pendingReview();
     expect(await value.store.prepare(value.actor, { operationId: value.record.id, state: value.state }, value.key)).toEqual(value.view);

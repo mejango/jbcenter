@@ -976,6 +976,25 @@ describe("sponsored execution observations on original plans", () => {
     expect(refreshed.steps[1]?.blockedBy).toEqual([]);
     expect(verify).not.toHaveBeenCalled();
   });
+  it("settles a plan step whose operation expired before inclusion as failed, so recovery stops polling it", async () => {
+    const fixture = externalFixture();
+    const h = harness({ externalObserver: { ...fixture.observer, kind: "erc4337" as const } });
+    const plan = await h.service.createPlan(actor, h.draft(true), "external-expired", requestHash);
+    h.transports.claim(plan.id, [0], "erc4337", "uo-binding");
+    // A bundler hint recorded earlier does not keep the step waiting on a receipt that will never come.
+    fixture.observer.observePlanStep.mockResolvedValueOnce({ stepIndex: 0, chainId: 8453, providerState: "pending", state: "pending", hash: hHash() });
+    expect((await h.service.getPlan(actor, plan.id)).steps[0]?.execution).toMatchObject({ hash: expect.any(String) });
+    fixture.observer.observePlanStep.mockResolvedValue({
+      stepIndex: 0,
+      chainId: 8453,
+      providerState: "expired",
+      state: "expired",
+      reason: "The operation's validity ended before any inclusion; it can no longer execute.",
+    });
+    const view = await h.service.getPlan(actor, plan.id);
+    expect(view.steps[0]).toMatchObject({ state: "reverted", semantic: { status: "failed" } });
+    expect(view.status).toBe("blocked");
+  });
   it("retains a freshly reverified canonical inner success when a provider advertises a later retry", async () => {
     const fixture = externalFixture();
     const h = harness({ externalObserver: fixture.observer });

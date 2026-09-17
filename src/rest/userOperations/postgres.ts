@@ -252,9 +252,14 @@ export class PostgresUserOperationStore implements UserOperationStore {
   }
   async observe(id: string, revision: number, observation: UserOperationObservation) {
     observation = clone(observation);
-    return this.transaction(async (client) =>
-      this.save(client, observed(await this.required(client, id), revision, observation)),
-    );
+    return this.transaction(async (client) => {
+      const next = observed(await this.required(client, id), revision, observation);
+      // Proven never to execute: the nonce it held is free for a fresh operation. Its plan steps
+      // stay claimed; a redo is a new plan, and the step settles as failed on its own.
+      if (next.state === 'expired')
+        await client.query('DELETE FROM rest_user_operation_nonces WHERE user_operation_id=$1', [next.id]);
+      return this.save(client, next);
+    });
   }
   async recoverable(limit: number, cursor?: string) {
     assertLimit(limit);

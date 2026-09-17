@@ -45,6 +45,8 @@ export interface ObserveUserOperationOptions {
   transactionHash?: Hex;
   confirmations: number;
   now: number;
+  /** The signed validity end (seconds). Past it, with a reorg margin, an unincluded operation is final. */
+  validUntil?: number;
   /** Check full Safe singleton/module/fallback/validator configuration at THIS canonical block. */
   verifyAccountAtBlock(
     binding: UserOperationExecutionBinding,
@@ -109,13 +111,22 @@ export async function observeUserOperation(
     return unknown(
       "The operation does not bind the reviewed account and calls.",
     );
+  // The EntryPoint refuses validation once block.timestamp passes validUntil; two minutes of
+  // canonical blocks beyond it rule out a late inclusion by reorg. The verdict rests on the
+  // chain alone: the sender's nonce at that same head must still be this operation's, or
+  // something executed and only execution evidence can say what.
+  const unincluded = async (reason: string, known?: RestBlockEvidence): Promise<UserOperationObservation> => {
+    if (options.validUntil === undefined) return { ...base, state: "pending", reason };
+    const head = known ?? (await chain.snapshot(binding.chainId));
+    if (BigInt(head.timestamp) <= BigInt(options.validUntil) + 120n) return { ...base, state: "pending", reason };
+    const nonce = BigInt(operation.nonce);
+    const current = await chain.readNonce(binding.chainId, operation.sender, nonce >> 64n, binding.entryPoint.address, head);
+    return current === nonce
+      ? { ...base, state: "expired", reason: "The operation's validity ended before any inclusion; it can no longer execute." }
+      : { ...base, state: "unknown", reason: "The sender nonce advanced past the validity window; execution evidence is required." };
+  };
   if (!options.transactionHash)
-    return {
-      ...base,
-      state: "pending",
-      reason:
-        "No independently verifiable outer transaction hash is available.",
-    };
+    return unincluded("No independently verifiable outer transaction hash is available.");
   const transactionHash = uoHash(
     options.transactionHash,
     "outer transaction hash",
@@ -129,13 +140,10 @@ export async function observeUserOperation(
     ]),
     chain.snapshot(binding.chainId),
   ]);
-  if (tx === null || raw === null)
-    return {
-      ...base,
-      state: "pending",
-      transactionHash,
-      reason: "The bundle is not mined on the configured chain.",
-    };
+  if (tx === null || raw === null) {
+    const result = await unincluded("The bundle is not mined on the configured chain.", head);
+    return result.state === "expired" ? result : { ...result, transactionHash };
+  }
   if (
     !uoObject(tx) ||
     !uoObject(raw) ||

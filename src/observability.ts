@@ -72,6 +72,7 @@ export class Metrics {
               method: c.req.method,
               path: c.req.path,
               status: c.res.status,
+              ...(c.get("errorCode") ? { code: c.get("errorCode") } : {}),
               durationMs: Math.round(elapsed * 100) / 100,
               client: c.get("client") ?? null,
               region: process.env.RAILWAY_REPLICA_REGION ?? null,

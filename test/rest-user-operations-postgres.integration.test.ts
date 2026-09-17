@@ -657,5 +657,21 @@ suite('PostgreSQL UserOperation persistence', () => {
     expect(
       await store.settle(value.record.id, input.signedCommitment, 'submission_unknown'),
     ).toEqual(pending);
+    // A never-included operation past its validity is stored as final and leaves recovery; the
+    // nonce it held goes back into circulation (its plan step stays claimed), and nothing moves it off expired.
+    const expired = await store.observe(value.record.id, pending.revision, {
+      state: 'expired',
+      operationHash: value.record.operationHash,
+      reason: 'past validity',
+    });
+    expect(expired.state).toBe('expired');
+    expect((await store.recoverable(50)).map((record) => record.id)).not.toContain(value.record.id);
+    expect((await pool.query('SELECT 1 FROM rest_user_operation_nonces WHERE user_operation_id=$1', [value.record.id])).rowCount).toBe(0);
+    expect(await transportRows(value.plan.id)).toHaveLength(1);
+    await expect(store.observe(value.record.id, expired.revision, { state: 'pending', operationHash: value.record.operationHash }))
+      .rejects.toMatchObject({ status: 409 });
+    const again = await prepare('observe-again', 400n);
+    const reclaimed = await store.claim(claim(again.record, Date.now()));
+    expect(reclaimed.dispatch).toBe(true);
   });
 });

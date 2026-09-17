@@ -23,7 +23,7 @@ import { account, binding, entryPoint, h, owner, ownerKey, plan, safe, target } 
 
 const signer = "0x4444444444444444444444444444444444444444" as Address;
 const code = "0x6000" as Hex;
-const now = 1_800_000_000_000;
+let now = 1_800_000_000_000;
 const legacy1271 = parseAbi(["function isValidSignature(bytes data, bytes signature) view returns(bytes4)"]);
 const gas: UserOperationGasPolicy = {
   id: "passkey-test", maximumCallGas: 1_000_000n, maximumVerificationGas: 1_000_000n,
@@ -90,9 +90,10 @@ async function fixture(options: { app?: boolean; legacy?: boolean; sponsored?: b
     contractFailure: false, runtimeFailure: false, reorg: false, preflightFailure: false, bindingFailure: false,
     estimateFailure: false, sends: 0, sendFailure: false, finalQuotes: 0, growth: false, growAlways: false,
     estimateTimeout: false, signedEstimate: undefined as Partial<UserOperationGasEstimate> | undefined,
+    bundlerFees: null as { maxFeePerGas: Hex; maxPriorityFeePerGas: Hex } | null, bundlerDown: false,
     estimated: [] as UserOperationV07[], sent: undefined as UserOperationV07 | undefined,
   };
-  const rpc = vi.fn<RestRpc["request"]>(async (_chain, method, params) => {
+  const rpcDefault: RestRpc["request"] = async (_chain, method, params) => {
     if (method === "eth_chainId") return toHex(8453);
     if (method === "eth_getBlockByNumber") return { number: "0x64", hash: state.reorg ? h("reorg") : h("passkey-block"), timestamp: toHex(now / 1000), baseFeePerGas: "0x0" };
     if (method === "eth_maxPriorityFeePerGas") return "0x1";
@@ -115,7 +116,8 @@ async function fixture(options: { app?: boolean; legacy?: boolean; sponsored?: b
       return "0x";
     }
     throw Error(`unexpected RPC ${method}`);
-  });
+  };
+  const rpc = vi.fn<RestRpc["request"]>(rpcDefault);
   const paymaster = "0x000000000000000000000000000000000000006a" as Address;
   const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
     const request = JSON.parse(String(init?.body));
@@ -137,7 +139,12 @@ async function fixture(options: { app?: boolean; legacy?: boolean; sponsored?: b
       if (state.sendFailure) throw Error("lost response after provider acceptance");
       result = getUserOperationHash(state.sent!, entryPoint, 8453);
     } else if (request.method === "eth_getUserOperationReceipt") result = null;
-    else throw Error(`unexpected provider ${request.method}`);
+    else if (request.method === "pimlico_getUserOperationGasPrice") {
+      if (state.bundlerDown) return new Response("", { status: 503 });
+      if (state.bundlerFees === null) return Response.json({ jsonrpc: "2.0", id: request.id, error: { code: -32601, message: "Method not found" } });
+      const lower = { maxFeePerGas: "0x2", maxPriorityFeePerGas: "0x2" };
+      result = { slow: lower, standard: lower, fast: state.bundlerFees };
+    } else throw Error(`unexpected provider ${request.method}`);
     return Response.json({ jsonrpc: "2.0", id: request.id, result });
   });
   const provider = new UserOperationProvider([{
@@ -148,8 +155,10 @@ async function fixture(options: { app?: boolean; legacy?: boolean; sponsored?: b
     } } : {}),
   }], fetcher, 1000, () => now);
   const currentBindingAt = vi.fn(async () => { if (state.bindingFailure) throw Error("binding changed"); return wallet; });
-  const transactions = new TransactionService({ store: transactionStore, rpc: { request: rpc }, now: () => now });
-  const service = new UserOperationService({
+  let service: UserOperationService;
+  const transactions = new TransactionService({ store: transactionStore, rpc: { request: rpc }, now: () => now,
+    externalObservers: [{ kind: "erc4337", observePlanStep: (plan, index, bindingId, request) => service.observePlanStep(plan, index, bindingId, request) }] });
+  service = new UserOperationService({
     rpc: { request: rpc }, provider, store, transactionStore, transactions,
     policies: [{ chainId: 8453, gas: { ...gas,
       ...(options.maximumPreVerificationGas !== undefined ? { maximumPreVerificationGas: options.maximumPreVerificationGas } : {}),
@@ -162,7 +171,7 @@ async function fixture(options: { app?: boolean; legacy?: boolean; sponsored?: b
   const signature = (view: Awaited<ReturnType<typeof prepare>>, body: Hex = "0x1234") => encodeSafe7579PasskeyOwnerSignature({
     validAfter: String(view.createdAt / 1000), validUntil: String(view.expiresAt / 1000), signatures: [{ kind: "contract", owner: signer, signature: body }],
   });
-  return { service, prepare, signature, state, wallet, manifest, principal, rpc, provider, currentBindingAt, store, actor, requestKey, preparedPlan, transactionStore };
+  return { service, prepare, signature, state, wallet, manifest, principal, rpc, rpcDefault, provider, currentBindingAt, store, actor, requestKey, preparedPlan, transactionStore, transactions };
 }
 
 describe("app UserOperation owner boundary", () => {
@@ -176,6 +185,30 @@ describe("app UserOperation owner boundary", () => {
     expect(f.state.sends).toBe(1);
   });
 
+  it("ends a published operation the chain never included once its validity has passed", async () => {
+    const started = now;
+    try {
+      const f = await fixture({ app: true }), view = await f.prepare();
+      const submitted = await f.service.submit(f.principal, view.id, await ownerSignature(view), "submit");
+      expect(submitted.state).toBe("pending");
+      now = view.expiresAt + 60_000;
+      expect((await f.service.get(f.principal, view.id)).state).toBe("pending");
+      now = view.expiresAt + 121_000;
+      const ended = await f.service.get(f.principal, view.id);
+      expect(ended.state).toBe("expired");
+      expect(ended.observation?.transactionHash).toBeUndefined();
+      // Final: recovery no longer polls it, and a later read keeps the verdict.
+      expect((await f.service.recoverPending()).items).toEqual([]);
+      expect((await f.service.get(f.principal, view.id)).state).toBe("expired");
+      // The plan that carried it settles too: its step is failed, still claimed, and out of recovery.
+      const plan = await f.transactions.getPlan(f.actor, f.preparedPlan.id);
+      expect(plan.steps[0]).toMatchObject({ state: "reverted", semantic: { status: "failed" } });
+      expect(plan.status).toBe("blocked");
+      expect((await f.transactions.recoverPending()).reconciled).toEqual([]);
+    } finally {
+      now = started;
+    }
+  });
   it("rejects the app request key as spending authorization before claim or send", async () => {
     const f = await fixture({ app: true }), view = await f.prepare();
     await expect(f.service.submit(f.principal, view.id, await ownerSignature(view, f.requestKey), "submit"))
@@ -240,6 +273,26 @@ describe("passkey UserOperation estimation", () => {
     expect(size(passkeyDummySignature({ signer, validAfter: "1", validUntil: "2" }))).toBe(PASSKEY_MAX_SIGNATURE_BYTES);
   });
 
+  it("never prices an operation below the bundler's own fee floor, and keeps the node's fees when the bundler has none", async () => {
+    // The node's priority fee is 0x1 and the base fee 0x0; the bundler will not include below its floor.
+    const f = await fixture({});
+    f.state.bundlerFees = { maxFeePerGas: "0x9", maxPriorityFeePerGas: "0x5" };
+    const floored = await f.prepare();
+    expect([floored.operation.maxPriorityFeePerGas, floored.operation.maxFeePerGas]).toEqual(["0x5", "0x9"]);
+    // The node's own quote wins when it is higher.
+    f.rpc.mockImplementation(async (_chain, method, params) => method === "eth_maxPriorityFeePerGas" ? "0x7" : f.rpcDefault(_chain, method, params));
+    const above = await f.service.prepare(f.principal, { planId: f.preparedPlan.id, stepIndexes: [0] }, "prepare-again", h("prepare-again"));
+    expect([above.operation.maxPriorityFeePerGas, above.operation.maxFeePerGas]).toEqual(["0x7", "0x9"]);
+    // A bundler without the method changes nothing; a bundler that cannot answer fails the preparation
+    // rather than silently pricing below its floor.
+    const plain = await fixture({});
+    plain.state.bundlerFees = null;
+    const view = await plain.prepare();
+    expect(view.operation.maxPriorityFeePerGas).toBe("0x1");
+    const down = await fixture({});
+    down.state.bundlerDown = true;
+    await expect(down.prepare()).rejects.toMatchObject({ code: "USER_OPERATION_PROVIDER_UNAVAILABLE" });
+  });
   it("adds the calldata-byte margin independently to every provider estimate", async () => {
     const estimate = { callGasLimit: "0x1", verificationGasLimit: "0x1", preVerificationGas: toHex(50_000) };
     const original = { estimate: vi.fn(async () => ({ ...estimate })), sponsor: vi.fn() };

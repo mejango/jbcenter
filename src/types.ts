@@ -4,6 +4,8 @@ export type JbcenterEnv = {
   Variables: {
     client: string;
     requestId: string;
+    /** The public error code of a failed response, for the request log. */
+    errorCode?: string;
   };
 };
 

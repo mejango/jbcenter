@@ -592,8 +592,16 @@ export function applyExternalObservations(
       invalid(
         "Confirmed external execution requires a canonical successful receipt.",
       );
+    // An external operation proven never to have reached the chain (expired) fails without a
+    // receipt: there is no transaction to prove, only the absence of one.
+    const neverPublished =
+      update.state === "reverted" &&
+      !update.receipt &&
+      update.semantic?.status === "failed" &&
+      update.transactionHash === undefined;
     if (
       update.state === "reverted" &&
+      !neverPublished &&
       (!update.receipt ||
         !update.receipt.canonical ||
         (update.receipt.status !== "reverted" &&

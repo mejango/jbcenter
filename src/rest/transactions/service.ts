@@ -1277,7 +1277,8 @@ export class TransactionService {
         (observation.hash !== undefined && !hash(observation.hash))
       )
         throw new Error("External observation binding mismatch");
-      const transactionHash = observation.hash ?? external.transactionHash;
+      // An expired verdict comes from the chain; a bundler hint stored earlier no longer means anything.
+      const transactionHash = observation.state === "expired" ? undefined : (observation.hash ?? external.transactionHash);
       if (
         transactionHash &&
         external.transactionHash &&
@@ -1332,6 +1333,16 @@ export class TransactionService {
         delete base.receipt;
       if (!transactionHash) {
         delete base.receipt;
+        // Expired: the chain proved nothing executed; the step is settled as failed, not retried.
+        if (observation.state === "expired") {
+          const { transactionHash: _hint, ...never } = base.externalExecution!;
+          return {
+            ...base,
+            externalExecution: never,
+            state: "reverted",
+            semantic: { status: "failed", details: "The operation expired before inclusion; nothing executed." },
+          };
+        }
         return {
           ...base,
           state: observation.state === "pending" ? "reserved" : "unknown",

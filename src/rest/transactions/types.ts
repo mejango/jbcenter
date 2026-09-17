@@ -80,7 +80,8 @@ export interface ExternalExecutionObservation {
     | "confirming"
     | "confirmed"
     | "reverted"
-    | "reorged";
+    | "reorged"
+    | "expired";
   hash?: Hex;
   receipt?: StoredReceipt;
   semantic?: SemanticResult;

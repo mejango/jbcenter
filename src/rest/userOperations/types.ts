@@ -112,7 +112,8 @@ export interface UserOperationExecutionBinding {
   calls: readonly RestCall[];
 }
 export interface UserOperationObservation {
-  state: "pending" | "unknown" | "confirming" | "confirmed" | "reverted";
+  /** `expired`: never included and past its validity window, so it can no longer execute. */
+  state: "pending" | "unknown" | "confirming" | "confirmed" | "reverted" | "expired";
   operationHash: Hex;
   transactionHash?: Hex;
   receipt?: StoredReceipt;

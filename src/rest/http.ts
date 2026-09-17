@@ -264,6 +264,7 @@ export function problem(error: Error, context: Context): Response {
     retryable = true;
   }
   const requestId = context.res.headers.get("X-Request-Id") ?? randomUUID();
+  context.set("errorCode", code);
   if (status === 429) context.header("Retry-After", "60");
   // Error details may contain calldata, signatures, or upstream request data.
   // Typed public error codes and bounded messages are the portable contract.

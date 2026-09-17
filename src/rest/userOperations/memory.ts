@@ -159,6 +159,7 @@ export class MemoryUserOperationStore implements UserOperationStore {
   async observe(id: string, revision: number, observation: UserOperationObservation) {
     assertText(id);
     const next = observed(this.records.get(id) ?? missing(), revision, clone(observation));
+    if (next.state === 'expired') this.nonces.delete(nonceKey(next));
     this.records.set(id, next);
     return clone(next);
   }

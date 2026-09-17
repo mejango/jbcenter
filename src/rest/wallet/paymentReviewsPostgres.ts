@@ -317,8 +317,9 @@ export class PostgresWalletPaymentReviewStore {
     try { assertPlan(operation, plan, await walletCeremonyDatabaseNow(client)); } catch { return conflict(); }
     const selected = new Set(operation.stepIndexes);
     if ((await getPostgresTransports(client, plan.id)).some(row => selected.has(row.stepIndex))) conflict();
+    // Stored as the claim writes them: a lowercase sender and a decimal nonce.
     const nonce = await client.query(`SELECT user_operation_id FROM rest_user_operation_nonces WHERE chain_id=$1 AND sender=$2 AND nonce=$3`,
-      [operation.chainId, operation.sender, operation.operation.nonce]);
+      [operation.chainId, operation.sender.toLowerCase(), BigInt(operation.operation.nonce).toString()]);
     if (nonce.rows.length) conflict();
   }
   private async finish(client: PoolClient, captured: Captured, row: ReviewRow, operation: UserOperationRecord, sessionId: string | null = null): Promise<void> {
