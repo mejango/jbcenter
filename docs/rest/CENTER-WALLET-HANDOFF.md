@@ -311,11 +311,14 @@ is sized to it, and `test/rest-wallet-runtime.test.ts` pins the production value
   `FactoryHistoryIndex`, the authority chain from the creation receipt named by the bound
   setup state. All use `maxLogRangeBlocks: 500` and a 90 s deadline.
 - Authority observation budget `walletAuthorityObservationBounds.totalTimeoutMs` 90 s; a
-  verified snapshot serves sign-in and app requests for `walletAuthorityMaximumAgeMs` 15 min
-  (migration 049; 039 had 120 s, 30 s before that). Every action that changes the account
-  (payment submission, device addition, recovery) verifies it again at a fresh block, so the
-  window only decides how long a returning person waits for nothing but the passkey prompt;
-  each sign-in or app request queues a background refresh. Refresh queue lease 120 s, refresh lead 60 s, worker
+  verified snapshot is the account's *identity*: sign-in, the app hand-off, app-signed requests,
+  payment-review reads and approvals are served from it regardless of its age (`settled` in
+  `loginPostgres.ts`, `settledAuthority` in `appGrantsPostgres.ts`, `finishWalletAppRequest`),
+  and each of them queues a background refresh. Only an account never observed (fresh from
+  signup) waits for its first observation, and only dispatch to other networks
+  (`networks/*`, `sessionFor`) waits for a snapshot younger than `walletAuthorityMaximumAgeMs`
+  15 min (migration 049; 039 had 120 s). Every action that changes the account (payment
+  submission, device addition, recovery) verifies it again at a fresh block. Refresh queue lease 120 s, refresh lead 60 s, worker
   attempt 100 s. The queue pins its settings in `rest_wallet_authority_refresh_control` for
   all replicas: changing them needs a migration that clears `configuration` (040 did), or
   every claim fails with WALLET_AUTHORITY_REFRESH_CONFIG_CONFLICT (`queue_failed` in the log).

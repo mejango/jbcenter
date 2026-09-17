@@ -22,7 +22,7 @@ function setup(overrides: Partial<WalletSiteOptions> = {}) {
   const options:WalletSiteOptions={origin,audience,browserScript:'/* local browser entry */',
     login:{begin:vi.fn(async()=>({login:{id:loginId,rpId:'wallet.example.test',origin,challenge:`0x${'01'.repeat(32)}` as const,expiresAtMs:Date.now()+180_000},flowToken:flow})),
       identifyCompletion:vi.fn(async()=>({accountId})),complete:vi.fn(async()=>({session,sessionToken:token,replayed:false})),
-      identifySession:vi.fn(async()=>({accountId})),readSession:vi.fn(async()=>session),viewSession:vi.fn(async()=>session),passkeyName:vi.fn(async()=>'Juicebox fixture'),logout:vi.fn(async()=>({loggedOut:true as const,replayed:false}))},
+      identifySession:vi.fn(async()=>({accountId})),identityKnown:vi.fn(async()=>true),readSession:vi.fn(async()=>session),viewSession:vi.fn(async()=>session),passkeyName:vi.fn(async()=>'Juicebox fixture'),logout:vi.fn(async()=>({loggedOut:true as const,replayed:false}))},
     handoff:{prepare:vi.fn(async()=>({id:loginId,state:'prepared' as const,createdAtMs:Date.now(),expiresAtMs:Date.now()+180_000,request:{} as never})),
       getIntent:vi.fn(async()=>({id:flow,state:'prepared' as const,createdAtMs:started,expiresAtMs:started+180_000,request:{version:'center-wallet-handoff-request-v1' as const,
         issuer:origin,origin:appOrigin,callbackUri:appOrigin+'/center/callback',audience,appGeneration:1,requestKey:appKey.address,state:token,codeChallenge:flow,
@@ -78,9 +78,12 @@ describe('central payment approval HTTP boundary',()=>{
     expect(result.status).toBe(200);expect(service.getForSession).toHaveBeenCalledWith('review-id','22222222-2222-4222-8222-222222222222');
     const body=await result.json();expect(body.passkey).toMatchObject({credentialId:'selected-credential',userVerification:'required'});
     expect(body).not.toHaveProperty('approval');expect(JSON.stringify(body)).not.toContain('private-');
-    vi.mocked(options.login.readSession).mockResolvedValue(null);vi.mocked(options.login.identifySession).mockResolvedValue(null);
+    // The review needs the account's identity, not a fresh authority window: the approval is verified on chain at submission.
+    vi.mocked(options.login.readSession).mockResolvedValue(null);
+    expect((await app.fetch(new Request(origin+'/wallet/payment-reviews/review-id',{headers}))).status).toBe(200);
+    vi.mocked(options.login.viewSession).mockResolvedValue(null);vi.mocked(options.login.identifySession).mockResolvedValue(null);
     expect((await app.fetch(new Request(origin+'/wallet/payment-reviews/review-id',{headers}))).status).toBe(403);
-    expect(service.getForSession).toHaveBeenCalledTimes(1);
+    expect(service.getForSession).toHaveBeenCalledTimes(2);
   });
   it('passes the server session and exact decoded assertion, returning only the saved callback',async()=>{
     const service=payments(),{app,options}=setup({payments:service});

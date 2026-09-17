@@ -398,18 +398,27 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
     expect((await request).status).toBe(410); expect(await counts()).toMatchObject({ approved: 0, consumed: 0 });
   });
 
-  it.each(["operation", "readiness"])("rolls back approval and ceremony consumption when %s expires after the approval write", async deadline => {
-    // Start the worker before issuing short-lived evidence. These cases must
+  it("rolls back approval and ceremony consumption when the operation expires after the approval write", async () => {
+    // Start the worker before issuing short-lived evidence. This case must
     // reach the write barrier, then expire against the real database clock.
     const process = await worker();
-    const value = await pendingReview({}, deadline === "operation" ? 5000 : 120_000, deadline === "readiness" ? 5000 : 30_000);
+    const value = await pendingReview({}, 5000);
     const request = process.request({ action: "approve", id: value.view.draft.id, sessionId: value.login.session.id,
       assertion: value.assertion, barrier: "after-review-write" });
     await reachedBarrier(process, request);
-    await waitPast(deadline === "operation" ? value.view.draft.expiresAtMs : value.login.observation.validUntilMs!);
+    await waitPast(value.view.draft.expiresAtMs);
     process.child.send("release");
-    expect((await request).status).toBe(deadline === "operation" ? 410 : 403);
+    expect((await request).status).toBe(410);
     expect(await counts()).toMatchObject({ approved: 0, consumed: 0 });
+  });
+
+  it("reads and approves a review on a lapsed readiness window: the approval is verified on chain at submission", async () => {
+    const value = await pendingReview({}, 120_000, 700);
+    await waitPast(value.login.observation.validUntilMs!);
+    expect((await value.store.getForSession(value.view.draft.id, value.login.session.id)).status).toBe("pending");
+    const approved = await value.store.approve(value.view.draft.id, value.login.session.id, value.assertion);
+    expect(approved.replayed).toBe(false); expect(approved.view.status).toBe("approved");
+    expect(await counts()).toMatchObject({ approved: 1, consumed: 1 });
   });
 
   it("keeps immutable review fields and the first approved envelope protected at the SQL boundary", async () => {

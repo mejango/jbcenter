@@ -305,22 +305,13 @@ export class PostgresAccountStore implements AccountStore {
         return result;
       } finally { clearTimeout(timer); }
     };
-    let ticking: Promise<unknown> | undefined;
     try {
-      const result = await bounded(() => this.walletRefresh!.request(request.accountId));
-      if (result && typeof result === "object" && "status" in result && result.status === "overloaded") throw checkingWalletAuthority();
-      ticking = this.walletRefresh!.tick();
-      void ticking.catch(() => {});
-    } catch { /* Scheduling availability cannot invalidate independently fresh authority. */ }
-    try {
-      // An already fresh app request does not wait behind unrelated slow observations.
-      return await bounded(() => this.finishWalletAppRequest(request, grant, context));
-    } catch (error) {
-      if (!(error instanceof RestAuthError) || error.code !== "WALLET_AUTHORITY_CHECKING") throw error;
-      if (!ticking) throw error;
-      try { await bounded(() => ticking); } catch { throw checkingWalletAuthority(); }
-      return bounded(() => this.finishWalletAppRequest(request, grant, context));
-    }
+      await bounded(() => this.walletRefresh!.request(request.accountId));
+      void this.walletRefresh!.tick().catch(() => {});
+    } catch { /* Scheduling availability cannot invalidate independently known identity. */ }
+    // The request is admitted on the account's known identity; the observation it just asked for
+    // runs in the background, and anything that moves funds verifies the account at a fresh block.
+    return bounded(() => this.finishWalletAppRequest(request, grant, context));
   }
 
   private async finishWalletAppRequest(request: VerifiedRequest, grant: WalletAppGrant, context: WalletAuthorityContext): Promise<RestPrincipal> {
@@ -340,14 +331,12 @@ export class PostgresAccountStore implements AccountStore {
       const milliseconds = Number((await client.query<{ now: string }>(
         "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS now")).rows[0]!.now);
       assertRequest({ ...request, now: Math.floor(milliseconds / 1000) });
-      if (authority.readiness !== "verified" || authority.validUntilMs === null || authority.validUntilMs <= milliseconds)
-        throw checkingWalletAuthority();
+      if (authority.readiness !== "verified" || !authority.identity) throw checkingWalletAuthority();
       await assertAppRequestActive(client, currentGrant, { ...request, now: await databaseNow(client) });
       const finalMs = Number((await client.query<{ now: string }>(
         "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS now")).rows[0]!.now);
       const completed = { ...request, now: Math.floor(finalMs / 1000) };
       assertRequest(completed);
-      if (authority.validUntilMs <= finalMs) throw checkingWalletAuthority();
       return principalFor(account, currentGrant, completed);
     });
   }

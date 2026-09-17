@@ -39,7 +39,7 @@ export interface WalletSiteOptions {
   recoveryBrowserScript?: string;
   devices?: WalletDeviceSiteOptions['devices'];
   deviceBrowserScript?: string;
-  login: Pick<PostgresWalletLoginStore, 'begin' | 'identifyCompletion' | 'complete' | 'identifySession' | 'readSession' | 'viewSession' | 'logout' | 'passkeyName'>;
+  login: Pick<PostgresWalletLoginStore, 'begin' | 'identifyCompletion' | 'complete' | 'identifySession' | 'identityKnown' | 'readSession' | 'viewSession' | 'logout' | 'passkeyName'>;
   handoff: Pick<PostgresWalletHandoffStore, 'prepare' | 'getIntent' | 'issue' | 'identifyExchange' | 'exchange'>;
   policy: Pick<PostgresWalletPolicyStore, 'readActivePolicy'>;
   refresh: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
@@ -243,7 +243,10 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     const body = fields(await readWalletJson(c.req.raw), ['loginId', 'assertion']);
     if (typeof body.loginId !== 'string') reject();
     const input = { loginId: body.loginId, flowToken, assertion: assertion(body.assertion) };
-    const identity = await login.identifyCompletion(input); await demand(identity.accountId);
+    // A known identity signs in at once while its observation refreshes in the background; only an
+    // account never yet observed (fresh from signup) waits for its first one.
+    const identity = await login.identifyCompletion(input);
+    if (await login.identityKnown(identity.accountId)) void demand(identity.accountId, false); else await demand(identity.accountId);
     const result = await login.complete(input);
     c.header('Set-Cookie', walletCookie(walletSessionCookie, result.sessionToken,
       Math.max(1, Math.min(3600, Math.floor((result.session.expiresAtMs - Date.now()) / 1000)))), { append: true });
@@ -251,8 +254,9 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     emit('login_complete', 'ok');
     return c.json({ session: publicSession(result.session, await login.passkeyName(result.session)), csrfToken: walletCsrfToken(result.sessionToken), replayed: result.replayed });
   });
-  // Showing the account needs identity only; a stale authority record refreshes in the background
-  // and every action still waits for it through sessionFor.
+  // Identity is enough to show the account, to hand it to an app and to approve a payment (the
+  // approval is verified on chain at submission); a stale authority record refreshes in the
+  // background. Only dispatch to other networks still waits for fresh authority through sessionFor.
   const viewFor = async (token: string) => {
     const session = (await login.readSession(token)) ?? (await login.viewSession(token));
     if (session) void demand(session.accountId, false);
@@ -288,11 +292,11 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     if (!options.paymentBrowserScript) reject(503, 'WALLET_PAYMENTS_UNAVAILABLE');
     return c.body(walletPaymentCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' });
   });
-  const paymentSession = async (c: Context, mutate: boolean) => {
+  const paymentSession = async (c: Context, mutate: boolean, fresh = false) => {
     if (mutate) central(c);
     const token = mutate ? cookie(c, walletSessionCookie) : readWalletCookie(c.req.raw, walletSessionCookie);
     if (!token) reject(403, 'WALLET_HTTP_SESSION');
-    const session = await sessionFor(token);
+    const session = await (fresh ? sessionFor(token) : viewFor(token));
     if (!session) reject(403, 'WALLET_HTTP_SESSION');
     return session;
   };
@@ -303,12 +307,12 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     return c.json(await service.list(session));
   });
   app.post(`${base}/networks/status`, async c => {
-    const service = networks(), session = await paymentSession(c, true);
+    const service = networks(), session = await paymentSession(c, true, true);
     fields(await readWalletJson(c.req.raw), []);
     return c.json(await service.status(session));
   });
   app.post(`${base}/networks/quote`, async c => {
-    const service = networks(), session = await paymentSession(c, true);
+    const service = networks(), session = await paymentSession(c, true, true);
     const body = fields(await readWalletJson(c.req.raw), ['chainIds']);
     const result = await service.quote(session, { chainIds: body.chainIds as number[] });
     emit('networks_quote', 'ok');
@@ -316,7 +320,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     return c.json({ bundle: result.bundle, challenge: result.challenge ?? null, credentialId: result.bundle ? session.credentialId : null, view: result.view });
   });
   app.post(`${base}/networks/approve`, async c => {
-    const service = networks(), session = await paymentSession(c, true);
+    const service = networks(), session = await paymentSession(c, true, true);
     const body = fields(await readWalletJson(c.req.raw), ['bundleId', 'assertion']);
     const result = await service.approve(session, { bundleId: body.bundleId as string, assertion: assertion(body.assertion) });
     emit('networks_approve', 'ok');
@@ -367,7 +371,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     if (claim.intentId !== body.intentId) reject(403, 'WALLET_HANDOFF_UNCLAIMED');
     const intent = await handoff.getIntent(claim.intentId);
     await verifyWalletHandoffLaunchSignature({ request: intent.request, intentId: intent.id }, claim.signature);
-    const session = await sessionFor(token); if (!session) reject(403, 'WALLET_HTTP_SESSION');
+    const session = await viewFor(token); if (!session) reject(403, 'WALLET_HTTP_SESSION');
     const issued = await handoff.issue(body.intentId, session.id, claim.signature);
     c.header('Set-Cookie', walletCookie(walletLaunchCookie, null, 0), { append: true });
     if (issued.issuer !== origin) reject(503, 'WALLET_UNAVAILABLE');
@@ -382,7 +386,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   });
   app.post(`${base}/handoff/exchange`, async c => {
     const entry = await appPost(c); const body = await readWalletJson(c.req.raw) as unknown as WalletHandoffExchangeInput;
-    const identity = await handoff.identifyExchange(body, entry.origin); await demand(identity.accountId);
+    const identity = await handoff.identifyExchange(body, entry.origin); void demand(identity.accountId, false);
     const result = await handoff.exchange(body, entry.origin);
     emit('handoff_exchange', 'ok'); return c.json(result);
   });

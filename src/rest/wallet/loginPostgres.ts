@@ -71,6 +71,16 @@ function sameCaptured(locked: LockedContext, expected: WalletAuthorityContext): 
       (locked.authority?.authority_epoch ?? null) !== (expected.prior?.authorityEpoch ?? null) ||
       (locked.authority?.session_epoch ?? null) !== (expected.prior?.sessionEpoch ?? null)) inactive();
 }
+/** The account's identity is known: a verified observation exists and nothing has fenced or changed it
+ * since. Its age does not matter here; where the account acts on chain, that step verifies it afresh. */
+function settled(context: LockedContext, now: number): void {
+  const a = context.authority, snapshot = a?.snapshot;
+  if (!a || !snapshot || snapshot.readiness !== "verified" || snapshot.bootstrapRequired || snapshot.activeFence !== null ||
+      !snapshot.identity || !snapshot.latestObservation || snapshot.latestObservation.observedAtMs > now ||
+      snapshot.identity.bindingId !== context.binding.id || a.binding_id !== context.binding.id ||
+      snapshot.identity.bindingAuthorizationDigest !== context.binding.authorization_digest ||
+      a.binding_authorization_digest !== context.binding.authorization_digest) inactive();
+}
 function ready(context: LockedContext, now: number): void {
   const a = context.authority, snapshot = a?.snapshot;
   if (!a || !snapshot || snapshot.readiness !== "verified" || snapshot.bootstrapRequired || snapshot.activeFence !== null ||
@@ -80,7 +90,11 @@ function ready(context: LockedContext, now: number): void {
       snapshot.identity.bindingAuthorizationDigest !== context.binding.authorization_digest ||
       a.binding_authorization_digest !== context.binding.authorization_digest) inactive();
 }
-function active(row: LoginRow, context: LockedContext, now: number, requireReady: boolean): WalletCentralSession {
+/** What a session use requires of the account's authority: `identity` (epochs and binding only, for
+ * the refresh path), `settled` (a verified identity of any age: sign-in, app hand-off, payment review),
+ * `ready` (a verified identity inside the authority window: dispatch to other networks). */
+type SessionLevel = "identity" | "settled" | "ready";
+function active(row: LoginRow, context: LockedContext, now: number, level: SessionLevel): WalletCentralSession {
   if (!row.session_document || !row.completed_at_ms || row.revoked_at_ms !== null) inactive();
   const session = validateWalletCentralSession(row.session_document), a = context.authority;
   if (!a || !a.snapshot || a.snapshot.bootstrapRequired || a.snapshot.activeFence !== null ||
@@ -89,31 +103,31 @@ function active(row: LoginRow, context: LockedContext, now: number, requireReady
       session.authorityEpoch !== a.authority_epoch || session.sessionEpoch !== a.session_epoch || session.createdAtMs > now || session.expiresAtMs <= now ||
       session.revokedAtMs !== null || session.bindingId !== context.binding.id || session.bindingAuthorizationDigest !== context.binding.authorization_digest ||
       !row.authority_identity || stable(row.authority_identity) !== stable(a.snapshot.identity)) inactive();
-  if (requireReady) ready(context, now);
+  if (level === "ready") ready(context, now); else if (level === "settled") settled(context, now);
   return session;
 }
-async function lockSession(client: PoolClient, sessionId: string, requireReady: boolean) {
+async function lockSession(client: PoolClient, sessionId: string, level: SessionLevel) {
   if (typeof sessionId !== "string" || !uuid.test(sessionId)) invalid();
   const hint = (await client.query<LoginRow>("SELECT * FROM rest_wallet_logins WHERE session_id=$1", [sessionId])).rows[0];
   if (!hint?.account_id || !hint.enrollment_id) inactive();
   const context = await lockedContext(client, hint.account_id, hint.enrollment_id);
   const row = (await client.query<LoginRow>("SELECT * FROM rest_wallet_logins WHERE session_id=$1 FOR UPDATE", [sessionId])).rows[0];
   if (!row) inactive();
-  return { row, context, session: active(row, context, await walletCeremonyDatabaseNow(client), requireReady) };
+  return { row, context, session: active(row, context, await walletCeremonyDatabaseNow(client), level) };
 }
 
 /** Caller owns the transaction and has authenticated the cookie or server-held handoff context.
  * An untrusted session identifier alone is not authentication. Lock order is account → enrollment
  * → authority → credential → session/login row. Repeat after blocking writes before COMMIT.
  * No RPC, proof verification, new pool acquisition, grant issuance or spending authority. */
-export async function assertWalletCentralSessionActiveInTransaction(client: PoolClient, sessionId: string): Promise<WalletCentralSession> {
-  return (await lockSession(client, sessionId, true)).session;
+export async function assertWalletCentralSessionActiveInTransaction(client: PoolClient, sessionId: string, level: Exclude<SessionLevel, "identity"> = "settled"): Promise<WalletCentralSession> {
+  return (await lockSession(client, sessionId, level)).session;
 }
 
 /** Internal refresh identity only. Never use this weaker guard to issue a grant, exchange a code,
  * authenticate a public session response, or authorize spending. */
 export async function assertWalletCentralSessionIdentityInTransaction(client: PoolClient, sessionId: string): Promise<WalletCentralSession> {
-  return (await lockSession(client, sessionId, false)).session;
+  return (await lockSession(client, sessionId, "identity")).session;
 }
 
 /** Internal service storage. The HTTP owner authenticates flow cookies and enforces CSRF/origin;
@@ -160,7 +174,7 @@ export class PostgresWalletLoginStore {
       const now = await walletCeremonyDatabaseNow(client);
       if (row.completed_at_ms) {
         if (row.proof_digest !== proof.proof.verificationDigest) conflict();
-        active(row, locked, now, false);
+        active(row, locked, now, "identity");
       } else if (proof.draft.expiresAtMs <= now) expired();
       return { accountId: proof.context.accountId };
     });
@@ -178,11 +192,11 @@ export class PostgresWalletLoginStore {
       if (stable(row.draft) !== stable(proof.draft)) conflict();
       if (row.completed_at_ms) {
         if (row.proof_digest !== proof.proof.verificationDigest || row.session_token_hash !== sessionTokenHash) conflict();
-        return { session: active(row, locked, await walletCeremonyDatabaseNow(client), true), sessionToken, replayed: true };
+        return { session: active(row, locked, await walletCeremonyDatabaseNow(client), "settled"), sessionToken, replayed: true };
       }
       const now = await walletCeremonyDatabaseNow(client);
       if (proof.draft.expiresAtMs <= now) expired();
-      ready(locked, now);
+      settled(locked, now);
       if (stable(locked.authority!.snapshot!.identity) !== stable(identity)) inactive();
       const count = Number((await client.query("SELECT count(*)::text AS count FROM rest_wallet_logins WHERE account_id=$1", [proof.context.accountId])).rows[0].count);
       if (count >= this.options.maxAccountSessions) limit();
@@ -204,21 +218,30 @@ export class PostgresWalletLoginStore {
         session.bindingId, session.bindingAuthorizationDigest, session.authorityIdentityDigest, JSON.stringify(identity),
         session.expiresAtMs, JSON.stringify(session)])).rows[0];
       if (!updated) conflict();
-      // The original ceremony and readiness deadlines include unique-index waits and all writes.
+      // The original ceremony deadline includes unique-index waits and all writes.
       // This is a last DB-clock check before COMMIT, not a claim of a zero-time commit interval.
       const finalNow = await walletCeremonyDatabaseNow(client);
       if (proof.draft.expiresAtMs <= finalNow) expired();
-      active(updated, locked, finalNow, true);
+      active(updated, locked, finalNow, "settled");
       return { session, sessionToken, replayed: false };
     });
   }
+  /** Whether a verified observation has ever established this account's identity: a sign-in can be served
+   * from it while a fresh observation runs; before it, sign-in must wait for the first one. */
+  async identityKnown(accountId: string): Promise<boolean> {
+    if (typeof accountId !== "string" || accountId.length > 80) return false;
+    const row = (await this.pool.query<{ known: boolean }>(`SELECT (snapshot->>'readiness'='verified' AND jsonb_typeof(snapshot->'identity')='object'
+      AND snapshot->'bootstrapRequired'='false'::jsonb AND snapshot->'activeFence'='null'::jsonb) AS known
+      FROM rest_wallet_authority WHERE account_id=$1`, [accountId])).rows[0];
+    return row?.known === true;
+  }
   /** Internal refresh identity; requires live cookie/mapping/epochs/binding, omits readiness only. */
   async identifySession(token: string): Promise<{ accountId: string } | null> {
-    const session = await this.session(token, false); return session ? { accountId: session.accountId } : null;
+    const session = await this.session(token, "identity"); return session ? { accountId: session.accountId } : null;
   }
-  async readSession(token: string): Promise<WalletCentralSession | null> { return this.session(token, true); }
+  async readSession(token: string): Promise<WalletCentralSession | null> { return this.session(token, "ready"); }
   /** The same session without the fresh-authority requirement: enough to show the account, never to act for it. */
-  async viewSession(token: string): Promise<WalletCentralSession | null> { return this.session(token, false); }
+  async viewSession(token: string): Promise<WalletCentralSession | null> { return this.session(token, "settled"); }
   /** The name given to the session's passkey at enrollment or recovery; display only, never authority. */
   async passkeyName(session: Pick<WalletCentralSession, "rpId" | "credentialId">): Promise<string | null> {
     const row = (await this.pool.query<{ passkey_name: string | null }>(
@@ -236,7 +259,7 @@ export class PostgresWalletLoginStore {
       if (row.session_token_hash !== hash || row.draft.rpId !== this.options.rpId || row.draft.origin !== this.options.origin) inactive();
       // An exact completed logout only reports its original revocation; it never advances again.
       if (row.revoked_at_ms !== null) return { loggedOut: true, replayed: true };
-      active(row, context, await walletCeremonyDatabaseNow(client), false);
+      active(row, context, await walletCeremonyDatabaseNow(client), "identity");
       const a = context.authority!;
       if (BigInt(a.session_epoch) >= 9223372036854775807n) inactive();
       const updated = await client.query(`UPDATE rest_wallet_authority SET session_epoch=session_epoch+1,
@@ -247,7 +270,7 @@ export class PostgresWalletLoginStore {
       await client.query(`UPDATE rest_wallet_logins SET revoked_at_ms=$2,
         session_document=jsonb_set(session_document,'{revokedAtMs}',to_jsonb($2::bigint)) WHERE id=$1`, [hint.id, revokedAt]);
       // Logout also has a finite validity window: a wait cannot revive an expired old cookie.
-      active(row, context, await walletCeremonyDatabaseNow(client), false);
+      active(row, context, await walletCeremonyDatabaseNow(client), "identity");
       return { loggedOut: true, replayed: false };
     });
   }
@@ -280,14 +303,14 @@ export class PostgresWalletLoginStore {
     const row = (await client.query<LoginRow>("SELECT * FROM rest_wallet_logins WHERE id=$1 FOR UPDATE", [id])).rows[0];
     if (!row) unauthorized(); return row;
   }
-  private async session(token: string, requireReady: boolean): Promise<WalletCentralSession | null> {
+  private async session(token: string, level: SessionLevel): Promise<WalletCentralSession | null> {
     let hash: string;
     try { hash = walletCentralSessionTokenHash(token); } catch { return null; }
     const hint = (await this.pool.query<{ session_id: string }>("SELECT session_id FROM rest_wallet_logins WHERE session_token_hash=$1", [hash])).rows[0];
     if (!hint) return null;
     try {
       return await this.transaction(async client => {
-        const locked = await lockSession(client, hint.session_id, requireReady);
+        const locked = await lockSession(client, hint.session_id, level);
         if (locked.row.session_token_hash !== hash || locked.row.draft.rpId !== this.options.rpId || locked.row.draft.origin !== this.options.origin) inactive();
         return locked.session;
       });

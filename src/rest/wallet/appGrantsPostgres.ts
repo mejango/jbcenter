@@ -54,21 +54,19 @@ async function nowMs(client: PoolClient): Promise<number> {
   return Number((await client.query<{ now: string }>(
     "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS now")).rows[0]!.now);
 }
-async function readyUntil(client: PoolClient, accountId: string): Promise<number> {
-  // Binding writers hold the same account lock. Epoch checks alone cannot revoke a still-live
-  // readiness deadline after explicit setup is revoked or replaced.
-  const row = (await client.query<{ ready_until_ms: string }>(`SELECT a.ready_until_ms FROM rest_wallet_authority a
+async function settledAuthority(client: PoolClient, accountId: string): Promise<void> {
+  // Binding writers hold the same account lock. Epoch checks alone cannot revoke a grant after
+  // explicit setup is revoked or replaced. The verified identity's age is not a condition here: a
+  // grant acts on the account only through steps that verify it at a fresh block.
+  const row = (await client.query<{ account_id: string }>(`SELECT a.account_id FROM rest_wallet_authority a
     JOIN rest_smart_account_bindings b ON b.account_id=a.account_id AND b.id=a.binding_id
       AND b.authorization_digest=a.binding_authorization_digest AND b.revoked_at IS NULL
-    WHERE a.account_id=$1 AND a.snapshot->>'readiness'='verified' AND a.snapshot->'bootstrapRequired'='false'::jsonb
-      AND a.snapshot->'activeFence'='null'::jsonb AND a.ready_until_ms IS NOT NULL
+    WHERE a.account_id=$1 AND a.snapshot->>'readiness'='verified' AND jsonb_typeof(a.snapshot->'identity')='object'
+      AND a.snapshot->'bootstrapRequired'='false'::jsonb AND a.snapshot->'activeFence'='null'::jsonb
       AND b.chain_id=8453 AND 'eip155:8453:' || b.wallet_address=a.account_id
       AND b.document->'authorization'->>'method' IN (${passkeyBindingMethodsSql})
       AND b.document->'authorization'->>'digest'=a.binding_authorization_digest`, [accountId])).rows[0];
   if (!row) inactiveWalletAppGrant();
-  const deadline = Number(row.ready_until_ms);
-  if (!Number.isSafeInteger(deadline) || deadline <= await nowMs(client)) inactiveWalletAppGrant();
-  return deadline;
 }
 async function policyGuard(client: PoolClient, grant: Pick<WalletAppGrant, "origin" | "callbackUri" | "appGeneration" | "expiresAt">): Promise<void> {
   try {
@@ -123,7 +121,7 @@ export async function assertWalletAppGrantActiveInTransaction(client: PoolClient
   if (current.revokedAt !== null || JSON.stringify(current) !== JSON.stringify(grant)) inactiveWalletAppGrant();
   const authority = await readAuthority(client, grant.accountId);
   if (authority.authorityEpoch !== grant.authorityEpoch || authority.sessionEpoch !== grant.sessionEpoch) inactiveWalletAppGrant();
-  const authorityDeadline = await readyUntil(client, grant.accountId);
+  await settledAuthority(client, grant.accountId);
   if (context.kind === "request") {
     if (context.audience !== grant.audience || context.origin !== grant.origin) inactiveWalletAppGrant();
   } else if (context.principalId !== walletAppPrincipalId(grant)
@@ -132,7 +130,7 @@ export async function assertWalletAppGrantActiveInTransaction(client: PoolClient
   const before = await now(client);
   if (grant.createdAt > before || expiresAt <= before) inactiveWalletAppGrant();
   await policyGuard(client, { ...grant, expiresAt });
-  if (expiresAt <= await now(client) || authorityDeadline <= await nowMs(client)) inactiveWalletAppGrant();
+  if (expiresAt <= await now(client)) inactiveWalletAppGrant();
 }
 
 /** Scheduling identity only, after an exact request signature was verified. The caller captures and

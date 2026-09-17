@@ -438,41 +438,48 @@ suite("PostgreSQL wallet handoff with genuine request-key proofs and credentiall
     expect(await counts()).toEqual({ handoffs: 1, consumed: 1, grants: 1, grantIds: 1 });
   });
 
-  it.each(["code", "readiness"] as const)("rechecks %s expiry after a real account lock wait before first consume", async boundary => {
+  it("rechecks code expiry after a real account lock wait before first consume", async () => {
     const process = await worker();
-    const value = await issuedHandoff({ codeLifetimeMs: boundary === "code" ? 3000 : 60_000 }, boundary === "readiness" ? 3000 : 30_000);
+    const value = await issuedHandoff({ codeLifetimeMs: 3000 });
     const release = await holdAccount(value.login.accountId);
-    const deadline = boundary === "code" ? Number((await handoffRow(value.prepared.id)).code_expires_at_ms) : value.login.observation.validUntilMs!;
+    const deadline = Number((await handoffRow(value.prepared.id)).code_expires_at_ms);
     expect(await nowMs()).toBeLessThan(deadline);
     const response = process.request({ action: "exchange", input: value.exchange });
     try { await waitingForLock(process.backendPid, /rest_accounts/i); await waitPast(deadline); }
     finally { await release(); }
-    expect((await response).status).toBe(boundary === "code" ? 410 : 403);
+    expect((await response).status).toBe(410);
     expect(await counts()).toEqual({ handoffs: 1, consumed: 0, grants: 0, grantIds: 0 });
   });
 
-  it.each(["code", "readiness"] as const)("rolls back grant and receipt when %s expires after their writes", async boundary => {
+  it("rolls back grant and receipt when the code expires after their writes", async () => {
     const process = await worker();
-    const value = await issuedHandoff({ codeLifetimeMs: boundary === "code" ? 3000 : 60_000 }, boundary === "readiness" ? 3000 : 30_000);
+    const value = await issuedHandoff({ codeLifetimeMs: 3000 });
     const barrier = message(process.child, "barrier");
-    const deadline = boundary === "code" ? Number((await handoffRow(value.prepared.id)).code_expires_at_ms) : value.login.observation.validUntilMs!;
+    const deadline = Number((await handoffRow(value.prepared.id)).code_expires_at_ms);
     const response = process.request({ action: "exchange", input: value.exchange, barrier: "after-receipt-write" });
     expect((await barrier).boundary).toBe("after-receipt-write");
     await waitPast(deadline); process.child.send("release");
-    expect((await response).status).toBe(boundary === "code" ? 410 : 403);
+    expect((await response).status).toBe(410);
     expect(await counts()).toEqual({ handoffs: 1, consumed: 0, grants: 0, grantIds: 0 });
   });
 
-  it.each([false, true])("identifies the proved originating account after readiness expiry with consumed=%s, then admits a fresh observation", async consumed => {
-    const value = await issuedHandoff({}, 700);
-    const first = consumed ? await value.target.exchange(value.exchange, origin) : null;
-    await waitPast(value.login.observation.validUntilMs!);
-    await expect(value.target.exchange(value.exchange, origin)).rejects.toMatchObject({ status: 403 });
-    expect(await value.target.identifyExchange(value.exchange, origin)).toEqual({ accountId: value.login.accountId });
-    expect(await counts()).toEqual({ handoffs: 1, consumed: consumed ? 1 : 0, grants: consumed ? 1 : 0, grantIds: consumed ? 1 : 0 });
-    await refreshSyntheticObservation(value.login.accountId);
-    const result = await value.target.exchange(value.exchange, origin);
-    expect(result.replayed).toBe(consumed); if (first) expect(result.grant).toEqual(first.grant);
+  it("issues and exchanges on a lapsed readiness window: the account's verified identity is enough", async () => {
+    // A returning person's sign-in, hand-off and code exchange never wait for a fresh observation;
+    // only readiness that turned unknown, changed or fenced refuses them.
+    const login = await completeWalletLoginFixture(pool, { lifetimeMs: 700 });
+    await waitPast(login.observation.validUntilMs!);
+    const target = new PostgresWalletHandoffStore(pool, options({}));
+    const input = await request({ expiresAtMs: await nowMs() + 120_000 });
+    const prepared = await target.prepare({ request: input.request, signature: input.signature }, origin);
+    const launchSignature = await appKey.signTypedData(walletHandoffLaunchDocument({ request: input.request, intentId: prepared.id }));
+    const issued = await target.issue(prepared.id, login.session.id, launchSignature);
+    const exchange = await exchangeInput(input.request, prepared.id, issued.code, input.verifier);
+    expect(await target.identifyExchange(exchange, origin)).toEqual({ accountId: login.accountId });
+    const result = await target.exchange(exchange, origin);
+    expect(result.replayed).toBe(false); expect(result.grant).toMatchObject({ accountId: login.accountId, scopes: ["read", "plan", "relay"] });
+    expect(await counts()).toEqual({ handoffs: 1, consumed: 1, grants: 1, grantIds: 1 });
+    const unknown = structuredClone((await pool.query("SELECT snapshot FROM rest_wallet_authority WHERE account_id=$1", [login.accountId])).rows[0].snapshot);
+    expect(unknown.readiness).toBe("verified");
   });
 
   it.each(["signature", "verifier", "code", "origin", "logout", "removed-policy"] as const)(

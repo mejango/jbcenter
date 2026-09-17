@@ -95,6 +95,15 @@ async function send(worker: Worker, request: Awaited<ReturnType<typeof signed>>)
 async function work() { return (await pool.query(`SELECT
   count(*) FILTER(WHERE kind='request')::int AS requests,count(*) FILTER(WHERE kind='observe')::int AS observations,
   (SELECT count(*)::int FROM wallet_app_refresh_claims) AS claims FROM wallet_app_refresh_events`)).rows[0]; }
+// The observation an admitted request asks for runs after its response; wait for the worker's record.
+async function untilWork(expected: { requests: number; observations: number; claims: number }) {
+  for (let i = 0; i < 300; i++) {
+    const current = await work();
+    if (current.requests === expected.requests && current.observations === expected.observations && current.claims === expected.claims) return current;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  expect(await work()).toEqual(expected);
+}
 async function nonceCount(request: Awaited<ReturnType<typeof signed>>) {
   return Number((await pool.query('SELECT count(*)::int AS count FROM rest_request_nonces WHERE account_id=$1 AND nonce=$2',
     [request.claims.accountId, request.claims.nonce])).rows[0].count);
@@ -137,9 +146,15 @@ suite('signed app requests renew their own bounded authority refresh interest', 
     const deadline = Number((await pool.query('SELECT interested_until_ms FROM rest_wallet_authority_refresh_jobs WHERE account_id=$1', [value.accountId])).rows[0].interested_until_ms);
     await waitPast(Math.max(deadline, value.observation.validUntilMs!));
     const request = await signed(value.grant), response = await send(first, request);
+    // Admitted on the known identity at once; the observation it asked for lands afterwards.
     expect(response).toMatchObject({ status: 200, body: { kind: 'wallet-app', principalId: walletAppPrincipalId(value.grant) } });
-    expect(await work()).toEqual({ requests: 1, observations: 1, claims: 0 }); expect(await nonceCount(request)).toBe(1);
-    const current = (await pool.query('SELECT ready_until_ms,authority_epoch,session_epoch FROM rest_wallet_authority WHERE account_id=$1', [value.accountId])).rows[0];
+    await untilWork({ requests: 1, observations: 1, claims: 0 }); expect(await nonceCount(request)).toBe(1);
+    let current: any;
+    for (let i = 0; i < 200; i++) {
+      current = (await pool.query('SELECT ready_until_ms,authority_epoch,session_epoch FROM rest_wallet_authority WHERE account_id=$1', [value.accountId])).rows[0];
+      if (Number(current.ready_until_ms) > await nowMs()) break;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
     expect(Number(current.ready_until_ms)).toBeGreaterThan(await nowMs());
     expect(current).toMatchObject({ authority_epoch: value.grant.authorityEpoch, session_epoch: value.grant.sessionEpoch });
   });
@@ -210,29 +225,33 @@ suite('signed app requests renew their own bounded authority refresh interest', 
     expect(await nonceCount(request)).toBe(1); expect(await work()).toEqual({ requests: 0, observations: 0, claims: 0 });
     const replay = await send(second, request); expect(replay).toMatchObject({ status: 409, body: { code: 'REPLAY' } });
     first.child.send('release'); expect((await accepted).status).toBe(200);
-    expect(await work()).toEqual({ requests: 1, observations: 1, claims: 0 });
+    await untilWork({ requests: 1, observations: 1, claims: 0 });
   });
 
-  it('spends an unavailable observation attempt without a business effect and retries only with a new nonce', async () => {
+  it('admits on the known identity while its observation is unavailable, spending the nonce once', async () => {
     const value = await seed({ readyMs: 500 }); await waitPast(value.observation.validUntilMs!);
     const claimId = randomUUID(), request = await signed(value.grant, { claimId });
-    expect((await send(unknown, request)).status).toBe(503); expect(await nonceCount(request)).toBe(1);
-    expect(await work()).toEqual({ requests: 1, observations: 1, claims: 0 });
+    expect((await send(unknown, request)).status).toBe(200); expect(await nonceCount(request)).toBe(1);
+    await untilWork({ requests: 1, observations: 1, claims: 1 });
     expect(await send(first, request)).toMatchObject({ status: 409, body: { code: 'REPLAY' } });
-    expect(await work()).toEqual({ requests: 1, observations: 1, claims: 0 });
-    const due = Number((await pool.query('SELECT due_at_ms FROM rest_wallet_authority_refresh_jobs WHERE account_id=$1', [value.accountId])).rows[0].due_at_ms);
-    await waitPast(due);
-    expect((await send(first, await signed(value.grant, { claimId }))).status).toBe(200);
-    expect(await work()).toEqual({ requests: 2, observations: 2, claims: 1 });
+    expect(await work()).toEqual({ requests: 1, observations: 1, claims: 1 });
+    // The unavailable observation left readiness unknown: identity is still the last verified one, and the next request is refused until a verified observation lands.
+    let readiness = '';
+    for (let i = 0; i < 200 && readiness !== 'unknown'; i++) {
+      readiness = (await pool.query("SELECT snapshot->>'readiness' AS readiness FROM rest_wallet_authority WHERE account_id=$1", [value.accountId])).rows[0].readiness;
+      if (readiness !== 'unknown') await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    expect(readiness).toBe('unknown');
+    expect((await send(first, await signed(value.grant, { claimId: randomUUID() }))).status).toBe(503);
   });
 
-  it('keeps a scheduling nonce spent across a queue admission outage without running an observer', async () => {
+  it('admits on the known identity across a queue admission outage without running an observer', async () => {
     const value = await seed({ readyMs: 500 }), process = await start('queue-error'); await waitPast(value.observation.validUntilMs!);
     const request = await signed(value.grant, { claimId: randomUUID() });
-    expect((await send(process, request)).status).toBe(503); expect(await nonceCount(request)).toBe(1);
-    expect(await work()).toEqual({ requests: 1, observations: 0, claims: 0 });
+    expect((await send(process, request)).status).toBe(200); expect(await nonceCount(request)).toBe(1);
+    expect(await work()).toEqual({ requests: 1, observations: 0, claims: 1 });
     expect(await send(second, request)).toMatchObject({ status: 409, body: { code: 'REPLAY' } });
-    expect(await work()).toEqual({ requests: 1, observations: 0, claims: 0 }); await stop(process.child);
+    expect(await work()).toEqual({ requests: 1, observations: 0, claims: 1 }); await stop(process.child);
   });
 
   it('admits still-fresh authority through a queue outage after the full final guard and spent nonce', async () => {
@@ -296,12 +315,12 @@ suite('signed app requests renew their own bounded authority refresh interest', 
 
   it.each(['request-expired', 'grant-revoked', 'logout', 'credential-superseded', 'binding-revoked', 'policy-readded'] as const)(
     'returns no principal when %s happens after its durable scheduling claim', async invalidation => {
-      const value = await seed({ readyMs: 500 }), process = await start('fresh', true);
+      const value = await seed({ readyMs: 500 }), process = await start();
       await waitPast(value.observation.validUntilMs!);
-      const request = await signed(value.grant, { claimId: randomUUID(), ...(invalidation === 'request-expired'
+      const request = await signed(value.grant, { claimId: randomUUID(), barrier: 'after-nonce-commit', ...(invalidation === 'request-expired'
         ? { changes: { expiresAt: Math.floor(await nowMs() / 1000) + 2 } } : {}) });
       const barrier = message(process.child, 'barrier'), response = send(process, request);
-      expect((await barrier).boundary).toBe('observe'); expect(await nonceCount(request)).toBe(1);
+      expect((await barrier).boundary).toBe('after-nonce-commit'); expect(await nonceCount(request)).toBe(1);
       if (invalidation === 'request-expired') await waitPast(request.claims.expiresAt * 1000);
       if (invalidation === 'grant-revoked') await pool.query('UPDATE rest_wallet_app_grants SET revoked_at=$2 WHERE id=$1', [value.grant.id, Math.floor(await nowMs() / 1000)]);
       if (invalidation === 'logout') await new PostgresWalletAppGrantStore(pool).advanceEpochs({ accountId: value.accountId, kind: 'logout',
@@ -327,6 +346,6 @@ suite('signed app requests renew their own bounded authority refresh interest', 
     expect(await send(second, request)).toMatchObject({ status: 409, body: { code: 'REPLAY' } });
     expect(await work()).toEqual({ requests: 0, observations: 0, claims: 0 });
     expect((await send(second, await signed(value.grant))).status).toBe(200);
-    expect(await work()).toEqual({ requests: 1, observations: 1, claims: 0 });
+    await untilWork({ requests: 1, observations: 1, claims: 0 });
   });
 });

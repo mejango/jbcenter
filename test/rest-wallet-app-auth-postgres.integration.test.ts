@@ -153,7 +153,7 @@ suite("real signed app requests across two PostgreSQL HTTP replicas", () => {
     }
   });
 
-  it("rejects an expired verified wallet readiness snapshot before consuming a signed nonce", async () => {
+  it("admits a verified snapshot whose readiness window lapsed: the identity is enough, and the nonce is consumed", async () => {
     const value = await grant();
     const expired = structuredClone(trustedAuthority.snapshot), observedAtMs = await trustedAuthorityNow(pool);
     expired.updatedAtMs = observedAtMs; expired.validUntilMs = observedAtMs + 200;
@@ -161,8 +161,8 @@ suite("real signed app requests across two PostgreSQL HTTP replicas", () => {
     await writeTrustedWalletAuthoritySnapshot(pool, expired);
     await pool.query("SELECT pg_sleep(GREATEST(0,$1::double precision/1000-extract(epoch FROM clock_timestamp())::double precision+0.03))", [expired.validUntilMs]);
     const request = await signed(value);
-    expect(await send(1, request)).toMatchObject({ status: 403, body: { code: "FORBIDDEN" } });
-    expect(await nonceCount(request.claims.nonce)).toBe(0);
+    expect((await send(1, request)).status).toBe(200);
+    expect(await nonceCount(request.claims.nonce)).toBe(1);
   });
 
   it.each(["unknown", "changed", "fenced"] as const)("rejects %s wallet readiness before consuming a signed nonce", async readiness => {
@@ -260,15 +260,10 @@ suite("real signed app requests across two PostgreSQL HTTP replicas", () => {
     } finally { await lock.query("ROLLBACK"); lock.release(); await pending; await isolated.end(); }
   });
 
-  it.each(["grant", "request", "readiness"])("rolls back the signed request nonce when its %s expires during nonce cleanup", async boundary => {
+  it.each(["grant", "request"])("rolls back the signed request nonce when its %s expires during nonce cleanup", async boundary => {
     const current = await now(), expiresAt = current + 3;
     const value = await grant(origin, boundary === "grant" ? { expiresAt } : {});
     const request = await signed(value, boundary === "request" ? { changes: { expiresAt } } : {});
-    if (boundary === "readiness") {
-      const snapshot = structuredClone(trustedAuthority.snapshot);
-      snapshot.validUntilMs = expiresAt * 1000; snapshot.latestObservation!.validUntilMs = snapshot.validUntilMs;
-      await writeTrustedWalletAuthoritySnapshot(pool, snapshot);
-    }
     const oldNonce = `0x${randomUUID().replaceAll("-", "").repeat(2)}` as Hex;
     await pool.query("INSERT INTO rest_request_nonces(account_id,nonce,expires_at) VALUES($1,$2,$3)", [accountId, oldNonce, current - 1]);
     const lock = await pool.connect(); let pending: ReturnType<typeof send> | undefined;

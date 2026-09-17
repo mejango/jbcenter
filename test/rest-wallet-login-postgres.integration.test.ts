@@ -254,15 +254,20 @@ suite("PostgreSQL discoverable wallet login with genuine P256 and synthetic cano
       .toEqual({ logins: 1, ceremonies: 1 });
   });
 
-  it("permits internal refresh identity after readiness expiry while session use and completion fail closed", async () => {
+  it("signs in and views the account on a lapsed readiness window; only dispatch use fails closed", async () => {
+    // The last verified observation is the identity; its age only matters where the account acts on chain.
     const value = await completeWalletLoginFixture(pool, { lifetimeMs: 1800 });
     await untilDatabaseTime(value.observation.validUntilMs!);
     expect(await store.readSession(value.sessionToken)).toBeNull();
+    expect(await store.viewSession(value.sessionToken)).toMatchObject({ id: value.session.id, accountId: value.accountId });
     expect(await store.identifySession(value.sessionToken)).toEqual({ accountId: value.accountId });
-    expect(await store.identifyCompletion(value.input)).toEqual({ accountId: value.accountId });
-    await expect(store.complete(value.input)).rejects.toMatchObject({ code: "WALLET_LOGIN_INACTIVE" });
+    expect(await store.identityKnown(value.accountId)).toBe(true);
+    expect(await store.identityKnown("eip155:8453:0x0000000000000000000000000000000000000001")).toBe(false);
+    const begun = await store.begin();
+    const again = await store.complete(proof(value, begun));
+    expect(again.session.accountId).toBe(value.accountId); expect(again.replayed).toBe(false);
+    expect(await store.viewSession(again.sessionToken)).toMatchObject({ id: again.session.id });
   });
-
   it("recovers the same session after challenge expiry even when its valid authenticator counter advances", async () => {
     const value = await initialized(), short = new PostgresWalletLoginStore(pool, { rpId, origin: audience, loginLifetimeMs: 1800 });
     const begun = await short.begin(), input = proof(value, begun), completed = await short.complete(input);
@@ -412,16 +417,6 @@ suite("PostgreSQL discoverable wallet login with genuine P256 and synthetic cano
     const pending = child.request({ action: "complete", input: wire(proof(value, begun)), barrier: "after-login-write", continueBarrier: true });
     await reachedBarrier(barrier, pending); await untilDatabaseTime(begun.login.expiresAtMs); child.child.send({ kind: "continue" });
     expect(await pending).toMatchObject({ status: 410, body: { code: "WALLET_LOGIN_EXPIRED" } });
-    expect(await completionCount()).toBe(0);
-    expect((await storedCeremony(begun.login.id)).consumed_at).toBeNull();
-  });
-
-  it("rolls back a written session when canonical readiness expires before commit", async () => {
-    const child = await worker(), value = await initialized(1800), begun = await store.begin();
-    const barrier = message(child.child, "barrier");
-    const pending = child.request({ action: "complete", input: wire(proof(value, begun)), barrier: "after-login-write", continueBarrier: true });
-    await reachedBarrier(barrier, pending); await untilDatabaseTime(value.observation.validUntilMs!); child.child.send({ kind: "continue" });
-    expect(await pending).toMatchObject({ status: 403, body: { code: "WALLET_LOGIN_INACTIVE" } });
     expect(await completionCount()).toBe(0);
     expect((await storedCeremony(begun.login.id)).consumed_at).toBeNull();
   });

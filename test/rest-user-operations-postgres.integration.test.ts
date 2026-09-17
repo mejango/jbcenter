@@ -186,7 +186,8 @@ suite('PostgreSQL UserOperation persistence', () => {
       store.create({ ...value.record, inputHash: h('changed') }, Date.now()),
     ).rejects.toMatchObject({ code: 'USER_OPERATION_CONFLICT' });
   });
-  it.each(['grant', 'authority readiness'] as const)('rolls back app preparation when its %s expires while waiting for the plan lock', async expiry => {
+  it('rolls back app preparation when its grant expires while waiting for the plan lock', async () => {
+    const expiry = 'grant';
     const appAccountId = `eip155:8453:${safe}`, appOwner = { accountId: appAccountId, principalId: `owner:${appAccountId}` }, origin = 'https://app.example';
     // Trusted synthetic verified-readiness/live-binding fixture; this proves durable expiry handling,
     // not passkey enrollment, setup signatures or canonical authority production.
@@ -195,11 +196,6 @@ suite('PostgreSQL UserOperation persistence', () => {
     const exists = (await pool.query('SELECT 1 FROM rest_wallet_authority WHERE account_id=$1', [appAccountId])).rowCount;
     const trusted = exists ? await refreshTrustedWalletAuthority(pool, appAccountId) : await seedTrustedWalletAuthority(pool, appAccountId);
     const wallet = trusted.binding;
-    if (expiry === 'authority readiness') {
-      // A shorter observation window stays within the production maximum of 30 seconds.
-      trusted.snapshot.validUntilMs = trusted.snapshot.latestObservation!.validUntilMs = await trustedAuthorityNow(pool) + 4000;
-      await writeTrustedWalletAuthoritySnapshot(pool, trusted.snapshot);
-    }
     await new PostgresWalletPolicyStore(pool).activate({ expectedRevision: 0, nextRevision: 1,
       configuration: { version: 'center-wallet-policy-v1', applications: [{ origin, walletCallbacks: [`${origin}/callback`] }] } });
     const lock = await pool.connect();
@@ -208,14 +204,14 @@ suite('PostgreSQL UserOperation persistence', () => {
       const grant = await new PostgresWalletAppGrantStore(pool).insert({ accountId: appOwner.accountId,
         signerAddress: target, origin, callbackUri: `${origin}/callback`, audience: 'https://juicebox.center',
         expectedAppGeneration: 1, expectedAuthorityEpoch: '1', expectedSessionEpoch: '1',
-        expiresAt: await dbSeconds(lock) + (expiry === 'grant' ? 4 : 60) });
+        expiresAt: await dbSeconds(lock) + 4 });
       const appActor = { accountId: appOwner.accountId, principalId: walletAppPrincipalId(grant) };
       const id = `app-plan-wait-${expiry.replaceAll(' ', '-')}-expiry`;
       const value = plan(id, appActor, wallet, Date.now());
       value.smartAccount!.chainId = 8453;
       value.draft.calls.forEach(call => { call.chainId = 8453; });
       await plans.create(value, { key: id, operation: 'prepare', requestHash: h(id) }, Date.now());
-      const operation = record(value, expiry === 'grant' ? 9003n : 9004n);
+      const operation = record(value, 9003n);
       operation.chainId = 8453;
       operation.operationHash = getUserOperationHash(operation.operation, operation.entryPoint, 8453);
       await lock.query('BEGIN');
@@ -226,14 +222,13 @@ suite('PostgreSQL UserOperation persistence', () => {
       expect(await waitUntilBlocked(lock, pid)).toEqual(expect.arrayContaining([
         expect.stringMatching(/^SELECT document FROM rest_transaction_plans .*FOR UPDATE$/),
       ]));
-      const expiresAtMs = expiry === 'grant' ? grant.expiresAt * 1000 : trusted.snapshot.validUntilMs!;
+      const expiresAtMs = grant.expiresAt * 1000;
       expect(await trustedAuthorityNow(lock)).toBeLessThan(expiresAtMs);
       await lock.query(
         'SELECT pg_sleep(GREATEST(0,$1::double precision-extract(epoch FROM clock_timestamp())::double precision+0.005))',
         [expiresAtMs / 1000],
       );
       expect(await trustedAuthorityNow(lock)).toBeGreaterThanOrEqual(expiresAtMs);
-      if (expiry === 'authority readiness') expect(await dbSeconds(lock)).toBeLessThan(grant.expiresAt);
       await lock.query('ROLLBACK');
       expect(await pending).toMatchObject({ error: { code: 'FORBIDDEN', status: 403 } });
       expect(await store.get(appActor, operation.id)).toBeUndefined();
