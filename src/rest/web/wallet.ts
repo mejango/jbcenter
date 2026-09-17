@@ -122,7 +122,8 @@ function acceptSession(value: Json, required = false) {
   const passkeyName = current.passkeyName === null || current.passkeyName === undefined ? null : string(current.passkeyName, 120);
   session = { accountId: current.accountId as string, loginId: string(current.loginId, 36), walletAddress, chainId: 8453, expiresAtMs, passkeyName };
   csrf = nextCsrf; sessionKnown = true;
-  void refreshNetworks().catch(() => { /* The list stays at Base until the next load. */ });
+  // A page about to leave for an app or a payment review does not need the networks list.
+  if (!intent && !paymentReviewId) void refreshNetworks().catch(() => { /* The list stays at Base until the next load. */ });
 }
 async function run(action: () => Promise<void>) {
   if (busy) return;
@@ -167,7 +168,12 @@ async function load() {
   paymentReviewId = query.searchParams.get("payment");
   if (paymentReviewId !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(paymentReviewId)) throw new InvalidResponse();
   const intentId = query.searchParams.has("intent") ? token(query.searchParams.get("intent")) : null;
-  const config = await request(`${base}/config`);
+  // The reads this page opens with do not depend on one another: they go out together and are checked in order.
+  const configRead = request(`${base}/config`);
+  const authorization = intentId ? request(`${base}/authorize/${intentId}`) : null;
+  ahead = readyRequest(`${base}/session`, undefined, undefined, 100_000);
+  for (const read of [authorization, ahead]) read?.catch(() => undefined);
+  const config = await configRead;
   if (config.version !== "center-wallet-v1" || config.issuer !== location.origin) throw new InvalidResponse();
   const create = document.getElementById("wallet-create") as HTMLAnchorElement | null;
   if (create) { create.href = `${base}/create` + query.search; create.hidden = false; }
@@ -177,7 +183,7 @@ async function load() {
   if (location.hostname !== rpId && !location.hostname.endsWith(`.${rpId}`)) throw new InvalidResponse();
   configuration = { issuer: location.origin, audience: string(config.audience), rpId };
   if (intentId) {
-    const result = await request(`${base}/authorize/${intentId}`), requested = record(result.request);
+    const result = await authorization!, requested = record(result.request);
     if (result.id !== intentId || !["prepared", "issued"].includes(String(result.state))
       || requested.issuer !== configuration.issuer || requested.audience !== configuration.audience) throw new InvalidResponse();
     const callbackUri = string(requested.callbackUri), callback = new URL(callbackUri);
@@ -188,10 +194,11 @@ async function load() {
   }
   await readSession();
 }
+let ahead: Promise<Json> | null = null;
 async function readSession() {
   nextRetry = readSession; setStatus("checking", "Checking current wallet access…");
-  // The session read may refresh the account's authority on Base first; the site holds it up to 90 s.
-  acceptSession(await readyRequest(`${base}/session`, undefined, undefined, 100_000));
+  const read = ahead ?? readyRequest(`${base}/session`, undefined, undefined, 100_000); ahead = null;
+  acceptSession(await read);
   await continueSession();
 }
 async function continueSession() {

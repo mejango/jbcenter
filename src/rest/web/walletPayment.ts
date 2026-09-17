@@ -129,8 +129,11 @@ function accept(input: unknown) {
   else if (expired()) setStatus('expired', 'This payment approval expired. Return to your app to review a fresh payment.');
   else setStatus('ready', 'Check the payment details, then approve with your passkey.');
 }
+// The configuration and the session do not depend on one another: they go out together and are
+// checked in order; the review is read only once the session is known.
+let ahead: Promise<Json> | null = null;
 async function readSession() {
-  const result = await request(`${base}/session`);
+  const result = await (ahead ?? request(`${base}/session`));
   if (result.session === null) { needsSignIn = true; csrf = ''; setStatus('sign-in', 'Sign in to review this payment.'); return false; }
   const session = record(result.session), nextAccount = text(session.accountId);
   if (session.chainId !== 8453 || `eip155:8453:${address(session.walletAddress).toLowerCase()}` !== nextAccount || (accountId && accountId !== nextAccount)) fail();
@@ -141,10 +144,14 @@ async function load() {
   const url = new URL(location.href);
   if (url.hash || url.searchParams.size !== 1 || !url.searchParams.has('review')) fail();
   id = uuid(url.searchParams.get('review')); signIn.href = `${base || '/'}?payment=${id}`;
-  const config = await request(`${base}/config`);
-  if (config.version !== 'center-wallet-v1' || config.issuer !== location.origin) fail();
-  rpId = text(config.rpId, 253); if (location.hostname !== rpId && !location.hostname.endsWith(`.${rpId}`)) fail();
-  await recover();
+  const configuration = request(`${base}/config`);
+  ahead = request(`${base}/session`); ahead.catch(() => undefined);
+  try {
+    const config = await configuration;
+    if (config.version !== 'center-wallet-v1' || config.issuer !== location.origin) fail();
+    rpId = text(config.rpId, 253); if (location.hostname !== rpId && !location.hostname.endsWith(`.${rpId}`)) fail();
+    await recover();
+  } finally { ahead = null; }
 }
 async function recover() {
   if (!await readSession()) return;
