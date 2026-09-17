@@ -251,11 +251,11 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
   // Every verification is remembered; only a caller that opts in (the binding read behind a
   // payment's plan and operation) is served from it, for the reuse window from the verified head
   // or at the very block already verified. Onboarding, authority and dispatch checks always read
-  // the chain. The wallet authority refresh verifies each tracked account about once a minute
-  // through its own budgeted service and hands the state in through `remember`, so a payment
-  // usually finds the entry warm.
+  // the chain, and a submission verifies the account again at its own head, so the window only
+  // decides whether preparing a payment waits for an inspection: it matches the sign-in identity
+  // window. The wallet authority refresh hands each verified state in through `remember`.
   const recent = new Map<string, SmartAccountState>();
-  const reuseMs = options.reuseMs ?? 90_000;
+  const reuseMs = options.reuseMs ?? 900_000;
   const keyOf = (manifestId: string, address: string) => `${manifestId}:${address.toLowerCase()}`;
   // A verification at an older block (a historical check behind a receipt) never replaces a
   // newer entry: the entry always describes the account at the latest block anyone verified.

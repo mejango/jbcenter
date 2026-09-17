@@ -354,7 +354,7 @@ describe("smart account ownership and module boundaries", () => {
       test.service.remember(older);
       expect((await read()).evidence.blockHash).toBe(first.evidence.blockHash);
       // Past the window the chain is read again.
-      time += 91;
+      time += 901;
       await read();
       expect(test.inspections).toHaveLength(3);
     } finally {
@@ -439,13 +439,13 @@ describe("smart account ownership and module boundaries", () => {
     test.state.threshold = 1;
     // The binding read reuses the last verification for its window; the change shows once it
     // lapses (a dispatch-time read at its exact block never reuses a stale state).
-    time += 91;
+    time += 901;
     try {
       await expect(
         test.service.current(principal.account.id, record.id),
       ).rejects.toMatchObject({ code: "SMART_ACCOUNT_CHANGED" });
     } finally {
-      time -= 91;
+      time -= 901;
     }
   });
   it("does not imply bundler configuration or verified account state creates an execution adapter", async () => {
