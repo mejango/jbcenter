@@ -13,8 +13,11 @@ export interface WalletAuthorityRefreshQueueOptions {
   verifiedMinRetryMs?: number; backoffBaseMs?: number; backoffMaxMs?: number;
 }
 const defaults = Object.freeze({ maxTracked: 32, maxConcurrent: 2, maxStartsPerMinute: 30,
-  // A lease outlives one hosted observation (~25 s measured, 90 s budget) and its store round trips.
-  interestMs: 120_000, leaseMs: 120_000, refreshLeadMs: 60_000,
+  // An account stays warm for a day after its last request (one observation every ~14 min, about
+  // 95 reads), so a customer back within the day never waits on a history catch-up; the tracked cap
+  // bounds the spend and the account idle longest gives its slot to new demand. A lease outlives
+  // one hosted observation (~25 s measured, 90 s budget) and its store round trips.
+  interestMs: 86_400_000, leaseMs: 120_000, refreshLeadMs: 60_000,
   verifiedMinRetryMs: 1_000, backoffBaseMs: 2_000, backoffMaxMs: 30_000 });
 type Settings = typeof defaults;
 type Job = { account_id: string; interested_until_ms: string; due_at_ms: string;
@@ -81,8 +84,14 @@ export class PostgresWalletAuthorityRefreshQueue implements AuthorityRefreshQueu
       }
       const capacity = (await client.query<{ total: string; retry_at: string | null }>(`SELECT count(*)::text AS total,
         min(GREATEST(interested_until_ms,COALESCE(lease_until_ms,0)))::text AS retry_at FROM rest_wallet_authority_refresh_jobs`)).rows[0]!;
-      if (Number(capacity.total) >= this.settings.maxTracked)
-        return { status: "overloaded", retryAtMs: capacity.retry_at === null ? null : Number(capacity.retry_at) };
+      if (Number(capacity.total) >= this.settings.maxTracked) {
+        // Full: the account idle longest (earliest interest end, not in flight) gives its slot to new demand.
+        const evicted = await client.query(`DELETE FROM rest_wallet_authority_refresh_jobs WHERE account_id=
+          (SELECT account_id FROM rest_wallet_authority_refresh_jobs WHERE lease_until_ms IS NULL OR lease_until_ms<=$1
+            ORDER BY interested_until_ms,account_id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING account_id`, [now]);
+        if (!evicted.rowCount)
+          return { status: "overloaded", retryAtMs: capacity.retry_at === null ? null : Number(capacity.retry_at) };
+      }
       await client.query(`INSERT INTO rest_wallet_authority_refresh_jobs(account_id,interested_until_ms,due_at_ms)
         VALUES($1,$2,$3)`, [accountId, now + this.settings.interestMs, now]);
       // The account FK may have waited behind a canonical authority transaction. Queue demand
@@ -142,10 +151,14 @@ export class PostgresWalletAuthorityRefreshQueue implements AuthorityRefreshQueu
           ? Math.max(this.settings.verifiedMinRetryMs, Math.min(readyUntil!, now + walletAuthorityMaximumAgeMs) - now - this.settings.refreshLeadMs)
           : progress ? this.settings.backoffBaseMs
           : Math.min(this.settings.backoffMaxMs, this.settings.backoffBaseMs * 2 ** (failures - 1));
+        // At the failure cap the queue stops re-observing on its own: a day of interest would
+        // otherwise cost an account that cannot verify an observation every backoff; the
+        // customer's next request renews the interest.
         const changed = await client.query(`UPDATE rest_wallet_authority_refresh_jobs
-          SET lease_token=NULL,lease_until_ms=NULL,due_at_ms=$4,failures=$5
+          SET lease_token=NULL,lease_until_ms=NULL,due_at_ms=$4,failures=$5,
+            interested_until_ms=CASE WHEN $5::smallint>=16 THEN LEAST(interested_until_ms,$6::bigint) ELSE interested_until_ms END
           WHERE account_id=$1 AND lease_token=$2 AND lease_until_ms=$3 AND lease_until_ms>${nowSql}
-          RETURNING account_id`, [lease.accountId, lease.token, until, now + delay, failures]);
+          RETURNING account_id`, [lease.accountId, lease.token, until, now + delay, failures, now]);
         if (!changed.rowCount) return false;
         // Account/job lock waits and post-write work may consume the original lease.
         if (until <= await databaseNow(client)) throw new ExpiredLease();

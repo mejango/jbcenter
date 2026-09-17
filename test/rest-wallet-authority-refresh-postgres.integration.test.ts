@@ -103,7 +103,7 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 4 });
     for (const name of ["004_rest_accounts.sql", "007_rest_smart_accounts.sql", "012_rest_smart_account_onboarding.sql",
       "013_rest_wallet_ceremonies.sql", "014_rest_passkey_onboarding.sql", "042_wallet_binding_consent.sql", "015_rest_wallet_enrollment.sql", "046_wallet_signup_window.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql",
-      "017_rest_wallet_policy.sql", "019_rest_wallet_app_grants.sql", "020_rest_wallet_authority.sql", "039_wallet_authority_window.sql", "049_wallet_authority_window_15m.sql", "023_wallet_authority_refresh.sql", "040_wallet_authority_refresh_settings.sql"])
+      "017_rest_wallet_policy.sql", "019_rest_wallet_app_grants.sql", "020_rest_wallet_authority.sql", "039_wallet_authority_window.sql", "049_wallet_authority_window_15m.sql", "023_wallet_authority_refresh.sql", "040_wallet_authority_refresh_settings.sql", "050_wallet_authority_refresh_interest_day.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     enrollments = new PostgresWalletEnrollmentStore(pool);
   });
@@ -118,6 +118,15 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
     await pool?.end(); if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
   });
 
+  it("clears the configuration pinned by an earlier release so the new interest is recorded, not refused", async () => {
+    const accountId = await eligibleAccount(), store = queue();
+    await pool.query("UPDATE rest_wallet_authority_refresh_control SET configuration=$1::jsonb WHERE id=1",
+      [JSON.stringify({ ...options, interestMs: 120_000 })]);
+    await expect(store.request(accountId)).rejects.toMatchObject({ code: "WALLET_AUTHORITY_REFRESH_CONFIG_CONFLICT" });
+    await pool.query(await readFile(new URL("../src/db/migrations/050_wallet_authority_refresh_interest_day.sql", import.meta.url), "utf8"));
+    expect((await store.request(accountId)).status).toBe("queued");
+    expect((await pool.query("SELECT configuration FROM rest_wallet_authority_refresh_control WHERE id=1")).rows[0]!.configuration).toMatchObject(options);
+  });
   it("coalesces concurrent demand without authority initialization or queue-order changes", async () => {
     const accountId = await eligibleAccount(), store = queue();
     const results = await Promise.all(Array.from({ length: 12 }, () => store.request(accountId)));
@@ -200,7 +209,7 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
     expect(await store.stats()).toMatchObject({ inFlight: 2, startsInWindow: 3 });
   });
 
-  it("bounds tracked demand without evicting interested or leased accounts", async () => {
+  it("bounds tracked demand: the account idle longest gives its slot, a leased one never does", async () => {
     const configuration = { ...options, maxTracked: 2 }, store = queue(configuration);
     const [first, second, excess] = await Promise.all([eligibleAccount(), eligibleAccount(), eligibleAccount()]);
     const [a, b] = await Promise.all([worker(configuration), worker(configuration)]);
@@ -209,12 +218,20 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
     const before = await job(first!);
     const results = await Promise.all([a.request({ action: "request", accountId: second }), b.request({ action: "request", accountId: excess })]);
     expect(results.map(result => result.status)).toEqual([200, 200]);
-    expect(results.map(result => result.body.status).sort()).toEqual(["overloaded", "queued"]);
-    const refused = results[0]!.body.status === "overloaded" ? second! : excess!;
+    // Both are admitted: the later one takes the slot of the earlier, which is not in flight.
+    expect(results.map(result => result.body.status)).toEqual(["queued", "queued"]);
+    const kept = [await job(second!), await job(excess!)].filter(Boolean);
+    expect(kept).toHaveLength(1);
     expect((await store.request(first!)).status).toBe("coalesced");
     expect((await job(first!)).lease_token).toBe(before.lease_token);
-    expect(await job(refused)).toBeUndefined();
     expect(await store.stats()).toMatchObject({ tracked: 2, interested: 2, inFlight: 1, startsInWindow: 1 });
+    // Once nothing is in flight, the account whose interest ends first is the one to give way.
+    expect(await store.complete(lease!, { outcome: "verified", readyUntilMs: await databaseNow() + 1000 })).toBe(true);
+    const survivor = kept[0]!.account_id;
+    await untilDatabaseTime(await databaseNow() + 5); await store.request(survivor);
+    expect((await store.request(await eligibleAccount())).status).toBe("queued");
+    expect(await job(first!)).toBeUndefined();
+    expect(await job(survivor)).toBeDefined();
   });
 
   it("preserves the global start budget through idle cleanup and process replacement", async () => {
@@ -298,6 +315,18 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
     expect(await store.claim()).toBeNull();
   });
 
+  it("ends its own interest at the failure cap, and the customer's next request renews it", async () => {
+    const store = queue(), accountId = await eligibleAccount();
+    await store.request(accountId);
+    await pool.query("UPDATE rest_wallet_authority_refresh_jobs SET failures=15 WHERE account_id=$1", [accountId]);
+    const lease = await store.claim(); expect(lease?.accountId).toBe(accountId);
+    expect(await store.complete(lease!, { outcome: "failed", readyUntilMs: null })).toBe(true);
+    // Its interest over, the job leaves with the completion's own cleanup; nothing observes it again.
+    expect(await job(accountId)).toBeUndefined();
+    expect(await store.stats()).toMatchObject({ tracked: 0, interested: 0, due: 0 });
+    expect((await store.request(accountId)).status).toBe("queued");
+    expect((await job(accountId)).failures).toBe(0);
+  });
   it("preserves oldest-due fairness and capped failure backoff under repeated hot-account demand", async () => {
     const store = queue(), first = await eligibleAccount(), second = await eligibleAccount();
     await store.request(first); await untilDatabaseTime(await databaseNow() + 5); await store.request(second);
