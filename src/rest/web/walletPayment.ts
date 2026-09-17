@@ -46,7 +46,9 @@ function render() {
   cancelPrompt.hidden = !nativePrompt;
   retry.hidden = !canRetry || busy || blocked;
   signIn.hidden = !needsSignIn || blocked;
-  returnToApp.hidden = !review || !['approved', 'cancelled'].includes(review.status) || uncertain || blocked || busy;
+  // The way back is the callback verified at load: shown once the review is settled here, and
+  // whenever this page cannot go on, so the app can check the payment instead.
+  returnToApp.hidden = !review || busy || (!blocked && (uncertain || !['approved', 'cancelled'].includes(review.status)));
   details.hidden = !review;
 }
 async function request(path: string, body?: unknown): Promise<Json> {
@@ -188,8 +190,12 @@ async function approvePayment() {
   // No network await precedes get(): it runs from the explicit approval click.
   nativePrompt = new AbortController(); setStatus('authenticating', 'Use your passkey to approve this payment.'); render();
   const credential = await navigator.credentials.get({ publicKey: { rpId, challenge: decode(review.passkey.challenge), userVerification: 'required', timeout: 90_000 }, signal: nativePrompt.signal });
-  if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAssertionResponse) ||
-    encode(credential.rawId) !== review.passkey.credentialId) throw new InvalidResponse();
+  if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAssertionResponse)) throw new InvalidResponse();
+  // The device offered another passkey than the one this review pins (a second passkey for this
+  // account, or another account's): nothing was sent, so the customer simply picks again.
+  if (encode(credential.rawId) !== review.passkey.credentialId) {
+    nativePrompt = null; setStatus('ready', 'That was a different passkey. Approve with the passkey you signed in with.'); return;
+  }
   const response = credential.response;
   pending = { credentialId: encode(credential.rawId), userHandle: response.userHandle ? encode(response.userHandle) : null,
     authenticatorData: encode(response.authenticatorData), clientDataJSON: encode(response.clientDataJSON), signature: encode(response.signature) };

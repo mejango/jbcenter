@@ -188,6 +188,24 @@ describe('central payment review browser, virtual authenticator', () => {
     expect(approvals()).toHaveLength(0); expect(await page.locator('#payment-approve').isVisible()).toBe(false);
   });
 
+  it('lets a different passkey be tried again, and returns to the app from a blocked page', async () => {
+    await load();
+    // The device offered another passkey than the one the review pins: no approval is sent, the page asks again.
+    const pinned = review.passkey.credentialId; review.passkey.credentialId = 'someone-else';
+    await page.reload(); await status('ready');
+    await page.locator('#payment-approve').click();
+    await expect.poll(() => page.locator('#payment-status').textContent()).toContain('different passkey');
+    await status('ready'); expect(approvals()).toHaveLength(0);
+    expect(await page.locator('#payment-approve').isVisible()).toBe(true);
+    review.passkey.credentialId = pinned;
+    // A page that cannot go on still offers the way back to the app it came from.
+    dropApproval = true; await page.reload(); await status('ready'); await page.locator('#payment-approve').click(); await status('unknown');
+    review.payment = { ...review.payment, amount: '2000000' };
+    await page.locator('#payment-retry').click(); await status('error');
+    expect(await page.locator('#payment-return').isVisible()).toBe(true);
+    await page.locator('#payment-return').click(); await expect.poll(() => page.url()).toBe(callback());
+  });
+
   it('keeps unknown approval honest while its status is unavailable', async () => {
     await load(); dropApproval = true; await page.locator('#payment-approve').click(); await status('unknown');
     unavailableReads = true; await page.locator('#payment-retry').click(); await status('unknown');
@@ -202,13 +220,15 @@ describe('central payment review browser, virtual authenticator', () => {
     if (kind === 'duplicate-review') redirect.searchParams.append('review', reviewId);
     if (kind === 'fragment') redirect.hash = 'proof';
     redirectOverride = redirect.href; await page.locator('#payment-approve').click(); await status('error');
-    expect(new URL(page.url()).pathname).toBe('/wallet/payment'); expect(await page.locator('#payment-return').isVisible()).toBe(false);
+    // The page never follows the bad redirect; its own way back is the callback it verified at load.
+    expect(new URL(page.url()).pathname).toBe('/wallet/payment');
+    expect(await page.locator('#payment-return').getAttribute('href')).toBe(callback());
   });
 
   it('refuses recovery if immutable payment terms change under the same review ID', async () => {
     await load(); dropApproval = true; await page.locator('#payment-approve').click(); await status('unknown');
     review.payment = { ...review.payment, amount: '2000000' };
-    await page.locator('#payment-retry').click(); await status('error'); expect(await page.locator('#payment-return').isVisible()).toBe(false);
+    await page.locator('#payment-retry').click(); await status('error'); expect(await page.locator('#payment-return').getAttribute('href')).toBe(callback());
   });
 
   it.each([
