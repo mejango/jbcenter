@@ -214,6 +214,15 @@ export class PaymentService {
     }
     return { key, fresh: true, ...(await this.readRoute(key, client, evidence, project, token)) };
   }
+  /** Reads a route ahead of its next quote when it is missing or past half its life. */
+  async warm(project: ProjectRef, token: Address) {
+    const key = `${project.chainId}:${uint(project.projectId, 'projectId')}:${token.toLowerCase()}`;
+    const kept = this.recentProjects.get(key);
+    if (kept && Date.now() - kept.at < routeLifetimeMs / 2) return false;
+    const snapshot = await this.rpc.snapshot(project.chainId);
+    await this.readRoute(key, snapshot.client, snapshot.evidence, project, token);
+    return true;
+  }
   /** One read per route at a time; whoever asks meanwhile joins it. */
   private readRoute(
     key: string,

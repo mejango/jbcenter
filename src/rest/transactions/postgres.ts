@@ -39,6 +39,7 @@ import {
   storageLimit,
   type StoredIdempotency,
   type SubmissionPatch,
+  type PayTarget,
   type TransactionStore,
 } from "./store.js";
 
@@ -257,6 +258,16 @@ export class PostgresTransactionStore implements TransactionStore {
       claim,
     );
     return row ? boundedClone(row.document) : undefined;
+  }
+  async recentPayTargets(sinceMs: number, limit: number): Promise<PayTarget[]> {
+    assertLimit(limit);
+    const result = await this.pool.query<{ project: PayTarget["project"]; token: Address }>(
+      `SELECT document->'draft'->'summary'->'project' AS project, lower(document->'draft'->'summary'->'payment'->>'token') AS token, MAX(created_at) AS latest
+       FROM rest_transaction_plans WHERE created_at >= $1 AND document->'draft'->>'operation' = 'pay'
+       GROUP BY 1, 2 ORDER BY latest DESC LIMIT $2`,
+      [sinceMs, limit],
+    );
+    return result.rows.map((row) => ({ project: row.project, token: row.token }));
   }
   async list(
     actor: RestActor,

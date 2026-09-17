@@ -37,6 +37,8 @@ import {
   type ActiveActorGuard,
   type StoredIdempotency,
   type SubmissionPatch,
+  payTargetOf,
+  type PayTarget,
   type TransactionStore,
 } from "./store.js";
 
@@ -135,6 +137,16 @@ export class MemoryTransactionStore implements TransactionStore {
     return existing
       ? boundedClone(this.require(actor, existing.planId))
       : undefined;
+  }
+  async recentPayTargets(sinceMs: number, limit: number): Promise<PayTarget[]> {
+    const seen = new Set<string>(), targets: PayTarget[] = [];
+    for (const plan of [...this.plans.values()].sort((a, b) => b.createdAt - a.createdAt)) {
+      const target = payTargetOf(plan);
+      if (plan.createdAt < sinceMs || !target || seen.has(JSON.stringify(target))) continue;
+      seen.add(JSON.stringify(target));
+      if (targets.push(target) >= limit) break;
+    }
+    return targets;
   }
   async list(
     actor: RestActor,

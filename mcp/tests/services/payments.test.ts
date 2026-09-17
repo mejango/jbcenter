@@ -304,6 +304,27 @@ describe('payment quotes and approval plans', () => {
       (h.service as unknown as { recentProjects: Map<string, unknown> }).recentProjects.size,
     ).toBe(1);
   });
+  it('warms a route that is missing or past half its life, and leaves a young one alone', async () => {
+    const f = fixture();
+    const names = () => f.readContract.mock.calls.map(([request]) => request.functionName);
+    expect(await f.service.warm(payInput.project, payInput.token)).toBe(true);
+    expect(names()).toContain('controllerOf');
+    expect(names()).not.toContain('previewPayFor');
+    f.readContract.mockClear();
+    expect(await f.service.warm(payInput.project, payInput.token)).toBe(false);
+    expect(names()).toEqual([]);
+    (
+      f.service as unknown as { recentProjects: Map<string, { at: number }> }
+    ).recentProjects.forEach((entry) => {
+      entry.at -= 900_000;
+    });
+    expect(await f.service.warm(payInput.project, payInput.token)).toBe(true);
+    expect(names()).toContain('controllerOf');
+    // The next quote finds the route warm.
+    f.readContract.mockClear();
+    await f.service.preparePay(payInput);
+    expect(names()).toEqual(['previewPayFor']);
+  });
   it('answers from a route past half its life and reads it again behind the quote', async () => {
     const f = fixture();
     const names = () => f.readContract.mock.calls.map(([request]) => request.functionName);

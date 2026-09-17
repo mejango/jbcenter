@@ -3,6 +3,7 @@ import type { SmartAccountState } from "./smartAccounts/types.js";
 import {
   createProtocolOperations,
   type Config,
+  type ProjectRef,
   type Services,
 } from "@juicebox/mcp/host";
 import type { Store } from "../store.js";
@@ -560,9 +561,28 @@ export async function createRestRuntime(options: {
   if (options.startMaintenance !== false) metrics.startRestRecovery();
   let stopped = false;
   let maintenance: Promise<void> | undefined;
+  // Every pay route of the last day's plans is read ahead of its next quote, at boot and then every
+  // ten minutes once past half its life, so a project paid daily never waits on a cold read.
+  let routesWarmedAt = 0;
+  const warmRoutes = async () => {
+    routesWarmedAt = Date.now();
+    let warmed = 0, failed = 0;
+    try {
+      for (const target of await transactions.recentPayTargets(Date.now() - 86_400_000, 64)) {
+        if (stopped) break;
+        try { if (await options.services.payments.warm(target.project as ProjectRef, target.token)) warmed++; } catch { failed++; }
+      }
+    } catch {
+      // A warm-up that cannot list its targets is not a fault of the request path; the next tick tries again.
+      console.info(JSON.stringify({ service: "payments", action: "routes_warm", outcome: "unavailable" }));
+      return;
+    }
+    if (warmed || failed) console.info(JSON.stringify({ service: "payments", action: "routes_warm", warmed, failed }));
+  };
   const run = () => {
     if (stopped || maintenance) return;
     maintenance = (async () => {
+      if (Date.now() - routesWarmedAt >= 600_000) await warmRoutes();
       await metrics.observeRestRecovery("nonce_cleanup", async () => {
         await accountStore.cleanupExpiredNonces(Math.floor(Date.now() / 1000), 1000);
         return { failures: 0 };
@@ -607,6 +627,7 @@ export async function createRestRuntime(options: {
   const timer =
     options.startMaintenance === false ? undefined : setInterval(run, 30_000);
   timer?.unref();
+  if (options.startMaintenance !== false) void warmRoutes();
   if (options.startMaintenance !== false) wallet?.refresh.start();
   return {
     site: {
