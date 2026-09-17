@@ -8,7 +8,7 @@ import { hashTypedData, keccak256, toHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { createWalletEnrollmentIntent, enrollmentDigest, walletEnrollmentDocument, type WalletEnrollment } from "../src/rest/wallet/enrollment.js";
 import { PostgresWalletEnrollmentStore } from "../src/rest/wallet/enrollmentPostgres.js";
-import { createWalletAuthorityIdentity, walletAuthorityContextDigest, walletAuthorityExpectedAnchor,
+import { createWalletAuthorityIdentity, walletAuthorityContextDigest, walletAuthorityExpectedAnchor, walletAuthorityMaximumHeadAgeMs,
   type WalletAuthorityContext, type WalletAuthorityObservation, type WalletAuthoritySnapshot } from "../src/rest/wallet/authority.js";
 import { PostgresWalletAuthorityStore } from "../src/rest/wallet/authorityPostgres.js";
 import { PostgresWalletAppGrantStore } from "../src/rest/wallet/appGrantsPostgres.js";
@@ -214,7 +214,7 @@ suite("PostgreSQL canonical wallet authority with genuine enrollment and explici
     const legacy = await authorizedFixture();
     await pool.query("INSERT INTO rest_wallet_authority(account_id,authority_epoch,session_epoch,updated_at) VALUES($1,$2,$3,$4)",
       [legacy.accountId, "9007199254740993", "9007199254741007", Math.floor(await databaseNow() / 1000)]);
-    for (const name of ["020_rest_wallet_authority.sql", "039_wallet_authority_window.sql"])
+    for (const name of ["020_rest_wallet_authority.sql", "039_wallet_authority_window.sql", "049_wallet_authority_window_15m.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     migratedEpochOnly = (await pool.query("SELECT authority_epoch,session_epoch,revision,snapshot,ready_until_ms FROM rest_wallet_authority WHERE account_id=$1", [legacy.accountId])).rows[0];
     store = new PostgresWalletAuthorityStore(pool);
@@ -292,6 +292,15 @@ suite("PostgreSQL canonical wallet authority with genuine enrollment and explici
     expect(value.snapshot.updatedAtMs).toBeGreaterThanOrEqual(value.observation.observedAtMs);
     expect(await store.get(value.accountId)).toEqual(value.snapshot);
     expect(await store.reconcile(value.context, value.observation)).toEqual({ snapshot: value.snapshot, replayed: true });
+  });
+
+  it("stores a fifteen-minute verified window", async () => {
+    const value = await authorizedFixture(), context = await store.loadContext(value.accountId);
+    // The synthetic head is stamped at the observation second, so the window stays inside the head-age bound.
+    const observation = await canonicalObservation(context, { lifetimeMs: 899_000 }), result = await store.reconcile(context, observation);
+    expect(result.snapshot.validUntilMs).toBe(observation.observedAtMs + 899_000);
+    expect((await pool.query("SELECT ready_until_ms FROM rest_wallet_authority WHERE account_id=$1", [value.accountId])).rows[0])
+      .toEqual({ ready_until_ms: String(observation.observedAtMs + 899_000) });
   });
 
   it("initializes exactly once across two actual one-connection processes", async () => {
@@ -485,13 +494,14 @@ suite("PostgreSQL canonical wallet authority with genuine enrollment and explici
     const value = await authorizedFixture(), firstContext = await store.loadContext(value.accountId), child = await worker();
     const first = await canonicalObservation(firstContext);
     // These consecutive synthetic heads advance in time. Both are initially within the real
-    // 300-second head-age bound; the changed result has no readiness deadline of its own.
-    const initialHeadSeconds = Math.floor(first.observedAtMs / 1000) - 298;
-    first.head!.timestamp = String(initialHeadSeconds); first.validUntilMs = (initialHeadSeconds + 300) * 1000;
+    // head-age bound; the changed result has no readiness deadline of its own.
+    const headAgeSeconds = walletAuthorityMaximumHeadAgeMs / 1000;
+    const initialHeadSeconds = Math.floor(first.observedAtMs / 1000) - (headAgeSeconds - 2);
+    first.head!.timestamp = String(initialHeadSeconds); first.validUntilMs = (initialHeadSeconds + headAgeSeconds) * 1000;
     const original = await store.reconcile(firstContext, first), context = await store.loadContext(value.accountId);
     const observation = await canonicalObservation(context, { stateHash: word("46"), eligibility: "changed" });
     observation.head!.timestamp = String(initialHeadSeconds + 2);
-    const headDeadline = Number(observation.head!.timestamp) * 1000 + 300000;
+    const headDeadline = Number(observation.head!.timestamp) * 1000 + walletAuthorityMaximumHeadAgeMs;
     expect(observation.validUntilMs).toBeNull(); expect(headDeadline).toBeGreaterThan(observation.observedAtMs);
     const barrier = message(child.child, "barrier");
     const pending = child.request({ action: "reconcile", context, observation, barrier: "after-authority-write", continueBarrier: true });

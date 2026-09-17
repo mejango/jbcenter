@@ -26,6 +26,21 @@ export function userOperationPasskeyProfile(binding: SmartAccountBinding, manife
   return profile;
 }
 
+/** The pure shape checks on a signed passkey operation: the envelope's validity window is the
+ * reviewed one and the bytes stay within the shape its gas estimate covers. They cost nothing,
+ * so a submission runs them before any chain or provider work. */
+export function assertPasskeyUserOperationEnvelope(input: {
+  operation: UserOperationV07; validAfter: string; validUntil: string; threshold: number;
+}) {
+  const { operation } = input;
+  if (size(operation.signature) > PASSKEY_MAX_SIGNATURE_BYTES)
+    throw new RestError(400, "USER_OPERATION_PASSKEY_SIGNATURE_LIMIT", "The signature exceeds the maximum shape covered by its approved gas estimate.");
+  const entries = decodeSafe7579PasskeyOwnerSignature({ signature: operation.signature,
+    validAfter: input.validAfter, validUntil: input.validUntil, threshold: input.threshold });
+  if (entries.some((entry) => entry.kind === "contract" && size(entry.signature) > PASSKEY_MAX_CONTRACT_SIGNATURE_BYTES))
+    throw new RestError(400, "USER_OPERATION_PASSKEY_SIGNATURE_LIMIT", "The passkey body exceeds its approved gas estimate.");
+}
+
 /** Verify Safe's legacy bytes selector, not its unrelated bytes32 selector. Every RPC uses
  * the same inspected canonical block, the existing bounded RPC budget/deadline, and a gas cap.
  * The later EntryPoint preflight and binding check remain mandatory before any nonce claim.
@@ -38,12 +53,7 @@ export async function verifyPasskeyUserOperation(input: {
   const { binding, manifest, chain, operation } = input;
   const profile = userOperationPasskeyProfile(binding, manifest);
   if (!profile || !manifest.entryPoint) throw new RestError(409, "USER_OPERATION_OWNER_PROFILE_CHANGED", "A current passkey owner profile is required.");
-  if (size(operation.signature) > PASSKEY_MAX_SIGNATURE_BYTES)
-    throw new RestError(400, "USER_OPERATION_PASSKEY_SIGNATURE_LIMIT", "The signature exceeds the maximum shape covered by its approved gas estimate.");
-  const entries = decodeSafe7579PasskeyOwnerSignature({ signature: operation.signature,
-    validAfter: input.validAfter, validUntil: input.validUntil, threshold: binding.state.threshold });
-  if (entries.some((entry) => entry.kind === "contract" && size(entry.signature) > PASSKEY_MAX_CONTRACT_SIGNATURE_BYTES))
-    throw new RestError(400, "USER_OPERATION_PASSKEY_SIGNATURE_LIMIT", "The passkey body exceeds its approved gas estimate.");
+  assertPasskeyUserOperationEnvelope({ operation, validAfter: input.validAfter, validUntil: input.validUntil, threshold: binding.state.threshold });
   const payload = safe7579PasskeyOwnerSigningPayload({ operation, chainId: binding.wallet.chainId,
     entryPoint: manifest.entryPoint.address, safe7579: manifest.safe7579.address,
     validAfter: input.validAfter, validUntil: input.validUntil });

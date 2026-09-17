@@ -6,7 +6,7 @@ import { createRestAuth } from "../../src/rest/auth/service.js";
 import { assertRestActorActive, PostgresAccountStore } from "../../src/rest/auth/postgres.js";
 import { RestAuthError } from "../../src/rest/auth/store.js";
 import { RestError } from "../../src/rest/core.js";
-import { walletAuthorityContextDigest, walletAuthorityExpectedAnchor, walletAuthorityMaximumAgeMs,
+import { walletAuthorityContextDigest, walletAuthorityExpectedAnchor, walletAuthorityMaximumAgeMs, walletAuthorityMaximumHeadAgeMs,
   type WalletAuthorityContext, type WalletAuthorityObservation } from "../../src/rest/wallet/authority.js";
 import { PostgresWalletAuthorityStore } from "../../src/rest/wallet/authorityPostgres.js";
 import { createWalletAuthorityService } from "../../src/rest/wallet/authorityService.js";
@@ -64,9 +64,12 @@ async function main(): Promise<void> {
       if (mode === "unknown") return { ...base, validUntilMs: null, head: null, identity: null, eligibility: null,
         priorAnchor: { status: expected ? "unavailable" : "none", expected, observed: null }, reason: "fixture-provider-unavailable" };
       const blockNumber = (BigInt(context.prior.highestObservedBlock ?? "0") + 1n).toString();
-      return { ...base, validUntilMs: observedAtMs + walletAuthorityMaximumAgeMs,
+      // The window is bounded by the head's age as well as the observation's; the synthetic head
+      // sits at the observation's second, so the head bound is the lower one.
+      const headSeconds = Math.floor(observedAtMs / 1000);
+      return { ...base, validUntilMs: Math.min(observedAtMs + walletAuthorityMaximumAgeMs, headSeconds * 1000 + walletAuthorityMaximumHeadAgeMs),
         head: { chainId: 8453, blockNumber, blockHash: keccak256(toHex(`canonical-test-block-${blockNumber}`)),
-          timestamp: String(Math.floor(observedAtMs / 1000)), source: "onchain" },
+          timestamp: String(headSeconds), source: "onchain" },
         priorAnchor: { status: expected ? "same" : "none", expected, observed: expected ? structuredClone(expected) : null },
         identity: structuredClone(context.prior.identity), eligibility: "matched", reason: null };
     },

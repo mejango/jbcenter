@@ -7,7 +7,7 @@ import type { SmartAccountState, SmartAccountManifest, ContractPin } from "../sr
 import { fingerprint } from "../src/rest/smartAccounts/service.js";
 import { passkeyOnboardingDocument } from "../src/rest/smartAccounts/passkeyOnboarding.js";
 import { createWalletAuthorityChain, type WalletAuthorityChainOptions } from "../src/rest/wallet/authorityChain.js";
-import { createWalletAuthorityIdentity, walletAuthorityContextDigest, type WalletAuthorityContext, type WalletAuthoritySnapshot } from "../src/rest/wallet/authority.js";
+import { createWalletAuthorityIdentity, walletAuthorityContextDigest, walletAuthorityMaximumAgeMs, walletAuthorityMaximumHeadAgeMs, walletAuthorityMaximumHeadLagMs, type WalletAuthorityContext, type WalletAuthoritySnapshot } from "../src/rest/wallet/authority.js";
 import { createWalletEnrollmentIntent, enrollmentDigest, prepareWalletEnrollmentCandidate, verifyWalletEnrollmentProof,
   walletEnrollmentDocument, type WalletEnrollment } from "../src/rest/wallet/enrollment.js";
 import { createRegistration, enrollmentBackupAccount, enrollmentManifest, signBackupProof, signGet } from "./fixtures/wallet-enrollment-crypto.js";
@@ -98,8 +98,8 @@ function prior(input: WalletAuthorityContext, accepted = block(95)): WalletAutho
     bootstrapRequired: false, readiness: "verified", identity, historicalVerifiedIdentity: identity, acceptedAnchor: accepted,
     highestObservedBlock: accepted.blockNumber, activeFence: null, lastClosedFence: null,
     latestObservation: { version: "center-wallet-authority-observation-v1", accountId: input.accountId, contextDigest: walletAuthorityContextDigest(input),
-      observedAtMs: now + 1, validUntilMs: now + 120_001, head: accepted, priorAnchor: { status: "none", expected: null, observed: null },
-      identity, eligibility: "matched", reason: null }, validUntilMs: now + 120_001, updatedAtMs: now + 2 };
+      observedAtMs: now + 1, validUntilMs: now + walletAuthorityMaximumHeadAgeMs, head: accepted, priorAnchor: { status: "none", expected: null, observed: null },
+      identity, eligibility: "matched", reason: null }, validUntilMs: now + walletAuthorityMaximumHeadAgeMs, updatedAtMs: now + 2 };
 }
 function fenced(input: WalletAuthorityContext, recoveryAnchor: RestBlockEvidence | null): WalletAuthoritySnapshot {
   const result = prior(input, block(95, hash(9995)));
@@ -111,7 +111,7 @@ function fenced(input: WalletAuthorityContext, recoveryAnchor: RestBlockEvidence
 describe("configured canonical authority producer", () => {
   it("uses disposable complete inspection and binds the new session-administration identity", async () => {
     const f = fixture(), result = await f.chain.observe(f.input);
-    expect(result).toMatchObject({ accountId: f.input.accountId, observedAtMs: now + 3, validUntilMs: now + 120_003,
+    expect(result).toMatchObject({ accountId: f.input.accountId, observedAtMs: now + 3, validUntilMs: now + walletAuthorityMaximumHeadAgeMs,
       eligibility: "matched", head: block(), identity: { stateHash: state.stateHash, sessionAdministration: { epoch: "0", hash: hash(1004) } },
       priorAnchor: { status: "none", expected: null, observed: null } });
     expect(mocked.inspector).toHaveBeenCalledOnce();
@@ -198,11 +198,12 @@ describe("configured canonical authority producer", () => {
     f.input.prior = prior(f.input, mode === "lagging" ? block(105) : block(95));
     expect(await f.chain.observe(f.input)).toMatchObject({ head: null, identity: null, validUntilMs: null, priorAnchor: { status: "unavailable" } });
   });
-  it.each(["chain", "stale head", "future head", "wrong requested height"])("leaves %s provider evidence unknown", async mode => {
+  it.each(["chain", "stale head", "lagging head", "future head", "wrong requested height"])("leaves %s provider evidence unknown", async mode => {
     const f = fixture((method, params, result) => {
       if (mode === "chain" && method === "eth_chainId") return "0x1";
       if (method === "eth_getBlockByNumber") return { ...result as object,
-        ...(mode === "stale head" ? { timestamp: toHex(now / 1000 - 301) } : mode === "future head" ? { timestamp: toHex(now / 1000 + 31) } :
+        ...(mode === "stale head" ? { timestamp: toHex(now / 1000 - walletAuthorityMaximumHeadAgeMs / 1000 - 1) } :
+          mode === "lagging head" ? { timestamp: toHex(now / 1000 - walletAuthorityMaximumHeadLagMs / 1000) } : mode === "future head" ? { timestamp: toHex(now / 1000 + 31) } :
           mode === "wrong requested height" && params[0] !== "latest" ? { number: "0x65" } : {}) };
       return result;
     });
@@ -229,7 +230,7 @@ describe("configured canonical authority producer", () => {
   it("retains original observation time and refuses expiry during inspection", async () => {
     let clock = now + 3;
     const f = fixture(undefined, { now: () => clock });
-    mocked.inspect.mockImplementation(async (_input, _signal, at) => { clock += 120_001; return { ...structuredClone(state), evidence: at }; });
+    mocked.inspect.mockImplementation(async (_input, _signal, at) => { clock += walletAuthorityMaximumAgeMs + 1; return { ...structuredClone(state), evidence: at }; });
     expect(await f.chain.observe(f.input)).toMatchObject({ observedAtMs: now + 3, head: null, identity: null, validUntilMs: null });
   });
   it("bounds a provider that ignores its deadline signal", async () => {

@@ -1,7 +1,7 @@
 import { beforeAll, expect, it } from "vitest";
 import type { Hex } from "viem";
 import { createWalletAuthorityIdentity, reconcileWalletAuthority, validateWalletAuthorityContext, validateWalletAuthorityObservation,
-  validateWalletAuthoritySnapshot, walletAuthorityContextDigest, walletAuthorityMaximumAgeMs, walletAuthorityExpectedAnchor, walletAuthorityIdentityDigest,
+  validateWalletAuthoritySnapshot, walletAuthorityContextDigest, walletAuthorityMaximumAgeMs, walletAuthorityMaximumHeadAgeMs, walletAuthorityExpectedAnchor, walletAuthorityIdentityDigest,
   type WalletAuthorityContext, type WalletAuthorityObservation, type WalletAuthoritySnapshot } from "../src/rest/wallet/authority.js";
 import { createWalletAuthorityContextFixture } from "./fixtures/wallet-authority-context.js";
 
@@ -219,4 +219,13 @@ it("rejects accessors, proxies, hidden fields, custom JSON and oversized graphs 
   const oversized = context(); (oversized.binding as any).extra = "x".repeat(262145);
   for (const value of [getter, proxy, custom, hidden, oversized]) expect(() => validateWalletAuthorityContext(value)).toThrow();
   expect(touched).toBe(false);
+});
+
+// A verified observation serves sign-in for fifteen minutes: every action that changes the account
+// (payment submission, device addition, recovery) still verifies the account at a fresh block.
+it("serves sign-in from a verified observation for fifteen minutes", () => {
+  expect(walletAuthorityMaximumAgeMs).toBe(900_000);
+  expect(walletAuthorityMaximumHeadAgeMs).toBe(900_000);
+  const o = observation(context(), { validUntilMs: now + 900_000 });
+  expect(validateWalletAuthorityObservation(o, context()).validUntilMs).toBe(now + 900_000);
 });

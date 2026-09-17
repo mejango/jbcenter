@@ -41,6 +41,8 @@ async function fixture(options: { app?: boolean; legacy?: boolean; sponsored?: b
   wallet.wallet.chainId = wallet.state.chainId = wallet.state.evidence.chainId = 8453;
   wallet.state.evidence.blockHash = h("passkey-block");
   wallet.state.owners = options.legacy ? [ownerKey.address] : [signer, ownerKey.address];
+  // The inspection at the head records every pinned runtime it proved, the signer's included.
+  if (!options.legacy) wallet.state.codeHashes = [signer, target].map((address) => ({ address, runtimeCodeHash: keccak256(code) }));
   if (!options.legacy) wallet.state.ownerProfile = {
     version: "center-passkey-v1",
     signer: { address: signer, kind: "contract", x: h("x"), y: h("y"), verifiers: toHex(99n, { size: 22 }), runtimeCodeHash: keccak256(code) },
@@ -155,7 +157,9 @@ async function fixture(options: { app?: boolean; legacy?: boolean; sponsored?: b
     } } : {}),
   }], fetcher, 1000, () => now);
   const currentBinding = vi.fn(async () => wallet);
-  const currentBindingAt = vi.fn(async () => { if (state.bindingFailure) throw Error("binding changed"); return wallet; });
+  // A signer runtime the inspection could not prove is absent from the state; the verifier reads it.
+  const currentBindingAt = vi.fn(async () => { if (state.bindingFailure) throw Error("binding changed");
+    return state.runtimeFailure ? { ...wallet, state: { ...wallet.state, codeHashes: [] } } : wallet; });
   let service: UserOperationService;
   const transactions = new TransactionService({ store: transactionStore, rpc: { request: rpc }, now: () => now,
     externalObservers: [{ kind: "erc4337", observePlanStep: (plan, index, bindingId, request) => service.observePlanStep(plan, index, bindingId, request) }] });
@@ -480,6 +484,37 @@ describe("passkey UserOperation owner admission", () => {
     await expect(f.service.submit(f.principal, view.id, f.signature(view), "submit", controller.signal)).rejects.toThrow();
     expect(f.state.sends).toBe(0);
     expect((await f.store.get(f.actor, view.id))!.submission).toBeUndefined();
+  });
+
+  it("verifies the account and preflights at one head together, then checks the signature and the signed bytes, ahead of the nonce claim", async () => {
+    const f = await fixture(), view = await f.prepare();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    f.currentBindingAt.mockImplementationOnce(async () => { await held; return f.wallet; });
+    const seen = { handleOps: 0, signer: 0 };
+    f.rpc.mockImplementation(async (chain, method, params, signal) => {
+      if (method === "eth_call") {
+        const call = params[0] as { to: string; data: Hex };
+        if (call.to.toLowerCase() === signer) seen.signer++;
+        else try { if (decodeFunctionData({ abi: ENTRY_POINT_V07_ABI, data: call.data }).functionName === "handleOps") seen.handleOps++; } catch {}
+      }
+      return f.rpcDefault(chain, method, params, signal);
+    });
+    const submission = f.service.submit(f.principal, view.id, f.signature(view), "submit");
+    // The EntryPoint preflight does not wait for the account inspection; the bundler only sees the
+    // signed bytes, and the signer contract is only asked, once the account is verified.
+    await vi.waitFor(() => expect(seen.handleOps).toBe(1));
+    expect(f.state.estimated).toHaveLength(1); expect(seen.signer).toBe(0);
+    expect(f.state.sends).toBe(0);
+    expect((await f.store.get(f.actor, view.id))!.submission).toBeUndefined();
+    release();
+    expect((await submission).state).toBe("pending");
+    expect(f.state.estimated).toHaveLength(2);
+    // The signature is checked against the account state verified at that head; the pinned
+    // signer dependencies it needs were already proven there, so it reads no runtime again.
+    expect(seen.signer).toBe(1);
+    expect(f.rpc.mock.calls.filter(([, method]) => method === "eth_getCode").length).toBe(f.rpc.mock.calls.filter(([, method, params]) =>
+      method === "eth_getCode" && [entryPoint.toLowerCase(), safe].includes(String(params[0]).toLowerCase())).length);
   });
 
   it("permits only one competing signature to claim the same prepared nonce", async () => {

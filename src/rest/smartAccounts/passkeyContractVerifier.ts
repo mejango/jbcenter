@@ -25,9 +25,13 @@ export function createPasskeyContractSignatureVerifier(input: {
     if (profile?.version !== "center-passkey-v1" || manifest.ownerProfile?.version !== profile.version) throw new Error("profile-mismatch");
     if (state.chainId !== 8453 || state.evidence.chainId !== 8453 || manifest.chainId !== 8453) throw new Error("chain-mismatch");
     if (!same(owner, profile.signer.address) || !state.owners.some((address) => same(owner, address))) throw new Error("owner-mismatch");
+    // The inspection that produced `state` proved each of these runtimes at the same block and
+    // recorded them; a pin it did not record is read again at that block.
+    const proven = (pin: { address: string; runtimeCodeHash: string }) =>
+      state.codeHashes.some((entry) => same(entry.address, pin.address) && same(entry.runtimeCodeHash, pin.runtimeCodeHash));
     for (const pin of [profile.signer, manifest.ownerProfile.signerFactory,
       manifest.ownerProfile.signerSingleton, manifest.ownerProfile.p256Verifier])
-      await chain.runtime(state.chainId, pin, state.evidence);
+      if (!proven(pin)) await chain.runtime(state.chainId, pin, state.evidence);
     const result = await chain.request(state.chainId, "eth_call", [{ to: owner,
       data: encodeFunctionData({ abi: ABI, functionName: "isValidSignature", args: [signedData, signature] }),
       gas: "0x1e8480",

@@ -9,7 +9,7 @@ import { MemorySmartAccountRegistry } from "../smartAccounts/registry.js";
 import { validatePasskeyCreationManifest } from "../smartAccounts/creation.js";
 import { assertPasskeyOnboardingState } from "../smartAccounts/passkeyOnboarding.js";
 import { createWalletAuthorityIdentity, validateWalletAuthorityContext, validateWalletAuthorityObservation,
-  walletAuthorityContextDigest, walletAuthorityExpectedAnchor, walletAuthorityMaximumAgeMs,
+  walletAuthorityContextDigest, walletAuthorityExpectedAnchor, walletAuthorityMaximumAgeMs, walletAuthorityMaximumHeadLagMs,
   walletAuthorityMaximumHeadAgeMs, walletAuthorityMaximumFutureHeadMs,
   type WalletAuthorityContext, type WalletAuthorityObservation } from "./authority.js";
 import { enrollmentDigest } from "./enrollment.js";
@@ -92,6 +92,7 @@ export function createWalletAuthorityChain(options: WalletAuthorityChainOptions)
         const current = now(), timestampMs = BigInt(head.timestamp) * 1000n;
         if (!Number.isSafeInteger(current) || current < observedAtMs ||
           timestampMs > BigInt(observedAtMs) + BigInt(walletAuthorityMaximumFutureHeadMs) ||
+          timestampMs + BigInt(walletAuthorityMaximumHeadLagMs) <= BigInt(observedAtMs) ||
           timestampMs + BigInt(walletAuthorityMaximumHeadAgeMs) <= BigInt(current) ||
           observedAtMs + walletAuthorityMaximumAgeMs <= current) invalid();
       }

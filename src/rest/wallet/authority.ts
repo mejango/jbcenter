@@ -9,10 +9,15 @@ import { assertWalletAuthorityCredential, type WalletCredentialRecovery } from "
 import { assertWalletAuthorityDevice, type WalletAuthorityDevice } from "./devices.js";
 import { maximumPasskeySigners } from "../smartAccounts/passkeyProfile.js";
 
-// A hosted-provider observation takes ~25 s from its observedAt; the window must outlast it by
-// enough for the person to log in and for the worker to refresh ahead of expiry.
-export const walletAuthorityMaximumAgeMs = 120_000;
-export const walletAuthorityMaximumHeadAgeMs = 300_000;
+// A verified observation serves sign-in for fifteen minutes, so a returning person waits only for
+// the passkey prompt; each sign-in queues a background refresh. Everything that changes the account
+// (payment submission, device addition, recovery) verifies it again at a fresh block.
+export const walletAuthorityMaximumAgeMs = 900_000;
+export const walletAuthorityMaximumHeadAgeMs = 900_000;
+// A "latest" head this far behind the observation's own clock is a lagging provider, not the
+// chain: the observation fails loud rather than yielding a short window on stale state (the
+// bound the 300 s head age used to give; a slow observation under load keeps well inside it).
+export const walletAuthorityMaximumHeadLagMs = 300_000;
 export const walletAuthorityMaximumFutureHeadMs = 30_000;
 export const walletAuthorityMaximumEpoch = 9223372036854775807n;
 

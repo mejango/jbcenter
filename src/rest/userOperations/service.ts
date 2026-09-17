@@ -53,7 +53,7 @@ import { walletV6UsdcPaymentDomain, verifyWalletV6UsdcPaymentEffects, type Walle
 import { UserOperationProvider } from "./provider.js";
 import { createSessionGasEstimation } from "./estimation.js";
 import { passkeyDummySignature, passkeyEstimateProvider } from "./passkeyEstimation.js";
-import { userOperationPasskeyProfile, verifyPasskeyUserOperation } from "./passkeyVerification.js";
+import { assertPasskeyUserOperationEnvelope, userOperationPasskeyProfile, verifyPasskeyUserOperation } from "./passkeyVerification.js";
 import { safe7579PasskeyOwnerSigningPayload } from "../smartAccounts/passkeySignatures.js";
 import { createPasskeyContractSignatureVerifier } from "../smartAccounts/passkeyContractVerifier.js";
 import { finalizeUserOperationSponsorship } from "./sponsorship.js";
@@ -623,13 +623,6 @@ export class UserOperationService {
     );
     const plan = await this.plan(actor, record.planId, true);
     await this.options.sessions?.assertOwnerPlan(principal, plan);
-    // One canonical head for the whole submission: the account is verified at it once, and the
-    // preflight simulates against the same block.
-    const head = await this.chain(signal).snapshot(record.chainId);
-    const { binding, manifest } = await this.account(plan, signal, head);
-    const passkeyProfile = userOperationPasskeyProfile(binding, manifest);
-    if (passkeyProfile && record.session)
-      fail("USER_OPERATION_PASSKEY_SESSION_UNAVAILABLE", "The passkey pilot requires fresh owner approval for every operation.", 422);
     const policy = this.policy(record.chainId);
     const provider = this.providerForRecord(record);
     if (
@@ -642,6 +635,28 @@ export class UserOperationService {
         "USER_OPERATION_PREPARATION_EXPIRED",
         "The operation expired or its provider policy changed.",
       );
+    // One canonical head for the whole submission. The account verification and the EntryPoint
+    // preflight are independent of each other at that head, so they run together; both must pass
+    // before the signature check, the signed estimate and the nonce claim.
+    const head = await this.chain(signal).snapshot(record.chainId);
+    // The plan's manifest is the binding's: the account check requires the same revision.
+    const planManifest = this.options.manifestForPlan(plan);
+    // A passkey profile requires threshold one; the account check below enforces it.
+    if (planManifest.ownerProfile && !record.session) assertPasskeyUserOperationEnvelope({ operation, threshold: 1,
+      validAfter: String(Math.floor(record.createdAt / 1000)), validUntil: String(Math.floor(record.expiresAt / 1000)) });
+    const checks = await Promise.allSettled([
+      this.account(plan, signal, head),
+      this.chain(signal).preflight(this.execution(record, operation, plan, planManifest), policy.gas, provider, head),
+    ]);
+    // Both finished at that head; the first failure in this order is the one reported.
+    for (const check of checks) if (check.status === "rejected") throw check.reason;
+    const { binding, manifest } = (checks[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof this.account>>>).value;
+    const preflight = (checks[1] as PromiseFulfilledResult<Awaited<ReturnType<UserOperationChain["preflight"]>>>).value;
+    if (manifest.id !== planManifest.id || manifest.revision !== planManifest.revision)
+      fail("USER_OPERATION_ACCOUNT_CHANGED", "The plan's reviewed owner or module configuration changed.");
+    const passkeyProfile = userOperationPasskeyProfile(binding, manifest);
+    if (passkeyProfile && record.session)
+      fail("USER_OPERATION_PASSKEY_SESSION_UNAVAILABLE", "The passkey pilot requires fresh owner approval for every operation.", 422);
     let sessionObservationHash: Hex | undefined;
     let validAfter = Math.floor(record.createdAt / 1000),
       validUntil = Math.floor(record.expiresAt / 1000);
@@ -666,10 +681,24 @@ export class UserOperationService {
       validAfter = Math.max(validAfter, fresh.record.compiled.validAfter);
       validUntil = Math.min(validUntil, fresh.record.compiled.validUntil);
     } else if (passkeyProfile) {
-      await verifyPasskeyUserOperation({ operation, binding, manifest, chain: this.chain(signal),
-        validAfter: String(validAfter), validUntil: String(validUntil),
-        verifyContractSignature: createPasskeyContractSignatureVerifier({ state: binding.state, manifest,
-          rpc: this.options.rpc, now: this.now, ...(signal ? { signal } : {}) }) });
+      // The signature check and the signed estimate both need only the verified account, so they
+      // run together. The bundler sees the signed bytes only after the account check passed. The
+      // dummy margin covers ordinary calldata bytes, not Base L1 compression fees or every FCL
+      // verification path: the exact signed operation is checked before claim. This is
+      // point-in-time provider evidence; later fee changes remain possible.
+      const admission = await Promise.allSettled([
+        verifyPasskeyUserOperation({ operation, binding, manifest, chain: this.chain(signal),
+          validAfter: String(validAfter), validUntil: String(validUntil),
+          verifyContractSignature: createPasskeyContractSignatureVerifier({ state: binding.state, manifest,
+            rpc: this.options.rpc, now: this.now, ...(signal ? { signal } : {}) }) }),
+        provider.estimate(record.chainId, operation, signal).then((signedEstimate) => {
+          for (const [field, amount] of Object.entries(signedEstimate))
+            if (BigInt(amount) > BigInt(operation[field as keyof UserOperationV07] ?? "0x0"))
+              fail("USER_OPERATION_SIGNED_GAS_CHANGED",
+                "The exact signed operation requires more gas than was approved. Prepare and approve a fresh operation.");
+        }),
+      ]);
+      for (const check of admission) if (check.status === "rejected") throw check.reason;
     } else {
       await verifySafe7579OwnerSignature({
         operation,
@@ -682,23 +711,6 @@ export class UserOperationService {
         threshold: binding.state.threshold,
       });
     }
-    if (passkeyProfile) {
-      // The dummy margin covers ordinary calldata bytes, not Base L1 compression fees
-      // or every FCL verification path. Check the exact signed operation before claim.
-      // This is point-in-time provider evidence; later fee changes still remain possible.
-      const signedEstimate = await provider.estimate(record.chainId, operation, signal);
-      for (const [field, amount] of Object.entries(signedEstimate))
-        if (BigInt(amount) > BigInt(operation[field as keyof UserOperationV07] ?? "0x0"))
-          fail("USER_OPERATION_SIGNED_GAS_CHANGED",
-            "The exact signed operation requires more gas than was approved. Prepare and approve a fresh operation.");
-    }
-    const execution = this.execution(record, operation, plan, manifest);
-    const preflight = await this.chain(signal).preflight(
-      execution,
-      policy.gas,
-      provider,
-      head,
-    );
     if (record.session) {
       const fresh = await this.session(
         principal,
