@@ -1329,7 +1329,11 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
     );
   });
   app.get("/user-operations/:id", async (context) => {
-    query(context, []);
+    // `wait` (seconds, at most 20) holds the answer until the record moves past `since`.
+    const params = query(context, ["wait", "since"]);
+    const wait = params.get("wait"), since = params.get("since");
+    if ((wait === null) !== (since === null) || (wait !== null && !/^(?:[1-9]|1[0-9]|20)$/.test(wait)) || (since !== null && !/^(?:0|[1-9][0-9]{0,8})$/.test(since)))
+      throw new RestError(400, "INVALID_QUERY", "Wait 1–20 seconds past a revision you have seen", { parameter: wait === null ? "since" : "wait" });
     const { principal } = await authenticate(context, ["read"]);
     return response(
       context,
@@ -1337,6 +1341,7 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
         principal,
         context.req.param("id"),
         context.get("restSignal"),
+        wait === null ? undefined : { since: Number(since), untilMs: Date.now() + Number(wait) * 1000 },
       ),
     );
   });

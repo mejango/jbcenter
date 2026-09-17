@@ -22,7 +22,7 @@ import { exactObject } from "../protocol/abi.js";
 import { rpcHex } from "../protocol/code.js";
 import { SMART_ACCOUNT_RESEARCH } from "./observations.js";
 import { prepareSafe7579Creation } from "./creation.js";
-import { inspectPasskeyOwnerProfile } from "./passkeyProfile.js";
+import { inspectPasskeyOwnerProfile, passkeyOwnerProfileHolds } from "./passkeyProfile.js";
 import { onboardingDocument, validateOnboardingInput, verifyOnboardingSignatures, type OnboardingFinalizationInput } from "./onboarding.js";
 import {
   passkeyOnboardingDocument, passkeyOnboardingSigningPayload, validatePasskeyOnboardingInput,
@@ -207,6 +207,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
       );
     return identity;
   }
+  const chainIdentities = new Map<number, { at: number }>();
   async function snapshot(
     chainId: number,
     signal?: AbortSignal,
@@ -216,21 +217,26 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
       AbortSignal.timeout(45_000),
       ...(signal ? [signal] : []),
     ]);
-    if (
-      quantity(
-        await options.rpc.request(chainId, "eth_chainId", [], deadline),
-      ) !== BigInt(chainId)
-    )
-      fail(
-        "SMART_CHAIN_MISMATCH",
-        "RPC chain identity does not match the requested account.",
-      );
-    const block = (await options.rpc.request(
+    // The chain's identity is asked once a minute, not once per snapshot: it guards against a
+    // misconfigured endpoint, and a round trip to the provider is the unit of latency here.
+    const identity = chainIdentities.get(chainId);
+    const [identityRaw, block] = await Promise.all([
+      identity && now() - identity.at < 60_000 ? Promise.resolve(null) : options.rpc.request(chainId, "eth_chainId", [], deadline),
+      options.rpc.request(
       chainId,
       "eth_getBlockByNumber",
       [at ? `0x${BigInt(at.blockNumber).toString(16)}` : "latest", false],
       deadline,
-    )) as Record<string, unknown>;
+    ) as Promise<Record<string, unknown>>,
+    ]);
+    if (identityRaw !== null) {
+      if (quantity(identityRaw) !== BigInt(chainId))
+        fail(
+          "SMART_CHAIN_MISMATCH",
+          "RPC chain identity does not match the requested account.",
+        );
+      chainIdentities.set(chainId, { at: now() });
+    }
     if (!block || !bytes32(block.hash))
       fail("SMART_RPC_INVALID", "A mined canonical block is required.", 502);
     const evidence = {
@@ -374,7 +380,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
         call("getValidatorsPaginated", [sentinel, 33n]) as Promise<unknown>,
         call("getExecutorsPaginated", [sentinel, 33n]) as Promise<unknown>,
         Promise.all([call("getActiveHook"), call("getPrevalidationHook", [9n]), call("getPrevalidationHook", [8n])]),
-        m.ownerProfile ? inspectPasskeyOwnerProfile({ manifest: m, owners: state.owners, threshold: state.threshold, snapshot: snap }) : Promise.resolve(null),
+        m.ownerProfile && state.ownerProfile ? passkeyOwnerProfileHolds({ profile: state.ownerProfile, snapshot: snap }) : Promise.resolve(!m.ownerProfile),
       ]);
       // The re-read fields are the proof; the logs confirm, and only mean something from a node
       // that had the whole range (each read is its own request, so this is a bound, not a proof).
@@ -389,7 +395,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
         && Array.isArray(owners) && sameSet(owners.map(String), state.owners) && threshold === BigInt(state.threshold)
         && sameSet(list(validators) ?? ["-"], [m.smartSessions.address]) && list(executors)?.length === 0
         && (hooks as unknown[]).every((hook) => same(String(hook), zeroAddress))
-        && (!m.ownerProfile || stable(passkey?.ownerProfile) === stable(state.ownerProfile));
+        && passkey;
       if (!agrees) { report("full", { reason: "disagreement", logs: logCount }); return null; }
       report("carried", { logs: 0 });
       return { ...structuredClone(state), evidence: snap.evidence };

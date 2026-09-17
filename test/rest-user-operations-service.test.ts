@@ -577,6 +577,7 @@ async function fixture(useSession = false, currentProfile = false, useSponsorRou
     manifestForPlan: () => manifest,
     verifyHistoricalAccount: historical,
     forgetAccountState: forget,
+    verificationBudgetMs: 20,
     semanticVerifier: { verify: semantic },
     now: () => now,
     authorizeRequest: async () => ({
@@ -977,6 +978,79 @@ describe("UserOperationService integration", () => {
     expect(f.semantic.mock.calls.length).toBe(semanticCalls);
     expect(rpcReads() - afterConfirmed).toBe(1);
     expect(f.state.sends).toBe(1);
+  });
+  it("reports an included operation at once and confirms it once the account is verified behind the answer", async () => {
+    const f = await fixture(),
+      prepared = await f.prepare(),
+      signature = await f.sign(prepared);
+    await f.service.submit(f.principal, prepared.id, signature, "deferred");
+    let release!: () => void;
+    f.historical.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
+    f.state.mined = true;
+    // The poll answers with the execution evidence while the account is still being verified.
+    const seen = await f.service.get(f.principal, prepared.id);
+    expect(seen.state).toBe("confirming");
+    expect(seen.observation!.transactionHash).toBe(txHash);
+    expect(seen.observation!.receipt).toBeDefined();
+    expect(seen.observation!.verifiedAtBlock).toBeUndefined();
+    expect(f.historical).toHaveBeenCalledTimes(1);
+    // Another poll meanwhile does not start a second verification, and still answers.
+    f.tick(3_000);
+    expect((await f.service.get(f.principal, prepared.id)).state).toBe("confirming");
+    expect(f.historical).toHaveBeenCalledTimes(1);
+    // The verification lands: the record is confirmed without anyone asking.
+    release();
+    await vi.waitFor(async () => expect((await f.store.get(f.activeActor, prepared.id))!.state).toBe("confirmed"));
+    const confirmed = (await f.store.get(f.activeActor, prepared.id))!;
+    expect(confirmed.observation!.verifiedAtBlock).toBe(confirmed.observation!.receipt!.blockHash);
+    f.tick(3_000);
+    expect((await f.service.get(f.principal, prepared.id)).state).toBe("confirmed");
+    expect(f.historical).toHaveBeenCalledTimes(1);
+  });
+  it("surfaces a verification that fails behind the answer on the next poll", async () => {
+    const f = await fixture(),
+      prepared = await f.prepare(),
+      signature = await f.sign(prepared);
+    await f.service.submit(f.principal, prepared.id, signature, "deferred-failure");
+    f.historical.mockRejectedValueOnce(new RestError(409, "SMART_ACCOUNT_CHANGED", "changed"));
+    f.state.mined = true;
+    expect((await f.service.get(f.principal, prepared.id)).state).toBe("confirming");
+    await vi.waitFor(() => expect(f.historical).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    f.tick(3_000);
+    f.historical.mockRejectedValueOnce(new RestError(409, "SMART_ACCOUNT_CHANGED", "changed"));
+    await expect(f.service.get(f.principal, prepared.id)).rejects.toMatchObject({ code: "SMART_ACCOUNT_CHANGED" });
+    expect(f.historical).toHaveBeenCalledTimes(2);
+    // And on every observation after that, until it passes.
+    f.tick(3_000);
+    f.historical.mockRejectedValueOnce(new RestError(409, "SMART_ACCOUNT_CHANGED", "changed"));
+    await expect(f.service.get(f.principal, prepared.id)).rejects.toMatchObject({ code: "SMART_ACCOUNT_CHANGED" });
+    f.tick(3_000);
+    expect((await f.service.get(f.principal, prepared.id)).state).toBe("confirmed");
+    expect(f.historical).toHaveBeenCalledTimes(4);
+  });
+  it("holds a waiting read until the operation moves, and lets it go at its deadline", async () => {
+    const f = await fixture(),
+      prepared = await f.prepare(),
+      signature = await f.sign(prepared);
+    await f.service.submit(f.principal, prepared.id, signature, "waiting");
+    const sent = await f.service.get(f.principal, prepared.id);
+    // Nothing happens: the read returns at its deadline with what the caller already has.
+    const started = Date.now();
+    const unchanged = await f.service.get(f.principal, prepared.id, undefined, { since: sent.revision, untilMs: Date.now() + 60 });
+    expect(unchanged.revision).toBe(sent.revision);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(50);
+    // The operation is included while a read waits: the read returns as soon as the observation sees it.
+    const waiting = f.service.get(f.principal, prepared.id, undefined, { since: sent.revision, untilMs: Date.now() + 10_000 });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    f.tick(3_000); f.state.mined = true;
+    const moved = await waiting;
+    expect(moved.revision).toBeGreaterThan(sent.revision);
+    expect(["confirming", "confirmed"]).toContain(moved.state);
+    // A read past a revision the record already left answers at once.
+    const at = Date.now();
+    expect((await f.service.get(f.principal, prepared.id, undefined, { since: sent.revision, untilMs: Date.now() + 10_000 })).revision).toBe(moved.revision);
+    expect(Date.now() - at).toBeLessThan(1_000);
   });
   it("forgets the account's verified state when the bundler refuses an admitted operation", async () => {
     const f = await fixture(),

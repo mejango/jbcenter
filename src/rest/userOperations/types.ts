@@ -123,4 +123,6 @@ export interface UserOperationObservation {
   reason?: string;
   /** When this observation was made (ms); a poll within moments of it answers from it. */
   observedAt?: number;
+  /** The execution block at which the account's authority was verified for this observation. */
+  verifiedAtBlock?: Hex;
 }

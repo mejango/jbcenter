@@ -16,7 +16,7 @@ import { createInstalledSessionVerifier } from "../src/rest/smartAccounts/instal
 import { MemorySmartAccountRegistry } from "../src/rest/smartAccounts/registry.js";
 import { MemoryOnboardingStore } from "../src/rest/smartAccounts/onboardingMemory.js";
 import { MemoryAccountStore } from "../src/rest/auth/memory.js";
-import { inspectPasskeyOwnerProfile } from "../src/rest/smartAccounts/passkeyProfile.js";
+import { inspectPasskeyOwnerProfile, passkeyOwnerProfileHolds } from "../src/rest/smartAccounts/passkeyProfile.js";
 import { createPasskeyContractSignatureVerifier } from "../src/rest/smartAccounts/passkeyContractVerifier.js";
 import { encodeSafe7579MessageSignature } from "../src/rest/smartAccounts/passkeySignatures.js";
 import {
@@ -238,6 +238,14 @@ describe.skipIf(!available)("canonical passkey owner profile in the pinned local
       encodeFunctionData({ abi: safe.abi, functionName: "removeOwner", args: ["0x0000000000000000000000000000000000000001", deviceSigner, 1n] }), 0,
       0n, 0n, 0n, zeroAddress, zeroAddress, directBackupApproval] }), account, backup);
     expect((await read(safe.abi, account, "getOwners") as Address[]).length).toBe(2);
+  });
+  it("checks in one round trip that a verified passkey profile still holds", async () => {
+    const state = await inspect(), snap = await snapshot();
+    expect(await passkeyOwnerProfileHolds({ profile: state.ownerProfile!, snapshot: snap })).toBe(true);
+    const other = { ...state.ownerProfile!, signer: { ...state.ownerProfile!.signer, x: toHex(1n, { size: 32 }) } };
+    expect(await passkeyOwnerProfileHolds({ profile: other, snapshot: snap })).toBe(false);
+    const delegated = { ...state.ownerProfile!, recoveryOwner: { address: signer, kind: "ecdsa" as const } };
+    expect(await passkeyOwnerProfileHolds({ profile: delegated, snapshot: snap })).toBe(false);
   });
   it("inspects actual Safe authority, factory lineage, immutable key and every module at one canonical block", async () => {
     const state = await inspect();

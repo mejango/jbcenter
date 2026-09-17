@@ -47,12 +47,14 @@ export interface ObserveUserOperationOptions {
   now: number;
   /** The signed validity end (seconds). Past it, with a reorg margin, an unincluded operation is final. */
   validUntil?: number;
-  /** Check full Safe singleton/module/fallback/validator configuration at THIS canonical block. */
+  /** Check full Safe singleton/module/fallback/validator configuration at THIS canonical block.
+   * Resolving `"pending"` means the check is under way elsewhere: the execution is reported as
+   * confirming with its evidence, and confirmed only once a later observation finds it verified. */
   verifyAccountAtBlock(
     binding: UserOperationExecutionBinding,
     evidence: RestBlockEvidence,
     chain: UserOperationChain,
-  ): Promise<void>;
+  ): Promise<void | "pending">;
   /** Receives only logs within this operation's EntryPoint execution interval. */
   verifySemantics?(receipt: StoredReceipt): Promise<SemanticResult>;
 }
@@ -390,7 +392,7 @@ export async function observeUserOperation(
           "EntryPoint independently reports that this account execution failed.",
       },
     };
-  await options.verifyAccountAtBlock(binding, evidence, chain);
+  const verified = (await options.verifyAccountAtBlock(binding, evidence, chain)) !== "pending";
   const start =
     position === 0 ? boundaries[0]! : events[position - 1]!.position;
   const scopedLogs = raw.logs.slice(start + 1, event.position);
@@ -406,9 +408,10 @@ export async function observeUserOperation(
   return {
     ...base,
     transactionHash,
-    state: confirmations >= options.confirmations ? "confirmed" : "confirming",
+    state: verified && confirmations >= options.confirmations ? "confirmed" : "confirming",
     receipt: scopedReceipt,
     scopedLogs,
     semantic,
+    ...(verified ? { verifiedAtBlock: evidence.blockHash } : { reason: "The account is being verified at the execution block." }),
   };
 }

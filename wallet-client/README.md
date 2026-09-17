@@ -24,3 +24,6 @@ Your app origin and exact callback URI must be allowlisted by Center. Allow the 
 `form-action` CSP directive and send `Referrer-Policy: strict-origin`. `restoreConnection()` reads the
 saved connection, `disconnect()` clears it, and `payments()` prepares, completes and submits reviewed
 payments. Protocol details: https://juicebox.center/api/docs/client
+`refreshPayment({ waitSeconds })` holds a submitted payment's read on Center (up to 20 s) until the
+operation moves, so an app can wait on it instead of polling. A record whose app grant is gone and whose
+signed validity has passed can be cleared; it is archived as unknown and Center keeps the outcome.

@@ -91,6 +91,17 @@ describe("signed REST client request binding", () => {
     await expect(client.request({ requestTarget: "/api/v1/accounts/me" })).rejects.toMatchObject({ code: "TIMEOUT", message: "The request timed out; its outcome may be unknown" });
   });
 
+  it("lets one request outlive the client's bound when it says so, up to a minute", async () => {
+    const aborted: number[] = [];
+    const started = Date.now();
+    const client = new SignedRestClient({ ...config, timeoutMs: 5, fetch: async (_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => { aborted.push(Date.now() - started); reject(new Error("upstream")); }, { once: true });
+    }) });
+    await expect(client.request({ requestTarget: "/api/v1/accounts/me", timeoutMs: 40 })).rejects.toMatchObject({ code: "TIMEOUT" });
+    expect(aborted[0]).toBeGreaterThanOrEqual(35);
+    await expect(client.request({ requestTarget: "/api/v1/accounts/me", timeoutMs: 60_001 })).rejects.toThrow();
+  });
+
   it("identifies an initial API signing failure as unsent while preserving wallet cancellation details", async () => {
     let sends = 0;
     const rejection = Object.freeze(Object.assign(new Error("Wallet disconnected."), { name: "CenterWalletError", code: 4900 }));

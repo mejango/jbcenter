@@ -68,6 +68,7 @@ import {
 import type {
   UserOperationExecutionBinding,
   UserOperationGasPolicy,
+  UserOperationObservation,
   UserOperationV07,
 } from "./types.js";
 
@@ -105,6 +106,7 @@ export interface UserOperationServiceDependencies {
   ): Promise<void>;
   /** Called when the bundler refuses an admitted operation: the account's verified state is not trusted again until read in full. */
   forgetAccountState?(plan: StoredPlan): void;
+  verificationBudgetMs?: number;
   authorizeRequest(
     actor: RestActor,
     id: string,
@@ -151,6 +153,13 @@ function appOperation(principal: RestPrincipal, chainId: number, hasSession: boo
 }
 
 /** Prepares, verifies and relays externally signed operations. It never holds a signing key. */
+/** Whether a new observation says nothing the stored one did not. */
+function sameObservation(a: UserOperationObservation, b: UserOperationObservation) {
+  return a.state === b.state && (a.transactionHash ?? null) === (b.transactionHash ?? null)
+    && (a.receipt?.blockHash ?? null) === (b.receipt?.blockHash ?? null) && (a.receipt?.confirmations ?? null) === (b.receipt?.confirmations ?? null)
+    && (a.semantic?.status ?? null) === (b.semantic?.status ?? null) && (a.verifiedAtBlock ?? null) === (b.verifiedAtBlock ?? null)
+    && (a.reason ?? null) === (b.reason ?? null);
+}
 export class UserOperationService {
   private readonly now: () => number;
   private recoveryCursor: string | undefined;
@@ -836,20 +845,28 @@ export class UserOperationService {
     });
   }
 
-  async get(principal: RestPrincipal, id: string, signal?: AbortSignal) {
+  /** A read; with `wait`, one that answers as soon as the record moves past the revision the caller
+   * has (or reaches a final state), observing every couple of seconds meanwhile, until its deadline. */
+  async get(principal: RestPrincipal, id: string, signal?: AbortSignal, wait?: { since: number; untilMs: number }) {
     if (!principal.scopes.includes("read"))
       fail(
         "USER_OPERATION_SCOPE_REQUIRED",
         "Reading operations requires read scope.",
         403,
       );
-    const record =
-      (await this.options.store.get(actorOf(principal), id)) ??
-      fail("USER_OPERATION_NOT_FOUND", "The UserOperation was not found.", 404);
-    appOperation(principal, record.chainId, record.session !== undefined);
-    return this.view(
-      record.submission ? await this.refresh(record, signal, true) : record,
-    );
+    for (;;) {
+      const record =
+        (await this.options.store.get(actorOf(principal), id)) ??
+        fail("USER_OPERATION_NOT_FOUND", "The UserOperation was not found.", 404);
+      appOperation(principal, record.chainId, record.session !== undefined);
+      const current = record.submission ? await this.refresh(record, signal, true) : record;
+      const remaining = wait ? wait.untilMs - Date.now() : 0;
+      if (!wait || current.revision !== wait.since || !isRecoverable(current) || remaining <= 0) return this.view(current);
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, Math.min(2_000, remaining));
+        signal?.addEventListener("abort", () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+      });
+    }
   }
 
   private execution(
@@ -878,6 +895,15 @@ export class UserOperationService {
 
   /** One observation per operation at a time: a poll that arrives meanwhile joins it. */
   private readonly observing = new Map<string, Promise<UserOperationRecord>>();
+  /** When each operation was last observed here, whether or not that observation was written. */
+  private readonly lastObserved = new Map<string, number>();
+  /** How long an observation waits for the account verification at the execution block before
+   * answering without it (a carried verification is well within; a full inspection is not). */
+  private get verificationBudgetMs() { return this.options.verificationBudgetMs ?? 750; }
+  /** Account verifications at execution blocks: under way, landed, and failed (run again in front). */
+  private readonly verifying = new Map<string, Promise<void>>();
+  private readonly verified = new Set<string>();
+  private readonly verificationFailed = new Set<string>();
   /** A poll this soon after an observation answers from it; Base makes a block every two seconds. */
   private static readonly observationReuseMs = 2_000;
   private refresh(input: UserOperationRecord, signal?: AbortSignal, poll = false): Promise<UserOperationRecord> {
@@ -885,7 +911,8 @@ export class UserOperationService {
     if (!input.submission || input.state === "expired") return Promise.resolve(input);
     const record = { ...input, submission: input.submission };
     const previous = record.observation;
-    if (poll && previous?.observedAt !== undefined && this.now() - previous.observedAt < UserOperationService.observationReuseMs)
+    const seen = this.lastObserved.get(record.id) ?? previous?.observedAt;
+    if (poll && seen !== undefined && this.now() - seen < UserOperationService.observationReuseMs)
       return Promise.resolve(record);
     // A confirmed execution stays confirmed while its block is canonical: one block read, nothing
     // written; only a reorg sends it through a full observation again.
@@ -951,12 +978,36 @@ export class UserOperationService {
       validUntil: Math.floor(record.expiresAt / 1000),
       confirmations: this.policy(record.chainId).confirmations,
       now: this.now(),
-      // The account and the semantics were verified at this receipt block by the observation that
-      // first saw it there; later polls only advance confirmations.
+      // The account is verified once per execution block, behind the answer: the observation that
+      // first sees the execution reports it as confirming with its evidence, the verification runs
+      // detached and observes the operation again when it lands, and only then is it confirmed. A
+      // verification that failed is run again in front of the next observation, so its error shows.
       verifyAccountAtBlock: async (_execution, evidence) => {
-        if (previous?.semantic && previous.receipt && same(previous.receipt.blockHash, evidence.blockHash)
-          && same(previous.transactionHash ?? "", transactionHash ?? "")) return;
-        await this.options.verifyHistoricalAccount(plan, evidence);
+        if (previous?.verifiedAtBlock && same(previous.verifiedAtBlock, evidence.blockHash)) return;
+        const key = `${record.id}:${evidence.blockHash.toLowerCase()}`;
+        if (this.verified.has(key)) return;
+        if (this.verifying.has(key)) return "pending";
+        // Once failed behind an answer, it runs in front of every observation until it passes.
+        if (this.verificationFailed.has(key)) { await this.options.verifyHistoricalAccount(plan, evidence); this.verificationFailed.delete(key); this.verified.add(key); return; }
+        const check = detachedFromRequest(() => this.options.verifyHistoricalAccount(plan, evidence));
+        const verification = check.then(
+          async () => {
+            this.verified.add(key);
+            const current = await this.options.store.get(record.actor, record.id);
+            if (current) await this.refresh(current);
+          },
+          (error: unknown) => {
+            this.verificationFailed.add(key);
+            console.info(JSON.stringify({ service: "user-operations", action: "account_verification", outcome: "failed",
+              code: error instanceof RestError ? error.code : "unknown" }));
+          },
+        ).finally(() => this.verifying.delete(key));
+        this.verifying.set(key, verification);
+        // A verification carried from the last full one lands within the budget and confirms at
+        // once; a full inspection does not, and the answer goes out without it.
+        const settled = await Promise.race([check.then(() => true, () => false), new Promise<false>((resolve) => setTimeout(resolve, this.verificationBudgetMs, false))]);
+        if (!settled) return "pending";
+        this.verified.add(key);
       },
       verifySemantics: async (receipt: StoredReceipt) => {
         if (previous?.semantic && previous.receipt && same(previous.receipt.blockHash, receipt.blockHash)
@@ -1001,6 +1052,10 @@ export class UserOperationService {
         };
       },
     });
+    this.lastObserved.set(record.id, this.now());
+    if (observation.verifiedAtBlock) this.verified.delete(`${record.id}:${observation.verifiedAtBlock.toLowerCase()}`);
+    // An observation that found nothing new is not written: the revision moves only with the record.
+    if (previous && sameObservation(previous, observation)) return record;
     return this.options.store.observe(record.id, record.revision, { ...observation, observedAt: this.now() });
   }
 

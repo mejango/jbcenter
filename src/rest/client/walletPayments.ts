@@ -271,6 +271,7 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
         if (operation[name] !== original[name]) mismatch();
       if (!equal(normalizeUserOperation(operation.operation), normalizeUserOperation(original.operation)) || !equal(operation.stepIndexes, original.stepIndexes) ||
         (operation.submission && !same(operation.submission.commitment, saved.value.approval?.signedCommitment))) mismatch();
+      if (Number.isInteger(operation.revision) && operation.revision >= 0) revisions.set(operation.id, operation.revision);
       const observation = operation.observation;
       if (observation && (!same(observation.operationHash, original.operationHash) ||
         (observation.transactionHash !== undefined && !hex32(observation.transactionHash)))) mismatch();
@@ -306,10 +307,19 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
       throw error;
     }
   }
-  async function refreshPayment(): Promise<CenterWalletPaymentStatus> {
+  // The revision of the last operation view received here, per operation: a waiting read waits past it.
+  const revisions = new Map<string, number>();
+  /** With `waitSeconds`, a submitted payment's read is held on Center until the operation moves. */
+  async function refreshPayment(options: { waitSeconds?: number } = {}): Promise<CenterWalletPaymentStatus> {
+    if (options.waitSeconds !== undefined && (!Number.isInteger(options.waitSeconds) || options.waitSeconds < 1 || options.waitSeconds > 20))
+      fail('WALLET_PAYMENT_INPUT_INVALID', 'Wait between one and twenty seconds.');
     const saved = pending(), client = live(saved.value).client;
     try {
-      if (saved.value.submissionStarted) return status(receiveOperation(await client.smartAccounts().userOperation(saved.value.operation.id), saved).value);
+      if (saved.value.submissionStarted) {
+        const since = revisions.get(saved.value.operation.id);
+        const wait = options.waitSeconds !== undefined && since !== undefined ? { seconds: options.waitSeconds, since } : undefined;
+        return status(receiveOperation(await client.smartAccounts().userOperation(saved.value.operation.id, wait), saved).value);
+      }
       if (!saved.value.review) return status((await requestReview(saved)).value);
       const value = await client.request({ requestTarget: reviewPath + '/' + saved.value.review.id });
       return status(receiveView(value, saved, true).value);
@@ -331,13 +341,20 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
       typeof signing.validUntil === 'string' && /^[1-9][0-9]{0,14}$/.test(signing.validUntil) &&
       BigInt(signing.validUntil) < 2n ** 48n && integer(archivedAtMs) &&
       BigInt(Math.floor(archivedAtMs / 1000)) > BigInt(signing.validUntil);
-    if (!settled && !unsignedWindowElapsed)
+    // A record whose app grant has expired or changed can never be refreshed here again; once its
+    // signed validity has also passed, it is archived as unknown so it stops holding up the
+    // account, and Center keeps the outcome.
+    const validityElapsed = typeof signing.validUntil === 'string' && /^[1-9][0-9]{0,14}$/.test(signing.validUntil) &&
+      BigInt(signing.validUntil) < 2n ** 48n && integer(archivedAtMs) && BigInt(Math.floor(archivedAtMs / 1000)) > BigInt(signing.validUntil);
+    let grantGone = false;
+    try { live(saved.value); } catch { grantGone = true; }
+    if (!settled && !unsignedWindowElapsed && !(grantGone && validityElapsed))
       fail('WALLET_PAYMENT_UNRESOLVED', 'Keep this payment until its outcome is verified or its original approval window has elapsed without a saved approval or local submission.');
     const existing = raw(historyKey);
     try {
       const history = existing === null ? [] : JSON.parse(existing);
       if (!Array.isArray(history) || history.length >= 64) throw new Error();
-      const receipt = { ...status(saved.value), ...(!settled ? { status: 'unknown', archiveReason: 'no-local-submission-recorded' } : {}),
+      const receipt = { ...status(saved.value), ...(!settled ? { status: 'unknown', archiveReason: unsignedWindowElapsed ? 'no-local-submission-recorded' : 'grant-expired' } : {}),
         issuer, audience, callbackUri, archivedAtMs, grantId: saved.value.grant.id, grantIncarnation: saved.value.grant.incarnation,
         planId: saved.value.plan.id, planCommitment: saved.value.plan.commitment, operationCommitment: saved.value.operation.commitment,
         reviewState: saved.value.state, reviewKey: saved.value.reviewKey, submissionKey: saved.value.submissionKey,

@@ -14,7 +14,7 @@ import { createWalletPaymentClientFixture } from './fixtures/wallet-payment-clie
 const reviewId = '550e8400-e29b-41d4-a716-446655440000';
 function fixture() {
   const f = createWalletPaymentClientFixture(), data = new Map<string, string>();
-  const calls: Array<{ path: string; body: any; key: string | null }> = [];
+  const calls: Array<{ path: string; body: any; key: string | null; search: string }> = [];
   const appKey = privateKeyToAccount(`0x${'37'.repeat(32)}`);
   let grant = { ...f.grant, signerAddress: appKey.address.toLowerCase() as typeof appKey.address }, active = true;
   let now = f.nowMs, href = f.origin + '/pay', state = '', loseReview = false, loseSubmission = false, reviewMissing = false;
@@ -40,13 +40,13 @@ function fixture() {
   const transport = (async (input, init) => {
     const url = new URL(String(input)), path = url.pathname, headers = new Headers(init?.headers);
     const body = init?.body ? JSON.parse(new TextDecoder().decode(init.body as Uint8Array)) : undefined;
-    const signed = readRequestClaims({ method: init?.method ?? 'GET', requestTarget: path, contentType: headers.get('content-type') ?? '',
+    const signed = readRequestClaims({ method: init?.method ?? 'GET', requestTarget: path + url.search, contentType: headers.get('content-type') ?? '',
       body: init?.body ? init.body as Uint8Array : new Uint8Array(), headers });
     await verifyRequestSignature(f.audience, signed.claims, signed.signature);
     expect(signed.claims.accountId).toBe(f.accountId); expect(signed.claims.grantId).toBe(f.grant.id);
     expect(signed.claims.signer.toLowerCase()).toBe(grant.signerAddress.toLowerCase());
     expect(init?.credentials).toBe('omit'); expect(init?.redirect).toBe('error'); expect(init?.cache).toBe('no-store');
-    calls.push({ path, body, key: headers.get('idempotency-key') });
+    calls.push({ path, body, key: headers.get('idempotency-key'), search: url.search });
     if (path === '/api/v1/wallet/payment-reviews') {
       expect(body.operationId).toBe(f.prepared.id);
       expect([...data.values()].some(value => JSON.parse(value).version === 'center-wallet-payment-client-v1')).toBe(true); state = body.state;
@@ -381,6 +381,34 @@ describe('Center browser payment review continuity', () => {
     f.observed(f.observedOperation('reverted'));
     expect((await f.helper().refreshPayment()).status).toBe('reverted');
     f.helper().clearPayment(); expect(f.helper().pendingPayment()).toBeNull();
+  });
+
+  it('waits on the operation past the revision it last saw, once it has seen one', async () => {
+    const f = fixture(); await f.helper().preparePayment(f.input()); await f.helper().completePayment(f.callback());
+    const helper = f.helper(); await helper.submitPayment();
+    // Each read waits past the revision of the last operation view it received; a fresh client
+    // that has seen none reads at once.
+    await helper.refreshPayment({ waitSeconds: 20 });
+    f.observed(f.observedOperation()); await helper.refreshPayment({ waitSeconds: 20 }); await helper.refreshPayment({ waitSeconds: 5 });
+    await f.helper().refreshPayment({ waitSeconds: 20 });
+    const reads = f.calls.filter(call => call.path === '/api/v1/user-operations/' + f.prepared.id).map(call => call.search);
+    expect(reads).toEqual(['?wait=20&since=0', '?wait=20&since=0', '?wait=5&since=2', '']);
+
+    await expect(helper.refreshPayment({ waitSeconds: 21 })).rejects.toThrow();
+  });
+
+  it('archives a submitted payment whose app grant is gone, since nothing can resolve it here any more', async () => {
+    const f = fixture(); await f.helper().preparePayment(f.input()); await f.helper().completePayment(f.callback());
+    await f.helper().submitPayment();
+    f.disconnect();
+    await expect(f.helper().refreshPayment()).rejects.toMatchObject({ code: 'WALLET_PAYMENT_CONNECTION_CHANGED' });
+    // While the signed operation could still execute, the record is kept.
+    expect(() => f.helper().clearPayment()).toThrow();
+    f.advance(600_000);
+    f.helper().clearPayment();
+    expect(f.helper().pendingPayment()).toBeNull();
+    const history = JSON.parse(f.data.get([...f.data.keys()].find(key => key.endsWith(':history'))!)!);
+    expect(history.at(-1)).toMatchObject({ status: 'unknown', archiveReason: 'grant-expired', operationId: f.prepared.id });
   });
 
   it('treats an operation the chain never included, past its validity, as final so the app can offer a fresh payment', async () => {

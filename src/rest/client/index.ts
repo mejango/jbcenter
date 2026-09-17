@@ -37,6 +37,8 @@ export type RequestOptions = {
   /** Reserved for a bot proof bound to this owner's nonce. Such requests cannot auto-retry. */
   nonce?: Hex;
   retries?: number;
+  /** A request the server holds on purpose (a waiting read) gets its own bound, at most 60 s. */
+  timeoutMs?: number;
 };
 export type ClientOptions = {
   audience: string;
@@ -178,7 +180,7 @@ export class SignedRestClient {
   }
   async request<T = unknown>(options: RequestOptions): Promise<T> {
     const retries = options.retries ?? 0;
-    const timeoutMs = this.config.timeoutMs ?? 15_000;
+    const timeoutMs = options.timeoutMs ?? this.config.timeoutMs ?? 15_000;
     const maxBytes = this.config.maxResponseBytes ?? 2 * 1024 * 1024;
     if (!Number.isSafeInteger(retries) || retries < 0 || retries > 2 || (options.nonce !== undefined && retries > 0)) return invalid("Use at most two retries; proof-bound requests cannot auto-retry");
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000 || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 5 * 1024 * 1024) return invalid("Invalid client limits");

@@ -157,6 +157,28 @@ export async function inspectPasskeyCreationSigner(input: {
  * (additions go to the head), and every other passkey signer is a device.
  */
 export const maximumPasskeySigners = 6;
+/** Reads, at one block and in one round trip, whether the signers of a verified passkey owner profile
+ * still hold their configuration and runtime, and the recovery owner is still a plain EOA. The
+ * factory, singleton and verifier are immutable deployments verified in full elsewhere. */
+export async function passkeyOwnerProfileHolds(input: { profile: PasskeyOwnerState; snapshot: SmartSnapshot }): Promise<boolean> {
+  const { profile, snapshot } = input;
+  const signers = [...(profile.devices ?? []), profile.signer];
+  const call = (address: Address) => snapshot.request("eth_call", [{ to: address,
+    data: encodeFunctionData({ abi: ABI, functionName: "getConfiguration" }), gas: "0x7a120" }]);
+  const [configurations, codes, recovery] = await Promise.all([
+    Promise.all(signers.map((signer) => call(signer.address))),
+    Promise.all(signers.map((signer) => snapshot.request("eth_getCode", [signer.address]))),
+    snapshot.request("eth_getCode", [profile.recoveryOwner.address]),
+  ]);
+  if (rpcHex(recovery, "owner code") !== "0x") return false;
+  return signers.every((signer, index) => {
+    const config = decodeFunctionResult({ abi: ABI, functionName: "getConfiguration", data: rpcHex(configurations[index], "passkey configuration") });
+    if (!Array.isArray(config) || config.length !== 3 || config.some((v) => typeof v !== "bigint")) return false;
+    const [x, y, verifiers] = config as [bigint, bigint, bigint];
+    return toHex(x, { size: 32 }) === signer.x && toHex(y, { size: 32 }) === signer.y && toHex(verifiers, { size: 22 }) === signer.verifiers
+      && keccak256(rpcHex(codes[index], "signer code")) === signer.runtimeCodeHash;
+  });
+}
 export async function inspectPasskeyOwnerProfile(input: {
   manifest: SmartAccountManifest; owners: readonly Address[]; threshold: number; snapshot: SmartSnapshot;
 }): Promise<{ ownerProfile: PasskeyOwnerState; codeHashes: { address: Address; runtimeCodeHash: Hex }[] }> {

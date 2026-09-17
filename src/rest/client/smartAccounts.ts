@@ -234,9 +234,15 @@ export class SmartAccountClient {
       key,
     );
   }
-  userOperation(operationId: string) {
+  /** With `wait`, the answer is held (up to 20 s) until the operation moves past the revision seen. */
+  userOperation(operationId: string, wait?: { seconds: number; since: number }) {
+    if (wait && (!Number.isInteger(wait.seconds) || wait.seconds < 1 || wait.seconds > 20 || !Number.isInteger(wait.since) || wait.since < 0))
+      invalid("Wait 1–20 seconds past a revision already seen.");
     return this.client.request<PreparedUserOperation>({
-      requestTarget: `${prefix}/user-operations/${id(operationId)}`,
+      requestTarget: `${prefix}/user-operations/${id(operationId)}${wait ? `?wait=${wait.seconds}&since=${wait.since}` : ""}`,
+      // The server may hold the answer for the wait and then observe once more (a full observation
+      // can take several seconds), so the request outlives the ordinary bound by that much.
+      ...(wait ? { timeoutMs: wait.seconds * 1000 + 15_000 } : {}),
     });
   }
 }
