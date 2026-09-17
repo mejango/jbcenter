@@ -646,9 +646,27 @@ export class UserOperationService {
     signedCommitment: Hex; key: string; authority: { issuedAt: number; expiresAt: number }; signal: AbortSignal | undefined;
   }) {
     const { actor, record, signedCommitment, signal } = input;
-    // The approval's own submission and the app's hand-back can run these checks at the same time;
-    // whichever loses (a check failing against an operation the other already published, or the
-    // claim) observes the submission that landed instead of reporting a failure.
+    // The approval's own submission and the app's hand-back carry the same bytes moments apart. A
+    // second caller in this process joins the one in flight rather than checking everything twice;
+    // one on another replica, or one whose checks fail against an operation the other already
+    // published, observes the submission that landed instead of reporting a failure.
+    const running = this.inflight.get(record.id);
+    if (running && same(running.commitment, signedCommitment)) {
+      await running.done;
+      const current = await this.options.store.get(actor, record.id);
+      if (current?.submission && same(current.submission.commitment, signedCommitment)) return this.view(await this.refresh(current, signal));
+    }
+    const publication = this.publish(input);
+    this.inflight.set(record.id, { commitment: signedCommitment, done: publication.then(() => undefined, () => undefined) });
+    try { return await publication; }
+    finally { if (this.inflight.get(record.id)?.commitment === signedCommitment) this.inflight.delete(record.id); }
+  }
+
+  private async publish(input: {
+    actor: RestActor; principal: RestPrincipal | undefined; record: UserOperationRecord; plan: StoredPlan; operation: UserOperationV07;
+    signedCommitment: Hex; key: string; authority: { issuedAt: number; expiresAt: number }; signal: AbortSignal | undefined;
+  }) {
+    const { actor, record, signedCommitment, signal } = input;
     let claim: Awaited<ReturnType<UserOperationServiceDependencies["store"]["claim"]>>;
     try { claim = await this.admit(input); }
     catch (error) {
@@ -673,6 +691,8 @@ export class UserOperationService {
     return this.view(submitted);
   }
 
+  /** Submissions whose gates are running now, by operation: a same-bytes caller joins instead of repeating them. */
+  private readonly inflight = new Map<string, { commitment: Hex; done: Promise<void> }>();
   /** Every gate before the nonce claim, then the claim itself. */
   private async admit(input: {
     actor: RestActor; principal: RestPrincipal | undefined; record: UserOperationRecord; plan: StoredPlan; operation: UserOperationV07;

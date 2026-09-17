@@ -611,6 +611,8 @@ describe("passkey UserOperation owner admission", () => {
     f.currentBindingAt.mockImplementationOnce(async () => { await held; return f.wallet; });
     const handBack = f.service.submit(f.principal, view.id, signature, "submit-hand-back");
     await vi.waitFor(() => expect(f.currentBindingAt).toHaveBeenCalledTimes(1));
+    // The approval's submission runs on another replica: nothing in this process to join.
+    (f.service as unknown as { inflight: Map<string, unknown> }).inflight.clear();
     expect((await f.service.submitApproved({ actor: f.actor, operationId: view.id, signature, key: "review:one",
       authority: { issuedAt: now / 1000, expiresAt: now / 1000 + 300 } })).state).toBe("pending");
     expect(f.state.sends).toBe(1);
@@ -619,6 +621,22 @@ describe("passkey UserOperation owner admission", () => {
     expect((await handBack).state).toBe("pending");
     expect(f.state.sends).toBe(1);
     expect((await f.store.get(f.actor, view.id))!.submission!.key).toBe("review:one");
+  });
+
+  it("joins a submission of the same bytes already in flight instead of checking twice", async () => {
+    const f = await fixture(), view = await f.prepare(), signature = f.signature(view);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    f.currentBindingAt.mockImplementationOnce(async () => { await held; return f.wallet; });
+    const approval = f.service.submitApproved({ actor: f.actor, operationId: view.id, signature, key: "review:one",
+      authority: { issuedAt: now / 1000, expiresAt: now / 1000 + 300 } });
+    await vi.waitFor(() => expect(f.currentBindingAt).toHaveBeenCalledTimes(1));
+    const handBack = f.service.submit(f.principal, view.id, signature, "submit-hand-back");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(f.currentBindingAt).toHaveBeenCalledTimes(1);
+    release();
+    expect((await approval).state).toBe("pending"); expect((await handBack).state).toBe("pending");
+    expect(f.state.sends).toBe(1); expect(f.currentBindingAt).toHaveBeenCalledTimes(1); expect(f.state.estimated).toHaveLength(2);
   });
 
   it("permits only one competing signature to claim the same prepared nonce", async () => {

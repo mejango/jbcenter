@@ -294,7 +294,7 @@ describe('payment quotes and approval plans', () => {
     (
       h.service as unknown as { recentProjects: Map<string, { at: number }> }
     ).recentProjects.forEach((entry) => {
-      entry.at -= 301_000;
+      entry.at -= 1_801_000;
     });
     await h.service.preparePay({
       ...payInput,

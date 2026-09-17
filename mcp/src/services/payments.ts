@@ -180,9 +180,9 @@ function call(
  * no price, allowance, fee flag, or failed preview is replaced by a zero.
  */
 /** A project's payment route (controller, ruleset, hooks, terminal) is kept this long. Payments to
- * one project arrive minutes apart, and every quote is still previewed live and re-read on a ruleset
- * change; a terminal or hook swap inside this window only makes the plan's own simulation fail. */
-const routeLifetimeMs = 300_000;
+ * one project arrive minutes apart, every quote is still previewed live and the route is re-read on a
+ * ruleset change; a terminal or hook swap inside this window only makes the plan's own simulation fail. */
+const routeLifetimeMs = 1_800_000;
 export class PaymentService {
   constructor(private readonly rpc: RpcProvider) {}
   /** A project's controller, ruleset, hooks and payment terminal change rarely; one read serves
