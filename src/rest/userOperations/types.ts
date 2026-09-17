@@ -121,4 +121,6 @@ export interface UserOperationObservation {
   scopedLogs?: readonly unknown[];
   semantic?: SemanticResult;
   reason?: string;
+  /** When this observation was made (ms); a poll within moments of it answers from it. */
+  observedAt?: number;
 }

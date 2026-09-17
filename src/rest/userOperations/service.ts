@@ -1,6 +1,7 @@
 import type {UserOperationSponsorRoutes} from './sponsorRoutes.js';
 import { randomUUID } from "node:crypto";
 import { toHex, type Hex } from "viem";
+import { detachedFromRequest } from "../context.js";
 import type { RestPrincipal } from "../auth/store.js";
 import {
   RestError,
@@ -844,7 +845,7 @@ export class UserOperationService {
       fail("USER_OPERATION_NOT_FOUND", "The UserOperation was not found.", 404);
     appOperation(principal, record.chainId, record.session !== undefined);
     return this.view(
-      record.submission ? await this.refresh(record, signal) : record,
+      record.submission ? await this.refresh(record, signal, true) : record,
     );
   }
 
@@ -872,9 +873,42 @@ export class UserOperationService {
     return this.options.sponsorRoutes?.stored(record.providerId) ?? fail('SPONSOR_ROUTE_UNAVAILABLE', 'The stored sponsorship route is unavailable.');
   }
 
-  private async refresh(record: UserOperationRecord, signal?: AbortSignal) {
+  /** One observation per operation at a time: a poll that arrives meanwhile joins it. */
+  private readonly observing = new Map<string, Promise<UserOperationRecord>>();
+  /** A poll this soon after an observation answers from it; Base makes a block every two seconds. */
+  private static readonly observationReuseMs = 2_000;
+  private refresh(input: UserOperationRecord, signal?: AbortSignal, poll = false): Promise<UserOperationRecord> {
     // Expired was proven against the chain and released its nonce; it is never re-observed.
-    if (!record.submission || record.state === "expired") return record;
+    if (!input.submission || input.state === "expired") return Promise.resolve(input);
+    const record = { ...input, submission: input.submission };
+    const previous = record.observation;
+    if (poll && previous?.observedAt !== undefined && this.now() - previous.observedAt < UserOperationService.observationReuseMs)
+      return Promise.resolve(record);
+    // A confirmed execution stays confirmed while its block is canonical: one block read, nothing
+    // written; only a reorg sends it through a full observation again.
+    if (previous?.state === "confirmed" && previous.receipt?.canonical && previous.transactionHash) {
+      const receipt = previous.receipt;
+      return this.chain(signal).request(record.chainId, "eth_getBlockByNumber", [toHex(BigInt(receipt.blockNumber)), false])
+        .then((block) => same((block as { hash?: string })?.hash ?? "", receipt.blockHash) ? record : this.observation(record));
+    }
+    return this.observation(record);
+  }
+  private observation(record: UserOperationRecord & { submission: NonNullable<UserOperationRecord["submission"]> }) {
+    const running = this.observing.get(record.id);
+    if (running) return running;
+    // Detached from the request that started it: the observation is persisted for everyone who
+    // joins it, so one poller's abort or timeout must not cut it short. Only shutdown stops it.
+    const observation = detachedFromRequest(() => this.observe(record)).catch(async (error: unknown) => {
+      // Another replica observed it first: its observation is the answer, not a conflict.
+      if (error instanceof RestError && error.code === "USER_OPERATION_CONFLICT")
+        return (await this.options.store.get(record.actor, record.id)) ?? record;
+      throw error;
+    }).finally(() => { if (this.observing.get(record.id) === observation) this.observing.delete(record.id); });
+    this.observing.set(record.id, observation);
+    return observation;
+  }
+  private async observe(record: UserOperationRecord & { submission: NonNullable<UserOperationRecord["submission"]> }) {
+    const previous = record.observation;
     const plan = await this.plan(record.actor, record.planId, false);
     const manifest = this.options.manifestForPlan(plan);
     if (
@@ -885,36 +919,23 @@ export class UserOperationService {
         "USER_OPERATION_STACK_CHANGED",
         "The stored operation's reviewed EntryPoint is unavailable.",
       );
+    // A confirmed execution only gets here once its block is no longer canonical (see `refresh`),
+    // so the provider's hint is asked for again; a hint never replaces observed chain evidence.
     let transactionHash = record.observation?.transactionHash;
-    // Preserve a previously verified execution while it remains canonical. A provider hint cannot replace it.
-    let retain = false;
-    if (
-      record.observation?.state === "confirmed" &&
-      record.observation.receipt?.canonical &&
-      transactionHash
-    ) {
-      const block = (await this.chain(signal).request(
-        record.chainId,
-        "eth_getBlockByNumber",
-        [toHex(BigInt(record.observation.receipt.blockNumber)), false],
-      )) as { hash?: string };
-      retain = same(block?.hash ?? "", record.observation.receipt.blockHash);
-    }
     try {
-      if (!retain)
-        transactionHash =
-          (
-            await this.providerForRecord(record).receipt(
-              record.chainId,
-              record.operationHash,
-              signal,
-            )
-          )?.transactionHash ?? transactionHash;
+      transactionHash =
+        (
+          await this.providerForRecord(record).receipt(
+            record.chainId,
+            record.operationHash,
+            undefined,
+          )
+        )?.transactionHash ?? transactionHash;
     } catch {
       /* A provider outage cannot replace independently observed chain evidence. */
     }
     const observation = await observeUserOperation({
-      chain: this.chain(signal),
+      chain: this.chain(),
       binding: this.execution(
         record,
         record.submission.operation,
@@ -927,10 +948,16 @@ export class UserOperationService {
       validUntil: Math.floor(record.expiresAt / 1000),
       confirmations: this.policy(record.chainId).confirmations,
       now: this.now(),
+      // The account and the semantics were verified at this receipt block by the observation that
+      // first saw it there; later polls only advance confirmations.
       verifyAccountAtBlock: async (_execution, evidence) => {
-        await this.options.verifyHistoricalAccount(plan, evidence, signal);
+        if (previous?.semantic && previous.receipt && same(previous.receipt.blockHash, evidence.blockHash)
+          && same(previous.transactionHash ?? "", transactionHash ?? "")) return;
+        await this.options.verifyHistoricalAccount(plan, evidence);
       },
       verifySemantics: async (receipt: StoredReceipt) => {
+        if (previous?.semantic && previous.receipt && same(previous.receipt.blockHash, receipt.blockHash)
+          && same(previous.receipt.transactionHash, receipt.transactionHash)) return previous.semantic;
         // A pay of the configured token through the configured terminal is the strict Base pay
         // domain: a rejected one cannot downgrade into weaker legacy single-step economic
         // evidence. Pays in other tokens or to other terminals keep the generic verification.
@@ -971,7 +998,7 @@ export class UserOperationService {
         };
       },
     });
-    return this.options.store.observe(record.id, record.revision, observation);
+    return this.options.store.observe(record.id, record.revision, { ...observation, observedAt: this.now() });
   }
 
   async observePlanStep(

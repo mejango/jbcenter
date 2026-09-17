@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { restRequest, withRestRequest } from "../src/rest/context.js";
 import { privateKeyToAccount } from "viem/accounts";
 import {
   decodeFunctionData,
@@ -942,6 +943,61 @@ describe("UserOperationService integration", () => {
     expect(retained.observation!.receipt!.canonical).toBe(true);
     expect(hintReads()).toBe(before);
     expect(f.state.sends).toBe(1);
+  });
+  it("answers polls of a submitted operation without observing it again more than once at a time", async () => {
+    const f = await fixture(),
+      prepared = await f.prepare(),
+      signature = await f.sign(prepared);
+    await f.service.submit(f.principal, prepared.id, signature, "polls");
+    const rpcReads = () => f.rpc.mock.calls.length;
+    // Concurrent polls share one observation: one set of reads, no revision conflict for the loser.
+    const before = rpcReads();
+    const [a, b, c] = await Promise.all([1, 2, 3].map(() => f.service.get(f.principal, prepared.id)));
+    expect([a!.state, b!.state, c!.state]).toEqual(["pending", "pending", "pending"]);
+    expect(a!.revision).toBe(b!.revision);
+    const oneObservation = rpcReads() - before;
+    expect(oneObservation).toBeGreaterThan(0);
+    // A poll within two seconds of the last observation answers from it.
+    f.tick(1_000);
+    expect((await f.service.get(f.principal, prepared.id)).revision).toBe(a!.revision);
+    expect(rpcReads() - before).toBe(oneObservation);
+    // Once mined, the receipt block's account and semantics are verified once; later polls of the
+    // confirmed operation only check that its block is still canonical.
+    f.tick(5_000); f.state.mined = true;
+    expect((await f.service.get(f.principal, prepared.id)).state).toBe("confirmed");
+    expect(f.historical).toHaveBeenCalledTimes(1);
+    const semanticCalls = f.semantic.mock.calls.length;
+    f.tick(5_000);
+    const afterConfirmed = rpcReads();
+    expect((await f.service.get(f.principal, prepared.id)).state).toBe("confirmed");
+    expect(f.historical).toHaveBeenCalledTimes(1);
+    expect(f.semantic.mock.calls.length).toBe(semanticCalls);
+    expect(rpcReads() - afterConfirmed).toBe(1);
+    expect(f.state.sends).toBe(1);
+  });
+  it("keeps a shared observation alive when the poll that started it is aborted", async () => {
+    const f = await fixture(),
+      prepared = await f.prepare(),
+      signature = await f.sign(prepared);
+    await f.service.submit(f.principal, prepared.id, signature, "abort-poll");
+    // Like the runtime, every read honours the request's signal; the observation runs outside it.
+    const rpc = f.rpc.getMockImplementation()!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    f.rpc.mockImplementation(async (chain, method, params, signal) => {
+      if (restRequest()?.signal.aborted) throw new Error("request aborted");
+      if (method === "eth_getTransactionByHash") await gate;
+      return rpc(chain, method, params, signal);
+    });
+    f.state.mined = true;
+    const controller = new AbortController();
+    const first = withRestRequest(controller.signal, () => f.service.get(f.principal, prepared.id));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const second = f.service.get(f.principal, prepared.id);
+    controller.abort(); release();
+    expect((await second).state).toBe("confirmed");
+    expect((await first).state).toBe("confirmed");
+    expect(f.historical).toHaveBeenCalledTimes(1);
   });
   it.each([false, true])(
     "requires session proof at the exact preflight block (failure: %s)",

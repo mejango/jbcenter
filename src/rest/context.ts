@@ -19,6 +19,11 @@ export function withRestRequest<T>(
 export function restRequest(): RestRequestContext | undefined {
   return requests.getStore();
 }
+/** Work that outlives the request that started it (an observation others may join) runs outside
+ * its context, so the request's abort or timeout cannot cut it short for everyone. */
+export function detachedFromRequest<T>(work: () => Promise<T>): Promise<T> {
+  return requests.exit(work);
+}
 export function setRestAuthority(
   principal: RestPrincipal,
   input: SignedRequestInput,
