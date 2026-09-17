@@ -105,8 +105,6 @@ export async function exerciseRecoveryBrowser(options: {
   await page.getByRole('link', { name: 'Sign in', exact: true }).click();
   // A direct landing visit lands on the signup page; its "log in" link, or the finished signup's button, performs the sign-in.
   await page.getByRole('link', { name: 'log in' }).or(page.getByRole('button', { name: 'Log in', exact: true })).click();
-  await expect.poll(() => page.locator('#explain-title').textContent()).toBe('Log in');
-  await page.locator('#explain-continue').click();
   await contains('You are signed in');
   expect((await page.locator('#wallet-address').textContent())!.toLowerCase()).toBe(kit.walletAddress.toLowerCase());
   expect(await page.locator('#wallet-passkey').textContent()).toBe('Juicebox replacement');

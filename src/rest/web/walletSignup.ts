@@ -13,7 +13,7 @@ const next = el<HTMLButtonElement>('signup-next'), resume = el<HTMLAnchorElement
 const check = el<HTMLButtonElement>('signup-check'), cancel = el<HTMLButtonElement>('signup-cancel');
 const status = el('wallet-status'), details = el('signup-details'), restart = el<HTMLButtonElement>('signup-restart');
 const explain = el<HTMLDialogElement>('signup-explain');
-/** A small in-page note before every native passkey prompt: what it is for, then one click opens it. */
+/** An in-page question the person must answer before going on; a native passkey prompt is its own explanation. */
 function announce(title: string, text: string) {
   el('explain-title').textContent = title; el('explain-text').textContent = text;
   return new Promise<void>((resolve, reject) => {
@@ -215,7 +215,6 @@ async function advance() {
   if (view.phase === 'expired') {
     await send('restart', {}); csrf = '';
   } else if (view.phase === 'awaiting_registration' && view.registration) {
-    await announce('Create your passkey', `Your device will ask for your passkey (Touch ID, Face ID or a PIN) to save "${view.passkeyName}".`);
     message('Create the passkey in the prompt.'); native = new AbortController(); render();
     const value = await navigator.credentials.create({ publicKey: { rp: { id: view.rpId, name: 'Juicebox' },
       user: { id: decode(view.registration.userHandle), name: view.passkeyName, displayName: view.passkeyName },
@@ -268,7 +267,6 @@ async function approve(backupSignature?: Hex) {
   const deployment: Awaited<ReturnType<Signup['prepareDeployment']>> = await request('deployment/review', {});
   if (deployment.walletAddress.toLowerCase() !== view!.walletAddress?.toLowerCase() || deployment.recoveryOwner.toLowerCase() !== view!.recoveryOwner.toLowerCase()
     || deployment.initializerHash !== view!.initializerHash) throw new Error('The account creation review changed.');
-  await announce('Approve creating your account', 'A passkey prompt approves creating your account, making it yours.');
   message('Approve creating your account: use your passkey in the prompt.');
   const proof = await assertion(deployment.challenge, view!.rpId);
   await send('deployment/approve', { approvalId: deployment.id, assertion: proof, ...(backupSignature ? { backupSignature } : {}) });
@@ -341,7 +339,6 @@ async function login() {
   try { await loginFlow(); } finally { loggingIn = false; }
 }
 async function loginFlow() {
-  await announce('Log in', 'A passkey prompt logs you in to your account.');
   message('Logging in…');
   const begun = await walletRequest(`${base}/login/begin`, {}), publicKey = begun.publicKey;
   if (publicKey?.rpId !== location.hostname || publicKey.userVerification !== 'required' || typeof begun.loginId !== 'string' || typeof begun.csrfToken !== 'string') throw new Error('The account host changed.');

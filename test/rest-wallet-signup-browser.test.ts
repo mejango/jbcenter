@@ -68,9 +68,7 @@ describe("served Center signup page", () => {
     await page.goto(`${origin}/wallet`);
     await expect.poll(() => page.locator("#signup-form").isVisible()).toBe(true);
     await page.locator("#signup-resume").click();
-    // The explainer dialog is the first step; the form is already out of the way behind it.
     await expect.poll(() => page.locator("#signup-form").isHidden()).toBe(true);
-    await page.locator("#explain-continue").click();
     await expect.poll(() => page.locator("#wallet-status").textContent()).toContain("Logging in");
     expect(await page.locator("#signup-form").isHidden()).toBe(true);
     expect(await page.locator("#signup-intro").isHidden()).toBe(true);

@@ -138,7 +138,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
   // Match the browser's existing wait budget, rather than Vitest's one-second
   // polling default. The enclosing journey and all server deadlines stay bounded.
   const contains = async (text: string) => expect.poll(() => page.locator('#wallet-status').textContent(), { timeout: 15000 }).toContain(text);
-  // Every native prompt is preceded by an in-page note; "Continue" opens the prompt.
+  // The page asks before going on only when something would be lost or is unexpected; "Continue" answers it.
   const proceed = async (title: string) => {
     await expect.poll(() => page.locator('#explain-title').textContent(), { timeout: 15000 }).toBe(title);
     await page.locator('#explain-continue').click();
@@ -153,7 +153,6 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     // Sign up opens the passkey prompt at once; a cancelled prompt leaves the explicit button as the fallback.
     await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
     await page.getByRole('button', { name: 'Sign up' }).click();
-    await proceed('Create your passkey');
     // A prompt waiting on the user is not work in flight: the status mark holds still.
     await expect.poll(() => page.locator('#wallet-status').getAttribute('data-state'), { timeout: 5000 }).toBe('ready');
     await page.getByRole('button', { name: 'Cancel prompt' }).click();
@@ -164,19 +163,16 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     expect((await context.cookies()).some(item => item.name === walletSignupCookie)).toBe(false);
     await fillForm();
     await page.getByRole('button', { name: 'Sign up' }).click();
-    // Declining the note leaves the explicit button as the fallback, like a cancelled prompt.
-    await expect.poll(() => page.locator('#explain-title').textContent()).toBe('Create your passkey');
-    await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
-    await contains('Cancelled');
+    // The prompt opens straight from the tap; cancelling it leaves the explicit button as the fallback.
+    await page.getByRole('button', { name: 'Cancel prompt' }).click();
+    await contains('cancelled');
     // A begun signup without a passkey yet still offers "log in" for someone who already has an account.
     expect(await page.getByRole('link', { name: 'log in' }).isVisible()).toBe(true);
     await page.getByRole('button', { name: 'Create passkey', exact: true }).click();
-    await proceed('Create your passkey');
     await page.getByRole('button', { name: 'Cancel prompt' }).click();
     await contains('cancelled');
     await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
     await page.getByRole('button', { name: 'Create passkey', exact: true }).click();
-    await proceed('Create your passkey');
     if (kitMode) {
       await contains('Check the original signup');
       await page.getByRole('button', { name: 'Check signup' }).click();
@@ -185,7 +181,6 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       // One click and one prompt approve creation and prove the passkey.
       await page.getByRole('button', { name: 'Create account', exact: true }).click();
     }
-    await proceed('Approve creating your account');
     await contains('Creating your account');
     const originalAddress = await page.locator('#signup-address').textContent();
     networksWalletAddress = (originalAddress ?? '').toLowerCase();
@@ -231,7 +226,6 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await context.clearCookies({ name: walletSignupCookie });
     await page.reload();
     await page.getByRole('link', { name: 'log in' }).click();
-    await proceed('Log in');
     await proceed('Pick up your signup');
     await contains('Your account is ready');
     expect(await page.locator('#signup-address').textContent()).toBe(originalAddress);
@@ -272,7 +266,6 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await contains('Log in with your passkey');
     if (kitMode) expect(await page.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('center:signup:browser:')))).toEqual([]);
     await page.getByRole('button', { name: 'Log in', exact: true }).click();
-    await proceed('Log in');
     await contains('You are signed in');
     expect((await page.locator('#wallet-address').textContent())?.toLowerCase()).toBe(originalAddress?.toLowerCase());
     expect(await page.locator('#wallet-passkey').textContent()).toBe('Juicebox test');
