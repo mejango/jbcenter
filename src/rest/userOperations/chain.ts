@@ -48,6 +48,12 @@ export const ENTRY_POINT_V07_ABI = parseAbi([
   "event UserOperationEvent(bytes32 indexed userOpHash,address indexed sender,address indexed paymaster,uint256 nonce,bool success,uint256 actualGasCost,uint256 actualGasUsed)",
   "event UserOperationRevertReason(bytes32 indexed userOpHash,address indexed sender,uint256 nonce,bytes revertReason)",
 ]);
+// A reviewed immutable contract (today only the EntryPoint) cannot change code once deployed, so
+// its runtime is proven against its pin once per process for ten minutes. An account's own proxy
+// code and the per-account passkey signer are never kept: they are read live at every head.
+const pinnedRuntimeMs = 600_000;
+const pinnedRuntimes = new Map<string, number>();
+
 export class UserOperationChain {
   private remaining = USER_OPERATION_LIMITS.rpcCalls;
   private readonly signal: AbortSignal;
@@ -138,6 +144,10 @@ export class UserOperationChain {
     return { blockHash: evidence.blockHash, requireCanonical: true };
   }
   async snapshot(chainId: number): Promise<RestBlockEvidence> {
+    return (await this.latest(chainId)).evidence;
+  }
+  /** The canonical head, with the base fee its block carries so pricing needs no second read. */
+  private async latest(chainId: number): Promise<{ evidence: RestBlockEvidence; baseFeePerGas: unknown }> {
     const [chain, block] = await Promise.all([
       this.request(chainId, "eth_chainId", []),
       this.request(chainId, "eth_getBlockByNumber", ["latest", false]),
@@ -156,13 +166,13 @@ export class UserOperationChain {
         "The canonical chain observation is stale.",
         502,
       );
-    return {
+    return { evidence: {
       chainId,
       blockNumber: uoQuantity(block.number, "block number").toString(),
       blockHash: uoHash(block.hash, "block hash"),
       timestamp: timestamp.toString(),
       source: "onchain",
-    };
+    }, baseFeePerGas: block.baseFeePerGas };
   }
   async canonical(evidence: RestBlockEvidence): Promise<void> {
     const block = await this.request(evidence.chainId, "eth_getBlockByNumber", [
@@ -188,7 +198,11 @@ export class UserOperationChain {
     chainId: number,
     pin: UserOperationCodePin,
     evidence: RestBlockEvidence,
+    /** A reviewed immutable contract, proven once per process rather than at every head. */
+    pinned = false,
   ): Promise<void> {
+    const key = `${chainId}:${pin.address.toLowerCase()}:${pin.runtimeCodeHash.toLowerCase()}`;
+    if (pinned && (pinnedRuntimes.get(key) ?? 0) > this.now()) return;
     const code = uoBytes(
       await this.request(chainId, "eth_getCode", [
         pin.address,
@@ -202,21 +216,22 @@ export class UserOperationChain {
         "USER_OPERATION_RUNTIME_MISMATCH",
         "A required deployed contract differs from its reviewed runtime.",
       );
+    if (pinned) pinnedRuntimes.set(key, this.now() + pinnedRuntimeMs);
   }
   async nonce(
     chainId: number,
     sender: Address,
     key: bigint,
     entryPoint: UserOperationCodePin,
-  ): Promise<{ nonce: Hex; evidence: RestBlockEvidence }> {
+  ): Promise<{ nonce: Hex; evidence: RestBlockEvidence; baseFeePerGas: unknown }> {
     if (key < 0n || key >= 1n << 192n)
       uoError(
         "INVALID_USER_OPERATION_NONCE",
         "The keyed nonce must fit uint192.",
         400,
       );
-    const evidence = await this.snapshot(chainId);
-    await this.runtime(chainId, entryPoint, evidence);
+    const { evidence, baseFeePerGas } = await this.latest(chainId);
+    await this.runtime(chainId, entryPoint, evidence, true);
     const nonce = await this.readNonce(
       chainId,
       sender,
@@ -225,7 +240,7 @@ export class UserOperationChain {
       evidence,
     );
     await this.canonical(evidence);
-    return { nonce: toHex(nonce), evidence };
+    return { nonce: toHex(nonce), evidence, baseFeePerGas };
   }
   private async call(
     chainId: number,
@@ -310,7 +325,7 @@ export class UserOperationChain {
     assertUserOperationGasPolicy(op, gasPolicy);
     const evidence = at ?? (await this.snapshot(binding.chainId));
     await Promise.all([
-      this.runtime(binding.chainId, binding.entryPoint, evidence),
+      this.runtime(binding.chainId, binding.entryPoint, evidence, true),
       this.runtime(binding.chainId, binding.accountCode, evidence),
     ]);
     const operationHash = getUserOperationHash(

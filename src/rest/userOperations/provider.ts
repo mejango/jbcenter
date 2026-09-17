@@ -349,6 +349,7 @@ export class UserOperationProvider {
   }
   /** A bundler's chain and EntryPoint hold for a minute; every preparation checked both before. */
   private readonly ready = new Map<number, { until: number; result: Awaited<ReturnType<UserOperationProvider["checkReadiness"]>> }>();
+  private readonly stubs = new Map<number, { until: number; result: unknown }>();
   async readiness(chainId: number, signal?: AbortSignal) {
     const kept = this.ready.get(chainId);
     if (kept && kept.until > this.now()) return { ...kept.result };
@@ -603,7 +604,10 @@ export class UserOperationProvider {
         "Complete sponsorship before requesting the owner/session signature.",
         400,
       );
-    const result = await this.rpc(
+    // A verifying paymaster's stub is the same for every operation under one policy: it is kept for
+    // ten minutes. A kept stub that stops validating (its own window passed) or that a final
+    // sponsorship no longer matches is dropped and fetched again, so no stale copy outlives one use.
+    const fetchStub = () => this.rpc(
       config,
       true,
       "pm_getPaymasterStubData",
@@ -615,7 +619,15 @@ export class UserOperationProvider {
       ],
       signal,
     );
-    return this.paymasterResult(config, op, result, "stub");
+    const kept = this.stubs.get(chainId);
+    if (kept && kept.until > this.now()) {
+      try { return this.paymasterResult(config, op, kept.result, "stub"); }
+      catch { this.stubs.delete(chainId); }
+    }
+    const result = await fetchStub();
+    const stub = this.paymasterResult(config, op, result, "stub");
+    if (!stub.isFinal) this.stubs.set(chainId, { result: structuredClone(result), until: this.now() + 600_000 });
+    return stub;
   }
   async sponsor(
     chainId: number,
@@ -654,21 +666,19 @@ export class UserOperationProvider {
         .slice(2)
         .match(/../g)
         ?.filter((byte) => byte === "00").length ?? 0;
-    if (
-      final.operation.paymasterData!.length !== op.paymasterData!.length ||
+    const shapeChanged = final.operation.paymasterData!.length !== op.paymasterData!.length ||
       (config.paymasterPolicy?.profile !== "pimlico-v7-current-flags" &&
-        countZeroBytes(op.paymasterData!) >
-          countZeroBytes(final.operation.paymasterData!))
-    )
+        countZeroBytes(op.paymasterData!) > countZeroBytes(final.operation.paymasterData!));
+    const gasChanged = final.operation.paymasterVerificationGasLimit !== op.paymasterVerificationGasLimit ||
+      final.operation.paymasterPostOpGasLimit !== op.paymasterPostOpGasLimit;
+    // The stub the operation was shaped by no longer matches the paymaster: the next preparation fetches a fresh one.
+    if (shapeChanged || gasChanged) this.stubs.delete(chainId);
+    if (shapeChanged)
       uoError(
         "USER_OPERATION_PAYMASTER_STUB_CHANGED",
         "Final paymaster data invalidates the stub calldata gas estimate.",
       );
-    if (
-      final.operation.paymasterVerificationGasLimit !==
-        op.paymasterVerificationGasLimit ||
-      final.operation.paymasterPostOpGasLimit !== op.paymasterPostOpGasLimit
-    )
+    if (gasChanged)
       uoError(
         "USER_OPERATION_PAYMASTER_GAS_CHANGED",
         "The paymaster changed estimated gas fields; prepare and estimate again.",

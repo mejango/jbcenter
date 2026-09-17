@@ -388,28 +388,20 @@ export class UserOperationService {
       }
     }
     const chain = this.chain(signal);
-    await provider.readiness(binding.wallet.chainId, signal);
     const nonceKey = session
       ? BigInt(safe7579NonceKey(manifest.smartSessions.address))
       : 0n;
-    const { nonce, evidence } = await chain.nonce(
-      binding.wallet.chainId,
-      binding.wallet.address,
-      nonceKey,
-      manifest.entryPoint!,
-    );
-    const block = (await chain.request(
-      binding.wallet.chainId,
-      "eth_getBlockByNumber",
-      [toHex(BigInt(evidence.blockNumber)), false],
-    )) as Record<string, unknown>;
-    const [nodePriority, floor] = await Promise.all([
+    // The bundler's readiness, the nonce at the head (which carries the base fee) and the two fee
+    // quotes are independent: they go out together.
+    const [, { nonce, evidence, baseFeePerGas }, nodePriority, floor] = await Promise.all([
+      provider.readiness(binding.wallet.chainId, signal),
+      chain.nonce(binding.wallet.chainId, binding.wallet.address, nonceKey, manifest.entryPoint!),
       chain.request(binding.wallet.chainId, "eth_maxPriorityFeePerGas", []),
       provider.gasPrice(binding.wallet.chainId, signal),
     ]);
     // Never below the bundler's floor: a cheaper operation is accepted, then waits until it expires.
     const priority = max(uoQuantity(nodePriority, "priority fee"), floor?.maxPriorityFeePerGas ?? 0n);
-    const fee = max(uoQuantity(block.baseFeePerGas, "base fee") * 2n + priority, floor?.maxFeePerGas ?? 0n);
+    const fee = max(uoQuantity(baseFeePerGas, "base fee") * 2n + priority, floor?.maxFeePerGas ?? 0n);
     if (
       fee > policy.gas.maximumFeePerGas ||
       priority > policy.gas.maximumPriorityFeePerGas

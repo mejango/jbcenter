@@ -94,10 +94,11 @@ async function fixture(options: { app?: boolean; legacy?: boolean; sponsored?: b
     estimateTimeout: false, signedEstimate: undefined as Partial<UserOperationGasEstimate> | undefined,
     bundlerFees: null as { maxFeePerGas: Hex; maxPriorityFeePerGas: Hex } | null, bundlerDown: false,
     estimated: [] as UserOperationV07[], sent: undefined as UserOperationV07 | undefined,
+    baseFee: "0x0" as Hex, finalGasBump: false,
   };
   const rpcDefault: RestRpc["request"] = async (_chain, method, params) => {
     if (method === "eth_chainId") return toHex(8453);
-    if (method === "eth_getBlockByNumber") return { number: "0x64", hash: state.reorg ? h("reorg") : h("passkey-block"), timestamp: toHex(now / 1000), baseFeePerGas: "0x0" };
+    if (method === "eth_getBlockByNumber") return { number: "0x64", hash: state.reorg ? h("reorg") : h("passkey-block"), timestamp: toHex(now / 1000), baseFeePerGas: state.baseFee };
     if (method === "eth_maxPriorityFeePerGas") return "0x1";
     if (method === "eth_getCode") return state.runtimeFailure && params[0] === signer ? "0x6001" : code;
     if (method === "eth_getBalance") return toHex(10n ** 18n);
@@ -135,7 +136,8 @@ async function fixture(options: { app?: boolean; legacy?: boolean; sponsored?: b
         ...state.signedEstimate };
     } else if (request.method === "pm_getPaymasterStubData" || request.method === "pm_getPaymasterData") {
       if (request.method === "pm_getPaymasterData") state.finalQuotes++;
-      result = { paymaster, paymasterData: toHex(0x1234 + state.finalQuotes, { size: 2 }), paymasterVerificationGasLimit: "0x64", paymasterPostOpGasLimit: "0x0" };
+      result = { paymaster, paymasterData: toHex(0x1234 + state.finalQuotes, { size: 2 }),
+        paymasterVerificationGasLimit: request.method === "pm_getPaymasterData" && state.finalGasBump ? "0x65" : "0x64", paymasterPostOpGasLimit: "0x0" };
     } else if (request.method === "eth_sendUserOperation") {
       state.sends++; state.sent = request.params[0];
       if (state.sendFailure) throw Error("lost response after provider acceptance");
@@ -176,7 +178,7 @@ async function fixture(options: { app?: boolean; legacy?: boolean; sponsored?: b
   const signature = (view: Awaited<ReturnType<typeof prepare>>, body: Hex = "0x1234") => encodeSafe7579PasskeyOwnerSignature({
     validAfter: String(view.createdAt / 1000), validUntil: String(view.expiresAt / 1000), signatures: [{ kind: "contract", owner: signer, signature: body }],
   });
-  return { service, prepare, signature, state, wallet, manifest, principal, rpc, rpcDefault, provider, currentBinding, currentBindingAt, store, actor, requestKey, preparedPlan, transactionStore, transactions };
+  return { service, prepare, signature, state, wallet, manifest, principal, rpc, rpcDefault, provider, fetcher, currentBinding, currentBindingAt, store, actor, requestKey, preparedPlan, transactionStore, transactions };
 }
 
 describe("app UserOperation owner boundary", () => {
@@ -375,6 +377,64 @@ describe("passkey UserOperation estimation", () => {
     expect(f.state.estimated).toHaveLength(1);
     expect(size(f.state.estimated[0]!.signature)).toBe(2349);
     expect(BigInt(view.operation.preVerificationGas)).toBe(50_000n + 12n * 2349n);
+  });
+
+  it("reads the bundler, the nonce head and the fees together, prices from the head it already holds, and keeps the paymaster stub and the EntryPoint runtime between preparations", async () => {
+    const f = await fixture({ sponsored: true }); f.state.bundlerFees = { maxFeePerGas: "0x2", maxPriorityFeePerGas: "0x2" }; f.state.baseFee = "0x10";
+    let releaseReadiness!: () => void;
+    const readinessHeld = new Promise<void>((resolve) => { releaseReadiness = resolve; });
+    const original = f.fetcher.getMockImplementation()!;
+    f.fetcher.mockImplementation(async (url, init) => {
+      if (JSON.parse(String(init?.body)).method === "eth_supportedEntryPoints") await readinessHeld;
+      return original(url, init);
+    });
+    const first = f.prepare();
+    // The nonce head and the fee quotes do not wait for the bundler readiness check.
+    await vi.waitFor(() => {
+      expect(f.rpc.mock.calls.some(([, method]) => method === "eth_getBlockByNumber")).toBe(true);
+      expect(f.rpc.mock.calls.some(([, method]) => method === "eth_maxPriorityFeePerGas")).toBe(true);
+      expect(f.fetcher.mock.calls.some(([, init]) => JSON.parse(String(init?.body)).method === "pimlico_getUserOperationGasPrice")).toBe(true);
+    });
+    releaseReadiness();
+    const view = await first;
+    const calls = (method: string) => f.rpc.mock.calls.filter(([, m]) => m === method).length;
+    const provider = (method: string) => f.fetcher.mock.calls.filter(([, init]) => JSON.parse(String(init?.body)).method === method).length;
+    // One head read prices the operation: the head, its canonical recheck after the nonce, and the final recheck.
+    expect(calls("eth_getBlockByNumber")).toBe(3);
+    expect(BigInt(view.operation.maxFeePerGas)).toBe(2n * 0x10n + 2n);
+    expect(provider("pm_getPaymasterStubData")).toBe(1);
+    const again = await f.service.prepare(f.principal, { planId: f.preparedPlan.id, stepIndexes: [0] }, "prepare-2", h("prepare-2"));
+    expect(again.id).not.toBe(view.id);
+    expect(provider("pm_getPaymasterStubData")).toBe(1);
+    expect(provider("pm_getPaymasterData")).toBe(2);
+    // A final sponsorship whose gas fields no longer match the kept stub drops it; the next preparation fetches a fresh one.
+    f.state.finalGasBump = true;
+    await expect(f.service.prepare(f.principal, { planId: f.preparedPlan.id, stepIndexes: [0] }, "prepare-3", h("prepare-3"))).rejects.toMatchObject({ code: "USER_OPERATION_PAYMASTER_GAS_CHANGED" });
+    f.state.finalGasBump = false;
+    await f.service.prepare(f.principal, { planId: f.preparedPlan.id, stepIndexes: [0] }, "prepare-4", h("prepare-4"));
+    expect(provider("pm_getPaymasterStubData")).toBe(2);
+    // A kept stub that stops validating is dropped and fetched again, once, within the same preparation.
+    const policy = f.provider.configuration(8453).paymasterPolicy!;
+    const inspect = policy.inspect; let rejected = 0;
+    policy.inspect = (...args) => { if (rejected++ === 0) throw Error("stub window passed"); return inspect(...args); };
+    await f.service.prepare(f.principal, { planId: f.preparedPlan.id, stepIndexes: [0] }, "prepare-5", h("prepare-5"));
+    expect(provider("pm_getPaymasterStubData")).toBe(3);
+    policy.inspect = inspect;
+  });
+
+  it("proves the EntryPoint runtime once per process and again after ten minutes; the account's own code is read at every head", async () => {
+    const entryPointCode = (f: Awaited<ReturnType<typeof fixture>>) => f.rpc.mock.calls.filter(([, m, params]) => m === "eth_getCode" && String(params[0]).toLowerCase() === entryPoint.toLowerCase()).length;
+    const accountCode = (f: Awaited<ReturnType<typeof fixture>>) => f.rpc.mock.calls.filter(([, m, params]) => m === "eth_getCode" && String(params[0]).toLowerCase() === safe).length;
+    const first = await fixture(); await first.prepare();
+    const second = await fixture(); await second.prepare();
+    expect(entryPointCode(second)).toBe(0);
+    const before = now; now += 601_000;
+    try {
+      const third = await fixture(); const view = await third.prepare();
+      expect(entryPointCode(third)).toBe(1);
+      await third.service.submit(third.principal, view.id, third.signature(view), "submit");
+      expect(entryPointCode(third)).toBe(1); expect(accountCode(third)).toBe(1);
+    } finally { now = before; }
   });
 
   it("still re-estimates and bounds sponsorship for an owner-key operation without those margins", async () => {
