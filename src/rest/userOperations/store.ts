@@ -260,8 +260,8 @@ export function claimed(
   )
     conflict();
   if (record.submission) {
+    // The same signed bytes under another publication key observe the earlier submission.
     if (
-      record.submission.key !== input.key ||
       !same(record.submission.commitment, fullCommitment) ||
       canonical(record.submission.operation) !== canonical(operation)
     )

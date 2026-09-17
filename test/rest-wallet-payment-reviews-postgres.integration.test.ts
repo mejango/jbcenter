@@ -4,7 +4,7 @@ import { fork, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes, randomUUID, sign } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { privateKeyToAccount } from "viem/accounts";
 import { keccak256, toHex, type Hex } from "viem";
 import { migrate } from "../src/db/migrate.js";
@@ -214,6 +214,33 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
     expect(await value.store.approve(value.view.draft.id, value.login.session.id, fresh)).toEqual({ view: approved.view, replayed: true });
     expect(await value.store.getForApp(value.actor, value.view.draft.id)).toEqual(original);
     expect(await counts()).toMatchObject({ reviews: 1, approved: 1, ceremonies: 1, consumed: 1, nonces: 0 });
+  });
+
+  it("hands a fresh approval to the operation's submission on the review's own authority, and again on a replay while the operation is still prepared", async () => {
+    const value = await pendingReview(), submissions: unknown[] = [];
+    value.store.attachSubmission(async input => { submissions.push(input); return {}; });
+    const approved = await value.store.approve(value.view.draft.id, value.login.session.id, value.assertion);
+    expect(approved.replayed).toBe(false);
+    await vi.waitFor(() => expect(submissions).toHaveLength(1));
+    const row = await reviewRow(value.view.draft.id), issuedAt = Math.floor(Number(row.approved_at_ms) / 1000);
+    expect(submissions[0]).toEqual({ actor: value.actor, operationId: value.record.id, signature: row.signature, key: `review:${value.view.draft.id}`,
+      authority: { issuedAt, expiresAt: Math.min(Math.floor(Number(row.expires_at_ms) / 1000), issuedAt + 300) } });
+    // A reload of the approval page (the same proof again) retries the submission while nothing was published.
+    expect((await value.store.approve(value.view.draft.id, value.login.session.id, value.assertion)).replayed).toBe(true);
+    await vi.waitFor(() => expect(submissions).toHaveLength(2));
+    // The approval page reloading (a session read of the approved review) retries too; a throwing
+    // submission, even a synchronous one, never fails the read or the approval.
+    value.store.attachSubmission(() => { throw new Error("submission failed"); });
+    expect((await value.store.getForSession(value.view.draft.id, value.login.session.id)).status).toBe("approved");
+    value.store.attachSubmission(async input => { submissions.push(input); return {}; });
+    await value.store.getForSession(value.view.draft.id, value.login.session.id);
+    await vi.waitFor(() => expect(submissions).toHaveLength(3));
+    // Once the operation left `prepared`, neither a replay nor a read sends again.
+    const record = { ...value.record, state: "submitting" };
+    await pool.query("UPDATE rest_user_operations SET document=$2::jsonb WHERE id=$1", [value.record.id, JSON.stringify(record)]);
+    expect((await value.store.approve(value.view.draft.id, value.login.session.id, value.assertion)).replayed).toBe(true);
+    await value.store.getForSession(value.view.draft.id, value.login.session.id);
+    await new Promise(resolve => setTimeout(resolve, 50)); expect(submissions).toHaveLength(3);
   });
 
   it("lets a device passkey approve a review prepared for the account, signing as its own owner", async () => {

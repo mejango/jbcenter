@@ -104,8 +104,16 @@ const nowSql = "floor(extract(epoch FROM clock_timestamp())*1000)::bigint";
  * Proof/plan/profile verification occurs before SQL; locked metadata is compared afterwards.
  * Reviews do not reserve a nonce, dispatch, or release execution liability. All replicas must
  * use the same retained-row limits; global admission is bounded, not a capacity guarantee. */
+/** What an approval hands to the operation's submission: the app's actor from the review row, the
+ * exact signature the approval produced, one publication key per review and the approval's window. */
+export interface WalletPaymentApprovedSubmission {
+  actor: RestActor; operationId: string; signature: Hex; key: string; authority: { issuedAt: number; expiresAt: number };
+}
 export class PostgresWalletPaymentReviewStore {
   private readonly options: Required<WalletPaymentReviewStoreOptions>;
+  private submission: ((input: WalletPaymentApprovedSubmission) => Promise<unknown>) | undefined;
+  /** The approval sends the operation itself; the app's later hand-back observes that submission. */
+  attachSubmission(submit: (input: WalletPaymentApprovedSubmission) => Promise<unknown>): void { this.submission = submit; }
   private readonly authority: PostgresWalletAuthorityStore;
   private readonly ceremonies: PostgresWalletCeremonyStore;
   constructor(private readonly pool: Pool, input: WalletPaymentReviewStoreOptions) {
@@ -183,11 +191,28 @@ export class PostgresWalletPaymentReviewStore {
   async getForSession(inputId: string, inputSessionId: string): Promise<WalletPaymentReviewView> {
     const sessionId = uuid(inputSessionId), hint = await this.hint(inputId), captured = await this.capture(this.rowActor(hint), hint.operation_id);
     const draft = this.assertHint(hint, captured);
-    return this.transaction(async client => {
+    const result = await this.transaction(async client => {
       await this.guard(client, captured, draft, sessionId);
       const { operation } = await this.lockExecution(client, captured), row = await this.lockReview(client, hint);
-      await this.finish(client, captured, row, operation, sessionId); return view(row, operation);
+      await this.finish(client, captured, row, operation, sessionId);
+      return { view: view(row, operation), row, pending: row.status === "approved" && operation.state === "prepared" };
     });
+    // The approval page reloaded on an approved review nothing has published yet: send again.
+    if (result.pending) this.sendApproved(result.row);
+    return result.view;
+  }
+  /** The approval is the send: the operation goes out on the review's own authority right after the
+   * approval is durable, and a later look at an approved review retries while nothing was published.
+   * A failure here never touches the approval; the app's hand-back submits the same bytes itself. */
+  private sendApproved(row: ReviewRow): void {
+    if (!this.submission || !row.signature || row.approved_at_ms === null) return;
+    const issuedAt = Math.floor(Number(row.approved_at_ms) / 1000);
+    const submission = { actor: this.rowActor(row), operationId: row.operation_id, signature: row.signature as Hex,
+      key: `review:${row.id}`, authority: { issuedAt, expiresAt: Math.min(Math.floor(Number(row.expires_at_ms) / 1000), issuedAt + 300) } };
+    void Promise.resolve().then(() => this.submission!(submission)).then(
+      () => console.info(JSON.stringify({ service: "wallet", action: "approval_submit", outcome: "ok", review: row.id })),
+      (error: unknown) => console.info(JSON.stringify({ service: "wallet", action: "approval_submit", outcome: "failed", review: row.id,
+        code: (error as { code?: unknown } | null)?.code ?? null })));
   }
   async approve(inputId: string, inputSessionId: string, assertion: WalletAssertion): Promise<{ view: WalletPaymentReviewView; replayed: boolean }> {
     const id = uuid(inputId), sessionId = uuid(inputSessionId), ownedAssertion = copyWalletPaymentReviewAssertion(assertion);
@@ -196,14 +221,15 @@ export class PostgresWalletPaymentReviewStore {
     // Local WebAuthn/P256/ABI verification is complete before transactional lock acquisition. The
     // session names the approving passkey: the primary, or one of the account's devices.
     const proof = verifyWalletPaymentReviewProof(draft, ownedAssertion, await this.approver(captured, draft, sessionId));
-    return this.transaction(async client => {
+    const result = await this.transaction(async client => {
       await this.guard(client, captured, draft, sessionId);
       const { operation, plan } = await this.lockExecution(client, captured), row = await this.lockReview(client, hint);
       live(row, await walletCeremonyDatabaseNow(client));
       if (row.status === "cancelled") conflict();
       if (row.status === "approved") {
         if (row.session_id !== sessionId || row.proof_digest !== proof.proofDigest) conflict();
-        await this.finish(client, captured, row, operation, sessionId); return { view: view(row, operation), replayed: true };
+        await this.finish(client, captured, row, operation, sessionId);
+        return { view: view(row, operation), replayed: true, row, pending: operation.state === "prepared" };
       }
       await this.unspent(client, operation, plan);
       const consumed = await this.ceremonies.consumeInTransaction(client, { ...draft.ceremony,
@@ -214,8 +240,11 @@ export class PostgresWalletPaymentReviewStore {
         WHERE id=$1 AND status='pending' AND expires_at_ms>${nowSql} RETURNING *`,
       [row.id, sessionId, proof.proofDigest, proof.signature, proof.signedCommitment])).rows[0];
       if (!updated) expired();
-      await this.finish(client, captured, updated, operation, sessionId); return { view: view(updated, operation), replayed: false };
+      await this.finish(client, captured, updated, operation, sessionId);
+      return { view: view(updated, operation), replayed: false, row: updated, pending: true };
     });
+    if (result.pending) this.sendApproved(result.row);
+    return { view: result.view, replayed: result.replayed };
   }
   async cancel(inputId: string, inputSessionId: string): Promise<WalletPaymentReviewView> {
     const sessionId = uuid(inputSessionId), hint = await this.hint(inputId), captured = await this.capture(this.rowActor(hint), hint.operation_id);

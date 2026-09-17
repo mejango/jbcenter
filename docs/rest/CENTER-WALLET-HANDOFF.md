@@ -322,6 +322,15 @@ is sized to it, and `test/rest-wallet-runtime.test.ts` pins the production value
   attempt 100 s. The queue pins its settings in `rest_wallet_authority_refresh_control` for
   all replicas: changing them needs a migration that clears `configuration` (040 did), or
   every claim fails with WALLET_AUTHORITY_REFRESH_CONFIG_CONFLICT (`queue_failed` in the log).
+- A payment approval is the send: after the approval is durable, the review store hands the
+  operation to `UserOperationService.submitApproved` (`attachSubmission` in `runtime.ts`) on the
+  review's own authority (the app's signed review request names the operation; the passkey
+  approved it; the grant's `relay` scope is still required at the claim), publication key
+  `review:<id>`, window from the approval. The same signed bytes under another publication key
+  observe that submission (`replayed`, `claimed()`), so the app's hand-back `POST /submissions`
+  is the fallback, never a second send. A reload of the approval page retries while the
+  operation is still `prepared` (a session read of an approved review sends again too). The page
+  says "Sending on Base…", never "sent" or "paid".
 - Signup shows `preparing_sign_in` after setup until the worker's snapshot is verified; the
   signup site asks the worker on every such view and the page polls state every 2 s. Recovery
   still refreshes inline in its status call (open item).

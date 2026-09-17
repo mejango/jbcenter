@@ -133,9 +133,9 @@ describe('central payment review browser, virtual authenticator', () => {
     expect(approvals()[0]!.headers['x-center-wallet-request']).toBe('1');
     expect(approvals()[0]!.body.assertion.credentialId).toBe(candidate.credentialId);
     expect(await page.evaluate(() => (window as any).passkeyRequests)).toEqual([{ rpId: 'localhost', userVerification: 'required', allowCredentials: undefined }]);
-    expect(await page.locator('#payment-status').textContent()).toContain('Returning to the app');
+    expect(await page.locator('#payment-status').textContent()).toContain('Sending on Base');
     await approved();
-    expect(await page.locator('#payment-status').textContent()).toContain('Return to the app to submit');
+    expect(await page.locator('#payment-status').textContent()).toContain('Check the result in the app');
     expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
     const output = new URL('../.generated/wallet-observations/payment-browser/', import.meta.url); await mkdir(output, { recursive: true });
     await page.screenshot({ path: new URL('approved-mobile.png', output).pathname, fullPage: true });

@@ -597,17 +597,7 @@ export class UserOperationService {
       record.entryPoint,
       record.chainId,
     );
-    if (record.submission) {
-      if (
-        record.submission.key !== key ||
-        record.submission.commitment !== signedCommitment
-      )
-        fail(
-          "USER_OPERATION_CONFLICT",
-          "A different signed operation or publication key is already reserved.",
-        );
-      return this.view(await this.refresh(record, signal));
-    }
+    if (record.submission) return this.replayed(record, signedCommitment, signal);
     const requestAuthority = await this.options.authorizeRequest(
       actor,
       id,
@@ -615,6 +605,48 @@ export class UserOperationService {
     );
     const plan = await this.plan(actor, record.planId, true);
     await this.options.sessions?.assertOwnerPlan(principal, plan);
+    return this.dispatch({ actor, principal, record, plan, operation, signedCommitment, key, authority: requestAuthority, signal });
+  }
+
+  /** The same signed bytes are published once: a second caller carrying them under another
+   * publication key (the approval's own submission and the app's hand-back) observes the first. */
+  private async replayed(record: UserOperationRecord, signedCommitment: Hex, signal?: AbortSignal) {
+    if (record.submission!.commitment !== signedCommitment)
+      fail(
+        "USER_OPERATION_CONFLICT",
+        "A different signed operation is already reserved.",
+      );
+    return this.view(await this.refresh(record, signal));
+  }
+
+  /** Submission on a payment review's own authority: the app asked for exactly this operation to be
+   * reviewed with a signed request, and the owner approved it with the passkey. Every gate before
+   * the send is the one an app-signed submission passes; only the request-level authorization is
+   * replaced by the review's, and the grant's relay scope is still required at the claim. */
+  async submitApproved(
+    input: { actor: RestActor; operationId: string; signature: Hex; key: string; authority: { issuedAt: number; expiresAt: number } },
+    signal?: AbortSignal,
+  ) {
+    const record =
+      (await this.options.store.get(input.actor, input.operationId)) ??
+      fail("USER_OPERATION_NOT_FOUND", "UserOperation preparation was not found.", 404);
+    exactActor(input.actor, record);
+    if (record.session)
+      fail("USER_OPERATION_PASSKEY_SESSION_UNAVAILABLE", "The passkey pilot requires fresh owner approval for every operation.", 422);
+    if (record.chainId !== 8453) fail("USER_OPERATION_APP_CHAIN_UNAVAILABLE", "App wallet operations are available only on Base.", 403);
+    const operation = normalizeUserOperation({ ...record.operation, signature: input.signature });
+    const signedCommitment = userOperationCommitment(operation, record.entryPoint, record.chainId);
+    if (record.submission) return this.replayed(record, signedCommitment, signal);
+    const plan = await this.plan(input.actor, record.planId, true);
+    return this.dispatch({ actor: input.actor, principal: undefined, record, plan, operation, signedCommitment, key: input.key, authority: input.authority, signal });
+  }
+
+  private async dispatch(input: {
+    actor: RestActor; principal: RestPrincipal | undefined; record: UserOperationRecord; plan: StoredPlan; operation: UserOperationV07;
+    signedCommitment: Hex; key: string; authority: { issuedAt: number; expiresAt: number }; signal: AbortSignal | undefined;
+  }) {
+    const { actor, principal, record, plan, operation, signedCommitment, key, authority: requestAuthority, signal } = input;
+    const id = record.id;
     const policy = this.policy(record.chainId);
     const provider = this.providerForRecord(record);
     if (
@@ -653,6 +685,7 @@ export class UserOperationService {
     let validAfter = Math.floor(record.createdAt / 1000),
       validUntil = Math.floor(record.expiresAt / 1000);
     if (record.session) {
+      if (!principal) fail("USER_OPERATION_APP_SESSION_UNAVAILABLE", "Session operations need the requesting principal.", 403);
       const fresh = await this.session(principal, record.session.id, signal);
       const { observationHash: _old, ...priorIdentity } = record.session;
       const { observationHash, ...freshIdentity } = fresh.binding;
@@ -705,7 +738,7 @@ export class UserOperationService {
     }
     if (record.session) {
       const fresh = await this.session(
-        principal,
+        principal!,
         record.session.id,
         signal,
         preflight.evidence,

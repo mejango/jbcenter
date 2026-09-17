@@ -577,6 +577,32 @@ describe("passkey UserOperation owner admission", () => {
       method === "eth_getCode" && [entryPoint.toLowerCase(), safe].includes(String(params[0]).toLowerCase())).length);
   });
 
+  it("sends the same signed bytes once whichever publication key carries them", async () => {
+    const f = await fixture(), view = await f.prepare(), signature = f.signature(view);
+    expect((await f.service.submit(f.principal, view.id, signature, "submit-a")).state).toBe("pending");
+    // The approval's own submission and the app's hand-back carry the same bytes under different keys.
+    expect((await f.service.submit(f.principal, view.id, signature, "submit-b")).state).toBe("pending");
+    expect(f.state.sends).toBe(1);
+    expect((await f.store.get(f.actor, view.id))!.submission!.key).toBe("submit-a");
+  });
+
+  it("submits an approved review's operation on the review's own authority, with every gate before the send", async () => {
+    const f = await fixture(), view = await f.prepare(), signature = f.signature(view);
+    const authorizeRequest = vi.fn(async () => ({ issuedAt: now / 1000, expiresAt: now / 1000 + 60 }));
+    (f.service as unknown as { options: { authorizeRequest: unknown } }).options.authorizeRequest = authorizeRequest;
+    const approved = { actor: f.actor, operationId: view.id, signature, key: "review:one",
+      authority: { issuedAt: now / 1000, expiresAt: now / 1000 + 300 } };
+    expect((await f.service.submitApproved(approved)).state).toBe("pending");
+    expect(authorizeRequest).not.toHaveBeenCalled(); expect(f.state.sends).toBe(1);
+    expect(f.currentBindingAt).toHaveBeenCalledTimes(1); expect(f.state.estimated).toHaveLength(2);
+    // A second approval-driven submission of the same bytes observes the first.
+    expect((await f.service.submitApproved({ ...approved, key: "review:one-again" })).state).toBe("pending"); expect(f.state.sends).toBe(1);
+    // Another actor's review cannot submit this operation; a different signature stays a conflict.
+    await expect(f.service.submitApproved({ ...approved, actor: { ...f.actor, principalId: "app:other" } })).rejects.toMatchObject({ status: 404 });
+    await expect(f.service.submitApproved({ ...approved, signature: f.signature(view, "0x5678"), key: "review:two" })).rejects.toMatchObject({ code: "USER_OPERATION_CONFLICT" });
+    expect(f.state.sends).toBe(1);
+  });
+
   it("permits only one competing signature to claim the same prepared nonce", async () => {
     const f = await fixture(), view = await f.prepare();
     const results = await Promise.allSettled(Array.from({ length: 25 }, (_, index) =>

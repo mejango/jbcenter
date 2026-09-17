@@ -124,7 +124,7 @@ function accept(input: unknown) {
     terminal: payment.terminal, metadata: payment.metadata, operation: review.operationHash, expiry: new Date(review.expiresAtMs).toLocaleString() }))
     element(`payment-${name}`).textContent = value;
   returnToApp.href = callback(review);
-  if (review.status === 'approved') { pending = null; uncertain = false; setStatus('approved', 'Payment approved. Return to the app to submit it and check the result.'); }
+  if (review.status === 'approved') { pending = null; uncertain = false; setStatus('approved', 'Approved. Check the result in the app.'); }
   else if (review.status === 'cancelled') { pending = null; uncertain = false; setStatus('cancelled', 'Payment declined. No new approval was issued.'); }
   else if (expired()) setStatus('expired', 'This payment approval expired. Return to your app to review a fresh payment.');
   else setStatus('ready', 'Check the payment details, then approve with your passkey.');
@@ -171,7 +171,8 @@ let returning = false;
 function goBackToApp() {
   if (returning || !review || review.status !== 'approved') return;
   returning = true;
-  setStatus('approved', 'Payment approved. Returning to the app…'); render();
+  // Approval is the send: Center submits the operation now, and the app shows what happened to it.
+  setStatus('approved', 'Approved. Sending on Base… the app will show the result.'); render();
   const back = callback(review); setTimeout(() => location.assign(back), 800);
 }
 async function approvePayment() {

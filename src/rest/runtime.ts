@@ -510,6 +510,8 @@ export async function createRestRuntime(options: {
     authorizeRequest: createUserOperationRequestAuthorizer(authority),
     semanticVerifier,
   });
+  // The passkey approval sends the operation itself; the app's hand-back then observes it.
+  walletPayments?.attachSubmission((submission) => userOperations!.submitApproved(submission));
   const openapi = buildRestOpenApi({
     contracts,
     indexer,

@@ -851,9 +851,12 @@ describe("UserOperationService integration", () => {
     );
     expect(retried.state).toBe("expired");
     expect(f.state.sends).toBe(1);
+    // The same bytes under another publication key observe the record; different bytes conflict.
+    expect((await f.service.submit(f.principal, prepared.id, signature, "changed-key")).state).toBe("expired");
     await expect(
-      f.service.submit(f.principal, prepared.id, signature, "changed-key"),
+      f.service.submit(f.principal, prepared.id, await f.sign(prepared, true), "changed-key"),
     ).rejects.toMatchObject({ code: "USER_OPERATION_CONFLICT" });
+    expect(f.state.sends).toBe(1);
   });
   it.each(["expiry", "revocation"] as const)(
     "rejects %s during nonce I/O before durable admission",
