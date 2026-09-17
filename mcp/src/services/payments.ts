@@ -40,6 +40,7 @@ import type {
   ProjectRef,
   RpcProvider,
   RpcSnapshot,
+  BlockEvidence,
 } from '../domain/types.js';
 
 export interface PayInput {
@@ -79,6 +80,7 @@ export interface PayoutInput {
 }
 
 type HookSpec = { hook: Address; noop: boolean; amount: bigint; metadata: Hex };
+type PaymentTerminal = Awaited<ReturnType<PaymentService['paymentTerminal']>>;
 type RulesetContext = Awaited<ReturnType<typeof getCurrentRuleset>> & {
   controller: Address;
   buybackHook: Address;
@@ -179,6 +181,33 @@ function call(
  */
 export class PaymentService {
   constructor(private readonly rpc: RpcProvider) {}
+  /** A project's controller, ruleset, hooks and payment terminal change rarely; one read serves
+   * the payments of the next minute. The live preview still binds every quote to the current
+   * ruleset, and a disagreement drops the entry and reads again. */
+  private readonly recentProjects = new Map<
+    string,
+    { at: number; evidence: BlockEvidence; context: RulesetContext; terminal: PaymentTerminal }
+  >();
+  private async payRoute(
+    client: PublicClient,
+    evidence: BlockEvidence,
+    project: ProjectRef,
+    token: Address,
+  ) {
+    const key = `${project.chainId}:${uint(project.projectId, 'projectId')}:${token.toLowerCase()}`;
+    const now = Date.now();
+    const kept = this.recentProjects.get(key);
+    if (kept && now - kept.at < 60_000) return { key, fresh: false, ...kept };
+    const [context, terminal] = await Promise.all([
+      this.context(client, project, 'pay'),
+      this.paymentTerminal(client, project, token),
+    ]);
+    // Any caller can name any token; expired entries go on every write so the map stays small.
+    for (const [other, entry] of this.recentProjects)
+      if (now - entry.at >= 60_000) this.recentProjects.delete(other);
+    this.recentProjects.set(key, { at: now, evidence, context, terminal });
+    return { key, fresh: true, evidence, context, terminal };
+  }
 
   async quotePay(input: PayInput) {
     return (await this.pay(input)).quote;
@@ -546,6 +575,23 @@ export class PaymentService {
     return { terminal, accounting };
   }
 
+  private previewFor(
+    client: PublicClient,
+    input: PayInput,
+    terminal: Address,
+    amount: bigint,
+    metadata: Hex,
+  ) {
+    return previewPay(client, {
+      chainId: input.project.chainId,
+      terminal,
+      projectId: BigInt(input.project.projectId),
+      token: input.token,
+      amount,
+      beneficiary: input.beneficiary,
+      metadata,
+    });
+  }
   private async pay(input: PayInput) {
     if (
       input.memo !== undefined &&
@@ -560,30 +606,28 @@ export class PaymentService {
     const client = asAccount(snapshot.client, input.account, (request, result) => {
       if (request.functionName === 'previewPayFor' && Array.isArray(result)) fullPreview = result;
     });
-    const context = await this.context(client, input.project, 'pay');
-    const terminal = await this.paymentTerminal(client, input.project, input.token);
     const metadata = input.metadata ?? '0x';
-    const preview = await previewPay(client, {
-      chainId: input.project.chainId,
-      terminal: terminal.address,
-      projectId: BigInt(input.project.projectId),
-      token: input.token,
-      amount,
-      beneficiary: input.beneficiary,
-      metadata,
-    });
+    let route = await this.payRoute(client, snapshot.evidence, input.project, input.token);
+    let preview = await this.previewFor(client, input, route.terminal.address, amount, metadata);
+    const rulesetOf = () => {
+      const previewRuleset = fullPreview?.[0];
+      return previewRuleset && typeof previewRuleset === 'object' && 'id' in previewRuleset
+        ? String((previewRuleset as { id: unknown }).id)
+        : null;
+    };
+    if (!route.fresh && rulesetOf() !== String(route.context.ruleset.id)) {
+      // The kept context is behind the chain (a new ruleset): read it again, once.
+      this.recentProjects.delete(route.key);
+      route = await this.payRoute(client, snapshot.evidence, input.project, input.token);
+      preview = await this.previewFor(client, input, route.terminal.address, amount, metadata);
+    }
+    const { context, terminal } = route;
     if (!fullPreview || !Array.isArray(fullPreview[3]))
       throw new DomainError(
         'INVALID_PREVIEW',
         'The terminal did not provide a complete V6 payment preview.',
       );
-    const previewRuleset = fullPreview[0];
-    if (
-      !previewRuleset ||
-      typeof previewRuleset !== 'object' ||
-      !('id' in previewRuleset) ||
-      String(previewRuleset.id) !== String(context.ruleset.id)
-    ) {
+    if (rulesetOf() !== String(context.ruleset.id)) {
       throw new DomainError(
         'INVALID_PREVIEW',
         'The payment preview ruleset does not match the verified current ruleset.',
@@ -690,6 +734,8 @@ export class PaymentService {
       metadata,
       hooks: jsonSafe(hooks),
       rulesetId: context.ruleset.id.toString(),
+      routeEvidence: route.evidence,
+      // One evidence entry per chain: the quote's block. The route's own block is in the summary.
       evidence: [snapshot.evidence],
       warnings,
     };

@@ -237,6 +237,73 @@ function cashHookMetadata(minimum: bigint, explicit: boolean, direct = 100n): He
 }
 
 describe('payment quotes and approval plans', () => {
+  it('reads the project context and terminal together, keeps them for a minute, and drops them when the live preview disagrees', async () => {
+    const f = fixture();
+    const names = () => f.readContract.mock.calls.map(([request]) => request.functionName);
+    await f.service.preparePay(payInput);
+    const first = names();
+    expect(first).toContain('controllerOf');
+    expect(first).toContain('primaryTerminalOf');
+    // The context reads and the terminal reads are not serialised behind each other.
+    expect(first.indexOf('primaryTerminalOf')).toBeLessThan(first.indexOf('currentRulesetOf'));
+    f.readContract.mockClear();
+    const { client: snapshotClient } = await f.snapshot();
+    f.snapshot.mockResolvedValueOnce({
+      client: snapshotClient,
+      evidence: { ...evidence, blockNumber: '101', blockHash: `0x${'22'.repeat(32)}` },
+    } as never);
+    const hit = await f.service.preparePay(payInput);
+    // A second payment for the same project within the window only previews; the plan still
+    // carries one evidence entry (the quote's block) and names the route's block beside it.
+    expect(names()).toEqual(['previewPayFor']);
+    expect(hit.evidence).toHaveLength(1);
+    expect(
+      (hit.summary as { routeEvidence: { blockHash: string } }).routeEvidence.blockHash,
+    ).not.toBe(hit.evidence[0]!.blockHash);
+    // A ruleset change on chain shows in the live preview; the context is read again.
+    f.readContract.mockClear();
+    const original = f.readContract.getMockImplementation()!;
+    let flips = 1;
+    f.readContract.mockImplementation(async (request) => {
+      const value = await original(request);
+      if (request.functionName === 'previewPayFor' && flips-- > 0)
+        return [
+          { ...((value as unknown[])[0] as object), id: 999n },
+          ...(value as unknown[]).slice(1),
+        ];
+      return value;
+    });
+    await f.service.preparePay(payInput);
+    expect(names().filter((name) => name === 'controllerOf')).toHaveLength(1);
+    expect(names().filter((name) => name === 'previewPayFor')).toHaveLength(2);
+    // A fresh read that still disagrees with the live preview is a real mismatch, not a retry.
+    const g = fixture();
+    g.readContract.mockImplementation(async (request) => {
+      const value = await original(request);
+      return request.functionName === 'previewPayFor'
+        ? [{ ...((value as unknown[])[0] as object), id: 999n }, ...(value as unknown[]).slice(1)]
+        : value;
+    });
+    await expect(g.service.preparePay(payInput)).rejects.toMatchObject({ code: 'INVALID_PREVIEW' });
+    expect(
+      g.readContract.mock.calls.filter(([request]) => request.functionName === 'previewPayFor'),
+    ).toHaveLength(1);
+    // Expired entries leave the map as new ones arrive.
+    const h = fixture();
+    await h.service.preparePay(payInput);
+    (
+      h.service as unknown as { recentProjects: Map<string, { at: number }> }
+    ).recentProjects.forEach((entry) => {
+      entry.at -= 61_000;
+    });
+    await h.service.preparePay({
+      ...payInput,
+      token: '0x000000000000000000000000000000000000dEaD',
+    });
+    expect(
+      (h.service as unknown as { recentProjects: Map<string, unknown> }).recentProjects.size,
+    ).toBe(1);
+  });
   it('preserves an invoice memo in exact payment bytes and rejects oversized UTF-8 text', async () => {
     const plan = await fixture().service.preparePay({ ...payInput, memo: 'beep:invoice-123' });
     const decoded = decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data });

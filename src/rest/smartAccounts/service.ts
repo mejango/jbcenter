@@ -258,7 +258,10 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
   const reuseMs = options.reuseMs ?? 90_000;
   const keyOf = (manifestId: string, address: string) => `${manifestId}:${address.toLowerCase()}`;
   function remember(state: SmartAccountState) {
-    if (!manifests.some((m) => m.id === state.manifestId && m.revision === state.manifestRevision)) return;
+    const known = manifests.some((m) => m.id === state.manifestId && m.revision === state.manifestRevision);
+    console.info(JSON.stringify({ service: "smart-accounts", action: "state_remember", outcome: known ? "kept" : "ignored",
+      manifestId: state.manifestId, block: state.evidence.blockNumber }));
+    if (!known) return;
     recent.set(keyOf(state.manifestId, state.address), structuredClone(state));
   }
   async function inspect(
@@ -270,10 +273,14 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
     exactObject(input, ["manifestId", "address"], "account");
     const key = keyOf(input.manifestId, String(input.address));
     const cached = recent.get(key);
-    const fresh = cached !== undefined && now() - Number(cached.evidence.timestamp) * 1000 < reuseMs;
+    const age = cached === undefined ? null : now() - Number(cached.evidence.timestamp) * 1000;
+    const fresh = age !== null && age < reuseMs;
     if (cached && !fresh) recent.delete(key);
-    if (reuse && cached && (at ? same(cached.evidence.blockHash, at.blockHash) : fresh))
-      return structuredClone(cached);
+    const hit = reuse && cached !== undefined && (at ? same(cached.evidence.blockHash, at.blockHash) : fresh);
+    if (reuse)
+      console.info(JSON.stringify({ service: "smart-accounts", action: "state_reuse", outcome: hit ? "hit" : "miss",
+        manifestId: input.manifestId, ageMs: age === null ? null : Math.round(age), pinned: at !== undefined }));
+    if (hit) return structuredClone(cached);
     const state = await inspectFresh(input, signal, at);
     recent.set(key, structuredClone(state));
     return state;
