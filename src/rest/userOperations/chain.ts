@@ -264,6 +264,8 @@ export class UserOperationChain {
     binding: UserOperationExecutionBinding,
     gasPolicy: UserOperationGasPolicy,
     provider?: UserOperationProvider,
+    /** A head the caller already verified the account at; otherwise the current head. */
+    at?: RestBlockEvidence,
   ): Promise<UserOperationPreflight> {
     const op = normalizeUserOperation(binding.operation);
     if (op.signature === "0x")
@@ -299,7 +301,7 @@ export class UserOperationChain {
       })),
     );
     assertUserOperationGasPolicy(op, gasPolicy);
-    const evidence = await this.snapshot(binding.chainId);
+    const evidence = at ?? (await this.snapshot(binding.chainId));
     await Promise.all([
       this.runtime(binding.chainId, binding.entryPoint, evidence),
       this.runtime(binding.chainId, binding.accountCode, evidence),

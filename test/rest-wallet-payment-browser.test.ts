@@ -26,6 +26,8 @@ describe('central payment review browser, virtual authenticator', () => {
   const errors: string[] = [];
   const callback = () => `${origin}/app/callback?${new URLSearchParams({ review: reviewId, state, iss: origin })}`;
   const status = async (value: string) => expect.poll(() => page.locator('#payment-status').getAttribute('data-state')).toBe(value);
+  // A fresh approval returns to the app on its own; coming back shows the approved review.
+  const approved = async () => { await status('approved'); await expect.poll(() => page.url()).toBe(callback()); await page.goBack(); await status('approved'); };
 
   beforeAll(async () => {
     const built = await build({ entryPoints: [new URL('../src/rest/web/walletPayment.ts', import.meta.url).pathname],
@@ -125,11 +127,14 @@ describe('central payment review browser, virtual authenticator', () => {
     expect(await page.locator('#payment-fee').textContent()).toContain('0.000000000115 ETH');
     expect(await page.locator('#payment-status').evaluate(e => getComputedStyle(e).borderTopWidth)).toBe('0px');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    // A fresh approval returns to the app on its own; the page keeps the approved state for a return visit.
     await page.locator('#payment-approve').click(); await status('approved');
     expect(approvals()).toHaveLength(1); expect(approvals()[0]!.headers['x-center-wallet-csrf']).toBe(csrf);
     expect(approvals()[0]!.headers['x-center-wallet-request']).toBe('1');
     expect(approvals()[0]!.body.assertion.credentialId).toBe(candidate.credentialId);
     expect(await page.evaluate(() => (window as any).passkeyRequests)).toEqual([{ rpId: 'localhost', userVerification: 'required', allowCredentials: undefined }]);
+    expect(await page.locator('#payment-status').textContent()).toContain('Returning to the app');
+    await approved();
     expect(await page.locator('#payment-status').textContent()).toContain('Return to the app to submit');
     expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
     const output = new URL('../.generated/wallet-observations/payment-browser/', import.meta.url); await mkdir(output, { recursive: true });
@@ -144,7 +149,7 @@ describe('central payment review browser, virtual authenticator', () => {
     await page.locator('#payment-approve').click(); await status('authenticating');
     await page.locator('#payment-prompt-cancel').click(); await status('ready'); expect(approvals()).toHaveLength(0);
     await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
-    await page.locator('#payment-approve').click(); await status('approved'); expect(approvals()).toHaveLength(1);
+    await page.locator('#payment-approve').click(); await approved(); expect(approvals()).toHaveLength(1);
   });
 
   it('recovers a committed approval after a truncated response without a second prompt or mutation', async () => {
@@ -152,6 +157,7 @@ describe('central payment review browser, virtual authenticator', () => {
     expect(await page.locator('#payment-approve').isVisible()).toBe(false);
     await page.locator('#payment-retry').click(); await status('approved'); expect(approvals()).toHaveLength(1);
     expect(await page.evaluate(() => (window as any).passkeyRequests.length)).toBe(1);
+    await approved();
   });
 
   it('retries the same native proof when the first approval never reached the server', async () => {
@@ -164,6 +170,7 @@ describe('central payment review browser, virtual authenticator', () => {
     await page.locator('#payment-retry').click(); await status('approved');
     expect(secondBody).toBe(firstBody); expect(approvals()).toHaveLength(1);
     expect(await page.evaluate(() => (window as any).passkeyRequests.length)).toBe(1);
+    await approved();
   });
 
   it('accepts a selected-credential assertion with a nullable user handle', async () => {
@@ -171,7 +178,7 @@ describe('central payment review browser, virtual authenticator', () => {
     // Exercise the standards-permitted nullable response with a genuine native
     // assertion; only the optional returned handle is omitted by this producer.
     await page.evaluate(() => Object.defineProperty(AuthenticatorAssertionResponse.prototype, 'userHandle', { configurable: true, get: () => null }));
-    await page.locator('#payment-approve').click(); await status('approved');
+    await page.locator('#payment-approve').click(); await approved();
     expect(approvals()[0]!.body.assertion.userHandle).toBeNull(); expect(approvals()).toHaveLength(1);
   });
 

@@ -40,6 +40,44 @@ describe("private REST RPC", () => {
       { url: "https://second.example", method: "eth_blockNumber" },
     ]);
   });
+  it("verifies an endpoint's chain once per window rather than before every read, and again after a failed read", async () => {
+    vi.useFakeTimers();
+    try {
+      let failNext = false, rejectNext = false;
+      const { rpc, calls } = fixture((_url, method) => {
+        if (method === "eth_chainId") return { result: "0x1" };
+        if (failNext) { failNext = false; throw new Error("connection reset"); }
+        if (rejectNext) { rejectNext = false; return { error: { code: 3, message: "execution reverted" } }; }
+        return { result: "0x7" };
+      });
+      const probes = () => calls.filter((call) => call.method === "eth_chainId").length;
+      await Promise.all([rpc.request(1, "eth_blockNumber", []), rpc.request(1, "eth_blockNumber", [])]);
+      await rpc.request(1, "eth_blockNumber", []);
+      expect(probes()).toBe(1);
+      expect(calls.filter((call) => call.url === "https://second.example")).toHaveLength(0);
+      vi.advanceTimersByTime(60_001);
+      await rpc.request(1, "eth_blockNumber", []);
+      expect(probes()).toBe(2);
+      // A read the verified endpoint could not serve: the next attempt checks it again before trusting it.
+      failNext = true;
+      expect(await rpc.request(1, "eth_blockNumber", [])).toBe("0x7");
+      expect(calls.slice(-3).map((call) => `${call.url.replace("https://", "").split(".")[0]} ${call.method}`)).toEqual([
+        "first eth_blockNumber",
+        "second eth_chainId",
+        "second eth_blockNumber",
+      ]);
+      await rpc.request(1, "eth_blockNumber", []);
+      expect(calls.at(-2)).toEqual({ url: "https://first.example", method: "eth_chainId" });
+      // A JSON-RPC error is an answer from the verified endpoint; it does not force a new probe.
+      rejectNext = true;
+      await expect(rpc.request(1, "eth_call", [{}, "latest"])).rejects.toMatchObject({ code: "RPC_REJECTED" });
+      const before = probes();
+      await rpc.request(1, "eth_blockNumber", []);
+      expect(probes()).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("does not automatically broadcast through another provider after an ambiguous response", async () => {
     const { rpc, calls } = fixture((_url, method) => {
       if (method === "eth_chainId") return { result: "0x1" };

@@ -155,6 +155,8 @@ export interface SmartAccountDependencies {
   moduleInspectors?: readonly SmartModuleInspector[];
   bundler?: SmartBundler;
   now?: () => number;
+  /** How long one verified account state serves later reads at the latest head (default 90 s). */
+  reuseMs?: number;
 }
 
 export interface Allocation {

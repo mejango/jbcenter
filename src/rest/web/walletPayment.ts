@@ -163,6 +163,16 @@ async function submitApproval() {
   const checked = checkReview(result.review);
   if (checked.status !== 'approved' || typeof result.replayed !== 'boolean' || result.redirectUri !== callback(checked)) fail();
   accept(checked);
+  goBackToApp();
+}
+// A fresh approval goes back to the app on its own after a beat of confirmation; the link stays
+// for a blocked navigation or a reload.
+let returning = false;
+function goBackToApp() {
+  if (returning || !review || review.status !== 'approved') return;
+  returning = true;
+  setStatus('approved', 'Payment approved. Returning to the app…'); render();
+  const back = callback(review); setTimeout(() => location.assign(back), 800);
 }
 async function approvePayment() {
   if (!review || review.status !== 'pending' || expired() || uncertain) return;
@@ -203,7 +213,8 @@ async function run(action: () => Promise<void>) {
 approve.addEventListener('click', () => void run(approvePayment));
 cancel.addEventListener('click', () => void run(cancelPayment));
 cancelPrompt.addEventListener('click', () => nativePrompt?.abort());
-retry.addEventListener('click', () => void run(id && rpId ? recover : load));
+// A check that finds the approval committed after all returns to the app like a fresh one.
+retry.addEventListener('click', () => void run(async () => { await (id && rpId ? recover : load)(); if (pending === null && !uncertain) goBackToApp(); }));
 setInterval(() => {
   if (!busy && review?.status === 'pending' && expired() && !uncertain && !blocked) {
     setStatus('expired', 'This payment approval expired. Return to your app to review a fresh payment.'); render();

@@ -228,13 +228,11 @@ export class UserOperationService {
       );
     return plan;
   }
-  private async account(plan: StoredPlan, signal?: AbortSignal) {
+  private async account(plan: StoredPlan, signal?: AbortSignal, at?: RestBlockEvidence) {
     const approved = plan.smartAccount!;
-    const binding = await this.options.currentBinding(
-      plan.actor.accountId,
-      approved.bindingId,
-      signal,
-    );
+    const binding = at
+      ? await this.options.currentBindingAt(plan.actor.accountId, approved.bindingId, at, signal)
+      : await this.options.currentBinding(plan.actor.accountId, approved.bindingId, signal);
     if (
       !binding.state.moduleConfigurationVerified ||
       !same(binding.state.stateHash, approved.stateHash) ||
@@ -623,7 +621,10 @@ export class UserOperationService {
     );
     const plan = await this.plan(actor, record.planId, true);
     await this.options.sessions?.assertOwnerPlan(principal, plan);
-    const { binding, manifest } = await this.account(plan, signal);
+    // One canonical head for the whole submission: the account is verified at it once, and the
+    // preflight simulates against the same block.
+    const head = await this.chain(signal).snapshot(record.chainId);
+    const { binding, manifest } = await this.account(plan, signal, head);
     const passkeyProfile = userOperationPasskeyProfile(binding, manifest);
     if (passkeyProfile && record.session)
       fail("USER_OPERATION_PASSKEY_SESSION_UNAVAILABLE", "The passkey pilot requires fresh owner approval for every operation.", 422);
@@ -694,12 +695,7 @@ export class UserOperationService {
       execution,
       policy.gas,
       provider,
-    );
-    await this.options.currentBindingAt(
-      actor.accountId,
-      record.accountBindingId,
-      preflight.evidence,
-      signal,
+      head,
     );
     if (record.session) {
       const fresh = await this.session(

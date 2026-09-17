@@ -154,6 +154,7 @@ async function fixture(options: { app?: boolean; legacy?: boolean; sponsored?: b
       inspect: () => ({ policyId: "fixture-policy", gasOnly: true as const, validAfter: 0, validUntil: now / 1000 + 1000, commitment: h("sponsor") }),
     } } : {}),
   }], fetcher, 1000, () => now);
+  const currentBinding = vi.fn(async () => wallet);
   const currentBindingAt = vi.fn(async () => { if (state.bindingFailure) throw Error("binding changed"); return wallet; });
   let service: UserOperationService;
   const transactions = new TransactionService({ store: transactionStore, rpc: { request: rpc }, now: () => now,
@@ -163,7 +164,7 @@ async function fixture(options: { app?: boolean; legacy?: boolean; sponsored?: b
     policies: [{ chainId: 8453, gas: { ...gas,
       ...(options.maximumPreVerificationGas !== undefined ? { maximumPreVerificationGas: options.maximumPreVerificationGas } : {}),
     }, confirmations: 1 }],
-    currentBinding: async () => wallet, currentBindingAt, manifestFor: () => manifest, manifestForPlan: () => manifest,
+    currentBinding, currentBindingAt, manifestFor: () => manifest, manifestForPlan: () => manifest,
     verifyHistoricalAccount: async () => {}, semanticVerifier: { verify: async () => ({ status: "verified" }) },
     now: () => now, authorizeRequest: async () => ({ issuedAt: now / 1000, expiresAt: now / 1000 + 60 }),
   });
@@ -171,7 +172,7 @@ async function fixture(options: { app?: boolean; legacy?: boolean; sponsored?: b
   const signature = (view: Awaited<ReturnType<typeof prepare>>, body: Hex = "0x1234") => encodeSafe7579PasskeyOwnerSignature({
     validAfter: String(view.createdAt / 1000), validUntil: String(view.expiresAt / 1000), signatures: [{ kind: "contract", owner: signer, signature: body }],
   });
-  return { service, prepare, signature, state, wallet, manifest, principal, rpc, rpcDefault, provider, currentBindingAt, store, actor, requestKey, preparedPlan, transactionStore, transactions };
+  return { service, prepare, signature, state, wallet, manifest, principal, rpc, rpcDefault, provider, currentBinding, currentBindingAt, store, actor, requestKey, preparedPlan, transactionStore, transactions };
 }
 
 describe("app UserOperation owner boundary", () => {
@@ -181,7 +182,12 @@ describe("app UserOperation owner boundary", () => {
 
   it("allows the app to publish a separately signed exact Base owner operation", async () => {
     const f = await fixture({ app: true }), view = await f.prepare();
+    f.currentBinding.mockClear(); f.currentBindingAt.mockClear();
     expect((await f.service.submit(f.principal, view.id, await ownerSignature(view), "submit")).state).toBe("pending");
+    // One account verification per submission, at the block the preflight simulates against.
+    expect(f.currentBinding).not.toHaveBeenCalled();
+    expect(f.currentBindingAt).toHaveBeenCalledTimes(1);
+    expect((f.currentBindingAt.mock.calls[0] as unknown[])[2]).toMatchObject({ blockHash: h("passkey-block") });
     expect(f.state.sends).toBe(1);
   });
 

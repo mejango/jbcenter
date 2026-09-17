@@ -38,6 +38,8 @@ export interface WalletAuthorityChainOptions {
   checkpointStore?: Safe7579CheckpointStore;
   /** Observation failures are otherwise silent; this receives the failure's error code only. */
   onError?: (code: string) => void;
+  /** Receives each account state this chain verified at the head, once it passed every check. */
+  onState?: (state: SmartAccountState) => void;
 }
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -181,6 +183,7 @@ export function createWalletAuthorityChain(options: WalletAuthorityChainOptions)
           !word(details.provenance.creationTransaction) || details.provenance.method !== "canonical-factory-creation-and-complete-authority-ingress-traces" ||
           details.provenance.throughBlock !== head.blockNumber || !word(details.provenance.throughBlockHash) ||
           !same(details.provenance.throughBlockHash, head.blockHash) || !object(details.sessionAdministration)) invalid();
+        options.onState?.(structuredClone(state));
         output.identity = createWalletAuthorityIdentity(context, { stateHash: state.stateHash,
           sessionAdministration: { epoch: details.sessionAdministration.epoch as string, hash: details.sessionAdministration.hash as Hex },
           creationTransaction: details.provenance.creationTransaction.toLowerCase() as Hex });

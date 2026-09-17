@@ -248,12 +248,41 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
         options.rpc.request(chainId, method, [...params, tag], deadline),
     };
   }
+  // Every verification is remembered; only a caller that opts in (the binding read behind a
+  // payment's plan and operation) is served from it, for the reuse window from the verified head
+  // or at the very block already verified. Onboarding, authority and dispatch checks always read
+  // the chain. The wallet authority refresh verifies each tracked account about once a minute
+  // through its own budgeted service and hands the state in through `remember`, so a payment
+  // usually finds the entry warm.
+  const recent = new Map<string, SmartAccountState>();
+  const reuseMs = options.reuseMs ?? 90_000;
+  const keyOf = (manifestId: string, address: string) => `${manifestId}:${address.toLowerCase()}`;
+  function remember(state: SmartAccountState) {
+    if (!manifests.some((m) => m.id === state.manifestId && m.revision === state.manifestRevision)) return;
+    recent.set(keyOf(state.manifestId, state.address), structuredClone(state));
+  }
   async function inspect(
     input: { manifestId: string; address: Address },
     signal?: AbortSignal,
     at?: RestBlockEvidence,
+    reuse = false,
   ): Promise<SmartAccountState> {
     exactObject(input, ["manifestId", "address"], "account");
+    const key = keyOf(input.manifestId, String(input.address));
+    const cached = recent.get(key);
+    const fresh = cached !== undefined && now() - Number(cached.evidence.timestamp) * 1000 < reuseMs;
+    if (cached && !fresh) recent.delete(key);
+    if (reuse && cached && (at ? same(cached.evidence.blockHash, at.blockHash) : fresh))
+      return structuredClone(cached);
+    const state = await inspectFresh(input, signal, at);
+    recent.set(key, structuredClone(state));
+    return state;
+  }
+  async function inspectFresh(
+    input: { manifestId: string; address: Address },
+    signal?: AbortSignal,
+    at?: RestBlockEvidence,
+  ): Promise<SmartAccountState> {
     const m = manifest(input.manifestId);
     if (!isAddress(input.address) || same(input.address, zeroAddress))
       fail(
@@ -802,6 +831,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
       { manifestId: record.manifestId, address: record.wallet.address },
       signal,
       at,
+      true,
     );
     if (state.stateHash !== record.state.stateHash)
       fail(
@@ -927,6 +957,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
   }
   return {
     inspect,
+    remember,
     prepareCreation,
     challenge,
     onboardingChallenge,

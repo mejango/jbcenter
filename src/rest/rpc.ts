@@ -90,7 +90,8 @@ export function createRestRpc(options: {
   /** Shared durable site quota, charged for each upstream request including chain verification. */
   consume?: () => Promise<void>;
 }): RestRpc {
-  const gateways = new Map<number, { reads: RpcGateway; traces: RpcGateway }[]>();
+  const gateways = new Map<number, { verifiedUntil: number; verifying: Promise<boolean> | null; reads: RpcGateway; traces: RpcGateway }[]>();
+  const verificationWindowMs = 60_000;
   for (const [chain, urls] of options.upstreams) {
     if (!Number.isSafeInteger(chain) || chain <= 0 || !urls.length)
       throw new Error("Invalid REST RPC configuration");
@@ -103,6 +104,10 @@ export function createRestRpc(options: {
         }
         const upstream = new Map([[chain, [url]]]);
         return {
+          // The endpoint's chain, once verified, holds for a minute: an endpoint does not change
+          // chains between calls, and a failed read drops the verification so the next call checks.
+          verifiedUntil: 0,
+          verifying: null,
           reads: createRpcGateway(upstream, options.fetcher),
           traces: createRpcGateway(upstream, options.fetcher, {
             timeoutMs: PRIVATE_TRACE_TIMEOUT_MS,
@@ -158,25 +163,29 @@ export function createRestRpc(options: {
         signal?.throwIfAborted();
         // Check the same configured endpoint that will receive the actual call.
         // A verified chain ID on a different failover endpoint is insufficient.
-        try {
-          await options.consume?.();
-          const observed = result(
-            await candidate.reads.request(
-              chainId,
-              {
-                jsonrpc: "2.0",
-                id: nextId(),
-                method: "eth_chainId",
-                params: [],
-              },
-              signal,
-            ),
-          );
-          if (observed !== `0x${chainId.toString(16)}`) continue;
-        } catch (error) {
-          signal?.throwIfAborted();
-          if (error instanceof RestError && error.status === 429) throw error;
-          continue;
+        if (candidate.verifiedUntil <= Date.now()) {
+          try {
+            // Concurrent callers share one probe, so it runs under the gateway's own timeout
+            // rather than the first caller's signal; each caller checks its own signal after.
+            candidate.verifying ??= (async () => {
+              await options.consume?.();
+              const observed = result(
+                await candidate.reads.request(
+                  chainId,
+                  { jsonrpc: "2.0", id: nextId(), method: "eth_chainId", params: [] },
+                ),
+              );
+              return observed === `0x${chainId.toString(16)}`;
+            })().finally(() => { candidate.verifying = null; });
+            const verified = await candidate.verifying;
+            signal?.throwIfAborted();
+            if (!verified) continue;
+            candidate.verifiedUntil = Date.now() + verificationWindowMs;
+          } catch (error) {
+            signal?.throwIfAborted();
+            if (error instanceof RestError && error.status === 429) throw error;
+            continue;
+          }
         }
         await options.consume?.();
         try {
@@ -185,7 +194,9 @@ export function createRestRpc(options: {
           );
         } catch (error) {
           signal?.throwIfAborted();
+          // A JSON-RPC error is an answer from the right chain; anything else is re-verified.
           if (error instanceof RestRpcError) throw error;
+          candidate.verifiedUntil = 0;
           if (broadcast) {
             // The network may have accepted the bytes. The durable relay must
             // reconcile their deterministic hash before claiming another dispatch.

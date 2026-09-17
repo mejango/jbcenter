@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import type { SmartAccountState } from "./smartAccounts/types.js";
 import {
   createProtocolOperations,
   type Config,
@@ -156,22 +157,17 @@ export async function createRestRuntime(options: {
     createRestRpc({
       upstreams: options.upstreams,
       consume: async () => {
-        const quota = await options.store.consumeRequest(
-          "rpc:rest",
-          20_000,
-          60,
-        );
+        // Two counters, one round trip's worth of waiting.
+        const [quota, site] = await Promise.all([
+          options.store.consumeRequest("rpc:rest", 20_000, 60),
+          options.store.consumeRequest("rpc:site", options.rpcSiteLimitPerMinute ?? 20_000, 60),
+        ]);
         if (!quota.allowed)
           throw new RestError(
             429,
             "RATE_LIMITED",
             "The REST chain request budget is spent; retry later",
           );
-        const site = await options.store.consumeRequest(
-          "rpc:site",
-          options.rpcSiteLimitPerMinute ?? 20_000,
-          60,
-        );
         if (!site.allowed)
           throw new RestError(
             429,
@@ -196,12 +192,16 @@ export async function createRestRuntime(options: {
   // Explicit pilot configuration owns private source pins. A caller changing its object after
   // startup cannot silently change the profile used by either readiness or operation checks.
   const walletConfiguration = options.wallet ? structuredClone(options.wallet) : undefined;
+  let rememberVerifiedState: ((state: SmartAccountState) => void) | undefined;
   const wallet: RestWalletRuntime | undefined = walletConfiguration ? (() => {
     const origin = validateWalletPolicyOrigin(walletConfiguration.origin);
     const chain = createWalletAuthorityChain({ rpc, manifest: walletConfiguration.manifest,
       utility: walletConfiguration.utility, limits: { totalTimeoutMs: 90_000 },
       checkpointStore: new PostgresSafe7579CheckpointStore(options.pool),
-      onError: code => console.info(JSON.stringify({ service: "wallet", action: "authority_observe", outcome: "failed", code })) });
+      onError: code => console.info(JSON.stringify({ service: "wallet", action: "authority_observe", outcome: "failed", code })),
+      // The refresh verifies each tracked account about once a minute; the API's smart-account
+      // service (created below) serves a payment's binding read from that state.
+      onState: state => rememberVerifiedState?.(state) });
     const login = new PostgresWalletLoginStore(options.pool, { origin, rpId: new URL(origin).hostname });
     const policy = new PostgresWalletPolicyStore(options.pool);
     const appGrants = new PostgresWalletAppGrantStore(options.pool);
@@ -374,6 +374,7 @@ export async function createRestRuntime(options: {
     retainedManifests,
     moduleInspectors,
   });
+  rememberVerifiedState = state => smartAccounts.remember(state);
   const sessionTargets = createSessionTargetResolver({
     catalog: contracts,
     protocol,

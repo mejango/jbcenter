@@ -155,6 +155,21 @@ describe("configured canonical authority producer", () => {
     const f = fixture(); f.input.prior = prior(f.input);
     expect(await f.chain.observe(f.input)).toMatchObject({ eligibility: "matched", priorAnchor: { status: "same", expected: block(95), observed: block(95) } });
   });
+  it("hands each account state it verified at the head to the caller, after every check passed", async () => {
+    const states: SmartAccountState[] = [];
+    const f = fixture(undefined, { onState: state => states.push(state) });
+    const output = await f.chain.observe(f.input);
+    expect(output.eligibility).toBe("matched");
+    expect(states).toHaveLength(1);
+    expect(states[0]).toMatchObject({ address: f.input.enrollment.creation!.address, stateHash: output.identity!.stateHash, evidence: output.head });
+    // A state that fails the chain's own checks is never handed over.
+    mocked.inspect.mockImplementation(async (_input, _signal, at) => {
+      const drifted = structuredClone(state); drifted.evidence = { ...at!, blockHash: hash(4242) }; return drifted;
+    });
+    const drifted = fixture(undefined, { onState: state => states.push(state) });
+    expect(await drifted.chain.observe(drifted.input)).toMatchObject({ identity: null, reason: "authority-observation-unavailable" });
+    expect(states).toHaveLength(1);
+  });
   it("continues complete inspection to establish a recovery candidate for an already fenced replacement", async () => {
     const f = fixture(); f.input.prior = fenced(f.input, null);
     expect(await f.chain.observe(f.input)).toMatchObject({ eligibility: "matched", priorAnchor: { status: "replaced" }, identity: { stateHash: state.stateHash } });

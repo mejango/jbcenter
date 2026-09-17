@@ -23,6 +23,7 @@ import {
   CHECKED_SMART_ACCOUNT_BINDING_MANIFESTS,
 } from "../src/rest/smartAccounts/index.js";
 import type { BotGrant, RestPrincipal } from "../src/rest/auth/store.js";
+import type { RestBlockEvidence } from "../src/rest/core.js";
 
 const owner = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const coowner = privateKeyToAccount(`0x${"22".repeat(32)}`);
@@ -32,7 +33,7 @@ const asset = "0x9000000000000000000000000000000000000000" as const;
 const recipient = "0xa000000000000000000000000000000000000000" as const;
 const runtime = "0x60016000" as const;
 const codeHash = keccak256(runtime);
-const time = 1800000000;
+let time = 1800000000;
 const blockHash = `0x${"ab".repeat(32)}` as Hex;
 const nonce = `0x${"cd".repeat(32)}` as Hex;
 const principal: RestPrincipal = {
@@ -321,6 +322,41 @@ describe("smart account ownership and module boundaries", () => {
       ).rejects.toBeInstanceOf(Error);
     },
   );
+  it("serves an opted-in read from the last verification for its window, while every other read hits the chain", async () => {
+    const started = time;
+    try {
+      const test = fixture({ inspector: true });
+      const read = (at?: RestBlockEvidence, reuse = true) =>
+        test.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, at, reuse);
+      const first = await read();
+      const reads = test.request.mock.calls.length;
+      // The same account, whether at the latest head or at the very block already verified.
+      const again = await read();
+      const pinned = await read(first.evidence);
+      expect([again, pinned]).toEqual([first, first]);
+      expect(test.inspections).toHaveLength(1);
+      expect(test.request.mock.calls.length).toBe(reads);
+      // A caller may not mutate the shared copy.
+      again.owners.push(wallet);
+      expect((await read()).owners).toEqual(first.owners);
+      // A read that did not opt in (onboarding, authority, dispatch) verifies afresh and refreshes the entry.
+      await read(undefined, false);
+      expect(test.inspections).toHaveLength(2);
+      // Another service instance never shares the entry, unless it is handed a verified state
+      // (the wallet authority refresh does this); a state for an unknown manifest revision is ignored.
+      const other = fixture({ inspector: true });
+      other.service.remember({ ...first, manifestRevision: `0x${"ff".repeat(32)}` as Hex });
+      other.service.remember(first);
+      expect(await other.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, undefined, true)).toEqual(first);
+      expect(other.inspections).toHaveLength(0);
+      // Past the window the chain is read again.
+      time += 91;
+      await read();
+      expect(test.inspections).toHaveLength(3);
+    } finally {
+      time = started;
+    }
+  });
   it("never starts the module inspection for an address that fails the layout gate, and cancels it when a later check fails", async () => {
     // Before the layout gate: runtime code and Safe storage layout. The inspector runs only past it.
     for (const options of [{ runtimeMismatch: true }, { guard: pin(18).address }]) {
@@ -397,9 +433,16 @@ describe("smart account ownership and module boundaries", () => {
       status: 403,
     });
     test.state.threshold = 1;
-    await expect(
-      test.service.current(principal.account.id, record.id),
-    ).rejects.toMatchObject({ code: "SMART_ACCOUNT_CHANGED" });
+    // The binding read reuses the last verification for its window; the change shows once it
+    // lapses (a dispatch-time read at its exact block never reuses a stale state).
+    time += 91;
+    try {
+      await expect(
+        test.service.current(principal.account.id, record.id),
+      ).rejects.toMatchObject({ code: "SMART_ACCOUNT_CHANGED" });
+    } finally {
+      time -= 91;
+    }
   });
   it("does not imply bundler configuration or verified account state creates an execution adapter", async () => {
     const service = fixture({ inspector: true }).service;
