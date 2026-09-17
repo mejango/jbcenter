@@ -103,6 +103,8 @@ export interface UserOperationServiceDependencies {
     evidence: RestBlockEvidence,
     signal?: AbortSignal,
   ): Promise<void>;
+  /** Called when the bundler refuses an admitted operation: the account's verified state is not trusted again until read in full. */
+  forgetAccountState?(plan: StoredPlan): void;
   authorizeRequest(
     actor: RestActor,
     id: string,
@@ -694,6 +696,7 @@ export class UserOperationService {
       await this.providerForRecord(record).send(record.chainId, input.operation, signal);
     } catch {
       state = "submission_unknown";
+      this.options.forgetAccountState?.(input.plan);
     }
     const submitted = await this.options.store.settle(
       record.id,
@@ -788,7 +791,7 @@ export class UserOperationService {
                 "The exact signed operation requires more gas than was approved. Prepare and approve a fresh operation.");
         }),
       ]);
-      for (const check of admission) if (check.status === "rejected") throw check.reason;
+      for (const check of admission) if (check.status === "rejected") { this.options.forgetAccountState?.(plan); throw check.reason; }
     } else {
       await verifySafe7579OwnerSignature({
         operation,

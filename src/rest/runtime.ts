@@ -374,6 +374,8 @@ export async function createRestRuntime(options: {
     manifests: activeManifests,
     retainedManifests,
     moduleInspectors,
+    // The switch that makes every pinned account read a full inspection again.
+    advance: process.env.CENTER_ACCOUNT_STATE_ADVANCE !== "off",
   });
   rememberVerifiedState = state => smartAccounts.remember(state);
   const sessionTargets = createSessionTargetResolver({
@@ -496,10 +498,12 @@ export async function createRestRuntime(options: {
           "SMART_MANIFEST_UNAVAILABLE",
           "The historical account manifest is unavailable.",
         );
+      // Opted in: the state at the receipt block may be carried from the last verification.
       const state = await smartAccounts.inspect(
         { manifestId: manifest.id, address: plan.draft.account },
         signal,
         evidence,
+        true,
       );
       if (state.stateHash !== plan.smartAccount!.stateHash)
         throw new RestError(
@@ -507,6 +511,11 @@ export async function createRestRuntime(options: {
           "SMART_ACCOUNT_CHANGED",
           "The historical owner/module layout differs from the approved plan.",
         );
+    },
+    // A send the bundler refuses after a carried admission: the next read inspects in full.
+    forgetAccountState: (plan) => {
+      const manifest = manifests.find((m) => m.chainId === plan.smartAccount?.chainId && m.revision === plan.smartAccount.manifestRevision);
+      if (manifest) smartAccounts.forget(manifest.id, plan.draft.account);
     },
     authorizeRequest: createUserOperationRequestAuthorizer(authority),
     semanticVerifier,

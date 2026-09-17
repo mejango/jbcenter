@@ -35,6 +35,12 @@ const runtime = "0x60016000" as const;
 const codeHash = keccak256(runtime);
 let time = 1800000000;
 const blockHash = `0x${"ab".repeat(32)}` as Hex;
+const moduleAbi = parseAbi([
+  "function getValidatorsPaginated(address cursor,uint256 pageSize) view returns(address[] array,address next)",
+  "function getExecutorsPaginated(address cursor,uint256 pageSize) view returns(address[] array,address next)",
+  "function getActiveHook() view returns(address)",
+  "function getPrevalidationHook(uint256 moduleType) view returns(address)",
+]);
 const nonce = `0x${"cd".repeat(32)}` as Hex;
 const principal: RestPrincipal = {
   principalId: `owner:eip155:1:${owner.address.toLowerCase()}`,
@@ -106,6 +112,10 @@ function fixture(
     inspector?: boolean;
     guard?: Address;
     contractOwner?: boolean;
+    /** Extra canonical blocks by number (hex) beside the fixture's 0x64; the last one is the head. */
+    blocks?: Record<string, Hex>;
+    logs?: (filter: { address?: string; fromBlock?: string; toBlock?: string; topics?: unknown[] }) => unknown[];
+    validators?: Address[];
   } = {},
 ) {
   const state = {
@@ -115,13 +125,23 @@ function fixture(
   const request = vi.fn(
     async (_chainId: number, method: string, params: readonly unknown[]) => {
       if (method === "eth_chainId") return options.wrongChain ? "0xa" : "0x1";
-      if (method === "eth_getBlockByNumber")
-        return {
-          number: "0x64",
-          hash: blockHash,
-          timestamp: `0x${time.toString(16)}`,
-        };
-      expect(params.at(-1)).toEqual({ blockHash, requireCanonical: true });
+      const blocks: Record<string, Hex> = { "0x64": blockHash, ...(options.blocks ?? {}) };
+      const head = Object.keys(blocks).at(-1)!;
+      if (method === "eth_blockNumber") return head;
+      if (method === "eth_getBlockByNumber") {
+        const number = params[0] === "latest" ? head : String(params[0]);
+        if (!blocks[number]) return null;
+        return { number, hash: blocks[number], timestamp: `0x${time.toString(16)}` };
+      }
+      if (method === "eth_getLogs") return options.logs?.(params[0] as never) ?? [];
+      expect(Object.values(blocks)).toContain((params.at(-1) as { blockHash: Hex }).blockHash);
+      expect((params.at(-1) as { requireCanonical: boolean }).requireCanonical).toBe(true);
+      if (method === "eth_call" && String((params[0] as { to: string }).to).toLowerCase() === manifest.safe7579.address.toLowerCase()) {
+        const decoded = decodeFunctionData({ abi: moduleAbi, data: (params[0] as { data: Hex }).data });
+        const result = decoded.functionName === "getValidatorsPaginated" ? [options.validators ?? [manifest.smartSessions.address], "0x0000000000000000000000000000000000000001"]
+          : decoded.functionName === "getExecutorsPaginated" ? [[], "0x0000000000000000000000000000000000000001"] : zeroAddress;
+        return encodeFunctionResult({ abi: moduleAbi, functionName: decoded.functionName, result: result as never });
+      }
       if (method === "eth_getCode")
         return state.owners.some(
           (a) => a.toLowerCase() === String(params[0]).toLowerCase(),
@@ -370,6 +390,75 @@ describe("smart account ownership and module boundaries", () => {
     } finally {
       time = started;
     }
+  });
+  it("carries a verified state to a pinned block across an empty authority gap, and inspects afresh otherwise", async () => {
+    const later = `0x${"ba".repeat(32)}` as Hex, at = { chainId: 1, blockNumber: "110", blockHash: later, timestamp: String(time), source: "onchain" as const };
+    const filters: unknown[] = [];
+    const test = fixture({ inspector: true, logs: (filter) => { filters.push(filter); return []; } });
+    const read = (evidence?: RestBlockEvidence) => test.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, evidence, true);
+    const first = await read();
+    expect(test.inspections).toHaveLength(1);
+    test.options.blocks = { "0x6e": later };
+    // Ten blocks on: the three ingress streams over (100, 110] are empty and the authority fields
+    // read at 110 equal the verified ones, so the state is the same state at the new block.
+    const carried = await read(at);
+    expect(test.inspections).toHaveLength(1);
+    expect(carried.stateHash).toBe(first.stateHash);
+    expect(carried.evidence).toEqual(at);
+    expect(filters.map((f) => (f as { fromBlock: string; toBlock: string }).fromBlock + "-" + (f as { toBlock: string }).toBlock)).toEqual(["0x65-0x6e", "0x65-0x6e", "0x65-0x6e"]);
+    // The carried state serves the next pinned read at that block without any read at all.
+    const reads = test.request.mock.calls.length;
+    expect(await read(at)).toEqual(carried);
+    expect(test.request.mock.calls.length).toBe(reads);
+    // A log in the gap, a changed owner set, or a foreign validator each mean a full inspection.
+    for (const change of ["log", "owners", "validator"] as const) {
+      const changed = fixture({ inspector: true,
+        ...(change === "log" ? { logs: () => [{ blockNumber: "0x66" }] } : {}),
+        ...(change === "validator" ? { validators: [recipient] } : {}) });
+      await changed.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, undefined, true);
+      changed.options.blocks = { "0x6e": later };
+      if (change === "owners") changed.state.owners = [owner.address];
+      await changed.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, at, true);
+      expect(changed.inspections.length, change).toBe(2);
+    }
+    // A node behind the gap, or an origin block no longer canonical, means a full inspection.
+    for (const doubt of ["head", "origin"] as const) {
+      const doubted = fixture({ inspector: true });
+      await doubted.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, undefined, true);
+      doubted.options.blocks = { "0x6e": later };
+      const rpc = doubted.request.getMockImplementation()!;
+      doubted.request.mockImplementation(async (chainId, method, params) => {
+        if (doubt === "head" && method === "eth_blockNumber") return "0x66";
+        if (doubt === "origin" && method === "eth_getBlockByNumber" && params[0] === "0x64") return { number: "0x64", hash: `0x${"dd".repeat(32)}`, timestamp: `0x${time.toString(16)}` };
+        return rpc(chainId, method, params);
+      });
+      await doubted.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, at, true);
+      expect(doubted.inspections.length, doubt).toBe(2);
+    }
+    // A later full verification at a lower block replaces a carried entry; a carried state never
+    // displaces a newer full one.
+    {
+      const chain = fixture({ inspector: true });
+      const full = await chain.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, undefined, true);
+      chain.options.blocks = { "0x6e": later };
+      const carried = await chain.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, at, true);
+      expect(carried.evidence.blockNumber).toBe("110");
+      chain.service.remember(full);
+      expect((await chain.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, undefined, true)).evidence.blockNumber).toBe("100");
+      chain.options.blocks = { "0x6e": later, "0x78": `0x${"ee".repeat(32)}` as Hex };
+      const fresh = await chain.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, undefined, false);
+      expect(fresh.evidence.blockNumber).toBe("120");
+      const older = await chain.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, at, true);
+      expect(older.evidence.blockNumber).toBe("110");
+      expect((await chain.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, undefined, true)).evidence.blockNumber).toBe("120");
+      expect(chain.inspections).toHaveLength(2);
+    }
+    // A verified state can only be carried within two thousand blocks of its full verification.
+    const far = fixture({ inspector: true });
+    await far.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, undefined, true);
+    far.options.blocks = { "0x8ca": `0x${"cc".repeat(32)}` as Hex };
+    await far.service.inspect({ manifestId: manifest.id, address: wallet }, undefined, { ...at, blockNumber: "2250", blockHash: `0x${"cc".repeat(32)}` as Hex }, true);
+    expect(far.inspections).toHaveLength(2);
   });
   it("never starts the module inspection for an address that fails the layout gate, and cancels it when a later check fails", async () => {
     // Before the layout gate: runtime code and Safe storage layout. The inspector runs only past it.

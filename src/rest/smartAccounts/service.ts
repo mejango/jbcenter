@@ -5,9 +5,11 @@ import {
   hashTypedData,
   isAddress,
   keccak256,
+  padHex,
   parseAbi,
   recoverAddress,
   stringToHex,
+  toHex,
   zeroAddress,
   type Address,
   type Abi,
@@ -43,6 +45,16 @@ const safeAbi = parseAbi([
   "function getModulesPaginated(address start,uint256 pageSize) view returns (address[] array,address next)",
 ]);
 const sentinel = "0x0000000000000000000000000000000000000001" as const;
+const moduleAbi = parseAbi([
+  "function getValidatorsPaginated(address cursor,uint256 pageSize) view returns(address[] array,address next)",
+  "function getExecutorsPaginated(address cursor,uint256 pageSize) view returns(address[] array,address next)",
+  "function getActiveHook() view returns(address)",
+  "function getPrevalidationHook(uint256 moduleType) view returns(address)",
+]);
+const initializedTopic = keccak256(stringToHex("Safe7579Initialized(address)"));
+const userOperationTopic = keccak256(stringToHex("UserOperationEvent(bytes32,address,address,uint256,bool,uint256,uint256)"));
+/** A verified state is carried to another block only this close to its full verification. */
+const maximumAdvanceBlocks = 2_000n;
 const slot0 = `0x${"00".repeat(32)}` as Hex;
 const fallbackSlot = keccak256(stringToHex("fallback_manager.handler.address"));
 const guardSlot = keccak256(stringToHex("guard_manager.guard.address"));
@@ -256,9 +268,12 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
   // again at its own head, so a stale answer can only make a payment fail there, never pass. A
   // read that fails behind the answer forgets the entry, so the next read waits on the chain and
   // sees the failure. The wallet authority refresh hands each verified state in through `remember`.
-  const recent = new Map<string, SmartAccountState>();
+  // An entry names the block of its last full verification; a state carried across an empty
+  // authority gap keeps that block, so the chain of derivations stays bounded by it.
+  const recent = new Map<string, { state: SmartAccountState; fullBlock: bigint }>();
   const refreshing = new Map<string, Promise<void>>();
   const reuseMs = options.reuseMs ?? 900_000;
+  const advancing = options.advance ?? true;
   function refresh(key: string, input: { manifestId: string; address: Address }) {
     if (refreshing.has(key)) return;
     refreshing.set(key, inspectFresh(input).then(keep, (error: unknown) => {
@@ -270,12 +285,18 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
   const keyOf = (manifestId: string, address: string) => `${manifestId}:${address.toLowerCase()}`;
   // A verification at an older block (a historical check behind a receipt) never replaces a
   // newer entry: the entry always describes the account at the latest block anyone verified.
-  function keep(state: SmartAccountState) {
+  function keep(state: SmartAccountState, fullBlock = BigInt(state.evidence.blockNumber)) {
     const key = keyOf(state.manifestId, state.address);
-    const existing = recent.get(key);
-    if (existing && BigInt(existing.evidence.blockNumber) > BigInt(state.evidence.blockNumber)) return false;
-    recent.set(key, structuredClone(state));
+    const existing = recent.get(key), block = BigInt(state.evidence.blockNumber);
+    const derived = fullBlock !== block;
+    // A full verification replaces a carried state at any block; otherwise the newer block wins.
+    if (existing && BigInt(existing.state.evidence.blockNumber) > block && (derived || existing.fullBlock === BigInt(existing.state.evidence.blockNumber))) return false;
+    recent.set(key, { state: structuredClone(state), fullBlock });
     return true;
+  }
+  /** Forgets an account's verified state, so the next read inspects it in full. */
+  function forget(manifestId: string, address: Address) {
+    recent.delete(keyOf(manifestId, address));
   }
   function remember(state: SmartAccountState) {
     const known = manifests.some((m) => m.id === state.manifestId && m.revision === state.manifestRevision);
@@ -291,7 +312,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
   ): Promise<SmartAccountState> {
     exactObject(input, ["manifestId", "address"], "account");
     const key = keyOf(input.manifestId, String(input.address));
-    const cached = recent.get(key);
+    const entry = recent.get(key), cached = entry?.state;
     const age = cached === undefined ? null : now() - Number(cached.evidence.timestamp) * 1000;
     const fresh = age !== null && age < reuseMs;
     const hit = reuse && cached !== undefined && (at ? same(cached.evidence.blockHash, at.blockHash) : true);
@@ -302,9 +323,80 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
       if (!fresh && !at) refresh(key, input);
       return structuredClone(cached);
     }
+    if (reuse && at && entry && advancing) {
+      const carried = await advance(entry, at, signal);
+      // A full verification that landed meanwhile is the better entry; the carried state is still right at its block.
+      if (carried) { if (recent.get(key) === entry) keep(carried, entry.fullBlock); return carried; }
+    }
     const state = await inspectFresh(input, signal, at);
     keep(state);
     return state;
+  }
+  /** Carries a verified state to a pinned block when nothing that could change the account's
+   * authority happened in between. Every change to owners, threshold, singleton, fallback, guard or
+   * modules leaves one of three logs (the account's own, the adapter's initialization for it, or an
+   * EntryPoint event with it as sender) — the invariant the durable history already rests on — and
+   * the fields those changes would touch are read again at the block and must equal the verified
+   * ones, so the logs confirm rather than prove. Any doubt (a read that fails, a lagging node, a log,
+   * a difference, a gap past the bound) is a full inspection. The durable checkpoint never advances here. */
+  async function advance(
+    entry: { state: SmartAccountState; fullBlock: bigint },
+    at: RestBlockEvidence,
+    signal?: AbortSignal,
+  ): Promise<SmartAccountState | null> {
+    const { state } = entry, m = manifest(state.manifestId), account = getAddress(state.address);
+    const from = BigInt(state.evidence.blockNumber), to = BigInt(at.blockNumber);
+    const gap = from < to ? to - from : from - to;
+    const report = (outcome: string, extra: Record<string, unknown> = {}) =>
+      console.info(JSON.stringify({ service: "smart-accounts", action: "state_advance", outcome, manifestId: state.manifestId,
+        gap: String(gap), fromFull: String(to > entry.fullBlock ? to - entry.fullBlock : entry.fullBlock - to), ...extra }));
+    if (gap === 0n || (to > entry.fullBlock ? to - entry.fullBlock : entry.fullBlock - to) > maximumAdvanceBlocks) { report("full", { reason: "bound" }); return null; }
+    const [low, high] = from < to ? [from, to] : [to, from];
+    try {
+      const snap = await snapshot(m.chainId, signal, at);
+      const call = async (functionName: "getValidatorsPaginated" | "getExecutorsPaginated" | "getActiveHook" | "getPrevalidationHook", args: readonly unknown[] = []) => decodeFunctionResult({ abi: moduleAbi, functionName, data: rpcHex(
+        await snap.request("eth_call", [{ from: account, to: m.safe7579.address, data: encodeFunctionData({ abi: moduleAbi, functionName, args: args as never }) }]), "module read") });
+      const safe = async (functionName: string, args: readonly unknown[] = []) => decodeFunctionResult({ abi: safeAbi as Abi, functionName, data: rpcHex(
+        await snap.request("eth_call", [{ to: account, data: encodeFunctionData({ abi: safeAbi as Abi, functionName, args }), gas: "0xf4240" }]), "Safe read") });
+      const range = { fromBlock: toHex(low + 1n), toBlock: toHex(high) };
+      const logs = (address: Address, topics: (Hex | null)[]) => options.rpc.request(m.chainId, "eth_getLogs", [{ address, topics, ...range }], signal);
+      const [head, origin, ingress, slots, owners, threshold, validators, executors, hooks, passkey] = await Promise.all([
+        options.rpc.request(m.chainId, "eth_blockNumber", [], signal),
+        options.rpc.request(m.chainId, "eth_getBlockByNumber", [toHex(from), false], signal) as Promise<{ hash?: string } | null>,
+        Promise.all([
+          logs(account, []),
+          logs(m.safe7579.address, [initializedTopic, padHex(account, { size: 32 })]),
+          logs(m.entryPoint!.address, [userOperationTopic, null, padHex(account, { size: 32 })]),
+        ]),
+        Promise.all([slot0, fallbackSlot, guardSlot].map(async (slot) => addressFromSlot(await snap.request("eth_getStorageAt", [account, slot])))),
+        safe("getOwners") as Promise<unknown>,
+        safe("getThreshold") as Promise<unknown>,
+        call("getValidatorsPaginated", [sentinel, 33n]) as Promise<unknown>,
+        call("getExecutorsPaginated", [sentinel, 33n]) as Promise<unknown>,
+        Promise.all([call("getActiveHook"), call("getPrevalidationHook", [9n]), call("getPrevalidationHook", [8n])]),
+        m.ownerProfile ? inspectPasskeyOwnerProfile({ manifest: m, owners: state.owners, threshold: state.threshold, snapshot: snap }) : Promise.resolve(null),
+      ]);
+      // The re-read fields are the proof; the logs confirm, and only mean something from a node
+      // that had the whole range (each read is its own request, so this is a bound, not a proof).
+      if (quantity(head) < high) { report("full", { reason: "head" }); return null; }
+      if (!same(origin?.hash ?? "", state.evidence.blockHash)) { report("full", { reason: "origin" }); return null; }
+      const logCount = ingress.reduce<number>((count, list) => count + (Array.isArray(list) ? list.length : 1), 0);
+      const [singleton, fallback, guard] = slots;
+      const list = (value: unknown) => Array.isArray(value) && Array.isArray(value[0]) && same(String(value[1]), sentinel) ? value[0].map((a) => String(a).toLowerCase()) : null;
+      const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && [...a].map((x) => x.toLowerCase()).sort().every((x, i) => x === [...b].map((y) => y.toLowerCase()).sort()[i]);
+      const agrees = logCount === 0
+        && same(singleton!, m.singleton.address) && same(fallback!, m.safe7579.address) && same(guard!, zeroAddress)
+        && Array.isArray(owners) && sameSet(owners.map(String), state.owners) && threshold === BigInt(state.threshold)
+        && sameSet(list(validators) ?? ["-"], [m.smartSessions.address]) && list(executors)?.length === 0
+        && (hooks as unknown[]).every((hook) => same(String(hook), zeroAddress))
+        && (!m.ownerProfile || stable(passkey?.ownerProfile) === stable(state.ownerProfile));
+      if (!agrees) { report("full", { reason: "disagreement", logs: logCount }); return null; }
+      report("carried", { logs: 0 });
+      return { ...structuredClone(state), evidence: snap.evidence };
+    } catch (error) {
+      report("full", { reason: "unavailable", code: error instanceof RestError ? error.code : "unknown" });
+      return null;
+    }
   }
   async function inspectFresh(
     input: { manifestId: string; address: Address },
@@ -986,6 +1078,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
   return {
     inspect,
     remember,
+    forget,
     prepareCreation,
     challenge,
     onboardingChallenge,

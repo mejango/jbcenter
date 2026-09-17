@@ -493,6 +493,7 @@ async function fixture(useSession = false, currentProfile = false, useSponsorRou
     return wallet;
   });
   const historical = vi.fn(async () => {});
+  const forget = vi.fn();
   const semantic = vi.fn(async () => ({ status: "verified" as const }));
   let service!: UserOperationService;
   const transactions = new TransactionService({
@@ -575,6 +576,7 @@ async function fixture(useSession = false, currentProfile = false, useSponsorRou
     manifestFor: () => manifest,
     manifestForPlan: () => manifest,
     verifyHistoricalAccount: historical,
+    forgetAccountState: forget,
     semanticVerifier: { verify: semantic },
     now: () => now,
     authorizeRequest: async () => ({
@@ -644,6 +646,7 @@ async function fixture(useSession = false, currentProfile = false, useSponsorRou
     currentBinding,
     executionBinding,
     historical,
+    forget,
     semantic,
     rpc,
     fetcher,
@@ -974,6 +977,15 @@ describe("UserOperationService integration", () => {
     expect(f.semantic.mock.calls.length).toBe(semanticCalls);
     expect(rpcReads() - afterConfirmed).toBe(1);
     expect(f.state.sends).toBe(1);
+  });
+  it("forgets the account's verified state when the bundler refuses an admitted operation", async () => {
+    const f = await fixture(),
+      prepared = await f.prepare(),
+      signature = await f.sign(prepared);
+    f.state.sendFailure = true;
+    expect((await f.service.submit(f.principal, prepared.id, signature, "refused")).state).toBe("submission_unknown");
+    expect(f.forget).toHaveBeenCalledTimes(1);
+    expect(f.forget.mock.calls[0]![0]).toMatchObject({ id: prepared.planId });
   });
   it("keeps a shared observation alive when the poll that started it is aborted", async () => {
     const f = await fixture(),

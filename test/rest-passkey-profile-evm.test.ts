@@ -9,6 +9,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { createSmartAccountService } from "../src/rest/smartAccounts/service.js";
+import type { RestBlockEvidence } from "../src/rest/core.js";
 import { prepareSafe7579Creation } from "../src/rest/smartAccounts/creation.js";
 import { createSafe7579Inspector, SAFE7579_INSPECTOR_ID } from "../src/rest/smartAccounts/inspector.js";
 import { createInstalledSessionVerifier } from "../src/rest/smartAccounts/installed.js";
@@ -196,6 +197,48 @@ describe.skipIf(!available)("canonical passkey owner profile in the pinned local
     }
   });
 
+  it("carries a verified state across empty blocks on the real chain, and inspects afresh once a device is added", async () => {
+    const calls: string[] = [];
+    const counted = { request: (chain: number, method: string, params: readonly unknown[]) => { calls.push(method); return transport.request(chain, method, params); } };
+    const own = createSmartAccountService({ rpc: counted, manifests: [manifest], registry: new MemorySmartAccountRegistry(),
+      audience: "https://wallet.juicebox.center", moduleInspectors: [createSafe7579Inspector({ rpc: counted,
+        utility: pin(utility), inspectSessions: createInstalledSessionVerifier({ rpc: counted }).inspectAllAt })] });
+    const full = await own.inspect({ manifestId: manifest.id, address: account }, undefined, undefined, true);
+    const fullReads = calls.length;
+    const evidenceAt = async (number: bigint): Promise<RestBlockEvidence> => {
+      const block = await rpc<{ hash: Hex; number: Hex; timestamp: Hex }>("eth_getBlockByNumber", [toHex(number), false]);
+      return { chainId: 8453, blockHash: block.hash, blockNumber: String(number), timestamp: String(BigInt(block.timestamp)), source: "onchain" };
+    };
+    for (let i = 0; i < 3; i++) await rpc("evm_mine", []);
+    const later = await evidenceAt(BigInt(full.evidence.blockNumber) + 3n);
+    calls.length = 0;
+    const carried = await own.inspect({ manifestId: manifest.id, address: account }, undefined, later, true);
+    expect(carried.stateHash).toBe(full.stateHash);
+    expect(carried.evidence).toEqual(later);
+    expect(calls.filter((m) => m === "debug_traceTransaction")).toEqual([]);
+    expect(calls.length).toBeLessThan(fullReads / 2);
+    // A device signer added to the account leaves its logs and a changed owner set: the pinned read
+    // at that block is a full inspection again and shows the device.
+    const device = passkey(9n);
+    const args = [BigInt(device.publicKey.x), BigInt(device.publicKey.y), BigInt(manifest.ownerProfile!.p256Verifier.address)];
+    const deviceSigner = getAddress(await read(signerFactory.abi, manifest.ownerProfile!.signerFactory.address, "getSigner", args) as Address);
+    await send(encodeFunctionData({ abi: signerFactory.abi, functionName: "createSigner", args }), manifest.ownerProfile!.signerFactory.address);
+    const directBackupApproval = concatHex([padHex(backup, { size: 32 }), zeroHash, "0x01"]);
+    await send(encodeFunctionData({ abi: safe.abi, functionName: "execTransaction", args: [account, 0n,
+      encodeFunctionData({ abi: safe.abi, functionName: "addOwnerWithThreshold", args: [deviceSigner, 1n] }), 0,
+      0n, 0n, 0n, zeroAddress, zeroAddress, directBackupApproval] }), account, backup);
+    const head = BigInt((await rpc<{ number: Hex }>("eth_getBlockByNumber", ["latest", false])).number);
+    calls.length = 0;
+    const changed = await own.inspect({ manifestId: manifest.id, address: account }, undefined, await evidenceAt(head), true);
+    expect(changed.stateHash).not.toBe(full.stateHash);
+    expect(changed.ownerProfile!.devices!.map((entry) => entry.address)).toEqual([deviceSigner]);
+    expect(calls.filter((m) => m === "debug_traceTransaction").length).toBeGreaterThan(0);
+    // Put the account back for the cases that follow.
+    await send(encodeFunctionData({ abi: safe.abi, functionName: "execTransaction", args: [account, 0n,
+      encodeFunctionData({ abi: safe.abi, functionName: "removeOwner", args: ["0x0000000000000000000000000000000000000001", deviceSigner, 1n] }), 0,
+      0n, 0n, 0n, zeroAddress, zeroAddress, directBackupApproval] }), account, backup);
+    expect((await read(safe.abi, account, "getOwners") as Address[]).length).toBe(2);
+  });
   it("inspects actual Safe authority, factory lineage, immutable key and every module at one canonical block", async () => {
     const state = await inspect();
     expect(state.ownerProfile).toEqual({ version: "center-passkey-v1", signer: { address: signer, kind: "contract", ...publicKey,

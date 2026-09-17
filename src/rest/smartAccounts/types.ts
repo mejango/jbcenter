@@ -157,6 +157,8 @@ export interface SmartAccountDependencies {
   now?: () => number;
   /** How long one verified account state serves later reads at the latest head (default 90 s). */
   reuseMs?: number;
+  /** Carry a verified state to a pinned block across an empty authority gap (default on). */
+  advance?: boolean;
 }
 
 export interface Allocation {
