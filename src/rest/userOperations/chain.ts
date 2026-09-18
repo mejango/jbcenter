@@ -325,41 +325,108 @@ export class UserOperationChain {
     );
     assertUserOperationGasPolicy(op, gasPolicy);
     const evidence = at ?? (await this.snapshot(binding.chainId));
-    await Promise.all([
-      this.runtime(binding.chainId, binding.entryPoint, evidence, true),
-      this.runtime(binding.chainId, binding.accountCode, evidence),
-    ]);
     const operationHash = getUserOperationHash(
       op,
       binding.entryPoint.address,
       binding.chainId,
     );
+    const nonce = BigInt(op.nonce);
+    const key = nonce >> 64n;
+    // What the sponsor path needs is decided locally first, so the reads of the preflight go out
+    // at once: all are pinned to the same block and independent of each other. Behind them, as
+    // before: the sponsor's signer (it needs the sponsor hash), then the two simulations, which
+    // run only once the sponsorship is authenticated and the payer funded. The checks below run
+    // over the results in the order they always ran.
+    const packed = packUserOperation(op);
+    const entryPointCall = (functionName: "getUserOpHash" | "balanceOf", args: readonly unknown[]) =>
+      this.call(binding.chainId, binding.entryPoint.address, encodeFunctionData({ abi: ENTRY_POINT_V07_ABI, functionName, args } as never), evidence);
+    const paymasterCall = (functionName: "entryPoint" | "isBundlerAllowed" | "getHash", args: readonly unknown[] = []) =>
+      this.call(binding.chainId, op.paymaster!, encodeFunctionData({ abi: ENTRY_POINT_V07_ABI, functionName, args } as never), evidence);
+    let configured: ReturnType<UserOperationProvider["configuration"]> | undefined;
+    let restricted: { bundler: Address; signature: string } | undefined;
+    let paymasterProof;
+    let simulationFrom: Address = "0x000000000000000000000000000000000000dEaD";
+    if (op.paymaster) {
+      configured = provider?.configuration(binding.chainId);
+      if (!provider || !configured?.paymasterPolicy)
+        uoError(
+          "USER_OPERATION_PAYMASTER_UNAVAILABLE",
+          "This paymaster has no reviewed provider policy.",
+        );
+      if (
+        configured.entryPoint.address.toLowerCase() !==
+          binding.entryPoint.address.toLowerCase() ||
+        configured.entryPoint.runtimeCodeHash.toLowerCase() !==
+          binding.entryPoint.runtimeCodeHash.toLowerCase()
+      )
+        uoError(
+          "USER_OPERATION_PROVIDER_MISMATCH",
+          "The provider and execution EntryPoint pins differ.",
+        );
+      paymasterProof = provider.inspectPaymaster(binding.chainId, op, "final");
+      if (configured.paymasterPolicy.profile === "pimlico-v7-current-flags" && op.paymasterData?.slice(2, 4) === "00") {
+        // This source's flag 00 checks tx.origin. A direct paymaster call from
+        // EntryPoint cannot represent an allowed bundler origin. Authenticate
+        // its exact verifying-mode signature from the pinned getHash/signers
+        // implementation, then run the complete real handleOps below.
+        const bundler = configured.simulationBundlerAddress;
+        if (!bundler || !isAddress(bundler) || BigInt(bundler) === 0n)
+          uoError("USER_OPERATION_BUNDLER_ORIGIN_REQUIRED",
+            "Restricted sponsorship requires an operator-configured simulation bundler address.");
+        if (op.paymaster !== CURRENT_PIMLICO_PAYMASTER.address ||
+            configured.paymasterPolicy.contract.runtimeCodeHash !== CURRENT_PIMLICO_PAYMASTER.runtimeCodeHash ||
+            op.paymasterData.length !== 158)
+          uoError("USER_OPERATION_PAYMASTER_MISMATCH", "The restricted sponsor differs from its reviewed deployment.");
+        const signature = op.paymasterData.slice(28);
+        const s = BigInt(`0x${signature.slice(64, 128)}`), v = Number(BigInt(`0x${signature.slice(128, 130)}`));
+        if (s === 0n || s > 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n || (v !== 27 && v !== 28))
+          uoError("USER_OPERATION_PAYMASTER_SIGNATURE", "The sponsor signature is not canonical OpenZeppelin ECDSA data.");
+        restricted = { bundler, signature };
+        simulationFrom = bundler;
+      }
+    }
+    const pimlico = configured?.paymasterPolicy?.profile === "pimlico-v7-legacy-mode" || configured?.paymasterPolicy?.profile === "pimlico-v7-current-flags";
+    const payer = op.paymaster ?? op.sender;
+    const totalGas =
+      BigInt(op.callGasLimit) +
+      BigInt(op.verificationGasLimit) +
+      BigInt(op.preVerificationGas) +
+      BigInt(op.paymasterVerificationGasLimit ?? "0x0") +
+      BigInt(op.paymasterPostOpGasLimit ?? "0x0");
+    const reads = await Promise.allSettled([
+      this.runtime(binding.chainId, binding.entryPoint, evidence, true),
+      this.runtime(binding.chainId, binding.accountCode, evidence),
+      this.readNonce(binding.chainId, op.sender, key, binding.entryPoint.address, evidence),
+      entryPointCall("getUserOpHash", [packed]),
+      op.paymaster ? this.runtime(binding.chainId, configured!.paymasterPolicy!.contract, evidence) : undefined,
+      op.paymaster && pimlico ? paymasterCall("entryPoint") : undefined,
+      restricted ? this.request(binding.chainId, "eth_getCode", [restricted.bundler, this.tag(evidence)]) : undefined,
+      restricted ? paymasterCall("isBundlerAllowed", [restricted.bundler]) : undefined,
+      restricted ? paymasterCall("getHash", [0, packed]) : undefined,
+      op.paymaster && pimlico && !restricted
+        ? this.request(binding.chainId, "eth_call", [
+            { from: binding.entryPoint.address, to: op.paymaster,
+              data: encodeFunctionData({ abi: ENTRY_POINT_V07_ABI, functionName: "validatePaymasterUserOp",
+                args: [packed, operationHash, userOperationMaximumCost(op)] }),
+              gas: op.paymasterVerificationGasLimit },
+            this.tag(evidence)])
+        : undefined,
+      entryPointCall("balanceOf", [payer]),
+      op.paymaster ? undefined : this.request(binding.chainId, "eth_getBalance", [op.sender, this.tag(evidence)]),
+    ] as const);
+    // A read that failed is reported in the order the checks ran, before any later check.
+    const read = <T>(index: number): T => {
+      const outcome = reads[index]!;
+      if (outcome.status === "rejected") throw outcome.reason;
+      return outcome.value as T;
+    };
+    read(0); read(1);
     if (operationHash !== binding.operationHash.toLowerCase())
       uoError(
         "USER_OPERATION_HASH_MISMATCH",
         "The operation differs from its immutable draft hash.",
       );
-    const nonce = BigInt(op.nonce);
-    const key = nonce >> 64n;
-    const [currentNonce, onchainHash] = await Promise.all([
-      this.readNonce(
-        binding.chainId,
-        op.sender,
-        key,
-        binding.entryPoint.address,
-        evidence,
-      ),
-      this.call(
-        binding.chainId,
-        binding.entryPoint.address,
-        encodeFunctionData({
-          abi: ENTRY_POINT_V07_ABI,
-          functionName: "getUserOpHash",
-          args: [packUserOperation(op)],
-        }),
-        evidence,
-      ),
-    ]);
+    const currentNonce = read<bigint>(2), onchainHash = read<Hex>(3);
     if (currentNonce !== nonce)
       uoError(
         "USER_OPERATION_NONCE_CHANGED",
@@ -377,125 +444,22 @@ export class UserOperationChain {
         "USER_OPERATION_HASH_MISMATCH",
         "Local and deployed EntryPoint v0.7 hashes do not agree.",
       );
-    let paymasterProof;
-    let simulationFrom: Address = "0x000000000000000000000000000000000000dEaD";
     if (op.paymaster) {
-      const configured = provider?.configuration(binding.chainId);
-      if (!provider || !configured?.paymasterPolicy)
-        uoError(
-          "USER_OPERATION_PAYMASTER_UNAVAILABLE",
-          "This paymaster has no reviewed provider policy.",
-        );
-      if (
-        configured.entryPoint.address.toLowerCase() !==
-          binding.entryPoint.address.toLowerCase() ||
-        configured.entryPoint.runtimeCodeHash.toLowerCase() !==
-          binding.entryPoint.runtimeCodeHash.toLowerCase()
-      )
-        uoError(
-          "USER_OPERATION_PROVIDER_MISMATCH",
-          "The provider and execution EntryPoint pins differ.",
-        );
-      await this.runtime(
-        binding.chainId,
-        configured.paymasterPolicy.contract,
-        evidence,
-      );
-      paymasterProof = provider.inspectPaymaster(binding.chainId, op, "final");
-      if (
-        configured.paymasterPolicy.profile === "pimlico-v7-legacy-mode" ||
-        configured.paymasterPolicy.profile === "pimlico-v7-current-flags"
-      ) {
-        const entryPointData = await this.call(
-          binding.chainId,
-          op.paymaster,
-          encodeFunctionData({
-            abi: ENTRY_POINT_V07_ABI,
-            functionName: "entryPoint",
-          }),
-          evidence,
-        );
+      read(4);
+      if (pimlico) {
         if (
           decodeFunctionResult({
             abi: ENTRY_POINT_V07_ABI,
             functionName: "entryPoint",
-            data: entryPointData,
+            data: read<Hex>(5),
           }).toLowerCase() !== binding.entryPoint.address.toLowerCase()
         )
           uoError(
             "USER_OPERATION_PAYMASTER_MISMATCH",
             "The pinned paymaster is configured for another EntryPoint.",
           );
-        if (configured.paymasterPolicy.profile === "pimlico-v7-current-flags" && op.paymasterData?.slice(2, 4) === "00") {
-          // This source's flag 00 checks tx.origin. A direct paymaster call from
-          // EntryPoint cannot represent an allowed bundler origin. Authenticate
-          // its exact verifying-mode signature from the pinned getHash/signers
-          // implementation, then run the complete real handleOps below.
-          const bundler = configured.simulationBundlerAddress;
-          if (!bundler || !isAddress(bundler) || BigInt(bundler) === 0n)
-            uoError("USER_OPERATION_BUNDLER_ORIGIN_REQUIRED",
-              "Restricted sponsorship requires an operator-configured simulation bundler address.");
-          if (op.paymaster !== CURRENT_PIMLICO_PAYMASTER.address ||
-              configured.paymasterPolicy.contract.runtimeCodeHash !== CURRENT_PIMLICO_PAYMASTER.runtimeCodeHash ||
-              op.paymasterData.length !== 158)
-            uoError("USER_OPERATION_PAYMASTER_MISMATCH", "The restricted sponsor differs from its reviewed deployment.");
-          const signature = op.paymasterData.slice(28);
-          const s = BigInt(`0x${signature.slice(64, 128)}`), v = Number(BigInt(`0x${signature.slice(128, 130)}`));
-          if (s === 0n || s > 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n || (v !== 27 && v !== 28))
-            uoError("USER_OPERATION_PAYMASTER_SIGNATURE", "The sponsor signature is not canonical OpenZeppelin ECDSA data.");
-          const [bundlerCode, allowedResult, hashResult] = await Promise.all([
-            this.request(binding.chainId, "eth_getCode", [bundler, this.tag(evidence)]),
-            this.call(binding.chainId, op.paymaster, encodeFunctionData({
-              abi: ENTRY_POINT_V07_ABI, functionName: "isBundlerAllowed", args: [bundler],
-            }), evidence),
-            this.call(binding.chainId, op.paymaster, encodeFunctionData({
-              abi: ENTRY_POINT_V07_ABI, functionName: "getHash", args: [0, packUserOperation(op)],
-            }), evidence),
-          ]);
-          if (bundlerCode !== "0x" || !decodeFunctionResult({
-            abi: ENTRY_POINT_V07_ABI, functionName: "isBundlerAllowed", data: allowedResult,
-          }))
-            uoError("USER_OPERATION_BUNDLER_ORIGIN_UNVERIFIED",
-              "The configured simulation origin must be an allowed EOA at the verified block.");
-          const sponsorHash = decodeFunctionResult({ abi: ENTRY_POINT_V07_ABI, functionName: "getHash", data: hashResult });
-          let recovered: Address;
-          try {
-            recovered = await recoverMessageAddress({ message: { raw: sponsorHash }, signature: `0x${signature}` });
-          } catch {
-            return uoError("USER_OPERATION_PAYMASTER_SIGNATURE", "The sponsor signature cannot authenticate this exact operation.");
-          }
-          const signerResult = await this.call(binding.chainId, op.paymaster, encodeFunctionData({
-            abi: ENTRY_POINT_V07_ABI, functionName: "signers", args: [recovered],
-          }), evidence);
-          const time = Math.floor(this.now() / 1000);
-          if (BigInt(recovered) === 0n || !decodeFunctionResult({
-            abi: ENTRY_POINT_V07_ABI, functionName: "signers", data: signerResult,
-          }) || paymasterProof.validAfter > time || paymasterProof.validUntil <= time + 30)
-            uoError("USER_OPERATION_PAYMASTER_SIGNATURE",
-              "The deployed gas-only paymaster rejected the exact sponsorship signature or validity window.");
-          simulationFrom = bundler;
-        } else {
-          const data = uoBytes(
-            await this.request(binding.chainId, "eth_call", [
-              {
-                from: binding.entryPoint.address,
-                to: op.paymaster,
-                data: encodeFunctionData({
-                  abi: ENTRY_POINT_V07_ABI,
-                  functionName: "validatePaymasterUserOp",
-                  args: [
-                    packUserOperation(op),
-                    operationHash,
-                    userOperationMaximumCost(op),
-                  ],
-                }),
-                gas: op.paymasterVerificationGasLimit,
-              },
-              this.tag(evidence),
-            ]),
-            "paymaster validation result",
-            4096,
-          );
+        if (!restricted) {
+          const data = uoBytes(read(9), "paymaster validation result", 4096);
           const [context, validation] = decodeFunctionResult({
             abi: ENTRY_POINT_V07_ABI,
             functionName: "validatePaymasterUserOp",
@@ -514,35 +478,41 @@ export class UserOperationChain {
               "USER_OPERATION_PAYMASTER_SIGNATURE",
               "The deployed gas-only paymaster rejected the exact sponsorship signature or validity window.",
             );
+        } else {
+          const [bundlerCode, allowedResult, hashResult] = [read<Hex>(6), read<Hex>(7), read<Hex>(8)];
+          if (bundlerCode !== "0x" || !decodeFunctionResult({
+            abi: ENTRY_POINT_V07_ABI, functionName: "isBundlerAllowed", data: allowedResult,
+          }))
+            uoError("USER_OPERATION_BUNDLER_ORIGIN_UNVERIFIED",
+              "The configured simulation origin must be an allowed EOA at the verified block.");
+          const sponsorHash = decodeFunctionResult({ abi: ENTRY_POINT_V07_ABI, functionName: "getHash", data: hashResult });
+          let recovered: Address;
+          try {
+            recovered = await recoverMessageAddress({ message: { raw: sponsorHash }, signature: `0x${restricted.signature}` });
+          } catch {
+            return uoError("USER_OPERATION_PAYMASTER_SIGNATURE", "The sponsor signature cannot authenticate this exact operation.");
+          }
+          const signerResult = await this.call(binding.chainId, op.paymaster, encodeFunctionData({
+            abi: ENTRY_POINT_V07_ABI, functionName: "signers", args: [recovered],
+          }), evidence);
+          const time = Math.floor(this.now() / 1000);
+          if (BigInt(recovered) === 0n || !decodeFunctionResult({
+            abi: ENTRY_POINT_V07_ABI, functionName: "signers", data: signerResult,
+          }) || paymasterProof!.validAfter > time || paymasterProof!.validUntil <= time + 30)
+            uoError("USER_OPERATION_PAYMASTER_SIGNATURE",
+              "The deployed gas-only paymaster rejected the exact sponsorship signature or validity window.");
         }
       }
     }
-    const payer = op.paymaster ?? op.sender;
-    const balanceResult = await this.call(
-      binding.chainId,
-      binding.entryPoint.address,
-      encodeFunctionData({
-        abi: ENTRY_POINT_V07_ABI,
-        functionName: "balanceOf",
-        args: [payer],
-      }),
-      evidence,
-    );
     const deposit = decodeFunctionResult({
       abi: ENTRY_POINT_V07_ABI,
       functionName: "balanceOf",
-      data: balanceResult,
+      data: read<Hex>(10),
     });
     const maximumCost = userOperationMaximumCost(op);
     const walletFunds = op.paymaster
       ? 0n
-      : uoQuantity(
-          await this.request(binding.chainId, "eth_getBalance", [
-            op.sender,
-            this.tag(evidence),
-          ]),
-          "account native balance",
-        );
+      : uoQuantity(read(11), "account native balance");
     const plannedValue = binding.calls.reduce(
       (sum, call) => sum + BigInt(call.value),
       0n,
@@ -557,14 +527,16 @@ export class UserOperationChain {
       );
     // handleOps catches inner execution failures. Its success alone therefore
     // cannot establish readiness: independently simulate the exact atomic call.
-    const executionResult = await this.request(binding.chainId, "eth_call", [
-      {
-        from: binding.entryPoint.address,
-        to: op.sender,
-        data: op.callData,
-        gas: op.callGasLimit,
-      },
-      this.tag(evidence),
+    const [executionResult, validationResult] = await Promise.all([
+      this.request(binding.chainId, "eth_call", [
+        { from: binding.entryPoint.address, to: op.sender, data: op.callData, gas: op.callGasLimit },
+        this.tag(evidence)]),
+      this.request(binding.chainId, "eth_call", [
+        { from: simulationFrom, to: binding.entryPoint.address,
+          data: encodeFunctionData({ abi: ENTRY_POINT_V07_ABI, functionName: "handleOps",
+            args: [[packed], "0x000000000000000000000000000000000000dEaD"] }),
+          gas: toHex(totalGas + totalGas / 4n + 200_000n) },
+        this.tag(evidence)]),
     ]);
     if (executionResult !== "0x")
       uoError(
@@ -572,28 +544,6 @@ export class UserOperationChain {
         "The exact account execution returned an invalid simulation result.",
         502,
       );
-    const totalGas =
-      BigInt(op.callGasLimit) +
-      BigInt(op.verificationGasLimit) +
-      BigInt(op.preVerificationGas) +
-      BigInt(op.paymasterVerificationGasLimit ?? "0x0") +
-      BigInt(op.paymasterPostOpGasLimit ?? "0x0");
-    const validationResult = await this.request(binding.chainId, "eth_call", [
-      {
-        from: simulationFrom,
-        to: binding.entryPoint.address,
-        data: encodeFunctionData({
-          abi: ENTRY_POINT_V07_ABI,
-          functionName: "handleOps",
-          args: [
-            [packUserOperation(op)],
-            "0x000000000000000000000000000000000000dEaD",
-          ],
-        }),
-        gas: toHex(totalGas + totalGas / 4n + 200_000n),
-      },
-      this.tag(evidence),
-    ]);
     if (validationResult !== "0x")
       uoError(
         "USER_OPERATION_SIMULATION_RESULT",
