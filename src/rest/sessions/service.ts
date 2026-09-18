@@ -589,9 +589,12 @@ export class SessionService {
     try {
       let installed: InstalledSessionObservation;
       try {
-        const account = await this.options.currentBinding(
+        // Observed at the head read here, not at the block of whatever account state was kept:
+        // a session installed since that state would otherwise be missed until the next refresh.
+        const account = await this.options.currentBindingAt(
           principal.account.id,
           record.compiled.bindingId,
+          await this.head(record.compiled.chainId, signal),
           signal,
         );
         const evidence = account.state.evidence;
@@ -728,6 +731,14 @@ export class SessionService {
     };
   }
 
+  /** The chain's latest block as evidence to pin an observation to. */
+  private async head(chainId: number, signal?: AbortSignal): Promise<RestBlockEvidence> {
+    const block = (await this.options.rpc.request(chainId, "eth_getBlockByNumber", ["latest", false], signal)) as
+      { number?: string; hash?: string; timestamp?: string } | null;
+    if (!block || !/^0x[0-9a-fA-F]+$/.test(block.number ?? "") || !/^0x[0-9a-fA-F]{64}$/.test(block.hash ?? "") || !/^0x[0-9a-fA-F]+$/.test(block.timestamp ?? ""))
+      throw new RestError(502, "SESSION_HEAD_UNAVAILABLE", "The chain head could not be read.");
+    return { chainId, blockNumber: BigInt(block.number!).toString(), blockHash: block.hash as Hex, timestamp: BigInt(block.timestamp!).toString(), source: "onchain" };
+  }
   private async isFinalized(
     installed: InstalledSessionObservation,
     signal?: AbortSignal,

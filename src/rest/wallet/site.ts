@@ -57,12 +57,6 @@ function reject(status = 400, code = 'WALLET_HTTP_INVALID'): never {
 function fields(value: unknown, names: string[]): Record<string, unknown> {
   try { return walletAppFields(value, names); } catch { return reject(); }
 }
-function bytes(value: unknown, min: number, max = min): Buffer {
-  if (typeof value !== 'string' || value.length > Math.ceil(max * 4 / 3) || !/^[A-Za-z0-9_-]+$/.test(value)) reject();
-  const decoded = Buffer.from(value, 'base64url');
-  if (decoded.length < min || decoded.length > max || decoded.toString('base64url') !== value) reject();
-  return decoded;
-}
 function publicSession(session: WalletCentralSession, passkeyName: string | null) {
   return { loginId: session.loginId, accountId: session.accountId, walletAddress: session.accountId.slice('eip155:8453:'.length),
     chainId: 8453, expiresAtMs: session.expiresAtMs, passkeyName };
