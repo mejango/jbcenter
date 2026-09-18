@@ -1,6 +1,6 @@
 import type {UserOperationSponsorRoutes} from './sponsorRoutes.js';
 import { randomUUID } from "node:crypto";
-import { toHex, type Hex } from "viem";
+import { toHex, type Address, type Hex } from "viem";
 import { detachedFromRequest } from "../context.js";
 import type { RestPrincipal } from "../auth/store.js";
 import {
@@ -76,6 +76,13 @@ export interface UserOperationChainPolicy {
   chainId: number;
   gas: UserOperationGasPolicy;
   confirmations: number;
+}
+/** Head reads started before a plan is drafted, for the preparation that follows it. */
+export interface UserOperationHeadAhead {
+  bindingId: Hex;
+  nonceKey: bigint;
+  reads: Promise<{ head: { nonce: Hex; evidence: RestBlockEvidence; baseFeePerGas: unknown }; nodePriority: unknown;
+    chainId: number; sender: Address; entryPoint: Address; readAt: number }>;
 }
 export interface UserOperationServiceDependencies {
   rpc: RestRpc;
@@ -280,12 +287,30 @@ export class UserOperationService {
     return { binding, manifest };
   }
 
+  /** The head reads a preparation waits on longest (the account's nonce at the head and the node's
+   * priority fee), started before the plan is drafted so they wait on nothing. The preparation uses
+   * them only for the binding, nonce key and EntryPoint it reads them for; a rejection surfaces
+   * there, not here. */
+  headAhead(principal: RestPrincipal, bindingId: Hex, signal?: AbortSignal): UserOperationHeadAhead {
+    const reads = (async () => {
+      const binding = await this.options.currentBinding(principal.account.id, bindingId, signal);
+      const manifest = this.options.manifestFor(binding), chain = this.chain(signal);
+      const [head, nodePriority] = await Promise.all([
+        chain.nonce(binding.wallet.chainId, binding.wallet.address, 0n, manifest.entryPoint!),
+        chain.request(binding.wallet.chainId, "eth_maxPriorityFeePerGas", []),
+      ]);
+      return { head, nodePriority, chainId: binding.wallet.chainId, sender: binding.wallet.address, entryPoint: manifest.entryPoint!.address, readAt: Date.now() };
+    })();
+    reads.catch(() => undefined);
+    return { bindingId, nonceKey: 0n, reads };
+  }
   async prepare(
     principal: RestPrincipal,
     input: UserOperationPreparationInput,
     key: string,
     requestHash: Hex,
     signal?: AbortSignal,
+    ahead?: UserOperationHeadAhead,
   ) {
     if (!principal.scopes.includes("plan"))
       fail(
@@ -413,12 +438,20 @@ export class UserOperationService {
     // quotes are independent: they go out together.
     // Each read's own time, since the head stage is the slowest of the four.
     const timed = <T>(name: string, work: Promise<T>) => { const from = Date.now(); return work.finally(() => { stages[name] = Date.now() - from; }); };
+    // Reads started ahead of the plan are used when they are for exactly this binding, key and
+    // EntryPoint and no older than a few seconds; the canonical check beside the sponsorship still
+    // proves their head.
+    const early = ahead && ahead.bindingId === binding.id && ahead.nonceKey === nonceKey
+      ? ahead.reads.then((reads) => reads.chainId === binding.wallet.chainId && same(reads.sender, binding.wallet.address)
+          && same(reads.entryPoint, manifest.entryPoint!.address) && Date.now() - reads.readAt <= 10_000 ? reads : undefined)
+      : Promise.resolve(undefined);
     const [, { nonce, evidence, baseFeePerGas }, nodePriority, floor] = await Promise.all([
       timed("readinessMs", provider.readiness(binding.wallet.chainId, signal)),
-      timed("nonceMs", chain.nonce(binding.wallet.chainId, binding.wallet.address, nonceKey, manifest.entryPoint!)),
-      timed("priorityMs", chain.request(binding.wallet.chainId, "eth_maxPriorityFeePerGas", [])),
+      timed("nonceMs", early.then((reads) => reads?.head ?? chain.nonce(binding.wallet.chainId, binding.wallet.address, nonceKey, manifest.entryPoint!))),
+      timed("priorityMs", early.then((reads) => reads?.nodePriority ?? chain.request(binding.wallet.chainId, "eth_maxPriorityFeePerGas", []))),
       timed("gasPriceMs", provider.gasPrice(binding.wallet.chainId, signal)),
     ]);
+    if (ahead) stages.aheadUsed = (await early) ? 1 : 0;
     stage("headMs");
     // Never below the bundler's floor: a cheaper operation is accepted, then waits until it expires.
     const priority = max(uoQuantity(nodePriority, "priority fee"), floor?.maxPriorityFeePerGas ?? 0n);

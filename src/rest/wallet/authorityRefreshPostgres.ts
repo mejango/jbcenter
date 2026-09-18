@@ -172,6 +172,13 @@ export class PostgresWalletAuthorityRefreshQueue implements AuthorityRefreshQueu
     } catch (error) { if (error instanceof ExpiredLease) return false; throw error; }
   }
 
+  /** The accounts still of interest, most recently active first: what a fresh process warms. */
+  async interested(limit: number): Promise<string[]> {
+    return (await this.pool.query<{ account_id: string }>(
+      `SELECT account_id FROM rest_wallet_authority_refresh_jobs WHERE interested_until_ms>$1 ORDER BY interested_until_ms DESC LIMIT $2`,
+      [Date.now(), limit])).rows.map(row => row.account_id);
+  }
+
   async stats(): Promise<AuthorityRefreshStats> {
     return this.transaction(async client => {
       const control = await this.control(client), now = await databaseNow(client);

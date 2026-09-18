@@ -84,7 +84,7 @@ import { PostgresWalletNetworksStore } from "./wallet/networksPostgres.js";
 import { PostgresWalletEnrollmentStore } from "./wallet/enrollmentPostgres.js";
 import { RelayrProvider } from "./sponsorship/provider.js";
 import { privateKeyToAccount } from "viem/accounts";
-import type { Hex } from "viem";
+import type { Address, Hex } from "viem";
 
 export interface RestWalletConfiguration {
   origin: string;
@@ -107,6 +107,8 @@ export interface RestWalletRuntime {
   handoff: PostgresWalletHandoffStore;
   authority: PostgresWalletAuthorityStore;
   refresh: ReturnType<typeof createWalletAuthorityRefresh>;
+  refreshQueue: PostgresWalletAuthorityRefreshQueue;
+  manifestId: string;
   payments?: PostgresWalletPaymentReviewStore;
   signup?: ReturnType<typeof createLocalWalletSignup>;
   recovery?: ReturnType<typeof createLocalWalletRecovery>;
@@ -211,8 +213,9 @@ export async function createRestRuntime(options: {
     });
     const authority = new PostgresWalletAuthorityStore(options.pool);
     // One refresh is one hosted inspection (~25 s measured, 90 s budget); the lease outlives the attempt.
+    const refreshQueue = new PostgresWalletAuthorityRefreshQueue(options.pool);
     const refresh = createWalletAuthorityRefresh({
-      queue: new PostgresWalletAuthorityRefreshQueue(options.pool),
+      queue: refreshQueue,
       service: createWalletAuthorityService({ store: authority, chain }), attemptTimeoutMs: 100_000,
       onEvent: event => console.info(JSON.stringify({ service: "wallet", action: "authority_refresh", outcome: event })),
     });
@@ -221,7 +224,8 @@ export async function createRestRuntime(options: {
       return createWalletNetworks({ enrollments: new PostgresWalletEnrollmentStore(options.pool), authority, store: new PostgresWalletNetworksStore(options.pool),
         provider: new RelayrProvider(), rpc, payer: { address: account.address, signTransaction: transaction => account.signTransaction(transaction) } });
     })() : undefined;
-    return { origin, login, policy, handoff, appGrants, authority, refresh, activatePolicy: policy.activate.bind(policy), ...(networks ? { networks } : {}) };
+    return { origin, login, policy, handoff, appGrants, authority, refresh, refreshQueue, manifestId: walletConfiguration.manifest.id,
+      activatePolicy: policy.activate.bind(policy), ...(networks ? { networks } : {}) };
   })() : undefined;
   const accountStore = new PostgresAccountStore(options.pool, wallet ? { walletRefresh: wallet.refresh } : {});
   const verifyContractOwner = createContractOwnerVerifier(
@@ -455,11 +459,12 @@ export async function createRestRuntime(options: {
       manifestFor: binding => manifestFor(binding.manifestId, binding.state.manifestRevision) })
     : undefined;
   if (wallet && walletPayments) wallet.payments = walletPayments;
+  const operationProvider = new UserOperationProvider(execution.providers);
   userOperations = new UserOperationService({
     rpc,
     ...(walletConfiguration?.payments ? { v6UsdcPayment: { chainId: 8453 as const,
       token: walletConfiguration.payments.token, directV6Terminal: walletConfiguration.payments.directV6Terminal } } : {}),
-    provider: new UserOperationProvider(execution.providers),
+    provider: operationProvider,
     ...(execution.sponsorRoutes ? {sponsorRoutes: execution.sponsorRoutes} : {}),
     policies: execution.policies,
     store: new PostgresUserOperationStore(options.pool),
@@ -588,9 +593,33 @@ export async function createRestRuntime(options: {
     }
     if (warmed || failed) console.info(JSON.stringify({ service: "payments", action: "routes_warm", warmed, failed }));
   };
+  // A fresh process serves its first binding reads from nothing: the accounts the refresh queue
+  // still tracks (the recently active ones) are inspected once at boot, two at a time, so a
+  // customer arriving after a deploy is served from a kept state like everyone else.
+  const warmAccounts = async () => {
+    if (!wallet) return;
+    let accounts: string[];
+    try { accounts = await wallet.refreshQueue.interested(16); } catch { return; }
+    let warmed = 0, failed = 0;
+    const next = async () => {
+      for (let account = accounts.shift(); account && !stopped; account = accounts.shift()) {
+        try { await smartAccounts.inspect({ manifestId: wallet.manifestId, address: account.slice("eip155:8453:".length) as Address }); warmed++; }
+        catch { failed++; }
+      }
+    };
+    await Promise.all([next(), next()]);
+    if (warmed || failed) console.info(JSON.stringify({ service: "smart-accounts", action: "accounts_warm", warmed, failed }));
+  };
+  // A connection idle longer than the keep-alive is a new handshake for the next payment: a small
+  // read to the chain RPC and the bundler every maintenance tick keeps one open to each.
+  const keepUpstreamsWarm = async () => {
+    const signal = AbortSignal.timeout(10_000);
+    await Promise.allSettled([rpc.request(8453, "eth_chainId", [], signal), operationProvider.gasPrice(8453, signal)]);
+  };
   const run = () => {
     if (stopped || maintenance) return;
     maintenance = (async () => {
+      await keepUpstreamsWarm();
       if (Date.now() - routesWarmedAt >= 600_000) await warmRoutes();
       await metrics.observeRestRecovery("nonce_cleanup", async () => {
         await accountStore.cleanupExpiredNonces(Math.floor(Date.now() / 1000), 1000);
@@ -637,6 +666,7 @@ export async function createRestRuntime(options: {
     options.startMaintenance === false ? undefined : setInterval(run, 30_000);
   timer?.unref();
   if (options.startMaintenance !== false) void warmRoutes();
+  if (options.startMaintenance !== false) void warmAccounts();
   if (options.startMaintenance !== false) wallet?.refresh.start();
   return {
     site: {

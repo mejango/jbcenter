@@ -1280,10 +1280,10 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
     query(context, []);
     const { input, principal } = await authenticate(context, ['plan']);
     const service = walletPayments(principal);
-    const body = object(jsonBody(input), ['operationId', 'state']);
-    if (typeof body.operationId !== 'string' || typeof body.state !== 'string')
+    const body = object(jsonBody(input), ['operationId', 'state', 'id']);
+    if (typeof body.operationId !== 'string' || typeof body.state !== 'string' || (body.id !== undefined && typeof body.id !== 'string'))
       throw new RestError(400, 'WALLET_PAYMENT_REVIEW_INPUT', 'Choose the prepared operation and callback state.');
-    const view = await service.prepare(actor(principal), { operationId: body.operationId, state: body.state }, idempotency(principal));
+    const view = await service.prepare(actor(principal), { operationId: body.operationId, state: body.state, ...(body.id === undefined ? {} : { id: body.id }) }, idempotency(principal));
     return response(context, publicWalletPaymentReview(view), 201);
   });
   app.get('/wallet/payment-reviews/:id', async context => {
@@ -1314,6 +1314,8 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
       if (!/^0x[0-9a-fA-F]{64}$/.test(String(plan.bindingId)) || typeof plan.idempotencyKey !== "string" || !/^[A-Za-z0-9:_-]{1,128}$/.test(plan.idempotencyKey)
         || typeof request.sponsorAuthorization !== "string")
         throw new RestError(400, "INVALID_INPUT", "Name the binding, the operation, its input, a plan key and the sponsorship.");
+      // The head reads the preparation waits on longest start now, beside the plan's draft.
+      const ahead = userOperations().headAhead(principal, plan.bindingId as Hex, context.get("restSignal"));
       const created = await smartAccountPlan(principal, plan.bindingId as Hex, { operation: plan.operation, input: plan.input }, plan.idempotencyKey,
         `0x${createHash("sha256").update(canonicalValue({ bindingId: plan.bindingId, operation: plan.operation, input: plan.input })).digest("hex")}`, context.get("restSignal"));
       try {
@@ -1323,6 +1325,7 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
           key,
           hash,
           context.get("restSignal"),
+          ahead,
         );
         console.info(JSON.stringify({ service: "user-operations", action: "sponsored_payment", outcome: "accepted", planId: created.id, operationId: operation.id }));
         return response(context, { plan: created, operation, sponsorship: "accepted" }, 201);

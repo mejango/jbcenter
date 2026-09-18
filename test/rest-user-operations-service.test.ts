@@ -750,6 +750,26 @@ describe("UserOperationService integration", () => {
       expect(f.fetcher).not.toHaveBeenCalled();
     },
   );
+  it("uses head reads started ahead of the plan when they are for the same binding, key and EntryPoint", async () => {
+    const f = await fixture();
+    const nonceReads = () => f.rpc.mock.calls.filter(([, method, params]) => method === "eth_call"
+      && String((params[0] as { data: string }).data).startsWith("0x35567e1a")).length;
+    const stored = plan("ahead-plan", f.activeActor, f.wallet, f.now(), 1);
+    const ahead = f.service.headAhead(f.principal, stored.smartAccount!.bindingId);
+    await ahead.reads;
+    const before = nonceReads();
+    const planId = (await f.prepare("ahead-plan")).planId;
+    f.rpc.mockClear();
+    const prepared = await f.service.prepare(f.principal, { planId, stepIndexes: [0] }, "ahead", h("ahead"), undefined, ahead);
+    expect(prepared.state).toBe("prepared");
+    expect(before).toBeGreaterThan(0);
+    expect(nonceReads()).toBe(0);
+    // A stale or foreign ahead read is ignored: the preparation reads the head itself.
+    const foreign = { ...ahead, bindingId: `0x${"ab".repeat(32)}` as Hex };
+    f.rpc.mockClear();
+    await f.service.prepare(f.principal, { planId, stepIndexes: [0] }, "ahead-2", h("ahead-2"), undefined, foreign);
+    expect(nonceReads()).toBeGreaterThan(0);
+  });
   it("prepares reviewable owner bytes and broadcasts exactly the externally signed operation", async () => {
     const f = await fixture(),
       prepared = await f.prepare();
