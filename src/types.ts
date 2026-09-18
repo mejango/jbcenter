@@ -6,6 +6,8 @@ export type JbcenterEnv = {
     requestId: string;
     /** The public error code of a failed response, for the request log. */
     errorCode?: string;
+    /** A bounded, data-free error message for the request log line. */
+    errorDetail?: string;
     /** Time spent authenticating the signed request, for the request log line. */
     authMs?: number;
   };

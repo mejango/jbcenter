@@ -73,6 +73,7 @@ export class Metrics {
               path: c.req.path,
               status: c.res.status,
               ...(c.get("errorCode") ? { code: c.get("errorCode") } : {}),
+              ...(c.get("errorDetail") ? { detail: c.get("errorDetail") } : {}),
               durationMs: Math.round(elapsed * 100) / 100,
               ...(c.get("authMs") !== undefined ? { authMs: c.get("authMs") } : {}),
               client: c.get("client") ?? null,

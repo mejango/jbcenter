@@ -330,6 +330,11 @@ export class UserOperationChain {
       binding.entryPoint.address,
       binding.chainId,
     );
+    if (operationHash !== binding.operationHash.toLowerCase())
+      uoError(
+        "USER_OPERATION_HASH_MISMATCH",
+        "The operation differs from its immutable draft hash.",
+      );
     const nonce = BigInt(op.nonce);
     const key = nonce >> 64n;
     // What the sponsor path needs is decided locally first, so the reads of the preflight go out
@@ -421,11 +426,6 @@ export class UserOperationChain {
       return outcome.value as T;
     };
     read(0); read(1);
-    if (operationHash !== binding.operationHash.toLowerCase())
-      uoError(
-        "USER_OPERATION_HASH_MISMATCH",
-        "The operation differs from its immutable draft hash.",
-      );
     const currentNonce = read<bigint>(2), onchainHash = read<Hex>(3);
     if (currentNonce !== nonce)
       uoError(

@@ -265,6 +265,8 @@ export function problem(error: Error, context: Context): Response {
   }
   const requestId = context.res.headers.get("X-Request-Id") ?? randomUUID();
   context.set("errorCode", code);
+  // A user-operation codec message names only the field it refused; it carries no request data.
+  if (code.startsWith("INVALID_USER_OPERATION")) context.set("errorDetail", detail);
   if (status === 429) context.header("Retry-After", "60");
   // Error details may contain calldata, signatures, or upstream request data.
   // Typed public error codes and bounded messages are the portable contract.
