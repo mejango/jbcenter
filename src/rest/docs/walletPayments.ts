@@ -18,7 +18,8 @@ export function walletPaymentSchemas(): Record<string, Schema> {
     createdAtMs: milliseconds, expiresAtMs: milliseconds, status: { type: 'string', enum: ['pending', 'approved', 'cancelled'] },
     approvedAtMs: nullable(milliseconds), cancelledAtMs: nullable(milliseconds), operationState: { type: 'string' } };
   return {
-    PrepareWalletPaymentReview: object({ operationId: ref('ResourceId'), state }),
+    // The app may name the review's id (a UUID it drew) to open its page before the review exists; an id already taken is a conflict.
+    PrepareWalletPaymentReview: object({ operationId: ref('ResourceId'), state, id: ref('ResourceId') }, ['operationId', 'state']),
     WalletPaymentReview: object(properties),
     WalletPaymentAppReview: object({ ...properties, approval: nullable(object({ signature: ref('HexBytes'), signedCommitment: ref('Hash') })) }),
   };

@@ -56,6 +56,8 @@ interface Journal extends CenterWalletPaymentInput {
   startedAtMs: number;
   state: string;
   reviewKey: string;
+  /** The review id the app chose, so it can open the review page before the review exists. */
+  reviewId?: string;
   submissionKey: string;
   submissionStarted: boolean;
   status: CenterWalletPaymentState;
@@ -66,6 +68,7 @@ interface Journal extends CenterWalletPaymentInput {
 type Saved = { value: Journal; encoded: string };
 const maximumBytes = 1_048_576;
 const reviewPath = '/api/v1/wallet/payment-reviews';
+const reviewIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const paymentFields = ['kind', 'chainId', 'account', 'token', 'terminal', 'projectId', 'amount', 'beneficiary', 'minimumReturnedTokens', 'memo', 'metadata'] as const;
 const states = ['reviewing', 'approved', 'submitting', 'pending', 'confirming', 'paid', 'reverted', 'cancelled', 'unknown', 'expired'];
 const terminal = (status: string) => ['paid', 'reverted', 'cancelled', 'expired'].includes(status);
@@ -195,7 +198,8 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
       if (integrity !== sha256(stringToHex(uoCanonical(value))) || value.version !== 'center-wallet-payment-client-v1' ||
         value.issuer !== issuer || value.audience !== audience || value.callbackUri !== callbackUri ||
         !states.includes(value.status) || typeof value.submissionStarted !== 'boolean' ||
-        !/^payment-review-[0-9a-f]{64}$/.test(value.reviewKey) || !/^payment-submit-[0-9a-f]{64}$/.test(value.submissionKey)) throw new Error();
+        !/^payment-review-[0-9a-f]{64}$/.test(value.reviewKey) || !/^payment-submit-[0-9a-f]{64}$/.test(value.submissionKey) ||
+        (value.reviewId !== undefined && !reviewIdPattern.test(value.reviewId))) throw new Error();
       validateWalletHandoffToken(value.state);
       checkInput(value, value.grant, value.startedAtMs);
       if (value.review) checkView(value.review, value, false);
@@ -226,10 +230,19 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
   async function requestReview(saved: Saved): Promise<Saved> {
     const client = live(saved.value).client;
     const value = await client.request({ method: 'POST', requestTarget: reviewPath,
-      json: { operationId: saved.value.operation.id, state: saved.value.state }, idempotencyKey: saved.value.reviewKey });
+      json: { operationId: saved.value.operation.id, state: saved.value.state, ...(saved.value.reviewId ? { id: saved.value.reviewId } : {}) },
+      idempotencyKey: saved.value.reviewKey });
+    // A review under another id than the one chosen is refused before anything of it is kept.
+    if (saved.value.reviewId && (value as { id?: unknown } | null)?.id !== saved.value.reviewId) mismatch();
     return receiveView(value, saved, false);
   }
-  async function preparePayment(input: CenterWalletPaymentInput): Promise<CenterWalletPaymentStatus> {
+  /** The page a review with this id is approved on; the app may open it before the review exists. */
+  function reviewUrl(reviewId: string): string {
+    if (!reviewIdPattern.test(reviewId)) fail('WALLET_PAYMENT_INPUT_INVALID', 'Choose a version 4 UUID for the review.');
+    return issuer + '/wallet/payment?review=' + reviewId;
+  }
+  async function preparePayment(input: CenterWalletPaymentInput, options: { reviewId?: string } = {}): Promise<CenterWalletPaymentStatus> {
+    if (options.reviewId !== undefined && !reviewIdPattern.test(options.reviewId)) fail('WALLET_PAYMENT_INPUT_INVALID', 'Choose a version 4 UUID for the review.');
     const existing = read();
     if (existing) {
       checkInput(snapshot(input), existing.value.grant, existing.value.startedAtMs);
@@ -247,6 +260,7 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
     const state = btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
     const value: Journal = { ...copy, expectedPayment, version: 'center-wallet-payment-client-v1', issuer, audience, callbackUri,
       grant: snapshot(current.grant), startedAtMs, state, reviewKey: 'payment-review-' + newRequestNonce().slice(2),
+      ...(options.reviewId ? { reviewId: options.reviewId } : {}),
       submissionKey: 'payment-submit-' + newRequestNonce().slice(2), submissionStarted: false, status: 'reviewing' };
     return status((await requestReview(save(value, null))).value);
   }
@@ -367,5 +381,5 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
       if (storage.getItem(key) !== null) throw new Error();
     } catch { fail('WALLET_PAYMENT_STORAGE_UNAVAILABLE', 'The original payment must be archived before clearing this tab’s pending record.'); }
   }
-  return Object.freeze({ preparePayment, completePayment, submitPayment, refreshPayment, pendingPayment, clearPayment });
+  return Object.freeze({ preparePayment, reviewUrl, completePayment, submitPayment, refreshPayment, pendingPayment, clearPayment });
 }

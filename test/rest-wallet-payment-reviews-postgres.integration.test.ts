@@ -193,6 +193,18 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
     const store = new PostgresWalletPaymentReviewStore(pool, options());
     await expect(store.prepare(context.actor, { operationId: fresh.record.id, state: token() }, `review:${fresh.plan.id}`)).rejects.toMatchObject({ status: 409 });
   });
+  it("creates a review under the id the app chose, once, and replays it whatever id a retry names", async () => {
+    const value = await pendingReview();
+    const second = await preparedOperation(value, 120_000, 2n), chosen = "7d2c1f5e-3b7a-4c9e-8f21-0a6d5e4c3b2a";
+    const state = token(), view = await value.store.prepare(value.actor, { operationId: second.record.id, state, id: chosen }, "review:chosen");
+    expect(view.draft.id).toBe(chosen);
+    // The same key replays the review it created, whatever id (or none) the retry names.
+    expect((await value.store.prepare(value.actor, { operationId: second.record.id, state, id: "1e4f2a6b-9c8d-4e7f-a1b2-c3d4e5f60718" }, "review:chosen")).draft.id).toBe(chosen);
+    // An id already taken is a conflict for another key; a malformed one is invalid.
+    const third = await preparedOperation(value, 120_000, 3n);
+    await expect(value.store.prepare(value.actor, { operationId: third.record.id, state: token(), id: chosen }, "review:taken")).rejects.toMatchObject({ status: 409 });
+    await expect(value.store.prepare(value.actor, { operationId: third.record.id, state: token(), id: "not-a-uuid" }, "review:bad")).rejects.toMatchObject({ status: 400 });
+  });
   it("retries preparation with the original tuple and rejects changed state or operation", async () => {
     const value = await pendingReview();
     expect(await value.store.prepare(value.actor, { operationId: value.record.id, state: value.state }, value.key)).toEqual(value.view);

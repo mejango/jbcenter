@@ -157,9 +157,25 @@ async function load() {
     await recover();
   } finally { ahead = null; reviewAhead = null; }
 }
+// The app may open this page before its review exists (the tap opens it while the payment is
+// still being prepared, under the id the app chose): a review not found within the first minute
+// after the page opened is one still on its way, read again every moment while the page says so.
+const openedAt = Date.now();
+async function awaitReview(): Promise<Json> {
+  let read = reviewAhead ?? request(`${base}/payment-reviews/${id}`);
+  for (;;) {
+    try { return await read; }
+    catch (error) {
+      if (!(error instanceof HttpFailure && error.status === 404) || Date.now() - openedAt >= 60_000) throw error;
+      setStatus('preparing', 'Preparing your payment…'); render();
+      await new Promise(resolve => setTimeout(resolve, 700));
+      read = request(`${base}/payment-reviews/${id}`);
+    }
+  }
+}
 async function recover() {
   if (!await readSession()) return;
-  accept(await (reviewAhead ?? request(`${base}/payment-reviews/${id}`)));
+  accept(await awaitReview());
   if (review?.status === 'pending' && pending && !expired()) await submitApproval();
   else if (review?.status === 'pending' && uncertain) {
     // A cancellation may have failed before reaching the server. Reading pending

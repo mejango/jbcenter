@@ -134,8 +134,12 @@ export class PostgresWalletPaymentReviewStore {
       manifestFor: v.manifestFor as WalletPaymentReviewStoreOptions["manifestFor"], maxRecords, maxAccountRecords, receiptRetentionMs };
     this.authority = new PostgresWalletAuthorityStore(pool); this.ceremonies = new PostgresWalletCeremonyStore(pool);
   }
-  async prepare(inputActor: RestActor, input: { operationId: string; state: string }, inputKey: string): Promise<WalletPaymentReviewView> {
-    const actor = actorOf(inputActor), v = fields(input, ["operationId", "state"]), operationId = uuid(v.operationId);
+  /** The app may name the review's id (a UUID it drew) so it can open the review page before the
+   * review exists; an id already taken is a conflict, and a replay on the same key returns the
+   * review that key created whatever id it names now. */
+  async prepare(inputActor: RestActor, input: { operationId: string; state: string; id?: string }, inputKey: string): Promise<WalletPaymentReviewView> {
+    const actor = actorOf(inputActor), v = fields(input, ["operationId", "state"], ["id"]), operationId = uuid(v.operationId);
+    const chosenId = v.id === undefined ? undefined : uuid(v.id);
     let state: string; try { state = validateWalletHandoffToken(v.state); } catch { return invalid(); }
     if (typeof inputKey !== "string" || !/^[!-~]{1,128}$/.test(inputKey)) invalid();
     const key = inputKey, inputDigest = digest({ actor, operationId, state }).slice(2);
@@ -144,7 +148,7 @@ export class PostgresWalletPaymentReviewStore {
     if (hint && (hint.input_digest !== inputDigest || hint.operation_id !== operationId)) conflict();
     const captured = await this.capture(actor, operationId);
     const draft = hint ? this.assertHint(hint, captured) : createWalletPaymentReviewDraft(captured.context,
-      { id: randomUUID(), state, createdAtMs: await this.databaseNow() });
+      { id: chosenId ?? randomUUID(), state, createdAtMs: await this.databaseNow() });
     const expectedDraft = draftIdentity(draft), encoded = JSON.stringify(draft);
     const result = await this.transaction(async client => {
       // Each retained table owns its admission lock: schemas may share reviews while

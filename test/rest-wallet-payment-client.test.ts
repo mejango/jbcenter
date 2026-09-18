@@ -133,6 +133,18 @@ describe('Center browser payment review continuity', () => {
     expect(payments.pendingPayment()!.operationId).toBe(f.prepared.id);
   });
 
+  it('sends the review id the app chose, refuses a review under another id, and names the page for an id ahead of the review', async () => {
+    const f = fixture(), helper = f.helper();
+    expect(helper.reviewUrl(reviewId)).toBe(f.issuer + '/wallet/payment?review=' + reviewId);
+    expect(() => helper.reviewUrl('not-a-uuid')).toThrow();
+    const prepared = await helper.preparePayment(f.input(), { reviewId });
+    expect(prepared.approvalUrl).toBe(f.issuer + '/wallet/payment?review=' + reviewId);
+    expect(f.calls.find(call => call.path === '/api/v1/wallet/payment-reviews')!.body.id).toBe(reviewId);
+    expect(JSON.parse([...f.data.values()][0]!).reviewId).toBe(reviewId);
+    const other = fixture();
+    await expect(other.helper().preparePayment(other.input(), { reviewId: '6ba7b810-9dad-41d1-80b4-00c04fd430c8' })).rejects.toMatchObject({ code: 'WALLET_PAYMENT_MISMATCH' });
+    await expect(fixture().helper().preparePayment(f.input(), { reviewId: 'nope' })).rejects.toMatchObject({ code: 'WALLET_PAYMENT_INPUT_INVALID' });
+  });
   it('binds a signed review, owner envelope and one submission key to the original exact payment', async () => {
     const f = fixture(), helper = f.helper(), prepared = await helper.preparePayment(f.input());
     expect(prepared.approvalUrl).toBe(f.issuer + '/wallet/payment?review=' + reviewId);
