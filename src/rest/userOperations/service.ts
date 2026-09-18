@@ -411,11 +411,13 @@ export class UserOperationService {
       : 0n;
     // The bundler's readiness, the nonce at the head (which carries the base fee) and the two fee
     // quotes are independent: they go out together.
+    // Each read's own time, since the head stage is the slowest of the four.
+    const timed = <T>(name: string, work: Promise<T>) => { const from = Date.now(); return work.finally(() => { stages[name] = Date.now() - from; }); };
     const [, { nonce, evidence, baseFeePerGas }, nodePriority, floor] = await Promise.all([
-      provider.readiness(binding.wallet.chainId, signal),
-      chain.nonce(binding.wallet.chainId, binding.wallet.address, nonceKey, manifest.entryPoint!),
-      chain.request(binding.wallet.chainId, "eth_maxPriorityFeePerGas", []),
-      provider.gasPrice(binding.wallet.chainId, signal),
+      timed("readinessMs", provider.readiness(binding.wallet.chainId, signal)),
+      timed("nonceMs", chain.nonce(binding.wallet.chainId, binding.wallet.address, nonceKey, manifest.entryPoint!)),
+      timed("priorityMs", chain.request(binding.wallet.chainId, "eth_maxPriorityFeePerGas", [])),
+      timed("gasPriceMs", provider.gasPrice(binding.wallet.chainId, signal)),
     ]);
     stage("headMs");
     // Never below the bundler's floor: a cheaper operation is accepted, then waits until it expires.

@@ -308,8 +308,10 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
         "GET_BODY_UNSUPPORTED",
         "GET reads must put their input in the query string",
       );
+    const started = Date.now();
     const principal = await deps.auth.authenticate(input, scopes);
     await accountBudget(principal, context);
+    context.set("authMs", Date.now() - started);
     setRestAuthority(principal, input);
     return { input, principal };
   };
@@ -1150,6 +1152,7 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
   ) => {
     const started = Date.now();
     const existing = await deps.transactions.findPlanByIdempotency(actor(principal), key, hash);
+    const looked = Date.now();
     if (existing) return existing;
     if (typeof body.operation !== "string")
       throw new RestError(
@@ -1165,7 +1168,7 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
     const plan = await deps.transactions.createSmartAccountPlan(actor(principal), bindingId, draft, key, hash);
     // Where a plan's time goes, for the production log; the request line only has the total.
     console.info(JSON.stringify({ service: "smart-accounts", action: "plan_stages", operation: body.operation,
-      draftMs: drafted - started, accountMs: Date.now() - drafted }));
+      lookupMs: looked - started, draftMs: drafted - looked, accountMs: Date.now() - drafted }));
     return plan;
   };
   app.post("/smart-accounts/bindings/:id/plans", async (context) => {

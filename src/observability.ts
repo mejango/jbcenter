@@ -74,6 +74,7 @@ export class Metrics {
               status: c.res.status,
               ...(c.get("errorCode") ? { code: c.get("errorCode") } : {}),
               durationMs: Math.round(elapsed * 100) / 100,
+              ...(c.get("authMs") !== undefined ? { authMs: c.get("authMs") } : {}),
               client: c.get("client") ?? null,
               region: process.env.RAILWAY_REPLICA_REGION ?? null,
               replica: process.env.RAILWAY_REPLICA_ID ?? null,
