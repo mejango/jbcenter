@@ -7,7 +7,7 @@ describe('published wallet package', () => {
   it('exports exactly the connection and payment surface', () => {
     expect(Object.keys(wallet).sort()).toEqual([
       'RestClientError', 'assertReviewedOperation', 'createCenterWalletClient',
-      'ownerOperationSignature', 'ownerOperationSigning', 'userOperationMaximumCost',
+      'ownerOperationSignature', 'ownerOperationSigning', 'sponsoredCallsCommitment', 'userOperationMaximumCost',
     ]);
   });
   it('is a browser package with viem as its only dependency and no executable', () => {
