@@ -1,4 +1,5 @@
 import { createHttpHandler, createMcpServer } from "@juicebox/mcp/host";
+import { keepUpstreamConnections } from "./keepAlive.js";
 import { createApp } from "./app.js";
 import { migrate } from "./db/migrate.js";
 import { createPool, PostgresStore } from "./db/postgres.js";
@@ -26,6 +27,7 @@ function requireStrongSecret(name: string, value: string | undefined): string {
   return value;
 }
 
+const keptAlive = keepUpstreamConnections();
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("DATABASE_URL is required");
 const metricsToken = requireStrongSecret("METRICS_TOKEN", process.env.METRICS_TOKEN);
@@ -134,7 +136,7 @@ const runtime = createCenterServer(app.fetch, handler, {
   shutdownGraceMs: positiveInteger("SHUTDOWN_GRACE_MS", 25_000),
 });
 await runtime.listen();
-console.log(`JB Center listening on :${port}, including /mcp and /api/v1`);
+console.log(`JB Center listening on :${port}, including /mcp and /api/v1${keptAlive ? "" : " (upstream connections not kept: undici major differs)"}`);
 
 let shuttingDown = false;
 const shutdown = async () => {

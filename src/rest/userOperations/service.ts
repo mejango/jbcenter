@@ -701,13 +701,16 @@ export class UserOperationService {
     signedCommitment: Hex; key: string; authority: { issuedAt: number; expiresAt: number }; signal: AbortSignal | undefined;
   }) {
     const { actor, record, signedCommitment, signal } = input;
+    const stages: Record<string, number> = {};
+    const stage = ((last) => (name: string) => { const now = Date.now(); stages[name] = now - last; last = now; })(Date.now());
     let claim: Awaited<ReturnType<UserOperationServiceDependencies["store"]["claim"]>>;
-    try { claim = await this.admit(input); }
+    try { claim = await this.admit(input, stages); }
     catch (error) {
       const current = await this.options.store.get(actor, record.id);
       if (current?.submission && same(current.submission.commitment, signedCommitment)) return this.view(await this.refresh(current, signal));
       throw error;
     }
+    stage("admitMs");
     if (!claim.dispatch)
       return this.view(await this.refresh(claim.record, signal));
     // Admission permanently reserves both plan transport and nonce before the only publication attempt.
@@ -718,11 +721,15 @@ export class UserOperationService {
       state = "submission_unknown";
       this.options.forgetAccountState?.(input.plan);
     }
+    stage("sendMs");
     const submitted = await this.options.store.settle(
       record.id,
       signedCommitment,
       state,
     );
+    stage("settleMs");
+    // Where a submission's time goes, for the production log.
+    console.info(JSON.stringify({ service: "user-operations", action: "submit_stages", outcome: state, ...stages }));
     return this.view(submitted);
   }
 
@@ -732,8 +739,9 @@ export class UserOperationService {
   private async admit(input: {
     actor: RestActor; principal: RestPrincipal | undefined; record: UserOperationRecord; plan: StoredPlan; operation: UserOperationV07;
     signedCommitment: Hex; key: string; authority: { issuedAt: number; expiresAt: number }; signal: AbortSignal | undefined;
-  }) {
+  }, stages: Record<string, number> = {}) {
     const { actor, principal, record, plan, operation, signedCommitment, key, authority: requestAuthority, signal } = input;
+    const stage = ((last) => (name: string) => { const now = Date.now(); stages[name] = now - last; last = now; })(Date.now());
     const id = record.id;
     const policy = this.policy(record.chainId);
     const provider = this.providerForRecord(record);
@@ -751,6 +759,7 @@ export class UserOperationService {
     // preflight are independent of each other at that head, so they run together; both must pass
     // before the signature check, the signed estimate and the nonce claim.
     const head = await this.chain(signal).snapshot(record.chainId);
+    stage("headMs");
     // The plan's manifest is the binding's: the account check requires the same revision.
     const planManifest = this.options.manifestForPlan(plan);
     // A passkey profile requires threshold one; the account check below enforces it.
@@ -760,6 +769,7 @@ export class UserOperationService {
       this.account(plan, signal, head),
       this.chain(signal).preflight(this.execution(record, operation, plan, planManifest), policy.gas, provider, head),
     ]);
+    stage("checksMs");
     // Both finished at that head; the first failure in this order is the one reported.
     for (const check of checks) if (check.status === "rejected") throw check.reason;
     const { binding, manifest } = (checks[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof this.account>>>).value;
@@ -811,6 +821,7 @@ export class UserOperationService {
                 "The exact signed operation requires more gas than was approved. Prepare and approve a fresh operation.");
         }),
       ]);
+      stage("signatureMs");
       for (const check of admission) if (check.status === "rejected") { this.options.forgetAccountState?.(plan); throw check.reason; }
     } else {
       await verifySafe7579OwnerSignature({
@@ -844,7 +855,7 @@ export class UserOperationService {
       issuedAt: Math.max(requestAuthority.issuedAt, validAfter),
       expiresAt: Math.min(requestAuthority.expiresAt, validUntil),
     };
-    return this.options.store.claim({
+    const claimed = await this.options.store.claim({
       actor,
       id,
       key,
@@ -854,6 +865,8 @@ export class UserOperationService {
       ...(sessionObservationHash ? { sessionObservationHash } : {}),
       now: this.now(),
     });
+    stage("claimMs");
+    return claimed;
   }
 
   /** A read; with `wait`, one that answers as soon as the record moves past the revision the caller
