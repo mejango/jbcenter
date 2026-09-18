@@ -503,27 +503,33 @@ export class UserOperationService {
     } else operation = applyUserOperationEstimate(operation, estimate);
     stage("estimateMs");
     gasEstimation?.assert(operation);
-    if (sponsored && !stub?.isFinal) {
-      const funded = await finalizeUserOperationSponsorship({
-        chainId: binding.wallet.chainId,
-        operation,
-        gasPolicy: policy.gas,
-        profile: providerConfig.paymasterPolicy?.profile,
-        expiresAt,
-        dummySignature: dummy,
-        provider: estimateProvider,
-        sessionGas: gasEstimation,
-        signal,
-        // The passkey margins (calldata bytes and verification headroom) cover a same-size sponsorship.
-        marginsCoverSameSizeSponsorship: passkeyProfile !== undefined,
-      });
+    // The head is checked canonical one last time beside the final sponsorship, the last network
+    // step, rather than after it; a head that moved fails the preparation either way.
+    const [funded] = await Promise.all([
+      sponsored && !stub?.isFinal
+        ? finalizeUserOperationSponsorship({
+            chainId: binding.wallet.chainId,
+            operation,
+            gasPolicy: policy.gas,
+            profile: providerConfig.paymasterPolicy?.profile,
+            expiresAt,
+            dummySignature: dummy,
+            provider: estimateProvider,
+            sessionGas: gasEstimation,
+            signal,
+            // The passkey margins (calldata bytes and verification headroom) cover a same-size sponsorship.
+            marginsCoverSameSizeSponsorship: passkeyProfile !== undefined,
+          })
+        : Promise.resolve(null),
+      chain.canonical(evidence),
+    ]);
+    if (funded) {
       operation = funded.operation;
       expiresAt = funded.expiresAt;
     }
     stage("sponsorMs");
     assertUserOperationGasPolicy(operation, policy.gas);
     gasEstimation?.assert(operation);
-    await chain.canonical(evidence);
     operation = normalizeUserOperation(operation);
     const operationHash = getUserOperationHash(
       operation,
@@ -898,8 +904,10 @@ export class UserOperationService {
   /** When each operation was last observed here, whether or not that observation was written. */
   private readonly lastObserved = new Map<string, number>();
   /** How long an observation waits for the account verification at the execution block before
-   * answering without it (a carried verification is well within; a full inspection is not). */
-  private get verificationBudgetMs() { return this.options.verificationBudgetMs ?? 750; }
+   * answering without it. */
+  // Zero by default: at an execution block the operation's own EntryPoint event is ingress, so the
+  // account can never be carried there and the verification is a full inspection every time.
+  private get verificationBudgetMs() { return this.options.verificationBudgetMs ?? 0; }
   /** Account verifications at execution blocks: under way, landed, and failed (run again in front). */
   private readonly verifying = new Map<string, Promise<void>>();
   private readonly verified = new Set<string>();

@@ -232,6 +232,8 @@ export class UserOperationChain {
       );
     const { evidence, baseFeePerGas } = await this.latest(chainId);
     await this.runtime(chainId, entryPoint, evidence, true);
+    // The read is pinned to the head's hash and requires it canonical, so the node itself refuses
+    // a head that a reorg has replaced; no second block read is needed to know.
     const nonce = await this.readNonce(
       chainId,
       sender,
@@ -239,7 +241,6 @@ export class UserOperationChain {
       entryPoint.address,
       evidence,
     );
-    await this.canonical(evidence);
     return { nonce: toHex(nonce), evidence, baseFeePerGas };
   }
   private async call(

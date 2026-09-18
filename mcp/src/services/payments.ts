@@ -671,6 +671,7 @@ export class PaymentService {
     }
     const amount = uint(input.amount, 'amount');
     const slippage = bps(input.slippageBps);
+    const requested = Date.now();
     const snapshot = await this.rpc.snapshot(input.project.chainId);
     let fullPreview: readonly unknown[] | undefined;
     const client = asAccount(snapshot.client, input.account, (request, result) => {
@@ -692,6 +693,7 @@ export class PaymentService {
         service: 'payments',
         action: 'pay_quote',
         route: route.fresh ? 'read' : 'kept',
+        snapshotMs: started - requested,
         routeMs: routed - started,
         previewMs: Date.now() - routed,
       }),

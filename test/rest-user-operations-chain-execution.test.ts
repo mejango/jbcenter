@@ -288,6 +288,11 @@ describe("independent signed user operation preflight", () => {
         ([, method]) => method === "eth_sendRawTransaction",
       ),
     ).toBe(false);
+    // The nonce is read pinned to the head's hash and requires it canonical: the node itself
+    // refuses a replaced head, so the read needs no block recheck of its own.
+    const nonceRead = f.rpc.mock.calls.find(([, method, params]) => method === "eth_call"
+      && String((params[0] as { data: string }).data).startsWith("0x35567e1a"));
+    expect(nonceRead?.[2][1]).toEqual({ blockHash, requireCanonical: true });
   });
   it.each([
     "nonce",

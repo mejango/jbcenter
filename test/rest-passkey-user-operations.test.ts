@@ -399,8 +399,9 @@ describe("passkey UserOperation estimation", () => {
     const view = await first;
     const calls = (method: string) => f.rpc.mock.calls.filter(([, m]) => m === method).length;
     const provider = (method: string) => f.fetcher.mock.calls.filter(([, init]) => JSON.parse(String(init?.body)).method === method).length;
-    // One head read prices the operation: the head, its canonical recheck after the nonce, and the final recheck.
-    expect(calls("eth_getBlockByNumber")).toBe(3);
+    // One head read prices the operation: the head, and the final canonical recheck beside the sponsorship;
+    // the pinned nonce read needs no recheck of its own.
+    expect(calls("eth_getBlockByNumber")).toBe(2);
     expect(BigInt(view.operation.maxFeePerGas)).toBe(2n * 0x10n + 2n);
     expect(provider("pm_getPaymasterStubData")).toBe(1);
     const again = await f.service.prepare(f.principal, { planId: f.preparedPlan.id, stepIndexes: [0] }, "prepare-2", h("prepare-2"));
