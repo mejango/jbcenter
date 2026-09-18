@@ -131,9 +131,10 @@ function accept(input: unknown) {
   else if (expired()) setStatus('expired', 'This payment approval expired. Return to your app to review a fresh payment.');
   else setStatus('ready', 'Check the payment details, then approve with your passkey.');
 }
-// The configuration and the session do not depend on one another: they go out together and are
-// checked in order; the review is read only once the session is known.
-let ahead: Promise<Json> | null = null;
+// The configuration, the session and the review do not depend on one another here: they go out
+// together and are checked in order. The server answers the review only for its session; a read
+// that goes out without one is refused there and never shown.
+let ahead: Promise<Json> | null = null, reviewAhead: Promise<Json> | null = null;
 async function readSession() {
   const result = await (ahead ?? request(`${base}/session`));
   if (result.session === null) { needsSignIn = true; csrf = ''; setStatus('sign-in', 'Sign in to review this payment.'); return false; }
@@ -148,16 +149,17 @@ async function load() {
   id = uuid(url.searchParams.get('review')); signIn.href = `${base || '/'}?payment=${id}`;
   const configuration = request(`${base}/config`);
   ahead = request(`${base}/session`); ahead.catch(() => undefined);
+  reviewAhead = request(`${base}/payment-reviews/${id}`); reviewAhead.catch(() => undefined);
   try {
     const config = await configuration;
     if (config.version !== 'center-wallet-v1' || config.issuer !== location.origin) fail();
     rpId = text(config.rpId, 253); if (location.hostname !== rpId && !location.hostname.endsWith(`.${rpId}`)) fail();
     await recover();
-  } finally { ahead = null; }
+  } finally { ahead = null; reviewAhead = null; }
 }
 async function recover() {
   if (!await readSession()) return;
-  accept(await request(`${base}/payment-reviews/${id}`));
+  accept(await (reviewAhead ?? request(`${base}/payment-reviews/${id}`)));
   if (review?.status === 'pending' && pending && !expired()) await submitApproval();
   else if (review?.status === 'pending' && uncertain) {
     // A cancellation may have failed before reaching the server. Reading pending

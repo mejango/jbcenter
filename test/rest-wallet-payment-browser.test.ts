@@ -53,7 +53,7 @@ describe('central payment review browser, virtual authenticator', () => {
       if (path === '/wallet/config') return json({ version: 'center-wallet-v1', issuer: origin, audience: origin, rpId: 'localhost' });
       if (path === '/wallet/session') return json({ session: signedIn ? { accountId: review.accountId, walletAddress: review.payment.account,
         loginId: '11111111-1111-4111-8111-111111111111', chainId: 8453, expiresAtMs: Date.now() + 3600000 } : null, csrfToken: csrf });
-      if (path === `/wallet/payment-reviews/${reviewId}`) return unavailableReads ? json({ error: 'private provider detail' }, 503) : json(review);
+      if (path === `/wallet/payment-reviews/${reviewId}`) return !signedIn ? json({ error: { code: 'WALLET_HTTP_SESSION' } }, 403) : unavailableReads ? json({ error: 'private provider detail' }, 503) : json(review);
       if (path === `/wallet/payment-reviews/${reviewId}/approve`) {
         try {
           const assertion = body.assertion;
@@ -254,10 +254,18 @@ describe('central payment review browser, virtual authenticator', () => {
     expect(await page.locator('#payment-return').getAttribute('href')).toBe(callback());
   });
 
+  it('reads the configuration, the session and the review together', async () => {
+    await load();
+    const first = requests.slice(0, 3).map(request => request.path).sort();
+    expect(first).toEqual(['/wallet/config', `/wallet/payment-reviews/${reviewId}`, '/wallet/session']);
+  });
+
   it('offers only a fixed same-origin sign-in continuation when the central session is absent', async () => {
     signedIn = false; await page.goto(`${origin}/wallet/payment?review=${reviewId}`); await status('sign-in');
     expect(await page.locator('#payment-signin').getAttribute('href')).toBe(`/wallet?payment=${reviewId}`);
-    expect(requests.some(request => request.path.includes('/payment-reviews/'))).toBe(false); expect(approvals()).toHaveLength(0);
+    // The review goes out with the session read and is refused by the server; nothing of it is shown.
+    expect(await page.locator('#payment-amount').textContent()).toBe('');
+    expect(approvals()).toHaveLength(0);
   });
 
   it.each([`review=${reviewId}&review=${reviewId}`, `review=${reviewId}&return=https://outside.invalid`, 'review=bad'])('rejects ambiguous review navigation %s', async query => {
