@@ -232,10 +232,8 @@ export class PostgresWalletAuthorityRefreshQueue implements AuthorityRefreshQueu
   private async transaction<T>(run: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
     try {
-      await client.query("BEGIN");
-      await client.query("SET LOCAL lock_timeout='5000ms'");
-      await client.query("SET LOCAL statement_timeout='10000ms'");
-      await client.query("SET LOCAL idle_in_transaction_session_timeout='15000ms'");
+      // One round trip: a parameterless simple query may carry several statements.
+      await client.query("BEGIN; SET LOCAL lock_timeout='5000ms'; SET LOCAL statement_timeout='10000ms'; SET LOCAL idle_in_transaction_session_timeout='15000ms'");
       const result = await run(client);
       await client.query("COMMIT");
       return result;

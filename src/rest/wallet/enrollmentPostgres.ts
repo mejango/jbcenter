@@ -18,7 +18,8 @@ type EnrollmentRow = {
   possession: WalletEnrollment["possession"]; receipt: WalletEnrollmentReceipt | null;
 };
 const nowSql = "floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint";
-const recordOf = (row: EnrollmentRow): WalletEnrollment => ({ intent: row.intent, createdAt: Number(row.created_at), state: row.state,
+export type WalletEnrollmentRow = EnrollmentRow;
+export const walletEnrollmentOf = (row: EnrollmentRow): WalletEnrollment => ({ intent: row.intent, createdAt: Number(row.created_at), state: row.state,
   candidate: row.candidate, candidateDigest: row.candidate_digest, creation: row.creation, possession: row.possession, receipt: row.receipt });
 function validId(id: string): void {
   if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id))
@@ -71,7 +72,7 @@ async function assertLive(client: PoolClient, record: Pick<WalletEnrollment, "in
 export async function lockWalletEnrollmentInTransaction(client: PoolClient, id: string): Promise<WalletEnrollment> {
   validId(id);
   const row = (await client.query<EnrollmentRow>("SELECT * FROM rest_wallet_enrollments WHERE id=$1 FOR UPDATE", [id])).rows[0];
-  return row ? recordOf(row) : missing();
+  return row ? walletEnrollmentOf(row) : missing();
 }
 
 export interface CurrentWalletCredentialRow {
@@ -83,9 +84,13 @@ export interface CurrentWalletCredentialRow {
 /** The caller owns transaction and lock order. This preserves W4's exact current-mapping check;
  * it acquires no account lock and performs no proof verification or external reads. */
 export async function currentWalletCredentialInTransaction(client: PoolClient, enrollment: WalletEnrollment): Promise<CurrentWalletCredentialRow | null> {
-  const candidate = enrollment.candidate!, receipt = enrollment.receipt!;
   const row = (await client.query<CurrentWalletCredentialRow>(
-    "SELECT * FROM rest_wallet_credentials WHERE account_id=$1 AND superseded_at IS NULL AND device_receipt IS NULL FOR UPDATE", [receipt.accountId])).rows[0];
+    "SELECT * FROM rest_wallet_credentials WHERE account_id=$1 AND superseded_at IS NULL AND device_receipt IS NULL FOR UPDATE", [enrollment.receipt!.accountId])).rows[0];
+  return currentWalletCredentialOf(row, enrollment);
+}
+/** The same check over a primary row already read (and locked) by the caller's own statement. */
+export function currentWalletCredentialOf(row: CurrentWalletCredentialRow | undefined, enrollment: WalletEnrollment): CurrentWalletCredentialRow | null {
+  const candidate = enrollment.candidate!, receipt = enrollment.receipt!;
   if (!row || row.enrollment_id !== enrollment.intent.id || row.account_id !== receipt.accountId || row.user_handle !== candidate.userHandle || row.rp_id !== enrollment.intent.rpId) return null;
   // Bounded metadata only under locks. Full immutable lineage validation runs in the
   // authority loader after release; a receipt's JSON shape is never provenance.
@@ -106,6 +111,10 @@ export async function currentWalletDevicesInTransaction(client: PoolClient, enro
   const rows = (await client.query<CurrentWalletCredentialRow>(
     "SELECT * FROM rest_wallet_credentials WHERE account_id=$1 AND superseded_at IS NULL AND device_receipt IS NOT NULL ORDER BY verified_at, credential_id FOR UPDATE",
     [enrollment.receipt!.accountId])).rows;
+  return currentWalletDevicesOf(rows, enrollment);
+}
+/** The same filter over device rows already read (and locked) by the caller's own statement. */
+export function currentWalletDevicesOf(rows: CurrentWalletCredentialRow[], enrollment: WalletEnrollment): CurrentWalletCredentialRow[] {
   return rows.filter(row => row.enrollment_id === enrollment.intent.id && row.user_handle === enrollment.intent.userHandle && row.rp_id === enrollment.intent.rpId
     && row.device_receipt && row.device_receipt.credential?.credentialId === row.credential_id);
 }
@@ -137,7 +146,7 @@ export class PostgresWalletEnrollmentStore {
     await this.cleanupInTransaction(client, 100);
     const row = (await client.query<EnrollmentRow>("SELECT * FROM rest_wallet_enrollments WHERE id=$1 FOR UPDATE", [intent.id])).rows[0];
     if (row) {
-      const prior = recordOf(row);
+      const prior = walletEnrollmentOf(row);
       if (enrollmentDigest(prior.intent) !== enrollmentDigest(intent)) conflict();
       if (prior.state !== "verified" && intent.expiresAt + walletCeremonyRetentionMs <= await walletCeremonyDatabaseNow(client))
         throw new RestError(410, "WALLET_ENROLLMENT_EXPIRED", "Enrollment retention has ended.");
@@ -153,7 +162,7 @@ export class PostgresWalletEnrollmentStore {
         intent.expiresAt + walletCeremonyRetentionMs, JSON.stringify(intent)],
     )).rows[0]!;
     await assertLive(client, { intent });
-    return recordOf(inserted);
+    return walletEnrollmentOf(inserted);
   }
 
   async get(id: string): Promise<WalletEnrollment | null> {
@@ -161,7 +170,7 @@ export class PostgresWalletEnrollmentStore {
     const row = (await this.pool.query<EnrollmentRow>(
       `SELECT * FROM rest_wallet_enrollments WHERE id=$1 AND (state='verified' OR retain_until > ${nowSql})`, [id],
     )).rows[0];
-    return row ? recordOf(row) : null;
+    return row ? walletEnrollmentOf(row) : null;
   }
 
   async acceptRegistration(id: string, response: WalletRegistrationResponse): Promise<WalletEnrollment> {
@@ -190,7 +199,7 @@ export class PostgresWalletEnrollmentStore {
           JSON.stringify(prepared.possession), prepared.creation.address.toLowerCase()],
       )).rows[0]!;
       await assertLive(client, current);
-      return recordOf(row);
+      return walletEnrollmentOf(row);
     });
   }
 
@@ -235,7 +244,7 @@ export class PostgresWalletEnrollmentStore {
       )).rows[0]!;
       // Unique-index waits and all writes can cross expiry; roll everything back if they did.
       await assertLive(client, current);
-      return { record: recordOf(row), replayed: false };
+      return { record: walletEnrollmentOf(row), replayed: false };
     });
   }
 

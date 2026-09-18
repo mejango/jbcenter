@@ -74,12 +74,21 @@ export async function assertWalletPolicyCallbackInTransaction(client: PoolClient
   const expiresAt = request.expiresAt, generation = request.expectedGeneration;
   if (!positive(expiresAt) || (generation !== undefined && !positive(generation))) invalid();
   const row = (await client.query<AppRow>("SELECT * FROM rest_wallet_policy_apps WHERE origin=$1 FOR SHARE", [origin])).rows[0];
-  if (!row || !row.enabled || !row.wallet_callbacks.includes(callback)
-    || (generation !== undefined && Number(row.generation) !== generation)) inactive();
   const now = Number((await client.query<{ now: string }>(`SELECT ${nowSql} AS now`)).rows[0]!.now);
-  if (expiresAt <= now) throw new RestError(410, "WALLET_POLICY_EXPIRED", "Wallet callback admission has expired.");
+  return admitWalletPolicyCallback(row, { origin, callback, expiresAt, generation }, now);
+}
+/** The admission's own checks over an app row the caller read (and share-locked) itself, at the
+ * millisecond clock it read after every lock; the row is validated before the clock is consulted. */
+export function admitWalletPolicyCallback(row: WalletPolicyAppRow | undefined,
+  request: { origin: string; callback: string; expiresAt: number; generation?: number | undefined }, nowMs: number): WalletPolicyApplicationState {
+  if (validateWalletPolicyOrigin(request.origin) !== request.origin || validateWalletPolicyCallback(request.callback, request.origin) !== request.callback
+    || !positive(request.expiresAt) || (request.generation !== undefined && !positive(request.generation))) invalid();
+  if (!row || row.origin !== request.origin || !row.enabled || !row.wallet_callbacks.includes(request.callback)
+    || (request.generation !== undefined && Number(row.generation) !== request.generation)) inactive();
+  if (request.expiresAt <= nowMs) throw new RestError(410, "WALLET_POLICY_EXPIRED", "Wallet callback admission has expired.");
   return appOf(row);
 }
+export type WalletPolicyAppRow = AppRow;
 
 /** Explicit operator-only activation of the shared Center trust configuration. No route, startup
  * activation, process-local authority cache, grant issuance or session/spending authority.

@@ -8,8 +8,9 @@ import { reconcileWalletAuthority, validateWalletAuthorityContext, validateWalle
   walletAuthorityMaximumAgeMs, walletAuthorityMaximumHeadAgeMs,
   type WalletAuthorityContext, type WalletAuthorityCredential, type WalletAuthorityObservation, type WalletAuthoritySnapshot } from "./authority.js";
 import { enrollmentDigest } from "./enrollment.js";
-import { currentWalletCredentialInTransaction, currentWalletDevicesInTransaction, lockWalletEnrollmentInTransaction,
-  type CurrentWalletCredentialRow } from "./enrollmentPostgres.js";
+import { currentWalletCredentialInTransaction, currentWalletCredentialOf, currentWalletDevicesOf, lockWalletEnrollmentInTransaction,
+  walletEnrollmentOf, type CurrentWalletCredentialRow, type WalletEnrollmentRow } from "./enrollmentPostgres.js";
+import type { WalletPolicyAppRow } from "./policyPostgres.js";
 
 interface AuthorityRow {
   account_id: string; authority_epoch: string; session_epoch: string; updated_at: string; revision: string;
@@ -70,24 +71,82 @@ async function readAuthority(client: Pool | PoolClient, accountId: string, lock 
   return (await client.query<AuthorityRow>(`SELECT * FROM rest_wallet_authority WHERE account_id=$1${lock ? " FOR UPDATE" : ""}`, [accountId])).rows[0] ?? null;
 }
 
-/** Internal locked metadata only. Caller owns BEGIN/COMMIT and validates a captured context
- * outside SQL before comparing its immutable fields here. Account → enrollment → authority
- * → credential locks; no proof validation, RPC, pool acquisition or authority admission. */
-export async function loadWalletAuthorityContextInTransaction(client: PoolClient, accountId: string): Promise<WalletAuthorityContext> {
+/** Every row of the account's authority context (and, when asked, the app grant and its policy
+ * row) read by one statement. The account row lock stays the statement before this one: a
+ * statement's snapshot is taken before it blocks, so only the reads behind that lock see what the
+ * lock waited for. Same rows and lock modes as the single readers above (the binding is
+ * share-locked as well, so it is fetched at its latest version like the rest); each CTE is
+ * materialised so it runs and locks exactly once. Rows travel as JSON, numbers as text. */
+export interface WalletAuthorityContextRows {
+  binding: (BindingRow & { id: string }) | undefined;
+  enrollment: (WalletEnrollmentRow & { id: string }) | undefined;
+  authority: AuthorityRow | undefined;
+  credential: CurrentWalletCredentialRow | undefined;
+  devices: CurrentWalletCredentialRow[];
+  grant: Record<string, unknown> | undefined;
+  policyApp: WalletPolicyAppRow | undefined;
+}
+/** A row as JSON with every top-level number written as its exact digits: node-pg delivers every
+ * bigint column as text, and epochs exceed 2^53. No table read here has a non-bigint number column. */
+const textualRow = (alias: string) =>
+  `(SELECT jsonb_object_agg(key, CASE WHEN jsonb_typeof(value)='number' THEN to_jsonb(value#>>'{}') ELSE value END) FROM jsonb_each(to_jsonb(${alias})))`;
+export async function readWalletAuthorityContextRows(client: PoolClient, accountId: string,
+  app?: { grantId: string; origin: string }): Promise<WalletAuthorityContextRows> {
   account(accountId);
-  await lockAccount(client, accountId);
-  const currentBinding = await readBinding(client, accountId);
-  const row = (await client.query<{ id: string }>("SELECT id FROM rest_wallet_enrollments WHERE account_id=$1 AND state='verified'", [accountId])).rows[0];
-  if (!row) unavailable();
-  const enrollment = await lockWalletEnrollmentInTransaction(client, row.id);
-  const authority = await readAuthority(client, accountId, true);
-  const credential = await currentWalletCredentialInTransaction(client, enrollment);
+  const rowsOf = (alias: string) => `(SELECT jsonb_agg(${textualRow(alias)}) FROM ${alias})`;
+  const result = await client.query<Record<string, unknown[] | null>>(`WITH
+    b AS MATERIALIZED (SELECT id,document,revoked_at,authorization_digest FROM rest_smart_account_bindings
+      WHERE account_id=$1 AND chain_id=8453 AND wallet_address=$2 AND revoked_at IS NULL FOR SHARE),
+    e AS MATERIALIZED (SELECT * FROM rest_wallet_enrollments WHERE account_id=$1 AND state='verified' FOR UPDATE),
+    a AS MATERIALIZED (SELECT * FROM rest_wallet_authority WHERE account_id=$1 FOR UPDATE),
+    c AS MATERIALIZED (SELECT * FROM rest_wallet_credentials WHERE account_id=$1 AND superseded_at IS NULL AND device_receipt IS NULL FOR UPDATE),
+    d AS MATERIALIZED (SELECT * FROM rest_wallet_credentials WHERE account_id=$1 AND superseded_at IS NULL AND device_receipt IS NOT NULL
+      ORDER BY verified_at, credential_id FOR UPDATE)${app ? `,
+    g AS MATERIALIZED (SELECT * FROM rest_wallet_app_grants WHERE id=$3 FOR SHARE),
+    p AS MATERIALIZED (SELECT * FROM rest_wallet_policy_apps WHERE origin=$4 FOR SHARE)` : ""}
+    SELECT ${rowsOf("b")} AS binding, ${rowsOf("e")} AS enrollment, ${rowsOf("a")} AS authority, ${rowsOf("c")} AS credential,
+      (SELECT jsonb_agg(${textualRow("d")} ORDER BY d.verified_at, d.credential_id) FROM d) AS devices
+      ${app ? `, ${rowsOf("g")} AS grant, ${rowsOf("p")} AS policy_app` : ""}`,
+    app ? [accountId, accountId.slice("eip155:8453:".length), app.grantId, app.origin] : [accountId, accountId.slice("eip155:8453:".length)]);
+  const row = result.rows[0]!;
+  // One row per account by construction (unique verified enrollment, primary credential, authority
+  // and live binding per account; one grant id; one policy origin): anything else is not admitted.
+  const one = <T>(rows: unknown[] | null | undefined): T | undefined => {
+    if (rows && rows.length > 1) unavailable();
+    return rows?.[0] as T | undefined;
+  };
+  return {
+    binding: one(row.binding), enrollment: one(row.enrollment), authority: one(row.authority), credential: one(row.credential),
+    devices: (row.devices ?? []) as CurrentWalletCredentialRow[],
+    grant: app ? one(row.grant) : undefined, policyApp: app ? one(row.policy_app) : undefined,
+  };
+}
+function bindingOf(row: WalletAuthorityContextRows["binding"]): BindingRow {
+  if (!row || !passkeyBindingMethods.includes(row.document.authorization.method as typeof passkeyBindingMethods[number]) ||
+      row.document.authorization.digest !== row.authorization_digest) unavailable();
+  return row;
+}
+/** The context assembled from rows read behind the account lock: the checks of the single readers, unchanged. */
+export function walletAuthorityContextOf(accountId: string, rows: WalletAuthorityContextRows): WalletAuthorityContext {
+  const currentBinding = bindingOf(rows.binding);
+  if (!rows.enrollment) unavailable();
+  const enrollment = walletEnrollmentOf(rows.enrollment);
+  const credential = currentWalletCredentialOf(rows.credential, enrollment);
   if (!credential) unavailable();
-  const devices = await currentWalletDevicesInTransaction(client, enrollment);
+  const devices = currentWalletDevicesOf(rows.devices, enrollment);
   return { version: "center-wallet-authority-context-v1", accountId, enrollment,
     credential: credentialOf(credential),
     ...(devices.length ? { devices: devices.map(row => ({ ...credentialOf(row), device: row.device_receipt! })) } : {}),
-    binding: currentBinding.document, prior: authority ? snapshotOf(authority) : null };
+    binding: currentBinding.document, prior: rows.authority ? snapshotOf(rows.authority) : null };
+}
+
+/** Internal locked metadata only. Caller owns BEGIN/COMMIT and validates a captured context
+ * outside SQL before comparing its immutable fields here. The account lock first, then every
+ * other row in one statement; no proof validation, RPC, pool acquisition or authority admission. */
+export async function loadWalletAuthorityContextInTransaction(client: PoolClient, accountId: string): Promise<WalletAuthorityContext> {
+  account(accountId);
+  await lockAccount(client, accountId);
+  return walletAuthorityContextOf(accountId, await readWalletAuthorityContextRows(client, accountId));
 }
 
 /** Internal trusted storage composition only. No chain transport or public grant issuance. */
@@ -166,10 +225,8 @@ export class PostgresWalletAuthorityStore {
     // another pool connection or call a chain/proof service while holding these row locks.
     const client = await this.pool.connect();
     try {
-      await client.query("BEGIN");
-      await client.query("SET LOCAL lock_timeout='5000ms'");
-      await client.query("SET LOCAL statement_timeout='10000ms'");
-      await client.query("SET LOCAL idle_in_transaction_session_timeout='15000ms'");
+      // One round trip: a parameterless simple query may carry several statements.
+      await client.query("BEGIN; SET LOCAL lock_timeout='5000ms'; SET LOCAL statement_timeout='10000ms'; SET LOCAL idle_in_transaction_session_timeout='15000ms'");
       const result = await run(client);
       await client.query("COMMIT");
       return result;

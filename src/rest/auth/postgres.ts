@@ -4,7 +4,8 @@ import { stable } from "../smartAccounts/service.js";
 import { createWalletAuthorityIdentity, type WalletAuthorityContext } from "../wallet/authority.js";
 import { PostgresWalletAuthorityStore } from "../wallet/authorityPostgres.js";
 import type { WalletAppGrant } from "../wallet/appGrants.js";
-import { assertWalletAppGrantActiveInTransaction, assertWalletAppRefreshIdentityInTransaction, getWalletAppGrantInTransaction } from "../wallet/appGrantsPostgres.js";
+import { assertWalletAppGrantActiveInTransaction, assertWalletAppGrantActiveOverRows, assertWalletAppGrantTimely, assertWalletAppRefreshIdentityInTransaction,
+  getWalletAppGrantInTransaction } from "../wallet/appGrantsPostgres.js";
 import {
   accountStoreLimits,
   actorGrantId,
@@ -284,11 +285,13 @@ export class PostgresAccountStore implements AccountStore {
       // This committed nonce admits scheduling work, not API/business authority. A crash, timeout
       // or unknown observation spends this signed attempt; retries must use a new request nonce.
       await this.consumeNonce(client, { ...request, now: await databaseNow(client) });
+      // The nonce insert may have waited. Every row the identity check read is behind this
+      // transaction's account lock (each of their writers takes it first, or is held by the
+      // share locks above), so only the clock has moved: the request, the grant and the principal
+      // are checked again at a fresh one.
       const completed = { ...request, now: await databaseNow(client) };
       assertRequest(completed); principalFor(account, grant, completed);
-      await assertWalletAppRefreshIdentityInTransaction(client, grant, route, context);
-      const finalRequest = { ...request, now: await databaseNow(client) };
-      assertRequest(finalRequest); principalFor(account, grant, finalRequest);
+      assertWalletAppGrantTimely(grant, route, completed.now);
     });
     // No SQL locks or connections cross the scheduling/worker boundary. Request cancellation
     // cannot undo the committed claim or cancel another request's shared authority observation.
@@ -305,39 +308,41 @@ export class PostgresAccountStore implements AccountStore {
         return result;
       } finally { clearTimeout(timer); }
     };
-    try {
-      await bounded(() => this.walletRefresh!.request(request.accountId));
-      void this.walletRefresh!.tick().catch(() => {});
-    } catch { /* Scheduling availability cannot invalidate independently known identity. */ }
-    // The request is admitted on the account's known identity; the observation it just asked for
-    // runs in the background, and anything that moves funds verifies the account at a fresh block.
-    return bounded(() => this.finishWalletAppRequest(request, grant, context));
+    // The request is admitted on the account's known identity; the observation it asks for runs
+    // in the background, and anything that moves funds verifies the account at a fresh block. The
+    // scheduling and the final guard touch different rows and share no lock, so they run side by
+    // side under the same deadline; scheduling availability cannot invalidate independently known
+    // identity, so its failure is swallowed and the tick follows only its own success.
+    const scheduled = bounded(() => this.walletRefresh!.request(request.accountId))
+      .then(() => { void this.walletRefresh!.tick().catch(() => {}); }, () => {});
+    const [principal] = await Promise.all([bounded(() => this.finishWalletAppRequest(request, grant, context)), scheduled]);
+    return principal;
   }
 
   private async finishWalletAppRequest(request: VerifiedRequest, grant: WalletAppGrant, context: WalletAuthorityContext): Promise<RestPrincipal> {
     return this.transaction(async client => {
       const account = await lockedAccount(client, request.accountId);
-      const currentGrant = await getAuthorizationGrant(client, request.grantId);
-      if (!currentGrant || stable(currentGrant) !== stable(grant))
-        throw new RestAuthError("FORBIDDEN", 403, "Wallet application grant changed during admission.");
       const current = { ...request, now: await databaseNow(client) };
       assertRequest(current); principalFor(account, grant, current);
-      const authority = await assertWalletAppRefreshIdentityInTransaction(client, grant,
-        { kind: "request", audience: request.audience ?? "", origin: request.origin ?? null, expiresAt: request.expiresAt }, context);
+      // The identity check share-locks the grant row and compares it with the admitted grant;
+      // a grant changed during admission fails there. The full guard then runs over the same rows.
+      const route = { kind: "request" as const, audience: request.audience ?? "", origin: request.origin ?? null, expiresAt: request.expiresAt };
+      const { authority, rows } = await assertWalletAppRefreshIdentityInTransaction(client, grant, route, context);
       const nonce = (await client.query<{ expires_at: string }>(
         "SELECT expires_at FROM rest_request_nonces WHERE account_id=$1 AND nonce=$2", [request.accountId, request.nonce.toLowerCase()])).rows[0];
       if (!nonce || Number(nonce.expires_at) !== request.expiresAt)
         throw new RestAuthError("REPLAY", 409, "Wallet scheduling claim is unavailable.");
-      const milliseconds = Number((await client.query<{ now: string }>(
-        "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS now")).rows[0]!.now);
-      assertRequest({ ...request, now: Math.floor(milliseconds / 1000) });
       if (authority.readiness !== "verified" || !authority.identity) throw checkingWalletAuthority();
-      await assertAppRequestActive(client, currentGrant, { ...request, now: await databaseNow(client) });
+      if (grant.accountId !== request.accountId || grant.id !== request.grantId)
+        throw new RestAuthError("FORBIDDEN", 403, "API grant does not belong to the authenticated account");
+      await assertWalletAppGrantActiveOverRows(client, rows, grant, request.principalId !== undefined
+        ? { kind: "actor", principalId: request.principalId, ...(request.audience !== undefined ? { audience: request.audience } : {}) }
+        : route);
       const finalMs = Number((await client.query<{ now: string }>(
         "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS now")).rows[0]!.now);
       const completed = { ...request, now: Math.floor(finalMs / 1000) };
       assertRequest(completed);
-      return principalFor(account, currentGrant, completed);
+      return principalFor(account, grant, completed);
     });
   }
 
