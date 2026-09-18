@@ -412,7 +412,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
     extra: { 'x-principal-kind': 'wallet-app', 'x-runtime-capability': 'wallet.payments' },
   });
   add("/user-operations", "POST", "prepareUserOperation", "Prepare exact EntryPoint v0.7 bytes and the appropriate signing payload", "UserOperations", "plan", {
-    body: ref("PrepareUserOperation"), result: ref("UserOperation"), status: 201, idempotent: true,
+    body: ref("PrepareUserOperation"), result: { oneOf: [ref("UserOperation"), ref("SponsoredPaymentPreparation")] }, status: 201, idempotent: true,
     description: "Requires configured provider/runtime policies and the source smart-account plan's creating principal. Select increasing step indices. Owner mode permits 1–16 calls on one chain and returns SafeOp typed data. Session mode requires the exact active bound bot, selects one call and returns an EIP-191 payload. Provider estimation and sponsorship are checked before signing; no execution occurs during preparation.",
     extra: { "x-runtime-capability": "userOperations.preparation" },
   });

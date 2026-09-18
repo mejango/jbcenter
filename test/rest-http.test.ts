@@ -14,7 +14,7 @@ import {
 import { getContractCatalog } from "../src/rest/contracts/catalog.js";
 import { createIndexerReadService } from "../src/rest/indexer/index.js";
 import { createProtocolReadService } from "../src/rest/protocol/index.js";
-import { type RestActor, type RestPlanDraft, type RestRpc } from "../src/rest/core.js";
+import { type RestActor, type RestPlanDraft, type RestRpc, RestError } from "../src/rest/core.js";
 import { MemoryTransactionStore } from "../src/rest/transactions/memory.js";
 import { TransactionService } from "../src/rest/transactions/service.js";
 
@@ -422,6 +422,32 @@ describe("mounted signed REST API", () => {
     const request = await f.send({ requestTarget: "/api/v1/projects/1/1?source=onchain" }, config);
     expect(request.status).toBe(403);
     expect(f.execute).not.toHaveBeenCalled();
+  });
+
+  it("prepares a sponsored payment in one call: the plan on its own key, the operation over every step, the plan alone when the voucher does not cover it", async () => {
+    const prepare = vi.fn(async () => ({ id: "op-one", state: "prepared" }));
+    const f = await fixture({ userOperations: { prepare } as never });
+    const bindingId = `0x${"11".repeat(32)}`;
+    const plan = { id: "plan-one", draft: { ...f.draft, calls: [f.draft.calls[0]!, { ...f.draft.calls[0]!, data: "0x9abcdef0" }] } };
+    const createPlan = vi.spyOn(f.transactions, "createSmartAccountPlan").mockResolvedValue(plan as never);
+    const findPlan = vi.spyOn(f.transactions, "findPlanByIdempotency").mockResolvedValue(undefined);
+    const body = { plan: { bindingId, operation: "prepare_pay", input: { project: { chainId: 1, projectId: "1" } }, idempotencyKey: "beep-center-plan:attempt" }, sponsorAuthorization: "voucher" };
+    const request = () => f.send({ method: "POST", requestTarget: "/api/v1/user-operations", idempotencyKey: "beep:attempt", json: body });
+    const first = await request();
+    expect(first.status).toBe(201);
+    expect(await first.json()).toEqual({ plan, operation: { id: "op-one", state: "prepared" }, sponsorship: "accepted" });
+    expect(createPlan).toHaveBeenCalledWith(expect.anything(), bindingId, expect.anything(), "beep-center-plan:attempt", expect.stringMatching(/^0x[0-9a-f]{64}$/));
+    expect(prepare).toHaveBeenCalledWith(expect.anything(), { planId: "plan-one", stepIndexes: [0, 1], sponsorAuthorization: "voucher" }, "beep:attempt", expect.stringMatching(/^0x[0-9a-f]{64}$/), expect.anything());
+    // A retry finds the plan by its key and does not draft again; a voucher the plan does not fit leaves the plan to be sponsored on its own.
+    findPlan.mockResolvedValue(plan as never);
+    prepare.mockRejectedValueOnce(new RestError(403, "SPONSOR_AUTHORIZATION_INVALID", "The sponsorship authorization is invalid or expired."));
+    const refused = await request();
+    expect(refused.status).toBe(201);
+    expect(await refused.json()).toEqual({ plan, sponsorship: "refused" });
+    expect(createPlan).toHaveBeenCalledTimes(1);
+    // The form is strict: a binding, an operation, an input, a plan key and a sponsorship, nothing else.
+    for (const broken of [{ ...body, plan: { ...body.plan, idempotencyKey: "" } }, { ...body, sponsorAuthorization: 1 }, { ...body, extra: true }, { plan: { ...body.plan, bindingId: "0x12" }, sponsorAuthorization: "v" }])
+      expect((await f.send({ method: "POST", requestTarget: "/api/v1/user-operations", idempotencyKey: "beep:attempt", json: broken })).status).toBe(400);
   });
 
   it("rejects expired grants even with a newly valid request signature", async () => {

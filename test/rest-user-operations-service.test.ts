@@ -682,9 +682,10 @@ describe("UserOperationService integration", () => {
     const f=await fixture(false,false,true);
     const prepared=await f.prepare();
     expect(prepared.providerId).toBe('beep-provider');
-    expect(f.sponsorRoutes.authorize).toHaveBeenCalledWith('fixture-voucher',{
+    expect(f.sponsorRoutes.authorize).toHaveBeenCalledWith('fixture-voucher',expect.objectContaining({
       accountId:f.activeActor.accountId,planId:'service-plan',chainId:1,stepIndexes:[0],idempotencyKey:'service-plan',
-    });
+      calls:[expect.objectContaining({chainId:1})],
+    }));
     await f.service.submit(f.principal,prepared.id,await f.sign(prepared),'route-submit');
     await f.service.recoverPending();
     expect(f.sponsorRoutes.stored).toHaveBeenCalledWith('beep-provider');

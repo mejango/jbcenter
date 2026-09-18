@@ -381,6 +381,9 @@ export class UserOperationService {
       this.options.sponsorRoutes?.authorize(input.sponsorAuthorization, {
         accountId: actor.accountId, planId: plan.id, chainId: binding.wallet.chainId,
         stepIndexes: input.stepIndexes, idempotencyKey: key,
+        // A voucher bound by content is checked against the whole plan: every call, under its manifest.
+        manifestRevision: plan.smartAccount!.manifestRevision,
+        calls: plan.draft.calls.map((call) => ({ chainId: call.chainId, to: call.to, data: call.data, value: call.value })),
       }) ?? fail('SPONSOR_ROUTE_UNAVAILABLE', 'Application sponsorship is not configured.', 403);
     let session: UserOperationSessionBinding | undefined;
     let gasSession: StoredSession | undefined;

@@ -1,9 +1,13 @@
 import {createHash, createHmac, timingSafeEqual} from 'node:crypto';
+import {sponsoredCallsCommitment, type SponsoredCall} from './sponsoredCalls.js';
 import {RestError} from '../core.js';
 import {UserOperationProvider, createPimlicoV7PaymasterPolicy, createPimlicoCurrentV7PaymasterPolicy} from './provider.js';
 import type {UserOperationProviderConfig} from './types.js';
 
-type Authorization = {routeId:string; accountId:string; planId:string; chainId:number; stepIndexes:number[]; idempotencyKey:string; issuedAt:number; expiresAt:number};
+/** A voucher binds a plan by id and exact steps, or by the exact ordered calls and manifest it must contain. */
+type Authorization = {routeId:string; accountId:string; chainId:number; idempotencyKey:string; issuedAt:number; expiresAt:number}
+  & ({planId:string; stepIndexes:number[]} | {manifestRevision:string; callsCommitment:string});
+export { sponsoredCallsCommitment, type SponsoredCall } from './sponsoredCalls.js';
 type Route = {id:string; chainId:number; policyId:string; authorizationKey:string};
 function reject():never {throw new RestError(403,'SPONSOR_AUTHORIZATION_INVALID','The sponsorship authorization is invalid or expired.');};
 function invalid():never {throw new RestError(500,'SPONSOR_ROUTES_INVALID','Sponsorship routes require unique IDs, reviewed providers and private authorization keys.');};
@@ -35,21 +39,31 @@ export class UserOperationSponsorRoutes {
       this.routes.set(entry.id,{route:entry,provider,providerId});
     }
   }
-  authorize(token:unknown, expected:Omit<Authorization,'routeId'|'issuedAt'|'expiresAt'>):UserOperationProvider {
+  authorize(token:unknown, expected:{accountId:string; planId:string; chainId:number; stepIndexes:number[]; idempotencyKey:string; manifestRevision?:string; calls?:readonly SponsoredCall[]}):UserOperationProvider {
     if(typeof token!=='string'||token.length>4096)reject();
     const parts=token.split('.');
     if(parts.length!==2||!/^[A-Za-z0-9_-]+$/.test(parts[0]!)||!/^[a-f0-9]{64}$/.test(parts[1]!))reject();
     let value:Authorization;
     try {value=JSON.parse(Buffer.from(parts[0]!,'base64url').toString('utf8'));} catch {return reject();}
-    if(!value||typeof value!=='object'||Object.keys(value).sort().join(',')!=='accountId,chainId,expiresAt,idempotencyKey,issuedAt,planId,routeId,stepIndexes')reject();
+    const shape=value&&typeof value==='object'?Object.keys(value).sort().join(','):'';
+    const byPlan=shape==='accountId,chainId,expiresAt,idempotencyKey,issuedAt,planId,routeId,stepIndexes';
+    if(!byPlan&&shape!=='accountId,callsCommitment,chainId,expiresAt,idempotencyKey,issuedAt,manifestRevision,routeId')reject();
     const selected=this.routes.get(value.routeId);
     if(!selected)reject();
     const digest=createHmac('sha256',Buffer.from(selected.route.authorizationKey,'hex')).update(parts[0]!).digest();
     if(!timingSafeEqual(digest,Buffer.from(parts[1]!,'hex')))reject();
     const now=Math.floor(this.now()/1000);
     if(!Number.isSafeInteger(value.issuedAt)||!Number.isSafeInteger(value.expiresAt)||value.issuedAt>now||value.expiresAt<=now||value.expiresAt-value.issuedAt>300||value.expiresAt<=value.issuedAt||
-      value.accountId!==expected.accountId||value.planId!==expected.planId||value.chainId!==expected.chainId||value.chainId!==selected.route.chainId||value.idempotencyKey!==expected.idempotencyKey||
-      !Array.isArray(value.stepIndexes)||JSON.stringify(value.stepIndexes)!==JSON.stringify(expected.stepIndexes))reject();
+      value.accountId!==expected.accountId||value.chainId!==expected.chainId||value.chainId!==selected.route.chainId||value.idempotencyKey!==expected.idempotencyKey)reject();
+    if('planId' in value) {
+      if(value.planId!==expected.planId||!Array.isArray(value.stepIndexes)||JSON.stringify(value.stepIndexes)!==JSON.stringify(expected.stepIndexes))reject();
+    } else {
+      // Bound by content: the operation must cover every call of the plan, in order, under the manifest named.
+      const calls=expected.calls;
+      if(!calls||!expected.manifestRevision||typeof value.manifestRevision!=='string'||value.manifestRevision.toLowerCase()!==expected.manifestRevision.toLowerCase()||
+        JSON.stringify(expected.stepIndexes)!==JSON.stringify(calls.map((_,index)=>index))||
+        typeof value.callsCommitment!=='string'||value.callsCommitment.toLowerCase()!==sponsoredCallsCommitment(calls))reject();
+    }
     return selected.provider;
   }
   stored(providerId:string):UserOperationProvider {

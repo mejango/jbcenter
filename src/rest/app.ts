@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { canonical as canonicalValue } from "./sponsorship/validation.js";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import type { Address, Hex } from "viem";
@@ -1138,19 +1139,18 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
     );
     return response(context, { creation }, 201);
   });
-  app.post("/smart-accounts/bindings/:id/plans", async (context) => {
+  /** A smart-account plan from an operation or contract calls, idempotent on its key and request hash. */
+  const smartAccountPlan = async (
+    principal: RestPrincipal,
+    bindingId: Hex,
+    body: Record<string, unknown>,
+    key: string,
+    hash: string,
+    signal: AbortSignal,
+  ) => {
     const started = Date.now();
-    query(context, []);
-    const { input, principal } = await authenticate(context, ["plan"]);
-    const key = idempotency(principal),
-      hash = requestHash(input);
-    const existing = await deps.transactions.findPlanByIdempotency(
-      actor(principal),
-      key,
-      hash,
-    );
-    if (existing) return response(context, existing, 201);
-    const body = object(jsonBody(input), ["operation", "input"]);
+    const existing = await deps.transactions.findPlanByIdempotency(actor(principal), key, hash);
+    if (existing) return existing;
     if (typeof body.operation !== "string")
       throw new RestError(
         400,
@@ -1159,23 +1159,24 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
       );
     const draft =
       body.operation === "contract_calls"
-        ? await deps.protocol.prepare(
-            object(body.input) as unknown as PrepareInput,
-            context.get("restSignal"),
-          )
-        : await draftFor(body.operation, body.input, context.get("restSignal"));
+        ? await deps.protocol.prepare(object(body.input) as unknown as PrepareInput, signal)
+        : await draftFor(body.operation, body.input, signal);
     const drafted = Date.now();
-    const plan = await deps.transactions.createSmartAccountPlan(
-      actor(principal),
-      context.req.param("id") as Hex,
-      draft,
-      key,
-      hash,
-    );
+    const plan = await deps.transactions.createSmartAccountPlan(actor(principal), bindingId, draft, key, hash);
     // Where a plan's time goes, for the production log; the request line only has the total.
     console.info(JSON.stringify({ service: "smart-accounts", action: "plan_stages", operation: body.operation,
       draftMs: drafted - started, accountMs: Date.now() - drafted }));
-    return response(context, plan, 201);
+    return plan;
+  };
+  app.post("/smart-accounts/bindings/:id/plans", async (context) => {
+    query(context, []);
+    const { input, principal } = await authenticate(context, ["plan"]);
+    const body = object(jsonBody(input), ["operation", "input"]);
+    return response(
+      context,
+      await smartAccountPlan(principal, context.req.param("id") as Hex, body, idempotency(principal), requestHash(input), context.get("restSignal")),
+      201,
+    );
   });
   const sessions = () => {
     if (!deps.sessions)
@@ -1300,13 +1301,45 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
   app.post("/user-operations", async (context) => {
     query(context, []);
     const { input, principal } = await authenticate(context, ["plan"]);
+    const body = jsonBody(input);
+    const key = idempotency(principal), hash = `0x${requestHash(input).replace(/^0x/, "")}` as Hex;
+    // The one-call form: the plan is created here (idempotent on its own key) and the operation
+    // prepared over every one of its steps, so a sponsored payment needs one round trip, not three.
+    if (object(body) && Object.hasOwn(body, "plan")) {
+      const request = object(body, ["plan", "sponsorAuthorization"]);
+      const plan = object(request.plan, ["bindingId", "operation", "input", "idempotencyKey"]);
+      if (!/^0x[0-9a-fA-F]{64}$/.test(String(plan.bindingId)) || typeof plan.idempotencyKey !== "string" || !/^[A-Za-z0-9:_-]{1,128}$/.test(plan.idempotencyKey)
+        || typeof request.sponsorAuthorization !== "string")
+        throw new RestError(400, "INVALID_INPUT", "Name the binding, the operation, its input, a plan key and the sponsorship.");
+      const created = await smartAccountPlan(principal, plan.bindingId as Hex, { operation: plan.operation, input: plan.input }, plan.idempotencyKey,
+        `0x${createHash("sha256").update(canonicalValue({ bindingId: plan.bindingId, operation: plan.operation, input: plan.input })).digest("hex")}`, context.get("restSignal"));
+      try {
+        const operation = await userOperations().prepare(
+          principal,
+          { planId: created.id, stepIndexes: created.draft.calls.map((_, index) => index), sponsorAuthorization: request.sponsorAuthorization },
+          key,
+          hash,
+          context.get("restSignal"),
+        );
+        console.info(JSON.stringify({ service: "user-operations", action: "sponsored_payment", outcome: "accepted", planId: created.id, operationId: operation.id }));
+        return response(context, { plan: created, operation, sponsorship: "accepted" }, 201);
+      } catch (error) {
+        // The plan stands. A sponsorship the voucher does not cover (the plan differs from what it
+        // was issued for) is answered with the plan alone, so the app can sponsor the plan it got.
+        if (error instanceof RestError && error.code === "SPONSOR_AUTHORIZATION_INVALID") {
+          console.info(JSON.stringify({ service: "user-operations", action: "sponsored_payment", outcome: "refused", planId: created.id }));
+          return response(context, { plan: created, sponsorship: "refused" }, 201);
+        }
+        throw error;
+      }
+    }
     return response(
       context,
       await userOperations().prepare(
         principal,
-        jsonBody(input) as unknown as UserOperationPreparationInput,
-        idempotency(principal),
-        `0x${requestHash(input).replace(/^0x/, "")}` as Hex,
+        body as unknown as UserOperationPreparationInput,
+        key,
+        hash,
         context.get("restSignal"),
       ),
       201,

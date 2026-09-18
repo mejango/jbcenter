@@ -225,6 +225,20 @@ export class SmartAccountClient {
   ) {
     return this.post<PreparedUserOperation>("/user-operations", input, key);
   }
+  /** One call: the plan (idempotent on `plan.idempotencyKey`) and the sponsored operation over every
+   * one of its steps (idempotent on `key`). When the voucher does not cover the plan Center built,
+   * the answer carries the plan alone and `sponsorship: "refused"`, to be sponsored on its own. */
+  prepareSponsoredPayment(
+    plan: { bindingId: Hex; operation: string; input: unknown; idempotencyKey: string },
+    sponsorAuthorization: string,
+    key?: string,
+  ) {
+    return this.post<{ plan: SmartWalletPlan; operation?: PreparedUserOperation; sponsorship: "accepted" | "refused" }>(
+      "/user-operations",
+      { plan: { bindingId: id(plan.bindingId), operation: plan.operation, input: plan.input, idempotencyKey: plan.idempotencyKey }, sponsorAuthorization },
+      key,
+    );
+  }
   submitUserOperation(operationId: string, signature: Hex, key?: string) {
     if (!/^0x(?:[0-9a-fA-F]{2}){65,16384}$/.test(signature))
       invalid("Use a complete owner or session signature envelope.");
