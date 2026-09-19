@@ -108,7 +108,10 @@ export class PostgresStore implements Store {
     windowSeconds = 60,
   ): Promise<{ allowed: boolean; remaining: number }> {
     const result = await this.pool.query<{ request_count: number }>(
-      `INSERT INTO rate_limits (client_name, window_start, request_count)
+      `WITH cleanup AS (
+         DELETE FROM rate_limits WHERE window_start < now() - interval '2 days'
+       )
+       INSERT INTO rate_limits (client_name, window_start, request_count)
        VALUES (
          $1,
          to_timestamp(floor(extract(epoch FROM now()) / $2) * $2),
@@ -121,12 +124,6 @@ export class PostgresStore implements Store {
     );
     const count = result.rows[0]!.request_count;
     return { allowed: count <= limit, remaining: Math.max(0, limit - count) };
-  }
-
-  /** Drops spent rate-limit windows; runs on the maintenance tick, not in front of every request. */
-  async cleanupRateLimits(): Promise<number> {
-    const result = await this.pool.query("DELETE FROM rate_limits WHERE window_start < now() - interval '2 days'");
-    return result.rowCount ?? 0;
   }
 
   async createIntent(

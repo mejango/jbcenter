@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { MiddlewareHandler } from "hono";
 import type { JbcenterEnv } from "./types.js";
 
-type RecoveryTask = "nonce_cleanup" | "rate_limit_cleanup" | "transactions" | "user_operations";
+type RecoveryTask = "nonce_cleanup" | "transactions" | "user_operations";
 
 export class Metrics {
   private requests = new Map<string, number>();
@@ -17,7 +17,7 @@ export class Metrics {
   }>();
 
   startRestRecovery(): void {
-    for (const task of ["nonce_cleanup", "rate_limit_cleanup", "transactions", "user_operations"] as const) {
+    for (const task of ["nonce_cleanup", "transactions", "user_operations"] as const) {
       this.recovery.set(task, { completedAt: 0, failures: 0, totalFailures: 0, runs: 0, oldestPendingAt: 0 });
     }
   }

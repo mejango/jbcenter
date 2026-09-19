@@ -15,7 +15,6 @@ import {
 import type { Deployment, Intent, SearchPage } from "../src/types.js";
 
 class MemoryStore implements Store {
-  async cleanupRateLimits() { return 0; }
   intents: Intent[] = [];
   requests = new Map<string, number>();
 

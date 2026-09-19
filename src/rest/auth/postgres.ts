@@ -1,7 +1,6 @@
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type { Address } from "viem";
 import { stable } from "../smartAccounts/service.js";
-import { timedAuthPhase } from "../context.js";
 import { createWalletAuthorityIdentity, type WalletAuthorityContext } from "../wallet/authority.js";
 import { PostgresWalletAuthorityStore } from "../wallet/authorityPostgres.js";
 import type { WalletAppGrant } from "../wallet/appGrants.js";
@@ -249,10 +248,10 @@ export class PostgresAccountStore implements AccountStore {
     const request = structuredClone(input);
     assertRequest(request);
     if (this.walletRefresh && request.grantId !== null) {
-      const grant = await timedAuthPhase("grantMs", () => this.transaction(client => getAuthorizationGrant(client, request.grantId)));
+      const grant = await this.transaction(client => getAuthorizationGrant(client, request.grantId));
       if (grant?.kind === "wallet-app") return this.authorizeWalletApp(request, grant);
     }
-    return timedAuthPhase("admitMs", () => this.transaction(async (client) => {
+    return this.transaction(async (client) => {
       const account = await lockedAccount(client, request.accountId);
       const grant = await getAuthorizationGrant(client, request.grantId);
       const currentRequest = { ...request, now: await databaseNow(client) };
@@ -264,13 +263,13 @@ export class PostgresAccountStore implements AccountStore {
       assertRequest(completedRequest);
       await assertAppRequestActive(client, grant, completedRequest);
       return principalFor(account, grant, completedRequest);
-    }));
+    });
   }
 
   private async authorizeWalletApp(request: VerifiedRequest, grant: WalletAppGrant): Promise<RestPrincipal> {
     // Exact signature verification has already completed in createRestAuth. Validate the current
     // credential/enrollment/binding commitments outside locks; locked comparisons preserve them.
-    const context = await timedAuthPhase("contextMs", () => new PostgresWalletAuthorityStore(this.pool).loadContext(request.accountId));
+    const context = await new PostgresWalletAuthorityStore(this.pool).loadContext(request.accountId);
     const identity = context.prior?.identity;
     if (!identity || context.prior!.bootstrapRequired || context.prior!.activeFence !== null
       || !["verified", "unknown"].includes(context.prior!.readiness)
@@ -278,7 +277,7 @@ export class PostgresAccountStore implements AccountStore {
         sessionAdministration: identity.sessionAdministration, creationTransaction: identity.creationTransaction })) !== stable(identity))
       throw new RestAuthError("FORBIDDEN", 403, "Wallet application identity is unavailable or changed.");
     const route = { kind: "request" as const, audience: request.audience ?? "", origin: request.origin ?? null, expiresAt: request.expiresAt };
-    await timedAuthPhase("admitMs", () => this.transaction(async client => {
+    await this.transaction(async client => {
       const account = await lockedAccount(client, request.accountId);
       const current = { ...request, now: await databaseNow(client) };
       assertRequest(current); principalFor(account, grant, current);
@@ -293,7 +292,7 @@ export class PostgresAccountStore implements AccountStore {
       const completed = { ...request, now: await databaseNow(client) };
       assertRequest(completed); principalFor(account, grant, completed);
       assertWalletAppGrantTimely(grant, route, completed.now);
-    }));
+    });
     // No SQL locks or connections cross the scheduling/worker boundary. Request cancellation
     // cannot undo the committed claim or cancel another request's shared authority observation.
     const deadline = performance.now() + 10_000;
@@ -314,10 +313,9 @@ export class PostgresAccountStore implements AccountStore {
     // scheduling and the final guard touch different rows and share no lock, so they run side by
     // side under the same deadline; scheduling availability cannot invalidate independently known
     // identity, so its failure is swallowed and the tick follows only its own success.
-    const scheduled = timedAuthPhase("refreshMs", () => bounded(() => this.walletRefresh!.request(request.accountId)))
+    const scheduled = bounded(() => this.walletRefresh!.request(request.accountId))
       .then(() => { void this.walletRefresh!.tick().catch(() => {}); }, () => {});
-    const [principal] = await Promise.all([
-      timedAuthPhase("finishMs", () => bounded(() => this.finishWalletAppRequest(request, grant, context))), scheduled]);
+    const [principal] = await Promise.all([bounded(() => this.finishWalletAppRequest(request, grant, context)), scheduled]);
     return principal;
   }
 

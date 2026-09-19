@@ -34,8 +34,6 @@ export interface Store {
     limit: number,
     windowSeconds?: number,
   ): Promise<{ allowed: boolean; remaining: number }>;
-  /** Removes rate-limit windows older than two days; returns the count removed. */
-  cleanupRateLimits(): Promise<number>;
   createIntent(
     value: NewIntent,
     limits: StorageLimits,

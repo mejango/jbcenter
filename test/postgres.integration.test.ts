@@ -93,12 +93,6 @@ suite("PostgreSQL store", () => {
       Array.from({ length: 20 }, () => store!.consumeRequest("integration", 10)),
     );
     expect(rateResults.filter(({ allowed }) => allowed)).toHaveLength(10);
-    // The cleanup drops only spent windows; the quota write no longer carries it.
-    await pool!.query(
-      "INSERT INTO rate_limits (client_name, window_start, request_count) VALUES ('stale', now() - interval '3 days', 1)",
-    );
-    expect(await store!.cleanupRateLimits()).toBe(1);
-    expect((await store!.consumeRequest("integration", 10)).remaining).toBe(0);
 
     await expect(
       store!.createIntent(

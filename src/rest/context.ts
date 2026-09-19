@@ -6,8 +6,6 @@ export interface RestRequestContext {
   authority?: { principal: RestPrincipal; input: SignedRequestInput };
   ownerApprovals: Map<number, unknown>;
   sponsorshipOwnerApproval?: unknown;
-  /** Milliseconds each authentication phase took, for the slow-auth log line. */
-  authPhases?: Record<string, number>;
 }
 const requests = new AsyncLocalStorage<RestRequestContext>();
 
@@ -20,16 +18,6 @@ export function withRestRequest<T>(
 }
 export function restRequest(): RestRequestContext | undefined {
   return requests.getStore();
-}
-/** Times one authentication phase into the request context; durations only, never data. */
-export async function timedAuthPhase<T>(name: string, work: () => Promise<T>): Promise<T> {
-  const started = performance.now();
-  try {
-    return await work();
-  } finally {
-    const context = requests.getStore();
-    if (context) (context.authPhases ??= {})[name] = Math.round(performance.now() - started);
-  }
 }
 /** Work that outlives the request that started it (an observation others may join) runs outside
  * its context, so the request's abort or timeout cannot cut it short for everyone. */

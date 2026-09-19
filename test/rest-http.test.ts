@@ -6,7 +6,6 @@ import { privateKeyToAccount } from "viem/accounts";
 import { z } from "zod";
 import { DomainError, type PlanDraft, type ProtocolOperation, type ProtocolOperations } from "@juicebox/mcp/host";
 import { createRestApp, type RestDependencies } from "../src/rest/app.js";
-import { timedAuthPhase } from "../src/rest/context.js";
 import { createRestAuth, MemoryAccountStore, type BotScope, type BotGrant, type RestPrincipal } from "../src/rest/auth/index.js";
 import {
   accountIdFor, createBotRegistration, newRequestNonce, prepareSignedRequest,
@@ -117,22 +116,6 @@ async function fixture(overrides: Partial<RestDependencies> = {}) {
   return { app, accounts, auth, transactionStore, transactions, draft, catalog, rpcCalls, quotas, clock,
     execute, semanticPrepare, prepare, ownerConfig, prepared, sendPrepared, send, register };
 }
-
-describe('slow admission logging', () => {
-  it('names the phases that waited when authentication passes 300 ms', async () => {
-    const f = await fixture({ walletPayments: { prepare: vi.fn(), getForApp: vi.fn(async () => paymentProjectionFixture()) } as never });
-    vi.spyOn(f.auth, 'authenticate').mockImplementation(() =>
-      timedAuthPhase('admitMs', () => new Promise(resolve => setTimeout(() => resolve(appPrincipal()), 320))));
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
-    try {
-      expect((await f.send({ requestTarget: '/api/v1/wallet/payment-reviews/review-id' })).status).not.toBe(401);
-      const line = info.mock.calls.map(([text]) => JSON.parse(String(text))).find(entry => entry.action === 'slow_auth');
-      expect(line).toMatchObject({ service: 'rest', authMs: expect.any(Number), admitMs: expect.any(Number), quotaMs: expect.any(Number) });
-      expect(line.admitMs).toBeGreaterThanOrEqual(300);
-      expect(Object.keys(line).sort()).toEqual(['action', 'admitMs', 'authMs', 'quotaMs', 'service']);
-    } finally { info.mockRestore(); }
-  });
-});
 
 describe('signed wallet payment review controller', () => {
   function reviews() { return { prepare: vi.fn(async()=>paymentProjectionFixture()), getForApp: vi.fn(async()=>paymentProjectionFixture()) }; }
