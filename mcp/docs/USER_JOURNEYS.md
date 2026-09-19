@@ -134,7 +134,7 @@ The output is a reproducible comparison using exact integer arithmetic and contr
 
 > “I have the project's name and description. Help me publish the metadata and use its IPFS URI in my V6 launch.”
 
-Call `jb_prepare_project_metadata` with `version: 6` and the complete new metadata document. `name` and `description` are required; `logoUri` and `infoUri` are optional. Start without a logo if it is not already hosted. A real canonical IPFS CID or absolute HTTPS URL is required for a supplied URI; `ipfs://<IMAGE_CID>` and local file paths are rejected.
+Call `jb_prepare_project_metadata` with `version: 6` and the complete new metadata document. `name` and `description` are required; `logoUri` and `infoUri` are optional. Pin a local logo file first with `jb_pin_project_logo` (base64 PNG, JPEG, GIF, WebP or inert SVG, at most 1 MiB, explicit public-upload approval) and use its `ipfs://` result; otherwise start without a logo. `logoUri` must be a real canonical `ipfs://` CID because the first-party webclients do not render HTTPS logos; `ipfs://<IMAGE_CID>`, HTTPS and local file paths are rejected. `infoUri` may be HTTPS.
 
 ```json
 {
@@ -150,7 +150,7 @@ Show the user the returned `review.metadata` and exact canonical `review.jsonTex
 
 The integrated Center backend pins the exact canonical JSON bytes and returns `metadataUri`, the CID, content SHA256, and primary-upload/queued-redundancy status. Use the URI as `projectUri` in `jb_prepare_launch` or `jb_prepare_721_launch`, or as `config.description.uri` in `jb_prepare_revnet_deploy`. Finish the selected launch's complete typed inputs and separate transaction review. Pinning needs no wallet and has not launched or changed a project.
 
-This journey handles a new standard document of at most 64 KiB of canonical UTF-8 JSON. It does not fetch or upload images, check linked-content availability, preserve custom fields from existing metadata, merge an existing document, or prepare an existing-project URI update. In a standalone server without the pinning callback, preparation explains the missing backend; prepare the same document through `https://juicebox.center/mcp` before seeking approval there. Tokens are not assumed portable between servers. A `METADATA_PUBLICATION_UNVERIFIED` result means content may already be public; inspect backend status before deliberately retrying. A queued redundancy receipt does not prove content was fetched back or that every replica is available.
+This journey handles a new standard document of at most 64 KiB of canonical UTF-8 JSON. It does not fetch images or check linked-content availability, preserve custom fields from existing metadata, merge an existing document, or prepare an existing-project URI update. In a standalone server without the pinning callback, preparation explains the missing backend; prepare the same document through `https://juicebox.center/mcp` before seeking approval there. Tokens are not assumed portable between servers. A `METADATA_PUBLICATION_UNVERIFIED` result means content may already be public; inspect backend status before deliberately retrying. A queued redundancy receipt does not prove content was fetched back or that every replica is available.
 
 ### Launch a core project
 

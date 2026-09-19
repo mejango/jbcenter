@@ -7,12 +7,12 @@ const areas = [
   {
     id: 'metadata',
     title: 'V6 project metadata and IPFS publication',
-    tools: ['prepare_project_metadata', 'pin_project_metadata'],
+    tools: ['pin_project_logo', 'prepare_project_metadata', 'pin_project_metadata'],
     references: ['JB Center', 'jb-project-metadata'],
     limits: [
       'Preparation returns exact new metadata for review; it does not merge an existing document.',
       'Pinning publishes the reviewed JSON publicly and requires explicit user authorization.',
-      'The metadata token is not approval. Image bytes are not fetched or uploaded by these tools.',
+      'The metadata token is not approval. jb_pin_project_logo is the only tool that uploads image bytes: one PNG, JPEG, GIF, WebP or inert SVG of at most 1 MiB, returned as the ipfs:// logoUri; HTTPS logoUri values are rejected because first-party webclients do not render them.',
       'Upload errors can leave public content behind; cancellation does not roll back publication.',
     ],
   },
@@ -197,7 +197,7 @@ export function capabilityCatalog(tools: CapabilityEntry[], publicOrigin: string
     amountEncoding:
       'All asset amounts and uint256 identifiers are base-10 integer strings with explicit currency and decimal context.',
     execution:
-      'V6 reads, pure models, unsigned authenticated transaction plans and receipt verification. Explicitly authorized metadata publication is available through jb_pin_project_metadata when a publisher is configured. Blockchain signing/execution remain in the external wallet.',
+      'V6 reads, pure models, unsigned authenticated transaction plans and receipt verification. Explicitly authorized logo and metadata publication is available through jb_pin_project_logo and jb_pin_project_metadata when a publisher is configured. Blockchain signing/execution remain in the external wallet.',
     families: areas.map((area) => ({
       ...area,
       tools: area.tools

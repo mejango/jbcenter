@@ -13,7 +13,7 @@ The deployment endpoint is **https://juicebox.center/mcp**. This package lives i
 - Exact project metadata review and explicitly approved public JSON pinning through the integrated Center backend, returning a CID and URI for a separate V6 launch.
 - Local stdio and stateless Streamable HTTP transports, bounded requests, cancellation, Docker packaging and CI.
 
-The **56 tools across ten capability families** compose into [26 user journeys](docs/USER_JOURNEYS.md) for contributors, creators, operators, revnet participants, omnichain users, and developers, including tool sequences and what establishes completion.
+The **57 tools across ten capability families** compose into [26 user journeys](docs/USER_JOURNEYS.md) for contributors, creators, operators, revnet participants, omnichain users, and developers, including tool sequences and what establishes completion.
 
 Start with `jb_list_capabilities` in an MCP client. It groups the tools and reports their coverage limits. The generated [tool catalog](docs/TOOLS.md), [architecture](docs/ARCHITECTURE.md), [source provenance](docs/SOURCES.md), and [webclient guide](docs/WEBCLIENTS.md) describe the implementation in more detail.
 
@@ -93,12 +93,13 @@ Plan expiry is enforced by this service, not universally by the destination cont
 
 ## Publish new project metadata
 
-1. Call `jb_prepare_project_metadata` with `version: 6` and a complete `metadata` object containing `name`, `description`, and optional `logoUri`/`infoUri`. Omit unavailable URLs; an `ipfs://<IMAGE_CID>` placeholder is invalid.
-2. Review the returned exact canonical JSON, SHA256, UTF-8 size and expiry with the user. Explain that the upload is public and removal cannot be guaranteed. Preparation produces no upload, and the review token is not user approval.
-3. Only after explicit approval of that document, call `jb_pin_project_metadata` with its token and `confirmPublicUpload: true`. The token is bound to the server and expires after ten minutes by default; changes require a new review.
-4. Use the returned `metadataUri` in `jb_prepare_launch.projectUri`, `jb_prepare_721_launch.projectUri`, or `jb_prepare_revnet_deploy.config.description.uri`, then follow the separate transaction workflow.
+1. If the user has a logo file, call `jb_pin_project_logo` with its base64 bytes and `contentType` after explicit approval of the public upload; its `logoUri` is the `ipfs://` CID. HTTPS logos are rejected because the first-party webclients only render content-addressed images.
+2. Call `jb_prepare_project_metadata` with `version: 6` and a complete `metadata` object containing `name`, `description`, and optional `logoUri`/`infoUri`. Omit unavailable URLs; an `ipfs://<IMAGE_CID>` placeholder is invalid.
+3. Review the returned exact canonical JSON, SHA256, UTF-8 size and expiry with the user. Explain that the upload is public and removal cannot be guaranteed. Preparation produces no upload, and the review token is not user approval.
+4. Only after explicit approval of that document, call `jb_pin_project_metadata` with its token and `confirmPublicUpload: true`. The token is bound to the server and expires after ten minutes by default; changes require a new review.
+5. Use the returned `metadataUri` in `jb_prepare_launch.projectUri`, `jb_prepare_721_launch.projectUri`, or `jb_prepare_revnet_deploy.config.description.uri`, then follow the separate transaction workflow.
 
-The 64 KiB JSON limit applies to the complete canonical UTF-8 document. This workflow creates new standard metadata; it does not merge or preserve an existing document's fields, update an existing project's URI, fetch linked content, or upload/pin a logo image. A logo must already have a real canonical IPFS CID or HTTPS URL. The receipt acknowledges the primary upload and queued redundancy; it does not claim retrieval or linked-content availability was verified. If publication returns `METADATA_PUBLICATION_UNVERIFIED`, content may already be public: inspect backend status before deliberately retrying. See the [metadata journey](docs/USER_JOURNEYS.md#review-and-pin-new-project-metadata).
+The 64 KiB JSON limit applies to the complete canonical UTF-8 document. This workflow creates new standard metadata; it does not merge or preserve an existing document's fields, update an existing project's URI, or fetch linked content. A logo is pinned separately by `jb_pin_project_logo` (1 MiB, same anonymous pin budget) or already has a real canonical IPFS CID. The receipt acknowledges the primary upload and queued redundancy; it does not claim retrieval or linked-content availability was verified. If publication returns `METADATA_PUBLICATION_UNVERIFIED`, content may already be public: inspect backend status before deliberately retrying. See the [metadata journey](docs/USER_JOURNEYS.md#review-and-pin-new-project-metadata).
 
 ## Correctness boundaries
 

@@ -4,9 +4,9 @@ Generated from the real MCP server with the official MCP client. Regenerate with
 
 For user goals, tool sequences, external handoffs and completion evidence, see the [user journeys](USER_JOURNEYS.md).
 
-56 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of reviewed project metadata through the integrated Center backend. No tool signs or broadcasts transactions.
+57 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of a project logo and reviewed project metadata through the integrated Center backend. No tool signs or broadcasts transactions.
 
-`jb_prepare_project_metadata` returns the exact canonical JSON, SHA256 and an expiring review token. `jb_pin_project_metadata` uploads only that reviewed document after explicit public-upload authorization. This is a public mutation; a review token is not user approval. The workflow creates new standard project metadata and does not upload images, merge existing documents, or update project URIs on-chain.
+`jb_pin_project_logo` uploads one PNG, JPEG, GIF, WebP or inert SVG of at most 1 MiB and returns its `ipfs://` logoUri. `jb_prepare_project_metadata` returns the exact canonical JSON, SHA256 and an expiring review token. `jb_pin_project_metadata` uploads only that reviewed document after explicit public-upload authorization. Both pins are public mutations; a review token is not user approval. `logoUri` must be `ipfs://` because the first-party webclients do not render HTTPS logos. The workflow creates new standard project metadata and does not merge existing documents or update project URIs on-chain.
 
 Every tool returns a structured envelope `{schemaVersion, observedAt, ok, data|error}`. Exact amounts use integer strings. Per-tool source coverage and execution limits remain in the returned domain data.
 
@@ -14,12 +14,13 @@ Every tool returns a structured envelope `{schemaVersion, observedAt, ok, data|e
 
 | Tool | Behavior |
 |---|---|
+| `jb_pin_project_logo` | Publish one project logo image to public IPFS using the integrated Center pinning backend and return its ipfs:// logoUri for jb_prepare_project_metadata. Accepts standard base64 of a PNG, JPEG, GIF, WebP or inert SVG file of at most 1 MiB whose bytes match the declared contentType. This is a persistent external mutation; get explicit user authorization for this exact public upload before setting confirmPublicUpload:true. Content may remain public permanently. Does not fetch URLs, resize, pin metadata, use wallet keys, or submit chain transactions. Repeated calls may repeat publication/provider quota consumption. |
 | `jb_prepare_project_metadata` | Prepare complete new standard Juicebox V6 project metadata for review without uploading anything. Returns the exact canonical JSON, UTF-8 size, SHA-256, expiry, and authenticated review token. Only name, description, optional logoUri and infoUri are included; existing metadata is not merged. URLs and image bytes are never fetched. A review token is not user approval to publish. |
-| `jb_pin_project_metadata` | Publish the exact document reviewed through jb_prepare_project_metadata to public IPFS using the integrated Center pinning backend. This is a persistent external mutation; get explicit user authorization for this exact public upload before setting confirmPublicUpload:true. A prepare token alone is not approval. Content may remain public permanently. Requires an unexpired authentic review token; does not upload images, fetch URLs, use wallet keys, or submit chain transactions. Repeated calls may repeat publication/provider quota consumption. |
+| `jb_pin_project_metadata` | Publish the exact document reviewed through jb_prepare_project_metadata to public IPFS using the integrated Center pinning backend. This is a persistent external mutation; get explicit user authorization for this exact public upload before setting confirmPublicUpload:true. A prepare token alone is not approval. Content may remain public permanently. Requires an unexpired authentic review token; does not upload images (use jb_pin_project_logo), fetch URLs, use wallet keys, or submit chain transactions. Repeated calls may repeat publication/provider quota consumption. |
 
 - Preparation returns exact new metadata for review; it does not merge an existing document.
 - Pinning publishes the reviewed JSON publicly and requires explicit user authorization.
-- The metadata token is not approval. Image bytes are not fetched or uploaded by these tools.
+- The metadata token is not approval. jb_pin_project_logo is the only tool that uploads image bytes: one PNG, JPEG, GIF, WebP or inert SVG of at most 1 MiB, returned as the ipfs:// logoUri; HTTPS logoUri values are rejected because first-party webclients do not render them.
 - Upload errors can leave public content behind; cancellation does not roll back publication.
 
 Source areas: JB Center, jb-project-metadata.

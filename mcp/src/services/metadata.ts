@@ -6,6 +6,7 @@ import { DomainError } from '../domain/errors.js';
 import { assertUnambiguousJson, canonicalJson } from '../domain/json.js';
 
 export const MAX_PROJECT_METADATA_BYTES = 64 * 1024;
+export const MAX_PROJECT_LOGO_BYTES = 1024 * 1024;
 const MAX_TOKEN_BYTES = 100 * 1024;
 const MAX_ENVELOPE_BYTES = MAX_PROJECT_METADATA_BYTES + 4096;
 const MAX_TTL_SECONDS = 600;
@@ -24,19 +25,22 @@ function isCanonicalCid(value: string): boolean {
   }
 }
 
+function isIpfsUri(value: string): boolean {
+  if (/\s|[\u0000-\u001f\u007f]/u.test(value) || !value.startsWith('ipfs://')) return false;
+  const parts = value.slice('ipfs://'.length).split('/');
+  return (
+    value.length <= 512 + 'ipfs://'.length &&
+    parts.length <= 8 &&
+    isCanonicalCid(parts[0] ?? '') &&
+    parts
+      .slice(1)
+      .every((part) => part !== '.' && part !== '..' && /^[A-Za-z0-9._~-]{1,128}$/u.test(part))
+  );
+}
+
 function isPublicMetadataUri(value: string): boolean {
   if (/\s|[\u0000-\u001f\u007f]/u.test(value)) return false;
-  if (value.startsWith('ipfs://')) {
-    const parts = value.slice('ipfs://'.length).split('/');
-    return (
-      value.length <= 512 + 'ipfs://'.length &&
-      parts.length <= 8 &&
-      isCanonicalCid(parts[0] ?? '') &&
-      parts
-        .slice(1)
-        .every((part) => part !== '.' && part !== '..' && /^[A-Za-z0-9._~-]{1,128}$/u.test(part))
-    );
-  }
+  if (value.startsWith('ipfs://')) return isIpfsUri(value);
   if (!/^https:\/\//iu.test(value) || value.includes('\\')) return false;
   try {
     const url = new URL(value);
@@ -54,6 +58,46 @@ const metadataUriSchema = unicodeString().max(2048).refine(isPublicMetadataUri, 
   message:
     'Use an absolute HTTPS URL without credentials, whitespace or backslashes, or ipfs:// followed by a real canonical CID and optional safe path. Placeholders and local files are unsupported.',
 });
+// Juicebox Money and Revnet Money render only content-addressed logos; an HTTPS logo
+// pins fine and then never shows, so it is rejected here instead of discovered later.
+const logoUriSchema = unicodeString().max(2048).refine(isIpfsUri, {
+  message:
+    'Use ipfs:// followed by the real canonical CID of an already pinned image; first-party webclients do not render HTTPS logos. Pin a local image with jb_pin_project_logo first. Placeholders and local paths are unsupported.',
+});
+
+const LOGO_CONTENT_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+] as const;
+const ACTIVE_SVG_CONTENT =
+  /<(?:script|foreignObject|iframe|object|embed|image|use|style)\b|(?:on[a-z]+|href|src)\s*=|url\s*\(|@import|<!doctype|<\?xml-stylesheet/iu;
+const RASTER_MAGIC: Record<string, (bytes: Buffer) => boolean> = {
+  'image/png': (bytes) =>
+    bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+  'image/jpeg': (bytes) => bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff,
+  'image/gif': (bytes) => bytes.subarray(0, 4).toString('latin1') === 'GIF8',
+  'image/webp': (bytes) =>
+    bytes.subarray(0, 4).toString('latin1') === 'RIFF' &&
+    bytes.subarray(8, 12).toString('latin1') === 'WEBP',
+};
+
+/** The declared type must match the bytes; an SVG must be inert markup. */
+function isImageOfType(bytes: Buffer, contentType: (typeof LOGO_CONTENT_TYPES)[number]): boolean {
+  if (contentType !== 'image/svg+xml') return RASTER_MAGIC[contentType]!(bytes);
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return false;
+  }
+  return (
+    /^﻿?\s*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg[\s>]/iu.test(text) &&
+    !ACTIVE_SVG_CONTENT.test(text)
+  );
+}
 
 export const projectMetadataSchema = z
   .object({
@@ -62,7 +106,7 @@ export const projectMetadataSchema = z
       .max(256)
       .refine((value) => value.trim().length > 0, 'Name must not be blank.'),
     description: unicodeString().max(MAX_PROJECT_METADATA_BYTES),
-    logoUri: metadataUriSchema.optional(),
+    logoUri: logoUriSchema.optional(),
     infoUri: metadataUriSchema.optional(),
   })
   .strict();
@@ -111,6 +155,32 @@ export const pinProjectMetadataSchema = z
   })
   .strict();
 
+export const pinProjectLogoSchema = z
+  .object({
+    contentType: z
+      .enum(LOGO_CONTENT_TYPES)
+      .describe('Declared image type; it must match the decoded bytes.'),
+    imageBase64: z
+      .string()
+      .min(4)
+      .max(Math.ceil(MAX_PROJECT_LOGO_BYTES / 3) * 4)
+      .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u)
+      .describe(
+        'Standard padded base64 of the complete image file, at most 1 MiB decoded. Not a data: URL, path or URL.',
+      ),
+    filename: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u)
+      .optional()
+      .describe('Optional provider-side filename; it does not affect the CID.'),
+    confirmPublicUpload: z
+      .literal(true)
+      .describe(
+        'Set only after the user explicitly authorizes publishing this exact image publicly to IPFS. Publication may be permanent.',
+      ),
+  })
+  .strict();
+
 const timestampSchema = z
   .string()
   .datetime({ offset: false })
@@ -132,6 +202,10 @@ const envelopeSchema = z
 type MetadataEnvelope = z.output<typeof envelopeSchema>;
 export type PinProjectMetadataJson = (
   jsonText: string,
+  signal?: AbortSignal,
+) => Promise<{ cid: string; status: 'queued' }>;
+export type PinProjectLogo = (
+  image: { bytes: Uint8Array; contentType: string; filename: string },
   signal?: AbortSignal,
 ) => Promise<{ cid: string; status: 'queued' }>;
 
@@ -156,12 +230,14 @@ export class ProjectMetadataService {
   private readonly ttlSeconds: number;
   private readonly now: () => number;
   private readonly pinJson?: PinProjectMetadataJson;
+  private readonly pinLogoImage?: PinProjectLogo;
   private readonly audience: string;
 
   constructor(options: {
     secret: string;
     audience: string;
     pinJson?: PinProjectMetadataJson;
+    pinLogo?: PinProjectLogo;
     ttlSeconds?: number;
     now?: () => number;
   }) {
@@ -180,6 +256,7 @@ export class ProjectMetadataService {
     this.key = createHmac('sha256', options.secret).update(KEY_DOMAIN).digest();
     this.audience = z.string().min(1).max(2048).parse(options.audience);
     this.pinJson = options.pinJson;
+    this.pinLogoImage = options.pinLogo;
     this.now = options.now ?? Date.now;
   }
 
@@ -229,11 +306,11 @@ export class ProjectMetadataService {
         },
         availability: this.pinJson
           ? 'The integrated pinning backend is configured; publication still requires authorization and successful quota/provider checks.'
-          : 'This server has no pinning backend. Connect to the hosted https://juicebox.center/mcp service and prepare the same reviewed metadata there before authorizing a pin; review tokens cannot be assumed portable between servers.',
+          : `This server has no pinning backend. Connect to the hosted ${this.audience} service and prepare the same reviewed metadata there before authorizing a pin; review tokens cannot be assumed portable between servers.`,
       },
       warnings: [
         'This creates a new document containing only the displayed fields. It does not merge or preserve fields from an existing project metadata document.',
-        'A logoUri references already hosted content. This workflow does not fetch, upload or pin the image itself; omit logoUri until a real image CID or HTTPS URL is available.',
+        'A logoUri references an already pinned image as ipfs://<cid>. Preparation does not fetch or pin it; pin a local image with jb_pin_project_logo first, or omit logoUri.',
         'Pinning does not launch or edit a project on-chain. Use the returned metadataUri in a separately reviewed V6 launch. Existing-project URI updates are not prepared by this workflow.',
       ],
     };
@@ -246,7 +323,7 @@ export class ProjectMetadataService {
     if (!this.pinJson)
       throw new DomainError(
         'NOT_CONFIGURED',
-        'Public metadata pinning is not configured on this server. Prepare the same metadata through https://juicebox.center/mcp, review it, and authorize pinning there. No upload was attempted.',
+        `Public metadata pinning is not configured on this server. Prepare the same metadata through ${this.audience}, review it, and authorize pinning there. No upload was attempted.`,
       );
     const signal = consumeRequest();
     let result: Awaited<ReturnType<PinProjectMetadataJson>>;
@@ -294,6 +371,75 @@ export class ProjectMetadataService {
       ],
       nextStep:
         'Choose the intended V6 launch composition, use the indicated URI field, and complete its other typed inputs for a separate transaction review. Pinning itself has not changed any project. This workflow does not prepare existing-project URI updates.',
+    };
+  }
+
+  async pinLogo(input: unknown) {
+    assertUnambiguousJson(input);
+    const parsed = pinProjectLogoSchema.parse(input);
+    if (!this.pinLogoImage)
+      throw new DomainError(
+        'NOT_CONFIGURED',
+        `Public image pinning is not configured on this server. Pin the logo through ${this.audience} instead. No upload was attempted.`,
+      );
+    const bytes = Buffer.from(parsed.imageBase64, 'base64');
+    if (
+      bytes.toString('base64') !== parsed.imageBase64 ||
+      bytes.length === 0 ||
+      bytes.length > MAX_PROJECT_LOGO_BYTES ||
+      !isImageOfType(bytes, parsed.contentType)
+    )
+      throw new DomainError(
+        'INVALID_IMAGE',
+        'The image must be canonical base64 of at most 1 MiB whose bytes match the declared type; an SVG must be inert markup without scripts, external references or styles. No upload was attempted.',
+      );
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const extension =
+      parsed.contentType === 'image/svg+xml' ? 'svg' : parsed.contentType.slice('image/'.length);
+    const filename = parsed.filename ?? `logo.${extension}`;
+    const signal = consumeRequest();
+    let result: Awaited<ReturnType<PinProjectLogo>>;
+    try {
+      result = await this.pinLogoImage(
+        { bytes, contentType: parsed.contentType, filename },
+        signal,
+      );
+      if (
+        !result ||
+        typeof result.cid !== 'string' ||
+        !isCanonicalCid(result.cid) ||
+        result.status !== 'queued'
+      )
+        throw new Error('Invalid pinning receipt.');
+    } catch {
+      throw new DomainError(
+        'LOGO_PUBLICATION_UNVERIFIED',
+        'The pinning operation did not return a valid completion receipt. The image may already be public; an automatic retry could repeat publication or consume quota. Inspect backend status before deliberately retrying.',
+        { details: { publicUploadMayHaveOccurred: true, sha256 } },
+      );
+    }
+    return {
+      version: 6 as const,
+      logoUri: `ipfs://${result.cid}`,
+      cid: result.cid,
+      contentType: parsed.contentType,
+      bytes: bytes.length,
+      sha256,
+      publication: {
+        visibility: 'public',
+        primaryUploadAcknowledged: true,
+        redundancyStatus: result.status,
+        removalGuaranteed: false,
+        retrievedContentVerified: false,
+        onchainTransactionSubmitted: false,
+      },
+      nextStep: {
+        tool: 'jb_prepare_project_metadata',
+        field: 'metadata.logoUri',
+        value: `ipfs://${result.cid}`,
+        instruction:
+          'Put logoUri into the complete metadata document, prepare it for review, then pin the reviewed JSON after explicit authorization. sha256 is the published bytes; compare it with the local file if the user wants to verify.',
+      },
     };
   }
 

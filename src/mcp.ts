@@ -6,6 +6,7 @@ import {
   loadConfig,
   type Config,
   type FetchJsonOptions,
+  type PinProjectLogo,
   type PinProjectMetadataJson,
   type Services,
 } from "@juicebox/mcp/host";
@@ -23,6 +24,7 @@ import type { Store } from "./store.js";
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const METADATA_LIMIT = 64 * 1024;
+const LOGO_LIMIT = 1024 * 1024;
 const READ_RESPONSE_LIMIT = 2 * 1024 * 1024;
 
 export const MCP_BACKEND_LIMITS = {
@@ -332,6 +334,48 @@ export function createCenterRpcFetcher(
   };
 }
 
+/** Both MCP pin bridges spend the same anonymous budgets; the browser routes have their own. */
+async function centerPin(
+  store: Store,
+  pinning: PinningService,
+  blob: Blob,
+  filename: string,
+  callerSignal: AbortSignal | undefined,
+): Promise<{ cid: string; status: "queued" }> {
+  const signal = signalFor({
+    ...(callerSignal ? { signal: callerSignal } : {}),
+    timeoutMs: 60_000,
+  });
+  try {
+    await quota(
+      store,
+      "pin:mcp",
+      MCP_BACKEND_LIMITS.pinsPerWindow,
+      MCP_BACKEND_LIMITS.pinWindowSeconds,
+      signal,
+    );
+    await quota(
+      store,
+      "pin:site",
+      MCP_BACKEND_LIMITS.pinsSitePerWindow,
+      MCP_BACKEND_LIMITS.pinWindowSeconds,
+      signal,
+    );
+    const result = await cancellable(signal, () =>
+      pinning.pin(blob, filename, signal),
+    );
+    if (result.status !== "queued" || !isIpfsCid(result.cid)) {
+      throw new DomainError(
+        "UPSTREAM_INVALID_RESPONSE",
+        "The pinning backend returned an invalid CID or status.",
+      );
+    }
+    return { cid: result.cid, status: "queued" };
+  } catch (error) {
+    safeFailure(error, signal);
+  }
+}
+
 /** Called only after the metadata service verifies the exact reviewed V6 document and approval. */
 export function createCenterPinJson(
   store: Store,
@@ -351,42 +395,31 @@ export function createCenterPinJson(
     }
     if (!document || typeof document !== "object" || Array.isArray(document))
       invalidRequest();
-    const signal = signalFor({
-      ...(callerSignal ? { signal: callerSignal } : {}),
-      timeoutMs: 60_000,
-    });
-    try {
-      await quota(
-        store,
-        "pin:mcp",
-        MCP_BACKEND_LIMITS.pinsPerWindow,
-        MCP_BACKEND_LIMITS.pinWindowSeconds,
-        signal,
-      );
-      await quota(
-        store,
-        "pin:site",
-        MCP_BACKEND_LIMITS.pinsSitePerWindow,
-        MCP_BACKEND_LIMITS.pinWindowSeconds,
-        signal,
-      );
-      const result = await cancellable(signal, () =>
-        pinning.pin(
-          new Blob([jsonText], { type: "application/json" }),
-          "metadata.json",
-          signal,
-        ),
-      );
-      if (result.status !== "queued" || !isIpfsCid(result.cid)) {
-        throw new DomainError(
-          "UPSTREAM_INVALID_RESPONSE",
-          "The pinning backend returned an invalid CID or status.",
-        );
-      }
-      return { cid: result.cid, status: "queued" };
-    } catch (error) {
-      safeFailure(error, signal);
-    }
+    return centerPin(
+      store,
+      pinning,
+      new Blob([jsonText], { type: "application/json" }),
+      "metadata.json",
+      callerSignal,
+    );
+  };
+}
+
+/** Called only after the metadata service has decoded, sniffed and size-checked the image. */
+export function createCenterPinLogo(
+  store: Store,
+  pinning: PinningService,
+): PinProjectLogo {
+  return async (image, callerSignal) => {
+    if (image.bytes.byteLength < 1 || image.bytes.byteLength > LOGO_LIMIT)
+      invalidRequest();
+    return centerPin(
+      store,
+      pinning,
+      new Blob([Buffer.from(image.bytes)], { type: image.contentType }),
+      image.filename,
+      callerSignal,
+    );
   };
 }
 
@@ -436,7 +469,10 @@ export function createCenterMcp(
     ),
     center,
     ...(options.pinning
-      ? { pinJson: createCenterPinJson(store, options.pinning) }
+      ? {
+          pinJson: createCenterPinJson(store, options.pinning),
+          pinLogo: createCenterPinLogo(store, options.pinning),
+        }
       : {}),
   });
   return { config, services };

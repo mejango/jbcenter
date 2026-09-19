@@ -51,10 +51,12 @@ describe('metadata MCP publication boundary', () => {
       loadConfig({ PLAN_SECRET: SECRET, PUBLIC_ORIGIN: 'https://juicebox.center' }),
     );
     const pinJson = vi.fn(async (_jsonText: string) => ({ cid: CID, status: 'queued' as const }));
+    const pinLogo = vi.fn(async () => ({ cid: CID, status: 'queued' as const }));
     services.metadata = new ProjectMetadataService({
       secret: SECRET,
       audience: 'https://juicebox.center/mcp',
       pinJson,
+      pinLogo,
     });
     server = createMcpServer(services);
     client = new Client({ name: 'metadata-test', version: '1.0.0' });
@@ -73,7 +75,7 @@ describe('metadata MCP publication boundary', () => {
       listed.tools
         .filter((tool) => tool.annotations?.readOnlyHint === false)
         .map((tool) => tool.name),
-    ).toEqual(['jb_pin_project_metadata']);
+    ).toEqual(['jb_pin_project_logo', 'jb_pin_project_metadata']);
     const prepared = await client.callTool({
       name: 'jb_prepare_project_metadata',
       arguments: {
@@ -100,5 +102,118 @@ describe('metadata MCP publication boundary', () => {
       data: { metadataUri: `ipfs://${CID}`, version: 6 },
     });
     expect(pinJson.mock.calls[0]?.[0]).toBe(data.review.jsonText);
+    const logo = await client.callTool({
+      name: 'jb_pin_project_logo',
+      arguments: { contentType: 'image/png', imageBase64: PNG_1X1, confirmPublicUpload: true },
+    });
+    expect(logo.structuredContent).toMatchObject({
+      ok: true,
+      data: { logoUri: `ipfs://${CID}`, contentType: 'image/png' },
+    });
+    expect(pinLogo).toHaveBeenCalledOnce();
+  });
+});
+
+const PNG_1X1 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+const svg = (markup: string) => Buffer.from(markup, 'utf8').toString('base64');
+
+describe('logo pinning', () => {
+  const service = (pinLogo?: ReturnType<typeof vi.fn>) =>
+    new ProjectMetadataService({
+      secret: SECRET,
+      audience: 'https://example.test/mcp',
+      ...(pinLogo ? { pinLogo: pinLogo as never } : {}),
+    });
+
+  it('accepts only ipfs:// logos in metadata and points HTTPS at the logo tool', () => {
+    const prepare = createMetadataTools(service())[1]!;
+    expect(prepare.name).toBe('jb_prepare_project_metadata');
+    const base = { version: 6, metadata: { name: 'A', description: 'B' } };
+    expect(() =>
+      prepare.schema.parse({ ...base, metadata: { ...base.metadata, logoUri: `ipfs://${CID}` } }),
+    ).not.toThrow();
+    expect(() =>
+      prepare.schema.parse({
+        ...base,
+        metadata: { ...base.metadata, logoUri: 'https://example.test/logo.png' },
+      }),
+    ).toThrow(/jb_pin_project_logo/u);
+    expect(() =>
+      prepare.schema.parse({
+        ...base,
+        metadata: { ...base.metadata, infoUri: 'https://example.test' },
+      }),
+    ).not.toThrow();
+  });
+
+  it('pins sniffed bytes and returns the ipfs:// logoUri without any domain', async () => {
+    const pinLogo = vi.fn(async () => ({ cid: CID, status: 'queued' as const }));
+    const result = await service(pinLogo).pinLogo({
+      contentType: 'image/png',
+      imageBase64: PNG_1X1,
+      confirmPublicUpload: true,
+    });
+    expect(result).toMatchObject({
+      logoUri: `ipfs://${CID}`,
+      contentType: 'image/png',
+      bytes: Buffer.from(PNG_1X1, 'base64').length,
+      nextStep: { field: 'metadata.logoUri', value: `ipfs://${CID}` },
+    });
+    expect(JSON.stringify(result)).not.toContain('example.test');
+    const [image] = pinLogo.mock.calls[0] as unknown as [
+      { bytes: Uint8Array; contentType: string; filename: string },
+    ];
+    expect(Buffer.from(image.bytes).toString('base64')).toBe(PNG_1X1);
+    expect(image).toMatchObject({ contentType: 'image/png', filename: 'logo.png' });
+  });
+
+  it('rejects mismatched types, active SVG, non-canonical base64 and oversize images before upload', async () => {
+    const pinLogo = vi.fn(async () => ({ cid: CID, status: 'queued' as const }));
+    const attempt = (input: Record<string, unknown>) =>
+      service(pinLogo).pinLogo({ confirmPublicUpload: true, ...input });
+    await expect(attempt({ contentType: 'image/gif', imageBase64: PNG_1X1 })).rejects.toThrow(
+      /match the declared type/u,
+    );
+    await expect(
+      attempt({
+        contentType: 'image/svg+xml',
+        imageBase64: svg('<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>'),
+      }),
+    ).rejects.toThrow(/inert/u);
+    await expect(
+      attempt({
+        contentType: 'image/svg+xml',
+        imageBase64: svg('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>'),
+      }),
+    ).resolves.toMatchObject({ contentType: 'image/svg+xml' });
+    await expect(attempt({ contentType: 'image/png', imageBase64: 'iVBORw0K' })).rejects.toThrow();
+    await expect(
+      attempt({ contentType: 'image/png', imageBase64: `${PNG_1X1.slice(0, -2)}=A` }),
+    ).rejects.toThrow();
+    const oversize = Buffer.concat([
+      Buffer.from(PNG_1X1, 'base64'),
+      Buffer.alloc(1024 * 1024),
+    ]).toString('base64');
+    await expect(attempt({ contentType: 'image/png', imageBase64: oversize })).rejects.toThrow();
+    expect(pinLogo).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an unverified publication instead of a fabricated CID', async () => {
+    const pinLogo = vi.fn(async () => ({ cid: 'nope', status: 'queued' as const }));
+    await expect(
+      service(pinLogo).pinLogo({
+        contentType: 'image/png',
+        imageBase64: PNG_1X1,
+        confirmPublicUpload: true,
+      }),
+    ).rejects.toMatchObject({ code: 'LOGO_PUBLICATION_UNVERIFIED' });
+    await expect(
+      service().pinLogo({
+        contentType: 'image/png',
+        imageBase64: PNG_1X1,
+        confirmPublicUpload: true,
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_CONFIGURED' });
   });
 });

@@ -118,7 +118,7 @@ RPC are public; RPC accepts any or no Origin. `GET /healthz` is public for infra
 
 ## Connect an assistant through MCP
 
-The `mcp/` package provides **56 V6-only tools across ten capability families**: project and
+The `mcp/` package provides **57 V6-only tools across ten capability families**: project and
 account intelligence, payments and cash-outs, launches and ruleset changes, buyback hooks, router
 terminals, 721 shops, revnets and loans, omnichain operations, source and webclient development,
 and reviewed project metadata publication. Read the [26 user journeys](mcp/docs/USER_JOURNEYS.md)
@@ -144,9 +144,12 @@ count is not reported as a V6 total. Direct intent reads also reject other deplo
 An assistant can prepare new project metadata using `jb_prepare_project_metadata`, show the exact
 JSON and public visibility and potential permanence, then call `jb_pin_project_metadata` only after the user
 explicitly approves that document. The expiring review token commits to the exact UTF-8 bytes.
-Pinning returns a CID and `ipfs://` URI for a separately reviewed V6 launch. It does not upload a
-logo, merge existing metadata, update an existing project, sign, or broadcast a transaction. A logo
-must already have a real HTTPS URL or IPFS CID and can be omitted until available.
+Pinning returns a CID and `ipfs://` URI for a separately reviewed V6 launch. A local logo file is
+pinned first with `jb_pin_project_logo` (one image of at most 1 MiB, same explicit approval, same
+anonymous MCP pin budget as JSON) and referenced as `ipfs://<cid>`; HTTPS logos are rejected because
+the first-party webclients only render content-addressed images. Neither tool merges existing
+metadata, updates an existing project, signs, or broadcasts a transaction. Agents and scripts pin
+through the MCP; the `/v1/pins/*` routes below are for approved browser origins.
 
 `/mcp/healthz` reports MCP liveness and `/mcp/readyz` reports local MCP readiness with upstream
 health explicitly unchecked. Center's `/readyz` continues checking PostgreSQL. The integrated

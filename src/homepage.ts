@@ -98,6 +98,7 @@ const API_CONTENT = {
     <p>Upload public files to IPFS. Keeping a copy available is called pinning.</p>
     <p class="access">Uploads must come from an approved app</p>
     <p>Browser uploads: <a href="https://juicebox.money">juicebox.money</a>, <a href="https://revnet.money">revnet.money</a>, <a href="https://eth.shop">eth.shop</a>, <a href="https://succulent.money">succulent.money</a>, or <a href="https://homerun.money">homerun.money</a>.</p>
+    <p>Agents: an assistant connected to <a href="#directory-agents">the MCP endpoint</a> pins a project logo and metadata with <code>jb_pin_project_logo</code> and <code>jb_pin_project_metadata</code> under a shared budget; no approved origin needed.</p>
     <table class="pin-routes">
       <caption>POST to https://juicebox.center</caption>
       <thead><tr><th scope="col">Path</th><th scope="col">Body</th><th scope="col">Max</th></tr></thead>

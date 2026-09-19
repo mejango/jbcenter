@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createCenterMcp,
   createCenterPinJson,
+  createCenterPinLogo,
   createCenterReadFetcher,
   createCenterRpcFetcher,
   MCP_BACKEND_LIMITS,
@@ -385,6 +386,39 @@ describe("shared read-only RPC bridge", () => {
 });
 
 describe("reviewed JSON pinning bridge", () => {
+  it("pins a sniffed logo under the same anonymous MCP quotas", async () => {
+    const store = storeMock();
+    const pinning = pinningMock();
+    const bytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ]);
+    await expect(
+      createCenterPinLogo(
+        store,
+        pinning,
+      )({ bytes, contentType: "image/png", filename: "logo.png" }),
+    ).resolves.toEqual({ cid: CID, status: "queued" });
+    const [blob, filename] = pinning.pin.mock.calls[0]!;
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(bytes);
+    expect(blob.type).toBe("image/png");
+    expect(filename).toBe("logo.png");
+    expect(store.consumeRequest.mock.calls).toEqual([
+      ["pin:mcp", 10, 600],
+      ["pin:site", 200, 600],
+    ]);
+    await expect(
+      createCenterPinLogo(
+        store,
+        pinning,
+      )({
+        bytes: new Uint8Array(1024 * 1024 + 1),
+        contentType: "image/png",
+        filename: "logo.png",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(pinning.pin).toHaveBeenCalledOnce();
+  });
+
   it("pins exactly the reviewed UTF-8 JSON as metadata.json under both quotas", async () => {
     const store = storeMock();
     const pinning = pinningMock();

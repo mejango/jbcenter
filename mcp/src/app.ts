@@ -13,12 +13,17 @@ import { ProductService } from './services/products.js';
 import { RoutingService } from './services/routing.js';
 import { DevelopmentService } from './services/development.js';
 import type { fetchJson } from './adapters/http.js';
-import { ProjectMetadataService, type PinProjectMetadataJson } from './services/metadata.js';
+import {
+  ProjectMetadataService,
+  type PinProjectLogo,
+  type PinProjectMetadataJson,
+} from './services/metadata.js';
 
 export interface ServiceDependencies {
   rpcFetchJson?: typeof fetchJson;
   center?: CenterClient;
   pinJson?: PinProjectMetadataJson;
+  pinLogo?: PinProjectLogo;
 }
 
 export function createServices(config: Config, dependencies: ServiceDependencies = {}) {
@@ -50,6 +55,7 @@ export function createServices(config: Config, dependencies: ServiceDependencies
       secret: config.planSecret,
       audience: `${config.publicOrigin}/mcp`,
       ...(dependencies.pinJson ? { pinJson: dependencies.pinJson } : {}),
+      ...(dependencies.pinLogo ? { pinLogo: dependencies.pinLogo } : {}),
     }),
   };
 }

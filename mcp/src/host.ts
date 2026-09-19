@@ -36,4 +36,4 @@ export {
   type OperationOptions,
   type OperationEffects,
 } from './application/operation.js';
-export { type PinProjectMetadataJson } from './services/metadata.js';
+export { type PinProjectLogo, type PinProjectMetadataJson } from './services/metadata.js';
