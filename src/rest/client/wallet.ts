@@ -224,6 +224,10 @@ export function createCenterWalletClient(options: CenterWalletClientOptions) {
       }
       if (!response.ok) {
         void response.body?.cancel().catch(() => {});
+        // A 429 or 5xx is Center unavailable for the moment, not a verdict on the request: the
+        // saved record stays usable and a later attempt may complete it. A 4xx is a verdict.
+        if (response.status === 429 || response.status >= 500)
+          return fail('WALLET_NETWORK_ERROR', 'The wallet request could not complete. Retry the pending connection.');
         return fail('WALLET_REQUEST_REJECTED', 'Center rejected the wallet request. The pending connection has been preserved.');
       }
       if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '') ||

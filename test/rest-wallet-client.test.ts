@@ -16,7 +16,7 @@ const intentId = token(4), code = token(5), accountId = `eip155:8453:0x${'12'.re
 function fixture() {
   const data = new Map<string, string>(), calls: Array<{ url: string; body: any; init: RequestInit }> = [];
   let href = origin + '/i/' + 'ab'.repeat(16), current = now, request: WalletHandoffRequest;
-  let prepareLoss = false, exchangeLoss = false, exchanges = 0, mutateConfig: (value: any) => any = v => v, mutateGrant: (value: any) => any = v => v;
+  let prepareLoss = false, exchangeLoss = false, exchangeStatus: number | null = null, exchanges = 0, mutateConfig: (value: any) => any = v => v, mutateGrant: (value: any) => any = v => v;
   const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); }, removeItem: (key: string) => { data.delete(key); } };
   const location = { href: () => href, replace: (value: string) => { href = value; } };
   const transport = async (input: string | URL | Request, init: RequestInit = {}) => {
@@ -41,6 +41,7 @@ function fixture() {
       expect(body.code).toBe(code); expect(body.intentId).toBe(intentId);
       exchanges++;
       if (exchangeLoss) { exchangeLoss = false; throw new Error('private upstream details'); }
+      if (exchangeStatus !== null) { const status = exchangeStatus; exchangeStatus = null; return new Response('{}', { status, headers: { 'content-type': 'application/json' } }); }
       return Response.json({ replayed: exchanges > 1, grant: mutateGrant({ kind: 'wallet-app', id: '550e8400-e29b-41d4-a716-446655440000', incarnation: '1', accountId,
         signerAddress: request.requestKey.toLowerCase(), scopes: ['read', 'plan', 'relay'], origin, callbackUri, audience, appGeneration: 1,
         authorityEpoch: '1', sessionEpoch: '1', createdAt: now / 1000, expiresAt: now / 1000 + 3600, revokedAt: null, retainUntil: now / 1000 + 3600 + 86400 }) });
@@ -57,7 +58,7 @@ function fixture() {
   const options = { issuer, audience, callbackUri, storage, location, fetch: transport as typeof fetch, now: () => current };
   return { options, data, calls, storage, location, client: () => createCenterWalletClient(options),
     callback: () => { href = walletHandoffCallback({ request, code }); return href; }, href: () => href,
-    losePrepare: () => { prepareLoss = true; }, loseExchange: () => { exchangeLoss = true; },
+    losePrepare: () => { prepareLoss = true; }, loseExchange: () => { exchangeLoss = true; }, answerExchange: (status: number) => { exchangeStatus = status; },
     advance: (ms: number) => { current += ms; }, changeConfig: (f: typeof mutateConfig) => { mutateConfig = f; }, changeGrant: (f: typeof mutateGrant) => { mutateGrant = f; } };
 }
 
@@ -164,6 +165,18 @@ describe('Center browser wallet connection', () => {
     expect(f.calls).toHaveLength(1); expect(f.data.size).toBe(0);
   });
 
+  it.each([503, 429])('a served %s during the exchange is Center unavailable, not a rejection: the exchange stays pending and completes on retry', async status => {
+    const f = fixture(); await f.client().prepareConnection(); f.answerExchange(status);
+    await expect(f.client().completeConnection(f.callback())).rejects.toMatchObject({ code: 'WALLET_NETWORK_ERROR' });
+    expect(JSON.parse([...f.data.values()][0]!).exchange).toBeDefined();
+    const connected = await f.client().retryConnection();
+    expect(connected.accountId).toBe(accountId);
+  });
+  it('a served 403 during the exchange is a rejection, with the pending record preserved for the app to decide', async () => {
+    const f = fixture(); await f.client().prepareConnection(); f.answerExchange(403);
+    await expect(f.client().completeConnection(f.callback())).rejects.toMatchObject({ code: 'WALLET_REQUEST_REJECTED' });
+    expect(JSON.parse([...f.data.values()][0]!).exchange).toBeDefined();
+  });
   it('accepts a grant that lasts the full 90-day ceiling', async () => {
     const f = fixture(); await f.client().prepareConnection();
     f.changeGrant(grant => { grant.expiresAt = grant.createdAt + 7_776_000; grant.retainUntil = grant.expiresAt + 86400; return grant; });
