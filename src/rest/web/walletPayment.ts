@@ -207,7 +207,10 @@ async function approvePayment() {
   if (!window.isSecureContext || !navigator.credentials?.get) { blocked = true; setStatus('error', 'This browser cannot use passkeys here. Open Center in a browser that supports passkeys.'); return; }
   // No network await precedes get(): it runs from the explicit approval click.
   nativePrompt = new AbortController(); setStatus('authenticating', 'Use your passkey to approve this payment.'); render();
-  const credential = await navigator.credentials.get({ publicKey: { rpId, challenge: decode(review.passkey.challenge), userVerification: 'required', timeout: 90_000 }, signal: nativePrompt.signal });
+  // The review pins the passkey that signed in; naming it lets the platform go straight to that one
+  // instead of listing every passkey it holds for this site.
+  const credential = await navigator.credentials.get({ publicKey: { rpId, challenge: decode(review.passkey.challenge), userVerification: 'required', timeout: 90_000,
+    allowCredentials: [{ type: 'public-key', id: decode(review.passkey.credentialId) }] }, signal: nativePrompt.signal });
   if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAssertionResponse)) throw new InvalidResponse();
   // The device offered another passkey than the one this review pins (a second passkey for this
   // account, or another account's): nothing was sent, so the customer simply picks again.
