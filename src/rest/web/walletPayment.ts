@@ -143,7 +143,7 @@ function accept(input: unknown) {
   if (review.status === 'approved') { pending = null; uncertain = false; setStatus('approved', 'Approved. Check the result in the app.'); }
   else if (review.status === 'cancelled') { pending = null; uncertain = false; setStatus('cancelled', 'Payment declined. No new approval was issued.'); }
   else if (expired()) setStatus('expired', 'This payment approval expired. Return to your app to review a fresh payment.');
-  else setStatus('ready', 'Check the payment details, then approve with your passkey.');
+  else setStatus('ready', '');
 }
 // The configuration and the review do not depend on one another here: they go out together and
 // are checked in order. The review id in the link is what admits this page; no Center sign-in is

@@ -8,13 +8,12 @@ export function walletPaymentPage(base = '/wallet'): string {
 <body><main><a class="brand" href="${base || '/'}">JUICEBOX CENTER</a><h1>Review payment</h1>
 <p id="payment-status" role="status" aria-live="polite" aria-atomic="true" data-state="loading">Checking this payment…</p>
 <section id="payment-review" aria-label="Payment details" hidden>
-<p id="payment-amount" class="amount"></p><dl>
+<p id="payment-amount" class="amount"></p>
+<details class="quiet"><summary>Details</summary><dl>
 <dt>Juicebox project</dt><dd id="payment-project"></dd><dt>Network</dt><dd>Base</dd>
-<dt>Requested by</dt><dd id="payment-app"></dd><dt>From your wallet</dt><dd id="payment-account"></dd>
+<dt>Requested by</dt><dd id="payment-app"></dd><dt>From your account</dt><dd id="payment-account"></dd>
 <dt>Beneficiary</dt><dd id="payment-beneficiary"></dd><dt>Minimum project tokens (base units)</dt><dd id="payment-minimum"></dd>
-<dt>Memo</dt><dd id="payment-memo" class="exact-text"></dd><dt>Execution fee ceiling</dt><dd id="payment-fee"></dd></dl>
-<p class="note">Base data fees are not included in this ceiling.</p>
-<details><summary>Payment details</summary><dl>
+<dt>Memo</dt><dd id="payment-memo" class="exact-text"></dd><dt>Execution fee ceiling</dt><dd id="payment-fee"></dd>
 <dt>USDC contract</dt><dd id="payment-token"></dd><dt>Juicebox terminal</dt><dd id="payment-terminal"></dd>
 <dt>Metadata</dt><dd id="payment-metadata"></dd><dt>Operation</dt><dd id="payment-operation"></dd>
 <dt>Approval expires</dt><dd id="payment-expiry"></dd></dl></details></section>
@@ -23,7 +22,6 @@ export function walletPaymentPage(base = '/wallet'): string {
 <button id="payment-prompt-cancel" type="button" class="secondary" hidden>Cancel passkey prompt</button>
 <button id="payment-retry" type="button" class="secondary" hidden>Check payment again</button>
 <a id="payment-return" class="action-link" hidden>Return to app</a></div>
-<p class="note">Your passkey approves only this payment. The app submits it and checks the result.</p>
 <noscript><p>Enable JavaScript to review and approve this payment.</p></noscript></main></body></html>`;
 }
 
@@ -32,6 +30,8 @@ export function walletPaymentCss(): string {
 #payment-status[data-state=error],#payment-status[data-state=unknown],#payment-status[data-state=expired]{color:#9c3028}
 .amount{font-size:clamp(1.8rem,7vw,2.5rem);font-weight:700;margin:1.5rem 0}.exact-text{white-space:pre-wrap}
 details{margin:1.5rem 0}summary{cursor:pointer;text-decoration:underline;line-height:1.5}details dl{margin-top:1rem}
+details.quiet>summary{list-style:none;display:inline-block;color:#53614f;font-size:.9rem;text-underline-offset:.15em}details.quiet>summary::-webkit-details-marker{display:none}details.quiet>summary:hover{color:#172019}
+#payment-status:empty{display:none}
 .action-link{display:inline-flex;align-items:center;min-height:3rem;padding:.75rem 1rem;border:1px solid #172019;color:inherit;max-width:100%;overflow-wrap:anywhere}
 @media(max-width:400px){.action-link{justify-content:center;width:100%}}`;
 }
