@@ -98,6 +98,7 @@ function fixture() {
     validationFailure: false,
     reorged: false,
     mined: false,
+    transactionPending: false,
     receiptStatus: "0x1",
     eventSuccess: true,
     operationSignature: "0x1234" as Hex,
@@ -202,7 +203,10 @@ function fixture() {
       };
     if (method === "eth_getCode") return state.code;
     if (method === "eth_getBalance") return toHex(10n ** 18n);
-    if (method === "eth_getTransactionByHash") return state.mined ? tx() : null;
+    if (method === "eth_getTransactionByHash")
+      return !state.mined ? null : state.transactionPending
+        ? { ...tx(), blockHash: null, blockNumber: null, transactionIndex: null }
+        : tx();
     if (method === "eth_getTransactionReceipt")
       return state.mined ? receipt() : null;
     if (method === "eth_call") {
@@ -607,6 +611,14 @@ describe("independent EntryPoint receipt and per-operation log proof", () => {
   });
   it("keeps absent onchain receipts pending", async () => {
     expect((await fixture().observe()).state).toBe("pending");
+  });
+  it("treats a transaction a lagging node still shows pending beside a mined receipt as not yet settled, never invalid", async () => {
+    const f = fixture();
+    f.state.mined = true;
+    f.state.transactionPending = true;
+    const result = await f.observe();
+    expect(result.state).toBe("pending");
+    expect(f.semantic).not.toHaveBeenCalled();
   });
   it("ends an unincluded operation once the chain is past its validity, with or without a bundler hash hint", async () => {
     const f = fixture();

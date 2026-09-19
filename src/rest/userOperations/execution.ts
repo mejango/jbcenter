@@ -167,6 +167,10 @@ export async function observeUserOperation(
     return unknown(
       "The outer transaction and receipt do not match the reviewed EntryPoint.",
     );
+  // A node a block behind the one that served the receipt still shows the transaction pending:
+  // not yet settled from here, never an invalid operation.
+  if (tx.blockHash == null || tx.blockNumber == null || tx.transactionIndex == null)
+    return { ...base, state: "pending", transactionHash, reason: "The transaction is not yet in a block from this node's view." };
   const blockNumber = uoQuantity(raw.blockNumber, "receipt block");
   const blockHash = uoHash(raw.blockHash, "receipt block hash");
   const transactionIndex = uoQuantity(
