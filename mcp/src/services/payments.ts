@@ -256,21 +256,24 @@ export class PaymentService {
     return (await this.pay(input)).quote;
   }
 
-  async preparePay(input: PayInput): Promise<PlanDraft> {
+  async preparePay(input: PayInput, at?: BlockEvidence): Promise<PlanDraft> {
     // The allowance depends only on the terminal: read beside the preview, not after it.
     const {
       quote,
       transaction,
       beside: allowance = 0n,
-    } = await this.pay(input, (client, terminal) =>
-      isNative(input.token)
-        ? Promise.resolve(0n)
-        : client.readContract({
-            address: input.token,
-            abi: erc20Abi,
-            functionName: 'allowance',
-            args: [input.account, terminal],
-          }),
+    } = await this.pay(
+      input,
+      (client, terminal) =>
+        isNative(input.token)
+          ? Promise.resolve(0n)
+          : client.readContract({
+              address: input.token,
+              abi: erc20Abi,
+              functionName: 'allowance',
+              args: [input.account, terminal],
+            }),
+      at,
     );
     const calls: PreparedCall[] = [];
     if (!isNative(input.token)) {
@@ -662,6 +665,7 @@ export class PaymentService {
   private async pay<T = undefined>(
     input: PayInput,
     beside?: (client: PublicClient, terminal: Address) => Promise<T>,
+    at?: BlockEvidence,
   ) {
     if (
       input.memo !== undefined &&
@@ -672,7 +676,11 @@ export class PaymentService {
     const amount = uint(input.amount, 'amount');
     const slippage = bps(input.slippageBps);
     const requested = Date.now();
-    const snapshot = await this.rpc.snapshot(input.project.chainId);
+    // A head the caller read moments ago pins the quote without another read of it.
+    const snapshot =
+      at && at.chainId === input.project.chainId && this.rpc.snapshotAt
+        ? this.rpc.snapshotAt(input.project.chainId, at)
+        : await this.rpc.snapshot(input.project.chainId);
     let fullPreview: readonly unknown[] | undefined;
     const client = asAccount(snapshot.client, input.account, (request, result) => {
       if (request.functionName === 'previewPayFor' && Array.isArray(result)) fullPreview = result;

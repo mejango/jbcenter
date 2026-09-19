@@ -20,7 +20,7 @@ import {
   functionOutputJsonSchema,
   type ContractCategory,
 } from "./contracts/catalog.js";
-import { RestError, type RestActor, type RestPlanDraft } from "./core.js";
+import { RestError, type RestActor, type RestBlockEvidence, type RestPlanDraft } from "./core.js";
 import {
   setOwnerApproval,
   setSponsorshipOwnerApproval,
@@ -328,6 +328,8 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
     id: string,
     input: unknown,
     signal: AbortSignal,
+    /** A head read moments ago: the draft's reads are pinned there instead of reading one. */
+    at?: RestBlockEvidence,
   ): Promise<RestPlanDraft> => {
     if (!byId.get(id)?.transaction)
       throw new RestError(
@@ -338,6 +340,7 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
     const draft = await deps.operations.prepare(id, input, {
       source: "onchain",
       signal,
+      ...(at ? { at: { chainId: at.chainId as 8453, blockNumber: at.blockNumber, blockHash: at.blockHash, timestamp: at.timestamp, source: "rpc" } } : {}),
     });
     return {
       ...draft,
@@ -1149,6 +1152,8 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
     key: string,
     hash: string,
     signal: AbortSignal,
+    /** A head being read ahead; a draft waits for it (a moment) rather than reading its own. */
+    head?: Promise<RestBlockEvidence>,
   ) => {
     const started = Date.now();
     const existing = await deps.transactions.findPlanByIdempotency(actor(principal), key, hash);
@@ -1160,10 +1165,12 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
         "OPERATION_REQUIRED",
         "Choose a transaction operation or contract_calls.",
       );
+    // A head that fails to read leaves the draft to read its own.
+    const at = head ? await head.catch(() => undefined) : undefined;
     const draft =
       body.operation === "contract_calls"
         ? await deps.protocol.prepare(object(body.input) as unknown as PrepareInput, signal)
-        : await draftFor(body.operation, body.input, signal);
+        : await draftFor(body.operation, body.input, signal, at);
     const drafted = Date.now();
     const plan = await deps.transactions.createSmartAccountPlan(actor(principal), bindingId, draft, key, hash);
     // Where a plan's time goes, for the production log; the request line only has the total.
@@ -1317,7 +1324,7 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
       // The head reads the preparation waits on longest start now, beside the plan's draft.
       const ahead = userOperations().headAhead(principal, plan.bindingId as Hex, context.get("restSignal"));
       const created = await smartAccountPlan(principal, plan.bindingId as Hex, { operation: plan.operation, input: plan.input }, plan.idempotencyKey,
-        `0x${createHash("sha256").update(canonicalValue({ bindingId: plan.bindingId, operation: plan.operation, input: plan.input })).digest("hex")}`, context.get("restSignal"));
+        `0x${createHash("sha256").update(canonicalValue({ bindingId: plan.bindingId, operation: plan.operation, input: plan.input })).digest("hex")}`, context.get("restSignal"), ahead.head);
       try {
         const operation = await userOperations().prepare(
           principal,

@@ -147,6 +147,8 @@ export class UserOperationChain {
     return (await this.latest(chainId)).evidence;
   }
   /** The canonical head, with the base fee its block carries so pricing needs no second read. */
+  /** The head as evidence, for a caller that pins other reads to it. */
+  async head(chainId: number): Promise<{ evidence: RestBlockEvidence; baseFeePerGas: unknown }> { return this.latest(chainId); }
   private async latest(chainId: number): Promise<{ evidence: RestBlockEvidence; baseFeePerGas: unknown }> {
     const [chain, block] = await Promise.all([
       this.request(chainId, "eth_chainId", []),
@@ -223,6 +225,8 @@ export class UserOperationChain {
     sender: Address,
     key: bigint,
     entryPoint: UserOperationCodePin,
+    /** A head this caller already read; otherwise the current one is read here. */
+    head?: Promise<{ evidence: RestBlockEvidence; baseFeePerGas: unknown }>,
   ): Promise<{ nonce: Hex; evidence: RestBlockEvidence; baseFeePerGas: unknown }> {
     if (key < 0n || key >= 1n << 192n)
       uoError(
@@ -230,7 +234,7 @@ export class UserOperationChain {
         "The keyed nonce must fit uint192.",
         400,
       );
-    const { evidence, baseFeePerGas } = await this.latest(chainId);
+    const { evidence, baseFeePerGas } = await (head ?? this.latest(chainId));
     await this.runtime(chainId, entryPoint, evidence, true);
     // The read is pinned to the head's hash and requires it canonical, so the node itself refuses
     // a head that a reorg has replaced; no second block read is needed to know.

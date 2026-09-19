@@ -1,3 +1,4 @@
+import type { BlockEvidence } from '../domain/types.js';
 import { createPublicClient, custom, numberToHex, type Hex, type PublicClient } from 'viem';
 import {
   mainnet,
@@ -219,6 +220,21 @@ export class RpcPool implements RpcProvider {
     return client;
   }
 
+  snapshotAt(chainId: ChainId, evidence: BlockEvidence): RpcSnapshot {
+    if (
+      evidence.chainId !== chainId ||
+      !/^(0|[1-9][0-9]*)$/.test(evidence.blockNumber) ||
+      !/^0x[0-9a-f]{64}$/i.test(evidence.blockHash)
+    )
+      throw new DomainError(
+        'BLOCK_UNAVAILABLE',
+        'The given head does not describe a mined block on this chain.',
+      );
+    return {
+      client: this.makeClient(chainId, BigInt(evidence.blockNumber), evidence.blockHash),
+      evidence: { ...evidence, source: 'rpc' },
+    };
+  }
   async snapshot(chainId: ChainId, blockNumber?: bigint): Promise<RpcSnapshot> {
     const client = this.client(chainId);
     const [reportedChain, block] = await Promise.all([

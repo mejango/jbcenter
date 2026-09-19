@@ -1,3 +1,4 @@
+import type { BlockEvidence } from '../domain/types.js';
 import { z } from 'zod';
 import type { Services } from '../app.js';
 import type { PlanDraft } from '../domain/types.js';
@@ -17,6 +18,8 @@ export type SelectableOperationSource = 'onchain' | 'indexer';
 export interface OperationOptions {
   signal?: AbortSignal;
   source?: SelectableOperationSource;
+  /** A head the caller already read: a draft pins its reads there instead of reading one. */
+  at?: BlockEvidence;
 }
 export interface OperationEffects {
   externalMutation: boolean;
@@ -37,7 +40,7 @@ export interface ProtocolOperation {
     Partial<Record<SelectableOperationSource, (input: unknown) => Promise<unknown>>>
   >;
   /** Present only for transaction builders; creates no token and performs no broadcast. */
-  readonly prepareDraft?: (input: unknown) => Promise<PlanDraft>;
+  readonly prepareDraft?: (input: unknown, options?: { at?: BlockEvidence }) => Promise<PlanDraft>;
 }
 
 const REFERENCES = new Set([
@@ -136,14 +139,15 @@ export function transactionWithSchema<S extends z.ZodObject>(
   id: string,
   description: string,
   schema: S,
-  build: (input: z.output<S>) => Promise<PlanDraft>,
+  build: (input: z.output<S>, options?: { at?: BlockEvidence }) => Promise<PlanDraft>,
 ): ProtocolOperation {
   return Object.freeze({
     ...operationWithSchema(id, description, schema, async (input) =>
       preparePlan(services, await build(input)),
     ),
     transaction: true,
-    prepareDraft: async (input: unknown) => normalizePlanDraft(await build(schema.parse(input))),
+    prepareDraft: async (input: unknown, options?: { at?: BlockEvidence }) =>
+      normalizePlanDraft(await build(schema.parse(input), options)),
   });
 }
 
@@ -152,7 +156,7 @@ export function defineTransaction<S extends z.ZodRawShape>(
   id: string,
   description: string,
   shape: S,
-  build: (input: z.output<z.ZodObject<S>>) => Promise<PlanDraft>,
+  build: (input: z.output<z.ZodObject<S>>, options?: { at?: BlockEvidence }) => Promise<PlanDraft>,
 ): ProtocolOperation {
   return transactionWithSchema(services, id, description, z.object(shape).strict(), build);
 }

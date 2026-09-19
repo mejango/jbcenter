@@ -20,6 +20,8 @@ export interface RpcSnapshot {
 }
 export interface RpcProvider {
   snapshot(chainId: ChainId, blockNumber?: bigint): Promise<RpcSnapshot>;
+  /** A snapshot at a head the caller already read and verified: no read of the block. */
+  snapshotAt?(chainId: ChainId, evidence: BlockEvidence): RpcSnapshot;
   client(chainId: ChainId): PublicClient;
 }
 export type Observation<T> =

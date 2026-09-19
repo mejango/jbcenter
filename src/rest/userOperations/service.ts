@@ -81,6 +81,8 @@ export interface UserOperationChainPolicy {
 export interface UserOperationHeadAhead {
   bindingId: Hex;
   nonceKey: bigint;
+  /** The head itself, as soon as it is read: a plan drafted meanwhile pins its quote there. */
+  head: Promise<RestBlockEvidence>;
   reads: Promise<{ head: { nonce: Hex; evidence: RestBlockEvidence; baseFeePerGas: unknown }; nodePriority: unknown;
     chainId: number; sender: Address; entryPoint: Address; readAt: number }>;
 }
@@ -292,17 +294,19 @@ export class UserOperationService {
    * them only for the binding, nonce key and EntryPoint it reads them for; a rejection surfaces
    * there, not here. */
   headAhead(principal: RestPrincipal, bindingId: Hex, signal?: AbortSignal): UserOperationHeadAhead {
+    const binding = this.options.currentBinding(principal.account.id, bindingId, signal);
+    const latest = binding.then((found) => this.chain(signal).head(found.wallet.chainId));
     const reads = (async () => {
-      const binding = await this.options.currentBinding(principal.account.id, bindingId, signal);
-      const manifest = this.options.manifestFor(binding), chain = this.chain(signal);
+      const found = await binding, manifest = this.options.manifestFor(found), chain = this.chain(signal);
       const [head, nodePriority] = await Promise.all([
-        chain.nonce(binding.wallet.chainId, binding.wallet.address, 0n, manifest.entryPoint!),
-        chain.request(binding.wallet.chainId, "eth_maxPriorityFeePerGas", []),
+        chain.nonce(found.wallet.chainId, found.wallet.address, 0n, manifest.entryPoint!, latest),
+        chain.request(found.wallet.chainId, "eth_maxPriorityFeePerGas", []),
       ]);
-      return { head, nodePriority, chainId: binding.wallet.chainId, sender: binding.wallet.address, entryPoint: manifest.entryPoint!.address, readAt: Date.now() };
+      return { head, nodePriority, chainId: found.wallet.chainId, sender: found.wallet.address, entryPoint: manifest.entryPoint!.address, readAt: Date.now() };
     })();
-    reads.catch(() => undefined);
-    return { bindingId, nonceKey: 0n, reads };
+    const head = latest.then((read) => read.evidence);
+    for (const promise of [latest, reads, head]) promise.catch(() => undefined);
+    return { bindingId, nonceKey: 0n, head, reads };
   }
   async prepare(
     principal: RestPrincipal,

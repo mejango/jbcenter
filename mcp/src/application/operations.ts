@@ -315,7 +315,8 @@ function definitions(s: Services): ProtocolOperation[] {
       'prepare_pay',
       'Prepare an authenticated unsigned payment plan from a fresh quote, including exact approvals and protected outputs. Simulates the first executable step; nothing is signed or broadcast.',
       payShape,
-      async (input) => s.payments.preparePay(input),
+      async (input, options) =>
+        options?.at ? s.payments.preparePay(input, options.at) : s.payments.preparePay(input),
     ),
     defineOperation(
       'quote_cash_out',
@@ -706,7 +707,7 @@ export function createProtocolOperations(services: Services) {
             'SOURCE_NOT_SUPPORTED',
             'Transaction preparation requires live on-chain state.',
           );
-        return operation.prepareDraft(input);
+        return operation.prepareDraft(input, options.at ? { at: options.at } : {});
       }, options),
   });
 }

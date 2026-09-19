@@ -426,7 +426,8 @@ describe("mounted signed REST API", () => {
 
   it("prepares a sponsored payment in one call: the plan on its own key, the operation over every step, the plan alone when the voucher does not cover it", async () => {
     const prepare = vi.fn(async () => ({ id: "op-one", state: "prepared" }));
-    const headAhead = vi.fn((_principal: unknown, bindingId: string) => ({ bindingId, nonceKey: 0n, reads: Promise.resolve({}) }));
+    const head = { chainId: 1, blockNumber: "100", blockHash, timestamp: String(now), source: "onchain" as const };
+    const headAhead = vi.fn((_principal: unknown, bindingId: string) => ({ bindingId, nonceKey: 0n, head: Promise.resolve(head), reads: Promise.resolve({}) }));
     const f = await fixture({ userOperations: { prepare, headAhead } as never });
     const bindingId = `0x${"11".repeat(32)}`;
     const plan = { id: "plan-one", draft: { ...f.draft, calls: [f.draft.calls[0]!, { ...f.draft.calls[0]!, data: "0x9abcdef0" }] } };
@@ -438,8 +439,10 @@ describe("mounted signed REST API", () => {
     expect(first.status).toBe(201);
     expect(await first.json()).toEqual({ plan, operation: { id: "op-one", state: "prepared" }, sponsorship: "accepted" });
     expect(createPlan).toHaveBeenCalledWith(expect.anything(), bindingId, expect.anything(), "beep-center-plan:attempt", expect.stringMatching(/^0x[0-9a-f]{64}$/));
-    // The head reads start beside the plan's draft and reach the preparation.
+    // The head reads start beside the plan's draft and reach the preparation; the draft pins its reads at that head.
     expect(headAhead).toHaveBeenCalledWith(expect.anything(), bindingId, expect.anything());
+    expect(f.semanticPrepare).toHaveBeenLastCalledWith("prepare_pay", expect.anything(),
+      expect.objectContaining({ at: { chainId: 1, blockNumber: "100", blockHash, timestamp: String(now), source: "rpc" } }));
     expect(prepare).toHaveBeenCalledWith(expect.anything(), { planId: "plan-one", stepIndexes: [0, 1], sponsorAuthorization: "voucher" }, "beep:attempt", expect.stringMatching(/^0x[0-9a-f]{64}$/), expect.anything(),
       expect.objectContaining({ bindingId, nonceKey: 0n }));
     // A retry finds the plan by its key and does not draft again; a voucher the plan does not fit leaves the plan to be sponsored on its own.
