@@ -176,6 +176,27 @@ export class UserOperationChain {
       source: "onchain",
     }, baseFeePerGas: block.baseFeePerGas };
   }
+  /** The EntryPoint's own validation of the exact signed bytes, simulated at the verified head from
+   * the origin the preflight chose: the one preflight check that needs the signature. */
+  async validateSigned(binding: UserOperationExecutionBinding, evidence: RestBlockEvidence, from: Address): Promise<void> {
+    const op = normalizeUserOperation(binding.operation);
+    if (op.signature === "0x") uoError("USER_OPERATION_SIGNATURE_REQUIRED", "The exact external account signature is required.", 400);
+    const totalGas = BigInt(op.callGasLimit) + BigInt(op.verificationGasLimit) + BigInt(op.preVerificationGas) +
+      BigInt(op.paymasterVerificationGasLimit ?? "0x0") + BigInt(op.paymasterPostOpGasLimit ?? "0x0");
+    const validationResult = await this.request(binding.chainId, "eth_call", [
+      { from, to: binding.entryPoint.address,
+        data: encodeFunctionData({ abi: ENTRY_POINT_V07_ABI, functionName: "handleOps",
+          args: [[packUserOperation(op)], "0x000000000000000000000000000000000000dEaD"] }),
+        gas: toHex(totalGas + totalGas / 4n + 200_000n) },
+      this.tag(evidence)]);
+    if (validationResult !== "0x")
+      uoError(
+        "USER_OPERATION_SIMULATION_RESULT",
+        "The exact EntryPoint validation returned an invalid simulation result.",
+        502,
+      );
+    await this.canonical(evidence);
+  }
   async canonical(evidence: RestBlockEvidence): Promise<void> {
     const block = await this.request(evidence.chainId, "eth_getBlockByNumber", [
       toHex(BigInt(evidence.blockNumber)),
@@ -293,6 +314,9 @@ export class UserOperationChain {
     provider?: UserOperationProvider,
     /** A head the caller already verified the account at; otherwise the current head. */
     at?: RestBlockEvidence,
+    /** `signed: false` runs everything but the EntryPoint validation of the exact signed bytes,
+     * which `validateSigned` runs later at the same head once the signature exists. */
+    options: { signed?: boolean } = {},
   ): Promise<UserOperationPreflight> {
     const op = normalizeUserOperation(binding.operation);
     if (op.signature === "0x")
@@ -531,27 +555,16 @@ export class UserOperationChain {
       );
     // handleOps catches inner execution failures. Its success alone therefore
     // cannot establish readiness: independently simulate the exact atomic call.
-    const [executionResult, validationResult] = await Promise.all([
+    const [executionResult] = await Promise.all([
       this.request(binding.chainId, "eth_call", [
         { from: binding.entryPoint.address, to: op.sender, data: op.callData, gas: op.callGasLimit },
         this.tag(evidence)]),
-      this.request(binding.chainId, "eth_call", [
-        { from: simulationFrom, to: binding.entryPoint.address,
-          data: encodeFunctionData({ abi: ENTRY_POINT_V07_ABI, functionName: "handleOps",
-            args: [[packed], "0x000000000000000000000000000000000000dEaD"] }),
-          gas: toHex(totalGas + totalGas / 4n + 200_000n) },
-        this.tag(evidence)]),
+      options.signed === false ? undefined : this.validateSigned(binding, evidence, simulationFrom),
     ]);
     if (executionResult !== "0x")
       uoError(
         "USER_OPERATION_SIMULATION_RESULT",
         "The exact account execution returned an invalid simulation result.",
-        502,
-      );
-    if (validationResult !== "0x")
-      uoError(
-        "USER_OPERATION_SIMULATION_RESULT",
-        "The exact EntryPoint validation returned an invalid simulation result.",
         502,
       );
     await this.canonical(evidence);
@@ -568,6 +581,7 @@ export class UserOperationChain {
       evidence,
       maximumCost: maximumCost.toString(),
       nonceKey: key.toString(),
+      validationOrigin: simulationFrom,
       nonceSequence: (nonce & ((1n << 64n) - 1n)).toString(),
       ...(paymasterProof ? { paymasterProof } : {}),
     };

@@ -101,6 +101,8 @@ export interface UserOperationPreflight {
   nonceKey: string;
   nonceSequence: string;
   paymasterProof?: PaymasterDataProof;
+  /** The origin the EntryPoint validation is simulated from (a restricted sponsor's bundler, else a dead address). */
+  validationOrigin?: Address;
 }
 /** Trusted compiler output is independently decoded again before receipt evidence is accepted. */
 export interface UserOperationExecutionBinding {

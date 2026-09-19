@@ -856,6 +856,9 @@ export class UserOperationService {
       // verification path: the exact signed operation is checked before claim. This is
       // point-in-time provider evidence; later fee changes remain possible.
       const admission = await Promise.allSettled([
+        // Carried from a speculation: the EntryPoint's validation of the exact signed bytes, the
+        // one head-bound check that needs the signature, runs now at that same head.
+        carried ? this.chain(signal).validateSigned(this.execution(record, operation, plan, planManifest), carried.head, carried.preflight.validationOrigin ?? "0x000000000000000000000000000000000000dEaD") : undefined,
         verifyPasskeyUserOperation({ operation, binding, manifest, chain: this.chain(signal),
           validAfter: String(validAfter), validUntil: String(validUntil),
           verifyContractSignature: createPasskeyContractSignatureVerifier({ state: binding.state, manifest,
@@ -921,13 +924,15 @@ export class UserOperationService {
   private async verifyAtHead(input: {
     record: UserOperationRecord; plan: StoredPlan; operation: UserOperationV07; policy: ReturnType<UserOperationService["policy"]>;
     provider: UserOperationProvider; planManifest: SmartAccountManifest; signal: AbortSignal | undefined;
+    /** Ahead of the signature: everything but the EntryPoint's validation of the signed bytes. */
+    signed?: boolean;
   }, stage: (name: string) => void) {
     const { record, plan, operation, policy, provider, planManifest, signal } = input;
     const head = await this.chain(signal).snapshot(record.chainId);
     stage("headMs");
     const checks = await Promise.allSettled([
       this.account(plan, signal, head),
-      this.chain(signal).preflight(this.execution(record, operation, plan, planManifest), policy.gas, provider, head),
+      this.chain(signal).preflight(this.execution(record, operation, plan, planManifest), policy.gas, provider, head, { signed: input.signed !== false }),
     ]);
     stage("checksMs");
     // Both finished at that head; the first failure in this order is the one reported.
@@ -962,10 +967,12 @@ export class UserOperationService {
       const policy = this.policy(record.chainId), provider = this.providerForRecord(record);
       if (record.gasPolicyId !== policy.gas.id || provider.configuration(record.chainId).providerId !== record.providerId) return;
       const plan = await this.plan(actor, record.planId, true), planManifest = this.options.manifestForPlan(plan);
+      // Only a passkey account's admission takes a speculation (its signature path runs the signed validation itself).
+      if (!planManifest.ownerProfile) return;
       const operation = normalizeUserOperation({ ...record.operation, signature: dummySignature });
       // Aged from before the head snapshot: "at most a minute old" is measured from the head.
       const at = this.now();
-      const result = await this.verifyAtHead({ record, plan, operation, policy, provider, planManifest, signal: undefined }, stage);
+      const result = await this.verifyAtHead({ record, plan, operation, policy, provider, planManifest, signal: undefined, signed: false }, stage);
       // Bounded: stale entries go on every write, and the map never outgrows its cap.
       for (const [id, entry] of this.speculated) if (this.now() - entry.at > speculationMaxAgeMs) this.speculated.delete(id);
       if (this.speculated.size >= speculationCap) this.speculated.delete(this.speculated.keys().next().value!);

@@ -586,19 +586,26 @@ describe("passkey UserOperation owner admission", () => {
     pin(f, now);
     const handleOps = () => f.rpc.mock.calls.filter(([, method, params]) => { if (method !== "eth_call") return false;
       try { return decodeFunctionData({ abi: ENTRY_POINT_V07_ABI, data: (params[0] as { data: Hex }).data }).functionName === "handleOps"; } catch { return false; } }).length;
-    // The review's creation speculates: the account and the EntryPoint preflight at one head, no claim, no
-    // send; page reads that arrive while it runs join it rather than starting their own.
+    // The review's creation speculates: the account and the EntryPoint preflight at one head — all but
+    // the validation of the signed bytes, which needs the signature — no claim, no send; page reads
+    // that arrive while it runs join it rather than starting their own.
     await Promise.all([1, 2, 3].map(() => f.service.speculate(f.actor, view.id)));
-    expect(f.currentBindingAt).toHaveBeenCalledTimes(1); expect(handleOps()).toBe(1); expect(f.state.sends).toBe(0);
+    expect(f.currentBindingAt).toHaveBeenCalledTimes(1); expect(handleOps()).toBe(0); expect(f.state.sends).toBe(0);
     expect((await f.store.get(f.actor, view.id))!.submission).toBeUndefined();
     // A page read within fifteen seconds keeps what it has; one later refreshes it.
     now += 10_000; await f.service.speculate(f.actor, view.id); expect(f.currentBindingAt).toHaveBeenCalledTimes(1);
     now += 10_000; await f.service.speculate(f.actor, view.id); expect(f.currentBindingAt).toHaveBeenCalledTimes(2);
-    // The approval within a minute of it does only what needs the signature, then claims and sends.
+    // The approval within a minute of it does only what needs the signature (the EntryPoint validation
+    // of the signed bytes at the speculated head, the signer check, the signed estimate), then claims and sends.
     now += 30_000;
     const logs = vi.spyOn(console, "info").mockImplementation(() => {});
     expect((await f.service.submit(f.principal, view.id, f.signature(view), "submit")).state).toBe("pending");
-    expect(f.currentBindingAt).toHaveBeenCalledTimes(2); expect(handleOps()).toBe(2); expect(f.state.sends).toBe(1);
+    expect(f.currentBindingAt).toHaveBeenCalledTimes(2); expect(handleOps()).toBe(1); expect(f.state.sends).toBe(1);
+    // A signature the EntryPoint rejects is refused before the claim even when the checks were carried.
+    const g2 = await fixture(), rejected = await g2.prepare(); pin(g2, now);
+    await g2.service.speculate(g2.actor, rejected.id); g2.state.preflightFailure = true;
+    await expect(g2.service.submit(g2.principal, rejected.id, g2.signature(rejected), "submit-rejected")).rejects.toBeTruthy();
+    expect(g2.state.sends).toBe(0); expect((await g2.store.get(g2.actor, rejected.id))!.submission).toBeUndefined();
     const stages = logs.mock.calls.map(([line]) => { try { return JSON.parse(String(line)); } catch { return {}; } }).find((line) => line.action === "submit_stages");
     logs.mockRestore();
     expect(stages.speculatedAgeMs).toBe(30_000); expect(stages.speculatedHead).toBeGreaterThan(0); expect(stages.headMs).toBeUndefined();
