@@ -37,7 +37,7 @@ const token = () => randomBytes(32).toString("base64url");
 const hash = (value: string): Hex => keccak256(toHex(value));
 const children = new Set<ChildProcess>();
 let admin: Pool, pool: Pool;
-type Options = Pick<WalletPaymentReviewStoreOptions, "maxRecords" | "maxAccountRecords" | "receiptRetentionMs">;
+type Options = Pick<WalletPaymentReviewStoreOptions, "maxRecords" | "maxAccountRecords" | "receiptRetentionMs" | "frameableAppOrigins">;
 const options = (extra: Options = {}): WalletPaymentReviewStoreOptions => ({ issuer, audience, token: usdc,
   directV6Terminal: terminal, manifestFor: () => manifest, ...extra });
 const policy = (origins = [origin]) => ({ version: "center-wallet-policy-v1" as const,
@@ -270,6 +270,19 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
     const assertion = signGet({ ...context.login.credential, challenge: view.draft.signing.digest, rpId: walletLoginFixtureRpId, origin: issuer });
     await store.approve(view.draft.id, assertion); await store.get(view.draft.id);
     await new Promise(resolve => setTimeout(resolve, 50)); expect(speculations).toHaveLength(2);
+  });
+
+  it("accepts an approval made inside the app's frame only for an app admitted to frame, naming that app as the top origin", async () => {
+    const context = await appContext(30_000), prepared = await preparedOperation(context, 120_000);
+    const framed = (extra: Options = {}) => new PostgresWalletPaymentReviewStore(pool, options(extra));
+    const admitted = framed({ frameableAppOrigins: [origin] }), plain = framed();
+    const view = await admitted.prepare(context.actor, { operationId: prepared.record.id, state: token() }, `review:${prepared.plan.id}`);
+    const assertion = (topOrigin?: string) => signGet({ ...context.login.credential, challenge: view.draft.signing.digest, rpId: walletLoginFixtureRpId, origin: issuer, ...(topOrigin ? { topOrigin } : {}) });
+    // Not admitted: a framed assertion is refused; admitted: another top origin is refused.
+    await expect(plain.approve(view.draft.id, assertion(origin))).rejects.toMatchObject({ code: "WALLET_PAYMENT_REVIEW_PROOF_INVALID" });
+    await expect(admitted.approve(view.draft.id, assertion("https://other.example"))).rejects.toMatchObject({ code: "WALLET_PAYMENT_REVIEW_PROOF_INVALID" });
+    expect((await admitted.get(view.draft.id)).status).toBe("pending");
+    expect((await admitted.approve(view.draft.id, assertion(origin))).view.status).toBe("approved");
   });
 
   it("lets a device passkey approve a review prepared for the account, signing as its own owner", async () => {

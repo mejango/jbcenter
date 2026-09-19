@@ -16,6 +16,10 @@ export type WalletAssertionExpectation = {
   challenge: Hex;
   rpId: string;
   origin: string;
+  /** The one origin admitted to frame the page the assertion is made on: a cross-origin assertion
+   * must then name it as its top origin (browsers that omit topOrigin are bounded by the page's
+   * frame-ancestors instead). Absent: the assertion must not be cross-origin at all. */
+  topOrigin?: string;
   credential: {
     id: string;
     publicKey: { x: Hex; y: Hex };
@@ -174,8 +178,11 @@ export function verifyWalletAssertion(assertion: WalletAssertion, expected: Wall
   if (!json.startsWith(prefix) || !json.endsWith("}")) return invalid("Unsupported wallet client data encoding or challenge");
   const fields = readWalletClientData(json);
   if (fields.type !== "webauthn.get" || fields.challenge !== challenge.toString("base64url") ||
-      fields.origin !== expected.origin || (Object.hasOwn(fields, "crossOrigin") && fields.crossOrigin !== false) ||
-      Object.hasOwn(fields, "topOrigin")) return invalid("Invalid wallet client data");
+      fields.origin !== expected.origin || (Object.hasOwn(fields, "crossOrigin") && typeof fields.crossOrigin !== "boolean"))
+    return invalid("Invalid wallet client data");
+  if (fields.crossOrigin === true) {
+    if (!expected.topOrigin || (Object.hasOwn(fields, "topOrigin") && fields.topOrigin !== expected.topOrigin)) return invalid("Invalid wallet client data");
+  } else if (Object.hasOwn(fields, "topOrigin")) return invalid("Invalid wallet client data");
   const clientDataFields = json.slice(prefix.length, -1);
   const signature = boundedBytes(assertion.signature, 8, 72);
   const { r, s } = readDerSignature(signature);

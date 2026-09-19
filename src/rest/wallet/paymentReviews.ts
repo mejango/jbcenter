@@ -266,12 +266,16 @@ export function copyWalletPaymentReviewAssertion(assertion: WalletAssertion): Wa
 export interface WalletPaymentReviewApprover {
   credential: WalletPaymentReviewDraft["authority"]["credential"]; signer: Address;
 }
-export function verifyWalletPaymentReviewProof(input: WalletPaymentReviewDraft, assertion: WalletAssertion, approver?: WalletPaymentReviewApprover): WalletPaymentReviewProof {
+export function verifyWalletPaymentReviewProof(input: WalletPaymentReviewDraft, assertion: WalletAssertion, approver?: WalletPaymentReviewApprover,
+  /** `framedBy`: the review's app origin when that app is admitted to frame the review page. */
+  options: { framedBy?: string } = {}): WalletPaymentReviewProof {
   try {
     const draft = validateWalletPaymentReviewDraft(input), owned = copyWalletPaymentReviewAssertion(assertion);
     const c = approver?.credential ?? draft.authority.credential, signer = approver ? address(approver.signer) : draft.authority.signer;
     if (approver && (c.accountId !== draft.authority.accountId || c.enrollmentId !== draft.authority.enrollmentId || c.rpId !== draft.authority.credential.rpId)) invalid();
+    if (options.framedBy !== undefined && options.framedBy !== draft.grant.origin) invalid();
     const proof = verifyWalletAssertion(owned, { purpose: "payment", challenge: draft.signing.digest, rpId: c.rpId, origin: draft.issuer,
+      ...(options.framedBy ? { topOrigin: options.framedBy } : {}),
       credential: { id: c.credentialId, userHandle: c.userHandle, publicKey: c.publicKey, backupEligible: c.backupEligible }, requireUserHandle: false });
     const signature = encodeSafe7579PasskeyOwnerSignature({ ...draft.signing,
       signatures: [{ kind: "contract", owner: signer, signature: proof.contractSignature }] });

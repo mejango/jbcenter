@@ -18,6 +18,8 @@ type CeremonyFixture = {
   backupEligible?: boolean;
   backedUp?: boolean;
   signCount?: number;
+  /** A ceremony run inside a frame on this top origin (a cross-origin assertion). */
+  topOrigin?: string;
 };
 
 function authenticatorPrefix(input: CeremonyFixture, registration: boolean): Buffer {
@@ -32,7 +34,7 @@ function authenticatorPrefix(input: CeremonyFixture, registration: boolean): Buf
 function clientData(input: CeremonyFixture, type: "webauthn.create" | "webauthn.get"): Buffer {
   return Buffer.from(JSON.stringify({
     type, challenge: Buffer.from(input.challenge.slice(2), "hex").toString("base64url"),
-    origin: input.origin, crossOrigin: false,
+    origin: input.origin, ...(input.topOrigin ? { crossOrigin: true, topOrigin: input.topOrigin } : { crossOrigin: false }),
   }));
 }
 

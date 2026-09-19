@@ -106,6 +106,21 @@ describe("unproven wallet registration candidate", () => {
       requireUserHandle: true,
     };
     expect(verifyWalletAssertion(assertion, assertionExpected).credentialId).toBe(credentialId);
+    // An assertion made inside a frame names its top origin: accepted only for the one origin the
+    // expectation admits, and never when no framer is admitted; a top-level assertion never names one.
+    const framed = (data: Record<string, unknown>) => {
+      const json = Buffer.from(JSON.stringify({ type: "webauthn.get", challenge: Buffer.from(challenge.slice(2), "hex").toString("base64url"), origin: expected.origin, ...data }));
+      return { ...assertion, clientDataJSON: json, signature: sign("sha256", Buffer.concat([authenticatorData, sha256(json)]), keys.privateKey) };
+    };
+    const admitted = { ...assertionExpected, topOrigin: "https://beep.example" };
+    expect(verifyWalletAssertion(framed({ crossOrigin: true, topOrigin: "https://beep.example" }), admitted).credentialId).toBe(credentialId);
+    expect(verifyWalletAssertion(framed({ crossOrigin: true }), admitted).credentialId).toBe(credentialId);
+    expect(verifyWalletAssertion(framed({ crossOrigin: false }), admitted).credentialId).toBe(credentialId);
+    for (const [data, against] of [
+      [{ crossOrigin: true, topOrigin: "https://beep.example" }, assertionExpected], [{ crossOrigin: true }, assertionExpected],
+      [{ crossOrigin: true, topOrigin: "https://evil.example" }, admitted], [{ crossOrigin: false, topOrigin: "https://beep.example" }, admitted],
+      [{ topOrigin: "https://beep.example" }, admitted], [{ crossOrigin: "true" }, admitted],
+    ] as const) expect(() => verifyWalletAssertion(framed(data), against)).toThrow();
     const otherPrivateKey = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey;
     expect(() => verifyWalletAssertion({ ...assertion, signature: sign("sha256", payload, otherPrivateKey) }, assertionExpected)).toThrow();
     const changedInitializer = deriveWalletAuthenticationChallenge({ ...context, bindingDigest: hex(sha256("different initializer")) });

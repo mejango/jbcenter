@@ -41,6 +41,8 @@ export interface WalletPaymentReviewStoreOptions {
   maxRecords?: number;
   maxAccountRecords?: number;
   receiptRetentionMs?: number;
+  /** App origins admitted to frame their reviews: their approvals may be cross-origin assertions naming them. */
+  frameableAppOrigins?: string[];
 }
 interface ReviewRow {
   id: string; account_id: string; principal_id: string; operation_id: string; preparation_key: string;
@@ -125,9 +127,14 @@ export class PostgresWalletPaymentReviewStore {
   }
   private readonly authority: PostgresWalletAuthorityStore;
   private readonly ceremonies: PostgresWalletCeremonyStore;
+  private readonly frameable: Set<string>;
   constructor(private readonly pool: Pool, input: WalletPaymentReviewStoreOptions) {
     const v = fields(input, ["issuer", "audience", "token", "directV6Terminal", "manifestFor"],
-      ["maxRecords", "maxAccountRecords", "receiptRetentionMs"]);
+      ["maxRecords", "maxAccountRecords", "receiptRetentionMs", "frameableAppOrigins"]);
+    const frameableAppOrigins = v.frameableAppOrigins === undefined ? [] : v.frameableAppOrigins;
+    if (!Array.isArray(frameableAppOrigins) || frameableAppOrigins.some(value => typeof value !== "string")) invalid();
+    let frameable: Set<string>;
+    try { frameable = new Set((frameableAppOrigins as string[]).map(value => validateWalletPolicyOrigin(value))); } catch { invalid(); }
     let issuer: string, audience: string;
     try { issuer = validateWalletPolicyOrigin(v.issuer); audience = walletAppAudience(v.audience); } catch { invalid(); }
     if (typeof v.manifestFor !== "function") invalid();
@@ -140,8 +147,9 @@ export class PostgresWalletPaymentReviewStore {
       if ((Object.hasOwn(v, name) && typeof v[name] !== "number") || !Number.isSafeInteger(value) || value < minimum || value > maximum) invalid();
     this.options = { issuer, audience, token: (v.token as string).toLowerCase() as Address,
       directV6Terminal: (v.directV6Terminal as string).toLowerCase() as Address,
-      manifestFor: v.manifestFor as WalletPaymentReviewStoreOptions["manifestFor"], maxRecords, maxAccountRecords, receiptRetentionMs };
+      manifestFor: v.manifestFor as WalletPaymentReviewStoreOptions["manifestFor"], maxRecords, maxAccountRecords, receiptRetentionMs, frameableAppOrigins: [...frameable] };
     this.authority = new PostgresWalletAuthorityStore(pool); this.ceremonies = new PostgresWalletCeremonyStore(pool);
+    this.frameable = frameable;
   }
   /** The app may name the review's id (a UUID it drew) so it can open the review page before the
    * review exists; an id already taken is a conflict, and a replay on the same key returns the
@@ -239,7 +247,8 @@ export class PostgresWalletPaymentReviewStore {
     const captured = await this.capture(this.rowActor(hint), hint.operation_id), draft = this.assertHint(hint, captured);
     // Local WebAuthn/P256/ABI verification is complete before transactional lock acquisition. The
     // assertion names the approving passkey: the primary, or one of the account's devices.
-    const proof = verifyWalletPaymentReviewProof(draft, ownedAssertion, this.approver(captured, draft, ownedAssertion.credentialId));
+    const proof = verifyWalletPaymentReviewProof(draft, ownedAssertion, this.approver(captured, draft, ownedAssertion.credentialId),
+      this.frameable.has(draft.grant.origin) ? { framedBy: draft.grant.origin } : {});
     const result = await this.transaction(async client => {
       await this.guard(client, captured, draft);
       const { operation, plan } = await this.lockExecution(client, captured), row = await this.lockReview(client, hint);

@@ -458,6 +458,7 @@ export async function createRestRuntime(options: {
   };
   const walletPayments = wallet && walletConfiguration?.payments
     ? new PostgresWalletPaymentReviewStore(options.pool, { issuer: wallet.origin, audience: auth.audience,
+      ...(options.wallet?.frameableAppOrigins ? { frameableAppOrigins: options.wallet.frameableAppOrigins } : {}),
       token: walletConfiguration.payments.token, directV6Terminal: walletConfiguration.payments.directV6Terminal,
       manifestFor: binding => manifestFor(binding.manifestId, binding.state.manifestRevision) })
     : undefined;
