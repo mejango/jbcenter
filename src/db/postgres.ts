@@ -76,10 +76,18 @@ const selectIntent = `
   FROM intents
 `;
 
-export function createPool(connectionString: string): Pool {
+export function createPool(connectionString: string): Pool & { connectsSinceLast(): number } {
   const pool = new Pool({
     connectionString,
     max: 10,
+    // pg closes an idle connection after 10 s by default, so the first requests of a payment after
+    // any quiet each opened a fresh one (TCP, SCRAM, backend start: tens of ms per acquisition,
+    // several per admission). Kept connections cost nothing while the pool is under its maximum.
+    idleTimeoutMillis: 600_000,
+    // A kept socket whose peer went away silently would otherwise fail the next request instead of
+    // being dropped while idle.
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 30_000,
     connectionTimeoutMillis: 5_000,
     statement_timeout: 10_000,
     query_timeout: 12_000,
@@ -90,9 +98,11 @@ export function createPool(connectionString: string): Pool {
   // process dies; with one, the query in flight rejects and the caller reports it.
   const report = (source: string) => (error: Error) =>
     console.error(JSON.stringify({ level: "error", service: "db", code: "PG_CONNECTION_ERROR", source, message: String(error.message).slice(0, 200) }));
+  let connects = 0;
   pool.on("error", report("idle"));
-  pool.on("connect", (client) => client.on("error", report("client")));
-  return pool;
+  pool.on("connect", (client) => { client.on("error", report("client")); connects += 1; });
+  // Connections opened since the last call, for the maintenance tick's db_pool line.
+  return Object.assign(pool, { connectsSinceLast: () => { const n = connects; connects = 0; return n; } });
 }
 
 export class PostgresStore implements Store {

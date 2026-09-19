@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import type { createPool } from "../db/postgres.js";
 import type { SmartAccountState } from "./smartAccounts/types.js";
 import {
   createProtocolOperations,
@@ -646,6 +647,8 @@ export async function createRestRuntime(options: {
         if (!stopped) await wallet.appGrants.cleanup(250);
         if (!stopped && walletPayments) await walletPayments.cleanup(250);
         if (!stopped) console.info(JSON.stringify({ service: "wallet", action: "authority_refresh_queue", ...await wallet.refresh.stats() }));
+        if (!stopped) console.info(JSON.stringify({ service: "db", action: "db_pool", total: options.pool.totalCount, idle: options.pool.idleCount,
+          waiting: options.pool.waitingCount, connects: (options.pool as Partial<ReturnType<typeof createPool>>).connectsSinceLast?.() ?? null }));
       }
     })()
       .catch(() => {
