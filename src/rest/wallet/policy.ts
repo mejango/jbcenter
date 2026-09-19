@@ -4,10 +4,8 @@ import type { FirstPartyApplication } from "../../firstParty.js";
 import { canonicalJson } from "../../intent.js";
 import type { Json } from "../../types.js";
 import { RestError } from "../core.js";
-
-/** The ceiling on any application's configured grant lifetime (90 days); the default is an hour. */
-export const walletAppGrantMaximumLifetimeSeconds = 7_776_000;
-export const walletAppGrantDefaultLifetimeSeconds = 3600;
+import { walletAppGrantMaximumLifetimeSeconds } from "./grantLifetime.js";
+export { walletAppGrantDefaultLifetimeSeconds, walletAppGrantMaximumLifetimeSeconds } from "./grantLifetime.js";
 
 export type WalletPolicyConfiguration = {
   version: "center-wallet-policy-v1";

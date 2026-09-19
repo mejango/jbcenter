@@ -366,6 +366,15 @@ describe('Center browser payment review continuity', () => {
     expect(() => f.helper().clearPayment()).toThrow(); expect([...f.data.entries()]).toEqual(saved);
   });
 
+  it('drops the oldest receipts when the archive is full instead of keeping a settled payment open', async () => {
+    const f = fixture(); await f.helper().preparePayment(f.input()); f.advance(121_000); f.disconnect();
+    const [key] = [...f.data.entries()][0]!;
+    f.data.set(key + ':history', JSON.stringify(Array.from({ length: 64 }, (_, i) => ({ operationId: `old-${i}`, padding: 'x'.repeat(16_000) }))));
+    f.helper().clearPayment();
+    const history = JSON.parse(f.data.get(key + ':history')!);
+    expect(history).toHaveLength(64); expect(history[0].operationId).toBe('old-1'); expect(history.at(-1).operationId).toBe(f.prepared.id);
+    expect(new TextEncoder().encode(JSON.stringify(history)).length).toBeLessThanOrEqual(1_048_576);
+  });
   it('keeps an expired unsigned active payment when its unknown history cannot be saved', async () => {
     const f = fixture(); await f.helper().preparePayment(f.input()); f.advance(121_000);
     f.storage.setItem = () => { throw new Error('quota'); };

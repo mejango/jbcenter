@@ -135,7 +135,8 @@ export class PostgresWalletPolicyStore {
       for (const origin of origins) {
         const old = apps.get(origin), desired = next.get(origin), enabled = desired !== undefined;
         const callbacks = desired ? [...desired.walletCallbacks] : [];
-        const lifetime = desired?.grantLifetimeSeconds ?? old?.grantLifetimeSeconds ?? walletAppGrantDefaultLifetimeSeconds;
+        // An activation states the whole allowlist: an application listed without a lifetime gets the hour.
+        const lifetime = desired?.grantLifetimeSeconds ?? walletAppGrantDefaultLifetimeSeconds;
         const sameAdmission = old !== undefined && old.enabled === enabled && JSON.stringify(old.walletCallbacks) === JSON.stringify(callbacks);
         if (sameAdmission && old.grantLifetimeSeconds === lifetime) continue;
         // The lifetime is not part of what a grant was admitted under: changing it alone leaves the

@@ -380,14 +380,19 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
     const existing = raw(historyKey);
     try {
       const history = existing === null ? [] : JSON.parse(existing);
-      if (!Array.isArray(history) || history.length >= 64) throw new Error();
+      if (!Array.isArray(history)) throw new Error();
       const receipt = { ...status(saved.value), ...(!settled ? { status: 'unknown', archiveReason: unsignedWindowElapsed ? 'no-local-submission-recorded' : 'grant-expired' } : {}),
         issuer, audience, callbackUri, archivedAtMs, grantId: saved.value.grant.id, grantIncarnation: saved.value.grant.incarnation,
         planId: saved.value.plan.id, planCommitment: saved.value.plan.commitment, operationCommitment: saved.value.operation.commitment,
         reviewState: saved.value.state, reviewKey: saved.value.reviewKey, submissionKey: saved.value.submissionKey,
         validAfter: signing.validAfter, validUntil: signing.validUntil };
-      const encoded = JSON.stringify([...history.filter(item => item.operationId !== saved.value.operation.id), receipt]);
-      if (new TextEncoder().encode(encoded).length > maximumBytes || raw() !== saved.encoded || raw(historyKey) !== existing) throw new Error();
+      // The receipt archive is bounded (64 entries, 1 MiB) and must never keep a settled payment from
+      // closing: the oldest receipts go first.
+      const receipts = [...history.filter(item => item.operationId !== saved.value.operation.id), receipt];
+      const fits = () => receipts.length <= 64 && new TextEncoder().encode(JSON.stringify(receipts)).length <= maximumBytes;
+      while (!fits() && receipts.length > 1) receipts.shift();
+      const encoded = JSON.stringify(receipts);
+      if (!fits() || raw() !== saved.encoded || raw(historyKey) !== existing) throw new Error();
       storage.setItem(historyKey, encoded);
       if (storage.getItem(historyKey) !== encoded || raw() !== saved.encoded) throw new Error();
       storage.removeItem(key);

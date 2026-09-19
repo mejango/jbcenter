@@ -127,6 +127,9 @@ suite("PostgreSQL wallet application policy (eligibility only; no authentication
       await expect(store.activate(activation(2, { ...longer, applications: longer.applications.map(app => app.origin === origin ? { ...app, grantLifetimeSeconds: bad as number } : app) })))
         .rejects.toMatchObject({ code: "WALLET_POLICY_INVALID" });
     expect((await store.readActivePolicy())!.revision).toBe(2);
+    // An activation that lists the application without a lifetime puts it back to the hour, generation untouched.
+    const reset = await store.activate(activation(2));
+    expect(reset.apps.map(app => [app.generation, app.grantLifetimeSeconds])).toEqual([[1, 3600], [1, 3600]]);
   });
 
   it("preserves unchanged apps, advances changed callbacks, and never revives a removed generation", async () => {

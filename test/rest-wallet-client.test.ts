@@ -164,13 +164,20 @@ describe('Center browser wallet connection', () => {
     expect(f.calls).toHaveLength(1); expect(f.data.size).toBe(0);
   });
 
+  it('accepts a grant that lasts the full 90-day ceiling', async () => {
+    const f = fixture(); await f.client().prepareConnection();
+    f.changeGrant(grant => { grant.expiresAt = grant.createdAt + 7_776_000; grant.retainUntil = grant.expiresAt + 86400; return grant; });
+    const connected = await f.client().completeConnection(f.callback());
+    expect(connected.expiresAt).toBe(now / 1000 + 7_776_000);
+  });
   it.each(['account', 'signer', 'origin', 'scope', 'expiry', 'revoked'])('rejects a substituted %s grant and retains pending exchange', async kind => {
     const f = fixture(); await f.client().prepareConnection(); f.changeGrant(grant => {
       if (kind === 'account') grant.accountId = 'eip155:1:0x' + '12'.repeat(20);
       if (kind === 'signer') grant.signerAddress = '0x' + '34'.repeat(20);
       if (kind === 'origin') grant.origin = 'https://evil.test';
       if (kind === 'scope') grant.scopes = ['read', 'plan', 'relay', 'owner'];
-      if (kind === 'expiry') grant.expiresAt = now / 1000 + 7200;
+      // One second past the 90-day ceiling, with the retention that would go with it.
+      if (kind === 'expiry') { grant.expiresAt = now / 1000 + 7_776_001; grant.retainUntil = grant.expiresAt + 86400; }
       if (kind === 'revoked') grant.revokedAt = now / 1000;
       return grant;
     });

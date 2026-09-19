@@ -8,6 +8,7 @@ import {
   walletHandoffRequestDocument, walletHandoffExchangeDocument, walletHandoffLaunchDocument, type WalletHandoffRequest,
 } from '../wallet/sharedHandoff.js';
 import type { WalletAppGrant } from '../wallet/appGrants.js';
+import { walletAppGrantMaximumLifetimeSeconds } from '../wallet/grantLifetime.js';
 
 export interface CenterWalletStorage {
   getItem(key: string): string | null;
@@ -168,7 +169,7 @@ export function createCenterWalletClient(options: CenterWalletClientOptions) {
       !Array.isArray(g.scopes) || g.scopes.length !== 3 || g.scopes.join(',') !== 'read,plan,relay' ||
       g.origin !== origin || g.callbackUri !== callbackUri || g.audience !== audience || g.appGeneration !== request.appGeneration ||
       !integer(g.createdAt) || g.createdAt > Math.floor(clock() / 1000) + 30 || !integer(g.expiresAt) ||
-      g.expiresAt <= g.createdAt || g.expiresAt - g.createdAt > 3600 || g.revokedAt !== null ||
+      g.expiresAt <= g.createdAt || g.expiresAt - g.createdAt > walletAppGrantMaximumLifetimeSeconds || g.revokedAt !== null ||
       !integer(g.retainUntil) || g.retainUntil !== g.expiresAt + 86400) invalid();
     return g as unknown as WalletAppGrant;
   }
