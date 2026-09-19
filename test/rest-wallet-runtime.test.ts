@@ -43,7 +43,7 @@ async function fixture(wallet?: RestWalletConfiguration, startMaintenance = fals
   cleanup.push(() => pool.end());
   const query = vi.spyOn(pool, 'query').mockImplementation(() => { throw new Error('Unexpected database request during startup'); });
   const request = vi.fn(async (): Promise<never> => { throw new Error('Unexpected upstream request during startup'); });
-  const store = { consumeRequest: async () => ({ allowed: true, remaining: 100 }) } as unknown as Store;
+  const store = { consumeRequest: async () => ({ allowed: true, remaining: 100 }), cleanupRateLimits: async () => 0 } as unknown as Store;
   const mcp = createCenterMcp(store, { rpc: { request, supports: () => true }, env: {
     MCP_PLAN_SECRET: 'PUBLIC_WALLET_RUNTIME_FIXTURE_SECRET_ONLY', MCP_PUBLIC_ORIGIN: audience,
   } });
@@ -256,13 +256,14 @@ describe('explicit wallet runtime composition', () => {
     vi.useFakeTimers();
     const claim = vi.spyOn(PostgresWalletAuthorityRefreshQueue.prototype, 'claim').mockResolvedValue(null);
     const inactive = await fixture(await walletConfiguration());
-    await vi.advanceTimersByTimeAsync(1_000); expect(claim).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(4_000); expect(claim).not.toHaveBeenCalled();
     await inactive.runtime.stop();
+    // One claim at start, then one per 2 s idle tick (a request kicks the worker itself).
     const active = await fixture(await walletConfiguration(), true);
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(4_000);
     expect(claim).toHaveBeenCalledTimes(3);
     await active.runtime.stop();
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(4_000);
     expect(claim).toHaveBeenCalledTimes(3);
     expect(active.request).not.toHaveBeenCalled();
   });

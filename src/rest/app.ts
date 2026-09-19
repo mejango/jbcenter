@@ -22,9 +22,11 @@ import {
 } from "./contracts/catalog.js";
 import { RestError, type RestActor, type RestBlockEvidence, type RestPlanDraft } from "./core.js";
 import {
+  restRequest,
   setOwnerApproval,
   setSponsorshipOwnerApproval,
   setRestAuthority,
+  timedAuthPhase,
   withRestRequest,
 } from "./context.js";
 import type { IndexerReadInput, IndexerReadService } from "./indexer/index.js";
@@ -189,8 +191,12 @@ function indexerInput(params: URLSearchParams): IndexerReadInput {
   return value as unknown as IndexerReadInput;
 }
 
+/** An admission slower than this logs which phase waited. */
+const SLOW_AUTH_MS = 300;
+
 /** Mount at /api/v1. Owner and grant requests are signed; bounded public setup
  * inspection cannot mutate authority and finalization has its own exact proof. */
+
 export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
   const app = new Hono<RestEnv>();
   const descriptors = operationDescriptors(deps.operations);
@@ -308,10 +314,15 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
         "GET_BODY_UNSUPPORTED",
         "GET reads must put their input in the query string",
       );
-    const started = Date.now();
+    const started = performance.now();
     const principal = await deps.auth.authenticate(input, scopes);
-    await accountBudget(principal, context);
-    context.set("authMs", Date.now() - started);
+    await timedAuthPhase("quotaMs", () => accountBudget(principal, context));
+    const authMs = Math.round(performance.now() - started);
+    context.set("authMs", authMs);
+    // A slow admission names the phase that waited (grant, context, admit, refresh, finish,
+    // quota; the remainder is signature verification). Durations only, never request data.
+    if (authMs > SLOW_AUTH_MS)
+      console.info(JSON.stringify({ ...restRequest()?.authPhases, service: "rest", action: "slow_auth", authMs }));
     setRestAuthority(principal, input);
     return { input, principal };
   };

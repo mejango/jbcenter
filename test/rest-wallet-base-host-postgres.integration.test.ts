@@ -35,7 +35,7 @@ suite("hosted Base signup runtime host", () => {
     await fixture?.close(); await pool?.end();
     if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
   });
-  const store = { consumeRequest: async () => ({ allowed: true, remaining: 100 }) } as unknown as Store;
+  const store = { consumeRequest: async () => ({ allowed: true, remaining: 100 }), cleanupRateLimits: async () => 0 } as unknown as Store;
   const mcp = () => createCenterMcp(store, { rpc: { request: async () => { throw new Error("The MCP transport is unused here"); }, supports: () => true },
     env: { MCP_PLAN_SECRET: "PUBLIC_WALLET_RUNTIME_FIXTURE_SECRET_ONLY", MCP_PUBLIC_ORIGIN: audience } });
   async function runtime(host: { poolId: string; initialNonce: string }) {

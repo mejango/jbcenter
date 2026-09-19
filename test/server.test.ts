@@ -29,6 +29,7 @@ const servers: CenterServer[] = [];
 const clients: Client[] = [];
 
 class ServerStore implements Store {
+  async cleanupRateLimits() { return 0; }
   health = vi.fn(async () => {});
   consumeRequest = vi.fn(async (_client: string, limit: number) => ({
     allowed: true,

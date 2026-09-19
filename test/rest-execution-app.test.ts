@@ -35,6 +35,7 @@ async function fixture(configured: boolean, metrics?: Metrics) {
   });
   const store = {
     consumeRequest: async () => ({ allowed: true, remaining: 100 }),
+    cleanupRateLimits: async () => 0,
   } as unknown as Store;
   const mcp = createCenterMcp(store, {
     rpc: { request, supports: () => true },
