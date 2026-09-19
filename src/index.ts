@@ -75,8 +75,11 @@ const walletStack = walletOrigin ? await createBaseWalletProductionStack() : und
 const dwellirBaseUrl = `https://${DWELLIR_RPC_HOSTS[8453]}/${process.env.DWELLIR_API_KEY}`;
 // WALLET_LEGACY_ORIGINS: comma-separated former wallet origins that now redirect to WALLET_ORIGIN.
 const walletLegacyOrigins = (process.env.WALLET_LEGACY_ORIGINS ?? "").split(",").map(value => value.trim()).filter(Boolean);
+// WALLET_FRAMEABLE_APP_ORIGINS: comma-separated app origins admitted to frame their own payment reviews.
+const walletFrameableAppOrigins = (process.env.WALLET_FRAMEABLE_APP_ORIGINS ?? "").split(",").map(value => value.trim()).filter(Boolean);
 const wallet: RestWalletConfiguration | undefined = walletOrigin && walletStack
   ? { origin: walletOrigin, manifest: walletStack.manifest, utility: walletStack.utility, ...(walletLegacyOrigins.length ? { legacyOrigins: walletLegacyOrigins } : {}),
+      ...(walletFrameableAppOrigins.length ? { frameableAppOrigins: walletFrameableAppOrigins } : {}),
       basePath: "",
       // Payment reviews: Base USDC through the catalog-pinned V6 terminal.
       payments: walletStack.payments,

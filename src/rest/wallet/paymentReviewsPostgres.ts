@@ -204,6 +204,8 @@ export class PostgresWalletPaymentReviewStore {
   }
   /** The review id is the capability: the page that holds it reads the review and cancels it, and
    * approves it with one of the account's passkeys. No Center sign-in is asked for on the way. */
+  /** The origin of the app a live review was prepared for: the one origin allowed to frame its page. */
+  async frameOrigin(inputId: string): Promise<string> { return (await this.hint(inputId)).draft.grant.origin; }
   async get(inputId: string): Promise<WalletPaymentReviewView> {
     const hint = await this.hint(inputId), captured = await this.capture(this.rowActor(hint), hint.operation_id);
     const draft = this.assertHint(hint, captured);

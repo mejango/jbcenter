@@ -91,6 +91,8 @@ export interface RestWalletConfiguration {
   origin: string;
   /** Former wallet origins whose hosts redirect to `origin`. */
   legacyOrigins?: string[];
+  /** App origins admitted to frame their own payment reviews (each an exact https origin). */
+  frameableAppOrigins?: string[];
   /** Mount path of the wallet pages: '' on a dedicated host. Defaults to '/wallet'. */
   basePath?: string;
   manifest: SmartAccountManifest;
@@ -560,6 +562,7 @@ export async function createRestRuntime(options: {
   if (options.walletDevices && !wallet) throw new RestError(503, 'WALLET_DEVICE_UNAVAILABLE', 'Adding devices requires the dedicated wallet host.');
   if (wallet && options.walletDevices) wallet.devices = await options.walletDevices({ pool: options.pool, rpc: backendRpc, wallet, audience: auth.audience, smart: smartAccounts });
   const walletSite = wallet ? createWalletSite({ origin: wallet.origin, audience: auth.audience, ...(options.wallet?.legacyOrigins ? { legacyOrigins: options.wallet.legacyOrigins } : {}),
+    ...(options.wallet?.frameableAppOrigins ? { frameableAppOrigins: options.wallet.frameableAppOrigins } : {}),
     ...(options.wallet?.basePath !== undefined ? { basePath: options.wallet.basePath } : {}),
     browserScript: assets.walletScript, login: wallet.login, policy: wallet.policy,
     handoff: wallet.handoff, refresh: wallet.refresh,

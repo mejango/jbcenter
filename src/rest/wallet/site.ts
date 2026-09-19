@@ -29,6 +29,8 @@ export interface WalletSiteOptions {
   audience: string;
   /** Former wallet origins; requests on their hosts move to the same path on `origin`. */
   legacyOrigins?: string[];
+  /** The app origins admitted to frame their own payment reviews; none by default. */
+  frameableAppOrigins?: string[];
   /** Mount path of the wallet pages: (base || '/') beside other routes, '' on a dedicated host. */
   basePath?: string;
   browserScript: string;
@@ -43,7 +45,7 @@ export interface WalletSiteOptions {
   handoff: Pick<PostgresWalletHandoffStore, 'prepare' | 'getIntent' | 'issue' | 'identifyExchange' | 'exchange'>;
   policy: Pick<PostgresWalletPolicyStore, 'readActivePolicy'>;
   refresh: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
-  payments?: Pick<PostgresWalletPaymentReviewStore, 'get' | 'approve' | 'cancel'>;
+  payments?: Pick<PostgresWalletPaymentReviewStore, 'get' | 'approve' | 'cancel'> & Partial<Pick<PostgresWalletPaymentReviewStore, 'frameOrigin'>>;
   /** The account on more chains (quote, one passkey approval, Center-paid Relayr bundle, per-chain status). */
   networks?: Pick<ReturnType<typeof createWalletNetworks>, 'list' | 'quote' | 'approve' | 'status'>;
   onEvent?: (event: { action: string; outcome: 'ok' | 'rejected' | 'unavailable'; code?: string; detail?: Record<string, unknown> }) => void;
@@ -271,9 +273,21 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     if (!options.payments) reject(503, 'WALLET_PAYMENTS_UNAVAILABLE');
     return options.payments;
   };
-  app.get(`${base}/payment`, c => {
-    payments();
+  const frameable = new Set((options.frameableAppOrigins ?? []).map(value => validateWalletPolicyOrigin(value)));
+  app.get(`${base}/payment`, async c => {
+    const service = payments();
     if (!options.paymentBrowserScript) reject(503, 'WALLET_PAYMENTS_UNAVAILABLE');
+    // The page may be framed by the one app its review was prepared for (the app shows it inside
+    // its own checkout and delegates the passkey prompt to the frame), and only when that app is
+    // admitted to: inside a frame the app controls what surrounds the approval, so the set of apps
+    // is the operator's, not every app with a grant. A review that is not live, or a page opened
+    // without one, keeps the default: no framing.
+    const review = c.req.query('review');
+    const framer = review && service.frameOrigin && frameable.size ? await service.frameOrigin(review).catch(() => undefined) : undefined;
+    if (framer && frameable.has(framer)) {
+      c.header('Content-Security-Policy', pageHeaders['Content-Security-Policy'].replace("frame-ancestors 'none'", `frame-ancestors ${framer}`));
+      c.header('X-Frame-Options', undefined);
+    }
     return c.html(walletPaymentPage(base));
   });
   app.get(`${base}/assets/wallet-payment.js`, c => {

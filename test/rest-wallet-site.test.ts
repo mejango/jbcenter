@@ -70,6 +70,25 @@ describe('central payment approval HTTP boundary',()=>{
     for(const path of ['/wallet/payment?review='+loginId,'/wallet/assets/wallet-payment.js','/wallet/assets/wallet-payment.css'])
       expect((await setup().app.fetch(new Request(origin+path))).status).toBe(503);
   });
+  it('lets exactly the review\'s app origin frame the payment page, and nothing frame it otherwise',async()=>{
+    const service={...payments(),frameOrigin:vi.fn(async(id:string)=>{if(id!==loginId)throw new RestError(404,'WALLET_PAYMENT_REVIEW_MISSING','private');return 'https://beep.example';})};
+    const {app}=setup({payments:service,paymentBrowserScript:'/* reviewed payment browser */',frameableAppOrigins:['https://beep.example']});
+    const framed=await app.fetch(new Request(origin+'/wallet/payment?review='+loginId));
+    expect(framed.status).toBe(200);expect(framed.headers.get('content-security-policy')).toContain("frame-ancestors https://beep.example;");
+    expect(framed.headers.get('content-security-policy')).not.toContain("'none'; object-src");expect(framed.headers.get('x-frame-options')).toBeNull();
+    expect(framed.headers.get('permissions-policy')).toContain('publickey-credentials-get=(self)');
+    for(const path of ['/wallet/payment','/wallet/payment?review=00000000-0000-4000-8000-000000000000']){
+      const plain=await app.fetch(new Request(origin+path));
+      expect(plain.status).toBe(200);expect(plain.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");expect(plain.headers.get('x-frame-options')).toBe('DENY');
+    }
+    // Every other wallet page stays unframeable.
+    const other=await app.fetch(new Request(origin+'/wallet/assets/wallet-payment.js'));expect(other.headers.get('x-frame-options')).toBe('DENY');
+    // An app that is not admitted to frame, or no admitted app at all, gets no framing however live its review.
+    for(const admitted of [['https://other.example'],undefined]){
+      const gated=await setup({payments:service,paymentBrowserScript:'/* reviewed payment browser */',...(admitted?{frameableAppOrigins:admitted}:{})}).app.fetch(new Request(origin+'/wallet/payment?review='+loginId));
+      expect(gated.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");expect(gated.headers.get('x-frame-options')).toBe('DENY');
+    }
+  });
   it('reads the selected passkey and payment metadata by review id alone, with no cookie session',async()=>{
     const service=payments(),{app,options}=setup({payments:service});
     vi.mocked(options.login.readSession).mockResolvedValue(null);vi.mocked(options.login.viewSession).mockResolvedValue(null);

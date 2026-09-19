@@ -18,6 +18,20 @@ const returnToApp = element<HTMLAnchorElement>('payment-return');
 let id = '', rpId = '';
 let review: WalletPaymentCentralPublic | null = null, immutable = '', busy = false, blocked = false;
 let uncertain = false, canRetry = false, nativePrompt: AbortController | null = null;
+// Framed inside an app's page, this page decides the approval while the app controls what surrounds
+// it. The approve button therefore works only while the frame is large enough to show the payment
+// and, where the browser can tell (Intersection Observer v2), while the button itself is visible
+// and unobscured; otherwise the customer is sent to open the review as a page of its own.
+const framed = window.self !== window.top;
+let approveVisible = !framed;
+if (framed) {
+  try {
+    const observer = new IntersectionObserver(entries => { const entry = entries[entries.length - 1]; if (!entry) return;
+      approveVisible = entry.isIntersecting && (entry as { isVisible?: boolean }).isVisible !== false; render(); }, { threshold: 0.9, trackVisibility: true, delay: 100 } as IntersectionObserverInit);
+    observer.observe(approve);
+  } catch { approveVisible = true; }
+}
+const frameTooSmall = () => framed && (window.innerWidth < 300 || window.innerHeight < 420);
 let pending: Assertion | null = null;
 class InvalidResponse extends Error {}
 class HttpFailure extends Error { constructor(readonly status: number) { super('Payment request failed'); } }
@@ -41,7 +55,7 @@ function setStatus(state: string, message: string) { status.dataset.state = stat
 function expired() { return !!review && review.expiresAtMs <= Date.now(); }
 function render() {
   const actionable = review?.status === 'pending' && !expired() && !uncertain && !blocked && status.dataset.state === 'ready';
-  approve.hidden = !actionable; approve.disabled = busy;
+  approve.hidden = !actionable; approve.disabled = busy || frameTooSmall() || !approveVisible;
   cancel.hidden = !actionable; cancel.disabled = busy;
   cancelPrompt.hidden = !nativePrompt;
   retry.hidden = !canRetry || busy || blocked;
@@ -194,6 +208,7 @@ function goBackToApp() {
 }
 async function approvePayment() {
   if (!review || review.status !== 'pending' || expired() || uncertain) return;
+  if (frameTooSmall() || !approveVisible) { setStatus('ready', 'Open this review as a page of its own to approve it.'); render(); return; }
   if (!window.isSecureContext || !navigator.credentials?.get) { blocked = true; setStatus('error', 'This browser cannot use passkeys here. Open Center in a browser that supports passkeys.'); return; }
   // No network await precedes get(): it runs from the explicit approval click.
   nativePrompt = new AbortController(); setStatus('authenticating', 'Use your passkey to approve this payment.'); render();
@@ -239,6 +254,7 @@ cancel.addEventListener('click', () => void run(cancelPayment));
 cancelPrompt.addEventListener('click', () => nativePrompt?.abort());
 // A check that finds the approval committed after all returns to the app like a fresh one.
 retry.addEventListener('click', () => void run(async () => { await (id && rpId ? recover : load)(); if (pending === null && !uncertain) goBackToApp(); }));
+if (framed) window.addEventListener('resize', render);
 setInterval(() => {
   if (!busy && review?.status === 'pending' && expired() && !uncertain && !blocked) {
     setStatus('expired', 'This payment approval expired. Return to your app to review a fresh payment.'); render();
