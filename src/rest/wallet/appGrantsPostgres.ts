@@ -237,12 +237,19 @@ export class PostgresWalletAppGrantStore {
     const createdAt = await now(client);
     if (request.expiresAt <= createdAt || request.expiresAt - createdAt > walletAppGrantMaximumLifetimeSeconds) invalidWalletAppGrant();
     await policyGuard(client, { ...request, appGeneration: request.expectedAppGeneration });
+    // The global cap bounds storage over every retained row. The account and application caps bound
+    // live sign-ins only: grants now live up to 90 days, so retained rows would have locked a customer
+    // out of signing in. An account at its application cap signs out its oldest live grant instead.
     const count = (await client.query<{ total: string; account: string; origin: string }>(`SELECT count(*)::text AS total,
-      count(*) FILTER (WHERE account_id=$1)::text AS account,
-      count(*) FILTER (WHERE account_id=$1 AND origin=$2)::text AS origin FROM rest_wallet_app_grants`, [request.accountId, request.origin])).rows[0]!;
-    if (BigInt(count.total) >= BigInt(this.maxRecords) || BigInt(count.account) >= BigInt(this.maxAccountRecords)
-      || BigInt(count.origin) >= BigInt(this.maxOriginRecords))
+      count(*) FILTER (WHERE account_id=$1 AND revoked_at IS NULL AND expires_at>$3)::text AS account,
+      count(*) FILTER (WHERE account_id=$1 AND origin=$2 AND revoked_at IS NULL AND expires_at>$3)::text AS origin FROM rest_wallet_app_grants`,
+    [request.accountId, request.origin, createdAt])).rows[0]!;
+    if (BigInt(count.total) >= BigInt(this.maxRecords) || BigInt(count.account) >= BigInt(this.maxAccountRecords))
       throw new RestAuthError("STORAGE_LIMIT", 429, "Wallet application grant storage limit reached.");
+    if (BigInt(count.origin) >= BigInt(this.maxOriginRecords))
+      await client.query(`UPDATE rest_wallet_app_grants SET revoked_at=GREATEST(created_at,$3) WHERE id=(SELECT id FROM rest_wallet_app_grants
+        WHERE account_id=$1 AND origin=$2 AND revoked_at IS NULL AND expires_at>$3 ORDER BY created_at, id LIMIT 1)`,
+      [request.accountId, request.origin, createdAt]);
     const row = (await client.query<GrantRow>(`INSERT INTO rest_wallet_app_grants(id,account_id,signer_address,origin,callback_uri,audience,
       app_generation,authority_epoch,session_epoch,created_at,expires_at,retain_until)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`, [randomUUID(), request.accountId, request.signerAddress,

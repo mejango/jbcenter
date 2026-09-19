@@ -126,7 +126,9 @@ suite("PostgreSQL typed app-grant storage (trusted fixture; no browser authentic
     await pool.query(`INSERT INTO rest_bot_grants(id,account_id,bot_address,scopes,label,created_at,expires_at)
       VALUES($1,$2,$3,ARRAY['read'],'legacy',1,9007199254740991)`, [legacyId, accountId, signerAddress]);
     await pool.query(await readFile(new URL("../src/db/migrations/017_rest_wallet_policy.sql", import.meta.url), "utf8"));
+    await pool.query(await readFile(new URL("../src/db/migrations/051_wallet_policy_app_grant_lifetime.sql", import.meta.url), "utf8"));
     await pool.query(await readFile(new URL("../src/db/migrations/019_rest_wallet_app_grants.sql", import.meta.url), "utf8"));
+    await pool.query(await readFile(new URL("../src/db/migrations/052_wallet_app_grant_lifetime_90d.sql", import.meta.url), "utf8"));
     for (const filename of ["007_rest_smart_accounts.sql", "012_rest_smart_account_onboarding.sql", "014_rest_passkey_onboarding.sql", "042_wallet_binding_consent.sql", "020_rest_wallet_authority.sql", "039_wallet_authority_window.sql", "049_wallet_authority_window_15m.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${filename}`, import.meta.url), "utf8"));
     backfilled = (await pool.query("SELECT id,kind,account_id FROM rest_grant_ids WHERE id=$1", [legacyId])).rows;
@@ -186,7 +188,7 @@ suite("PostgreSQL typed app-grant storage (trusted fixture; no browser authentic
   it("rejects caller-selected IDs and malformed authority/lifetime fields before insertion", async () => {
     for (const changes of [{ id: randomUUID() }, { incarnation: "1" }, { signerAddress: owner }, { scopes: ["read"] },
       { expectedAuthorityEpoch: "01" }, { expectedSessionEpoch: "0" }, { expectedAuthorityEpoch: 1 },
-      { expiresAt: await now() - 1 }, { expiresAt: await now() + 7200 }, { expiresAt: 1.5 }])
+      { expiresAt: await now() - 1 }, { expiresAt: await now() + 90 * 86_400 + 1 }, { expiresAt: 1.5 }])
       await expect(store.insert({ ...await input(), ...changes } as Insert)).rejects.toMatchObject({ code: "WALLET_APP_GRANT_INVALID" });
     expect((await counts()).apps).toBe(0);
   });
@@ -318,17 +320,23 @@ suite("PostgreSQL typed app-grant storage (trusted fixture; no browser authentic
     expect((await first).status).toBe(200); expect(await second).toMatchObject({ status: 429, body: { code: "STORAGE_LIMIT" } });
     expect(await counts()).toEqual({ apps: 1, bots: 0, registry: 1 });
   });
-  it("keeps per-origin and per-account quotas distinct and counts retained expired/revoked grants", async () => {
+  it("counts only live grants toward the account and application caps, signing out the oldest at the application cap", async () => {
     const limited = new PostgresWalletAppGrantStore(pool, { maxAccountRecords: 2, maxOriginRecords: 1 });
     const first = await limited.insert(await input());
     await pool.query("UPDATE rest_wallet_app_grants SET revoked_at=created_at WHERE id=$1", [first.id]);
-    await expect(limited.insert(await input())).rejects.toMatchObject({ code: "STORAGE_LIMIT" });
+    // A revoked grant no longer counts; at the application cap the oldest live grant is signed out for the new one.
+    const second = await limited.insert(await input()), third = await limited.insert(await input());
+    const live = async () => (await pool.query("SELECT id FROM rest_wallet_app_grants WHERE origin=$1 AND revoked_at IS NULL ORDER BY created_at, id", [origin])).rows.map(row => row.id);
+    expect(await live()).toEqual([third.id]); expect(second.id).not.toBe(third.id);
+    expect((await pool.query("SELECT revoked_at FROM rest_wallet_app_grants WHERE id=$1", [second.id])).rows[0]!.revoked_at).not.toBeNull();
+    // The account cap counts live grants across applications and still refuses.
     await limited.insert(await input({ origin: otherOrigin, callbackUri: `${otherOrigin}/wallet/callback` }));
-    await expect(limited.insert(await input())).rejects.toMatchObject({ code: "STORAGE_LIMIT" });
+    await expect(limited.insert(await input({ origin: otherOrigin, callbackUri: `${otherOrigin}/wallet/callback` }))).rejects.toMatchObject({ code: "STORAGE_LIMIT" });
     await seedAuthority(otherAccount); await expect(limited.insert(await input({ accountId: otherAccount }))).resolves.toMatchObject({ accountId: otherAccount });
+    // An expired grant no longer counts either.
     const expiredAccount = `eip155:8453:0x${"33".repeat(20)}`, current = await now(); await seedAuthority(expiredAccount);
     await insertRawApp(await rawApp({ accountId: expiredAccount, createdAt: current - 100, expiresAt: current - 1, retainUntil: current + 86399 }));
-    await expect(limited.insert(await input({ accountId: expiredAccount }))).rejects.toMatchObject({ code: "STORAGE_LIMIT" });
+    await expect(limited.insert(await input({ accountId: expiredAccount }))).resolves.toMatchObject({ accountId: expiredAccount });
   });
   it("retains the 24-hour grace, cleans a bounded batch, skips locked accounts and preserves bot reservations", async () => {
     const current = await now(), grace = await insertRawApp(await rawApp({ createdAt: current - 89900, expiresAt: current - 86300, retainUntil: current + 100 }));

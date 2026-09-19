@@ -74,6 +74,7 @@ suite("PostgreSQL wallet application policy (eligibility only; no authentication
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 8 });
     await pool.query(await readFile(new URL("../src/db/migrations/017_rest_wallet_policy.sql", import.meta.url), "utf8"));
+    await pool.query(await readFile(new URL("../src/db/migrations/051_wallet_policy_app_grant_lifetime.sql", import.meta.url), "utf8"));
     await pool.query("CREATE TABLE wallet_policy_claims(id uuid PRIMARY KEY, origin text NOT NULL)");
     store = new PostgresWalletPolicyStore(pool);
   });
@@ -95,7 +96,7 @@ suite("PostgreSQL wallet application policy (eligibility only; no authentication
     expect(first.revision).toBe(1);
     expect(first.configurationHash).toBe(walletPolicyConfigurationHash(request.configuration));
     expect(first.activatedAt).toBeGreaterThan(0);
-    expect(first.apps).toEqual([origin, other].map(origin => ({ origin, walletCallbacks: [`${origin}/wallet/callback`], generation: 1, enabled: true })));
+    expect(first.apps).toEqual([origin, other].map(origin => ({ origin, walletCallbacks: [`${origin}/wallet/callback`], generation: 1, enabled: true, grantLifetimeSeconds: 3600 })));
     expect(await store.activate(request)).toEqual(first);
     expect(await store.readActivePolicy()).toEqual(first);
     expect((await guarded()).generation).toBe(1);
@@ -114,6 +115,20 @@ suite("PostgreSQL wallet application policy (eligibility only; no authentication
     expect((await stale.request({ action: "guard", input: admission() })).status).toBe(403);
   });
 
+  it("stores each application's grant lifetime and changes it without advancing the generation", async () => {
+    const store = new PostgresWalletPolicyStore(pool);
+    const first = await store.activate(activation(0));
+    expect(first.apps.map(app => app.grantLifetimeSeconds)).toEqual([3600, 3600]);
+    const longer = { ...configuration(), applications: configuration().applications.map(app => app.origin === origin ? { ...app, grantLifetimeSeconds: 90 * 86_400 } : app) };
+    const second = await store.activate(activation(1, longer));
+    expect(second.apps.map(app => [app.origin, app.generation, app.grantLifetimeSeconds])).toEqual([[origin, 1, 90 * 86_400], [other, 1, 3600]]);
+    expect((await guarded()).grantLifetimeSeconds).toBe(90 * 86_400);
+    for (const bad of [59, 90 * 86_400 + 1, 1.5, "3600"])
+      await expect(store.activate(activation(2, { ...longer, applications: longer.applications.map(app => app.origin === origin ? { ...app, grantLifetimeSeconds: bad as number } : app) })))
+        .rejects.toMatchObject({ code: "WALLET_POLICY_INVALID" });
+    expect((await store.readActivePolicy())!.revision).toBe(2);
+  });
+
   it("preserves unchanged apps, advances changed callbacks, and never revives a removed generation", async () => {
     await store.activate(activation());
     const reordered = configuration([other, origin]);
@@ -125,7 +140,7 @@ suite("PostgreSQL wallet application policy (eligibility only; no authentication
     await expect(guarded(admission({ callbackUri: `${origin}/wallet/complete` }))).rejects.toMatchObject({ code: "WALLET_POLICY_INACTIVE" });
     expect((await guarded(admission({ callbackUri: `${origin}/wallet/complete`, expectedGeneration: 2 }))).generation).toBe(2);
     const removed = await store.activate(activation(3, configuration([other])));
-    expect(removed.apps[0]).toEqual({ origin, walletCallbacks: [], generation: 3, enabled: false });
+    expect(removed.apps[0]).toEqual({ origin, walletCallbacks: [], generation: 3, enabled: false, grantLifetimeSeconds: 3600 });
     const added = await store.activate(activation(4));
     expect(added.apps.map(app => app.generation)).toEqual([4, 1]);
     await expect(guarded()).rejects.toMatchObject({ code: "WALLET_POLICY_INACTIVE" });

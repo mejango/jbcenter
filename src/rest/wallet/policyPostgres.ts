@@ -2,7 +2,7 @@ import { types } from "node:util";
 import type { Pool, PoolClient } from "pg";
 import { RestError } from "../core.js";
 import { validateWalletPolicyCallback, validateWalletPolicyConfiguration, validateWalletPolicyOrigin,
-  walletPolicyConfigurationHash, type WalletPolicyConfiguration } from "./policy.js";
+  walletAppGrantDefaultLifetimeSeconds, walletAppGrantMaximumLifetimeSeconds, walletPolicyConfigurationHash, type WalletPolicyConfiguration } from "./policy.js";
 
 export interface WalletPolicyActivation {
   expectedRevision: number;
@@ -14,6 +14,8 @@ export interface WalletPolicyApplicationState {
   walletCallbacks: string[];
   generation: number;
   enabled: boolean;
+  /** How long this application's grants live, in seconds. */
+  grantLifetimeSeconds: number;
 }
 export interface WalletPolicySnapshot {
   revision: number;
@@ -30,7 +32,7 @@ export interface WalletPolicyCallbackAdmission {
   expiresAt: number;
 }
 
-interface AppRow { origin: string; wallet_callbacks: string[]; generation: string; enabled: boolean }
+interface AppRow { origin: string; wallet_callbacks: string[]; generation: string; enabled: boolean; grant_lifetime_seconds: number }
 interface PolicyRow { revision: string; configuration_hash: string; configuration: string; activated_at: string; apps: AppRow[] }
 const nowSql = "floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint";
 function invalid(): never { throw new RestError(400, "WALLET_POLICY_INVALID", "Wallet policy input is invalid."); }
@@ -47,7 +49,10 @@ function plainFields(input: unknown, required: string[], optional: string[] = []
 }
 const positive = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 function appOf(row: AppRow): WalletPolicyApplicationState {
-  return { origin: row.origin, walletCallbacks: [...row.wallet_callbacks], generation: Number(row.generation), enabled: row.enabled };
+  const lifetime = Number(row.grant_lifetime_seconds);
+  if (!positive(lifetime) || lifetime > walletAppGrantMaximumLifetimeSeconds) inactive();
+  return { origin: row.origin, walletCallbacks: [...row.wallet_callbacks], generation: Number(row.generation), enabled: row.enabled,
+    grantLifetimeSeconds: lifetime };
 }
 function snapshotOf(row: PolicyRow): WalletPolicySnapshot {
   const configuration = validateWalletPolicyConfiguration(JSON.parse(row.configuration));
@@ -130,13 +135,20 @@ export class PostgresWalletPolicyStore {
       for (const origin of origins) {
         const old = apps.get(origin), desired = next.get(origin), enabled = desired !== undefined;
         const callbacks = desired ? [...desired.walletCallbacks] : [];
-        if (old && old.enabled === enabled && JSON.stringify(old.walletCallbacks) === JSON.stringify(callbacks)) continue;
+        const lifetime = desired?.grantLifetimeSeconds ?? old?.grantLifetimeSeconds ?? walletAppGrantDefaultLifetimeSeconds;
+        const sameAdmission = old !== undefined && old.enabled === enabled && JSON.stringify(old.walletCallbacks) === JSON.stringify(callbacks);
+        if (sameAdmission && old.grantLifetimeSeconds === lifetime) continue;
+        // The lifetime is not part of what a grant was admitted under: changing it alone leaves the
+        // generation, and so every live grant, as it is. Callback or enablement changes still advance it.
+        if (sameAdmission) { await client.query("UPDATE rest_wallet_policy_apps SET grant_lifetime_seconds=$2 WHERE origin=$1", [origin, lifetime]); continue; }
         if (old?.generation === Number.MAX_SAFE_INTEGER) conflict();
         if (old) await client.query(
-          "UPDATE rest_wallet_policy_apps SET wallet_callbacks=$2,generation=generation+1,enabled=$3 WHERE origin=$1", [origin, callbacks, enabled],
+          "UPDATE rest_wallet_policy_apps SET wallet_callbacks=$2,generation=generation+1,enabled=$3,grant_lifetime_seconds=$4 WHERE origin=$1",
+          [origin, callbacks, enabled, lifetime],
         );
         else await client.query(
-          "INSERT INTO rest_wallet_policy_apps(origin,wallet_callbacks,generation,enabled) VALUES($1,$2,1,true)", [origin, callbacks],
+          "INSERT INTO rest_wallet_policy_apps(origin,wallet_callbacks,generation,enabled,grant_lifetime_seconds) VALUES($1,$2,1,true,$3)",
+          [origin, callbacks, lifetime],
         );
       }
       if (prior) await client.query(

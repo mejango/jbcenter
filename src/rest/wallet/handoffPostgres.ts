@@ -3,7 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import { hashTypedData, type Hex } from "viem";
 import { RestError } from "../core.js";
 import { walletAppAudience, walletAppFields, walletAppPrincipalId, validateWalletAppGrant,
-  walletAppGrantMaximumLifetimeSeconds, walletAppUuid, type WalletAppGrant } from "./appGrants.js";
+  walletAppUuid, type WalletAppGrant } from "./appGrants.js";
 import { assertWalletAppGrantActiveInTransaction, getWalletAppGrantInTransaction, lockWalletAppGrantAdmissionInTransaction,
   PostgresWalletAppGrantStore } from "./appGrantsPostgres.js";
 import { assertWalletCentralSessionActiveInTransaction, assertWalletCentralSessionIdentityInTransaction } from "./loginPostgres.js";
@@ -229,12 +229,14 @@ export class PostgresWalletHandoffStore {
       if (row.state !== "issued" || row.code_expires_at_ms === null) conflict();
       const deadline = Number(row.code_expires_at_ms);
       if (deadline <= time) expired();
-      await policy(client, proof.request, deadline);
+      const app = await policy(client, proof.request, deadline);
+      // The grant lives for the application's configured lifetime; the central session that signed
+      // it in may end sooner (its epoch only changes on logout, which revokes the grant anyway).
       const grant = await this.grants.insertInTransaction(client, { accountId: session.accountId,
         signerAddress: proof.request.requestKey, origin: proof.request.origin, callbackUri: proof.request.callbackUri,
         audience: this.audience, expectedAppGeneration: proof.request.appGeneration,
         expectedAuthorityEpoch: session.authorityEpoch, expectedSessionEpoch: session.sessionEpoch,
-        expiresAt: Math.floor(Math.min(session.expiresAtMs, time + walletAppGrantMaximumLifetimeSeconds * 1000) / 1000) });
+        expiresAt: Math.floor((time + app.grantLifetimeSeconds * 1000) / 1000) });
       const receiptUntil = Math.min(Number(row.retain_until_ms), time + this.receiptRetentionMs, session.expiresAtMs, grant.expiresAt * 1000);
       if (receiptUntil <= time) expired();
       await client.query(`UPDATE rest_wallet_handoffs SET state='consumed',consumed_at_ms=$2,exchange_digest=$3,

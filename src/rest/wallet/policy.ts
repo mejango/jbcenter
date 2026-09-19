@@ -5,6 +5,10 @@ import { canonicalJson } from "../../intent.js";
 import type { Json } from "../../types.js";
 import { RestError } from "../core.js";
 
+/** The ceiling on any application's configured grant lifetime (90 days); the default is an hour. */
+export const walletAppGrantMaximumLifetimeSeconds = 7_776_000;
+export const walletAppGrantDefaultLifetimeSeconds = 3600;
+
 export type WalletPolicyConfiguration = {
   version: "center-wallet-policy-v1";
   applications: FirstPartyApplication[];
@@ -38,15 +42,17 @@ export function validateWalletPolicyCallback(value: unknown, origin: string): st
   return value as string;
 }
 
-function fields(value: unknown, expected: readonly string[]): Record<string, unknown> {
+function fields(value: unknown, expected: readonly string[], optional: readonly string[] = []): Record<string, unknown> {
   if (!value || typeof value !== "object" || types.isProxy(value) || Array.isArray(value) ||
       ![Object.prototype, null].includes(Object.getPrototypeOf(value))) invalid();
-  const keys = Reflect.ownKeys(value);
-  if (keys.length !== expected.length || keys.some(key => typeof key !== "string" || !expected.includes(key))) invalid();
+  const keys = Reflect.ownKeys(value), allowed = [...expected, ...optional];
+  if (keys.length < expected.length || keys.length > allowed.length
+    || keys.some(key => typeof key !== "string" || !allowed.includes(key)) || expected.some(key => !keys.includes(key))) invalid();
   const result: Record<string, unknown> = {};
-  for (const key of expected) {
+  for (const key of allowed) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) invalid();
+    if (!descriptor) { if (expected.includes(key)) invalid(); continue; }
+    if (!("value" in descriptor) || !descriptor.enumerable) invalid();
     result[key] = descriptor.value;
   }
   return result;
@@ -72,13 +78,16 @@ export function validateWalletPolicyConfiguration(value: unknown): WalletPolicyC
   if (input.version !== "center-wallet-policy-v1") invalid();
   const seen = new Set<string>();
   const applications = array(input.applications, 64).map(value => {
-    const entry = fields(value, ["origin", "walletCallbacks"]);
+    const entry = fields(value, ["origin", "walletCallbacks"], ["grantLifetimeSeconds"]);
     const origin = validateWalletPolicyOrigin(entry.origin);
+    const lifetime = entry.grantLifetimeSeconds;
+    if (lifetime !== undefined && (typeof lifetime !== "number" || !Number.isSafeInteger(lifetime) || lifetime < 60
+      || lifetime > walletAppGrantMaximumLifetimeSeconds)) invalid();
     if (seen.has(origin)) invalid();
     seen.add(origin);
     const walletCallbacks = array(entry.walletCallbacks, 4).map(callback => validateWalletPolicyCallback(callback, origin));
     if (new Set(walletCallbacks).size !== walletCallbacks.length) invalid();
-    return { origin, walletCallbacks: walletCallbacks.sort() };
+    return { origin, walletCallbacks: walletCallbacks.sort(), ...(lifetime !== undefined ? { grantLifetimeSeconds: lifetime } : {}) };
   }).sort((a, b) => a.origin < b.origin ? -1 : a.origin > b.origin ? 1 : 0);
   const configuration: WalletPolicyConfiguration = { version: input.version, applications };
   if (Buffer.byteLength(canonicalJson(configuration as unknown as Json)) > 32_768) invalid();

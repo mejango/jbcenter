@@ -28,7 +28,7 @@ function setup(overrides: Partial<WalletSiteOptions> = {}) {
         issuer:origin,origin:appOrigin,callbackUri:appOrigin+'/center/callback',audience,appGeneration:1,requestKey:appKey.address,state:token,codeChallenge:flow,
         nonce:`0x${'09'.repeat(32)}` as const,issuedAtMs:started,expiresAtMs:started+180_000}})),
       issue:vi.fn(async()=>({code:flow,state:token,issuer:origin,callbackUri:appOrigin+'/center/callback'})),identifyExchange:vi.fn(async()=>({accountId})),exchange:vi.fn(async()=>({grant:{id:'public-grant'} as never,replayed:false}))},
-    policy:{readActivePolicy:vi.fn(async()=>({revision:1,configurationHash:'a'.repeat(64),configuration:{version:'center-wallet-policy-v1' as const,applications:[{origin:appOrigin,walletCallbacks:[appOrigin+'/center/callback']}]},activatedAt:1,apps:[{origin:appOrigin,walletCallbacks:[appOrigin+'/center/callback'],generation:1,enabled:true}]}))},
+    policy:{readActivePolicy:vi.fn(async()=>({revision:1,configurationHash:'a'.repeat(64),configuration:{version:'center-wallet-policy-v1' as const,applications:[{origin:appOrigin,walletCallbacks:[appOrigin+'/center/callback']}]},activatedAt:1,apps:[{origin:appOrigin,walletCallbacks:[appOrigin+'/center/callback'],generation:1,enabled:true,grantLifetimeSeconds:3600}]}))},
     refresh:{request:vi.fn(async()=>({status:'queued'})),tick:vi.fn(async()=>({}))},onEvent:vi.fn()};
   Object.assign(options, overrides);
   return {app:createWalletSite(options),options};

@@ -11,6 +11,15 @@ describe('wallet policy operator command', () => {
       ] },
     });
   });
+  it('gives a named origin a sign-in lifetime in days, at most 90, only for a listed origin', () => {
+    const args = ['--expected', '2', 'https://homerun.money', '/center/callback', 'https://beep.biz', '/center/callback'];
+    expect(walletPolicyActivationFromArguments([...args, '--grant-days', 'https://beep.biz=30']).configuration.applications).toEqual([
+      { origin: 'https://homerun.money', walletCallbacks: ['https://homerun.money/center/callback'] },
+      { origin: 'https://beep.biz', walletCallbacks: ['https://beep.biz/center/callback'], grantLifetimeSeconds: 30 * 86_400 },
+    ]);
+    for (const bad of ['https://beep.biz=91', 'https://beep.biz=0', 'https://beep.biz=x', 'https://other.example=30', 'beep.biz'])
+      expect(() => walletPolicyActivationFromArguments([...args, '--grant-days', bad])).toThrow();
+  });
   it('refuses a missing revision, unpaired arguments and callbacks outside the origin', () => {
     expect(() => walletPolicyActivationFromArguments(['https://homerun.money', '/center/callback'])).toThrow();
     expect(() => walletPolicyActivationFromArguments(['--expected', '0', 'https://homerun.money'])).toThrow();

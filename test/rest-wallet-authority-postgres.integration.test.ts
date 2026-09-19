@@ -208,7 +208,7 @@ suite("PostgreSQL canonical wallet authority with genuine enrollment and explici
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 4 });
     for (const name of ["004_rest_accounts.sql", "007_rest_smart_accounts.sql", "012_rest_smart_account_onboarding.sql",
       "013_rest_wallet_ceremonies.sql", "014_rest_passkey_onboarding.sql", "042_wallet_binding_consent.sql", "015_rest_wallet_enrollment.sql", "046_wallet_signup_window.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql",
-      "017_rest_wallet_policy.sql", "019_rest_wallet_app_grants.sql"])
+      "017_rest_wallet_policy.sql", "051_wallet_policy_app_grant_lifetime.sql", "019_rest_wallet_app_grants.sql", "052_wallet_app_grant_lifetime_90d.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     enrollments = new PostgresWalletEnrollmentStore(pool);
     const legacy = await authorizedFixture();

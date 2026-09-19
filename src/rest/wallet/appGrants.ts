@@ -2,9 +2,9 @@ import { types } from "node:util";
 import { getAddress, isAddress, type Address } from "viem";
 import { validateAudience } from "../auth/signatures.js";
 import { RestAuthError } from "../auth/store.js";
-import { validateWalletPolicyCallback, validateWalletPolicyOrigin } from "./policy.js";
+import { validateWalletPolicyCallback, validateWalletPolicyOrigin, walletAppGrantMaximumLifetimeSeconds } from "./policy.js";
+export { walletAppGrantDefaultLifetimeSeconds, walletAppGrantMaximumLifetimeSeconds } from "./policy.js";
 
-export const walletAppGrantMaximumLifetimeSeconds = 3600;
 export const walletAppGrantRetentionSeconds = 86400;
 export const walletAppBigintMaximum = 9223372036854775807n;
 export const walletAppMaximumTime = Math.floor(Number.MAX_SAFE_INTEGER / 1000) - walletAppGrantRetentionSeconds;

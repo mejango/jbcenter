@@ -320,8 +320,25 @@ suite("PostgreSQL wallet handoff with genuine request-key proofs and credentiall
       callbackUri: value.input.request.callbackUri, audience, appGeneration: 1,
       authorityEpoch: value.login.session.authorityEpoch, sessionEpoch: value.login.session.sessionEpoch });
     expect(typeof result.body.grant.incarnation).toBe("string");
-    expect(result.body.grant.expiresAt * 1000).toBeLessThanOrEqual(value.login.session.expiresAtMs);
+    // The grant lives for the application's lifetime (an hour by default), not the central session's.
+    expect([3599, 3600]).toContain(result.body.grant.expiresAt - result.body.grant.createdAt);
     expect(await counts()).toEqual({ handoffs: 1, consumed: 1, grants: 1, grantIds: 1 });
+  });
+
+  it("issues a grant for the application's configured lifetime, and changing only that lifetime keeps live handoffs and grants", async () => {
+    const value = await issuedHandoff(), policies = new PostgresWalletPolicyStore(pool);
+    const thirtyDays = 30 * 86_400;
+    const configuration = { ...policy(), applications: policy().applications.map(app => app.origin === origin ? { ...app, grantLifetimeSeconds: thirtyDays } : app) };
+    const activated = await policies.activate({ expectedRevision: 1, nextRevision: 2, configuration });
+    expect(activated.apps.find(app => app.origin === origin)).toMatchObject({ generation: 1, grantLifetimeSeconds: thirtyDays });
+    const process = await worker(), result = await process.request({ action: "exchange", input: value.exchange });
+    expect(result.status).toBe(200);
+    expect(result.body.grant).toMatchObject({ appGeneration: 1 });
+    expect([thirtyDays - 1, thirtyDays]).toContain(result.body.grant.expiresAt - result.body.grant.createdAt);
+    await expect(policies.activate({ expectedRevision: 2, nextRevision: 3, configuration: { ...configuration,
+      applications: configuration.applications.map(app => app.origin === origin ? { ...app, grantLifetimeSeconds: 91 * 86_400 } : app) } }))
+      .rejects.toMatchObject({ status: 400, code: "WALLET_POLICY_INVALID" });
+    await policies.activate({ expectedRevision: 2, nextRevision: 3, configuration: policy() });
   });
 
   it("serializes simultaneous exchanges in two processes into the same grant and incarnation", async () => {

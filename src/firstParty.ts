@@ -1,6 +1,8 @@
 export type FirstPartyApplication = {
   origin: string;
   walletCallbacks: readonly string[];
+  /** How long a sign-in (an app grant) lasts, in seconds; an hour when absent, at most 90 days. */
+  grantLifetimeSeconds?: number;
 };
 
 function applications(origins: readonly string[]): readonly FirstPartyApplication[] {
