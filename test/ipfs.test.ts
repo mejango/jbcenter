@@ -18,6 +18,7 @@ import type {
 const CID = "QmbWqxBEKC3P8tqsKc98xmWNzrzDtRLMiMPL8wBuTGsMnR";
 
 class PinStore implements Store {
+  async cleanupRateLimits() { return 0; }
   requests = new Map<string, number>();
   async health() {}
   async consumeRequest(client: string, limit: number) {

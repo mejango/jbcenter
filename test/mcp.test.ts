@@ -41,6 +41,7 @@ function storeMock() {
     getIntent: vi.fn<Store["getIntent"]>().mockResolvedValue(null),
     createIntent: vi.fn<Store["createIntent"]>(),
     recordDeployment: vi.fn<Store["recordDeployment"]>(),
+    cleanupRateLimits: vi.fn<Store["cleanupRateLimits"]>().mockResolvedValue(0),
   } satisfies Store & { counts: Map<string, number> };
 }
 

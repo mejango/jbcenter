@@ -625,6 +625,10 @@ export async function createRestRuntime(options: {
         await accountStore.cleanupExpiredNonces(Math.floor(Date.now() / 1000), 1000);
         return { failures: 0 };
       });
+      await metrics.observeRestRecovery("rate_limit_cleanup", async () => {
+        await options.store.cleanupRateLimits();
+        return { failures: 0 };
+      });
       if (!stopped) await metrics.observeRestRecovery("transactions", async () => {
         const result = await transactions.recoverPending({ limit: 5 });
         return { oldestPendingAt: result.oldestPendingAt, failures: result.reconciled.filter((item) =>

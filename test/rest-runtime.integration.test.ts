@@ -157,6 +157,7 @@ async function fixture() {
       quotas.set(key, count);
       return { allowed: count <= limit, remaining: Math.max(0, limit - count) };
     },
+    cleanupRateLimits: async () => 0,
     createIntent: async () => {
       throw new Error("Unexpected intent write");
     },
