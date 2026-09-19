@@ -455,7 +455,8 @@ describe("mounted signed REST API", () => {
     const first = await request();
     expect(first.status).toBe(201);
     expect(await first.json()).toEqual({ plan, operation: { id: "op-one", state: "prepared" }, sponsorship: "accepted" });
-    expect(createPlan).toHaveBeenCalledWith(expect.anything(), bindingId, expect.anything(), "beep-center-plan:attempt", expect.stringMatching(/^0x[0-9a-f]{64}$/));
+    // The plan is created with the head it drafted at, which the preparation proves canonical itself.
+    expect(createPlan).toHaveBeenCalledWith(expect.anything(), bindingId, expect.anything(), "beep-center-plan:attempt", expect.stringMatching(/^0x[0-9a-f]{64}$/), head);
     // The head reads start beside the plan's draft and reach the preparation; the draft pins its reads at that head.
     expect(headAhead).toHaveBeenCalledWith(expect.anything(), bindingId, expect.anything());
     expect(f.semanticPrepare).toHaveBeenLastCalledWith("prepare_pay", expect.anything(),

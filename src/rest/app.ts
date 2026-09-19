@@ -1183,7 +1183,7 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
         ? await deps.protocol.prepare(object(body.input) as unknown as PrepareInput, signal)
         : await draftFor(body.operation, body.input, signal, at);
     const drafted = Date.now();
-    const plan = await deps.transactions.createSmartAccountPlan(actor(principal), bindingId, draft, key, hash);
+    const plan = await deps.transactions.createSmartAccountPlan(actor(principal), bindingId, draft, key, hash, at);
     // Where a plan's time goes, for the production log; the request line only has the total.
     console.info(JSON.stringify({ service: "smart-accounts", action: "plan_stages", operation: body.operation,
       lookupMs: looked - started, draftMs: drafted - looked, accountMs: Date.now() - drafted }));

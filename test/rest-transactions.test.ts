@@ -16,6 +16,7 @@ import type {
   StoredPlan,
 } from "../src/rest/transactions/types.js";
 import { MemoryTransportReservations } from "../src/rest/transactions/transport-reservations.js";
+import type { SmartAccountBinding } from "../src/rest/smartAccounts/types.js";
 
 // Deterministic, public test key. Transactions are only passed to this file's mock RPC.
 const wallet = privateKeyToAccount(`0x${"11".repeat(32)}`);
@@ -39,6 +40,7 @@ function harness(
     ) => Promise<{ issuedAt: number; expiresAt: number }>;
     ttl?: number;
     timeout?: number;
+    resolveSmartAccount?: (actor: RestActor, bindingId: Hex) => Promise<SmartAccountBinding>;
   } = {},
 ) {
   let clock = now;
@@ -132,6 +134,7 @@ function harness(
     ...(options.authorizeDispatch
       ? { authorizeDispatch: options.authorizeDispatch }
       : {}),
+    ...(options.resolveSmartAccount ? { resolveSmartAccount: options.resolveSmartAccount } : {}),
     policy: {
       ...(options.ttl ? { planTtlMs: options.ttl } : {}),
       ...(options.timeout ? { rpcTimeoutMs: options.timeout } : {}),
@@ -362,6 +365,24 @@ describe("durable signed transaction relay", () => {
     ).toBeUndefined();
   });
 
+  it("does not read the draft's evidence block again when the operation prepared next proves that head", async () => {
+    const bindingId = `0x${"7b".repeat(32)}` as Hex;
+    const binding = { id: bindingId, ownerAccountId: actor.accountId, wallet: { chainId: 8453, address: wallet.address },
+      state: { stateHash: `0x${"1c".repeat(32)}`, manifestRevision: `0x${"2d".repeat(32)}` } } as unknown as SmartAccountBinding;
+    const h = harness({ resolveSmartAccount: async () => binding });
+    const blockReads = () => h.rpc.mock.calls.filter(([, method]) => method === "eth_getBlockByNumber").length;
+    const draft = h.draft(), proven = { ...draft.evidence[0]! };
+    h.rpc.mockClear();
+    await h.service.createSmartAccountPlan(actor, bindingId, draft, "proven", requestHash, proven);
+    expect(blockReads()).toBe(0);
+    // A head the draft did not pin to proves nothing for it: the block is read as before.
+    h.rpc.mockClear();
+    await h.service.createSmartAccountPlan(actor, bindingId, h.draft(), "unproven", requestHash, { ...proven, blockNumber: "99" });
+    expect(blockReads()).toBe(1);
+    h.rpc.mockClear();
+    await h.service.createSmartAccountPlan(actor, bindingId, h.draft(), "no-head", requestHash);
+    expect(blockReads()).toBe(1);
+  });
   it("owns the reviewed draft before asynchronous evidence checks", async () => {
     const h = harness();
     const draft = h.draft();

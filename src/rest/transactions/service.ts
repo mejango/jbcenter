@@ -279,6 +279,9 @@ export class TransactionService {
     draft: RestPlanDraft,
     idempotencyKey: string,
     requestHash: string,
+    /** A head read moments ago that the operation prepared next proves canonical itself; the
+     * draft's evidence at that exact block is not read again here. */
+    proven?: RestBlockEvidence,
   ) {
     if (!this.resolveSmartAccount)
       throw new RestError(
@@ -311,6 +314,7 @@ export class TransactionService {
         address: binding.wallet.address,
         manifestRevision: binding.state.manifestRevision,
       },
+      proven,
     );
   }
 
@@ -320,6 +324,7 @@ export class TransactionService {
     idempotencyKey: string,
     requestHash: string,
     smartAccount?: StoredPlan["smartAccount"],
+    proven?: RestBlockEvidence,
   ) {
     const idem = idempotency(idempotencyKey, requestHash, "create-plan");
     const existing = await this.store.findIdempotentPlan(actor, idem);
@@ -342,7 +347,10 @@ export class TransactionService {
         "STALE_PLAN_EVIDENCE",
         "The preparation evidence is stale; prepare a fresh plan.",
       );
-    await Promise.all(draft.evidence.map((e) => this.assertEvidence(e)));
+    const provenBy = (e: RestBlockEvidence) => proven !== undefined && proven.chainId === e.chainId
+      && BigInt(proven.blockNumber) === BigInt(e.blockNumber) && same(proven.blockHash, e.blockHash)
+      && BigInt(proven.timestamp) === BigInt(e.timestamp);
+    await Promise.all(draft.evidence.filter((e) => !provenBy(e)).map((e) => this.assertEvidence(e)));
     const stored: StoredPlan = {
       id: randomUUID(),
       actor: { ...actor },

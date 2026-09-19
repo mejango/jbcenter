@@ -84,6 +84,9 @@ export interface UserOperationHeadAhead {
   /** The head itself, as soon as it is read: a plan drafted meanwhile pins its quote there. */
   head: Promise<RestBlockEvidence>;
   reads: Promise<{ head: { nonce: Hex; evidence: RestBlockEvidence; baseFeePerGas: unknown }; nodePriority: unknown;
+    /** The bundler answered ready and its fee floor, read beside the head: every sponsor route
+     * shares the bundler, so they hold for whichever provider prepares. */
+    ready: true; floor: Awaited<ReturnType<UserOperationProvider["gasPrice"]>>;
     chainId: number; sender: Address; entryPoint: Address; readAt: number }>;
 }
 export interface UserOperationServiceDependencies {
@@ -298,11 +301,14 @@ export class UserOperationService {
     const latest = binding.then((found) => this.chain(signal).head(found.wallet.chainId));
     const reads = (async () => {
       const found = await binding, manifest = this.options.manifestFor(found), chain = this.chain(signal);
-      const [head, nodePriority] = await Promise.all([
+      const [head, nodePriority, , floor] = await Promise.all([
         chain.nonce(found.wallet.chainId, found.wallet.address, 0n, manifest.entryPoint!, latest),
         chain.request(found.wallet.chainId, "eth_maxPriorityFeePerGas", []),
+        this.options.provider.readiness(found.wallet.chainId, signal),
+        this.options.provider.gasPrice(found.wallet.chainId, signal),
       ]);
-      return { head, nodePriority, chainId: found.wallet.chainId, sender: found.wallet.address, entryPoint: manifest.entryPoint!.address, readAt: Date.now() };
+      return { head, nodePriority, ready: true as const, floor, chainId: found.wallet.chainId, sender: found.wallet.address,
+        entryPoint: manifest.entryPoint!.address, readAt: Date.now() };
     })();
     const head = latest.then((read) => read.evidence);
     for (const promise of [latest, reads, head]) promise.catch(() => undefined);
@@ -450,10 +456,10 @@ export class UserOperationService {
           && same(reads.entryPoint, manifest.entryPoint!.address) && Date.now() - reads.readAt <= 10_000 ? reads : undefined)
       : Promise.resolve(undefined);
     const [, { nonce, evidence, baseFeePerGas }, nodePriority, floor] = await Promise.all([
-      timed("readinessMs", provider.readiness(binding.wallet.chainId, signal)),
+      timed("readinessMs", early.then((reads) => reads?.ready ? undefined : provider.readiness(binding.wallet.chainId, signal))),
       timed("nonceMs", early.then((reads) => reads?.head ?? chain.nonce(binding.wallet.chainId, binding.wallet.address, nonceKey, manifest.entryPoint!))),
       timed("priorityMs", early.then((reads) => reads?.nodePriority ?? chain.request(binding.wallet.chainId, "eth_maxPriorityFeePerGas", []))),
-      timed("gasPriceMs", provider.gasPrice(binding.wallet.chainId, signal)),
+      timed("gasPriceMs", early.then((reads) => reads ? reads.floor : provider.gasPrice(binding.wallet.chainId, signal))),
     ]);
     if (ahead) stages.aheadUsed = (await early) ? 1 : 0;
     stage("headMs");
@@ -564,6 +570,12 @@ export class UserOperationService {
           })
         : Promise.resolve(null),
       chain.canonical(evidence),
+      // The plan's own evidence is proved here when it is not this head (a stale ahead read, or a
+      // plan stored before a refused sponsorship): the quote it pinned must stand on a canonical block.
+      ...plan.draft.evidence
+        .filter((e) => e.chainId === binding.wallet.chainId
+          && (BigInt(e.blockNumber) !== BigInt(evidence.blockNumber) || !same(e.blockHash, evidence.blockHash)))
+        .map((e) => chain.canonical(e)),
     ]);
     if (funded) {
       operation = funded.operation;

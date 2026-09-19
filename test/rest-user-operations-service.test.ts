@@ -634,6 +634,7 @@ async function fixture(useSession = false, currentProfile = false, useSponsorRou
     sponsorRoutes,
     service,
     prepare,
+    planDocuments,
     sign,
     store,
     sessions,
@@ -759,16 +760,44 @@ describe("UserOperationService integration", () => {
     await ahead.reads;
     const before = nonceReads();
     const planId = (await f.prepare("ahead-plan")).planId;
-    f.rpc.mockClear();
+    f.rpc.mockClear(); f.fetcher.mockClear();
+    const bundlerCalls = (method: string) => f.fetcher.mock.calls.filter(([, init]) => JSON.parse(String(init?.body)).method === method).length;
     const prepared = await f.service.prepare(f.principal, { planId, stepIndexes: [0] }, "ahead", h("ahead"), undefined, ahead);
     expect(prepared.state).toBe("prepared");
     expect(before).toBeGreaterThan(0);
     expect(nonceReads()).toBe(0);
+    // The bundler's readiness and fee floor came with the ahead read too: none of their own here.
+    expect(bundlerCalls("eth_supportedEntryPoints") + bundlerCalls("eth_chainId")).toBe(0);
+    expect(bundlerCalls("pimlico_getUserOperationGasPrice")).toBe(0);
     // A stale or foreign ahead read is ignored: the preparation reads the head itself.
     const foreign = { ...ahead, bindingId: `0x${"ab".repeat(32)}` as Hex };
-    f.rpc.mockClear();
+    f.rpc.mockClear(); f.fetcher.mockClear();
     await f.service.prepare(f.principal, { planId, stepIndexes: [0] }, "ahead-2", h("ahead-2"), undefined, foreign);
     expect(nonceReads()).toBeGreaterThan(0);
+    expect(bundlerCalls("pimlico_getUserOperationGasPrice")).toBe(1);
+  });
+  it("proves the plan's own evidence beside the head when the draft pinned another block, and refuses an orphaned one", async () => {
+    const f = await fixture();
+    // The chain also knows the block before the head, so a draft can pin there.
+    const rpc = f.rpc.getMockImplementation()!;
+    f.rpc.mockImplementation(async (chain, method, params, signal) => method === "eth_getBlockByNumber" && params[0] === "0x63"
+      ? { number: "0x63", hash: h("block-99"), timestamp: toHex(f.now() / 1000), baseFeePerGas: "0x0" }
+      : rpc(chain, method, params, signal));
+    const pinned = (id: string, hash: Hex) => {
+      const stored = plan(id, f.activeActor, f.wallet, f.now(), 1);
+      stored.draft.evidence = [{ chainId: 1, blockNumber: "99", blockHash: hash, timestamp: String(f.now() / 1000), source: "onchain" }];
+      f.planDocuments.set(id, stored);
+      return f.transactionStore.create(stored, { key: id, requestHash: h(id), operation: "fixture" }, f.now()).then(() => id);
+    };
+    // The fixture's chain answers the canonical hash for every block: a draft pinned elsewhere is refused.
+    await pinned("orphaned-plan", h("orphaned-block"));
+    await expect(f.service.prepare(f.principal, { planId: "orphaned-plan", stepIndexes: [0] }, "orphaned", h("orphaned")))
+      .rejects.toMatchObject({ code: "USER_OPERATION_REORGED" });
+    // A draft pinned at a canonical block that is not the head is proved and accepted.
+    const planId = await pinned("pinned-plan", h("block-99"));
+    f.rpc.mockClear();
+    expect((await f.service.prepare(f.principal, { planId, stepIndexes: [0] }, "pinned", h("pinned"))).state).toBe("prepared");
+    expect(f.rpc.mock.calls.filter(([, method, params]) => method === "eth_getBlockByNumber" && params[0] === "0x63").length).toBe(1);
   });
   it("prepares reviewable owner bytes and broadcasts exactly the externally signed operation", async () => {
     const f = await fixture(),

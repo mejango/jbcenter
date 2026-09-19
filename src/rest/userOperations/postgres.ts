@@ -140,23 +140,26 @@ export class PostgresUserOperationStore implements UserOperationStore {
     assertNew(input, now, defaultCodec);
     const record = clone(input);
     return this.transaction(async (client) => {
-      await assertRestActorActive(client, record.actor, ['plan'], Math.floor(now / 1000));
-      const previous = await client.query<{ document: UserOperationRecord }>(
-        'SELECT document FROM rest_user_operations WHERE account_id=$1 AND principal_id=$2 AND preparation_key=$3',
+      // The account lock serialises competing preparations of one key (the second sees the
+      // first's record). Then the replay lookup, the account's record count and the clock in one
+      // round trip; the actor is asserted once on each path, at the end, so that no wait outlives
+      // the authority.
+      await client.query('SELECT id FROM rest_accounts WHERE id=$1 FOR UPDATE', [record.actor.accountId]);
+      const read = (await client.query<{ document: UserOperationRecord | null; count: string; now: string }>(
+        `SELECT (SELECT document FROM rest_user_operations WHERE account_id=$1 AND principal_id=$2 AND preparation_key=$3) AS document,
+          (SELECT count(*) FROM rest_user_operations WHERE account_id=$1)::text AS count,
+          floor(extract(epoch FROM clock_timestamp())*1000)::text AS now`,
         [record.actor.accountId, record.actor.principalId, record.preparationKey],
-      );
-      if (previous.rows[0]) {
-        if (!same(previous.rows[0].document.inputHash, record.inputHash)) conflict();
-        return clone(previous.rows[0].document);
+      )).rows[0]!;
+      if (read.document) {
+        if (!same(read.document.inputHash, record.inputHash)) conflict();
+        await assertRestActorActive(client, record.actor, ['plan'], Math.floor(now / 1000));
+        return clone(read.document);
       }
-      const clock = await databaseNow(client);
+      const clock = Number(read.now);
       assertNew(record, clock, defaultCodec);
       await this.currentAuthority(client, record, clock);
-      const count = await client.query<{ count: string }>(
-        'SELECT count(*)::text AS count FROM rest_user_operations WHERE account_id=$1',
-        [record.actor.accountId],
-      );
-      if (Number(count.rows[0]!.count) >= USER_OPERATION_LIMITS.recordsPerAccount)
+      if (Number(read.count) >= USER_OPERATION_LIMITS.recordsPerAccount)
         fail('USER_OPERATION_STORAGE_LIMIT', 'Account UserOperation record capacity reached.', 429);
       assertNew(record, await databaseNow(client), defaultCodec);
       await client.query(
