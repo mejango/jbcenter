@@ -444,7 +444,7 @@ for (const backend of ["memory", "postgres"] as const) {
         if (property === "release") return () => undefined;
         if (property === "query") return async (...args: unknown[]) => {
           if (args[0] === clockQuery) return target.query("SELECT $1::text AS now", [databaseTime]);
-          if (typeof args[0] === "string" && args[0].startsWith("SELECT 1 FROM rest_request_nonces")) {
+          if (typeof args[0] === "string" && args[0].trimStart().startsWith("INSERT INTO rest_request_nonces")) {
             entered();
             await resumed;
           }

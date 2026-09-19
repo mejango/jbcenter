@@ -102,7 +102,7 @@ async function main(): Promise<void> {
       for (const [key, value] of Object.entries(request.headers))
         if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(",") : value);
       const requestedBarrier = headers.get("x-fixture-barrier");
-      if (requestedBarrier !== null && requestedBarrier !== "after-nonce-commit")
+      if (requestedBarrier !== null && requestedBarrier !== "after-nonce-commit" && requestedBarrier !== "after-nonce-insert")
         throw new RestError(400, "FIXTURE_BARRIER", "Unknown fixture barrier.");
       let size = 0;
       const chunks: Buffer[] = [];
@@ -123,8 +123,12 @@ async function main(): Promise<void> {
             if (key === "query") return async (...args: any[]) => {
               const result = await (value.query.bind(value) as any)(...args);
               const sql = (typeof args[0] === "string" ? args[0] : args[0]?.text ?? "").trim();
-              if (/^BEGIN;?$/i.test(sql) || /^ROLLBACK;?$/i.test(sql)) wroteNonce = false;
-              if (/^INSERT\s+INTO\s+rest_request_nonces\b/i.test(sql) && result.rowCount) wroteNonce = true;
+              if (/^BEGIN\b/i.test(sql) || /^ROLLBACK;?$/i.test(sql)) wroteNonce = false;
+              if (/^INSERT\s+INTO\s+rest_request_nonces\b/i.test(sql) && result.rowCount) {
+                wroteNonce = true;
+                // Inside the admission transaction, the nonce written but nothing committed.
+                if (!paused && requestedBarrier === "after-nonce-insert") { paused = true; await barrier("after-nonce-insert"); }
+              }
               if (/^COMMIT;?$/i.test(sql)) {
                 const committedNonce = wroteNonce; wroteNonce = false;
                 if (!paused && committedNonce && requestedBarrier === "after-nonce-commit") {

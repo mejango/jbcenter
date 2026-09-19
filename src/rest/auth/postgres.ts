@@ -1,7 +1,7 @@
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type { Address } from "viem";
 import { stable } from "../smartAccounts/service.js";
-import { timedAuthPhase } from "../context.js";
+import { detachedFromRequest, timedAuthPhase } from "../context.js";
 import { createWalletAuthorityIdentity, type WalletAuthorityContext } from "../wallet/authority.js";
 import { PostgresWalletAuthorityStore } from "../wallet/authorityPostgres.js";
 import type { WalletAppGrant } from "../wallet/appGrants.js";
@@ -204,6 +204,10 @@ function checkingWalletAuthority(): RestAuthError {
   return new RestAuthError("WALLET_AUTHORITY_CHECKING", 503, "Wallet authority is being checked. Retry with a newly signed request.");
 }
 
+/** When this process last renewed an account's refresh interest (a process holds one store; two
+ * runtimes on different databases in one process would share it, which no deployment does). */
+const refreshInterested = new Map<string, number>();
+
 export class PostgresAccountStore implements AccountStore {
   private readonly limits: AccountStoreLimits;
   private readonly walletRefresh: PostgresAccountStoreOptions["walletRefresh"];
@@ -249,7 +253,7 @@ export class PostgresAccountStore implements AccountStore {
     const request = structuredClone(input);
     assertRequest(request);
     if (this.walletRefresh && request.grantId !== null) {
-      const grant = await timedAuthPhase("grantMs", () => this.transaction(client => getAuthorizationGrant(client, request.grantId)));
+      const grant = await timedAuthPhase("grantMs", () => this.read(client => getAuthorizationGrant(client, request.grantId)));
       if (grant?.kind === "wallet-app") return this.authorizeWalletApp(request, grant);
     }
     return timedAuthPhase("admitMs", () => this.transaction(async (client) => {
@@ -278,74 +282,65 @@ export class PostgresAccountStore implements AccountStore {
         sessionAdministration: identity.sessionAdministration, creationTransaction: identity.creationTransaction })) !== stable(identity))
       throw new RestAuthError("FORBIDDEN", 403, "Wallet application identity is unavailable or changed.");
     const route = { kind: "request" as const, audience: request.audience ?? "", origin: request.origin ?? null, expiresAt: request.expiresAt };
-    await timedAuthPhase("admitMs", () => this.transaction(async client => {
+    const actor = request.principalId !== undefined
+      ? { kind: "actor" as const, principalId: request.principalId, ...(request.audience !== undefined ? { audience: request.audience } : {}) }
+      : route;
+    // One transaction under one account lock: the admission, the nonce, and the final guard over
+    // the rows the identity check read (their writers all take this lock first, so only the clock
+    // moves). The committed nonce admits scheduling work, not API/business authority: a crash,
+    // timeout or unknown observation spends this signed attempt, so a refusal by the guard is
+    // held until the nonce has committed and thrown after it.
+    let refusal: RestAuthError | undefined;
+    const principal = await timedAuthPhase("admitMs", () => this.transaction(async client => {
       const account = await lockedAccount(client, request.accountId);
       const current = { ...request, now: await databaseNow(client) };
       assertRequest(current); principalFor(account, grant, current);
-      await assertWalletAppRefreshIdentityInTransaction(client, grant, route, context);
-      // This committed nonce admits scheduling work, not API/business authority. A crash, timeout
-      // or unknown observation spends this signed attempt; retries must use a new request nonce.
-      await this.consumeNonce(client, { ...request, now: await databaseNow(client) });
-      // The nonce insert may have waited. Every row the identity check read is behind this
-      // transaction's account lock (each of their writers takes it first, or is held by the
-      // share locks above), so only the clock has moved: the request, the grant and the principal
-      // are checked again at a fresh one.
-      const completed = { ...request, now: await databaseNow(client) };
-      assertRequest(completed); principalFor(account, grant, completed);
-      assertWalletAppGrantTimely(grant, route, completed.now);
-    }));
-    // No SQL locks or connections cross the scheduling/worker boundary. Request cancellation
-    // cannot undo the committed claim or cancel another request's shared authority observation.
-    const deadline = performance.now() + 10_000;
-    const bounded = async <T>(work: () => Promise<T>): Promise<T> => {
-      const remaining = deadline - performance.now();
-      if (remaining <= 0) throw checkingWalletAuthority();
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        const result = await Promise.race([work(), new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(checkingWalletAuthority()), remaining);
-        })]);
-        if (performance.now() >= deadline) throw checkingWalletAuthority();
-        return result;
-      } finally { clearTimeout(timer); }
-    };
-    // The request is admitted on the account's known identity; the observation it asks for runs
-    // in the background, and anything that moves funds verifies the account at a fresh block. The
-    // scheduling and the final guard touch different rows and share no lock, so they run side by
-    // side under the same deadline; scheduling availability cannot invalidate independently known
-    // identity, so its failure is swallowed and the tick follows only its own success.
-    const scheduled = timedAuthPhase("refreshMs", () => bounded(() => this.walletRefresh!.request(request.accountId)))
-      .then(() => { void this.walletRefresh!.tick().catch(() => {}); }, () => {});
-    const [principal] = await Promise.all([
-      timedAuthPhase("finishMs", () => bounded(() => this.finishWalletAppRequest(request, grant, context))), scheduled]);
-    return principal;
-  }
-
-  private async finishWalletAppRequest(request: VerifiedRequest, grant: WalletAppGrant, context: WalletAuthorityContext): Promise<RestPrincipal> {
-    return this.transaction(async client => {
-      const account = await lockedAccount(client, request.accountId);
-      const current = { ...request, now: await databaseNow(client) };
-      assertRequest(current); principalFor(account, grant, current);
-      // The identity check share-locks the grant row and compares it with the admitted grant;
-      // a grant changed during admission fails there. The full guard then runs over the same rows.
-      const route = { kind: "request" as const, audience: request.audience ?? "", origin: request.origin ?? null, expiresAt: request.expiresAt };
       const { authority, rows } = await assertWalletAppRefreshIdentityInTransaction(client, grant, route, context);
-      const nonce = (await client.query<{ expires_at: string }>(
-        "SELECT expires_at FROM rest_request_nonces WHERE account_id=$1 AND nonce=$2", [request.accountId, request.nonce.toLowerCase()])).rows[0];
-      if (!nonce || Number(nonce.expires_at) !== request.expiresAt)
-        throw new RestAuthError("REPLAY", 409, "Wallet scheduling claim is unavailable.");
-      if (authority.readiness !== "verified" || !authority.identity) throw checkingWalletAuthority();
-      if (grant.accountId !== request.accountId || grant.id !== request.grantId)
-        throw new RestAuthError("FORBIDDEN", 403, "API grant does not belong to the authenticated account");
-      await assertWalletAppGrantActiveOverRows(client, rows, grant, request.principalId !== undefined
-        ? { kind: "actor", principalId: request.principalId, ...(request.audience !== undefined ? { audience: request.audience } : {}) }
-        : route);
+      await this.consumeNonce(client, current);
       const finalMs = Number((await client.query<{ now: string }>(
         "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS now")).rows[0]!.now);
       const completed = { ...request, now: Math.floor(finalMs / 1000) };
-      assertRequest(completed);
+      assertRequest(completed); principalFor(account, grant, completed);
+      assertWalletAppGrantTimely(grant, route, completed.now);
+      try {
+        if (authority.readiness !== "verified" || !authority.identity) throw checkingWalletAuthority();
+        if (grant.accountId !== request.accountId || grant.id !== request.grantId)
+          throw new RestAuthError("FORBIDDEN", 403, "API grant does not belong to the authenticated account");
+        await assertWalletAppGrantActiveOverRows(client, rows, grant, actor);
+      } catch (error) {
+        if (!(error instanceof RestAuthError)) throw error;
+        refusal = error;
+        return null;
+      }
       return principalFor(account, grant, completed);
-    });
+    }));
+    // A refusal because the authority is still being checked is exactly when the queue must hear
+    // about this account (its job may have lapsed, failed out or been evicted), memo or not.
+    this.keepRefreshInterested(request.accountId, refusal?.code === "WALLET_AUTHORITY_CHECKING");
+    if (refusal) throw refusal;
+    return principal!;
+  }
+
+  /** The queue re-verifies an interested account on its own before its verification ends; a
+   * request only renews the interest (a day). Once per account every ten minutes on this replica
+   * is plenty, and it runs beside the request, never on its path. The memo holds only a request
+   * the queue accepted (queued or coalesced); anything else lets the next request try again. */
+  private keepRefreshInterested(accountId: string, always = false): void {
+    const now = Date.now();
+    if (!always && now - (refreshInterested.get(accountId) ?? 0) < 600_000) return;
+    if (refreshInterested.size >= 4096) {
+      for (const [id, at] of refreshInterested) if (now - at >= 600_000) refreshInterested.delete(id);
+      // Still full (that many accounts inside ten minutes): the oldest entry goes, not the bound.
+      if (refreshInterested.size >= 4096) refreshInterested.delete(refreshInterested.keys().next().value!);
+    }
+    refreshInterested.set(accountId, now);
+    void detachedFromRequest(() => this.walletRefresh!.request(accountId))
+      .then(result => {
+        const status = (result as { status?: unknown } | null)?.status;
+        if (status !== "queued" && status !== "coalesced") refreshInterested.delete(accountId);
+        return this.walletRefresh!.tick();
+      }, () => { refreshInterested.delete(accountId); })
+      .catch(() => {});
   }
 
   async assertActive(authority: ActiveAuthority): Promise<void> {
@@ -434,37 +429,50 @@ export class PostgresAccountStore implements AccountStore {
   }
 
   private async consumeNonce(client: PoolClient, request: VerifiedRequest): Promise<void> {
-    await client.query(
-      `DELETE FROM rest_request_nonces WHERE (account_id, nonce) IN (
-         SELECT account_id, nonce FROM rest_request_nonces WHERE account_id = $1 AND expires_at <= $2 LIMIT 1000
-       )`, [request.accountId, request.now],
-    );
+    // Expired nonces are swept by the maintenance tick (cleanupExpiredNonces), not in front of every request.
     const nonce = request.nonce.toLowerCase();
-    const existing = await client.query("SELECT 1 FROM rest_request_nonces WHERE account_id = $1 AND nonce = $2", [request.accountId, nonce]);
-    if (existing.rowCount) throw new RestAuthError("REPLAY", 409, "Authenticated request nonce was already used");
     const usage = await client.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM rest_request_nonces WHERE account_id = $1", [request.accountId],
     );
     if (Number(usage.rows[0]!.count) >= nonceCapacity(this.limits.maxNoncesPerAccount, request.grantId)) {
-      throw new RestAuthError("STORAGE_LIMIT", 429, "Account request nonce storage limit exceeded");
+      // At capacity only: this account's expired nonces go now rather than at the next tick.
+      await client.query("DELETE FROM rest_request_nonces WHERE account_id = $1 AND expires_at <= $2", [request.accountId, request.now]);
+      const remaining = await client.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM rest_request_nonces WHERE account_id = $1", [request.accountId]);
+      if (Number(remaining.rows[0]!.count) >= nonceCapacity(this.limits.maxNoncesPerAccount, request.grantId))
+        throw new RestAuthError("STORAGE_LIMIT", 429, "Account request nonce storage limit exceeded");
     }
+    // A row the sweep has not reached yet is only a replay while it is live: an expired one is
+    // taken over, exactly as the old per-request sweep allowed.
     const result = await client.query(
       `INSERT INTO rest_request_nonces (account_id, nonce, expires_at) VALUES ($1, $2, $3)
-       ON CONFLICT (account_id, nonce) DO NOTHING RETURNING nonce`, [request.accountId, nonce, request.expiresAt],
+       ON CONFLICT (account_id, nonce) DO UPDATE SET expires_at = EXCLUDED.expires_at
+       WHERE rest_request_nonces.expires_at <= $4 RETURNING nonce`, [request.accountId, nonce, request.expiresAt, request.now],
     );
     if (!result.rowCount) throw new RestAuthError("REPLAY", 409, "Authenticated request nonce was already used");
+  }
+
+  /** Reads on one pooled connection, without a transaction's two extra round trips. */
+  private async read<T>(operation: (client: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try { return await operation(client); } finally { client.release(); }
   }
 
   private async transaction<T>(operation: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
     try {
-      await client.query("BEGIN");
+      // One round trip: a parameterless simple query may carry several statements.
+      await client.query("BEGIN; SET LOCAL lock_timeout='5000ms'; SET LOCAL statement_timeout='10000ms'");
       try {
         const value = await operation(client);
         await client.query("COMMIT");
         return value;
       } catch (error) {
         await client.query("ROLLBACK");
+        // A lock or statement timeout is the wait bound the software deadline used to be: the
+        // caller retries, and nothing was written.
+        if (error && typeof error === "object" && "code" in error && ["55P03", "57014"].includes(String(error.code)))
+          throw checkingWalletAuthority();
         throw error;
       }
     } finally {

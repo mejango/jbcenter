@@ -260,26 +260,26 @@ suite("real signed app requests across two PostgreSQL HTTP replicas", () => {
     } finally { await lock.query("ROLLBACK"); lock.release(); await pending; await isolated.end(); }
   });
 
-  it.each(["grant", "request"])("rolls back the signed request nonce when its %s expires during nonce cleanup", async boundary => {
+  it.each(["grant", "request"])("refuses a signed request whose %s expires while it waits for the account lock, writing no nonce", async boundary => {
     const current = await now(), expiresAt = current + 3;
     const value = await grant(origin, boundary === "grant" ? { expiresAt } : {});
     const request = await signed(value, boundary === "request" ? { changes: { expiresAt } } : {});
-    const oldNonce = `0x${randomUUID().replaceAll("-", "").repeat(2)}` as Hex;
-    await pool.query("INSERT INTO rest_request_nonces(account_id,nonce,expires_at) VALUES($1,$2,$3)", [accountId, oldNonce, current - 1]);
     const lock = await pool.connect(); let pending: ReturnType<typeof send> | undefined;
     try {
+      // Admission is one transaction under the account lock; a request that waits behind another
+      // writer past its own or its grant's expiry is refused at the clock read after the lock.
       await lock.query("BEGIN");
-      await lock.query("SELECT nonce FROM rest_request_nonces WHERE account_id=$1 AND nonce=$2 FOR UPDATE", [accountId, oldNonce]);
+      await lock.query("SELECT id FROM rest_accounts WHERE id=$1 FOR UPDATE", [accountId]);
       pending = send(0, request);
       expect(await responseOrLock(pending, children[0]!.backendPid)).toBe("blocked");
       expect((await pool.query("SELECT query FROM pg_stat_activity WHERE pid=$1", [children[0]!.backendPid])).rows[0].query)
-        .toContain("DELETE FROM rest_request_nonces");
+        .toContain("FROM rest_accounts");
       expect(await now()).toBeLessThan(expiresAt);
       await lock.query("SELECT pg_sleep(GREATEST(0,$1::double precision-extract(epoch FROM clock_timestamp())::double precision+0.05))", [expiresAt]);
       await lock.query("ROLLBACK");
       expect(await pending).toMatchObject(boundary !== "request"
         ? { status: 403, body: { code: "FORBIDDEN" } } : { status: 401, body: { code: "AUTH_REQUIRED" } });
-      expect(await nonceCount(request.claims.nonce)).toBe(0); expect(await nonceCount(oldNonce)).toBe(1);
+      expect(await nonceCount(request.claims.nonce)).toBe(0);
     } finally { await lock.query("ROLLBACK"); lock.release(); await pending?.catch(() => {}); }
   }, 10_000);
 
