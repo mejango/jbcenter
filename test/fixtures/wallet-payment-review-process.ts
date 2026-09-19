@@ -91,9 +91,9 @@ async function main() {
         signature: Buffer.from(body.assertion.signature, "base64url") } : undefined;
       const result = body.action === "prepare" ? await store.prepare(body.actor, body.input, body.key)
         : body.action === "getForApp" ? await store.getForApp(body.actor, body.id)
-        : body.action === "getForSession" ? await store.getForSession(body.id, body.sessionId)
-        : body.action === "approve" ? await store.approve(body.id, body.sessionId, assertion!)
-        : body.action === "cancel" ? await store.cancel(body.id, body.sessionId)
+        : body.action === "get" ? await store.get(body.id)
+        : body.action === "approve" ? await store.approve(body.id, assertion!)
+        : body.action === "cancel" ? await store.cancel(body.id)
         : body.action === "cleanup" ? await store.cleanup(body.limit)
         : (() => { throw new RestError(400, "FIXTURE_ACTION", "Invalid fixture action."); })();
       response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(result ?? null));

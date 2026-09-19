@@ -181,7 +181,7 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
     expect(view.status).toBe("pending");
     expect(view.draft).toMatchObject({ state, operationId: prepared.record.id, operationHash: prepared.record.operationHash,
       planCommitment: prepared.plan.commitment, grant: context.grant, operation: prepared.record.operation, stepIndexes: [0, 1] });
-    expect(await store.getForSession(view.draft.id, context.login.session.id)).toEqual(view);
+    expect(await store.get(view.draft.id)).toEqual(view);
     expect(await store.getForApp(context.actor, view.draft.id)).toEqual({ ...view, approval: null });
   });
 
@@ -216,14 +216,14 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
 
   it("records one genuine SafeOp approval and recovers the same original envelope with a fresh signature", async () => {
     const value = await pendingReview(), firstProof = verifyWalletPaymentReviewProof(value.view.draft, value.assertion);
-    const approved = await value.store.approve(value.view.draft.id, value.login.session.id, value.assertion);
+    const approved = await value.store.approve(value.view.draft.id, value.assertion);
     expect(approved.replayed).toBe(false); expect(approved.view.status).toBe("approved");
     const original = await value.store.getForApp(value.actor, value.view.draft.id);
     expect(original.approval).toEqual({ signature: firstProof.signature, signedCommitment: firstProof.signedCommitment });
     const fresh = signGet({ ...value.login.credential, challenge: value.view.draft.signing.digest, rpId: walletLoginFixtureRpId, origin: issuer, signCount: 2 });
     expect(Buffer.from(fresh.signature).equals(Buffer.from(value.assertion.signature))).toBe(false);
     expect(verifyWalletPaymentReviewProof(value.view.draft, fresh).signature).not.toBe(firstProof.signature);
-    expect(await value.store.approve(value.view.draft.id, value.login.session.id, fresh)).toEqual({ view: approved.view, replayed: true });
+    expect(await value.store.approve(value.view.draft.id, fresh)).toEqual({ view: approved.view, replayed: true });
     expect(await value.store.getForApp(value.actor, value.view.draft.id)).toEqual(original);
     expect(await counts()).toMatchObject({ reviews: 1, approved: 1, ceremonies: 1, consumed: 1, nonces: 0 });
   });
@@ -231,27 +231,27 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
   it("hands a fresh approval to the operation's submission on the review's own authority, and again on a replay while the operation is still prepared", async () => {
     const value = await pendingReview(), submissions: unknown[] = [];
     value.store.attachSubmission(async input => { submissions.push(input); return {}; });
-    const approved = await value.store.approve(value.view.draft.id, value.login.session.id, value.assertion);
+    const approved = await value.store.approve(value.view.draft.id, value.assertion);
     expect(approved.replayed).toBe(false);
     await vi.waitFor(() => expect(submissions).toHaveLength(1));
     const row = await reviewRow(value.view.draft.id), issuedAt = Math.floor(Number(row.approved_at_ms) / 1000);
     expect(submissions[0]).toEqual({ actor: value.actor, operationId: value.record.id, signature: row.signature, key: `review:${value.view.draft.id}`,
       authority: { issuedAt, expiresAt: Math.min(Math.floor(Number(row.expires_at_ms) / 1000), issuedAt + 300) } });
     // A reload of the approval page (the same proof again) retries the submission while nothing was published.
-    expect((await value.store.approve(value.view.draft.id, value.login.session.id, value.assertion)).replayed).toBe(true);
+    expect((await value.store.approve(value.view.draft.id, value.assertion)).replayed).toBe(true);
     await vi.waitFor(() => expect(submissions).toHaveLength(2));
     // The approval page reloading (a session read of the approved review) retries too; a throwing
     // submission, even a synchronous one, never fails the read or the approval.
     value.store.attachSubmission(() => { throw new Error("submission failed"); });
-    expect((await value.store.getForSession(value.view.draft.id, value.login.session.id)).status).toBe("approved");
+    expect((await value.store.get(value.view.draft.id)).status).toBe("approved");
     value.store.attachSubmission(async input => { submissions.push(input); return {}; });
-    await value.store.getForSession(value.view.draft.id, value.login.session.id);
+    await value.store.get(value.view.draft.id);
     await vi.waitFor(() => expect(submissions).toHaveLength(3));
     // Once the operation left `prepared`, neither a replay nor a read sends again.
     const record = { ...value.record, state: "submitting" };
     await pool.query("UPDATE rest_user_operations SET document=$2::jsonb WHERE id=$1", [value.record.id, JSON.stringify(record)]);
-    expect((await value.store.approve(value.view.draft.id, value.login.session.id, value.assertion)).replayed).toBe(true);
-    await value.store.getForSession(value.view.draft.id, value.login.session.id);
+    expect((await value.store.approve(value.view.draft.id, value.assertion)).replayed).toBe(true);
+    await value.store.get(value.view.draft.id);
     await new Promise(resolve => setTimeout(resolve, 50)); expect(submissions).toHaveLength(3);
   });
 
@@ -269,15 +269,12 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
     const store = new PostgresWalletPaymentReviewStore(pool, options()), key = `review:${prepared.plan.id}`;
     const view = await store.prepare(context.actor, { operationId: prepared.record.id, state: token() }, key);
     const value = { ...context, ...prepared, store, view, assertion: signGet({ ...login.credential, challenge: view.draft.signing.digest, rpId: walletLoginFixtureRpId, origin: issuer }) };
-    // The device signs in on its own; the review stays the one the app prepared.
-    const begun = await logins.begin();
-    const deviceLogin = await logins.complete({ loginId: begun.login.id, flowToken: begun.flowToken,
-      assertion: signGet({ ...added.device, challenge: begun.login.challenge, rpId: walletLoginFixtureRpId, origin: issuer }) });
+    // No sign-in takes part: the assertion names the passkey, and the review stays the one the app prepared.
     const assertion = signGet({ ...added.device, challenge: value.view.draft.signing.digest, rpId: walletLoginFixtureRpId, origin: issuer });
-    // The primary's assertion is refused for the device's session, and the device's for the primary's.
-    await expect(value.store.approve(value.view.draft.id, deviceLogin.session.id, value.assertion)).rejects.toMatchObject({ status: 403 });
-    await expect(value.store.approve(value.view.draft.id, value.login.session.id, assertion)).rejects.toMatchObject({ status: 403 });
-    const approved = await value.store.approve(value.view.draft.id, deviceLogin.session.id, assertion);
+    // The device's signature under the primary's credential id is refused, as is a credential id of neither.
+    await expect(value.store.approve(value.view.draft.id, { ...assertion, credentialId: value.assertion.credentialId })).rejects.toMatchObject({ status: 403 });
+    await expect(value.store.approve(value.view.draft.id, { ...assertion, credentialId: "AAAA" })).rejects.toMatchObject({ status: 403, code: "WALLET_PAYMENT_REVIEW_PROOF_INVALID" });
+    const approved = await value.store.approve(value.view.draft.id, assertion);
     expect(approved.view.status).toBe("approved");
     const original = await value.store.getForApp(value.actor, value.view.draft.id);
     const owners = decodeSafe7579PasskeyOwnerSignature({ signature: original.approval!.signature, validAfter: value.view.draft.signing.validAfter,
@@ -290,11 +287,11 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
     const value = await pendingReview(), first = await worker(), second = await worker();
     const assertions = Array.from({ length: 20 }, (_, index) => signGet({ ...value.login.credential,
       challenge: value.view.draft.signing.digest, rpId: walletLoginFixtureRpId, origin: issuer, signCount: index + 1 }));
-    const winning = first.request({ action: "approve", id: value.view.draft.id, sessionId: value.login.session.id,
+    const winning = first.request({ action: "approve", id: value.view.draft.id,
       assertion: assertions[0], barrier: "after-review-write" });
     await reachedBarrier(first, winning);
     const competing = assertions.slice(1).map((assertion, index) => (index % 2 ? first : second).request({
-      action: "approve", id: value.view.draft.id, sessionId: value.login.session.id, assertion }));
+      action: "approve", id: value.view.draft.id, assertion }));
     await waitingForLock(second.backendPid); first.child.send("release");
     const replies = await Promise.all([winning, ...competing]);
     expect(replies.every(reply => reply.status === 200)).toBe(true);
@@ -306,11 +303,11 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
 
   it.each(["approve", "cancel"] as const)("makes %s win a controlled approval/cancellation race without reviving the loser", async winner => {
     const value = await pendingReview(), first = await worker(), second = await worker();
-    const firstRequest = first.request({ action: winner, id: value.view.draft.id, sessionId: value.login.session.id,
+    const firstRequest = first.request({ action: winner, id: value.view.draft.id,
       assertion: value.assertion, barrier: "after-review-write" });
     await reachedBarrier(first, firstRequest);
     const loser = winner === "approve" ? "cancel" : "approve";
-    const secondRequest = second.request({ action: loser, id: value.view.draft.id, sessionId: value.login.session.id, assertion: value.assertion });
+    const secondRequest = second.request({ action: loser, id: value.view.draft.id, assertion: value.assertion });
     await waitingForLock(second.backendPid); first.child.send("release");
     expect((await firstRequest).status).toBe(200); expect((await secondRequest).status).toBe(409);
     const view = await value.store.getForApp(value.actor, value.view.draft.id);
@@ -321,12 +318,12 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
 
   it.each(["after-review-write", "after-commit"])("recovers process death %s without replacing an already committed signature", async stage => {
     const value = await pendingReview(), first = await worker(), second = await worker();
-    const request = first.request({ action: "approve", id: value.view.draft.id, sessionId: value.login.session.id,
+    const request = first.request({ action: "approve", id: value.view.draft.id,
       assertion: value.assertion, barrier: stage }).then(value => ({ value }), error => ({ error }));
     await reachedBarrier(first, request); await kill(first.child); expect(await request).toHaveProperty("error");
     expect(await counts()).toMatchObject({ approved: stage === "after-commit" ? 1 : 0, consumed: stage === "after-commit" ? 1 : 0 });
     const fresh = signGet({ ...value.login.credential, challenge: value.view.draft.signing.digest, rpId: walletLoginFixtureRpId, origin: issuer, signCount: 4 });
-    const retry = await second.request({ action: "approve", id: value.view.draft.id, sessionId: value.login.session.id, assertion: fresh });
+    const retry = await second.request({ action: "approve", id: value.view.draft.id, assertion: fresh });
     expect(retry.status).toBe(200); expect(retry.body.replayed).toBe(stage === "after-commit");
     const expected = verifyWalletPaymentReviewProof(value.view.draft, stage === "after-commit" ? value.assertion : fresh);
     expect((await value.store.getForApp(value.actor, value.view.draft.id)).approval?.signature).toBe(expected.signature);
@@ -342,11 +339,22 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
     expect(await counts()).toMatchObject({ reviews: 1, ceremonies: 1, consumed: 0 });
   });
 
+  it("needs no Center sign-in: a review is read, approved and replayed after the session that opened the app ended", async () => {
+    const value = await pendingReview(), logins = new PostgresWalletLoginStore(pool, { rpId: walletLoginFixtureRpId, origin: issuer });
+    // The session ends on its own (a logout is an authority rotation, refused below like any other).
+    await pool.query(`UPDATE rest_wallet_logins SET revoked_at_ms=t.ms, session_document=jsonb_set(session_document,'{revokedAtMs}',to_jsonb(t.ms))
+      FROM (SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS ms) t WHERE session_id=$1`, [value.login.session.id]);
+    await expect(logins.readSession(value.login.sessionToken)).resolves.toBeNull();
+    expect((await value.store.get(value.view.draft.id)).status).toBe("pending");
+    expect((await value.store.approve(value.view.draft.id, value.assertion)).view.status).toBe("approved");
+    expect((await value.store.approve(value.view.draft.id, value.assertion)).replayed).toBe(true);
+    expect(await counts()).toMatchObject({ approved: 1, consumed: 1 });
+  });
   it.each(["logout", "rotation", "credential", "binding", "policy-aba", "grant"])("rejects current-authority change %s for pending and already approved review receipts", async change => {
     const value = await pendingReview(), second = await preparedOperation(value, 120_000, 2n);
     const pending = await value.store.prepare(value.actor, { operationId: second.record.id, state: token() }, `review:${second.plan.id}`);
     const pendingAssertion = signGet({ ...value.login.credential, challenge: pending.draft.signing.digest, rpId: walletLoginFixtureRpId, origin: issuer });
-    await value.store.approve(value.view.draft.id, value.login.session.id, value.assertion);
+    await value.store.approve(value.view.draft.id, value.assertion);
     if (change === "logout") await new PostgresWalletLoginStore(pool, { rpId: walletLoginFixtureRpId, origin: issuer }).logout(value.login.sessionToken);
     else if (change === "rotation") await pool.query("UPDATE rest_wallet_authority SET authority_epoch=authority_epoch+1,session_epoch=session_epoch+1 WHERE account_id=$1", [value.login.accountId]);
     else if (change === "credential") await pool.query("UPDATE rest_wallet_credentials SET superseded_at=$2 WHERE account_id=$1", [value.login.accountId, await nowMs()]);
@@ -359,8 +367,8 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
       await policies.activate({ expectedRevision: 1, nextRevision: 2, configuration: policy([]) });
       await policies.activate({ expectedRevision: 2, nextRevision: 3, configuration: policy() });
     }
-    await expect(value.store.approve(pending.draft.id, value.login.session.id, pendingAssertion)).rejects.toMatchObject({ status: 403 });
-    await expect(value.store.approve(value.view.draft.id, value.login.session.id, value.assertion)).rejects.toMatchObject({ status: 403 });
+    await expect(value.store.approve(pending.draft.id, pendingAssertion)).rejects.toMatchObject({ status: 403 });
+    await expect(value.store.approve(value.view.draft.id, value.assertion)).rejects.toMatchObject({ status: 403 });
     await expect(value.store.getForApp(value.actor, value.view.draft.id)).rejects.toMatchObject({ status: 403 });
     expect(await counts()).toMatchObject({ reviews: 2, approved: 1, consumed: 1, nonces: 0 });
   });
@@ -373,19 +381,20 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
       createHash("sha256").update(missingUv.clientDataJSON).digest()]), value.login.credential.key);
     for (const assertion of [value.login.input.assertion, missingUv, { ...value.assertion, userHandle: token() },
       signGet({ ...value.login.credential, challenge: hash("wrong-payment"), rpId: walletLoginFixtureRpId, origin: issuer })]) {
-      await expect(value.store.approve(value.view.draft.id, value.login.session.id, assertion)).rejects.toMatchObject({ status: 403 });
+      await expect(value.store.approve(value.view.draft.id, assertion)).rejects.toMatchObject({ status: 403 });
     }
     expect(await counts()).toMatchObject({ approved: 0, consumed: 0 });
-    expect((await value.store.approve(value.view.draft.id, value.login.session.id, value.assertion)).view.status).toBe("approved");
+    expect((await value.store.approve(value.view.draft.id, value.assertion)).view.status).toBe("approved");
   });
 
   it("does not authorize an app actor or a different real central account to use another app's payment review", async () => {
     const value = await pendingReview(), other = await appContext();
     await expect(value.store.getForApp(other.actor, value.view.draft.id)).rejects.toMatchObject({ status: 403, code: "WALLET_PAYMENT_REVIEW_INACTIVE" });
     await expect(value.store.getForApp(value.actor, randomUUID())).rejects.toMatchObject({ status: 404, code: "WALLET_PAYMENT_REVIEW_NOT_FOUND" });
-    await expect(value.store.getForSession(value.view.draft.id, other.login.session.id)).rejects.toMatchObject({ status: 403 });
-    await expect(value.store.approve(value.view.draft.id, other.login.session.id, value.assertion)).rejects.toMatchObject({ status: 403 });
-    await expect(value.store.getForSession(value.view.draft.id, value.actor.principalId)).rejects.toMatchObject({ status: 400 });
+    // Another account's passkey cannot approve it, whatever it holds.
+    const foreign = signGet({ ...other.login.credential, challenge: value.view.draft.signing.digest, rpId: walletLoginFixtureRpId, origin: issuer });
+    await expect(value.store.approve(value.view.draft.id, foreign)).rejects.toMatchObject({ status: 403, code: "WALLET_PAYMENT_REVIEW_PROOF_INVALID" });
+    await expect(value.store.get(value.actor.principalId)).rejects.toMatchObject({ status: 400 });
     expect(await counts()).toMatchObject({ approved: 0, consumed: 0 });
   });
 
@@ -398,7 +407,7 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
     await expect(value.store.getForApp(replacement.actor, value.view.draft.id)).rejects.toMatchObject({ status: 403 });
     await expect(value.store.prepare(replacement.actor, { operationId: value.record.id, state: token() }, `replacement:${value.plan.id}`))
       .rejects.toMatchObject({ status: 404 });
-    await expect(value.store.approve(value.view.draft.id, value.login.session.id, value.assertion)).rejects.toMatchObject({ status: 403 });
+    await expect(value.store.approve(value.view.draft.id, value.assertion)).rejects.toMatchObject({ status: 403 });
     const prepared = await preparedOperation(replacement, 120_000, 2n);
     expect((await value.store.prepare(replacement.actor, { operationId: prepared.record.id, state: token() }, `review:${prepared.plan.id}`)).status).toBe("pending");
     expect(await counts()).toMatchObject({ reviews: 2, approved: 0, consumed: 0 });
@@ -421,7 +430,7 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
       return (pool.query as any)(...args);
     }) as Pool["query"];
     const store = new PostgresWalletPaymentReviewStore(connection, options());
-    const result = store.approve(value.view.draft.id, value.login.session.id, assertion).then(view => ({ view }), error => ({ error }));
+    const result = store.approve(value.view.draft.id, assertion).then(view => ({ view }), error => ({ error }));
     const timeout = new Promise<never>((_, reject) => { const timer = setTimeout(() => reject(new Error("Proof snapshot fixture lookup did not pause")), 5000); void reached.finally(() => clearTimeout(timer)); });
     try { await Promise.race([reached, timeout]); assertion.signature[index] = original; }
     finally { release(); }
@@ -431,7 +440,7 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
 
   it("checks the real database deadline after an account lock wait", async () => {
     const process = await worker(), value = await pendingReview({}, 5000), release = await holdAccount(value.login.accountId);
-    const request = process.request({ action: "approve", id: value.view.draft.id, sessionId: value.login.session.id, assertion: value.assertion });
+    const request = process.request({ action: "approve", id: value.view.draft.id, assertion: value.assertion });
     try { await waitingForLock(process.backendPid); await waitPast(value.view.draft.expiresAtMs); }
     finally { await release(); }
     expect((await request).status).toBe(410); expect(await counts()).toMatchObject({ approved: 0, consumed: 0 });
@@ -442,7 +451,7 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
     // reach the write barrier, then expire against the real database clock.
     const process = await worker();
     const value = await pendingReview({}, 5000);
-    const request = process.request({ action: "approve", id: value.view.draft.id, sessionId: value.login.session.id,
+    const request = process.request({ action: "approve", id: value.view.draft.id,
       assertion: value.assertion, barrier: "after-review-write" });
     await reachedBarrier(process, request);
     await waitPast(value.view.draft.expiresAtMs);
@@ -454,8 +463,8 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
   it("reads and approves a review on a lapsed readiness window: the approval is verified on chain at submission", async () => {
     const value = await pendingReview({}, 120_000, 700);
     await waitPast(value.login.observation.validUntilMs!);
-    expect((await value.store.getForSession(value.view.draft.id, value.login.session.id)).status).toBe("pending");
-    const approved = await value.store.approve(value.view.draft.id, value.login.session.id, value.assertion);
+    expect((await value.store.get(value.view.draft.id)).status).toBe("pending");
+    const approved = await value.store.approve(value.view.draft.id, value.assertion);
     expect(approved.replayed).toBe(false); expect(approved.view.status).toBe("approved");
     expect(await counts()).toMatchObject({ approved: 1, consumed: 1 });
   });
@@ -468,7 +477,7 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
       "UPDATE rest_wallet_payment_reviews SET expires_at_ms=expires_at_ms+1 WHERE id=$1",
       "DELETE FROM rest_wallet_payment_reviews WHERE id=$1"])
       await expect(pool.query(sql, [value.view.draft.id])).rejects.toMatchObject({ code: "23514" });
-    await value.store.approve(value.view.draft.id, value.login.session.id, value.assertion);
+    await value.store.approve(value.view.draft.id, value.assertion);
     const approved = await reviewRow(value.view.draft.id);
     for (const sql of ["UPDATE rest_wallet_payment_reviews SET signature='0x1234' WHERE id=$1",
       "UPDATE rest_wallet_payment_reviews SET proof_digest=NULL WHERE id=$1",
@@ -501,11 +510,11 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
 
   it("does not retrieve or revive an approved envelope after its finite SafeOp review deadline", async () => {
     const value = await pendingReview({}, 2200);
-    await value.store.approve(value.view.draft.id, value.login.session.id, value.assertion);
+    await value.store.approve(value.view.draft.id, value.assertion);
     await waitPast(value.view.draft.expiresAtMs);
     await Promise.all([() => value.store.getForApp(value.actor, value.view.draft.id),
-      () => value.store.getForSession(value.view.draft.id, value.login.session.id),
-      () => value.store.approve(value.view.draft.id, value.login.session.id, value.assertion)].map(async operation => {
+      () => value.store.get(value.view.draft.id),
+      () => value.store.approve(value.view.draft.id, value.assertion)].map(async operation => {
       await expect(operation()).rejects.toMatchObject({ status: 410, code: "WALLET_PAYMENT_REVIEW_EXPIRED" });
     }));
     expect(await counts()).toMatchObject({ reviews: 1, approved: 1, consumed: 1, nonces: 0 });
@@ -527,13 +536,13 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
         gasPolicyId: record.gasPolicyId, providerId: record.providerId, createdAt: record.createdAt, expiresAt: record.expiresAt });
       await pool.query("UPDATE rest_user_operations SET document=$2::jsonb WHERE id=$1", [record.id, JSON.stringify(record)]);
     }
-    await expect(value.store.approve(value.view.draft.id, value.login.session.id, value.assertion)).rejects.toMatchObject({ status: 403, code: "WALLET_PAYMENT_REVIEW_INACTIVE" });
+    await expect(value.store.approve(value.view.draft.id, value.assertion)).rejects.toMatchObject({ status: 403, code: "WALLET_PAYMENT_REVIEW_INACTIVE" });
     expect(await counts()).toMatchObject({ approved: 0, consumed: 0, nonces: 0 });
   });
 
   it("bounds retained per-account receipts after cancellation and preserves idempotent recovery at capacity", async () => {
     const value = await pendingReview({ maxAccountRecords: 1 }), prepared = await preparedOperation(value, 120_000, 2n);
-    await value.store.cancel(value.view.draft.id, value.login.session.id);
+    await value.store.cancel(value.view.draft.id);
     expect((await value.store.prepare(value.actor, { operationId: value.record.id, state: value.state }, value.key)).status).toBe("cancelled");
     await expect(value.store.prepare(value.actor, { operationId: prepared.record.id, state: token() }, `review:${prepared.plan.id}`))
       .rejects.toMatchObject({ status: 429, code: "WALLET_PAYMENT_REVIEW_LIMIT" });
@@ -587,7 +596,7 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
 
   it("cleans only expired review receipts in bounded batches while preserving operation, nonce, plan and ceremony history", async () => {
     const value = await pendingReview({ receiptRetentionMs: 100 }, 3200);
-    await value.store.approve(value.view.draft.id, value.login.session.id, value.assertion);
+    await value.store.approve(value.view.draft.id, value.assertion);
     const approval = (await value.store.getForApp(value.actor, value.view.draft.id)).approval!;
     const operation = { ...value.record.operation, signature: approval.signature };
     // Real durable relay claim, deliberately no bundler dispatch or EVM effect in this PG suite.

@@ -14,10 +14,10 @@ const element = <T extends HTMLElement>(id: string) => document.getElementById(i
 const status = element('payment-status'), details = element('payment-review');
 const approve = element<HTMLButtonElement>('payment-approve'), cancel = element<HTMLButtonElement>('payment-cancel');
 const cancelPrompt = element<HTMLButtonElement>('payment-prompt-cancel'), retry = element<HTMLButtonElement>('payment-retry');
-const signIn = element<HTMLAnchorElement>('payment-signin'), returnToApp = element<HTMLAnchorElement>('payment-return');
-let id = '', rpId = '', accountId = '', csrf = '', sessionExpires = 0;
+const returnToApp = element<HTMLAnchorElement>('payment-return');
+let id = '', rpId = '';
 let review: WalletPaymentCentralPublic | null = null, immutable = '', busy = false, blocked = false;
-let uncertain = false, needsSignIn = false, canRetry = false, nativePrompt: AbortController | null = null;
+let uncertain = false, canRetry = false, nativePrompt: AbortController | null = null;
 let pending: Assertion | null = null;
 class InvalidResponse extends Error {}
 class HttpFailure extends Error { constructor(readonly status: number) { super('Payment request failed'); } }
@@ -38,14 +38,13 @@ function decode(value: unknown, max = 4096): Uint8Array<ArrayBuffer> {
 }
 function token(value: unknown): string { return decode(value).length === 32 ? value as string : fail(); }
 function setStatus(state: string, message: string) { status.dataset.state = state; status.textContent = message; }
-function expired() { return !!review && (review.expiresAtMs <= Date.now() || sessionExpires <= Date.now()); }
+function expired() { return !!review && review.expiresAtMs <= Date.now(); }
 function render() {
-  const actionable = review?.status === 'pending' && !expired() && !uncertain && !blocked && !needsSignIn && status.dataset.state === 'ready';
+  const actionable = review?.status === 'pending' && !expired() && !uncertain && !blocked && status.dataset.state === 'ready';
   approve.hidden = !actionable; approve.disabled = busy;
   cancel.hidden = !actionable; cancel.disabled = busy;
   cancelPrompt.hidden = !nativePrompt;
   retry.hidden = !canRetry || busy || blocked;
-  signIn.hidden = !needsSignIn || blocked;
   // The way back is the callback verified at load: shown once the review is settled here, and
   // whenever this page cannot go on, so the app can check the payment instead.
   returnToApp.hidden = !review || busy || (!blocked && (uncertain || !['approved', 'cancelled'].includes(review.status)));
@@ -57,7 +56,7 @@ async function request(path: string, body?: unknown): Promise<Json> {
   try {
     const response = await fetch(path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal,
       ...(body === undefined ? {} : { method: 'POST', body: JSON.stringify(body), headers: {
-        'content-type': 'application/json', 'x-center-wallet-request': '1', 'x-center-wallet-csrf': csrf } }) });
+        'content-type': 'application/json', 'x-center-wallet-request': '1' } }) });
     withinDeadline(); if (!response.ok) throw new HttpFailure(response.status);
     if (!response.body) throw new InvalidResponse();
     const reader = response.body.getReader(), chunks: Uint8Array[] = []; let total = 0;
@@ -81,7 +80,8 @@ function callback(value: WalletPaymentCentralPublic): string {
 }
 function checkReview(input: unknown): WalletPaymentCentralPublic {
   const value = record(input) as unknown as WalletPaymentCentralPublic;
-  if (value.version !== 'center-wallet-payment-review-v1' || uuid(value.id) !== id || value.issuer !== location.origin || value.accountId !== accountId ||
+  const accountId = text(value.accountId);
+  if (value.version !== 'center-wallet-payment-review-v1' || uuid(value.id) !== id || value.issuer !== location.origin ||
     value.chainId !== 8453 || !['pending', 'approved', 'cancelled'].includes(value.status)) fail();
   if (review && review.status !== 'pending' && value.status !== review.status) fail();
   integer(value.createdAtMs); integer(value.expiresAtMs); callback(value);
@@ -131,31 +131,22 @@ function accept(input: unknown) {
   else if (expired()) setStatus('expired', 'This payment approval expired. Return to your app to review a fresh payment.');
   else setStatus('ready', 'Check the payment details, then approve with your passkey.');
 }
-// The configuration, the session and the review do not depend on one another here: they go out
-// together and are checked in order. The server answers the review only for its session; a read
-// that goes out without one is refused there and never shown.
-let ahead: Promise<Json> | null = null, reviewAhead: Promise<Json> | null = null;
-async function readSession() {
-  const result = await (ahead ?? request(`${base}/session`));
-  if (result.session === null) { needsSignIn = true; csrf = ''; setStatus('sign-in', 'Sign in to review this payment.'); return false; }
-  const session = record(result.session), nextAccount = text(session.accountId);
-  if (session.chainId !== 8453 || `eip155:8453:${address(session.walletAddress).toLowerCase()}` !== nextAccount || (accountId && accountId !== nextAccount)) fail();
-  sessionExpires = integer(session.expiresAtMs); if (sessionExpires <= Date.now()) throw new HttpFailure(401);
-  accountId = nextAccount; csrf = token(result.csrfToken); needsSignIn = false; return true;
-}
+// The configuration and the review do not depend on one another here: they go out together and
+// are checked in order. The review id in the link is what admits this page; no Center sign-in is
+// asked for, and the approval itself is the passkey's signature over the review.
+let reviewAhead: Promise<Json> | null = null;
 async function load() {
   const url = new URL(location.href);
   if (url.hash || url.searchParams.size !== 1 || !url.searchParams.has('review')) fail();
-  id = uuid(url.searchParams.get('review')); signIn.href = `${base || '/'}?payment=${id}`;
+  id = uuid(url.searchParams.get('review'));
   const configuration = request(`${base}/config`);
-  ahead = request(`${base}/session`); ahead.catch(() => undefined);
   reviewAhead = request(`${base}/payment-reviews/${id}`); reviewAhead.catch(() => undefined);
   try {
     const config = await configuration;
     if (config.version !== 'center-wallet-v1' || config.issuer !== location.origin) fail();
     rpId = text(config.rpId, 253); if (location.hostname !== rpId && !location.hostname.endsWith(`.${rpId}`)) fail();
     await recover();
-  } finally { ahead = null; reviewAhead = null; }
+  } finally { reviewAhead = null; }
 }
 // The app may open this page before its review exists (the tap opens it while the payment is
 // still being prepared, under the id the app chose): a review not found within the first minute
@@ -174,7 +165,6 @@ async function awaitReview(): Promise<Json> {
   }
 }
 async function recover() {
-  if (!await readSession()) return;
   accept(await awaitReview());
   if (review?.status === 'pending' && pending && !expired()) await submitApproval();
   else if (review?.status === 'pending' && uncertain) {
@@ -214,7 +204,7 @@ async function approvePayment() {
   // The device offered another passkey than the one this review pins (a second passkey for this
   // account, or another account's): nothing was sent, so the customer simply picks again.
   if (encode(credential.rawId) !== review.passkey.credentialId) {
-    nativePrompt = null; setStatus('ready', 'That was a different passkey. Approve with the passkey you signed in with.'); return;
+    nativePrompt = null; setStatus('ready', 'That was a different passkey. Approve with the passkey of this account.'); return;
   }
   const response = credential.response;
   pending = { credentialId: encode(credential.rawId), userHandle: response.userHandle ? encode(response.userHandle) : null,

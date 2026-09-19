@@ -22,7 +22,6 @@ export function walletPaymentPage(base = '/wallet'): string {
 <button id="payment-cancel" type="button" class="secondary" hidden>Decline payment</button>
 <button id="payment-prompt-cancel" type="button" class="secondary" hidden>Cancel passkey prompt</button>
 <button id="payment-retry" type="button" class="secondary" hidden>Check payment again</button>
-<a id="payment-signin" class="action-link" hidden>Sign in with your passkey</a>
 <a id="payment-return" class="action-link" hidden>Return to app</a></div>
 <p class="note">Your passkey approves only this payment. The app submits it and checks the result.</p>
 <noscript><p>Enable JavaScript to review and approve this payment.</p></noscript></main></body></html>`;

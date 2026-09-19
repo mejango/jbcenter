@@ -227,15 +227,13 @@ suite("HTTP payment review with real PostgreSQL authority and the packaged walle
     finally { if (admin) { try { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); } finally { await admin.end(); } } }
   }, 15_000);
 
-  it("connects through genuine HTTP handoff, prepares signed review, requires cookie/CSRF, and returns the exact P256 envelope only to the original app", async () => {
+  it("connects through genuine HTTP handoff, prepares signed review, approves it by passkey with no Center session, and returns the exact P256 envelope only to the original app", async () => {
     const value = await start(), session = await value.login(), app = await reviewing(value, session);
     const path = `/wallet/payment-reviews/${app.pending.reviewId}/approve`;
-    expect((await value.post(path, { assertion: encodeAssertion(app.assertion) })).status).toBe(403);
-    expect((await value.post(path, { assertion: encodeAssertion(app.assertion) }, session.jar)).status).toBe(403);
-    expect((await value.post(path, { assertion: encodeAssertion(app.assertion) }, session.jar,
-      { "x-center-wallet-csrf": session.csrf, origin: appOrigin, "sec-fetch-site": "cross-site" })).status).toBe(403);
+    expect((await value.post(path, { assertion: encodeAssertion(app.assertion) }, undefined, { origin: appOrigin, "sec-fetch-site": "cross-site" })).status).toBe(403);
     expect(await counts()).toMatchObject({ reviews: 1, approved: 0, consumed: 0, nonces: 0 });
-    const approved = await value.post(path, { assertion: encodeAssertion(app.assertion) }, session.jar, { "x-center-wallet-csrf": session.csrf });
+    // The page carries no cookie and no CSRF token: the review id and the passkey are the whole approval.
+    const approved = await value.post(path, { assertion: encodeAssertion(app.assertion) });
     expect(approved.status).toBe(200); const receipt = await approved.json();
     app.navigate(receipt.redirectUri); expect(new URL(app.location()).searchParams.get("review")).toBe(app.pending.reviewId);
     expect((await app.payments.completePayment()).status).toBe("approved"); expect(app.location()).toBe(app.callbackUri);
@@ -289,8 +287,10 @@ suite("HTTP payment review with real PostgreSQL authority and the packaged walle
     const value = await start(), session = await value.login(), app = await reviewing(value, session);
     const otherIdentity = await createWalletLoginSetup(pool, { manifest }), otherSession = await value.login(otherIdentity);
     const path = `/wallet/payment-reviews/${app.pending.reviewId}`;
-    expect((await value.get(path, otherSession.jar)).status).toBe(403);
-    expect((await value.post(`${path}/approve`, { assertion: encodeAssertion(app.assertion) }, otherSession.jar,
+    // The review id admits any reader; only the account's own passkeys approve.
+    expect((await value.get(path, otherSession.jar)).status).toBe(200);
+    const foreign = signGet({ ...otherSession.identity.credential, challenge: app.review.signing.digest, rpId, origin: issuer });
+    expect((await value.post(`${path}/approve`, { assertion: encodeAssertion(foreign) }, otherSession.jar,
       { "x-center-wallet-csrf": otherSession.csrf })).status).toBe(403);
     for (const origin of [appOrigin, otherOrigin]) {
       const otherGrant = await value.connect(session, origin);

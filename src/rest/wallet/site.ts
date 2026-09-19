@@ -43,7 +43,7 @@ export interface WalletSiteOptions {
   handoff: Pick<PostgresWalletHandoffStore, 'prepare' | 'getIntent' | 'issue' | 'identifyExchange' | 'exchange'>;
   policy: Pick<PostgresWalletPolicyStore, 'readActivePolicy'>;
   refresh: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
-  payments?: Pick<PostgresWalletPaymentReviewStore, 'getForSession' | 'approve' | 'cancel'>;
+  payments?: Pick<PostgresWalletPaymentReviewStore, 'get' | 'approve' | 'cancel'>;
   /** The account on more chains (quote, one passkey approval, Center-paid Relayr bundle, per-chain status). */
   networks?: Pick<ReturnType<typeof createWalletNetworks>, 'list' | 'quote' | 'approve' | 'status'>;
   onEvent?: (event: { action: string; outcome: 'ok' | 'rejected' | 'unavailable'; code?: string; detail?: Record<string, unknown> }) => void;
@@ -320,14 +320,16 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     emit('networks_approve', 'ok');
     return c.json(result);
   });
+  // The review id is the capability here: the app hands the customer its own link, and the approval
+  // is a passkey signature over the review. No Center session is asked for on the way.
   app.get(`${base}/payment-reviews/:id`, async c => {
-    const service = payments(), session = await paymentSession(c, false);
-    return c.json(publicWalletPaymentCentralReview(await service.getForSession(c.req.param('id'), session.id)));
+    const service = payments();
+    return c.json(publicWalletPaymentCentralReview(await service.get(c.req.param('id'))));
   });
   app.post(`${base}/payment-reviews/:id/approve`, async c => {
-    const service = payments(), session = await paymentSession(c, true);
+    const service = payments(); central(c);
     const body = fields(await readWalletJson(c.req.raw), ['assertion']);
-    const result = await service.approve(c.req.param('id'), session.id, assertion(body.assertion));
+    const result = await service.approve(c.req.param('id'), assertion(body.assertion));
     if (result.view.draft.issuer !== origin) reject(503, 'WALLET_UNAVAILABLE');
     const callback = new URL(result.view.draft.grant.callbackUri);
     callback.searchParams.set('review', result.view.draft.id);
@@ -337,9 +339,9 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     return c.json({ review: publicWalletPaymentCentralReview(result.view), replayed: result.replayed, redirectUri: callback.href });
   });
   app.post(`${base}/payment-reviews/:id/cancel`, async c => {
-    const service = payments(), session = await paymentSession(c, true);
+    const service = payments(); central(c);
     fields(await readWalletJson(c.req.raw), []);
-    const view = await service.cancel(c.req.param('id'), session.id);
+    const view = await service.cancel(c.req.param('id'));
     emit('payment_cancel', 'ok');
     return c.json(publicWalletPaymentCentralReview(view));
   });

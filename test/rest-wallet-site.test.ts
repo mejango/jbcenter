@@ -54,7 +54,7 @@ describe('central payment approval HTTP boundary',()=>{
     expect(Object.keys(await response.json()).sort()).toEqual(['app', 'audience', 'issuer', 'rpId', 'version']);
   });
   function payments() {const view=paymentProjectionFixture();return {
-    getForSession:vi.fn(async()=>view),approve:vi.fn(async()=>({view,replayed:false})),cancel:vi.fn(async()=>({...view,status:'cancelled' as const})),
+    get:vi.fn(async()=>view),approve:vi.fn(async()=>({view,replayed:false})),cancel:vi.fn(async()=>({...view,status:'cancelled' as const})),
   };}
   const headers={cookie:`${walletSessionCookie}=${token}`,'x-center-wallet-csrf':walletCsrfToken(token)};
   const assertion={credentialId:flow,userHandle:null,authenticatorData:Buffer.alloc(37).toString('base64url'),clientDataJSON:Buffer.from('{}').toString('base64url'),signature:Buffer.alloc(70).toString('base64url')};
@@ -70,26 +70,21 @@ describe('central payment approval HTTP boundary',()=>{
     for(const path of ['/wallet/payment?review='+loginId,'/wallet/assets/wallet-payment.js','/wallet/assets/wallet-payment.css'])
       expect((await setup().app.fetch(new Request(origin+path))).status).toBe(503);
   });
-  it('requires a live cookie session before reading selected passkey or payment metadata',async()=>{
+  it('reads the selected passkey and payment metadata by review id alone, with no cookie session',async()=>{
     const service=payments(),{app,options}=setup({payments:service});
-    expect((await app.fetch(new Request(origin+'/wallet/payment-reviews/review-id'))).status).toBe(403);
-    expect(service.getForSession).not.toHaveBeenCalled();
-    const result=await app.fetch(new Request(origin+'/wallet/payment-reviews/review-id',{headers}));
-    expect(result.status).toBe(200);expect(service.getForSession).toHaveBeenCalledWith('review-id','22222222-2222-4222-8222-222222222222');
+    vi.mocked(options.login.readSession).mockResolvedValue(null);vi.mocked(options.login.viewSession).mockResolvedValue(null);
+    vi.mocked(options.login.identifySession).mockResolvedValue(null);
+    const result=await app.fetch(new Request(origin+'/wallet/payment-reviews/review-id'));
+    expect(result.status).toBe(200);expect(service.get).toHaveBeenCalledWith('review-id');
     const body=await result.json();expect(body.passkey).toMatchObject({credentialId:'selected-credential',userVerification:'required'});
     expect(body).not.toHaveProperty('approval');expect(JSON.stringify(body)).not.toContain('private-');
-    // The review needs the account's identity, not a fresh authority window: the approval is verified on chain at submission.
-    vi.mocked(options.login.readSession).mockResolvedValue(null);
-    expect((await app.fetch(new Request(origin+'/wallet/payment-reviews/review-id',{headers}))).status).toBe(200);
-    vi.mocked(options.login.viewSession).mockResolvedValue(null);vi.mocked(options.login.identifySession).mockResolvedValue(null);
-    expect((await app.fetch(new Request(origin+'/wallet/payment-reviews/review-id',{headers}))).status).toBe(403);
-    expect(service.getForSession).toHaveBeenCalledTimes(2);
+    expect(options.login.readSession).not.toHaveBeenCalled();expect(options.login.viewSession).not.toHaveBeenCalled();
   });
-  it('passes the server session and exact decoded assertion, returning only the saved callback',async()=>{
+  it('passes the exact decoded assertion without a session, returning only the saved callback',async()=>{
     const service=payments(),{app,options}=setup({payments:service});
-    const result=await app.fetch(request('/wallet/payment-reviews/review-id/approve',{assertion},headers));
+    const result=await app.fetch(request('/wallet/payment-reviews/review-id/approve',{assertion},{}));
     expect(result.status).toBe(200);
-    expect(service.approve).toHaveBeenCalledWith('review-id','22222222-2222-4222-8222-222222222222',{
+    expect(service.approve).toHaveBeenCalledWith('review-id',{
       credentialId:flow,userHandle:null,authenticatorData:Buffer.alloc(37),clientDataJSON:Buffer.from('{}'),signature:Buffer.alloc(70),
     });
     const body=await result.json(),callback=new URL(body.redirectUri);
@@ -98,22 +93,22 @@ describe('central payment approval HTTP boundary',()=>{
     expect(body.review.status).toBe('approved');expect(body).not.toHaveProperty('approval');
     expect(JSON.stringify(body)).not.toContain('0x1234');expect(JSON.stringify(vi.mocked(options.onEvent!).mock.calls)).not.toContain(flow);
   });
-  it('rejects cross-origin, missing-CSRF and body-supplied authority before approval or cancellation',async()=>{
+  it('rejects cross-origin and body-supplied authority before approval or cancellation',async()=>{
     const service=payments(),{app}=setup({payments:service});
     for(const action of ['approve','cancel']) {
       const body=action==='approve'?{assertion}:{};
-      for(const h of [{...headers,origin:appOrigin},{cookie:headers.cookie}])
+      for(const h of [{origin:appOrigin},{'sec-fetch-site':'cross-site'}])
         expect((await app.fetch(request('/wallet/payment-reviews/review-id/'+action,body,h))).status).toBe(403);
       for(const extra of [{sessionId:'other'},{accountId:'other'},{callbackUri:'https://attacker.test'}])
         expect((await app.fetch(request('/wallet/payment-reviews/review-id/'+action,{...body,...extra},headers))).status).toBe(400);
     }
     expect(service.approve).not.toHaveBeenCalled();expect(service.cancel).not.toHaveBeenCalled();
   });
-  it('allows cancellation with current central authority and never creates an approval',async()=>{
+  it('allows cancellation by review id and never creates an approval',async()=>{
     const service=payments(),{app}=setup({payments:service});
-    const response=await app.fetch(request('/wallet/payment-reviews/review-id/cancel',{},headers));
+    const response=await app.fetch(request('/wallet/payment-reviews/review-id/cancel',{},{}));
     expect(response.status).toBe(200);expect((await response.json()).status).toBe('cancelled');
-    expect(service.cancel).toHaveBeenCalledWith('review-id','22222222-2222-4222-8222-222222222222');expect(service.approve).not.toHaveBeenCalled();
+    expect(service.cancel).toHaveBeenCalledWith('review-id');expect(service.approve).not.toHaveBeenCalled();
   });
   it('does not expose payment cookie endpoints through app CORS or enable an unconfigured service',async()=>{
     const {app}=setup();

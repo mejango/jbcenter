@@ -20,7 +20,7 @@ const registrationChallenge = encode(Buffer.alloc(32, 14));
 describe('central payment review browser, virtual authenticator', () => {
   let server: Server, browser: Browser, page: Page, cdp: CDPSession, authenticatorId: string, origin: string;
   let html: string, css: string, script: string, candidate: WalletRegistrationCandidate;
-  let review: WalletPaymentCentralPublic, signedIn: boolean, dropApproval: boolean, unavailableReads: boolean;
+  let review: WalletPaymentCentralPublic, dropApproval: boolean, unavailableReads: boolean;
   let redirectOverride: string | undefined;
   const requests: { path: string; body: any; headers: Record<string, string | string[] | undefined> }[] = [];
   const errors: string[] = [];
@@ -51,9 +51,7 @@ describe('central payment review browser, virtual authenticator', () => {
       const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : null;
       requests.push({ path, body, headers: request.headers });
       if (path === '/wallet/config') return json({ version: 'center-wallet-v1', issuer: origin, audience: origin, rpId: 'localhost' });
-      if (path === '/wallet/session') return json({ session: signedIn ? { accountId: review.accountId, walletAddress: review.payment.account,
-        loginId: '11111111-1111-4111-8111-111111111111', chainId: 8453, expiresAtMs: Date.now() + 3600000 } : null, csrfToken: csrf });
-      if (path === `/wallet/payment-reviews/${reviewId}`) return !signedIn ? json({ error: { code: 'WALLET_HTTP_SESSION' } }, 403) : unavailableReads ? json({ error: 'private provider detail' }, 503) : json(review);
+      if (path === `/wallet/payment-reviews/${reviewId}`) return unavailableReads ? json({ error: 'private provider detail' }, 503) : json(review);
       if (path === `/wallet/payment-reviews/${reviewId}/approve`) {
         try {
           const assertion = body.assertion;
@@ -75,7 +73,7 @@ describe('central payment review browser, virtual authenticator', () => {
   }, 30000);
 
   beforeEach(async () => {
-    requests.length = 0; errors.length = 0; signedIn = true; dropApproval = false; unavailableReads = false; redirectOverride = undefined;
+    requests.length = 0; errors.length = 0; dropApproval = false; unavailableReads = false; redirectOverride = undefined;
     const f = createWalletPaymentClientFixture(Date.now());
     if (!('signedData' in f.prepared.signing)) throw new Error('Fixture must use a passkey owner');
     review = { version: 'center-wallet-payment-review-v1', id: reviewId, state, issuer: origin, accountId: f.accountId,
@@ -129,7 +127,7 @@ describe('central payment review browser, virtual authenticator', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     // A fresh approval returns to the app on its own; the page keeps the approved state for a return visit.
     await page.locator('#payment-approve').click(); await status('approved');
-    expect(approvals()).toHaveLength(1); expect(approvals()[0]!.headers['x-center-wallet-csrf']).toBe(csrf);
+    expect(approvals()).toHaveLength(1); expect(approvals()[0]!.headers['cookie']).toBeUndefined();
     expect(approvals()[0]!.headers['x-center-wallet-request']).toBe('1');
     expect(approvals()[0]!.body.assertion.credentialId).toBe(candidate.credentialId);
     expect(await page.evaluate(() => (window as any).passkeyRequests)).toEqual([{ rpId: 'localhost', userVerification: 'required', allowCredentials: undefined }]);
@@ -254,18 +252,10 @@ describe('central payment review browser, virtual authenticator', () => {
     expect(await page.locator('#payment-return').getAttribute('href')).toBe(callback());
   });
 
-  it('reads the configuration, the session and the review together', async () => {
+  it('reads the configuration and the review together, and never asks for a Center session', async () => {
     await load();
-    const first = requests.slice(0, 3).map(request => request.path).sort();
-    expect(first).toEqual(['/wallet/config', `/wallet/payment-reviews/${reviewId}`, '/wallet/session']);
-  });
-
-  it('offers only a fixed same-origin sign-in continuation when the central session is absent', async () => {
-    signedIn = false; await page.goto(`${origin}/wallet/payment?review=${reviewId}`); await status('sign-in');
-    expect(await page.locator('#payment-signin').getAttribute('href')).toBe(`/wallet?payment=${reviewId}`);
-    // The review goes out with the session read and is refused by the server; nothing of it is shown.
-    expect(await page.locator('#payment-amount').textContent()).toBe('');
-    expect(approvals()).toHaveLength(0);
+    expect(requests.slice(0, 2).map(request => request.path).sort()).toEqual(['/wallet/config', `/wallet/payment-reviews/${reviewId}`]);
+    expect(requests.some(request => request.path === '/wallet/session')).toBe(false);
   });
 
   it.each([`review=${reviewId}&review=${reviewId}`, `review=${reviewId}&return=https://outside.invalid`, 'review=bad'])('rejects ambiguous review navigation %s', async query => {

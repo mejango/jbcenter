@@ -18,7 +18,6 @@ import { assertWalletAppGrantActiveInTransaction, getWalletAppGrantInTransaction
 import type { WalletAuthorityContext } from "./authority.js";
 import { loadWalletAuthorityContextInTransaction, PostgresWalletAuthorityStore } from "./authorityPostgres.js";
 import { PostgresWalletCeremonyStore, lockWalletCeremonyAdmission, walletCeremonyDatabaseNow } from "./ceremoniesPostgres.js";
-import { assertWalletCentralSessionActiveInTransaction } from "./loginPostgres.js";
 import { validateWalletPolicyOrigin } from "./policy.js";
 import { validateWalletHandoffToken } from "./handoff.js";
 
@@ -155,7 +154,7 @@ export class PostgresWalletPaymentReviewStore {
       // resolving distinct ceremony tables. Acquire both before account/session rows.
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended('wallet-payment-reviews:' || 'rest_wallet_payment_reviews'::regclass::oid::text, 0))");
       await lockWalletCeremonyAdmission(client);
-      await this.guard(client, captured, draft, hint?.session_id ?? null);
+      await this.guard(client, captured, draft);
       const { operation, plan } = await this.lockExecution(client, captured);
       const prior = (await client.query<ReviewRow>(`SELECT * FROM rest_wallet_payment_reviews
         WHERE operation_id=$1 OR (account_id=$2 AND principal_id=$3 AND preparation_key=$4) FOR UPDATE`,
@@ -186,19 +185,21 @@ export class PostgresWalletPaymentReviewStore {
     const actor = actorOf(inputActor), hint = await this.hint(inputId); actorMatches(actor, hint.draft);
     const captured = await this.capture(actor, hint.operation_id), draft = this.assertHint(hint, captured);
     return this.transaction(async client => {
-      await this.guard(client, captured, draft, hint.session_id);
+      await this.guard(client, captured, draft);
       const { operation } = await this.lockExecution(client, captured), row = await this.lockReview(client, hint);
       await this.finish(client, captured, row, operation);
       return { ...view(row, operation), approval: row.status === "approved" ? { signature: row.signature!, signedCommitment: row.signed_commitment! } : null };
     });
   }
-  async getForSession(inputId: string, inputSessionId: string): Promise<WalletPaymentReviewView> {
-    const sessionId = uuid(inputSessionId), hint = await this.hint(inputId), captured = await this.capture(this.rowActor(hint), hint.operation_id);
+  /** The review id is the capability: the page that holds it reads the review and cancels it, and
+   * approves it with one of the account's passkeys. No Center sign-in is asked for on the way. */
+  async get(inputId: string): Promise<WalletPaymentReviewView> {
+    const hint = await this.hint(inputId), captured = await this.capture(this.rowActor(hint), hint.operation_id);
     const draft = this.assertHint(hint, captured);
     const result = await this.transaction(async client => {
-      await this.guard(client, captured, draft, sessionId);
+      await this.guard(client, captured, draft);
       const { operation } = await this.lockExecution(client, captured), row = await this.lockReview(client, hint);
-      await this.finish(client, captured, row, operation, sessionId);
+      await this.finish(client, captured, row, operation);
       return { view: view(row, operation), row, pending: row.status === "approved" && operation.state === "prepared" };
     });
     // The approval page reloaded on an approved review nothing has published yet: send again.
@@ -218,50 +219,50 @@ export class PostgresWalletPaymentReviewStore {
       (error: unknown) => console.info(JSON.stringify({ service: "wallet", action: "approval_submit", outcome: "failed", review: row.id,
         code: (error as { code?: unknown } | null)?.code ?? null })));
   }
-  async approve(inputId: string, inputSessionId: string, assertion: WalletAssertion): Promise<{ view: WalletPaymentReviewView; replayed: boolean }> {
-    const id = uuid(inputId), sessionId = uuid(inputSessionId), ownedAssertion = copyWalletPaymentReviewAssertion(assertion);
+  async approve(inputId: string, assertion: WalletAssertion): Promise<{ view: WalletPaymentReviewView; replayed: boolean }> {
+    const id = uuid(inputId), ownedAssertion = copyWalletPaymentReviewAssertion(assertion);
     const hint = await this.hint(id);
     const captured = await this.capture(this.rowActor(hint), hint.operation_id), draft = this.assertHint(hint, captured);
     // Local WebAuthn/P256/ABI verification is complete before transactional lock acquisition. The
-    // session names the approving passkey: the primary, or one of the account's devices.
-    const proof = verifyWalletPaymentReviewProof(draft, ownedAssertion, await this.approver(captured, draft, sessionId));
+    // assertion names the approving passkey: the primary, or one of the account's devices.
+    const proof = verifyWalletPaymentReviewProof(draft, ownedAssertion, this.approver(captured, draft, ownedAssertion.credentialId));
     const result = await this.transaction(async client => {
-      await this.guard(client, captured, draft, sessionId);
+      await this.guard(client, captured, draft);
       const { operation, plan } = await this.lockExecution(client, captured), row = await this.lockReview(client, hint);
       live(row, await walletCeremonyDatabaseNow(client));
       if (row.status === "cancelled") conflict();
       if (row.status === "approved") {
-        if (row.session_id !== sessionId || row.proof_digest !== proof.proofDigest) conflict();
-        await this.finish(client, captured, row, operation, sessionId);
+        if (row.proof_digest !== proof.proofDigest) conflict();
+        await this.finish(client, captured, row, operation);
         return { view: view(row, operation), replayed: true, row, pending: operation.state === "prepared" };
       }
       await this.unspent(client, operation, plan);
       const consumed = await this.ceremonies.consumeInTransaction(client, { ...draft.ceremony,
         proofDigest: proof.proofDigest, resultId: draft.operationId });
       if (consumed.replayed) conflict();
-      const updated = (await client.query<ReviewRow>(`UPDATE rest_wallet_payment_reviews SET status='approved',session_id=$2,
-        proof_digest=$3,signature=$4,signed_commitment=$5,approved_at_ms=${nowSql}
+      const updated = (await client.query<ReviewRow>(`UPDATE rest_wallet_payment_reviews SET status='approved',
+        proof_digest=$2,signature=$3,signed_commitment=$4,approved_at_ms=${nowSql}
         WHERE id=$1 AND status='pending' AND expires_at_ms>${nowSql} RETURNING *`,
-      [row.id, sessionId, proof.proofDigest, proof.signature, proof.signedCommitment])).rows[0];
+      [row.id, proof.proofDigest, proof.signature, proof.signedCommitment])).rows[0];
       if (!updated) expired();
-      await this.finish(client, captured, updated, operation, sessionId);
+      await this.finish(client, captured, updated, operation);
       return { view: view(updated, operation), replayed: false, row: updated, pending: true };
     });
     if (result.pending) this.sendApproved(result.row);
     return { view: result.view, replayed: result.replayed };
   }
-  async cancel(inputId: string, inputSessionId: string): Promise<WalletPaymentReviewView> {
-    const sessionId = uuid(inputSessionId), hint = await this.hint(inputId), captured = await this.capture(this.rowActor(hint), hint.operation_id);
+  async cancel(inputId: string): Promise<WalletPaymentReviewView> {
+    const hint = await this.hint(inputId), captured = await this.capture(this.rowActor(hint), hint.operation_id);
     const draft = this.assertHint(hint, captured);
     return this.transaction(async client => {
-      await this.guard(client, captured, draft, sessionId);
+      await this.guard(client, captured, draft);
       const { operation } = await this.lockExecution(client, captured), row = await this.lockReview(client, hint);
       live(row, await walletCeremonyDatabaseNow(client));
       if (row.status === "approved") conflict();
       const updated = row.status === "cancelled" ? row : (await client.query<ReviewRow>(`UPDATE rest_wallet_payment_reviews
         SET status='cancelled',cancelled_at_ms=${nowSql} WHERE id=$1 AND status='pending' AND expires_at_ms>${nowSql} RETURNING *`, [row.id])).rows[0];
       if (!updated) expired();
-      await this.finish(client, captured, updated, operation, sessionId); return view(updated, operation);
+      await this.finish(client, captured, updated, operation); return view(updated, operation);
     });
   }
   async cleanup(limit = 250): Promise<number> {
@@ -306,24 +307,15 @@ export class PostgresWalletPaymentReviewStore {
     try { assertWalletPaymentReviewContext(draft, captured.context); } catch { return inactive(); }
     return draft;
   }
-  /** The session's passkey and its own Safe owner; a device signs as its device signer. */
-  private async approver(captured: Captured, draft: WalletPaymentReviewDraft, sessionId: string): Promise<WalletPaymentReviewApprover> {
-    const row = (await this.pool.query<{ credential_id: string | null }>("SELECT credential_id FROM rest_wallet_logins WHERE session_id=$1 AND revoked_at_ms IS NULL", [sessionId])).rows[0];
-    const passkey = row?.credential_id ? walletSessionCredential(captured.context.authority, row.credential_id) : null;
-    if (!passkey) inactive();
+  /** The asserting passkey and its own Safe owner; a device signs as its device signer. */
+  private approver(captured: Captured, draft: WalletPaymentReviewDraft, credentialId: string): WalletPaymentReviewApprover {
+    const passkey = walletSessionCredential(captured.context.authority, credentialId);
+    if (!passkey) throw new RestError(403, "WALLET_PAYMENT_REVIEW_PROOF_INVALID", "A matching fresh wallet payment assertion is required.");
     if (!("device" in passkey)) return { credential: draft.authority.credential, signer: draft.authority.signer };
     const { recovery: _recovery, device, ...credential } = passkey as WalletAuthorityDevice & { recovery?: unknown };
     return { credential, signer: device.signerAddress };
   }
-  private async guard(client: PoolClient, captured: Captured, draft: WalletPaymentReviewDraft, sessionId: string | null): Promise<void> {
-    if (sessionId) {
-      const session = await assertWalletCentralSessionActiveInTransaction(client, sessionId), a = draft.authority;
-      const passkey = walletSessionCredential(captured.context.authority, session.credentialId);
-      if (session.accountId !== a.accountId || session.enrollmentId !== a.enrollmentId || !passkey ||
-        session.rpId !== passkey.rpId || session.userHandle !== passkey.userHandle || session.authorityEpoch !== a.authorityEpoch ||
-        session.sessionEpoch !== a.sessionEpoch || session.bindingId !== a.bindingId ||
-        session.bindingAuthorizationDigest !== a.bindingAuthorizationDigest || session.authorityIdentityDigest !== a.authorityIdentityDigest) inactive();
-    }
+  private async guard(client: PoolClient, captured: Captured, draft: WalletPaymentReviewDraft): Promise<void> {
     const current = await loadWalletAuthorityContextInTransaction(client, draft.authority.accountId);
     if (authorityIdentity(current) !== captured.authority) inactive();
     await assertWalletAppGrantActiveInTransaction(client, draft.grant,
@@ -355,14 +347,13 @@ export class PostgresWalletPaymentReviewStore {
       [operation.chainId, operation.sender.toLowerCase(), BigInt(operation.operation.nonce).toString()]);
     if (nonce.rows.length) conflict();
   }
-  private async finish(client: PoolClient, captured: Captured, row: ReviewRow, operation: UserOperationRecord, sessionId: string | null = null): Promise<void> {
+  private async finish(client: PoolClient, captured: Captured, row: ReviewRow, operation: UserOperationRecord): Promise<void> {
     if (row.status === "approved") {
-      if (!row.session_id || !row.signature || !row.signed_commitment || !row.proof_digest) inactive();
+      if (!row.signature || !row.signed_commitment || !row.proof_digest) inactive();
       if (operation.submission && (operation.submission.commitment !== row.signed_commitment ||
         stable(operation.submission.operation) !== stable({ ...row.draft.operation, signature: row.signature }))) conflict();
-      await this.guard(client, captured, row.draft, row.session_id);
     }
-    await this.guard(client, captured, row.draft, sessionId);
+    await this.guard(client, captured, row.draft);
     live(row, await walletCeremonyDatabaseNow(client));
   }
   private async transaction<T>(run: (client: PoolClient) => Promise<T>): Promise<T> {
