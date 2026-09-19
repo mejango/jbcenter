@@ -20,6 +20,7 @@ import { loadWalletAuthorityContextInTransaction, PostgresWalletAuthorityStore }
 import { PostgresWalletCeremonyStore, lockWalletCeremonyAdmission, walletCeremonyDatabaseNow } from "./ceremoniesPostgres.js";
 import { validateWalletPolicyOrigin } from "./policy.js";
 import { validateWalletHandoffToken } from "./handoff.js";
+import { detachedFromRequest } from "../context.js";
 
 export interface WalletPaymentReviewView {
   draft: WalletPaymentReviewDraft;
@@ -113,6 +114,15 @@ export class PostgresWalletPaymentReviewStore {
   private submission: ((input: WalletPaymentApprovedSubmission) => Promise<unknown>) | undefined;
   /** The approval sends the operation itself; the app's later hand-back observes that submission. */
   attachSubmission(submit: (input: WalletPaymentApprovedSubmission) => Promise<unknown>): void { this.submission = submit; }
+  private speculation: ((actor: RestActor, operationId: string) => Promise<void>) | undefined;
+  /** The admission's head-bound checks run ahead of the approval: when the review is created and when
+   * its page is read. Detached from the request, never awaited, never a review's failure. */
+  attachSpeculation(speculate: (actor: RestActor, operationId: string) => Promise<void>): void { this.speculation = speculate; }
+  private speculate(row: ReviewRow): void {
+    if (!this.speculation || row.status !== "pending") return;
+    // An async body: a hook that throws synchronously becomes a rejection this swallows.
+    void detachedFromRequest(async () => this.speculation!(this.rowActor(row), row.operation_id)).catch(() => undefined);
+  }
   private readonly authority: PostgresWalletAuthorityStore;
   private readonly ceremonies: PostgresWalletCeremonyStore;
   constructor(private readonly pool: Pool, input: WalletPaymentReviewStoreOptions) {
@@ -164,7 +174,7 @@ export class PostgresWalletPaymentReviewStore {
         const row = prior[0]!;
         if (row.account_id !== actor.accountId || row.principal_id !== actor.principalId || row.preparation_key !== key ||
           row.operation_id !== operationId || row.input_digest !== inputDigest || draftIdentity(row.draft) !== expectedDraft) conflict();
-        await this.finish(client, captured, row, operation); return view(row, operation);
+        await this.finish(client, captured, row, operation); return { view: view(row, operation), row };
       }
       await this.unspent(client, operation, plan);
       const counts = (await client.query<{ total: string; account: string }>(`SELECT count(*)::text AS total,
@@ -177,9 +187,10 @@ export class PostgresWalletPaymentReviewStore {
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb) RETURNING *`,
       [draft.id, actor.accountId, actor.principalId, operationId, key, inputDigest, draft.ceremony.id,
         draft.createdAtMs, draft.expiresAtMs, draft.expiresAtMs + this.options.receiptRetentionMs, encoded])).rows[0]!;
-      await this.finish(client, captured, row, operation); return view(row, operation);
+      await this.finish(client, captured, row, operation); return { view: view(row, operation), row };
     });
-    return { ...result, draft: validateWalletPaymentReviewDraft(result.draft) };
+    this.speculate(result.row);
+    return { ...result.view, draft: validateWalletPaymentReviewDraft(result.view.draft) };
   }
   async getForApp(inputActor: RestActor, inputId: string): Promise<WalletPaymentReviewAppView> {
     const actor = actorOf(inputActor), hint = await this.hint(inputId); actorMatches(actor, hint.draft);
@@ -204,6 +215,7 @@ export class PostgresWalletPaymentReviewStore {
     });
     // The approval page reloaded on an approved review nothing has published yet: send again.
     if (result.pending) this.sendApproved(result.row);
+    this.speculate(result.row);
     return result.view;
   }
   /** The approval is the send: the operation goes out on the review's own authority right after the

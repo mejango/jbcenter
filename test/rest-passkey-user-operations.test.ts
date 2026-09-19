@@ -578,6 +578,41 @@ describe("passkey UserOperation owner admission", () => {
       method === "eth_getCode" && [entryPoint.toLowerCase(), safe].includes(String(params[0]).toLowerCase())).length);
   });
 
+  it("takes the head-bound checks speculated ahead of the approval within their window, and runs them itself otherwise", async () => {
+    const f = await fixture(), view = await f.prepare();
+    // The fixture's one block follows the clock; here the clock moves while the block stays canonical.
+    const pin = (g: typeof f, at: number) => g.rpc.mockImplementation(async (chain, method, params, signal) => method === "eth_getBlockByNumber"
+      ? { number: "0x64", hash: h("passkey-block"), timestamp: toHex(at / 1000), baseFeePerGas: g.state.baseFee } : g.rpcDefault(chain, method, params, signal));
+    pin(f, now);
+    const handleOps = () => f.rpc.mock.calls.filter(([, method, params]) => { if (method !== "eth_call") return false;
+      try { return decodeFunctionData({ abi: ENTRY_POINT_V07_ABI, data: (params[0] as { data: Hex }).data }).functionName === "handleOps"; } catch { return false; } }).length;
+    // The review's creation speculates: the account and the EntryPoint preflight at one head, no claim, no
+    // send; page reads that arrive while it runs join it rather than starting their own.
+    await Promise.all([1, 2, 3].map(() => f.service.speculate(f.actor, view.id)));
+    expect(f.currentBindingAt).toHaveBeenCalledTimes(1); expect(handleOps()).toBe(1); expect(f.state.sends).toBe(0);
+    expect((await f.store.get(f.actor, view.id))!.submission).toBeUndefined();
+    // A page read within fifteen seconds keeps what it has; one later refreshes it.
+    now += 10_000; await f.service.speculate(f.actor, view.id); expect(f.currentBindingAt).toHaveBeenCalledTimes(1);
+    now += 10_000; await f.service.speculate(f.actor, view.id); expect(f.currentBindingAt).toHaveBeenCalledTimes(2);
+    // The approval within a minute of it does only what needs the signature, then claims and sends.
+    now += 30_000;
+    const logs = vi.spyOn(console, "info").mockImplementation(() => {});
+    expect((await f.service.submit(f.principal, view.id, f.signature(view), "submit")).state).toBe("pending");
+    expect(f.currentBindingAt).toHaveBeenCalledTimes(2); expect(handleOps()).toBe(2); expect(f.state.sends).toBe(1);
+    const stages = logs.mock.calls.map(([line]) => { try { return JSON.parse(String(line)); } catch { return {}; } }).find((line) => line.action === "submit_stages");
+    logs.mockRestore();
+    expect(stages.speculatedAgeMs).toBe(30_000); expect(stages.speculatedHead).toBeGreaterThan(0); expect(stages.headMs).toBeUndefined();
+    // A sent or unknown operation is never speculated; a failure is logged, not thrown.
+    await f.service.speculate(f.actor, view.id); await f.service.speculate(f.actor, "missing");
+    expect(f.currentBindingAt).toHaveBeenCalledTimes(2);
+    // A speculation older than a minute is dropped: the approval runs the checks itself.
+    const g = await fixture(), stale = await g.prepare(); pin(g, now);
+    await g.service.speculate(g.actor, stale.id); expect(g.currentBindingAt).toHaveBeenCalledTimes(1);
+    now += 61_000;
+    expect((await g.service.submit(g.principal, stale.id, g.signature(stale), "submit-stale")).state).toBe("pending");
+    expect(g.currentBindingAt).toHaveBeenCalledTimes(2); expect(g.state.sends).toBe(1);
+  });
+
   it("sends the same signed bytes once whichever publication key carries them", async () => {
     const f = await fixture(), view = await f.prepare(), signature = f.signature(view);
     expect((await f.service.submit(f.principal, view.id, signature, "submit-a")).state).toBe("pending");

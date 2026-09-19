@@ -528,6 +528,7 @@ export async function createRestRuntime(options: {
   });
   // The passkey approval sends the operation itself; the app's hand-back then observes it.
   walletPayments?.attachSubmission((submission) => userOperations!.submitApproved(submission));
+  walletPayments?.attachSpeculation((actor, operationId) => userOperations!.speculate(actor, operationId));
   const openapi = buildRestOpenApi({
     contracts,
     indexer,

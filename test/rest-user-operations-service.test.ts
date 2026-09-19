@@ -262,6 +262,8 @@ async function fixture(useSession = false, currentProfile = false, useSponsorRou
     estimatedCallGas: "0x64" as Hex,
     finalQuotes: 0,
     finalGasGrowth: false,
+    providerStatus: undefined as Hex | undefined,
+    statusReads: 0,
   };
   const log = (
     index: number,
@@ -449,6 +451,11 @@ async function fixture(useSession = false, currentProfile = false, useSponsorRou
               receipt: { transactionHash: state.providerHint },
             }
           : null;
+        break;
+      case "pimlico_getUserOperationStatus":
+        state.statusReads = (state.statusReads ?? 0) + 1;
+        if (!state.providerStatus) throw new Error("status unsupported");
+        result = { status: "submitted", transactionHash: state.providerStatus };
         break;
       default:
         throw new Error(`Unexpected provider ${body.method}`);
@@ -969,6 +976,26 @@ describe("UserOperationService integration", () => {
     });
     expect(f.state.sends).toBe(1);
   });
+  it("names the bundle's transaction from the bundler's status before its receipt exists, once, as a pending hint the chain then proves", async () => {
+    const f = await fixture();
+    const prepared = await f.prepare();
+    await f.service.submit(f.principal, prepared.id, await f.sign(prepared), "status-submit");
+    // No receipt, no status method: pending without a hash, as before.
+    f.tick(2_000);
+    let view = await f.service.get(f.principal, prepared.id);
+    expect(view.observation).toMatchObject({ state: "pending" }); expect(view.observation!.transactionHash).toBeUndefined();
+    expect(f.state.statusReads).toBe(1);
+    // The bundler submitted the bundle: its status names the transaction; the chain does not show it yet.
+    f.state.providerStatus = txHash; f.tick(2_000);
+    view = await f.service.get(f.principal, prepared.id);
+    expect(view.observation).toMatchObject({ state: "pending", transactionHash: txHash });
+    // A hash once known is not asked for again; the receipt proves it when the chain has it.
+    f.tick(2_000); await f.service.get(f.principal, prepared.id); expect(f.state.statusReads).toBe(2);
+    f.state.mined = true; f.tick(2_000);
+    expect((await f.service.get(f.principal, prepared.id)).state).toBe("confirmed");
+    expect(f.state.sends).toBe(1);
+  });
+
   it("preserves canonical success when the bundler changes its transaction hint", async () => {
     const f = await fixture(),
       prepared = await f.prepare(),
@@ -1011,8 +1038,8 @@ describe("UserOperationService integration", () => {
     expect(a!.revision).toBe(b!.revision);
     const oneObservation = rpcReads() - before;
     expect(oneObservation).toBeGreaterThan(0);
-    // A poll within two seconds of the last observation answers from it.
-    f.tick(1_000);
+    // A poll within a second of the last observation answers from it.
+    f.tick(500);
     expect((await f.service.get(f.principal, prepared.id)).revision).toBe(a!.revision);
     expect(rpcReads() - before).toBe(oneObservation);
     // Once mined, the receipt block's account and semantics are verified once; later polls of the

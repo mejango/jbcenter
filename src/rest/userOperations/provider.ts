@@ -757,6 +757,14 @@ export class UserOperationProvider {
       ),
     };
   }
+  /** The bundle's transaction hash from the bundler's own status, known from the moment it submits the
+   * bundle and seconds before its receipt: a hint only, verified on chain like the receipt's. */
+  async status(chainId: number, hash: Hex, signal?: AbortSignal): Promise<{ transactionHash: Hex } | null> {
+    const config = this.configuration(chainId);
+    const value = await this.rpc(config, false, "pimlico_getUserOperationStatus", [uoHash(hash, "operation hash")], signal);
+    if (!uoObject(value) || typeof value.transactionHash !== "string") return null;
+    return { transactionHash: uoHash(value.transactionHash, "outer transaction hash") };
+  }
   async find(
     chainId: number,
     hash: Hex,

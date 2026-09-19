@@ -255,6 +255,23 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
     await new Promise(resolve => setTimeout(resolve, 50)); expect(submissions).toHaveLength(3);
   });
 
+  it("asks the operation's admission checks to run ahead when a review is created and when its page is read, never for a settled review, never failing either", async () => {
+    const context = await appContext(30_000), prepared = await preparedOperation(context, 120_000);
+    const store = new PostgresWalletPaymentReviewStore(pool, options()), speculations: unknown[] = [];
+    store.attachSpeculation(async (actor, operationId) => { speculations.push({ actor, operationId }); });
+    const view = await store.prepare(context.actor, { operationId: prepared.record.id, state: token() }, `review:${prepared.plan.id}`);
+    await vi.waitFor(() => expect(speculations).toEqual([{ actor: context.actor, operationId: prepared.record.id }]));
+    store.attachSpeculation(() => { throw new Error("speculation failed"); });
+    expect((await store.get(view.draft.id)).status).toBe("pending");
+    store.attachSpeculation(async (actor, operationId) => { speculations.push({ actor, operationId }); });
+    await store.get(view.draft.id);
+    await vi.waitFor(() => expect(speculations).toHaveLength(2));
+    // An approved review has nothing to speculate: its approval is the admission.
+    const assertion = signGet({ ...context.login.credential, challenge: view.draft.signing.digest, rpId: walletLoginFixtureRpId, origin: issuer });
+    await store.approve(view.draft.id, assertion); await store.get(view.draft.id);
+    await new Promise(resolve => setTimeout(resolve, 50)); expect(speculations).toHaveLength(2);
+  });
+
   it("lets a device passkey approve a review prepared for the account, signing as its own owner", async () => {
     // The device joins first: a review is a promise about the authority it was prepared under.
     const first = await completeWalletLoginFixture(pool, { lifetimeMs: 30_000, manifest });

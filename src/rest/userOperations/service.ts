@@ -141,6 +141,9 @@ const actorOf = (p: RestPrincipal): RestActor => ({
 });
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const dummySignature = `0x${"11".repeat(32)}${"22".repeat(32)}1b` as Hex;
+/** Speculated admission checks: taken by an approval within a minute (about thirty Base blocks) of
+ * the head they were made at; refreshed by a review page read when older than fifteen seconds. */
+export const speculationMaxAgeMs = 60_000, speculationRefreshMs = 15_000, speculationCap = 1_000;
 const max = (a: bigint, b: bigint) => (a > b ? a : b);
 function fail(code: string, message: string, status = 409): never {
   throw new RestError(status, code, message);
@@ -804,25 +807,19 @@ export class UserOperationService {
         "USER_OPERATION_PREPARATION_EXPIRED",
         "The operation expired or its provider policy changed.",
       );
-    // One canonical head for the whole submission. The account verification and the EntryPoint
-    // preflight are independent of each other at that head, so they run together; both must pass
-    // before the signature check, the signed estimate and the nonce claim.
-    const head = await this.chain(signal).snapshot(record.chainId);
-    stage("headMs");
     // The plan's manifest is the binding's: the account check requires the same revision.
     const planManifest = this.options.manifestForPlan(plan);
     // A passkey profile requires threshold one; the account check below enforces it.
     if (planManifest.ownerProfile && !record.session) assertPasskeyUserOperationEnvelope({ operation, threshold: 1,
       validAfter: String(Math.floor(record.createdAt / 1000)), validUntil: String(Math.floor(record.expiresAt / 1000)) });
-    const checks = await Promise.allSettled([
-      this.account(plan, signal, head),
-      this.chain(signal).preflight(this.execution(record, operation, plan, planManifest), policy.gas, provider, head),
-    ]);
-    stage("checksMs");
-    // Both finished at that head; the first failure in this order is the one reported.
-    for (const check of checks) if (check.status === "rejected") throw check.reason;
-    const { binding, manifest } = (checks[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof this.account>>>).value;
-    const preflight = (checks[1] as PromiseFulfilledResult<Awaited<ReturnType<UserOperationChain["preflight"]>>>).value;
+    // The head-bound checks were run ahead of the approval when the review was created or read
+    // (`speculate`); an approval within their window takes them and does only what needs the
+    // signature. Otherwise they run here, as they always did.
+    const held = this.speculated.get(record.id);
+    this.speculated.delete(record.id);
+    const carried = held && held.revision === record.revision && this.now() - held.at <= speculationMaxAgeMs ? held : undefined;
+    if (carried) { stages.speculatedAgeMs = this.now() - carried.at; stages.speculatedHead = Number(carried.head.blockNumber); }
+    const { head, binding, manifest, preflight } = carried ?? await this.verifyAtHead({ record, plan, operation, policy, provider, planManifest, signal }, stage);
     if (manifest.id !== planManifest.id || manifest.revision !== planManifest.revision)
       fail("USER_OPERATION_ACCOUNT_CHANGED", "The plan's reviewed owner or module configuration changed.");
     const passkeyProfile = userOperationPasskeyProfile(binding, manifest);
@@ -918,6 +915,68 @@ export class UserOperationService {
     return claimed;
   }
 
+  /** One canonical head for the whole submission. The account verification and the EntryPoint
+   * preflight are independent of each other at that head, so they run together; both must pass
+   * before the signature check, the signed estimate and the nonce claim. */
+  private async verifyAtHead(input: {
+    record: UserOperationRecord; plan: StoredPlan; operation: UserOperationV07; policy: ReturnType<UserOperationService["policy"]>;
+    provider: UserOperationProvider; planManifest: SmartAccountManifest; signal: AbortSignal | undefined;
+  }, stage: (name: string) => void) {
+    const { record, plan, operation, policy, provider, planManifest, signal } = input;
+    const head = await this.chain(signal).snapshot(record.chainId);
+    stage("headMs");
+    const checks = await Promise.allSettled([
+      this.account(plan, signal, head),
+      this.chain(signal).preflight(this.execution(record, operation, plan, planManifest), policy.gas, provider, head),
+    ]);
+    stage("checksMs");
+    // Both finished at that head; the first failure in this order is the one reported.
+    for (const check of checks) if (check.status === "rejected") throw check.reason;
+    const { binding, manifest } = (checks[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof this.account>>>).value;
+    const preflight = (checks[1] as PromiseFulfilledResult<Awaited<ReturnType<UserOperationChain["preflight"]>>>).value;
+    return { head, binding, manifest, preflight };
+  }
+  /** The admission's head-bound checks, run ahead of the approval and held per operation: keyed by the
+   * operation and the head they were made at, taken by an admission of the same record revision within
+   * `speculationMaxAgeMs`, dropped otherwise. The operation bytes are fixed at preparation, so only the
+   * signature is new at the approval; the checks here see a dummy signature and depend on none. */
+  private readonly speculated = new Map<string, { at: number; revision: number } & Awaited<ReturnType<UserOperationService["verifyAtHead"]>>>();
+  /** One speculation per operation at a time: the page reads that arrive meanwhile add nothing. */
+  private readonly speculating = new Map<string, Promise<void>>();
+  speculate(actor: RestActor, operationId: string): Promise<void> {
+    const running = this.speculating.get(operationId);
+    if (running) return running;
+    const work = this.runSpeculation(actor, operationId).finally(() => { if (this.speculating.get(operationId) === work) this.speculating.delete(operationId); });
+    this.speculating.set(operationId, work);
+    return work;
+  }
+  private async runSpeculation(actor: RestActor, operationId: string): Promise<void> {
+    const stages: Record<string, number> = {};
+    const stage = ((last) => (name: string) => { const now = Date.now(); stages[name] = now - last; last = now; })(Date.now());
+    let record: UserOperationRecord | undefined;
+    try {
+      record = await this.options.store.get(actor, operationId);
+      if (!record || record.submission || record.session || record.state !== "prepared" || record.expiresAt <= this.now()) return;
+      const held = this.speculated.get(record.id);
+      if (held && held.revision === record.revision && this.now() - held.at < speculationRefreshMs) return;
+      const policy = this.policy(record.chainId), provider = this.providerForRecord(record);
+      if (record.gasPolicyId !== policy.gas.id || provider.configuration(record.chainId).providerId !== record.providerId) return;
+      const plan = await this.plan(actor, record.planId, true), planManifest = this.options.manifestForPlan(plan);
+      const operation = normalizeUserOperation({ ...record.operation, signature: dummySignature });
+      // Aged from before the head snapshot: "at most a minute old" is measured from the head.
+      const at = this.now();
+      const result = await this.verifyAtHead({ record, plan, operation, policy, provider, planManifest, signal: undefined }, stage);
+      // Bounded: stale entries go on every write, and the map never outgrows its cap.
+      for (const [id, entry] of this.speculated) if (this.now() - entry.at > speculationMaxAgeMs) this.speculated.delete(id);
+      if (this.speculated.size >= speculationCap) this.speculated.delete(this.speculated.keys().next().value!);
+      this.speculated.set(record.id, { ...result, at, revision: record.revision });
+      console.info(JSON.stringify({ service: "user-operations", action: "speculate_stages", operation: record.id, head: Number(result.head.blockNumber), ...stages }));
+    } catch (error) {
+      console.info(JSON.stringify({ service: "user-operations", action: "speculate_failed", operation: operationId,
+        code: String((error as { code?: unknown } | null)?.code ?? (error as { message?: unknown } | null)?.message ?? "error").slice(0, 80), ...stages }));
+    }
+  }
+
   /** A read; with `wait`, one that answers as soon as the record moves past the revision the caller
    * has (or reaches a final state), observing every couple of seconds meanwhile, until its deadline. */
   async get(principal: RestPrincipal, id: string, signal?: AbortSignal, wait?: { since: number; untilMs: number }) {
@@ -936,7 +995,7 @@ export class UserOperationService {
       const remaining = wait ? wait.untilMs - Date.now() : 0;
       if (!wait || current.revision !== wait.since || !isRecoverable(current) || remaining <= 0) return this.view(current);
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, Math.min(2_000, remaining));
+        const timer = setTimeout(resolve, Math.min(UserOperationService.observationReuseMs, remaining));
         signal?.addEventListener("abort", () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
       });
     }
@@ -979,8 +1038,9 @@ export class UserOperationService {
   private readonly verifying = new Map<string, Promise<void>>();
   private readonly verified = new Set<string>();
   private readonly verificationFailed = new Set<string>();
-  /** A poll this soon after an observation answers from it; Base makes a block every two seconds. */
-  private static readonly observationReuseMs = 2_000;
+  /** A poll this soon after an observation answers from it. Base makes a block every two seconds and
+   * its Flashblocks land four times a block, so an in-flight submission is looked at every second. */
+  private static readonly observationReuseMs = 1_000;
   private refresh(input: UserOperationRecord, signal?: AbortSignal, poll = false): Promise<UserOperationRecord> {
     // Expired was proven against the chain and released its nonce; it is never re-observed.
     if (!input.submission || input.state === "expired") return Promise.resolve(input);
@@ -1027,10 +1087,11 @@ export class UserOperationService {
     // A confirmed execution only gets here once its block is no longer canonical (see `refresh`),
     // so the provider's hint is asked for again; a hint never replaces observed chain evidence.
     let transactionHash = record.observation?.transactionHash;
+    const provider = this.providerForRecord(record);
     try {
       transactionHash =
         (
-          await this.providerForRecord(record).receipt(
+          await provider.receipt(
             record.chainId,
             record.operationHash,
             undefined,
@@ -1038,6 +1099,12 @@ export class UserOperationService {
         )?.transactionHash ?? transactionHash;
     } catch {
       /* A provider outage cannot replace independently observed chain evidence. */
+    }
+    // No receipt yet and no hash known: the bundler's status names the bundle's transaction as soon
+    // as it is submitted, and Base's Flashblocks show its receipt before its block is canonical.
+    if (!transactionHash) {
+      try { transactionHash = (await provider.status(record.chainId, record.operationHash, undefined))?.transactionHash; }
+      catch { /* A bundler without the method, or one that is down, is what the receipt path was already. */ }
     }
     const observation = await observeUserOperation({
       chain: this.chain(),
