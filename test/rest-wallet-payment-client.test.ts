@@ -145,6 +145,25 @@ describe('Center browser payment review continuity', () => {
     await expect(other.helper().preparePayment(other.input(), { reviewId: '6ba7b810-9dad-41d1-80b4-00c04fd430c8' })).rejects.toMatchObject({ code: 'WALLET_PAYMENT_MISMATCH' });
     await expect(fixture().helper().preparePayment(f.input(), { reviewId: 'nope' })).rejects.toMatchObject({ code: 'WALLET_PAYMENT_INPUT_INVALID' });
   });
+  it('carries an approved payment the approval already sent on as submitted, and leaves an unsent one approved for the app', async () => {
+    const f = fixture(), helper = f.helper();
+    await helper.preparePayment(f.input());
+    expect((await helper.completePayment(f.callback())).status).toBe('approved');
+    // Not yet published: the read leaves it approved (and reads the review beside the operation).
+    const unsent = f.observedOperation('pending'); delete unsent.submission; f.observed({ ...unsent, state: 'prepared', observation: undefined });
+    expect((await helper.refreshPayment()).status).toBe('approved');
+    expect(f.calls.at(-1)!.path === '/api/v1/user-operations/' + f.prepared.id || f.calls.at(-2)!.path === '/api/v1/user-operations/' + f.prepared.id).toBe(true);
+    // Published by the approval: submitted from here on, with no submission of its own.
+    f.observed(f.observedOperation('confirming'));
+    expect((await helper.refreshPayment()).status).toBe('confirming');
+    expect(helper.pendingPayment()!.status).toBe('confirming');
+    expect(f.calls.filter(call => call.path.endsWith('/submissions'))).toHaveLength(0);
+    await expect(helper.submitPayment()).resolves.toBeTruthy();
+    // A published operation under other bytes than the approval's is a mismatch.
+    const g = fixture(); await g.helper().preparePayment(g.input()); await g.helper().completePayment(g.callback());
+    g.observed({ ...g.observedOperation('confirming'), submission: { commitment: `0x${'ab'.repeat(32)}`, startedAt: g.nowMs } });
+    await expect(g.helper().refreshPayment()).rejects.toMatchObject({ code: 'WALLET_PAYMENT_MISMATCH' });
+  });
   it('binds a signed review, owner envelope and one submission key to the original exact payment', async () => {
     const f = fixture(), helper = f.helper(), prepared = await helper.preparePayment(f.input());
     expect(prepared.approvalUrl).toBe(f.issuer + '/wallet/payment?review=' + reviewId);

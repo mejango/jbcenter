@@ -335,6 +335,19 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
         return status(receiveOperation(await client.smartAccounts().userOperation(saved.value.operation.id, wait), saved).value);
       }
       if (!saved.value.review) return status((await requestReview(saved)).value);
+      if (saved.value.approval) {
+        // The approval is the send: an approved payment reads its review, as before, and its
+        // operation beside it. One the approval already published carries on as submitted, with
+        // the same signed bytes and no submission of its own; one not yet published stays approved
+        // for the app to submit.
+        const [value, operation] = await Promise.all([
+          client.request({ requestTarget: reviewPath + '/' + saved.value.review.id }),
+          client.smartAccounts().userOperation(saved.value.operation.id),
+        ]);
+        const reviewed = receiveView(value, saved, true);
+        if (!snapshot(operation).submission) return status(reviewed.value);
+        return status(receiveOperation(operation, save({ ...reviewed.value, submissionStarted: true, status: 'submitting' }, reviewed.encoded)).value);
+      }
       const value = await client.request({ requestTarget: reviewPath + '/' + saved.value.review.id });
       return status(receiveView(value, saved, true).value);
     } catch (error) {
