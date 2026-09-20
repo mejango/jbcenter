@@ -23,6 +23,7 @@ let uncertain = false, canRetry = false, nativePrompt: AbortController | null = 
 // and, where the browser can tell (Intersection Observer v2), while the button itself is visible
 // and unobscured; otherwise the customer is sent to open the review as a page of its own.
 const framed = window.self !== window.top;
+if (framed) document.documentElement.classList.add('framed');
 let approveVisible = !framed;
 if (framed) {
   try {
