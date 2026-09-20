@@ -1,5 +1,6 @@
 import { hashTypedData, type Address, type Hex } from "viem";
 import { RestError } from "../core.js";
+import { detachedFromRequest } from "../context.js";
 import type { createSmartAccountService } from "../smartAccounts/service.js";
 import type { VerifiedSmartAccountRegistry } from "../smartAccounts/types.js";
 import { enrollmentDigest, walletEnrollmentDocument } from "./enrollment.js";
@@ -11,6 +12,9 @@ import { walletDeploymentSettlementLimits } from "./deploymentSettlement.js";
 import type { createWalletDeploymentChain } from "./deploymentChain.js";
 import type { createWalletDeploymentExecution } from "./deploymentExecution.js";
 import type { createLocalAnvilWalletDeploymentSettlement } from "./deploymentSettlementLocalAnvil.js";
+import type { WalletDeploymentFundingEvidence } from "./deploymentSettlement.js";
+import type { WalletDeploymentAdmission, WalletDeploymentOperation } from "./deploymentPostgres.js";
+import type { WalletEnrollment } from "./enrollment.js";
 import type { createWalletAuthorityService } from "./authorityService.js";
 import type { WalletRegistrationResponse } from "./registration.js";
 import type { WalletAssertion } from "./webauthn.js";
@@ -22,8 +26,12 @@ export interface LocalWalletSignupDependencies {
   registry: Pick<VerifiedSmartAccountRegistry, "list">; authority: ReturnType<typeof createWalletAuthorityService>; poolId: string;
   /** How often a released inclusion is re-read while it waits for finality (default 15 s; a local chain may use 0). */
   releasedObservationIntervalMs?: number;
-  onEvent?: (event: { stage: "worker" | "deployment" | "setup"; outcome: string; operationId?: string; elapsedMs?: number; reason?: string; detail?: Record<string, unknown> }) => void;
+  onEvent?: (event: { stage: "worker" | "deployment" | "setup" | "approval"; outcome: string; operationId?: string; elapsedMs?: number; reason?: string; detail?: Record<string, unknown> }) => void;
 }
+/** The approval's chain reads (treasury funding, creation preflight) run while the passkey prompt is
+ * up and are carried into the claim if they are younger than the hosted admission window; the map is
+ * bounded and a review is refreshed a few times while it stays open. */
+export const walletSignupSpeculation = Object.freeze({ maxAgeMs: 20_000, refreshMs: 12_000, refreshes: 4, cap: 64 });
 export type WalletSignupPhase = "awaiting_registration" | "awaiting_possession" | "awaiting_deployment_approval" |
   "deploying" | "deployment_failed" | "awaiting_activation" | "preparing_sign_in" | "ready_to_sign_in" | "expired";
 function state(): never { throw new RestError(409, "WALLET_SIGNUP_STATE", "Reload this signup and complete its current step."); }
@@ -41,7 +49,7 @@ function fields(value: unknown, keys: string[], optional: string[] = []) {
 export function createLocalWalletSignup(options: LocalWalletSignupDependencies) {
   const { flows, enrollments, deployments, settlement, execution, chain, smart, registry } = options;
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(options.poolId)) state();
-  const poolId = options.poolId, releasedInterval = options.releasedObservationIntervalMs ?? 15_000;
+  const poolId = options.poolId, releasedInterval = options.releasedObservationIntervalMs ?? 15_000, speculation = walletSignupSpeculation;
   if (!Number.isSafeInteger(releasedInterval) || releasedInterval < 0 || releasedInterval > 300_000) state();
   function event(value: Parameters<NonNullable<LocalWalletSignupDependencies["onEvent"]>>[0]) {
     try { options.onEvent?.(value); } catch { /* Observation hooks never change durable authority. */ }
@@ -106,6 +114,39 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     await enrollments.finalize(enrollment.intent.id, proof, { passkeyName: flow.passkeyName });
     return status(flowToken);
   }
+  type Speculated = { at: number; funding: WalletDeploymentFundingEvidence; admission: WalletDeploymentAdmission };
+  const speculated = new Map<string, Speculated>(), speculating = new Map<string, Promise<void>>(), reviews = new Map<string, number>();
+  async function chainReads(enrollment: WalletEnrollment, operation: WalletDeploymentOperation) {
+    // Base mines every two seconds: the funding read fixes the head and the preflight is pinned
+    // to it, so the claim always pairs one block's admission with that block's funding.
+    const funding = await settlement.observeFunding(await deployments.loadFundingContext(poolId));
+    const admission = (await chain.preflight(enrollment, operation.approval, undefined, funding.head)).admission;
+    return { funding, admission };
+  }
+  function speculate(enrollment: WalletEnrollment, operation: WalletDeploymentOperation) {
+    const id = operation.id, held = speculated.get(id);
+    // One at a time, and a review re-read within the refresh interval adds nothing.
+    if (speculating.has(id) || stopped || (held && Date.now() - held.at < speculation.refreshMs)) return;
+    const work = detachedFromRequest(async () => {
+      const started = performance.now();
+      try {
+        const reads = await chainReads(enrollment, operation), at = Date.now();
+        for (const [key, entry] of speculated) if (at - entry.at > speculation.maxAgeMs) speculated.delete(key);
+        if (speculated.size >= speculation.cap) speculated.delete(speculated.keys().next().value!);
+        speculated.delete(id); speculated.set(id, { at, ...reads }); // re-inserted last: the cap evicts the oldest
+        event({ stage: "approval", outcome: "speculated", operationId: id, elapsedMs: Math.round(performance.now() - started) });
+      } catch (error) { failure(id, error, "approval", "speculation_failed"); }
+    }).finally(() => {
+      speculating.delete(id);
+      // Refresh while the review is still open, a bounded number of times; approve stops it.
+      const left = reviews.get(id) ?? 0;
+      if (left > 0 && !stopped) {
+        reviews.set(id, left - 1);
+        setTimeout(() => { if (reviews.has(id)) speculate(enrollment, operation); }, speculation.refreshMs).unref();
+      } else reviews.delete(id); // No refresh scheduled: nothing keeps the key.
+    });
+    speculating.set(id, work);
+  }
   async function prepareDeployment(flowToken: string) {
     let { flow, enrollment } = await context(flowToken);
     if (enrollment.state !== "verified" && enrollment.state !== "awaiting_possession") state();
@@ -119,6 +160,8 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
       operation = prepared;
     }
     const document = walletDeploymentDocument(enrollment, operation.approval);
+    if (!reviews.has(operation.id)) reviews.set(operation.id, speculation.refreshes);
+    speculate(enrollment, operation);
     return { id: operation.id, walletAddress: enrollment.creation!.address, recoveryOwner: enrollment.intent.recoveryOwner,
       initializerHash: enrollment.creation!.initializerHash, expiresAtMs: operation.approval.expiresAt, rpId: enrollment.intent.rpId,
       credentialId: enrollment.candidate!.credentialId, document, challenge: hashTypedData(document) };
@@ -142,12 +185,30 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
       ({ flow, enrollment } = await context(flowToken));
       if (flow.deploymentId !== approvalId || enrollment.state !== "verified") state();
     }
-    // Base mines every two seconds: the funding read fixes the head and the preflight is pinned
-    // to it, so the claim always pairs one block's admission with that block's funding.
-    const funding = await settlement.observeFunding(await deployments.loadFundingContext(poolId));
-    const admission = await chain.preflight(enrollment, operation.approval, undefined, funding.head);
+    // The chain reads made while the prompt was up are carried if they are still inside the hosted
+    // admission window; the claim validates them exactly as it would fresh ones (funding evidence
+    // lifetime, admission age, pool revision), and a refused carry is read again inline.
+    reviews.delete(approvalId);
+    const held = speculated.get(approvalId); speculated.delete(approvalId);
+    const carried = held && Date.now() - held.at <= speculation.maxAgeMs ? held : null;
     if ((await context(flowToken)).flow.deploymentId !== approvalId) state();
-    await deployments.claim({ operationId: approvalId, assertion, admission: admission.admission, funding });
+    let claimed = false;
+    if (carried) {
+      try {
+        await deployments.claim({ operationId: approvalId, assertion, admission: carried.admission, funding: carried.funding }); claimed = true;
+        event({ stage: "approval", outcome: "carried", operationId: approvalId, elapsedMs: Date.now() - carried.at });
+      } catch (error) {
+        if (!(error instanceof RestError) || ![409, 410].includes(error.status)) throw error;
+        failure(approvalId, error, "approval", "carry_refused");
+      }
+    }
+    if (!claimed) {
+      const reads = await chainReads(enrollment, operation);
+      await deployments.claim({ operationId: approvalId, assertion, admission: reads.admission, funding: reads.funding });
+      event({ stage: "approval", outcome: "inline", operationId: approvalId });
+    }
+    // The worker's next pass (sign, admit, send) starts now rather than at its next 1 s tick.
+    void detachedFromRequest(tick).catch(() => undefined);
     return status(flowToken);
   }
   /** Binds the created wallet to its account from the consent the passkey already gave at
@@ -167,13 +228,13 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
   let stopped = false, timer: ReturnType<typeof setTimeout> | null = null;
   const stopSignal = new AbortController();
   const canonical = (state: string) => state === "canonical-success" || state === "canonical-revert";
-  function failure(operationId: string, error: unknown) {
+  function failure(operationId: string, error: unknown, stage: "deployment" | "approval" = "deployment", outcome = "pending_or_unavailable") {
     // Existing stores preserve exact bytes, unknown outcomes and fences. A failed observation
     // cannot release a sender lane or invent a replacement operation. The error class and
     // bounded details are logged so a stuck operation is diagnosable.
     const detail = error instanceof RestError && error.details && typeof error.details === "object"
       ? Object.fromEntries(Object.entries(error.details as Record<string, unknown>).filter(([, value]) => ["string", "number", "boolean"].includes(typeof value)).slice(0, 12)) : undefined;
-    event({ stage: "deployment", outcome: "pending_or_unavailable", operationId,
+    event({ stage, outcome, operationId,
       reason: error instanceof RestError ? error.code : error instanceof Error ? error.name : "unknown", ...(detail ? { detail } : {}) });
   }
   /** One pass moves the active operation (sign, send, observe, release at canonical inclusion)

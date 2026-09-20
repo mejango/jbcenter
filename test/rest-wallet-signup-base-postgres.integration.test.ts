@@ -80,6 +80,7 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
     const signup = createLocalWalletSignup({ flows, enrollments, deployments, settlement, execution, smart, authority,
       registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id, releasedObservationIntervalMs: 0,
       onEvent: event => events.push(`${event.stage}:${event.outcome}`) });
+    const until = async (name: string) => { for (let i = 0; i < 200 && !events.includes(name); i++) await new Promise(r => setTimeout(r, 25)); expect(events).toContain(name); };
     for (let index = 0; index < 2; index++) {
       const begun = await signup.begin({ recoveryOwner: enrollmentBackupAccount.address, passkeyName: "Juicebox test" }), flowToken = begun.flowToken;
       const initial = (await enrollments.get(begun.view.enrollmentId))!;
@@ -89,32 +90,32 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
       const pending = (await enrollments.get(initial.intent.id))!, document = walletEnrollmentDocument(pending);
       // Creation is reviewed straight after registration: one passkey assertion over the creation
       // document approves it and proves possession; the recovery owner signs the enrollment document.
+      // Base mines every two seconds: a new block lands between the approval's chain reads (made
+      // while the passkey prompt is up) and again while the worker signs, observes and admits. The
+      // creation preflight and the treasury funding read must still describe one head, and the
+      // send must go out on the worker's first pass, pinned to the observed head, even though
+      // "latest" moved past it meanwhile.
+      let latestReads = 0;
+      fixture.faults.after = async (method, params) => { if (method === "eth_getBlockByNumber" && params[0] === "latest" && ++latestReads <= 5) await fixture.rpc("anvil_mine", ["0x1", "0x0"]); };
       const review = await signup.prepareDeployment(flowToken), operation = (await deployments.get(review.id))!;
+      await until("approval:speculated");
       const approvalAssertion = () => signGet({ ...credential, challenge: hashTypedData(walletDeploymentDocument(pending, operation.approval)), rpId, origin: issuer });
       await expect(signup.approveDeployment(flowToken, { approvalId: operation.id, assertion: approvalAssertion() })).rejects.toMatchObject({ status: 409 });
       await expect(signup.approveDeployment(flowToken, { approvalId: operation.id, assertion: approvalAssertion(),
         backupSignature: await enrollmentBackupAccount.signMessage({ message: "not the enrollment document" }) })).rejects.toMatchObject({ status: 403 });
       expect((await enrollments.get(initial.intent.id))!.state).toBe("awaiting_possession");
       expect((await signup.status(flowToken)).phase).toBe("awaiting_possession");
-      // Base mines every two seconds: a new block lands between the approval's chain reads. The
-      // creation preflight and the treasury funding read must still describe one head.
-      let latestReads = 0;
-      fixture.faults.after = async (method, params) => { if (method === "eth_getBlockByNumber" && params[0] === "latest" && ++latestReads === 1) await fixture.rpc("anvil_mine", ["0x1", "0x0"]); };
-      try {
-        expect((await signup.approveDeployment(flowToken, { approvalId: operation.id, assertion: approvalAssertion(),
-          backupSignature: await signBackupProof(document) })).phase).toBe("deploying");
-      } finally { fixture.faults.after = async () => undefined; }
+      events.length = 0;
+      expect((await signup.approveDeployment(flowToken, { approvalId: operation.id, assertion: approvalAssertion(),
+        backupSignature: await signBackupProof(document) })).phase).toBe("deploying");
+      // The claim took the speculated pair; the worker was kicked without waiting for its tick.
+      expect(events).toContain("approval:carried");
       const record = (await enrollments.get(initial.intent.id))!;
       expect(record.state).toBe("verified");
-      expect(latestReads).toBeGreaterThan(0);
       const claimed = (await deployments.get(operation.id))!;
       expect(claimed.template!.transaction.nonce).toBe(String(index + 2));
-      // Base keeps mining while the worker signs, observes and admits: the send goes out on this
-      // first pass, pinned to the observed head, even though "latest" moved past it meanwhile.
-      let tickLatestReads = 0;
-      fixture.faults.after = async (method, params) => { if (method === "eth_getBlockByNumber" && params[0] === "latest" && ++tickLatestReads <= 3) await fixture.rpc("anvil_mine", ["0x1", "0x0"]); };
       try { await signup.tick(); } finally { fixture.faults.after = async () => undefined; }
-      expect(tickLatestReads).toBeGreaterThan(1);
+      expect(latestReads).toBeGreaterThan(1);
       const dispatch = (await deployments.getDispatch(operation.id))!;
       expect(dispatch.status).toBe("accepted");
       expect(BigInt(dispatch.admission.environment.head.blockNumber)).toBeLessThan(BigInt((await fixture.rpc<{ number: string }>("eth_getBlockByNumber", ["latest", false])).number));

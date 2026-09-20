@@ -74,8 +74,11 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       chain: createWalletAuthorityChain({ rpc: fixture.readOnlyRpc, manifest: fixture.manifest, utility: fixture.utility }) });
     const login = new PostgresWalletLoginStore(pool, { rpId, origin: issuer });
     const flows = new PostgresWalletSignupStore(pool, { rpId, origin: issuer, manifest: fixture.manifest });
+    const events: string[] = [];
     const signup = createLocalWalletSignup({ flows, enrollments, deployments, settlement, execution, smart, authority,
-      registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id, releasedObservationIntervalMs: 0 });
+      registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id, releasedObservationIntervalMs: 0,
+      onEvent: event => events.push(`${event.stage}:${event.outcome}`) });
+    const until = async (name: string) => { for (let i = 0; i < 200 && !events.includes(name); i++) await new Promise(r => setTimeout(r, 25)); expect(events).toContain(name); };
     const accounts: string[] = [], receipts: string[] = [];
     let recoveryTarget: Pick<Parameters<typeof exerciseWalletRecoveryEvm>[0], 'enrollment' | 'originalKey' | 'originalSessionToken'> | null = null;
     for (let index = 0; index < 2; index++) {
@@ -101,6 +104,8 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       await expect(login.complete({ loginId: premature.login.id, flowToken: premature.flowToken,
         assertion: signGet({ ...credential, challenge: premature.login.challenge, rpId, origin: issuer }) })).rejects.toBeInstanceOf(Error);
       const deploymentReview = await signup.prepareDeployment(flowToken);
+      // The review starts the approval's chain reads while the passkey prompt is up.
+      await until("approval:speculated");
       const beforeCreation = index === 0 ? await fixture.rpc<Hex>("evm_snapshot") : null;
       const operation = (await deployments.get(deploymentReview.id))!, approval = operation.approval;
       expect((await signup.prepareDeployment(flowToken)).id).toBe(operation.id);
@@ -108,7 +113,10 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       expect(preflight.dispatchEligible).toBe(false); // Production Base still has no complete fee qualification.
       const approvalProof = { approvalId: operation.id,
         assertion: signGet({ ...credential, challenge: hashTypedData(walletDeploymentDocument(record, approval)), rpId, origin: issuer }) };
+      events.length = 0;
       expect((await signup.approveDeployment(flowToken, approvalProof)).phase).toBe("deploying");
+      // The approval carried the speculated funding and preflight into the claim: no chain read of its own.
+      expect(events).toEqual(["approval:carried"]);
       expect((await signup.approveDeployment(flowToken, approvalProof)).phase).toBe("deploying");
       await signup.tick();
       expect((await deployments.getDispatch(operation.id))!.status).toBe("accepted");
