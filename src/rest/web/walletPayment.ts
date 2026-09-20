@@ -41,7 +41,7 @@ if (framed) {
     observer.observe(approve);
   } catch { approveVisible = true; }
 }
-const frameTooSmall = () => framed && (window.innerWidth < 300 || window.innerHeight < 420);
+const frameTooSmall = () => framed && window.innerWidth < 300;
 let pending: Assertion | null = null;
 class InvalidResponse extends Error {}
 class HttpFailure extends Error { constructor(readonly status: number) { super('Payment request failed'); } }
