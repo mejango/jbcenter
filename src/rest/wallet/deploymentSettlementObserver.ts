@@ -96,8 +96,9 @@ export function createWalletDeploymentSettlementObserver(adapter: WalletDeployme
     async observeSettlement(input: WalletDeploymentSettlementContext, signal?: AbortSignal): Promise<WalletDeploymentSettlementEvidence> {
       enrollmentDigest(input); const context = structuredClone(input), startedAt = now(), rpc = operationRpc(reads, limits, signal, true);
       try {
+        // Only a released operation settles: the lane left it at inclusion and finality debits it.
         if (!context.pool.accounting || context.pool.accounting.fence || context.pool.state !== "active" ||
-            context.pool.activeOperationId !== context.operation.id) unavailable();
+            context.operation.releasedAt === null || context.operation.settlementId !== undefined) unavailable();
         const initialEnvironment = await identity(rpc);
         if (!same(initialEnvironment, context.pool.accounting.environment)) unavailable();
         const scoped: RestRpc = { request(chainId, method, params) { if (chainId !== 8453) unavailable(); return rpc.request(method, params); } };

@@ -164,7 +164,7 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
   beforeAll(async () => {
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 4 });
-    for (const name of ["013_rest_wallet_ceremonies.sql", "015_rest_wallet_enrollment.sql", "046_wallet_signup_window.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql", "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql", "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql"])
+    for (const name of ["013_rest_wallet_ceremonies.sql", "015_rest_wallet_enrollment.sql", "046_wallet_signup_window.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql", "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql", "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "034_wallet_deployment_base.sql", "054_wallet_deployment_inclusion_release.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     store = new PostgresWalletDeploymentStore(pool); enrollments = new PostgresWalletEnrollmentStore(pool);
   });
@@ -401,7 +401,7 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
     expect(await store.cleanup(100)).toBe(0);
     expect(await store.get(value.operation.id)).toEqual(claimed.operation);
     expect((await store.listUnresolved()).items).toEqual([{ id: claimed.operation.id, createdAt: claimed.operation.createdAt,
-      revision: claimed.operation.revision, state: "claimed", signedHash: null }]);
+      revision: claimed.operation.revision, state: "claimed", signedHash: null, nonce: claimed.operation.template!.transaction.nonce, releasedAt: null }]);
     expect(await counts()).toEqual({ pools: 1, assigned: 1, consumed: 0, lanes: 1 });
   });
 
@@ -611,7 +611,7 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
     const value = await prepared(config), { operation } = await store.claim(value.input);
     const page = await store.listUnresolved({ limit: 1 });
     expect(page.items).toEqual([{ id: operation.id, createdAt: operation.createdAt, revision: operation.revision,
-      state: "claimed", signedHash: null }]);
+      state: "claimed", signedHash: null, nonce: operation.template!.transaction.nonce, releasedAt: null }]);
     const after = await store.listUnresolved({ limit: 1, cursor: { createdAt: operation.createdAt, operationId: operation.id } });
     expect(after).toEqual({ items: [], nextCursor: null });
   });
@@ -660,7 +660,7 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
     let current = (await store.saveObservation(observationInput(operation, canonical))).operation;
     expect(current.historicalCanonicalObservation).toEqual(canonical);
     expect((await store.listUnresolved()).items).toEqual([{ id: current.id, createdAt: current.createdAt,
-      revision: current.revision, state: "signed", signedHash: current.signed!.hash }]);
+      revision: current.revision, state: "signed", signedHash: current.signed!.hash, nonce: current.template!.transaction.nonce, releasedAt: null }]);
     for (const state of ["unknown", "reorged"] as const) {
       const observation = await uncertainObservation(current, state);
       current = (await store.saveObservation(observationInput(current, observation))).operation;
@@ -672,7 +672,7 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
     for (const child of [a, b]) {
       const result = await child.request({ action: "unresolved", input: { limit: 1 } });
       expect(result.status).toBe(200); expect(result.body.items).toEqual([{ id: current.id, createdAt: current.createdAt,
-        revision: current.revision, state: "signed", signedHash: current.signed!.hash }]);
+        revision: current.revision, state: "signed", signedHash: current.signed!.hash, nonce: current.template!.transaction.nonce, releasedAt: null }]);
       expect(JSON.stringify(result.body)).not.toContain(current.signed!.rawTransaction);
     }
     expect(await counts()).toEqual({ pools: 1, assigned: 1, consumed: 1, lanes: 1 });

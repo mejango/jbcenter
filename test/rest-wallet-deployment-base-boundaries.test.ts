@@ -15,12 +15,23 @@ import { RestError } from "../src/rest/core.js";
 const base: WalletDeploymentEnvironment = { kind: "base-mainnet", genesisHash: `0x${"11".repeat(32)}` };
 const baseFees = { profile: "base-fjord-jovian-receipt-v1" as const, executionWei: "500000000000", l1Wei: "16289011957", operatorWei: "7", totalWei: "516289011964" };
 
-async function fixture(now = Date.now()) {
+async function fixture(now = Date.now(), released = true) {
   const execution = await syntheticDeploymentContext(now);
+  if (!released) {
+    // Still in flight: the admission shapes describe the active operation before its inclusion.
+    const accounting: WalletDeploymentAccounting = { version: "center-wallet-deployment-accounting-v1", environment: structuredClone(base), initialHead: syntheticFunding({ pool: execution.pool, lastSettlement: null }, now, structuredClone(base)).head,
+      initialNonce: "1", nextNonce: "1", spentWei: "0", sequence: 0, lastSettlementId: null, lastSettlementAnchor: null, fence: null };
+    const context: WalletDeploymentSettlementContext = { ...execution, pool: { ...execution.pool, accounting }, dispatch: null, lastSettlement: null };
+    return { context, evidence: syntheticSettlement(context, now, baseFees), now };
+  }
   const funding = syntheticFunding({ pool: execution.pool, lastSettlement: null }, now, structuredClone(base));
+  // Released at canonical inclusion: the lane is empty, nextNonce is past this operation and its
+  // admitted maximum cost is reserved until this settlement.
   const accounting: WalletDeploymentAccounting = { version: "center-wallet-deployment-accounting-v1", environment: structuredClone(base), initialHead: funding.head,
-    initialNonce: "1", nextNonce: "1", spentWei: "0", sequence: 0, lastSettlementId: null, lastSettlementAnchor: null, fence: null };
-  const context: WalletDeploymentSettlementContext = { ...execution, pool: { ...execution.pool, accounting }, dispatch: null, lastSettlement: null };
+    initialNonce: "1", nextNonce: "2", spentWei: "0", sequence: 0, lastSettlementId: null, lastSettlementAnchor: null, fence: null };
+  const reservedWei = execution.operation.signed!.maximumExecutionCost;
+  const context: WalletDeploymentSettlementContext = { ...execution, pool: { ...execution.pool, accounting, activeOperationId: null, reservedWei },
+    operation: { ...execution.operation, releasedAt: now, reservedWei }, dispatch: null, lastSettlement: null };
   const evidence = syntheticSettlement(context, now, baseFees);
   return { context, evidence, now };
 }
@@ -97,13 +108,13 @@ describe("hosted Base deployment boundary shapes", () => {
         operatorMaximumWei: "100", totalWei: String(execution + 2n * (16289011957n + 100n)) } };
   }
   it("accepts a Base admission that reserves execution plus twice the current L1 and operator estimate", async () => {
-    const { context, now } = await fixture();
+    const { context, now } = await fixture(undefined, false);
     context.operation.observation = syntheticDeploymentObservation(context, now - 100);
     const value = admission(context, now);
     expect(assertWalletDeploymentDispatchAdmission(value, context, now)).toEqual(value);
   });
   it("accepts a hosted admission window of up to twenty seconds while local windows stay at five", async () => {
-    const { context, now } = await fixture();
+    const { context, now } = await fixture(undefined, false);
     context.operation.observation = syntheticDeploymentObservation(context, now - 100);
     context.pool.configuration.policy.maximumObservationAgeMs = 30_000; context.pool.configurationDigest = enrollmentDigest(context.pool.configuration);
     context.operation.poolConfigurationDigest = context.pool.configurationDigest;
@@ -127,13 +138,13 @@ describe("hosted Base deployment boundary shapes", () => {
     (a: any) => { a.reservation.attributesTransaction = "0x" + "00".repeat(32); }, (a: any) => { a.reservation.extra = 1; },
     (a: any, c: any) => { a.balanceWei = String(BigInt(a.reservation.totalWei) - 1n); },
   ])("rejects a Base admission with a drifted or unaffordable reservation %#", async mutate => {
-    const { context, now } = await fixture();
+    const { context, now } = await fixture(undefined, false);
     context.operation.observation = syntheticDeploymentObservation(context, now - 100);
     const value = admission(context, now); mutate(value, context);
     expect(() => assertWalletDeploymentDispatchAdmission(value, context, now)).toThrow();
   });
   it("rejects a local admission version against Base accounting", async () => {
-    const { context, now } = await fixture();
+    const { context, now } = await fixture(undefined, false);
     context.operation.observation = syntheticDeploymentObservation(context, now - 100);
     const value: any = admission(context, now);
     delete value.reservation; value.version = "center-wallet-deployment-local-admission-v2"; value.feeScope = "local-execution-only";

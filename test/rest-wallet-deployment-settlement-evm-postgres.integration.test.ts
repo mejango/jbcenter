@@ -88,10 +88,21 @@ suite("real PostgreSQL and unforked Anvil sequential deployment settlement", () 
     expect((await store.getDispatch(context.operation.id))!.admission.version).toBe("center-wallet-deployment-local-admission-v2");
     return { context: await store.loadExecutionContext(context.operation.id), process };
   }
+  /** The worker's next pass: the mined inclusion is observed with the sender nonce past it, and the lane is released. */
+  async function release(operationId: string) {
+    const context = await store.loadExecutionContext(operationId);
+    const observation = await fixture.chain().observeSigned(structuredClone({ enrollment: context.enrollment, operation: context.operation }));
+    expect(observation.transaction).toMatchObject({ state: "canonical-success", nonce: { confirmed: String(BigInt(context.operation.template!.transaction.nonce) + 1n) } });
+    const saved = await store.saveObservation({ operationId, expectedRevision: context.operation.revision, signedHash: context.operation.signed!.hash, observation });
+    const released = await store.release({ operationId, expectedRevision: saved.operation.revision });
+    expect(released.pool.activeOperationId).toBeNull();
+    return released;
+  }
   async function settlement(operationId: string) {
     const dispatch = await store.getDispatch(operationId);
     if (dispatch) await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.leaseUntil - Date.now() + 15)));
     await fixture.rpc("anvil_mine", ["0x41", "0x0"]);
+    await release(operationId);
     const context = await store.loadSettlementContext(operationId), evidence = await producer().observeSettlement(context);
     return { context, evidence };
   }
@@ -106,7 +117,7 @@ suite("real PostgreSQL and unforked Anvil sequential deployment settlement", () 
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 5 });
     reader = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 1, query_timeout: 3000 });
     for (const name of ["013_rest_wallet_ceremonies.sql", "015_rest_wallet_enrollment.sql", "046_wallet_signup_window.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql", "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql",
-      "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql"])
+      "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "034_wallet_deployment_base.sql", "054_wallet_deployment_inclusion_release.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     store = new PostgresWalletDeploymentStore(pool); enrollments = new PostgresWalletEnrollmentStore(pool);
     fixture = await startWalletDeploymentAnvil();
@@ -195,8 +206,8 @@ suite("real PostgreSQL and unforked Anvil sequential deployment settlement", () 
     const proof = await settlement(deployed.context.operation.id), reached = message(first.child, "barrier");
     const request = first.request({ action: "settle", ...proof, barrier: "after-debit" }).catch(() => null);
     await reached;
-    expect(await durable()).toMatchObject({ receipts: 0, markers: 0, active_operation_id: deployed.context.operation.id,
-      accounting: { nextNonce: "2", spentWei: "0", sequence: 0 } });
+    expect(await durable()).toMatchObject({ receipts: 0, markers: 0, active_operation_id: null,
+      accounting: { nextNonce: "3", spentWei: "0", sequence: 0 } });
     await kill(first.child); await request;
     expect(await store.getSettlement(deployed.context.operation.id)).toBeNull();
     expect((await store.get(deployed.context.operation.id))!.signed).toEqual(deployed.context.operation.signed);

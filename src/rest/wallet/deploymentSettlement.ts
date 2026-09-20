@@ -11,8 +11,9 @@ export type WalletDeploymentEnvironment =
   | { kind: "unforked-anvil"; genesisHash: Hex; instanceId: Hex }
   | { kind: "base-mainnet"; genesisHash: Hex };
 export interface WalletDeploymentAccountingFence {
-  /** allocation-exceeded records an actual finalized debit above the allocation; the debit is retained. */
-  reason: "restore-required" | "environment-changed" | "finalized-anchor-replaced" | "nonce-conflict" | "balance-deficit" | "allocation-exceeded";
+  /** allocation-exceeded records an actual finalized debit above the allocation; the debit is retained.
+   * inclusion-reorged records a released inclusion that stopped being canonical before finality. */
+  reason: "restore-required" | "environment-changed" | "finalized-anchor-replaced" | "nonce-conflict" | "balance-deficit" | "allocation-exceeded" | "inclusion-reorged";
   evidenceDigest: string;
   recordedAt: number;
 }
@@ -23,6 +24,8 @@ export interface WalletDeploymentAccounting {
   initialNonce: string;
   spentWei: string;
   sequence: number;
+  /** Advances at canonical release; sequence and spentWei advance at finalized settlement. The gap
+   * is the released queue, bounded by walletDeploymentSettlementLimits.maximumUnsettled. */
   nextNonce: string;
   lastSettlementId: string | null;
   lastSettlementAnchor: RestBlockEvidence | null;
@@ -84,7 +87,7 @@ export interface WalletDeploymentSettlementReceipt {
 }
 /** Upper bound on a funding read's validity. Hosted settlement needs roughly a hundred provider
  * calls between the finalized observation and the debit; the local producer keeps a 5 s window. */
-export const walletDeploymentSettlementLimits = Object.freeze({ evidenceLifetimeMs: 60_000, maximumHeadAgeMs: 300000 });
+export const walletDeploymentSettlementLimits = Object.freeze({ evidenceLifetimeMs: 60_000, maximumHeadAgeMs: 300000, maximumUnsettled: 8 });
 function invalid(): never { throw new RestError(409, "WALLET_DEPLOYMENT_SETTLEMENT_INVALID", "Qualified local accounting evidence does not match the durable context."); }
 function exact(value: unknown, keys: string[]): asserts value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== keys.length ||
@@ -112,9 +115,15 @@ function environment(value: WalletDeploymentEnvironment): void {
   word(value.genesisHash);
 }
 export function walletDeploymentAccountingDigest(value: WalletDeploymentAccounting): string { return enrollmentDigest(value); }
+/** Allocation minus finalized debits minus the reservations of released, unsettled operations. */
 export function walletDeploymentRemainingWei(pool: WalletDeploymentPool): string {
   const spent = pool.accounting ? uint(assertWalletDeploymentAccounting(pool.accounting, pool).spentWei) : 0n, allocation = uint(pool.configuration.allocationWei);
-  return String(spent > allocation ? 0n : allocation - spent);
+  const committed = spent + uint(pool.reservedWei ?? "0");
+  return String(committed > allocation ? 0n : allocation - committed);
+}
+/** The released count a pool's accounting implies; released rows must match it exactly. */
+export function walletDeploymentReleasedCount(accounting: WalletDeploymentAccounting): number {
+  return Number(uint(accounting.nextNonce) - uint(accounting.initialNonce) - BigInt(accounting.sequence));
 }
 export function assertWalletDeploymentAccounting(input: unknown, pool: WalletDeploymentPool): WalletDeploymentAccounting {
   const value = snapshot<WalletDeploymentAccounting>(input);
@@ -122,7 +131,8 @@ export function assertWalletDeploymentAccounting(input: unknown, pool: WalletDep
   if (value.version !== "center-wallet-deployment-accounting-v1") invalid();
   environment(value.environment); block(value.initialHead); integer(value.sequence);
   const initial = uint(value.initialNonce), nonce = uint(value.nextNonce), spent = uint(value.spentWei);
-  if (nonce !== initial + BigInt(value.sequence) || nonce > BigInt(Number.MAX_SAFE_INTEGER) ||
+  const settled = initial + BigInt(value.sequence);
+  if (nonce < settled || nonce > settled + BigInt(walletDeploymentSettlementLimits.maximumUnsettled) || nonce > BigInt(Number.MAX_SAFE_INTEGER) ||
       (spent > uint(pool.configuration.allocationWei) && value.fence?.reason !== "allocation-exceeded")) invalid();
   if (value.sequence === 0) {
     if (spent !== 0n || value.lastSettlementId !== null || value.lastSettlementAnchor !== null) invalid();
@@ -133,7 +143,7 @@ export function assertWalletDeploymentAccounting(input: unknown, pool: WalletDep
   }
   if (value.fence !== null) {
     exact(value.fence, ["reason", "evidenceDigest", "recordedAt"]);
-    if (!["restore-required", "environment-changed", "finalized-anchor-replaced", "nonce-conflict", "balance-deficit", "allocation-exceeded"].includes(value.fence.reason)) invalid();
+    if (!["restore-required", "environment-changed", "finalized-anchor-replaced", "nonce-conflict", "balance-deficit", "allocation-exceeded", "inclusion-reorged"].includes(value.fence.reason)) invalid();
     if (value.fence.reason === "allocation-exceeded" && spent <= uint(pool.configuration.allocationWei)) invalid();
     digest(value.fence.evidenceDigest); integer(value.fence.recordedAt, true);
   }
@@ -163,26 +173,39 @@ export function assertWalletDeploymentFundingEvidence(input: unknown, context: W
   uint(value.balanceWei);
   return value;
 }
+/** `expectedNonce` null skips the exact-nonce rule (a settlement bounds nonces with
+ * walletDeploymentSettlementNonceConflict instead); undefined expects the accounting's nextNonce. */
 export function walletDeploymentFundingConflict(context: WalletDeploymentFundingContext, evidence: WalletDeploymentFundingEvidence,
-  expectedNonce?: string, requiredBalance?: string): WalletDeploymentAccountingFence["reason"] | null {
+  expectedNonce?: string | null, requiredBalance?: string): WalletDeploymentAccountingFence["reason"] | null {
   const accounting = context.pool.accounting;
   if (accounting && enrollmentDigest(accounting.environment) !== enrollmentDigest(evidence.environment)) return "environment-changed";
   if (accounting?.lastSettlementAnchor && enrollmentDigest(accounting.lastSettlementAnchor) !== enrollmentDigest(evidence.previousAnchor)) return "finalized-anchor-replaced";
-  const nonce = expectedNonce ?? accounting?.nextNonce;
+  const nonce = expectedNonce === null ? undefined : expectedNonce ?? accounting?.nextNonce;
   if (nonce !== undefined && (evidence.confirmedNonce !== nonce || evidence.pendingNonce !== nonce)) return "nonce-conflict";
   if (uint(evidence.balanceWei) < uint(requiredBalance ?? walletDeploymentRemainingWei(context.pool))) return "balance-deficit";
   return null;
+}
+/** At a settlement the chain may already hold later inclusions: the sender's confirmed nonce lies
+ * past this operation and at most one past the accounting's nextNonce while an operation is in flight. */
+export function walletDeploymentSettlementNonceConflict(pool: WalletDeploymentPool, nonce: string,
+  evidence: Pick<WalletDeploymentFundingEvidence, "confirmedNonce" | "pendingNonce">, finalizedNonce: string): "nonce-conflict" | null {
+  const accounting = assertWalletDeploymentAccounting(pool.accounting, pool);
+  const ceiling = uint(accounting.nextNonce) + (pool.activeOperationId === null ? 0n : 1n), next = uint(nonce) + 1n;
+  const confirmed = uint(evidence.confirmedNonce), pending = uint(evidence.pendingNonce), finalized = uint(finalizedNonce);
+  return finalized < next || confirmed < finalized || confirmed > ceiling || pending < confirmed || pending > ceiling ? "nonce-conflict" : null;
 }
 export function assertWalletDeploymentSettlementEvidence(input: unknown, context: WalletDeploymentSettlementContext, now: number): WalletDeploymentSettlementEvidence {
   const value = snapshot<WalletDeploymentSettlementEvidence>(input), { pool, operation } = snapshot<WalletDeploymentSettlementContext>(context);
   exact(value, ["version", "funding", "operationId", "operationRevision", "transactionHash", "templateCommitment", "observation", "finalizedNonce", "fees"]);
   const funding = assertWalletDeploymentFundingEvidence(value.funding, context, now);
-  if (!pool.accounting || pool.accounting.fence || pool.state !== "active" || pool.activeOperationId !== operation.id ||
+  if (!pool.accounting || pool.accounting.fence || pool.state !== "active" || pool.activeOperationId === operation.id ||
+      operation.releasedAt === null || operation.settlementId !== undefined ||
       operation.state !== "signed" || !operation.signed || !operation.template || operation.poolId !== pool.configuration.id ||
       value.version !== "center-wallet-deployment-settlement-evidence-v1" || value.operationId !== operation.id ||
       value.operationRevision !== operation.revision || value.transactionHash !== operation.signed.hash || value.templateCommitment !== operation.templateCommitment ||
       operation.templateCommitment !== `0x${enrollmentDigest(operation.template)}` ||
-      operation.template.transaction.nonce !== pool.accounting.nextNonce) invalid();
+      // Settlement runs in nonce order: only the lowest released nonce may debit.
+      uint(operation.template.transaction.nonce) !== uint(pool.accounting.initialNonce) + BigInt(pool.accounting.sequence)) invalid();
   const observation = assertWalletDeploymentObservation(value.observation), receipt = observation.transaction.receipt;
   if (observation.operationId !== operation.id || observation.transactionHash !== operation.signed.hash || observation.templateCommitment !== operation.templateCommitment ||
       !receipt || !["canonical-success", "canonical-revert"].includes(observation.transaction.state) ||
@@ -204,6 +227,6 @@ export function assertWalletDeploymentSettlementEvidence(input: unknown, context
   if (execution === 0n || uint(fees.executionWei) !== execution || observation.fees.executionWei !== fees.executionWei ||
       execution > uint(operation.signed.maximumExecutionCost) || uint(receipt.gasUsed) > uint(operation.template.transaction.gas) ||
       uint(receipt.effectiveGasPrice) > uint(operation.template.transaction.maxFeePerGas)) invalid();
-  if (uint(value.finalizedNonce) > BigInt(Number.MAX_SAFE_INTEGER)) invalid();
+  if (uint(value.finalizedNonce) > BigInt(Number.MAX_SAFE_INTEGER) || uint(value.finalizedNonce) <= uint(operation.template.transaction.nonce)) invalid();
   return { ...value, funding, observation };
 }

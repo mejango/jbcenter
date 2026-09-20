@@ -38,9 +38,9 @@ export async function syntheticDeploymentContext(now = Date.now()): Promise<Wall
       maxPriorityFeePerGas: template.transaction.maxPriorityFeePerGas }, template,
     templateCommitment: `0x${enrollmentDigest(template)}`, signingLease: null,
     signed: { rawTransaction: raw, hash: keccak256(raw), maximumExecutionCost: "3000000000000000" },
-    observation: null, observationSavedAt: null, historicalCanonicalObservation: null, highestObservedHead: null, revision: 3 };
+    observation: null, observationSavedAt: null, historicalCanonicalObservation: null, highestObservedHead: null, releasedAt: null, reservedWei: null, revision: 3 };
   return { enrollment, pool: { configuration, configurationDigest: enrollmentDigest(configuration), createdAt: now - 2000,
-    state: "active", activeOperationId: operation.id, revision: 1 }, operation };
+    state: "active", activeOperationId: operation.id, reservedWei: "0", revision: 1 }, operation };
 }
 export function syntheticDeploymentObservation(context: WalletDeploymentExecutionContext, now = Date.now()): WalletDeploymentObservation {
   const operation = context.operation;

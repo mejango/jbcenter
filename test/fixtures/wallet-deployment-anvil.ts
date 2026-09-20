@@ -167,11 +167,11 @@ export async function startWalletDeploymentAnvil(setup?: (rpc: <T = unknown>(met
         poolConfigurationDigest: enrollmentDigest(configuration), approval, state: "signed", createdAt: now, retainUntil: now + 86400000,
         claimedAt: now, proofDigest: proof.verificationDigest, admission: admitted.admission, template, templateCommitment: signed.templateCommitment,
         signingLease: null, signed: { rawTransaction, hash: signed.hash, maximumExecutionCost: signed.maximumExecutionCost },
-        observation: null, observationSavedAt: null, historicalCanonicalObservation: null, highestObservedHead: null, revision: 4 };
+        observation: null, observationSavedAt: null, historicalCanonicalObservation: null, highestObservedHead: null, releasedAt: null, reservedWei: null, revision: 4 };
       operation.observation = await chain().observeSigned({ enrollment, operation });
       operation.observationSavedAt = Date.now(); operation.highestObservedHead = operation.observation.head!.blockNumber;
       return { pool: { configuration, configurationDigest: enrollmentDigest(configuration), createdAt: now,
-        state: "active", activeOperationId: operation.id, revision: 2 }, enrollment, operation };
+        state: "active", activeOperationId: operation.id, reservedWei: "0", revision: 2 }, enrollment, operation };
     }
     await setup?.(rpc);
     let baseline = await rpc<Hex>("evm_snapshot");

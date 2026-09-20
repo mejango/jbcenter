@@ -47,7 +47,7 @@ Migration 016 implements two dedicated tables for the first single-lane pilot:
 - A permanent pool record binds Base, an exclusive sender, fixed native prepaid allocation, immutable policy commitment and current lane operation. Allocate the entire pool once; retries, expiry, failures, unknown outcomes and reorgs never create or release an allocation. No automatic refill. Balance is availability evidence, not allocation authority.
 - An operation record binds verified enrollment, fresh consumed approval/context/proof, exact creation, pool/sender, canonical nonce anchor and immutable unsigned template. It later stores the winning raw signed bytes/hash, lease/revision, dispatch attempts, canonical receipt/finality, wallet inspection and known fee evidence. Unique `(chain, sender, nonce)` remains permanent even after completion; these records are the nonce journal.
 
-Keep one unresolved transaction per sender lane and at most one active operation per enrollment. All signing with that key must share this authority. Fee estimates are bounded admission evidence within the fixed allocation, not guaranteed total Base fees. Installed OP fee estimates include L1/L2/operator estimates, but some helpers substitute unsigned stub fields and current receipt formatting lacks complete operator-fee evidence. Missing fee components remain unknown. They never justify releasing global allocation.
+Keep one in-flight transaction per sender lane (released at canonical inclusion into a bounded queue of at most eight unsettled inclusions, settled in nonce order at finality) and at most one active operation per enrollment. All signing with that key must share this authority. Fee estimates are bounded admission evidence within the fixed allocation, not guaranteed total Base fees. Installed OP fee estimates include L1/L2/operator estimates, but some helpers substitute unsigned stub fields and current receipt formatting lacks complete operator-fee evidence. Missing fee components remain unknown. They never justify releasing global allocation.
 
 ## Planned two-process state machine
 
@@ -69,7 +69,7 @@ Use canonical confirmed sender nonce for an empty exclusive lane; pending nonce 
 
 A third party may deploy the exact deterministic wallet first. Its verified readiness does not finalize an older treasury transaction, which may still execute or revert and cost fees. Missing initialization evidence is not success even with a successful factory receipt.
 
-For the smallest pilot, release the sender lane only after verified finalized chain evidence. Wallet readiness may be observed earlier, but sender issuance throughput is then bounded by finality. Releasing after a few confirmations requires retained recent history, reorg-aware reconciliation of multiple nonces and an expanded invariant. Additional prepaid lanes or a nonce pipeline require separate pressure evidence; the single-lane pilot does not establish a deployments-per-second target.
+The lane is released at canonical inclusion once the sender's confirmed nonce is exactly one past the included nonce (migration 054): the released inclusion keeps its signed bytes, receipt history and a reservation of its admitted maximum cost until its finalized settlement, the queue is bounded at eight, settlements run in nonce order, and a released inclusion that is later observed as not canonical fences the pool for operator reconciliation instead of resending. Additional prepaid lanes require separate pressure evidence.
 
 ## Remaining implementation and observations
 

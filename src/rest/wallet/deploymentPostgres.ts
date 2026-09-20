@@ -31,7 +31,8 @@ export interface WalletDeploymentPoolConfiguration {
   };
 }
 import { assertWalletDeploymentAccounting, assertWalletDeploymentFundingEvidence, assertWalletDeploymentSettlementEvidence,
-  walletDeploymentFundingConflict, walletDeploymentRemainingWei } from "./deploymentSettlement.js";
+  walletDeploymentFundingConflict, walletDeploymentReleasedCount, walletDeploymentRemainingWei, walletDeploymentSettlementLimits,
+  walletDeploymentSettlementNonceConflict } from "./deploymentSettlement.js";
 import type { WalletDeploymentAccounting, WalletDeploymentFundingContext, WalletDeploymentFundingEvidence,
   WalletDeploymentSettlementContext, WalletDeploymentSettlementEvidence, WalletDeploymentSettlementReceipt } from "./deploymentSettlement.js";
 
@@ -42,7 +43,10 @@ export interface WalletDeploymentPool {
   configurationDigest: string;
   createdAt: number;
   state: "active" | "paused";
+  /** The one operation not yet canonically included; null once released or settled. */
   activeOperationId: string | null;
+  /** Sum of the released, unsettled operations' reserved maximum costs (derived from their rows). */
+  reservedWei: string;
   revision: number;
 }
 /** Internal trusted chain-adapter output only. Shape validation cannot prove canonical chain facts. */
@@ -86,6 +90,10 @@ export interface WalletDeploymentOperation {
   highestObservedHead: string | null;
   /** Permanent one-way marker; phase and original signed artifact remain unchanged. */
   settlementId?: string;
+  /** Set when the lane was released at this operation's canonical inclusion; its reserved maximum
+   * cost stays committed against the allocation until the finalized settlement. */
+  releasedAt: number | null;
+  reservedWei: string | null;
   revision: number;
 }
 export interface WalletDeploymentObservationCommit {
@@ -96,7 +104,7 @@ export interface WalletDeploymentObservationCommit {
 }
 export interface WalletDeploymentRecoveryCursor { createdAt: number; operationId: string }
 export interface WalletDeploymentRecoveryPage {
-  items: { id: string; createdAt: number; revision: number; state: "claimed" | "signed"; signedHash: Hex | null }[];
+  items: { id: string; createdAt: number; revision: number; state: "claimed" | "signed"; signedHash: Hex | null; nonce: string | null; releasedAt: number | null }[];
   nextCursor: WalletDeploymentRecoveryCursor | null;
 }
 export interface WalletDeploymentClaim {
@@ -250,12 +258,13 @@ function live(operation: WalletDeploymentOperation, now: number, admission?: Wal
     throw new RestError(410, "WALLET_DEPLOYMENT_OBSERVATION_EXPIRED", "Deployment chain admission must be refreshed.");
 }
 type PoolRow = { configuration: WalletDeploymentPoolConfiguration; configuration_digest: string; created_at: string;
-  state: WalletDeploymentPool["state"]; active_operation_id: string | null; revision: string; accounting?: WalletDeploymentAccounting | null };
+  state: WalletDeploymentPool["state"]; active_operation_id: string | null; revision: string; accounting?: WalletDeploymentAccounting | null; reserved_wei: string };
+const poolSelect = "SELECT p.*,rest_wallet_deployment_reserved_wei(p.id)::text AS reserved_wei FROM rest_wallet_deployment_pools p";
 function poolOf(row: PoolRow): WalletDeploymentPool {
   const checked = configuration(row.configuration);
   if (enrollmentDigest(checked) !== row.configuration_digest) conflict();
   const result: WalletDeploymentPool = { configuration: checked, configurationDigest: row.configuration_digest, createdAt: Number(row.created_at),
-    state: row.state, activeOperationId: row.active_operation_id, revision: Number(row.revision) };
+    state: row.state, activeOperationId: row.active_operation_id, reservedWei: String(quantity(row.reserved_wei)), revision: Number(row.revision) };
   if (row.accounting) result.accounting = assertWalletDeploymentAccounting(row.accounting, result);
   return result;
 }
@@ -264,7 +273,8 @@ type OperationRow = { id: string; pool_id: string; enrollment_id: string; pool_c
   admission: WalletDeploymentAdmission | null; template: WalletDeploymentTemplate | null; template_commitment: Hex | null;
   signing_lease_token: string | null; signing_lease_until: string | null; raw_transaction: Hex | null; transaction_hash: Hex | null;
   maximum_execution_cost: string | null; revision: string; observation: WalletDeploymentObservation | null;
-  observation_saved_at: string | null; historical_canonical_observation: WalletDeploymentObservation | null; highest_observed_head: string | null; settlement_id?: string | null };
+  observation_saved_at: string | null; historical_canonical_observation: WalletDeploymentObservation | null; highest_observed_head: string | null; settlement_id?: string | null;
+  released_at: string | null; reserved_wei: string | null };
 function operationOf(row: OperationRow): WalletDeploymentOperation {
   return { id: row.id, poolId: row.pool_id, enrollmentId: row.enrollment_id, poolConfigurationDigest: row.pool_configuration_digest,
     approval: row.approval, state: row.state, createdAt: Number(row.created_at), retainUntil: Number(row.retain_until),
@@ -274,7 +284,9 @@ function operationOf(row: OperationRow): WalletDeploymentOperation {
     signed: row.raw_transaction === null ? null : { rawTransaction: row.raw_transaction, hash: row.transaction_hash!, maximumExecutionCost: row.maximum_execution_cost! },
     observation: row.observation ?? null, observationSavedAt: row.observation_saved_at == null ? null : Number(row.observation_saved_at),
     historicalCanonicalObservation: row.historical_canonical_observation ?? null, highestObservedHead: row.highest_observed_head ?? null,
-    ...(row.settlement_id ? { settlementId: row.settlement_id } : {}), revision: Number(row.revision) };
+    ...(row.settlement_id ? { settlementId: row.settlement_id } : {}),
+    releasedAt: row.released_at == null ? null : Number(row.released_at), reservedWei: row.reserved_wei == null ? null : String(quantity(row.reserved_wei)),
+    revision: Number(row.revision) };
 }
 
 /** Internal durable store only. Admission observations must come from the configured trusted chain
@@ -316,7 +328,8 @@ export class PostgresWalletDeploymentStore {
     });
   }
   /** Internal incident/restore boundary only. A field in this database cannot detect its own rollback. */
-  async fenceAccounting(contextInput: WalletDeploymentFundingContext, evidenceInput: WalletDeploymentFundingEvidence | { reason: "restore-required" }): Promise<WalletDeploymentPool> {
+  async fenceAccounting(contextInput: WalletDeploymentFundingContext,
+    evidenceInput: WalletDeploymentFundingEvidence | { reason: "restore-required" } | { reason: "inclusion-reorged"; operationId: string }): Promise<WalletDeploymentPool> {
     enrollmentDigest(contextInput); enrollmentDigest(evidenceInput);
     const context = structuredClone(contextInput), evidence = structuredClone(evidenceInput);
     return this.transaction(async client => {
@@ -325,7 +338,14 @@ export class PostgresWalletDeploymentStore {
       if (pool.accounting.fence) return pool;
       const now = await walletCeremonyDatabaseNow(client);
       let reason: NonNullable<WalletDeploymentAccounting["fence"]>["reason"] | null;
-      if ("reason" in evidence) { fields(evidence, ["reason"]); if (evidence.reason !== "restore-required") invalid(); reason = evidence.reason; }
+      if ("reason" in evidence && evidence.reason === "inclusion-reorged") {
+        // A released inclusion whose latest observation is positively not canonical any more.
+        fields(evidence, ["reason", "operationId"]); id(evidence.operationId);
+        const released = await this.required(evidence.operationId, client);
+        if (released.poolId !== pool.configuration.id || released.releasedAt === null || released.settlementId !== undefined ||
+            !released.observation || !["reorged", "nonce-conflict", "not-observed", "pending"].includes(released.observation.transaction.state)) conflict();
+        reason = evidence.reason;
+      } else if ("reason" in evidence) { fields(evidence, ["reason"]); if (evidence.reason !== "restore-required") invalid(); reason = evidence.reason; }
       else {
         const proof = assertWalletDeploymentFundingEvidence(evidence, context, now);
         reason = walletDeploymentFundingConflict(context, proof, pool.accounting.nextNonce, "0");
@@ -345,7 +365,8 @@ export class PostgresWalletDeploymentStore {
     return this.transaction(async client => {
       const pool = await this.poolRecord(before.poolId, client), enrollment = await lockWalletEnrollmentInTransaction(client, before.enrollmentId);
       const operation = await this.required(operationId, client); this.sameContext(before, operation, enrollment, pool);
-      if (!pool.accounting || operation.state !== "signed" || !operation.signed || pool.activeOperationId !== operation.id) conflict();
+      if (!pool.accounting || operation.state !== "signed" || !operation.signed || operation.settlementId !== undefined ||
+          (pool.activeOperationId !== operation.id && operation.releasedAt === null)) conflict();
       const row = (await client.query<DispatchRow>("SELECT * FROM rest_wallet_deployment_dispatches WHERE operation_id=$1 FOR UPDATE", [operationId])).rows[0];
       return { pool, enrollment, operation, dispatch: row ? dispatchOf(row) : null, lastSettlement: await this.lastSettlement(pool, client) };
     });
@@ -379,26 +400,30 @@ export class PostgresWalletDeploymentStore {
       if (enrollmentDigest(actual) !== enrollmentDigest(context)) conflict();
       const now = await walletCeremonyDatabaseNow(client), proof = assertWalletDeploymentSettlementEvidence(evidence, actual, now);
       if (actual.dispatch && actual.dispatch.leaseUntil > now) busy();
-      const cost = BigInt(proof.fees.totalWei), remaining = BigInt(walletDeploymentRemainingWei(pool)), nextNonce = String(BigInt(operation.template!.transaction.nonce) + 1n);
-      const reason = walletDeploymentFundingConflict(actual, proof.funding, nextNonce, String(cost > remaining ? 0n : remaining - cost)) ??
-        (proof.finalizedNonce !== nextNonce ? "nonce-conflict" : null);
+      const nonce = operation.template!.transaction.nonce, nextNonce = String(BigInt(nonce) + 1n), cost = BigInt(proof.fees.totalWei);
+      // The lane was released at inclusion; this operation's own reservation gives way to its debit
+      // while the other released operations' reservations stay ahead of the balance floor.
+      const allocation = BigInt(pool.configuration.allocationWei), spentWei = BigInt(pool.accounting!.spentWei) + cost;
+      const others = BigInt(pool.reservedWei) - BigInt(operation.reservedWei ?? "0"), floor = allocation - spentWei - others;
+      const reason = walletDeploymentFundingConflict(actual, proof.funding, null, String(floor < 0n ? 0n : floor)) ??
+        walletDeploymentSettlementNonceConflict(pool, nonce, proof.funding, proof.finalizedNonce);
       if (reason) {
         const fenced = await this.writeAccounting(pool, { ...pool.accounting!, fence: { reason, evidenceDigest, recordedAt: now } }, client);
         assertWalletDeploymentSettlementEvidence(proof, actual, await walletCeremonyDatabaseNow(client));
         return { settlement: null, pool: fenced, replayed: false };
       }
-      const prior = pool.accounting!, sequence = prior.sequence + 1, spentWei = String(BigInt(prior.spentWei) + cost);
+      const prior = pool.accounting!, sequence = prior.sequence + 1;
       const receipt: WalletDeploymentSettlementReceipt = { version: "center-wallet-deployment-settlement-receipt-v1", id: operation.id,
-        operationId: operation.id, poolId: pool.configuration.id, evidenceDigest, evidence: proof, nonce: operation.template!.transaction.nonce,
-        priorSequence: prior.sequence, sequence, spentWei, nextNonce, settledAt: now };
+        operationId: operation.id, poolId: pool.configuration.id, evidenceDigest, evidence: proof, nonce,
+        priorSequence: prior.sequence, sequence, spentWei: String(spentWei), nextNonce, settledAt: now };
       await client.query(`INSERT INTO rest_wallet_deployment_settlements(id,pool_id,sequence,evidence_digest,receipt)
         VALUES($1,$2,$3,$4,$5::jsonb)`, [operation.id, pool.configuration.id, sequence, evidenceDigest, JSON.stringify(receipt)]);
       await client.query("UPDATE rest_wallet_deployments SET settlement_id=$1 WHERE id=$1", [operation.id]);
       // A Base reservation is not a cap: the actual finalized debit is retained even above the
       // allocation, and the pool is fenced for operator review instead of admitting another user.
-      const result = await this.writeAccounting(pool, { ...prior, sequence, spentWei, nextNonce, lastSettlementId: operation.id,
+      const result = await this.writeAccounting(pool, { ...prior, sequence, spentWei: String(spentWei), lastSettlementId: operation.id,
         lastSettlementAnchor: proof.observation.finality.evidence!,
-        fence: cost > remaining ? { reason: "allocation-exceeded", evidenceDigest, recordedAt: now } : null }, client, true);
+        fence: spentWei > allocation ? { reason: "allocation-exceeded", evidenceDigest, recordedAt: now } : null }, client);
       // Covers row/trigger/index/write waits. No bytes are broadcast and no RPC/crypto runs in SQL.
       assertWalletDeploymentSettlementEvidence(proof, actual, await walletCeremonyDatabaseNow(client));
       return { settlement: receipt, pool: result, replayed: false };
@@ -411,16 +436,55 @@ export class PostgresWalletDeploymentStore {
   }
   private async writeAccounting(pool: WalletDeploymentPool, accounting: WalletDeploymentAccounting, client: PoolClient, release = false): Promise<WalletDeploymentPool> {
     assertWalletDeploymentAccounting(accounting, pool);
-    const row = (await client.query<PoolRow>(`UPDATE rest_wallet_deployment_pools SET accounting=$2::jsonb,revision=revision+1${release ? ",active_operation_id=NULL" : ""}
-      WHERE id=$1 AND revision=$3 RETURNING *`, [pool.configuration.id, JSON.stringify(accounting), pool.revision])).rows[0];
-    if (!row) conflict(); return poolOf(row);
+    const row = (await client.query(`UPDATE rest_wallet_deployment_pools SET accounting=$2::jsonb,revision=revision+1${release ? ",active_operation_id=NULL" : ""}
+      WHERE id=$1 AND revision=$3 RETURNING id`, [pool.configuration.id, JSON.stringify(accounting), pool.revision])).rows[0];
+    if (!row) conflict(); return this.poolRecord(pool.configuration.id, client);
+  }
+  /** The lane leaves the active operation at its canonical inclusion, once the sender nonce has
+   * moved past it: nextNonce advances, the operation joins the released queue with its admitted
+   * maximum cost reserved, and the next user may claim while this one waits for finality. */
+  async release(input: { operationId: string; expectedRevision: number }): Promise<{ operation: WalletDeploymentOperation; pool: WalletDeploymentPool; replayed: boolean }> {
+    const v = ownFields(input, ["operationId", "expectedRevision"]);
+    const operationId = v.operationId as string, expectedRevision = v.expectedRevision as number;
+    id(operationId);
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) invalid();
+    const before = await this.required(operationId);
+    return this.transaction(async client => {
+      const pool = await this.poolRecord(before.poolId, client);
+      const enrollment = await lockWalletEnrollmentInTransaction(client, before.enrollmentId);
+      const current = await this.required(operationId, client);
+      this.sameContext(before, current, enrollment, pool);
+      if (current.releasedAt !== null) return { operation: current, pool, replayed: true };
+      if (current.revision !== expectedRevision || current.state !== "signed" || !current.signed || !current.template || current.settlementId !== undefined ||
+          !pool.accounting || pool.accounting.fence || pool.state !== "active" || pool.activeOperationId !== current.id ||
+          current.template.transaction.nonce !== pool.accounting.nextNonce) conflict();
+      const observation = current.observation, next = String(BigInt(current.template.transaction.nonce) + 1n);
+      if (!observation || !canonicalObservation(observation) || !observation.head || !observation.transaction.nonce || !current.historicalCanonicalObservation) conflict();
+      const now = await walletCeremonyDatabaseNow(client);
+      const dispatch = (await client.query<DispatchRow>("SELECT * FROM rest_wallet_deployment_dispatches WHERE operation_id=$1 FOR UPDATE", [operationId])).rows[0];
+      if (dispatch && Number(dispatch.lease_until) > now) busy();
+      if (observation.transaction.nonce.confirmed !== next || observation.transaction.nonce.pending !== next) {
+        // Our inclusion is canonical but the sender's nonce is not exactly past it: another sender
+        // holds the key or the provider contradicts itself. Retain everything and stop for review.
+        const fenced = await this.writeAccounting(pool, { ...pool.accounting, fence: { reason: "nonce-conflict", evidenceDigest: enrollmentDigest(observation), recordedAt: now } }, client);
+        return { operation: current, pool: fenced, replayed: false };
+      }
+      if (walletDeploymentReleasedCount(pool.accounting) >= walletDeploymentSettlementLimits.maximumUnsettled) busy();
+      const reservation = dispatch?.admission.reservation?.totalWei, maximum = BigInt(current.signed.maximumExecutionCost);
+      const reservedWei = reservation && BigInt(reservation) > maximum ? reservation : String(maximum);
+      const row = (await client.query<OperationRow>(`UPDATE rest_wallet_deployments SET released_at=$2,reserved_wei=$3
+        WHERE id=$1 AND released_at IS NULL AND revision=$4 RETURNING *`, [operationId, now, reservedWei, expectedRevision])).rows[0];
+      if (!row) conflict();
+      const released = await this.writeAccounting(pool, { ...pool.accounting, nextNonce: next }, client, true);
+      return { operation: operationOf(row), pool: released, replayed: false };
+    });
   }
 
   async configurePool(input: WalletDeploymentPoolConfiguration): Promise<WalletDeploymentPool> {
     const config = configuration(input), digest = enrollmentDigest(config);
     return this.transaction(async client => {
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':wallet-deployment-pool',0))");
-      const prior = (await client.query<PoolRow>("SELECT * FROM rest_wallet_deployment_pools FOR UPDATE")).rows[0];
+      const prior = (await client.query<PoolRow>(`${poolSelect} FOR UPDATE`)).rows[0];
       if (prior) {
         if (prior.configuration_digest !== digest) conflict();
         return poolOf(prior);
@@ -430,7 +494,7 @@ export class PostgresWalletDeploymentStore {
         (id,chain_id,sender,allocation_wei,global_allocation_limit_wei,configuration,configuration_digest,created_at)
         VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8) RETURNING *`,
       [config.id, config.chainId, config.sender, config.allocationWei, config.globalAllocationLimitWei, JSON.stringify(config), digest, now])).rows[0]!;
-      return poolOf(row);
+      return poolOf({ ...row, reserved_wei: "0" });
     });
   }
 
@@ -585,6 +649,13 @@ export class PostgresWalletDeploymentStore {
       if (currentEnrollment.state !== "verified" || !currentEnrollment.receipt) conflict();
       await this.currentCredential(client, currentEnrollment);
       if (pool.state !== "active" || pool.activeOperationId !== null || pool.accounting?.fence) busy();
+      if (pool.accounting) {
+        // The released queue is bounded, and every member must still be known to be canonical.
+        const queue = (await client.query<{ queued: string; stalled: boolean | null }>(`SELECT count(*)::text AS queued,
+          bool_or(observation->'transaction'->>'state' NOT IN ('canonical-success','canonical-revert')) AS stalled
+          FROM rest_wallet_deployments WHERE pool_id=$1 AND released_at IS NOT NULL AND settlement_id IS NULL`, [pool.configuration.id])).rows[0]!;
+        if (Number(queue.queued) >= walletDeploymentSettlementLimits.maximumUnsettled || queue.stalled) busy();
+      }
       const fundingContext = { pool, lastSettlement: await this.lastSettlement(pool, client) };
       const checkFunding = async () => {
         if (pool.accounting) {
@@ -700,7 +771,8 @@ export class PostgresWalletDeploymentStore {
       const enrollment = await lockWalletEnrollmentInTransaction(client, before.enrollmentId);
       const current = await this.required(operationId, client);
       this.sameContext(before, current, enrollment, pool);
-      if (current.state !== "signed" || current.signed?.hash !== signedHash || pool.activeOperationId !== current.id ||
+      if (current.state !== "signed" || current.signed?.hash !== signedHash || current.settlementId !== undefined ||
+          (pool.activeOperationId !== current.id && current.releasedAt === null) ||
           !current.template || commitment(current.template) !== current.templateCommitment ||
           observation.templateCommitment !== current.templateCommitment || observation.wallet.address !== current.template.predictedSafe.toLowerCase() ||
           observation.wallet.initializerHash !== current.template.initializerHash) conflict();
@@ -732,12 +804,13 @@ export class PostgresWalletDeploymentStore {
       if (!positiveTime(c.createdAt as number)) invalid();
       cursor = { createdAt: c.createdAt as number, operationId: c.operationId as string };
     }
-    const rows = (await this.pool.query<Pick<OperationRow, "id" | "created_at" | "revision" | "state" | "transaction_hash">>(
-      `SELECT id,created_at,revision,state,transaction_hash FROM rest_wallet_deployments
+    const rows = (await this.pool.query<Pick<OperationRow, "id" | "created_at" | "revision" | "state" | "transaction_hash" | "released_at"> & { nonce: string | null }>(
+      `SELECT id,created_at,revision,state,transaction_hash,nonce::text AS nonce,released_at FROM rest_wallet_deployments
        WHERE state IN ('claimed','signed') AND settlement_id IS NULL${cursor ? " AND (created_at,id)>($2::bigint,$3::uuid)" : ""}
        ORDER BY created_at,id LIMIT $1`, cursor ? [limit + 1, cursor.createdAt, cursor.operationId] : [limit + 1])).rows;
     const items = rows.slice(0, limit).map(row => ({ id: row.id, createdAt: Number(row.created_at), revision: Number(row.revision),
-      state: row.state as "claimed" | "signed", signedHash: row.transaction_hash }));
+      state: row.state as "claimed" | "signed", signedHash: row.transaction_hash, nonce: row.nonce,
+      releasedAt: row.released_at == null ? null : Number(row.released_at) }));
     const last = items.at(-1);
     return { items, nextCursor: rows.length > limit && last ? { createdAt: last.createdAt, operationId: last.id } : null };
   }
@@ -749,7 +822,7 @@ export class PostgresWalletDeploymentStore {
   }
   private async poolRecord(poolId: string, client?: PoolClient): Promise<WalletDeploymentPool> {
     id(poolId);
-    const row = (await (client ?? this.pool).query<PoolRow>(`SELECT * FROM rest_wallet_deployment_pools WHERE id=$1${client ? " FOR UPDATE" : ""}`, [poolId])).rows[0];
+    const row = (await (client ?? this.pool).query<PoolRow>(`${poolSelect} WHERE p.id=$1${client ? " FOR UPDATE" : ""}`, [poolId])).rows[0];
     return row ? poolOf(row) : missing();
   }
   private async required(operationId: string, client?: PoolClient): Promise<WalletDeploymentOperation> {

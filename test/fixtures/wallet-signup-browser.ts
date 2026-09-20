@@ -61,7 +61,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('No local signup listener.');
   const origin = `http://localhost:${address.port}`;
   const flows = new PostgresWalletSignupStore(options.pool, { origin, rpId: 'localhost', manifest: options.fixture.manifest });
-  const signup = createLocalWalletSignup({ ...options, flows });
+  const signup = createLocalWalletSignup({ ...options, flows, releasedObservationIntervalMs: 0 });
   const login = new PostgresWalletLoginStore(options.pool, { origin, rpId: 'localhost' });
   let refreshHold: Promise<void> = Promise.resolve(), releaseRefresh = () => {};
   const recoveryObserver = createWalletAuthorityChain({ rpc: options.fixture.readOnlyRpc, manifest: options.fixture.manifest, utility: options.fixture.utility });

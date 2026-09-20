@@ -69,10 +69,12 @@ lets an attacker guess the password offline. Migration 037 created its table and
 the Railway wrap key was deleted. Do not reintroduce it without an online-only opening step
 (an OPRF or equivalent) so guesses cannot proceed without the server.
 
-Throughput is pilot-grade: one treasury lane is held from send to Base finality
-(~15-20 min), so roughly four creations per hour. Before public launch: release the
-lane at canonical inclusion and settle at finality, add treasuries (pools), and
-parallelise the inspector's independent reads. Fewer than five passkey prompts
+Throughput: one operation is in flight at a time, but the treasury lane is released
+at canonical inclusion (migration 054), so the next creation is admitted seconds after
+the previous send lands; each finalized fee is settled behind it, in nonce order, from
+a queue of at most eight released inclusions that reserve their admitted maximum cost.
+Before public launch: add treasuries (pools) and parallelise the inspector's
+independent reads. Fewer than five passkey prompts
 (create, check, approve, setup, login) needs protocol changes (fold possession into
 the creation approval; fold the setup grant into login).
 
@@ -151,8 +153,8 @@ and at the inclusion block, failing closed on a later upgrade. A reservation is
 execution maximum plus twice the current L1/operator estimate and is not a cap; an
 actual finalized debit above the allocation is recorded and fences the pool. The
 chain nonce versus accounting `nextNonce` is the restore fence. The shared
-funding-evidence lifetime bound is 60 s (local producers keep 5 s). Single lane held
-to finality remains the pilot throughput limit.
+funding-evidence lifetime bound is 60 s (local producers keep 5 s). The lane is
+released at canonical inclusion and each fee settles at finality (see constraint 1).
 
 ## Completed slice: hosted Base recovery
 
@@ -213,19 +215,24 @@ of the previous credential across uncertain replies and restart.
 
 Known design constraints:
 
-1. Current deployment migrations 016/026/034 select one exclusive pool and one
-   unsettled operation. The lane stays held until finality. Signup now opens
-   after latest canonical creation, but the next user can still wait for that
-   lane. Choose a bounded, reviewed nonce pipeline or another explicit design;
-   never silently discard liabilities to increase throughput.
+1. Deployment migrations 016/026/034/054 select one exclusive pool, one active
+   (not yet canonical) operation and a released queue of at most eight canonical,
+   unsettled inclusions. `nextNonce` advances at release; `sequence` and
+   `spentWei` advance at each finalized settlement, taken in nonce order. A released
+   inclusion reserves `max(execution ceiling, Base reservation)` against the
+   allocation until its settlement; claims and dispatches spend only what is left.
+   A released inclusion whose latest observation is positively not canonical fences
+   the pool (`inclusion-reorged`); no bytes are resent and an operator restores.
+   Liabilities are never discarded to increase throughput.
 2. Type-2 maximum execution fees do **not** cap future Base L1/operator fees.
    Estimate plus margin is a reservation, not an enforceable chain cost ceiling.
    Migration 034 now records `spent > allocation` behind the `allocation-exceeded`
    fence. A sender's balance is not immutable, and one nonce does not mean one
    sender transaction per block.
 3. A database cannot prove it has not been restored to an earlier snapshot. The
-   sender's chain nonce is the external fence: claim, admission and settlement all
-   require it to equal accounting `nextNonce`, and initialization requires the
+   sender's chain nonce is the external fence: claim and admission require it to
+   equal accounting `nextNonce` (release requires it to be exactly one past the
+   included nonce; a settlement bounds it by the queue), and initialization requires the
    explicit `WALLET_CREATION_INITIAL_NONCE`. A restore therefore stalls closed; an
    operator must inspect and re-pin before any new claim.
 4. Local recovery has a separate treasury sender, fixture-only budget and locks

@@ -46,7 +46,7 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 5 });
     for (const name of [...new Set([...walletLoginTestMigrations, "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql",
-      "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "027_wallet_signup.sql",
+      "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "034_wallet_deployment_base.sql", "054_wallet_deployment_inclusion_release.sql", "027_wallet_signup.sql",
       "028_wallet_recovery.sql", "029_wallet_recovery_mapping.sql", "033_wallet_unproved_recovery_expiry.sql", "030_wallet_recovery_flow.sql", "031_wallet_recovery_dispatch.sql", "035_wallet_recovery_base.sql", "045_wallet_device_addition.sql"])].sort())
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     fixture = await startWalletDeploymentAnvil();
@@ -75,7 +75,7 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
     const login = new PostgresWalletLoginStore(pool, { rpId, origin: issuer });
     const flows = new PostgresWalletSignupStore(pool, { rpId, origin: issuer, manifest: fixture.manifest });
     const signup = createLocalWalletSignup({ flows, enrollments, deployments, settlement, execution, smart, authority,
-      registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id });
+      registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id, releasedObservationIntervalMs: 0 });
     const accounts: string[] = [], receipts: string[] = [];
     let recoveryTarget: Pick<Parameters<typeof exerciseWalletRecoveryEvm>[0], 'enrollment' | 'originalKey' | 'originalSessionToken'> | null = null;
     for (let index = 0; index < 2; index++) {
@@ -112,14 +112,40 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       expect((await signup.approveDeployment(flowToken, approvalProof)).phase).toBe("deploying");
       await signup.tick();
       expect((await deployments.getDispatch(operation.id))!.status).toBe("accepted");
-      const dispatch = (await deployments.getDispatch(operation.id))!;
+      const dispatch = (await deployments.getDispatch(operation.id))!, sent = (await deployments.get(operation.id))!;
       await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.leaseUntil - Date.now() + 15)));
+      if (beforeCreation) {
+        // The send is out but not yet observed as included: roll the chain back under it, with
+        // PostgreSQL still retaining its original signed winner and the lane still held.
+        expect(await fixture.rpc("evm_revert", [beforeCreation])).toBe(true);
+        await expect(signup.activate(flowToken)).rejects.toBeInstanceOf(Error);
+        expect(await count("rest_accounts")).toBe(index);
+        expect((await deployments.loadFundingContext(fixture.configuration.id)).pool.activeOperationId).toBe(operation.id);
+        // Reach the retained head watermark and the retry cooldown, then let the normal worker
+        // resend only the already journaled bytes. No replacement nonce or approval.
+        await fixture.rpc("anvil_mine", ["0x1", "0x0"]);
+        await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.nextAttemptAt - Date.now() + 15)));
+        await signup.tick();
+        expect((await signup.status(flowToken)).phase).toBe("deploying");
+        await expect(signup.activate(flowToken)).rejects.toMatchObject({ code: "WALLET_SIGNUP_STATE" });
+        const resent = (await deployments.getDispatch(operation.id))!;
+        expect(resent.attempts).toBe(dispatch.attempts + 1);
+        await new Promise(resolve => setTimeout(resolve, Math.max(1, resent.leaseUntil - Date.now() + 15)));
+      }
       await signup.tick();
+      // The resent bytes land with the interval chain's next block; keep observing until they do.
+      for (let attempt = 0; attempt < 12 && (await signup.status(flowToken)).phase !== "awaiting_activation"; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 500)); await signup.tick();
+      }
       const included = (await deployments.get(operation.id))!;
-      expect(included.observation).toMatchObject({ transaction: { state: "canonical-success" },
+      expect(included.signed).toEqual(sent.signed);
+      expect(included.observation).toMatchObject({ transaction: { state: "canonical-success", nonce: { confirmed: String(index + 3) } },
         wallet: { state: "verified" }, finality: { state: "unfinalized" } });
       expect(await deployments.getSettlement(operation.id)).toBeNull();
-      expect((await deployments.loadFundingContext(fixture.configuration.id)).pool.activeOperationId).toBe(operation.id);
+      // The lane was released at inclusion: the next user may claim while this one waits for finality.
+      expect(included.releasedAt).not.toBeNull();
+      expect((await deployments.loadFundingContext(fixture.configuration.id)).pool).toMatchObject({ activeOperationId: null,
+        reservedWei: included.reservedWei, accounting: { nextNonce: String(index + 3), sequence: index } });
       expect(await count("rest_accounts")).toBe(index);
 
       expect((await signup.status(flowToken)).phase).toBe("awaiting_activation");
@@ -134,28 +160,6 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
         expect((await signup.status(flowToken)).phase).toBe("deploying");
         await expect(signup.activate(flowToken)).rejects.toMatchObject({ code: "WALLET_SIGNUP_STATE" });
         await signup.tick();
-        expect((await signup.status(flowToken)).phase).toBe("awaiting_activation");
-      }
-      if (beforeCreation) {
-        // The readiness view is not account authority: roll back the actual creation after the
-        // observation, with PostgreSQL still retaining its original signed winner.
-        expect(await fixture.rpc("evm_revert", [beforeCreation])).toBe(true);
-        await expect(signup.activate(flowToken)).rejects.toBeInstanceOf(Error);
-        expect(await count("rest_accounts")).toBe(index);
-        expect(await deployments.getSettlement(operation.id)).toBeNull();
-        expect((await deployments.loadFundingContext(fixture.configuration.id)).pool.activeOperationId).toBe(operation.id);
-        await signup.tick();
-        expect((await signup.status(flowToken)).phase).toBe("deploying");
-        await expect(signup.activate(flowToken)).rejects.toMatchObject({ code: "WALLET_SIGNUP_STATE" });
-        // Reach the retained head watermark, then let the normal worker resend
-        // only the already journaled bytes. No replacement nonce or approval.
-        await fixture.rpc("anvil_mine", ["0x1", "0x0"]);
-        await signup.tick();
-        // The resent bytes land with the interval chain's next block; keep observing until they do.
-        for (let attempt = 0; attempt < 12 && (await signup.status(flowToken)).phase !== "awaiting_activation"; attempt++) {
-          await new Promise(resolve => setTimeout(resolve, 500)); await signup.tick();
-        }
-        expect((await deployments.get(operation.id))!.signed).toEqual(included.signed);
         expect((await signup.status(flowToken)).phase).toBe("awaiting_activation");
       }
       // Activation binds the account from the enrollment consent, with no prompt and no browser
@@ -178,12 +182,10 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       expect((await new PostgresWalletLoginStore(pool, { rpId, origin: issuer }).complete(proof)).sessionToken).toBe(loggedIn.sessionToken);
       expect(await login.readSession(loggedIn.sessionToken)).toEqual(loggedIn.session);
       expect(await login.readSession(begun.flowToken)).toBeNull();
-      // Login can finish while the treasury lane remains occupied. Only the
-      // separate finalized fee settlement advances its nonce and releases it.
+      // Login finishes long before the treasury's finalized fee settlement, which debits the
+      // reservation behind the already released lane.
       expect(await deployments.getSettlement(operation.id)).toBeNull();
-      expect((await deployments.loadFundingContext(fixture.configuration.id)).pool.activeOperationId).toBe(operation.id);
-      const latestDispatch = (await deployments.getDispatch(operation.id))!;
-      await new Promise(resolve => setTimeout(resolve, Math.max(1, latestDispatch.leaseUntil - Date.now() + 15)));
+      expect((await deployments.loadFundingContext(fixture.configuration.id)).pool.activeOperationId).toBeNull();
       await fixture.rpc("anvil_mine", ["0x41", "0x0"]);
       await signup.tick();
       const settled = (await deployments.getSettlement(operation.id))!;

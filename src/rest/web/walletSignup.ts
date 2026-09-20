@@ -78,7 +78,7 @@ function hexBytes(value: string) {
 }
 class HttpFailure extends Error {
   constructor(readonly status: number, readonly code = '') {
-    super(code === 'WALLET_DEPLOYMENT_BUSY' ? 'Another account is being created right now. Try again in a minute.' : 'Signup could not be confirmed. Check the original signup and retry.');
+    super(code === 'WALLET_DEPLOYMENT_BUSY' ? 'Another account is being created right now. Try again in a few seconds.' : 'Signup could not be confirmed. Check the original signup and retry.');
   }
 }
 async function failure(response: Response) {

@@ -6,7 +6,8 @@ import { enrollmentDigest, walletEnrollmentDocument } from "./enrollment.js";
 import { copyWalletEnrollmentProof, copyWalletEnrollmentRegistration, type PostgresWalletEnrollmentStore } from "./enrollmentPostgres.js";
 import { copyWalletSignupAssertion, type PostgresWalletSignupStore } from "./signupPostgres.js";
 import { prepareWalletDeploymentApproval, walletDeploymentDocument } from "./deployment.js";
-import type { PostgresWalletDeploymentStore, WalletDeploymentRecoveryCursor } from "./deploymentPostgres.js";
+import type { PostgresWalletDeploymentStore } from "./deploymentPostgres.js";
+import { walletDeploymentSettlementLimits } from "./deploymentSettlement.js";
 import type { createWalletDeploymentChain } from "./deploymentChain.js";
 import type { createWalletDeploymentExecution } from "./deploymentExecution.js";
 import type { createLocalAnvilWalletDeploymentSettlement } from "./deploymentSettlementLocalAnvil.js";
@@ -19,6 +20,8 @@ export interface LocalWalletSignupDependencies {
   settlement: ReturnType<typeof createLocalAnvilWalletDeploymentSettlement>; execution: ReturnType<typeof createWalletDeploymentExecution>;
   chain: ReturnType<typeof createWalletDeploymentChain>; smart: ReturnType<typeof createSmartAccountService>;
   registry: Pick<VerifiedSmartAccountRegistry, "list">; authority: ReturnType<typeof createWalletAuthorityService>; poolId: string;
+  /** How often a released inclusion is re-read while it waits for finality (default 15 s; a local chain may use 0). */
+  releasedObservationIntervalMs?: number;
   onEvent?: (event: { stage: "worker" | "deployment" | "setup"; outcome: string; operationId?: string; elapsedMs?: number; reason?: string; detail?: Record<string, unknown> }) => void;
 }
 export type WalletSignupPhase = "awaiting_registration" | "awaiting_possession" | "awaiting_deployment_approval" |
@@ -38,7 +41,8 @@ function fields(value: unknown, keys: string[], optional: string[] = []) {
 export function createLocalWalletSignup(options: LocalWalletSignupDependencies) {
   const { flows, enrollments, deployments, settlement, execution, chain, smart, registry } = options;
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(options.poolId)) state();
-  const poolId = options.poolId;
+  const poolId = options.poolId, releasedInterval = options.releasedObservationIntervalMs ?? 15_000;
+  if (!Number.isSafeInteger(releasedInterval) || releasedInterval < 0 || releasedInterval > 300_000) state();
   function event(value: Parameters<NonNullable<LocalWalletSignupDependencies["onEvent"]>>[0]) {
     try { options.onEvent?.(value); } catch { /* Observation hooks never change durable authority. */ }
   }
@@ -159,37 +163,66 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     return status(flowToken);
   }
 
-  let cursor: WalletDeploymentRecoveryCursor | null = null, running: Promise<void> | null = null;
+  let running: Promise<void> | null = null;
   let stopped = false, timer: ReturnType<typeof setTimeout> | null = null;
   const stopSignal = new AbortController();
+  const canonical = (state: string) => state === "canonical-success" || state === "canonical-revert";
+  function failure(operationId: string, error: unknown) {
+    // Existing stores preserve exact bytes, unknown outcomes and fences. A failed observation
+    // cannot release a sender lane or invent a replacement operation. The error class and
+    // bounded details are logged so a stuck operation is diagnosable.
+    const detail = error instanceof RestError && error.details && typeof error.details === "object"
+      ? Object.fromEntries(Object.entries(error.details as Record<string, unknown>).filter(([, value]) => ["string", "number", "boolean"].includes(typeof value)).slice(0, 12)) : undefined;
+    event({ stage: "deployment", outcome: "pending_or_unavailable", operationId,
+      reason: error instanceof RestError ? error.code : error instanceof Error ? error.name : "unknown", ...(detail ? { detail } : {}) });
+  }
+  /** One pass moves the active operation (sign, send, observe, release at canonical inclusion)
+   * and then the lowest released nonce (observe, fence if it left the canonical chain, settle at
+   * finality). Settlement is in nonce order, so only the lowest released row is watched. */
   async function pass() {
     const start = performance.now();
-    const page = await deployments.listUnresolved({ ...(cursor ? { cursor } : {}), limit: 1 });
-    cursor = page.nextCursor;
-    for (const item of page.items) {
-      if (stopped) break;
+    const page = await deployments.listUnresolved({ limit: walletDeploymentSettlementLimits.maximumUnsettled + 1 });
+    const mine = page.items.filter(item => item.state === "signed" || item.state === "claimed");
+    const active = mine.find(item => item.releasedAt === null);
+    const queue = mine.filter(item => item.releasedAt !== null && item.nonce !== null).sort((a, b) => Number(BigInt(a.nonce!) - BigInt(b.nonce!)));
+    if (active && !stopped) {
       try {
-        const record = await deployments.get(item.id);
-        if (!record || record.poolId !== poolId) continue;
-        await execution.recover(item.id, stopSignal.signal);
-        const latest = await deployments.get(item.id);
-        if (latest?.state === "signed" && !await deployments.getSettlement(item.id)) {
-          const context = await deployments.loadSettlementContext(item.id);
-          if (!context.dispatch || context.dispatch.leaseUntil <= await flows.now()) {
-            const evidence = await settlement.observeSettlement(context, stopSignal.signal);
-            const result = await deployments.settle(context, evidence);
-            event({ stage: "deployment", outcome: result.settlement ? "settled" : "fenced", operationId: item.id });
+        const record = await deployments.get(active.id);
+        if (record && record.poolId === poolId) {
+          await execution.recover(active.id, stopSignal.signal);
+          const latest = await deployments.get(active.id);
+          if (latest?.state === "signed" && latest.releasedAt === null && latest.observation && canonical(latest.observation.transaction.state)) {
+            const released = await deployments.release({ operationId: latest.id, expectedRevision: latest.revision });
+            event({ stage: "deployment", outcome: released.pool.accounting?.fence ? "fenced" : "released", operationId: latest.id });
+            if (released.operation.releasedAt !== null && released.operation.template)
+              queue.push({ ...active, nonce: released.operation.template.transaction.nonce, releasedAt: released.operation.releasedAt });
           }
         }
-      } catch (error) {
-        // Existing stores preserve exact bytes, unknown outcomes and fences. A failed
-        // observation cannot release a sender lane or invent a replacement operation.
-        // The error class and bounded details are logged so a stuck operation is diagnosable.
-        const detail = error instanceof RestError && error.details && typeof error.details === "object"
-          ? Object.fromEntries(Object.entries(error.details as Record<string, unknown>).filter(([, value]) => ["string", "number", "boolean"].includes(typeof value)).slice(0, 12)) : undefined;
-        event({ stage: "deployment", outcome: "pending_or_unavailable", operationId: item.id,
-          reason: error instanceof RestError ? error.code : error instanceof Error ? error.name : "unknown", ...(detail ? { detail } : {}) });
-      }
+      } catch (error) { failure(active.id, error); }
+    }
+    const lowest = queue.sort((a, b) => Number(BigInt(a.nonce!) - BigInt(b.nonce!)))[0];
+    if (lowest && !stopped) {
+      try {
+        const context = await deployments.loadSettlementContext(lowest.id), now = await flows.now();
+        // ponytail: a released inclusion is re-read at most every releasedInterval; finality takes
+        // minutes and a reorg surfaces on the next read. The active operation's pass stays fast in between.
+        if (context.operation.poolId === poolId && (!context.dispatch || context.dispatch.leaseUntil <= now) &&
+            (context.operation.observationSavedAt === null || now - context.operation.observationSavedAt >= releasedInterval)) {
+          const observation = await chain.observeSigned(structuredClone({ enrollment: context.enrollment, operation: context.operation }), stopSignal.signal);
+          await deployments.saveObservation({ operationId: lowest.id, expectedRevision: context.operation.revision,
+            signedHash: context.operation.signed!.hash, observation });
+          const state = observation.transaction.state;
+          if (["reorged", "nonce-conflict", "not-observed", "pending"].includes(state)) {
+            await deployments.fenceAccounting(await deployments.loadFundingContext(poolId), { reason: "inclusion-reorged", operationId: lowest.id });
+            event({ stage: "deployment", outcome: "fenced", operationId: lowest.id, reason: state });
+          } else if (canonical(state) && observation.finality.state === "finalized") {
+            const fresh = await deployments.loadSettlementContext(lowest.id);
+            const evidence = await settlement.observeSettlement(fresh, stopSignal.signal);
+            const result = await deployments.settle(fresh, evidence);
+            event({ stage: "deployment", outcome: result.settlement ? "settled" : "fenced", operationId: lowest.id });
+          }
+        }
+      } catch (error) { failure(lowest.id, error); }
     }
     event({ stage: "worker", outcome: "pass", elapsedMs: Math.round(performance.now() - start) });
   }

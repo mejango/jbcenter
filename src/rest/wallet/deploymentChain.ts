@@ -243,6 +243,12 @@ export function createWalletDeploymentChain(options: WalletDeploymentChainOption
             receipt: { block: at, transactionIndex: String(index), status: status === 1n ? "success" : "reverted", gasUsed: String(gasUsed),
               effectiveGasPrice: String(effectiveGasPrice), logCount: receipt.logs.length, logsHash: keccak256(stringToHex(stable(receipt.logs))) } };
           output.fees.executionWei = String(gasUsed * effectiveGasPrice);
+          // The sender's nonce at this head must be past our inclusion; the lane is released on it.
+          const [confirmedRaw, pendingRaw] = await Promise.all([rpc.request("eth_getTransactionCount", [sender, tag(head)]),
+            rpc.request("eth_getTransactionCount", [sender, "pending"])]);
+          const confirmed = quantity(confirmedRaw), pending = quantity(pendingRaw);
+          if (pending < confirmed || confirmed <= BigInt(template.nonce) || pending > BigInt(Number.MAX_SAFE_INTEGER)) invalid();
+          output.transaction.nonce = { confirmed: String(confirmed), pending: String(pending) };
           const finalized = anchor(await rpc.request("eth_getBlockByNumber", ["finalized", false]));
           if (BigInt(finalized.blockNumber) > BigInt(head.blockNumber)) invalid();
           output.finality = { state: BigInt(finalized.blockNumber) >= number ? "finalized" : "unfinalized", evidence: finalized };

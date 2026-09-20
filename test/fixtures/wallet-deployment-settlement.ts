@@ -55,10 +55,29 @@ export async function signedSettlementUser(pool: Pool, store: PostgresWalletDepl
     rawTransaction: await deploymentFixtureSigner.signTransaction(deploymentFixtureTransaction(operation.template!)) })).operation;
   return store.loadSettlementContext(operation.id);
 }
+/** A signed user whose inclusion is canonical (sender nonce advanced past it) and whose lane
+ * was released: the shape every settlement now starts from. */
+export async function releasedSettlementUser(pool: Pool, store: PostgresWalletDeploymentStore) {
+  const signed = await signedSettlementUser(pool, store), now = await settlementDatabaseNow(pool);
+  const observation = syntheticDeploymentObservation(signed, now), next = String(BigInt(signed.operation.template!.transaction.nonce) + 1n);
+  const head = syntheticFunding(signed, now).head;
+  observation.head = head; observation.wallet.evidence = head;
+  observation.transaction.state = "canonical-success";
+  observation.transaction.nonce = { confirmed: next, pending: next };
+  observation.transaction.receipt = { block: head, transactionIndex: "0", status: "success", gasUsed: "500000",
+    effectiveGasPrice: "1000000", logCount: 1, logsHash: `0x${"12".repeat(32)}` };
+  observation.finality = { state: "unfinalized", evidence: { ...head, blockNumber: "90", blockHash: `0x${"5a".repeat(32)}` } };
+  observation.fees.executionWei = "500000000000";
+  const saved = await store.saveObservation({ operationId: signed.operation.id, expectedRevision: signed.operation.revision,
+    signedHash: signed.operation.signed!.hash, observation });
+  await store.release({ operationId: signed.operation.id, expectedRevision: saved.operation.revision });
+  return store.loadSettlementContext(signed.operation.id);
+}
 export function syntheticSettlement(context: WalletDeploymentSettlementContext, now: number,
   fees: WalletDeploymentSettlementEvidence["fees"] = { profile: "unforked-anvil-execution-fees-v1", executionWei: "500000000000", totalWei: "500000000000" }): WalletDeploymentSettlementEvidence {
   const funding = syntheticFunding(context, now), next = String(BigInt(context.operation.template!.transaction.nonce) + 1n);
-  funding.confirmedNonce = funding.pendingNonce = next;
+  // The sender's nonce is past every released inclusion: the accounting's nextNonce.
+  funding.confirmedNonce = funding.pendingNonce = context.pool.accounting!.nextNonce;
   const observation = syntheticDeploymentObservation(context, now);
   observation.head = funding.head; observation.wallet.evidence = funding.head;
   observation.transaction.state = "canonical-success";
@@ -67,7 +86,8 @@ export function syntheticSettlement(context: WalletDeploymentSettlementContext, 
     effectiveGasPrice: "1000000", logCount: 1, logsHash: `0x${"12".repeat(32)}` };
   observation.finality = { state: "finalized", evidence: funding.head };
   observation.fees.executionWei = "500000000000";
-  const balance = BigInt(funding.balanceWei) - BigInt(fees.totalWei);
+  // The balance already paid this fee and every other released inclusion's actual fee (≤ reservation).
+  const balance = BigInt(funding.balanceWei) - BigInt(fees.totalWei) - (BigInt(context.pool.reservedWei) - BigInt(context.operation.reservedWei ?? "0"));
   funding.balanceWei = String(balance < 0n ? 0n : balance);
   return { version: "center-wallet-deployment-settlement-evidence-v1", funding, operationId: context.operation.id,
     operationRevision: context.operation.revision, transactionHash: context.operation.signed!.hash,

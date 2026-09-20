@@ -35,6 +35,19 @@ async function observed(context: WalletDeploymentSettlementContext) {
   await store.saveObservation({ operationId: context.operation.id, signedHash: context.operation.signed!.hash, expectedRevision: context.operation.revision, observation });
   return store.loadSettlementContext(context.operation.id);
 }
+/** The send was included at the observed head and the sender nonce moved past it: the lane is released. */
+async function released(context: WalletDeploymentSettlementContext) {
+  const now = await settlementDatabaseNow(pool), observation = syntheticDeploymentObservation(context, now), head = context.operation.observation!.head!;
+  const next = String(BigInt(context.operation.template!.transaction.nonce) + 1n);
+  observation.head = head; observation.wallet.evidence = head;
+  observation.transaction = { state: "canonical-success", reason: null, conflict: null, nonce: { confirmed: next, pending: next },
+    receipt: { block: head, transactionIndex: "0", status: "success", gasUsed: "500000", effectiveGasPrice: "1000000", logCount: 1, logsHash: `0x${"12".repeat(32)}` } };
+  observation.finality = { state: "unfinalized", evidence: { ...head, blockNumber: "90", blockHash: `0x${"5a".repeat(32)}` } };
+  observation.fees.executionWei = "500000000000";
+  const saved = await store.saveObservation({ operationId: context.operation.id, signedHash: context.operation.signed!.hash, expectedRevision: context.operation.revision, observation });
+  await store.release({ operationId: context.operation.id, expectedRevision: saved.operation.revision });
+  return store.loadSettlementContext(context.operation.id);
+}
 function settlementAt(context: WalletDeploymentSettlementContext, now: number, l1Wei: string) {
   const evidence = syntheticSettlement(context, now, fees(l1Wei)), head = context.operation.observation!.head!;
   evidence.funding.head = head; evidence.observation.head = head; evidence.observation.wallet.evidence = head;
@@ -47,8 +60,8 @@ suite("durable hosted Base deployment accounting", () => {
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 5 });
     for (const name of ["013_rest_wallet_ceremonies.sql", "015_rest_wallet_enrollment.sql", "046_wallet_signup_window.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql", "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql",
-      "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql",
-      "034_wallet_deployment_base.sql"])
+      "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "034_wallet_deployment_base.sql",
+      "054_wallet_deployment_inclusion_release.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     store = new PostgresWalletDeploymentStore(pool);
   });
@@ -66,12 +79,15 @@ suite("durable hosted Base deployment accounting", () => {
     await store.settleDispatch({ operationId: context.operation.id, expectedRevision: lease.revision, leaseToken: lease.leaseToken,
       signedHash: context.operation.signed!.hash, status: "accepted" });
     await new Promise(resolve => setTimeout(resolve, Math.max(1, lease.leaseUntil - Date.now() + 15)));
-    context = await store.loadSettlementContext(context.operation.id);
+    context = await released(context);
+    // The release reserves the Base admission's full reservation, not only the execution ceiling.
+    expect(context.operation.reservedWei).toBe(admission.reservation!.totalWei);
+    expect(context.pool).toMatchObject({ activeOperationId: null, reservedWei: admission.reservation!.totalWei, accounting: { nextNonce: "2", sequence: 0 } });
     const evidence = settlementAt(context, await settlementDatabaseNow(pool), "16289011957");
     const result = await store.settle(context, evidence);
     expect(result.settlement).toMatchObject({ spentWei: evidence.fees.totalWei, nextNonce: "2", sequence: 1 });
     expect(result.pool.accounting).toMatchObject({ spentWei: evidence.fees.totalWei, nextNonce: "2", fence: null });
-    expect(result.pool.activeOperationId).toBeNull();
+    expect(result.pool).toMatchObject({ activeOperationId: null, reservedWei: "0" });
     expect((await store.getSettlement(context.operation.id))!.evidence.fees).toEqual(evidence.fees);
   });
   it("SQL refuses a local admission version, an unaffordable reservation and local fees under Base accounting", async () => {
@@ -102,7 +118,7 @@ suite("durable hosted Base deployment accounting", () => {
   });
   it("records an actual cost above the remaining allocation as a permanent debit behind an allocation-exceeded fence", async () => {
     await initializedSettlementPool(pool, store, base);
-    const context = await observed(await signedSettlementUser(pool, store));
+    const context = await released(await observed(await signedSettlementUser(pool, store)));
     const allocation = BigInt(context.pool.configuration.allocationWei);
     const evidence = settlementAt(context, await settlementDatabaseNow(pool), String(allocation));
     const result = await store.settle(context, evidence);
@@ -118,12 +134,12 @@ suite("durable hosted Base deployment accounting", () => {
   });
   it("SQL rejects an overspent debit without its fence and a fence that also drops the liability", async () => {
     await initializedSettlementPool(pool, store, base);
-    const context = await observed(await signedSettlementUser(pool, store)), now = await settlementDatabaseNow(pool);
+    const context = await released(await observed(await signedSettlementUser(pool, store))), now = await settlementDatabaseNow(pool);
     const evidence = settlementAt(context, now, String(BigInt(context.pool.configuration.allocationWei)));
     const receipt = { version: "center-wallet-deployment-settlement-receipt-v1", id: context.operation.id, poolId: context.pool.configuration.id,
       operationId: context.operation.id, evidenceDigest: enrollmentDigest(evidence), evidence, nonce: "1", priorSequence: 0, sequence: 1,
       spentWei: evidence.fees.totalWei, nextNonce: "2", settledAt: now };
-    const settled = { ...context.pool.accounting!, sequence: 1, spentWei: receipt.spentWei, nextNonce: "2",
+    const settled = { ...context.pool.accounting!, sequence: 1, spentWei: receipt.spentWei,
       lastSettlementId: context.operation.id, lastSettlementAnchor: evidence.observation.finality.evidence };
     for (const accounting of [settled, { ...settled, fence: { reason: "balance-deficit", evidenceDigest: receipt.evidenceDigest, recordedAt: now } }]) {
       const client = await pool.connect();
@@ -132,7 +148,7 @@ suite("durable hosted Base deployment accounting", () => {
         await client.query("INSERT INTO rest_wallet_deployment_settlements(id,pool_id,sequence,evidence_digest,receipt) VALUES($1,$2,1,$3,$4::jsonb)",
           [context.operation.id, context.pool.configuration.id, receipt.evidenceDigest, JSON.stringify(receipt)]);
         await client.query("UPDATE rest_wallet_deployments SET settlement_id=$1 WHERE id=$1", [context.operation.id]);
-        await expect(client.query("UPDATE rest_wallet_deployment_pools SET accounting=$2::jsonb,revision=revision+1,active_operation_id=NULL WHERE id=$1",
+        await expect(client.query("UPDATE rest_wallet_deployment_pools SET accounting=$2::jsonb,revision=revision+1 WHERE id=$1",
           [context.pool.configuration.id, JSON.stringify(accounting)])).rejects.toMatchObject({ code: "23514" });
       } finally { await client.query("ROLLBACK"); client.release(); }
     }

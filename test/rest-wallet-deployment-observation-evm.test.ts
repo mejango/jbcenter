@@ -186,7 +186,7 @@ describe.skipIf(!available)("read-only signed deployment observation against the
       retainUntil: clock + 86400000, claimedAt: clock, proofDigest: proof.verificationDigest, admission: admitted.admission,
       template, templateCommitment: signed.templateCommitment, signingLease: null,
       signed: { rawTransaction: signed.rawTransaction, hash: signed.hash, maximumExecutionCost: signed.maximumExecutionCost },
-      observation: null, historicalCanonicalObservation: null, highestObservedHead: null, observationSavedAt: null, revision: 3 };
+      observation: null, historicalCanonicalObservation: null, highestObservedHead: null, observationSavedAt: null, releasedAt: null, reservedWei: null, revision: 3 };
     observed.length = 0; traces.length = 0;
   });
   afterAll(async () => {
@@ -232,7 +232,9 @@ describe.skipIf(!available)("read-only signed deployment observation against the
       templateCommitment: operation.templateCommitment, transactionHash: receipt.transactionHash, dispatchEligible: false,
       transaction: { state: "canonical-success", receipt: { status: "success", gasUsed: BigInt(receipt.gasUsed).toString(),
         effectiveGasPrice: BigInt(receipt.effectiveGasPrice).toString(), transactionIndex: BigInt(receipt.transactionIndex).toString(),
-        block: { blockHash: receipt.blockHash, blockNumber: BigInt(receipt.blockNumber).toString() } } },
+        block: { blockHash: receipt.blockHash, blockNumber: BigInt(receipt.blockNumber).toString() } },
+        // The lane is released on this: the sender's nonce at the observed head is past the inclusion.
+        nonce: { confirmed: String(BigInt(operation.template!.transaction.nonce) + 1n), pending: String(BigInt(operation.template!.transaction.nonce) + 1n) } },
       wallet: { state: "verified", address: enrollment.creation!.address.toLowerCase(), initializerHash: enrollment.creation!.initializerHash,
         creationTransaction: receipt.transactionHash },
       fees: { executionWei: (BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice)).toString(),

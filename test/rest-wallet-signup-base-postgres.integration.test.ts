@@ -43,7 +43,7 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 5 });
     for (const name of [...new Set([...walletLoginTestMigrations, "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql", "018_rest_wallet_deployment_observations.sql",
-      "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "027_wallet_signup.sql", "028_wallet_recovery.sql",
+      "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "054_wallet_deployment_inclusion_release.sql", "027_wallet_signup.sql", "028_wallet_recovery.sql",
       "029_wallet_recovery_mapping.sql", "033_wallet_unproved_recovery_expiry.sql", "030_wallet_recovery_flow.sql", "031_wallet_recovery_dispatch.sql",
       "034_wallet_deployment_base.sql", "035_wallet_recovery_base.sql", "045_wallet_device_addition.sql"])].sort())
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
@@ -54,7 +54,7 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
     if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
   });
 
-  it("creates one wallet through a reserved admission, one send and a complete-fee settlement, then admits the next user", async () => {
+  it("creates two wallets back to back: each lane released at inclusion, each fee settled at finality in nonce order", async () => {
     const enrollments = new PostgresWalletEnrollmentStore(pool), deployments = new PostgresWalletDeploymentStore(pool);
     const base = { url: fixture.endpoint, genesisHash: fixture.genesisHash };
     const settlement = createBaseWalletDeploymentSettlement({ ...base, utility: fixture.utility });
@@ -76,8 +76,9 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
     const events: string[] = [];
     const login = new PostgresWalletLoginStore(pool, { rpId, origin: issuer });
     let recoveryTarget: Pick<Parameters<typeof exerciseWalletRecoveryEvm>[0], "enrollment" | "originalKey" | "originalSessionToken"> | null = null;
+    const operations: string[] = [];
     const signup = createLocalWalletSignup({ flows, enrollments, deployments, settlement, execution, smart, authority,
-      registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id,
+      registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id, releasedObservationIntervalMs: 0,
       onEvent: event => events.push(`${event.stage}:${event.outcome}`) });
     for (let index = 0; index < 2; index++) {
       const begun = await signup.begin({ recoveryOwner: enrollmentBackupAccount.address, passkeyName: "Juicebox test" }), flowToken = begun.flowToken;
@@ -116,9 +117,16 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
       expect(fixture.sends()).toHaveLength(index + 1);
       await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.leaseUntil - Date.now() + 15)));
       await signup.tick();
-      expect((await deployments.get(operation.id))!.observation).toMatchObject({ transaction: { state: "canonical-success" }, wallet: { state: "verified" }, finality: { state: "unfinalized" } });
+      const included = (await deployments.get(operation.id))!;
+      expect(included.observation).toMatchObject({ transaction: { state: "canonical-success", nonce: { confirmed: String(index + 3), pending: String(index + 3) } },
+        wallet: { state: "verified" }, finality: { state: "unfinalized" } });
       expect((await signup.status(flowToken)).phase).toBe("awaiting_activation");
       expect(await deployments.getSettlement(operation.id)).toBeNull();
+      // Released at inclusion with the Base reservation held: the next user is admitted before finality.
+      expect(included.reservedWei).toBe(dispatch.admission.reservation!.totalWei);
+      expect((await deployments.loadFundingContext(fixture.configuration.id)).pool).toMatchObject({ activeOperationId: null,
+        accounting: { nextNonce: String(index + 3), sequence: 0, spentWei: "0" } });
+      expect(events).toContain("deployment:released"); operations.push(operation.id);
       // Activation and fresh login complete before treasury finality, as on the local pilot.
       expect((await signup.activate(flowToken)).phase).toBe("preparing_sign_in");
       expect((await authority.refreshAuthority(record.receipt!.accountId)).snapshot.readiness).toBe("verified");
@@ -127,19 +135,31 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
         assertion: signGet({ ...credential, challenge: begunLogin.login.challenge, rpId, origin: issuer }) });
       expect(loggedIn.session.accountId).toBe(record.receipt!.accountId);
       recoveryTarget = { enrollment: record, originalKey: credential, originalSessionToken: loggedIn.sessionToken };
-      await fixture.rpc("anvil_mine", ["0x41", "0x0"]);
+      expect(fixture.sends()).toHaveLength(index + 1);
+    }
+    // Both inclusions wait for finality together; the treasury debits them in nonce order.
+    const before = await deployments.loadFundingContext(fixture.configuration.id);
+    expect(before.pool).toMatchObject({ activeOperationId: null, accounting: { nextNonce: "4", sequence: 0, spentWei: "0" } });
+    expect(BigInt(before.pool.reservedWei)).toBeGreaterThan(0n);
+    expect((await deployments.listUnresolved()).items.map(item => item.id).sort()).toEqual([...operations].sort());
+    await fixture.rpc("anvil_mine", ["0x41", "0x0"]);
+    let spent = 0n;
+    for (const [index, id] of operations.entries()) {
       await signup.tick();
-      const settled = (await deployments.getSettlement(operation.id))!;
+      const settled = (await deployments.getSettlement(id))!;
       expect(settled).toMatchObject({ nonce: String(index + 2), nextNonce: String(index + 3), sequence: index + 1 });
       expect(settled.evidence.fees.profile).toBe("base-fjord-jovian-receipt-v1");
       const fees = settled.evidence.fees as { executionWei: string; l1Wei: string; operatorWei: string; totalWei: string };
       expect(BigInt(fees.totalWei)).toBe(BigInt(fees.executionWei) + BigInt(fees.l1Wei) + BigInt(fees.operatorWei));
       expect(BigInt(fees.l1Wei)).toBeGreaterThan(0n); expect(BigInt(fees.operatorWei)).toBeGreaterThan(0n);
+      spent += BigInt(fees.totalWei);
+      expect(BigInt(settled.spentWei)).toBe(spent);
       const funding = await deployments.loadFundingContext(fixture.configuration.id);
       expect(funding.pool.activeOperationId).toBeNull();
-      expect(funding.pool.accounting).toMatchObject({ spentWei: settled.spentWei, nextNonce: String(index + 3), fence: null });
-      expect(fixture.sends()).toHaveLength(index + 1);
+      expect(funding.pool.accounting).toMatchObject({ spentWei: String(spent), nextNonce: "4", sequence: index + 1, fence: null });
+      if (index === 0) expect(await deployments.getSettlement(operations[1]!)).toBeNull();
     }
+    expect((await deployments.loadFundingContext(fixture.configuration.id)).pool.reservedWei).toBe("0");
     expect(events).toContain("deployment:settled");
     expect((await deployments.listUnresolved()).items).toEqual([]);
     expect(await fixture.rpc("eth_getTransactionCount", [fixture.sender, "latest"])).toBe("0x4");
