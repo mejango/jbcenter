@@ -40,7 +40,15 @@ const readMethods = new Set(["eth_chainId", "eth_getBlockByNumber", "eth_getBloc
   "eth_getTransactionCount", "eth_getTransactionReceipt", "eth_getTransactionByHash", "eth_call", "eth_estimateGas",
   "eth_getTransactionByBlockHashAndIndex", "eth_getRawTransactionByHash", "eth_getLogs", "debug_traceTransaction"]);
 function invalid(): never { throw new RestError(500, "WALLET_DEPLOYMENT_BASE_INVALID", "The Base deployment adapter requires Center's Dwellir endpoint and reviewed pins."); }
-function unavailable(): never { throw new RestError(502, "WALLET_DEPLOYMENT_BASE_UNAVAILABLE", "The configured Base provider could not prove the pinned chain and fee runtimes."); }
+function unavailable(detail?: Record<string, string | number>): never {
+  throw new RestError(502, "WALLET_DEPLOYMENT_BASE_UNAVAILABLE", "The configured Base provider could not prove the pinned chain and fee runtimes.", detail);
+}
+/** A bounded, URL-free description of an upstream failure for the log: never the provider's payload. */
+function upstreamReason(error: unknown): string {
+  const cause = error instanceof Error && error.cause instanceof Error ? error.cause : error;
+  const text = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
+  return text.replace(/https?:\/\/\S+/g, "<url>").slice(0, 120);
+}
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function word(value: unknown): value is Hex { return typeof value === "string" && /^0x[0-9a-fA-F]{64}$/.test(value) && BigInt(value) !== 0n; }
 const quantity = (value: unknown) => walletDeploymentQuantity(value, unavailable);
@@ -71,8 +79,14 @@ export function createBaseWalletDeploymentReader(options: BaseWalletDeploymentOp
   let sequence = 0;
   async function request(method: string, params: readonly unknown[], signal?: AbortSignal): Promise<unknown> {
     const gateway = method === "eth_sendRawTransaction" ? gateways.send : method === "debug_traceTransaction" ? gateways.traces : gateways.reads;
-    const answer = await gateway.request(8453, { jsonrpc: "2.0", id: ++sequence, method, params }, signal);
-    if (!record(answer) || answer.error || !Object.hasOwn(answer, "result")) unavailable();
+    let answer: unknown;
+    try { answer = await gateway.request(8453, { jsonrpc: "2.0", id: ++sequence, method, params }, signal); }
+    catch (error) { if (signal?.aborted) throw error; unavailable({ method, upstream: upstreamReason(error) }); }
+    if (!record(answer) || !Object.hasOwn(answer, "result") || answer.error) {
+      const failure = record(answer) && record(answer.error) ? answer.error : null;
+      // The gateway already replaces the provider's error message; its code is the useful part.
+      unavailable({ method, ...(failure ? { rpcCode: Number(failure.code) } : { envelope: "invalid" }) });
+    }
     return answer.result;
   }
   const reads: RestRpc = { request(chain, method, params, signal) {
@@ -82,7 +96,7 @@ export function createBaseWalletDeploymentReader(options: BaseWalletDeploymentOp
   async function identity(rpc: WalletDeploymentRpcScope, at?: RestBlockEvidence): Promise<WalletDeploymentEnvironment> {
     const tag = at ? { blockHash: at.blockHash, requireCanonical: true as const } : "latest";
     const [chain, genesis] = await Promise.all([rpc.request("eth_chainId", []), rpc.request("eth_getBlockByNumber", ["0x0", false])]);
-    if (quantity(chain) !== 8453n || !record(genesis) || quantity(genesis.number) !== 0n || !same(genesis.hash, genesisHash)) unavailable();
+    if (quantity(chain) !== 8453n || !record(genesis) || quantity(genesis.number) !== 0n || !same(genesis.hash, genesisHash)) unavailable({ check: "chain-identity" });
     await Promise.all(baseWalletChainPins.predeploys.map(async pin => {
       const [proxyCode, implementation, implementationCode] = await Promise.all([
         rpc.request("eth_getCode", [pin.address, tag]), rpc.request("eth_getStorageAt", [pin.address, baseWalletChainPins.implementationSlot, tag]),
@@ -91,17 +105,17 @@ export function createBaseWalletDeploymentReader(options: BaseWalletDeploymentOp
       if (typeof proxyCode !== "string" || !/^0x(?:[0-9a-fA-F]{2}){1,49152}$/.test(proxyCode) || keccak256(proxyCode as Hex) !== baseWalletChainPins.proxyRuntimeCodeHash ||
           typeof implementation !== "string" || !same(implementation, padHex(pin.implementation, { size: 32 })) ||
           typeof implementationCode !== "string" || !/^0x(?:[0-9a-fA-F]{2}){1,49152}$/.test(implementationCode) ||
-          keccak256(implementationCode as Hex) !== pin.implementationRuntimeCodeHash) unavailable();
+          keccak256(implementationCode as Hex) !== pin.implementationRuntimeCodeHash) unavailable({ check: "predeploy", address: pin.address });
     }));
     return { kind: "base-mainnet", genesisHash };
   }
   /** L1 and operator pricing from the head block's own attributes deposit, for the exact signed bytes. */
   async function reserve(rpc: WalletDeploymentRpcScope, head: RestBlockEvidence, rawTransaction: Hex) {
     const block = await rpc.request("eth_getBlockByNumber", [toHex(BigInt(head.blockNumber)), false]);
-    if (!record(block) || !same(block.hash, head.blockHash) || !Array.isArray(block.transactions) || !word(block.transactions[0])) unavailable();
+    if (!record(block) || !same(block.hash, head.blockHash) || !Array.isArray(block.transactions) || !word(block.transactions[0])) unavailable({ check: "head-block" });
     const attributes = await rpc.request("eth_getTransactionByHash", [block.transactions[0]]);
     if (!record(attributes) || !same(attributes.hash, block.transactions[0]) || !same(attributes.blockHash, head.blockHash) ||
-        quantity(attributes.blockNumber) !== BigInt(head.blockNumber) || quantity(attributes.transactionIndex) !== 0n) unavailable();
+        quantity(attributes.blockNumber) !== BigInt(head.blockNumber) || quantity(attributes.transactionIndex) !== 0n) unavailable({ check: "l1-attributes" });
     const { parameters } = baseL1AttributesParameters(attributes);
     const priced = calculateBaseSignedFees({ rawTransaction, parameters });
     const digest = enrollmentDigest(Object.fromEntries(Object.entries(parameters).map(([key, value]) => [key, String(value)])));
@@ -132,7 +146,7 @@ export function createBaseWalletDeploymentSettlement(options: BaseWalletDeployme
       const fees = await observeBaseReceiptFees(rpc, context.operation.signed!.rawTransaction, receipt.block);
       if (fees.transactionHash !== context.operation.signed!.hash || fees.transactionIndex !== BigInt(receipt.transactionIndex) ||
           fees.gasUsed !== BigInt(receipt.gasUsed) || fees.effectiveGasPrice !== BigInt(receipt.effectiveGasPrice) ||
-          fees.status !== receipt.status || fees.executionWei !== BigInt(observation.fees.executionWei!)) unavailable();
+          fees.status !== receipt.status || fees.executionWei !== BigInt(observation.fees.executionWei!)) unavailable({ check: "settlement-fees" });
       return { profile: "base-fjord-jovian-receipt-v1", executionWei: String(fees.executionWei), l1Wei: String(fees.l1Wei),
         operatorWei: String(fees.operatorWei), totalWei: String(fees.totalWei) };
     } });

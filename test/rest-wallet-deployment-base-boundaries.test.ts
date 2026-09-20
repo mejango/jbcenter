@@ -9,6 +9,8 @@ import { assertWalletDeploymentAccounting, assertWalletDeploymentFundingEvidence
 import { assertWalletDeploymentDispatchAdmission, type WalletDeploymentDispatchAdmission } from "../src/rest/wallet/deploymentDispatch.js";
 import { enrollmentDigest } from "../src/rest/wallet/enrollment.js";
 import { localAnvilWalletDeploymentLimits } from "../src/rest/wallet/deploymentLocalAnvil.js";
+import { createBaseWalletDeploymentReader } from "../src/rest/wallet/deploymentBase.js";
+import { RestError } from "../src/rest/core.js";
 
 const base: WalletDeploymentEnvironment = { kind: "base-mainnet", genesisHash: `0x${"11".repeat(32)}` };
 const baseFees = { profile: "base-fjord-jovian-receipt-v1" as const, executionWei: "500000000000", l1Wei: "16289011957", operatorWei: "7", totalWei: "516289011964" };
@@ -137,5 +139,26 @@ describe("hosted Base deployment boundary shapes", () => {
     delete value.reservation; value.version = "center-wallet-deployment-local-admission-v2"; value.feeScope = "local-execution-only";
     value.baseTotalAffordability = "unknown"; value.environment.kind = "unforked-anvil";
     expect(() => assertWalletDeploymentDispatchAdmission(value, context, now)).toThrow();
+  });
+});
+
+describe("Base provider failures name the method and a bounded reason for the log", () => {
+  const url = "http://127.0.0.1:18545";
+  async function failing(answer: () => Response, method = "eth_chainId") {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => answer()) as typeof fetch;
+    try {
+      const reader = createBaseWalletDeploymentReader({ url, genesisHash: base.genesisHash });
+      return await reader.reads.request(8453, method, []).then(() => null, (error: unknown) => error as RestError);
+    } finally { globalThis.fetch = original; }
+  }
+  it("keeps an upstream HTTP status as the cause", async () => {
+    const error = await failing(() => new Response("slow down", { status: 429 }));
+    expect(error?.code).toBe("WALLET_DEPLOYMENT_BASE_UNAVAILABLE");
+    expect(error?.details).toEqual({ method: "eth_chainId", upstream: "Error: upstream status 429" });
+  });
+  it("keeps a JSON-RPC error code, never the provider's message", async () => {
+    const error = await failing(() => Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32005, message: `rate limited, see ${url}/docs` } }), "eth_getBalance");
+    expect(error?.details).toEqual({ method: "eth_getBalance", rpcCode: -32005 });
   });
 });

@@ -331,9 +331,8 @@ export function createRpcGateway(
           signal?.removeEventListener("abort", onAbort);
         }
       }
-      void lastError;
       signal?.throwIfAborted();
-      throw new RpcUnavailable("RPC upstreams are unavailable");
+      throw new RpcUnavailable("RPC upstreams are unavailable", { cause: lastError });
     },
   };
 }

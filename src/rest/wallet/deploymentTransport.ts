@@ -56,7 +56,19 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
   if (!Number.isSafeInteger(limits.admissionLifetimeMs) || limits.admissionLifetimeMs < 1 || limits.admissionLifetimeMs > bounds.admissionLifetimeMs)
     throw new RestError(500, "WALLET_DEPLOYMENT_CONFIG_INVALID", "The admission lifetime exceeds the reviewed bound.");
   function invalid(): never { throw new RestError(403, "WALLET_DEPLOYMENT_TRANSPORT_INVALID", "A current exact deployment capability is required."); }
-  function unavailable(): never { throw new RestError(502, "WALLET_DEPLOYMENT_TRANSPORT_UNAVAILABLE", "The configured chain could not verify deployment admission."); }
+  function unavailable(check?: string | Record<string, unknown>): never {
+    throw new RestError(502, "WALLET_DEPLOYMENT_TRANSPORT_UNAVAILABLE", "The configured chain could not verify deployment admission.",
+      typeof check === "string" ? { check } : check);
+  }
+  /** The outer 502 keeps the inner failure's code and bounded scalar details, so the worker log names it. */
+  function cause(error: unknown): Record<string, unknown> {
+    if (error instanceof RestError) {
+      const scalars = error.details && typeof error.details === "object"
+        ? Object.entries(error.details as Record<string, unknown>).filter(([, value]) => ["string", "number", "boolean"].includes(typeof value)).slice(0, 8) : [];
+      return { cause: error.code, ...Object.fromEntries(scalars) };
+    }
+    return { cause: (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).replace(/https?:\/\/\S+/g, "<url>").slice(0, 120) };
+  }
   const quantity = (value: unknown) => walletDeploymentQuantity(value, unavailable), block = (value: unknown, at: number) => walletDeploymentBlock(value, at, unavailable);
   function decimal(value: unknown): bigint {
     if (typeof value !== "string" || !/^(0|[1-9][0-9]{0,77})$/.test(value) || BigInt(value) >= 1n << 256n) invalid();
@@ -64,7 +76,7 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
   }
   async function identity(rpc: WalletDeploymentRpcScope): Promise<WalletDeploymentEnvironment> {
     const environment = await adapter.identity(rpc);
-    if (environment.kind !== kind || !same(environment.genesisHash, genesisHash)) unavailable();
+    if (environment.kind !== kind || !same(environment.genesisHash, genesisHash)) unavailable("environment");
     return environment;
   }
   const capabilities = new WeakMap<WalletDeploymentDispatchAdmission, { digest: string; raw: Hex; hash: Hex; environment: string; deadline: number }>();
@@ -102,17 +114,17 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
       const rpc = operationRpc(reads, limits, signal);
       try {
         fresh(); const environment = await identity(rpc), environmentDigest = enrollmentDigest(environment);
-        if (accounting && environmentDigest !== enrollmentDigest(accounting.environment)) unavailable();
+        if (accounting && environmentDigest !== enrollmentDigest(accounting.environment)) unavailable("accounting-environment");
         const latest = block(await rpc.request("eth_getBlockByNumber", ["latest", false]), observedAt), head = latest.head;
         if (enrollmentDigest(head) !== enrollmentDigest(observation.head) ||
             (operation.highestObservedHead !== null && BigInt(head.blockNumber) < decimal(operation.highestObservedHead))) invalid();
         const observedBlock = block(await rpc.request("eth_getBlockByNumber", [toHex(BigInt(observation.head.blockNumber)), false]), observedAt);
-        if (enrollmentDigest(observedBlock.head) !== enrollmentDigest(observation.head)) unavailable();
+        if (enrollmentDigest(observedBlock.head) !== enrollmentDigest(observation.head)) unavailable("observed-block");
         async function settlementAnchor() {
           if (!accounting?.lastSettlementAnchor) return;
           const prior = accounting.lastSettlementAnchor, current = await rpc.request("eth_getBlockByNumber", [toHex(BigInt(prior.blockNumber)), false]);
           if (!record(current) || !same(current.hash, prior.blockHash) || quantity(current.number) !== BigInt(prior.blockNumber) ||
-              quantity(current.timestamp) !== BigInt(prior.timestamp)) unavailable();
+              quantity(current.timestamp) !== BigInt(prior.timestamp)) unavailable("settlement-anchor");
         }
         await settlementAnchor();
         const tag = { blockHash: head.blockHash, requireCanonical: true as const }, tx = operation.template.transaction;
@@ -122,10 +134,10 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
           manifest.creationProfile!.multiSend, ...manifest.policies];
         for (let start = 0; start < pins.length; start += 8) await Promise.all(pins.slice(start, start + 8).map(async pin => {
           const code = await snapshot.request("eth_getCode", [pin.address]);
-          if (typeof code !== "string" || !/^0x(?:[0-9a-fA-F]{2}){1,49152}$/.test(code) || !same(keccak256(code as Hex), pin.runtimeCodeHash)) unavailable();
+          if (typeof code !== "string" || !/^0x(?:[0-9a-fA-F]{2}){1,49152}$/.test(code) || !same(keccak256(code as Hex), pin.runtimeCodeHash)) unavailable("pin");
         }));
         const signer = await inspectPasskeyCreationSigner({ manifest, publicKey: enrollment.candidate!.publicKey, snapshot });
-        if (!same(signer.address, enrollment.creation!.bootstrap.signerAddress)) unavailable();
+        if (!same(signer.address, enrollment.creation!.bootstrap.signerAddress)) unavailable("signer");
         const [balanceRaw, confirmedRaw, pendingRaw, receipt, transaction, ...codes] = await Promise.all([
           snapshot.request("eth_getBalance", [config.sender]), snapshot.request("eth_getTransactionCount", [config.sender]),
           rpc.request("eth_getTransactionCount", [config.sender, "pending"]), rpc.request("eth_getTransactionReceipt", [signed.hash]),
@@ -133,20 +145,23 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
             .map(address => snapshot.request("eth_getCode", [address])),
         ]);
         const balance = quantity(balanceRaw), nonce = BigInt(tx.nonce);
-        if (receipt !== null || transaction !== null || codes.some(code => code !== "0x") || quantity(confirmedRaw) !== nonce || quantity(pendingRaw) !== nonce ||
-            balance < decimal(remainingWei) || balance < BigInt(signed.maximumExecutionCost) ||
-            BigInt(tx.maxFeePerGas) < latest.baseFee + BigInt(tx.maxPriorityFeePerGas)) unavailable();
+        // The log names the first failed check; the outcome is the same bounded "not now".
+        const blocked = receipt !== null ? "receipt" : transaction !== null ? "transaction" : codes.some(code => code !== "0x") ? "code"
+          : quantity(confirmedRaw) !== nonce ? "confirmed-nonce" : quantity(pendingRaw) !== nonce ? "pending-nonce"
+          : balance < decimal(remainingWei) || balance < BigInt(signed.maximumExecutionCost) ? "balance"
+          : BigInt(tx.maxFeePerGas) < latest.baseFee + BigInt(tx.maxPriorityFeePerGas) ? "fee-ceiling" : null;
+        if (blocked) unavailable(blocked);
         const call = { type: "0x2", from: config.sender, to: tx.to, data: tx.data, value: "0x0", nonce: toHex(nonce),
           gas: toHex(BigInt(tx.gas)), maxFeePerGas: toHex(BigInt(tx.maxFeePerGas)), maxPriorityFeePerGas: toHex(BigInt(tx.maxPriorityFeePerGas)), accessList: [] };
         const [simulation, estimated] = await Promise.all([snapshot.request("eth_call", [call]), rpc.request("eth_estimateGas", [call, toHex(BigInt(head.blockNumber))])]);
         if (!same(simulation, encodeAbiParameters([{ type: "address" }], [enrollment.creation!.address])) ||
-            quantity(estimated) === 0n || quantity(estimated) > BigInt(tx.gas)) unavailable();
+            quantity(estimated) === 0n || quantity(estimated) > BigInt(tx.gas)) unavailable("simulation");
         let reservation: WalletDeploymentBaseReservation | null = null;
         if (adapter.reserve) {
           const priced = await adapter.reserve(rpc, head, signed.rawTransaction);
           const totalWei = BigInt(signed.maximumExecutionCost) + walletDeploymentBaseReservationMargin * (BigInt(priced.l1WeiAtParameters) + BigInt(priced.operatorMaximumWei));
           // ponytail: fixed 2x margin on the uncapped L1/operator portion; a reservation is not a fee ceiling.
-          if (totalWei > decimal(remainingWei) || balance < totalWei) unavailable();
+          if (totalWei > decimal(remainingWei) || balance < totalWei) unavailable("reservation");
           reservation = { ...priced, totalWei: String(totalWei) };
         }
         const [canonical, pendingAgain, environmentAgain] = await Promise.all([
@@ -154,7 +169,7 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
         ]);
         const finalBlock = block(canonical, now());
         if (enrollmentDigest(finalBlock.head) !== enrollmentDigest(head) || finalBlock.baseFee !== latest.baseFee ||
-            quantity(pendingAgain) !== nonce || enrollmentDigest(environmentAgain) !== environmentDigest) unavailable();
+            quantity(pendingAgain) !== nonce || enrollmentDigest(environmentAgain) !== environmentDigest) unavailable("recheck");
         await settlementAnchor();
         fresh(); rpc.check();
         const common = { operationId: operation.id, poolConfigurationDigest: pool.configurationDigest, templateCommitment: signed.templateCommitment,
@@ -169,7 +184,7 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
               environment: { kind: "unforked-anvil", genesisHash, head }, feeScope: "local-execution-only", baseTotalAffordability: "unknown" };
         capabilities.set(admission, { digest: enrollmentDigest(admission), raw: signed.rawTransaction, hash: signed.hash, environment: environmentDigest, deadline });
         return admission;
-      } catch { return unavailable(); } finally { rpc.close(); }
+      } catch (error) { return unavailable(cause(error)); } finally { rpc.close(); }
     },
     async broadcast(admission: WalletDeploymentDispatchAdmission, signal?: AbortSignal, dispatchLeaseUntil?: number): Promise<"accepted" | "unknown"> {
       const capability = capabilities.get(admission);
