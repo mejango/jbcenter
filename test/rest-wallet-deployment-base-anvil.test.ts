@@ -71,6 +71,11 @@ describe("hosted Base deployment producers on a Base-shaped local chain", () => 
     expect(fixture.sends()[0]!.params).toEqual([context.operation.signed!.rawTransaction]);
     await expect(producer().observeSettlement(context)).rejects.toMatchObject({ status: 502 });
     await fixture.rpc("anvil_mine", ["0x201", "0x0"]);
+    // Released at inclusion: the lane is empty, nextNonce is past this operation and its full
+    // Base reservation is held until this settlement debits the actual fee.
+    context.operation.releasedAt = Date.now(); context.operation.reservedWei = admission.reservation!.totalWei;
+    context.pool.activeOperationId = null; context.pool.reservedWei = admission.reservation!.totalWei;
+    context.pool.accounting!.nextNonce = String(BigInt(context.operation.template!.transaction.nonce) + 1n);
     fixture.requests.length = 0;
     // Base keeps mining during the pass: the funding read must pair with the observation's head
     // by number, not expect "latest" to stand still for twenty seconds.

@@ -19,6 +19,12 @@ async function fixture() {
     balanceWei: context.pool.configuration.allocationWei, previousAnchor: null };
   return { context, evidence, now, execution };
 }
+/** Released at inclusion: the lane is empty, nextNonce is past this operation and its execution ceiling is reserved. */
+function released(context: any, execution: any, now: number) {
+  const reservedWei = execution.operation.signed!.maximumExecutionCost;
+  return { ...execution, pool: { ...context.pool, accounting: { ...context.pool.accounting!, nextNonce: "2" }, activeOperationId: null, reservedWei },
+    operation: { ...execution.operation, releasedAt: now, reservedWei }, dispatch: null, lastSettlement: null };
+}
 describe("qualified local sequential deployment accounting", () => {
   it("retains the original allocation while deriving remaining capital after a debit", async () => {
     const { context } = await fixture();
@@ -45,7 +51,7 @@ describe("qualified local sequential deployment accounting", () => {
     expect(() => assertWalletDeploymentFundingEvidence(evidence, context, now)).toThrow();
   });
   it.each([
-    (v: any) => { v.spentWei = "1"; }, (v: any) => { v.nextNonce = "2"; }, (v: any) => { v.lastSettlementId = "invalid"; },
+    (v: any) => { v.spentWei = "1"; }, (v: any) => { v.nextNonce = "0"; }, (v: any) => { v.nextNonce = "10"; }, (v: any) => { v.lastSettlementId = "invalid"; },
     (v: any) => { v.sequence = -1; }, (v: any) => { v.environment.kind = "base"; }, (v: any) => { v.fence = {}; },
     (v: any) => { delete v.fence; },
   ])("rejects incoherent persisted accounting %#", async mutate => {
@@ -59,7 +65,7 @@ describe("qualified local sequential deployment accounting", () => {
   });
   it("accepts complete local execution fees separately from unchanged Base fee unknowns", async () => {
     const { context, execution, now } = await fixture();
-    const settlementContext = { ...execution, pool: { ...context.pool, activeOperationId: execution.operation.id }, dispatch: null, lastSettlement: null };
+    const settlementContext = released(context, execution, now);
     const evidence = syntheticSettlement(settlementContext, now);
     expect(assertWalletDeploymentSettlementEvidence(evidence, settlementContext, now)).toEqual(evidence);
     expect(evidence.observation.fees).toMatchObject({ l1Wei: null, operatorWei: null, totalWei: null });
@@ -73,7 +79,7 @@ describe("qualified local sequential deployment accounting", () => {
     (v: any) => { v.observation.transaction.receipt.gasUsed = "1500001"; },
   ])("rejects settlement authority, fee, original clock or exact receipt drift %#", async mutate => {
     const { context, execution, now } = await fixture();
-    const settlementContext = { ...execution, pool: { ...context.pool, activeOperationId: execution.operation.id }, dispatch: null, lastSettlement: null };
+    const settlementContext = released(context, execution, now);
     const evidence = syntheticSettlement(settlementContext, now); mutate(evidence);
     expect(() => assertWalletDeploymentSettlementEvidence(evidence, settlementContext, now)).toThrow();
   });

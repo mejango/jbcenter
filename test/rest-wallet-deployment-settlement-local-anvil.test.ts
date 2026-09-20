@@ -35,9 +35,17 @@ describe("qualified local deployment settlement producer", () => {
       lastSettlementId: null, lastSettlementAnchor: null, fence: null };
     return { ...context, pool: { ...context.pool, accounting }, dispatch: null, lastSettlement: null };
   }
+  /** The send lands and the lane is released at its inclusion; the producer settles released operations. */
   async function mine(context: WalletDeploymentSettlementContext) {
     await fixture.rpc("eth_sendRawTransaction", [context.operation.signed!.rawTransaction]);
     await fixture.rpc("anvil_mine", ["0x41", "0x0"]);
+    context.operation.releasedAt = Date.now(); context.operation.reservedWei = context.operation.signed!.maximumExecutionCost;
+  }
+  /** The pool after the lane left this operation at inclusion: empty lane, nextNonce past it, ceiling reserved. */
+  function releasedPool(context: WalletDeploymentSettlementContext): WalletDeploymentSettlementContext {
+    const reservedWei = context.operation.signed!.maximumExecutionCost;
+    return { ...context, pool: { ...context.pool, activeOperationId: null, reservedWei,
+      accounting: { ...context.pool.accounting!, nextNonce: String(BigInt(context.operation.template!.transaction.nonce) + 1n) } } };
   }
   async function finalized(context: WalletDeploymentSettlementContext) {
     await mine(context);
@@ -55,7 +63,7 @@ describe("qualified local deployment settlement producer", () => {
   });
 
   it("proves actual complete local fees and R-C balance using the source finalized observer", async () => {
-    const context = await initialized(), evidence = await finalized(context), receipt = evidence.observation.transaction.receipt!;
+    const context = releasedPool(await initialized()), evidence = await finalized(context), receipt = evidence.observation.transaction.receipt!;
     const cost = BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice);
     expect(evidence.observation.transaction.state).toBe("canonical-success");
     expect(evidence.observation.wallet.state).toBe("verified");
@@ -84,7 +92,7 @@ describe("qualified local deployment settlement producer", () => {
   });
 
   it("charges a real finalized revert without claiming a created wallet", async () => {
-    const context = await initialized();
+    const context = releasedPool(await initialized());
     await fixture.rpc("anvil_setCode", [fixture.manifest.factory.address, "0x60006000fd"]);
     const evidence = await finalized(context), cost = BigInt(evidence.fees.totalWei);
     expect(evidence.observation.transaction.state).toBe("canonical-revert");
@@ -242,6 +250,7 @@ describe("qualified local deployment settlement producer", () => {
           lastSettlementId: null, lastSettlementAnchor: null, fence: null } } };
       await isolated.rpc("eth_sendRawTransaction", [context.operation.signed!.rawTransaction]);
       await isolated.rpc("anvil_mine", ["0x41", "0x0"]);
+      context.operation.releasedAt = Date.now(); context.operation.reservedWei = context.operation.signed!.maximumExecutionCost;
       const evidence = await value.observeSettlement(context);
       const pool = { ...context.pool, activeOperationId: null, accounting: { ...context.pool.accounting!, sequence: 1,
         spentWei: evidence.fees.totalWei, nextNonce: evidence.finalizedNonce, lastSettlementId: context.operation.id,

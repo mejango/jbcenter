@@ -308,7 +308,9 @@ async function signedFixture(override?: Override, options: Partial<Omit<WalletDe
 
 async function minedFixture() {
   let tx: unknown = null, receipt: Record<string, unknown> | null = null, expectedHash: Hex | null = null;
+  // The mined inclusion moved the sender's nonce past the template's.
   const f = await signedFixture((method, _params, result) => method === "eth_getTransactionByHash" ? tx : method === "eth_getTransactionReceipt" ? receipt :
+    method === "eth_getTransactionCount" && receipt ? "0x2" :
     method === "eth_getBlockByNumber" && expectedHash ? { ...result as object, transactions: [expectedHash] } : result);
   expectedHash = f.operation.signed!.hash;
   tx = { ...f.wire, blockNumber: "0x64", blockHash, transactionIndex: "0x0" };
