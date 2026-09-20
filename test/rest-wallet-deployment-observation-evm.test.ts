@@ -250,6 +250,19 @@ describe.skipIf(!available)("read-only signed deployment observation against the
     expect({ enrollment, operation }).toEqual(inputs);
   });
 
+  it("stops at the verified receipt when only the inclusion is asked for, with no trace or history read", async () => {
+    const receipt = await broadcast(), full = await observe();
+    observed.length = 0; traces.length = 0;
+    const result = assertWalletDeploymentObservation(await observer().observeSigned({ enrollment, operation }, undefined, { inspection: "inclusion" }));
+    // The same transaction, receipt, creation log, nonce and finality facts; the wallet's state is left for the inspection that follows.
+    expect(result).toMatchObject({ transaction: full.transaction, finality: full.finality, fees: full.fees,
+      wallet: { state: "unknown", reason: "inspection-deferred", stateHash: null, evidence: null, creationTransaction: null,
+        address: enrollment.creation!.address.toLowerCase(), initializerHash: enrollment.creation!.initializerHash } });
+    expect(result.transaction.receipt?.block.blockHash).toBe(receipt.blockHash);
+    expect(traces).toEqual([]);
+    expect(observed.filter(call => call.method === "eth_getLogs")).toEqual([]);
+    expect(observed.length).toBeLessThan(16);
+  });
   it("repeats canonical observation after enrollment and approval expiry with no chain or record mutation", async () => {
     await broadcast();
     clock = Math.max(approval.expiresAt, enrollment.intent.expiresAt) + 86400000;

@@ -143,6 +143,30 @@ describe("configured canonical authority producer", () => {
     expect(seen).toEqual([[proxyLog], [], []]);
     expect(f.calls.filter(c => c.method === "eth_getTransactionReceipt").map(c => c.params)).toEqual([[hash(1005)], [hash(1005)], [hash(1005)]]);
   });
+  it("takes a carried verification as the first observation at its own block, once that block is re-checked canonical", async () => {
+    // The creation worker verified the account at block 98 behind the released lane; the head is 100.
+    const carried = { ...structuredClone(state), evidence: block(98),
+      modules: { ...structuredClone(state.modules!), details: { ...structuredClone(state.modules!.details as Record<string, unknown>),
+        provenance: { ...structuredClone(state.modules!.details as { provenance: Record<string, unknown> }).provenance, throughBlock: "98", throughBlockHash: hash(98) } } } } as SmartAccountState;
+    const f = fixture(undefined, { carried: (manifestId, address) => manifestId === manifest.id && address === state.address ? carried : undefined });
+    const result = await f.chain.observe(f.input);
+    expect(result).toMatchObject({ eligibility: "matched", head: block(98), identity: { stateHash: state.stateHash } });
+    expect(mocked.inspect).not.toHaveBeenCalled();
+    expect(f.calls.filter(c => c.method === "eth_getBlockByNumber").map(c => c.params[0])).toEqual(["latest", toHex(98), toHex(100), toHex(98)]); // the final recheck covers every anchor
+  });
+  it.each(["reorged block", "different bound state", "prior observation", "ahead of head", "wrong account"])("inspects in full instead of carrying a %s", async mode => {
+    const carried = { ...structuredClone(state), evidence: block(98, mode === "reorged block" ? hash(9998) : hash(98)),
+      ...(mode === "different bound state" ? { stateHash: hash(1009) } : {}), ...(mode === "wrong account" ? { address: `0x${"33".repeat(20)}` as Hex } : {}),
+      modules: { ...structuredClone(state.modules!), details: { ...structuredClone(state.modules!.details as Record<string, unknown>),
+        provenance: { ...structuredClone(state.modules!.details as { provenance: Record<string, unknown> }).provenance, throughBlock: "98", throughBlockHash: hash(98) } } } } as SmartAccountState;
+    if (mode === "ahead of head") carried.evidence = block(101);
+    const f = fixture(undefined, { carried: () => carried });
+    if (mode === "prior observation") f.input.prior = prior(f.input);
+    const result = await f.chain.observe(f.input);
+    expect(mocked.inspect).toHaveBeenCalledOnce();
+    expect(result.head).toEqual(block());
+    expect(result.eligibility).toBe("matched");
+  });
   it("proves a replaced prior anchor even when the new head is higher, before expensive inspection", async () => {
     const f = fixture(); f.input.prior = prior(f.input, block(95, hash(9995)));
     const result = await f.chain.observe(f.input);

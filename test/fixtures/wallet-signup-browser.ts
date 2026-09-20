@@ -185,10 +185,10 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     const originalAddress = await page.locator('#signup-address').textContent();
     networksWalletAddress = (originalAddress ?? '').toLowerCase();
     if (!kitMode) expect((await page.locator('#signup-recovery').textContent())?.toLowerCase()).toBe(enrollmentBackupAccount.address.toLowerCase());
-    // A manual check while creation is still running answers at once; the page's own polling then
-    // notices the created wallet, so the kit appears without another click.
-    await page.getByRole('button', { name: 'Check signup' }).click();
-    await contains('Still creating your account');
+    // Nothing to press while creation runs: the events stream (or the poll behind it) carries the
+    // view, so the kit appears without another click. A restart here would orphan a paid creation.
+    expect(await page.getByRole('button', { name: 'Check signup' }).isVisible()).toBe(false);
+    expect(await page.getByRole('button', { name: 'Start over' }).isVisible()).toBe(false);
     const cookie = (await context.cookies()).find(item => item.name === walletSignupCookie)!;
     const flow = (await flows.authenticate(cookie.value))!, deploymentId = flow.deploymentId!;
     await signup.tick();
@@ -259,7 +259,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       await page.getByRole('button', { name: 'Check signup' }).click();
     }
     // Setup is committed, but login needs the verified authority; the page says so and polls.
-    await contains('Preparing your login');
+    await contains('Finishing your login');
     expect(await page.locator('#wallet-status').getAttribute('data-state')).toBe('busy');
     expect(await page.getByRole('button', { name: 'Log in', exact: true }).isVisible()).toBe(false);
     releaseRefresh(); refreshHold = Promise.resolve();

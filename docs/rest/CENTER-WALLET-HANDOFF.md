@@ -74,7 +74,23 @@ at canonical inclusion (migration 054), so the next creation is admitted seconds
 the previous send lands; each finalized fee is settled behind it, in nonce order, from
 a queue of at most eight released inclusions that reserve their admitted maximum cost.
 Before public launch: add treasuries (pools) and parallelise the inspector's
-independent reads. Fewer than five passkey prompts
+independent reads.
+
+**Signup speed (2026-09-20):** the send goes out on the worker's first pass — the
+admission is pinned to the observed head by hash and only asks that `latest` be at
+or past it — and the approval's chain reads (treasury funding, creation preflight)
+run while the passkey prompt is up, held per approval inside the 20 s admission
+window and validated by the claim like fresh ones (`walletSignupSpeculation`); the
+worker is kicked at the claim. The page is told "ready" at the canonical receipt:
+the worker's active-operation read is `inspection: "inclusion"` (our exact
+transaction, its one ProxyCreation log, the sender nonce past it, finality), the
+lane is released on it, and the wallet's full inspection runs behind the release
+through the API's smart-account service, which remembers it. Activation binds from
+that remembered verification when it is under four minutes old (its block re-checked
+canonical) and the first authority observation after the binding carries the same
+state at its own block (`carried` on the authority chain: canonical, live, matching
+the bound state, no prior anchor past it); every later observation inspects in full.
+Settlement's observation is still the full one. Fewer than five passkey prompts
 (create, check, approve, setup, login) needs protocol changes (fold possession into
 the creation approval; fold the setup grant into login).
 

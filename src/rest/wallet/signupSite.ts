@@ -1,4 +1,5 @@
 import type { Hono, Context } from 'hono';
+import { streamSSE } from 'hono/streaming';
 import type { Address, Hex } from 'viem';
 import { RestError } from '../core.js';
 import { walletAppFields } from './appGrants.js';
@@ -15,7 +16,7 @@ export interface WalletSignupSiteOptions {
   /** The authority refresh worker hooks; a "preparing" view asks it to verify the new wallet. */
   refresh?: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
   signup: Pick<ReturnType<typeof createLocalWalletSignup>, 'begin' | 'status' | 'register' | 'proveEnrollment' |
-    'prepareDeployment' | 'approveDeployment' | 'activate' | 'beginResume' | 'completeResume'>;
+    'prepareDeployment' | 'approveDeployment' | 'activate' | 'beginResume' | 'completeResume' | 'watch'>;
 }
 function invalid(status = 400): never { throw new RestError(status, 'WALLET_SIGNUP_HTTP_INVALID', 'Reload the original signup and retry its current step.'); }
 /** Installed only by the dedicated wallet host. No trusted-app CORS grants signup access. */
@@ -42,19 +43,61 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
     return { view, csrfToken: walletCsrfToken(token), ...(replayed === undefined ? {} : { replayed }) };
   }
   // All typed-data uints are decimal JSON strings; no credential-bearing rows are serialized.
-  const json = (c: Context, value: unknown) => {
-    // Every view that is still preparing the login asks the worker for the authority observation
-    // the login needs. The queue dedupes by account; the page keeps polling state meanwhile.
-    const view = (value as { view?: { phase?: string; walletAddress?: string | null } } | null)?.view;
+  // Every view that is still preparing the login asks the worker for the authority observation
+  // the login needs. The queue dedupes by account; the page keeps reading state meanwhile.
+  const kick = (view: { phase?: string; walletAddress?: string | null } | null | undefined) => {
     if (options.refresh && view?.phase === 'preparing_sign_in' && view.walletAddress) {
       const refresh = options.refresh, accountId = `eip155:8453:${view.walletAddress.toLowerCase()}`;
       void refresh.request(accountId).then(() => refresh.tick()).catch(() => { /* The page polls; the worker retries. */ });
     }
-    return c.body(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? String(item) : item), 200, { 'Content-Type': 'application/json' });
+  };
+  const serialize = (value: unknown) => JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? String(item) : item);
+  const json = (c: Context, value: unknown) => {
+    kick((value as { view?: { phase?: string; walletAddress?: string | null } } | null)?.view);
+    return c.body(serialize(value), 200, { 'Content-Type': 'application/json' });
   };
   app.get(`${base}/create`, c => c.html(walletSignupPage({ base })));
   app.get(`${base}/assets/wallet-signup.js`, c => c.body(options.browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
   app.get(`${base}/assets/wallet-signup.css`, c => c.body(walletSignupCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
+  // The view, pushed: on connect, on every phase change this process's worker or an action reports,
+  // and re-read on a timer while creation or login preparation is under way (the worker may run in
+  // another replica; the authority refresh always does). A 15 s ping keeps the socket known-live.
+  // Bounded: 200 streams, at most 300 timed re-reads per stream (then the stream ends and the page
+  // polls), the refresh worker asked at most every 15 s per stream. Nothing durable is written here.
+  let streams = 0;
+  app.get(`${base}/signup/events`, async c => {
+    // Read-only, like `state`: the continuation cookie alone (EventSource cannot send the CSRF header).
+    const token = readWalletCookie(c.req.raw, walletSignupCookie);
+    if (!token) invalid(403);
+    let lastKick = 0;
+    const read = async () => {
+      const view = await signup.status(token), now = Date.now();
+      if (now - lastKick >= 15_000) { lastKick = now; kick(view); }
+      return view;
+    };
+    await read();
+    if (streams >= 200) throw new RestError(503, 'WALLET_SIGNUP_BUSY', 'Too many open signup streams. Polling continues.');
+    return streamSSE(c, async stream => {
+      let closed = false, finish!: () => void, sending = Promise.resolve(), timer: ReturnType<typeof setTimeout> | undefined, timed = 0;
+      const done = new Promise<void>(resolve => { finish = () => { closed = true; resolve(); }; stream.onAbort(finish); });
+      const send = () => { sending = sending.then(async () => {
+        if (closed) return;
+        const view = await read();
+        await stream.writeSSE({ data: serialize({ view }) });
+        clearTimeout(timer);
+        if (view.phase === 'preparing_sign_in' || view.phase === 'deploying') {
+          if (++timed > 300) finish();
+          else timer = setTimeout(() => void send(), view.phase === 'preparing_sign_in' ? 1000 : 2000);
+        }
+      }).catch(finish); return sending; };
+      let unwatch = () => {};
+      try { unwatch = await signup.watch(token, () => void send()); } catch { return; }
+      streams++;
+      const heartbeat = setInterval(() => { sending = sending.then(() => closed ? undefined : stream.writeSSE({ event: 'ping', data: '' })).catch(finish); }, 15_000);
+      try { await send(); await done; }
+      finally { clearTimeout(timer); clearInterval(heartbeat); unwatch(); streams--; }
+    });
+  });
   app.get(`${base}/signup/state`, async c => {
     const token = readWalletCookie(c.req.raw, walletSignupCookie);
     if (!token) return c.json({ view: null });

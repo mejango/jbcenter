@@ -24,7 +24,7 @@ function artifact(name: string, directory = "") {
   const bytes = readFileSync(new URL(`../../src/rest/smartAccounts/stack/${directory}artifacts/${name}.json`, import.meta.url));
   return { bytes, value: JSON.parse(bytes.toString()) as Artifact };
 }
-const readMethods = new Set(["eth_chainId", "eth_getBlockByNumber", "eth_getBlockByHash", "eth_getCode", "eth_getStorageAt",
+const readMethods = new Set(["eth_chainId", "eth_blockNumber", "eth_getBlockByNumber", "eth_getBlockByHash", "eth_getCode", "eth_getStorageAt",
   "eth_getBalance", "eth_getTransactionCount", "eth_call", "eth_estimateGas", "eth_getTransactionReceipt",
   "eth_getTransactionByHash", "eth_getTransactionByBlockHashAndIndex", "eth_getRawTransactionByHash", "eth_getLogs", "debug_traceTransaction"]);
 

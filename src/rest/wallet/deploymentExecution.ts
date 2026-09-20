@@ -26,7 +26,7 @@ export interface WalletDeploymentExecutionOptions {
   store: WalletDeploymentExecutionStore;
   signer: { address: Hex; signTransaction(transaction: TransactionSerializableEIP1559): Promise<Hex> };
   chain: { observeSigned(context: Pick<WalletDeploymentExecutionContext, "enrollment" | "operation">,
-    signal?: AbortSignal): Promise<WalletDeploymentObservation> };
+    signal?: AbortSignal, options?: { inspection?: "full" | "inclusion" }): Promise<WalletDeploymentObservation> };
   experimentalTransport?: WalletDeploymentExperimentalTransport;
   signingTimeoutMs?: number;
   signingLeaseMs?: number;
@@ -118,7 +118,9 @@ export function createWalletDeploymentExecution(options: WalletDeploymentExecuti
       let context = await load(operationId);
       if (!context.operation.signed) { await sign(operationId, signal); context = await load(operationId); }
       const before = context.operation;
-      const observation = await chain.observeSigned(structuredClone({ enrollment: context.enrollment, operation: before }), signal);
+      // The pass needs the inclusion, not the wallet's state: the page is told at the receipt and
+      // the lane is released on the nonce; the inspection runs behind (signup's pass, activation).
+      const observation = await chain.observeSigned(structuredClone({ enrollment: context.enrollment, operation: before }), signal, { inspection: "inclusion" });
       await store.saveObservation({ operationId, expectedRevision: before.revision, signedHash: before.signed!.hash, observation });
       context = await load(operationId);
       if (!experimentalTransport) return { operation: context.operation, dispatch: "disabled", journal: null };

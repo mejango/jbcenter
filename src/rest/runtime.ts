@@ -199,6 +199,7 @@ export async function createRestRuntime(options: {
   // startup cannot silently change the profile used by either readiness or operation checks.
   const walletConfiguration = options.wallet ? structuredClone(options.wallet) : undefined;
   let rememberVerifiedState: ((state: SmartAccountState) => void) | undefined;
+  let rememberedVerifiedState: ((manifestId: string, address: Address) => SmartAccountState | undefined) | undefined;
   const wallet: RestWalletRuntime | undefined = walletConfiguration ? (() => {
     const origin = validateWalletPolicyOrigin(walletConfiguration.origin);
     const chain = createWalletAuthorityChain({ rpc, manifest: walletConfiguration.manifest,
@@ -207,7 +208,9 @@ export async function createRestRuntime(options: {
       onError: code => console.info(JSON.stringify({ service: "wallet", action: "authority_observe", outcome: "failed", code })),
       // The refresh verifies each tracked account about once a minute; the API's smart-account
       // service (created below) serves a payment's binding read from that state.
-      onState: state => rememberVerifiedState?.(state) });
+      onState: state => rememberVerifiedState?.(state),
+      // The first observation after a signup's binding carries the creation worker's verification.
+      carried: (manifestId, address) => rememberedVerifiedState?.(manifestId, address) });
     const login = new PostgresWalletLoginStore(options.pool, { origin, rpId: new URL(origin).hostname });
     const policy = new PostgresWalletPolicyStore(options.pool);
     const appGrants = new PostgresWalletAppGrantStore(options.pool);
@@ -386,6 +389,7 @@ export async function createRestRuntime(options: {
     advance: process.env.CENTER_ACCOUNT_STATE_ADVANCE !== "off",
   });
   rememberVerifiedState = state => smartAccounts.remember(state);
+  rememberedVerifiedState = (manifestId, address) => smartAccounts.remembered(manifestId, address);
   const sessionTargets = createSessionTargetResolver({
     catalog: contracts,
     protocol,

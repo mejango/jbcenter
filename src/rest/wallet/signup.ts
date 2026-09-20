@@ -1,5 +1,5 @@
 import { hashTypedData, type Address, type Hex } from "viem";
-import { RestError } from "../core.js";
+import { RestError, type RestRpc } from "../core.js";
 import { detachedFromRequest } from "../context.js";
 import type { createSmartAccountService } from "../smartAccounts/service.js";
 import type { VerifiedSmartAccountRegistry } from "../smartAccounts/types.js";
@@ -26,6 +26,10 @@ export interface LocalWalletSignupDependencies {
   registry: Pick<VerifiedSmartAccountRegistry, "list">; authority: ReturnType<typeof createWalletAuthorityService>; poolId: string;
   /** How often a released inclusion is re-read while it waits for finality (default 15 s; a local chain may use 0). */
   releasedObservationIntervalMs?: number;
+  /** Display only: right after a send, the receipt is read a few times for a Flashblocks
+   * preconfirmation (a receipt before the block, zero blockHash). The page shows "included";
+   * nothing durable and nothing about the account's authority moves on it. */
+  preconfirmationReads?: RestRpc;
   onEvent?: (event: { stage: "worker" | "deployment" | "setup" | "approval"; outcome: string; operationId?: string; elapsedMs?: number; reason?: string; detail?: Record<string, unknown> }) => void;
 }
 /** The approval's chain reads (treasury funding, creation preflight) run while the passkey prompt is
@@ -82,8 +86,11 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     // Setup re-inspects the current canonical wallet and requires fresh owner and
     // browser proofs. It need not wait for the treasury's finalized fee receipt.
     // Use only the latest observation here; retained history is not current evidence.
+    // The account exists at the canonical receipt: the observation proved our exact transaction and
+    // its one ProxyCreation log for the predicted address (CREATE2 binds that address to the
+    // initializer). The wallet's full inspection runs behind it and gates the binding, not the page.
     const creation = receipt?.evidence.observation ?? operation?.observation;
-    const created = creation?.transaction.state === "canonical-success" && creation.wallet.state === "verified";
+    const created = creation?.transaction.state === "canonical-success";
     const phase: WalletSignupPhase = enrollment.state !== "verified" ? (enrollment.intent.expiresAt <= now ? "expired" : enrollment.state)
       : configured ? (signInReady ? "ready_to_sign_in" : "preparing_sign_in")
       : created ? "awaiting_activation"
@@ -98,7 +105,8 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
       registration: phase === "awaiting_registration" ? { challenge: enrollment.intent.registration.challenge, userHandle: enrollment.intent.userHandle } : null,
       possession: phase === "awaiting_possession" ? { credentialId: enrollment.candidate!.credentialId, document: walletEnrollmentDocument(enrollment),
         challenge: hashTypedData(walletEnrollmentDocument(enrollment)) } : null,
-      deploymentId: operation?.id ?? null, transactionHash: operation?.signed?.hash ?? null };
+      deploymentId: operation?.id ?? null, transactionHash: operation?.signed?.hash ?? null,
+      preconfirmed: phase === "deploying" && !!operation && preconfirmed.has(operation.id) };
   }
   async function begin(input: { recoveryOwner: Address; passkeyName: string }) {
     const begun = await flows.begin(input);
@@ -220,7 +228,7 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     await smart.bindPasskeyAccount({ manifestId: enrollment.intent.manifest.id, address: enrollment.creation!.address,
       consent: { id: enrollment.receipt.enrollmentId, digest: `0x${enrollment.receipt.verificationDigest}` },
       expected: { signerAddress: enrollment.creation!.bootstrap.signerAddress, initializerHash: enrollment.creation!.initializerHash } });
-    event({ stage: "setup", outcome: "committed" });
+    event({ stage: "setup", outcome: "committed" }); notify(enrollment.intent.id);
     return status(flowToken);
   }
 
@@ -237,6 +245,46 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     event({ stage, outcome, operationId,
       reason: error instanceof RestError ? error.code : error instanceof Error ? error.name : "unknown", ...(detail ? { detail } : {}) });
   }
+  // In-process phase changes keyed by enrollment: the events stream re-reads the view on each. A
+  // restart loses the listeners, not the phases; the page reconnects and reads the durable view.
+  const watchers = new Map<string, Set<() => void>>();
+  function notify(enrollmentId: string) { for (const listener of watchers.get(enrollmentId) ?? []) { try { listener(); } catch { /* observation only */ } } }
+  async function watch(flowToken: string, listener: () => void): Promise<() => void> {
+    const { enrollment } = await context(flowToken), id = enrollment.intent.id;
+    const set = watchers.get(id) ?? new Set<() => void>(); set.add(listener); watchers.set(id, set);
+    return () => { set.delete(listener); if (set.size === 0 && watchers.get(id) === set) watchers.delete(id); };
+  }
+  // ponytail: bounded in-memory display state; a restart forgets it and the page waits for the block.
+  const preconfirmed = new Map<string, number>();
+  async function preconfirm(operationId: string, enrollmentId: string, transactionHash: Hex) {
+    const reads = options.preconfirmationReads;
+    if (!reads) return;
+    for (const [id, at] of preconfirmed) if (Date.now() - at > 300_000) preconfirmed.delete(id);
+    if (preconfirmed.size >= 64) preconfirmed.delete(preconfirmed.keys().next().value!);
+    for (let attempt = 0; attempt < 8 && !stopped; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 250));
+      try {
+        const receipt = await reads.request(8453, "eth_getTransactionReceipt", [transactionHash], stopSignal.signal) as { transactionHash?: unknown } | null;
+        if (receipt && typeof receipt.transactionHash === "string" && receipt.transactionHash.toLowerCase() === transactionHash) {
+          preconfirmed.set(operationId, Date.now()); event({ stage: "deployment", outcome: "preconfirmed", operationId, elapsedMs: (attempt + 1) * 250 });
+          notify(enrollmentId); return;
+        }
+      } catch { /* display only */ }
+    }
+  }
+  /** The wallet's full inspection, behind the released lane: the account service keeps the verified
+   * state, activation binds from it and the authority refresh carries it, each after re-checking its
+   * block. It runs beside the pass so the next user's send does not wait on it. */
+  async function inspectBehind(operationId: string, enrollmentId: string) {
+    const started = performance.now();
+    try {
+      const enrollment = await enrollments.get(enrollmentId);
+      if (!enrollment?.creation) return;
+      await smart.inspect({ manifestId: enrollment.intent.manifest.id, address: enrollment.creation.address }, stopSignal.signal);
+      event({ stage: "deployment", outcome: "inspected", operationId, elapsedMs: Math.round(performance.now() - started) });
+      notify(enrollmentId);
+    } catch (error) { failure(operationId, error, "deployment", "inspection_failed"); }
+  }
   /** One pass moves the active operation (sign, send, observe, release at canonical inclusion)
    * and then the lowest released nonce (observe, fence if it left the canonical chain, settle at
    * finality). Settlement is in nonce order, so only the lowest released row is watched. */
@@ -250,13 +298,17 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
       try {
         const record = await deployments.get(active.id);
         if (record && record.poolId === poolId) {
-          await execution.recover(active.id, stopSignal.signal);
+          const recovered = await execution.recover(active.id, stopSignal.signal);
+          if (recovered.dispatch === "accepted" && recovered.operation.signed) { notify(record.enrollmentId); void preconfirm(active.id, record.enrollmentId, recovered.operation.signed.hash); }
           const latest = await deployments.get(active.id);
           if (latest?.state === "signed" && latest.releasedAt === null && latest.observation && canonical(latest.observation.transaction.state)) {
             const released = await deployments.release({ operationId: latest.id, expectedRevision: latest.revision });
             event({ stage: "deployment", outcome: released.pool.accounting?.fence ? "fenced" : "released", operationId: latest.id });
-            if (released.operation.releasedAt !== null && released.operation.template)
+            preconfirmed.delete(latest.id); notify(latest.enrollmentId);
+            if (released.operation.releasedAt !== null && released.operation.template) {
               queue.push({ ...active, nonce: released.operation.template.transaction.nonce, releasedAt: released.operation.releasedAt });
+              void inspectBehind(latest.id, latest.enrollmentId).catch(() => undefined);
+            }
           }
         }
       } catch (error) { failure(active.id, error); }
@@ -269,7 +321,8 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
         // minutes and a reorg surfaces on the next read. The active operation's pass stays fast in between.
         if (context.operation.poolId === poolId && (!context.dispatch || context.dispatch.leaseUntil <= now) &&
             (context.operation.observationSavedAt === null || now - context.operation.observationSavedAt >= releasedInterval)) {
-          const observation = await chain.observeSigned(structuredClone({ enrollment: context.enrollment, operation: context.operation }), stopSignal.signal);
+          // Until finality only the inclusion is re-read: the receipt, the nonce, the finalized tag.
+          const observation = await chain.observeSigned(structuredClone({ enrollment: context.enrollment, operation: context.operation }), stopSignal.signal, { inspection: "inclusion" });
           await deployments.saveObservation({ operationId: lowest.id, expectedRevision: context.operation.revision,
             signedHash: context.operation.signed!.hash, observation });
           const state = observation.transaction.state, nonce = observation.transaction.nonce;
@@ -278,12 +331,12 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
           const rewound = state === "reorged" && nonce !== null && BigInt(nonce.confirmed) < BigInt(context.operation.template!.transaction.nonce);
           if (rewound || ["nonce-conflict", "not-observed", "pending"].includes(state)) {
             await deployments.fenceAccounting(await deployments.loadFundingContext(poolId), { reason: "inclusion-reorged", operationId: lowest.id });
-            event({ stage: "deployment", outcome: "fenced", operationId: lowest.id, reason: state });
+            event({ stage: "deployment", outcome: "fenced", operationId: lowest.id, reason: state }); notify(context.enrollment.intent.id);
           } else if (canonical(state) && observation.finality.state === "finalized") {
             const fresh = await deployments.loadSettlementContext(lowest.id);
             const evidence = await settlement.observeSettlement(fresh, stopSignal.signal);
             const result = await deployments.settle(fresh, evidence);
-            event({ stage: "deployment", outcome: result.settlement ? "settled" : "fenced", operationId: lowest.id });
+            event({ stage: "deployment", outcome: result.settlement ? "settled" : "fenced", operationId: lowest.id }); notify(context.enrollment.intent.id);
           }
         }
       } catch (error) { failure(lowest.id, error); }
@@ -312,6 +365,6 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     try { return await Promise.race([running.then(() => true, () => true), new Promise<boolean>(resolve => { timeout = setTimeout(() => resolve(false), 5000); })]); }
     finally { if (timeout) clearTimeout(timeout); }
   }
-  return { begin, status, register, proveEnrollment, prepareDeployment, approveDeployment, activate,
+  return { begin, status, register, proveEnrollment, prepareDeployment, approveDeployment, activate, watch,
     beginResume: flows.beginResume.bind(flows), completeResume: flows.completeResume.bind(flows), tick, start, stop };
 }

@@ -276,7 +276,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
   // sees the failure. The wallet authority refresh hands each verified state in through `remember`.
   // An entry names the block of its last full verification; a state carried across an empty
   // authority gap keeps that block, so the chain of derivations stays bounded by it.
-  const recent = new Map<string, { state: SmartAccountState; fullBlock: bigint }>();
+  const recent = new Map<string, { state: SmartAccountState; fullBlock: bigint; full: SmartAccountState }>();
   const refreshing = new Map<string, Promise<void>>();
   const reuseMs = options.reuseMs ?? 900_000;
   const advancing = options.advance ?? true;
@@ -297,12 +297,20 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
     const derived = fullBlock !== block;
     // A full verification replaces a carried state at any block; otherwise the newer block wins.
     if (existing && BigInt(existing.state.evidence.blockNumber) > block && (derived || existing.fullBlock === BigInt(existing.state.evidence.blockNumber))) return false;
-    recent.set(key, { state: structuredClone(state), fullBlock });
+    // A derived entry keeps the full verification it was carried from, at that verification's block.
+    const full = derived && existing && existing.fullBlock === fullBlock ? existing.full : structuredClone(state);
+    recent.set(key, { state: structuredClone(state), fullBlock, full });
     return true;
   }
   /** Forgets an account's verified state, so the next read inspects it in full. */
   function forget(manifestId: string, address: Address) {
     recent.delete(keyOf(manifestId, address));
+  }
+  /** The account's last full verification, if this service made or was handed one: the block it
+   * describes is the block it was verified at, never a derivation. Callers re-check that block. */
+  function remembered(manifestId: string, address: Address): SmartAccountState | undefined {
+    const entry = recent.get(keyOf(manifestId, address));
+    return entry && entry.fullBlock === BigInt(entry.full.evidence.blockNumber) ? structuredClone(entry.full) : undefined;
   }
   function remember(state: SmartAccountState) {
     const known = manifests.some((m) => m.id === state.manifestId && m.revision === state.manifestRevision);
@@ -794,7 +802,11 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
   async function bindPasskeyAccount(input: { manifestId: string; address: Address; consent: { id: string; digest: Hex };
     expected: { signerAddress: Address; initializerHash: Hex; deviceSigners?: Address[] } }, signal?: AbortSignal) {
     if (!options.onboarding) fail("SMART_ONBOARDING_UNAVAILABLE", "Account setup is not configured.", 503);
-    const state = await inspect({ manifestId: input.manifestId, address: input.address }, signal);
+    // A verification made moments ago (the creation worker's, behind the released lane) is carried
+    // to the current head when the gap holds no authority-changing log and every re-read field
+    // agrees (`advance`); any doubt, or no such verification, is a full inspection at the head.
+    const head = (await snapshot(manifest(input.manifestId).chainId, signal)).evidence;
+    const state = await inspect({ manifestId: input.manifestId, address: input.address }, signal, head, true);
     // The consent names one passkey signer, one initializer and, when devices were added, exactly
     // those device signers; a wallet in any other state is not bound, so a stale or divergent read
     // can never write a binding the credential cannot use.
@@ -806,11 +818,11 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
       || (expectedDevices && (devices.length !== expectedDevices.length || devices.some((device, index) => device !== expectedDevices[index]))))
       fail("SMART_ACCOUNT_CHANGED", "The wallet is not in the state its passkey consented to.", 409);
     await snapshot(state.chainId, signal, state.evidence);
-    const current = Math.floor(now() / 1000);
-    requireFreshOnboardingState(state, current);
+    const bound = Math.floor(now() / 1000);
+    requireFreshOnboardingState(state, bound);
     signal?.throwIfAborted();
     return options.onboarding.finalize(walletPasskeyConsentBinding({ accountId: `eip155:8453:${state.address.toLowerCase()}`, state,
-      consent: input.consent, nowSeconds: current }));
+      consent: input.consent, nowSeconds: bound }));
   }
   /** Fresh current-owner approval and browser possession commit through the existing atomic setup store. */
   async function finalizePasskeyOnboarding(input: unknown, signal?: AbortSignal) {
@@ -1084,6 +1096,7 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
   return {
     inspect,
     remember,
+    remembered,
     forget,
     prepareCreation,
     challenge,

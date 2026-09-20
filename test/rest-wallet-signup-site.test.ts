@@ -10,6 +10,8 @@ function setup(extra: Partial<WalletSignupSiteOptions> = {}) {
   const signup = { begin: vi.fn(async () => ({ flowToken: token, view })), status: vi.fn(async () => view),
     register: vi.fn(async () => view), proveEnrollment: vi.fn(async () => view),
     prepareDeployment: vi.fn(), approveDeployment: vi.fn(), activate: vi.fn(),
+    listeners: new Set<() => void>(),
+    watch: vi.fn(async (_token: string, listener: () => void) => { signup.listeners.add(listener); return () => signup.listeners.delete(listener); }),
     beginResume: vi.fn(async () => ({ resumeToken: token, challenge: { id: 'resume', challenge: '0x' + '11'.repeat(32) } })),
     completeResume: vi.fn(async () => ({ flowToken: token, flow: { secret: 'internal-only' }, replayed: true })) };
   const app = new Hono();
@@ -56,6 +58,26 @@ describe('signup HTTP authority boundary', () => {
     signup.status.mockResolvedValueOnce({ ...preparing, phase: 'ready_to_sign_in' } as never);
     expect((await app.fetch(new Request(origin + '/wallet/signup/state', { headers }))).status).toBe(200);
     expect(refresh.request).toHaveBeenCalledTimes(1);
+  });
+  it('streams the view on connect and on every phase change, and ends the stream when the view cannot be read', async () => {
+    const { app, signup } = setup(), current = { ...view, phase: 'deploying' as string };
+    signup.status.mockImplementation(async () => current);
+    const response = await app.fetch(new Request(origin + '/wallet/signup/events', { headers: { cookie: headers.cookie } }));
+    expect(response.status).toBe(200); expect(response.headers.get('content-type')).toContain('text/event-stream');
+    const reader = response.body!.getReader(), decoder = new TextDecoder(); let text = '';
+    const until = async (needle: string) => { for (let i = 0; i < 50 && !text.includes(needle); i++) { const chunk = await reader.read(); if (chunk.done) break; text += decoder.decode(chunk.value); } expect(text).toContain(needle); };
+    await until('"phase":"deploying"');
+    expect(signup.listeners.size).toBe(1);
+    current.phase = 'awaiting_activation'; for (const listener of signup.listeners) listener();
+    await until('"phase":"awaiting_activation"');
+    expect(text).not.toContain(token);
+    // The continuation is gone: the view throws, the stream ends and the listener is released.
+    signup.status.mockImplementation(async () => { throw new RestError(403, 'WALLET_SIGNUP_UNAUTHORIZED', 'gone'); });
+    for (const listener of signup.listeners) listener();
+    for (let i = 0; i < 50; i++) { const chunk = await reader.read(); if (chunk.done) break; }
+    expect(signup.listeners.size).toBe(0);
+    // No cookie, no stream.
+    expect((await app.fetch(new Request(origin + '/wallet/signup/events'))).status).toBe(403);
   });
   it('lets a deliberate start-over drop the continuation cookie at any phase without touching the signup', async () => {
     const { app, signup } = setup();

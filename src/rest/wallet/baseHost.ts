@@ -31,6 +31,8 @@ export interface BaseWalletHostContext { pool: Pool; rpc: RestRpc; wallet: RestW
 function authorityChain(context: BaseWalletHostContext, rpc: RestRpc, options: { manifest: SmartAccountManifest; utility: ContractPin }) {
   return createWalletAuthorityChain({ rpc, manifest: options.manifest, utility: options.utility,
     checkpointStore: new PostgresSafe7579CheckpointStore(context.pool),
+    // The first observation after a signup's binding carries the creation worker's verification.
+    carried: (manifestId, address) => context.smart.remembered(manifestId, address),
     onError: code => console.info(JSON.stringify({ service: "wallet", action: "authority_observe", outcome: "failed", code })) });
 }
 export interface BaseWalletSignupHostOptions {
@@ -79,7 +81,7 @@ export async function createBaseWalletSignupHost(context: BaseWalletHostContext,
       origin: context.wallet.origin, manifest: options.manifest }),
     enrollments: new PostgresWalletEnrollmentStore(context.pool),
     deployments, settlement, execution, chain, smart: context.smart, registry: new PostgresSmartAccountRegistry(context.pool), authority,
-    poolId: configuration.id, ...(options.onEvent ? { onEvent: options.onEvent } : {}) });
+    poolId: configuration.id, preconfirmationReads: reader.reads, ...(options.onEvent ? { onEvent: options.onEvent } : {}) });
 }
 
 export interface BaseWalletRecoveryHostOptions {

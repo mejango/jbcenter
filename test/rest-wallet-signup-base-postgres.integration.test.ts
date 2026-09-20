@@ -71,7 +71,8 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
       moduleInspectors: [createSafe7579Inspector({ rpc: fixture.readOnlyRpc, utility: fixture.utility,
         inspectSessions: createInstalledSessionVerifier({ rpc: fixture.readOnlyRpc }).inspectAllAt })] });
     const authority = createWalletAuthorityService({ store: new PostgresWalletAuthorityStore(pool),
-      chain: createWalletAuthorityChain({ rpc: fixture.readOnlyRpc, manifest: fixture.manifest, utility: fixture.utility }) });
+      chain: createWalletAuthorityChain({ rpc: fixture.readOnlyRpc, manifest: fixture.manifest, utility: fixture.utility,
+        carried: (manifestId, address) => smart.remembered(manifestId, address) }) });
     const flows = new PostgresWalletSignupStore(pool, { rpId, origin: issuer, manifest: fixture.manifest });
     const events: string[] = [];
     const login = new PostgresWalletLoginStore(pool, { rpId, origin: issuer });
@@ -80,7 +81,7 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
     const signup = createLocalWalletSignup({ flows, enrollments, deployments, settlement, execution, smart, authority,
       registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id, releasedObservationIntervalMs: 0,
       onEvent: event => events.push(`${event.stage}:${event.outcome}`) });
-    const until = async (name: string) => { for (let i = 0; i < 200 && !events.includes(name); i++) await new Promise(r => setTimeout(r, 25)); expect(events).toContain(name); };
+    const until = async (name: string) => { for (let i = 0; i < 600 && !events.includes(name); i++) await new Promise(r => setTimeout(r, 25)); expect(events, events.join(' ')).toContain(name); };
     for (let index = 0; index < 2; index++) {
       const begun = await signup.begin({ recoveryOwner: enrollmentBackupAccount.address, passkeyName: "Juicebox test" }), flowToken = begun.flowToken;
       const initial = (await enrollments.get(begun.view.enrollmentId))!;
@@ -125,8 +126,9 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
       await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.leaseUntil - Date.now() + 15)));
       await signup.tick();
       const included = (await deployments.get(operation.id))!;
+      // The pass stops at the receipt; the wallet's full inspection runs behind the release.
       expect(included.observation).toMatchObject({ transaction: { state: "canonical-success", nonce: { confirmed: String(index + 3), pending: String(index + 3) } },
-        wallet: { state: "verified" }, finality: { state: "unfinalized" } });
+        wallet: { state: "unknown", reason: "inspection-deferred" }, finality: { state: "unfinalized" } });
       expect((await signup.status(flowToken)).phase).toBe("awaiting_activation");
       expect(await deployments.getSettlement(operation.id)).toBeNull();
       // Released at inclusion with the Base reservation held: the next user is admitted before finality.
@@ -135,8 +137,25 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
         accounting: { nextNonce: String(index + 3), sequence: 0, spentWei: "0" } });
       expect(events).toContain("deployment:released"); operations.push(operation.id);
       // Activation and fresh login complete before treasury finality, as on the local pilot.
+      // Activation binds from the worker's verification behind the release (its block re-checked
+      // canonical) and the first authority observation carries the same state at that block: neither
+      // inspects the account again, so each is a handful of reads, not a full inspection.
+      await until("deployment:inspected");
+      const remembered = smart.remembered(fixture.manifest.id, record.creation!.address)!;
+      expect(remembered).toBeDefined();
+      // Base has moved on since the worker's verification: activation carries it to the new head
+      // (the gap's logs and the re-read fields agree) rather than tracing the account again.
+      await fixture.rpc("anvil_mine", ["0x2", "0x0"]);
+      let before = fixture.requests.length;
       expect((await signup.activate(flowToken)).phase).toBe("preparing_sign_in");
-      expect((await authority.refreshAuthority(record.receipt!.accountId)).snapshot.readiness).toBe("verified");
+      expect(fixture.requests.length - before).toBeLessThan(24);
+      expect(fixture.requests.slice(before).filter(request => request.method === "debug_traceTransaction")).toEqual([]);
+      expect(fixture.requests.slice(before).some(request => request.method === "eth_getLogs")).toBe(true);
+      before = fixture.requests.length;
+      const refreshed = await authority.refreshAuthority(record.receipt!.accountId);
+      expect(refreshed.snapshot.readiness).toBe("verified");
+      expect(fixture.requests.length - before).toBeLessThan(8);
+      expect(refreshed.snapshot.acceptedAnchor).toEqual(remembered.evidence);
       expect((await signup.status(flowToken)).phase).toBe("ready_to_sign_in");
       const begunLogin = await login.begin(), loggedIn = await login.complete({ loginId: begunLogin.login.id, flowToken: begunLogin.flowToken,
         assertion: signGet({ ...credential, challenge: begunLogin.login.challenge, rpId, origin: issuer }) });

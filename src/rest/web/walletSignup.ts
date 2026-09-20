@@ -46,9 +46,9 @@ function kitIdentity(): WalletRecoveryKitIdentity {
 const steps: Record<View['phase'], string> = {
   awaiting_registration: 'Create your passkey.', awaiting_possession: 'Your passkey is ready. Create your account with it.',
   awaiting_deployment_approval: 'Your passkey is ready. Approve creation of your account.',
-  deploying: 'Creating your account. This usually takes about a minute. Keep this page open, or come back later with your passkey.',
+  deploying: 'Creating your account…',
   deployment_failed: 'Account creation did not complete. Keep this signup for recovery; do not send funds.',
-  awaiting_activation: 'Your account is ready.', preparing_sign_in: 'Preparing your login. This can take up to a minute…',
+  awaiting_activation: 'Your account is ready.', preparing_sign_in: 'Finishing your login…',
   ready_to_sign_in: 'Your account is ready. Log in with your passkey.',
   expired: "This recent signup wasn't completed in time. Try again.",
 };
@@ -104,12 +104,13 @@ function accept(result: { view: View | null; csrfToken?: string }) {
   }
   view = result.view; known = true;
   if (result.csrfToken) { if (decode(result.csrfToken).length !== 32) throw new Error('Invalid signup context.'); csrf = result.csrfToken; }
-  if (view?.phase === 'deploying') messageLinked('Creating', steps.deploying.slice('Creating'.length));
+  // Flashblocks: the receipt arrives before the block; the page says so, and waits for the block.
+  if (view?.phase === 'deploying') view.preconfirmed ? messageLinked('Included', ', confirming…') : messageLinked('Creating', steps.deploying.slice('Creating'.length));
   else message(view ? steps[view.phase] + (view.phase === 'awaiting_activation' ? mode() === 'kit' ? recoverySecret ? ' Now, save your backup password.' : '' : ' Continue to log in.' : '') : '');
   if (view?.phase === 'ready_to_sign_in' && kitSavedWallet === view.walletAddress) recoverySecret = null;
 }
 function render() {
-  spin();
+  spin(); stream();
   form.querySelector('button')!.disabled = engaged;
   name.disabled = engaged;
   // The kit is presented once the wallet exists. Earlier phases still need the words in memory
@@ -150,13 +151,14 @@ function render() {
   // "log in" resumes with a passkey; a finished wallet lands at sign-in. Once the state is known (or its load failed),
   // it stays offered unless a signup with a passkey is under way, so a returning user is never without a way in.
   el('signup-intro').hidden = !known || loggingIn || (!!view && view.phase !== 'expired' && view.phase !== 'awaiting_registration');
-  // "Check signup" only matters for a lost reply or while creation is in progress.
-  check.hidden = stranded || !(pending || view?.phase === 'deploying'); check.disabled = engaged;
+  // "Check signup" only matters for a lost reply; creation and login preparation are pushed.
+  check.hidden = stranded || !pending; check.disabled = engaged;
   // One filled button per page: the check is the primary only when it stands alone.
   check.classList.toggle('link', !form.hidden); check.classList.toggle('secondary', form.hidden && !next.hidden);
   cancel.hidden = !native;
   // Forgetting this browser's continuation; the signup and its passkey stay usable through "log in".
-  restart.hidden = !view || stranded || view.phase === 'expired'; restart.disabled = engaged;
+  // Not while a paid creation is in flight or awaiting its activation: a restart there orphans it.
+  restart.hidden = !view || stranded || ['expired', 'deploying', 'awaiting_activation', 'preparing_sign_in'].includes(view.phase); restart.disabled = engaged;
 }
 async function send(path: string, body: unknown, proof = csrf) {
   pending = { path, body, csrf: proof };
@@ -361,11 +363,32 @@ resume.addEventListener('click', event => { event.preventDefault(); if (busy || 
   try { await login(); return; } catch (error) { if (!(error instanceof HttpFailure) || ![400, 401, 403, 404, 410].includes(error.status)) throw error; }
   await resumeSignup();
 }); });
+// Phase changes are pushed over the events stream while creation or login preparation is under way.
+// The poll stays behind it: every 10 s while the stream is live (a change made in another replica
+// reaches the stream's own timed re-read, and this poll, within seconds), every 2 s once the stream
+// went quiet for 40 s (no view, no 15 s ping) or where EventSource is unavailable. A stream that
+// errors is closed and reopened after 30 s, never in a tight loop.
+let source: EventSource | null = null, heard = 0, lastPoll = 0, retryAt = 0;
+const live = () => Date.now() - heard < 40000;
+function stream() {
+  if (!polling() || disposed) { source?.close(); source = null; return; }
+  if (source || typeof EventSource !== 'function' || Date.now() < retryAt) return;
+  try {
+    source = new EventSource(`${base}/signup/events`);
+    source.onmessage = event => { try { const result = JSON.parse(event.data); if (!busy && !pending) { accept(result); render(); } heard = Date.now(); } catch { /* The poll still carries the view. */ } };
+    source.addEventListener('ping', () => { heard = Date.now(); });
+    source.onerror = () => { heard = 0; source?.close(); source = null; retryAt = Date.now() + 30000; };
+  } catch { source = null; retryAt = Date.now() + 30000; }
+}
 const timer = setInterval(() => {
-  if (!busy && !pending && polling() && !document.hidden && navigator.onLine && pollCount++ < 150) void run(observe, true);
+  stream();
+  if (busy || pending || !polling() || document.hidden || !navigator.onLine || pollCount >= 150) return;
+  const interval = source && live() ? 10000 : 2000;
+  if (Date.now() - lastPoll < interval) return;
+  lastPoll = Date.now(); pollCount++; void run(observe, true);
 }, 2000);
 window.addEventListener('pagehide', () => {
-  disposed = true; native?.abort(); clearInterval(timer); recoverySecret = null;
+  disposed = true; native?.abort(); clearInterval(timer); source?.close(); recoverySecret = null;
   el<HTMLInputElement>('recovery-phrase').value = '';
   for (const url of downloadUrls) URL.revokeObjectURL(url); downloadUrls.clear();
 }, { once: true });

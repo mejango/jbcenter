@@ -98,8 +98,12 @@ export function createWalletDeploymentChain(options: WalletDeploymentChainOption
   const policy: RelayPolicy = { planTtlMs: 300_000, maximumPlanTtlMs: 300_000, leaseMs: 15_000, rpcTimeoutMs: limits.rpcTimeoutMs,
     maximumRawBytes: config.policy.maximumRawBytes, maximumGas, maximumFeePerGas, maximumTransactionCost, confirmations: 1, allowedChainIds: [8453] };
   return {
+    /** `inspection: "inclusion"` stops at the verified receipt (our exact transaction, its creation
+     * log, the sender nonce past it, finality) and leaves the wallet's full inspection for later: the
+     * worker's own pass, activation and the authority refresh each prove the account's state before
+     * anything binds to it. The default reads the wallet in full, as settlement requires. */
     async observeSigned(input: { enrollment: WalletEnrollment; operation: WalletDeploymentOperation },
-      signal?: AbortSignal): Promise<WalletDeploymentObservation> {
+      signal?: AbortSignal, options: { inspection?: "full" | "inclusion" } = {}): Promise<WalletDeploymentObservation> {
       enrollmentDigest(input);
       const { enrollment, operation } = structuredClone(input), observedAt = now();
       // Recovery validates the durable winner without requiring its old approval to remain live.
@@ -168,6 +172,7 @@ export function createWalletDeploymentChain(options: WalletDeploymentChainOption
         if (code === "0x") {
           output.wallet = { ...output.wallet, state: "undeployed", evidence: head, reason: null }; return;
         }
+        if (options.inspection === "inclusion") { output.wallet.reason = "inspection-deferred"; return; }
         const scoped: RestRpc = { request: (chainId, method, params) => {
           if (chainId !== 8453) return Promise.reject(new RestError(502, "WALLET_DEPLOYMENT_CHAIN_MISMATCH", "Observation requires Base."));
           return rpc.request(method, params);

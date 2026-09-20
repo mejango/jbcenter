@@ -40,6 +40,11 @@ export interface WalletAuthorityChainOptions {
   onError?: (code: string) => void;
   /** Receives each account state this chain verified at the head, once it passed every check. */
   onState?: (state: SmartAccountState) => void;
+  /** A full verification another trusted producer made moments ago (the creation worker's, behind
+   * the released lane). The first observation after a binding is taken from it at its own block —
+   * re-checked canonical, within the head-lag bound, matching the bound state — instead of
+   * inspecting the account again; every later observation, and any doubt, inspects in full. */
+  carried?: (manifestId: string, address: Address) => SmartAccountState | undefined;
 }
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -158,6 +163,14 @@ export function createWalletAuthorityChain(options: WalletAuthorityChainOptions)
             quantity(log.blockNumber) <= end);
         };
         const address = context.enrollment.creation!.address;
+        const held = context.prior === null || context.prior === undefined ? options.carried?.(manifest.id, address) : undefined;
+        if (held && held.stateHash === context.binding.state.stateHash && same(held.address, address) && held.manifestId === manifest.id &&
+            held.manifestRevision === manifest.revision && BigInt(held.evidence.blockNumber) <= BigInt(head.blockNumber) &&
+            (!expected || BigInt(expected.blockNumber) <= BigInt(held.evidence.blockNumber))) {
+          // The carried block becomes this observation's head once it is proven canonical and live.
+          const at = anchor(await rpc.request("eth_getBlockByNumber", [toHex(BigInt(held.evidence.blockNumber)), false]), held.evidence.blockNumber);
+          if (stable(at) === stable(held.evidence)) { live(at); output.head = at; return await conclude(held, at); }
+        }
         const accounts = createSmartAccountService({ rpc: scoped, manifests: [manifest], registry: new MemorySmartAccountRegistry(),
           audience: context.enrollment.intent.origin, now, moduleInspectors: [createSafe7579Inspector({ rpc: scoped, utility,
             inspectSessions: createInstalledSessionVerifier({ rpc: scoped }).inspectAllAt,
@@ -176,7 +189,15 @@ export function createWalletAuthorityChain(options: WalletAuthorityChainOptions)
             return validateWalletAuthorityObservation({ ...structuredClone(empty), reason: "authority-history-catching-up" }, context);
           }
         }
-        const state = await accounts.inspect({ manifestId: manifest.id, address }, signal, head);
+        return await conclude(await accounts.inspect({ manifestId: manifest.id, address }, signal, head), head);
+      } catch (error) {
+        // Partial reads cannot refresh readiness or turn an unavailable prior-anchor check into
+        // canonical replacement. The durable store retains prior proofs and any existing fence.
+        try { options.onError?.(error instanceof RestError ? error.code : error instanceof Error ? error.name : "unknown"); } catch { /* observation only */ }
+        return validateWalletAuthorityObservation(empty, context);
+      } finally { rpc.close(); }
+      /** The verified state at `head` becomes this observation's identity and eligibility. */
+      async function conclude(state: SmartAccountState, head: RestBlockEvidence): Promise<WalletAuthorityObservation> {
         const inspected = assertPasskeyOnboardingState(state), details = state.modules!.details;
         if (!same(state.address, context.enrollment.creation!.address) || state.manifestId !== manifest.id ||
           state.manifestRevision !== manifest.revision || stable(state.evidence) !== stable(head) ||
@@ -197,12 +218,7 @@ export function createWalletAuthorityChain(options: WalletAuthorityChainOptions)
           BigInt(head.timestamp) * 1000n + BigInt(walletAuthorityMaximumHeadAgeMs) ? BigInt(observedAtMs + walletAuthorityMaximumAgeMs) :
           BigInt(head.timestamp) * 1000n + BigInt(walletAuthorityMaximumHeadAgeMs));
         await canonical(head); return finish();
-      } catch (error) {
-        // Partial reads cannot refresh readiness or turn an unavailable prior-anchor check into
-        // canonical replacement. The durable store retains prior proofs and any existing fence.
-        try { options.onError?.(error instanceof RestError ? error.code : error instanceof Error ? error.name : "unknown"); } catch { /* observation only */ }
-        return validateWalletAuthorityObservation(empty, context);
-      } finally { rpc.close(); }
+      }
     },
   };
 }

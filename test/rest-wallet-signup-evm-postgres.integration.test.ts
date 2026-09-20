@@ -71,14 +71,15 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       moduleInspectors: [createSafe7579Inspector({ rpc: fixture.readOnlyRpc, utility: fixture.utility,
         inspectSessions: createInstalledSessionVerifier({ rpc: fixture.readOnlyRpc }).inspectAllAt })] });
     const authority = createWalletAuthorityService({ store: new PostgresWalletAuthorityStore(pool),
-      chain: createWalletAuthorityChain({ rpc: fixture.readOnlyRpc, manifest: fixture.manifest, utility: fixture.utility }) });
+      chain: createWalletAuthorityChain({ rpc: fixture.readOnlyRpc, manifest: fixture.manifest, utility: fixture.utility,
+        carried: (manifestId, address) => smart.remembered(manifestId, address) }) });
     const login = new PostgresWalletLoginStore(pool, { rpId, origin: issuer });
     const flows = new PostgresWalletSignupStore(pool, { rpId, origin: issuer, manifest: fixture.manifest });
     const events: string[] = [];
     const signup = createLocalWalletSignup({ flows, enrollments, deployments, settlement, execution, smart, authority,
       registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id, releasedObservationIntervalMs: 0,
       onEvent: event => events.push(`${event.stage}:${event.outcome}`) });
-    const until = async (name: string) => { for (let i = 0; i < 200 && !events.includes(name); i++) await new Promise(r => setTimeout(r, 25)); expect(events).toContain(name); };
+    const until = async (name: string) => { for (let i = 0; i < 600 && !events.includes(name); i++) await new Promise(r => setTimeout(r, 25)); expect(events, events.join(' ')).toContain(name); };
     const accounts: string[] = [], receipts: string[] = [];
     let recoveryTarget: Pick<Parameters<typeof exerciseWalletRecoveryEvm>[0], 'enrollment' | 'originalKey' | 'originalSessionToken'> | null = null;
     for (let index = 0; index < 2; index++) {
@@ -148,7 +149,7 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       const included = (await deployments.get(operation.id))!;
       expect(included.signed).toEqual(sent.signed);
       expect(included.observation).toMatchObject({ transaction: { state: "canonical-success", nonce: { confirmed: String(index + 3) } },
-        wallet: { state: "verified" }, finality: { state: "unfinalized" } });
+        wallet: { state: "unknown", reason: "inspection-deferred" }, finality: { state: "unfinalized" } });
       expect(await deployments.getSettlement(operation.id)).toBeNull();
       // The lane was released at inclusion: the next user may claim while this one waits for finality.
       expect(included.releasedAt).not.toBeNull();
@@ -164,7 +165,7 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
           ? Promise.reject(new Error("Injected receipt observation outage")) : read(chain, method, params, signal);
         try { await signup.tick(); } finally { fixture.readOnlyRpc.request = read; }
         expect((await deployments.get(operation.id))!.historicalCanonicalObservation).toMatchObject({
-          transaction: { state: "canonical-success" }, wallet: { state: "verified" } });
+          transaction: { state: "canonical-success" }, wallet: { state: "unknown" } });
         expect((await signup.status(flowToken)).phase).toBe("deploying");
         await expect(signup.activate(flowToken)).rejects.toMatchObject({ code: "WALLET_SIGNUP_STATE" });
         await signup.tick();
