@@ -30,10 +30,11 @@ let nativePrompt: AbortController | null = null, retryAction: (() => Promise<voi
 let nextRetry: () => Promise<void> = load;
 // Framed inside an admitted app's page, this page signs in without a Center session or cookie: the
 // intent admits it, the launch signature kept on the row is the browser-launch claim, and one
-// passkey assertion naming the app as its top origin both signs in and approves the grant. The app
-// controls what surrounds the frame, so the sign-in button works only while the frame is large
-// enough and, where the browser can tell (Intersection Observer v2), while the button itself is
-// visible and unobscured; otherwise the person is sent to open the sign-in as a page of its own.
+// passkey assertion naming the app as its top origin both signs in and approves the grant. Only an
+// app the operator admits can frame this page at all (frame-ancestors), so the sign-in button asks
+// just that the frame be large enough and the button be scrolled into view; Intersection Observer
+// v2's occlusion verdict is not consulted here, because browsers report every element inside a
+// top-layer <dialog> — where the app's sign-in modal puts the frame — as not visible.
 const framed = window.self !== window.top;
 const openAsPage = document.getElementById("wallet-open") as HTMLAnchorElement | null;
 if (framed) {
@@ -49,7 +50,7 @@ let signInVisible = !framed;
 if (framed) {
   try {
     const observer = new IntersectionObserver(entries => { const entry = entries[entries.length - 1]; if (!entry) return;
-      signInVisible = entry.isIntersecting && (entry as { isVisible?: boolean }).isVisible !== false; render(); }, { threshold: 0.9, trackVisibility: true, delay: 100 } as IntersectionObserverInit);
+      signInVisible = entry.isIntersecting; render(); }, { threshold: 0.9 });
     observer.observe(signIn);
   } catch { signInVisible = true; }
 }
