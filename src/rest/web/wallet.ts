@@ -115,7 +115,7 @@ function setStatus(state: string, message: string) { status.dataset.state = stat
 function render() {
   signIn.hidden = !sessionKnown || !!session || !!pending;
   signIn.disabled = busy || frameTooSmall() || !signInVisible;
-  const openRow = document.getElementById("wallet-open-row"); if (openRow) openRow.hidden = !framed || !intent || busy;
+  if (openAsPage) openAsPage.hidden = !framed || !intent;
   retry.hidden = !retryAction || busy;
   // A page that is leaving for an app shows nothing it has not shown yet.
   const leaving = !!intent && busy;
@@ -232,9 +232,14 @@ async function load() {
   if (create) { create.href = `${base}/create` + query.search; create.hidden = false; }
   const recover = document.getElementById("wallet-recover") as HTMLAnchorElement | null;
   if (recover) { recover.href = `${base}/recover` + query.search; recover.hidden = false; }
-  // Signing up and recovery are pages of their own: a passkey is only ever created top-level.
-  if (framed) for (const link of [create, recover, openAsPage]) if (link) { link.target = "_top"; link.rel = "noopener"; }
+  // Signing up and recovery are pages of their own: a passkey is only ever created top-level. In a frame the three
+  // ways out share one row, in the app's words.
   if (openAsPage) openAsPage.href = `${base}${query.search}`;
+  if (framed) {
+    for (const link of [create, recover, openAsPage]) if (link) { link.target = "_top"; link.rel = "noopener"; }
+    if (recover) recover.textContent = "Recover";
+    if (openAsPage) { openAsPage.textContent = "Fullscreen"; document.getElementById("wallet-links")?.append(openAsPage); }
+  }
   const rpId = string(config.rpId, 253);
   if (location.hostname !== rpId && !location.hostname.endsWith(`.${rpId}`)) throw new InvalidResponse();
   configuration = { issuer: location.origin, audience: string(config.audience), rpId };
