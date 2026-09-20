@@ -15,7 +15,9 @@ const wallet = createCenterWalletClient({
   callbackUri: window.location.origin + '/center/callback',
 });
 const prepared = await wallet.prepareConnection();
-prepared.launch(); // full-page redirect to the account; no popup or iframe
+prepared.launch(); // full-page redirect to the account
+// prepared.launch({ target: name }) submits into a window or iframe the app opened under that
+// name; Center serves the sign-in inside an iframe only for apps its operator admits to frame.
 // On /center/callback:
 const connection = await wallet.completeConnection(window.location.href);
 ```

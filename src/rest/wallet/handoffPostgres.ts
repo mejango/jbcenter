@@ -22,11 +22,13 @@ export interface WalletHandoffExchangeResult { grant: WalletAppGrant; replayed: 
 export interface WalletHandoffStoreOptions {
   issuer: string; audience: string; codeLifetimeMs?: number; receiptRetentionMs?: number;
   maxRecords?: number; maxOriginRecords?: number; grantStore?: PostgresWalletAppGrantStore;
+  /** App origins admitted to frame their own sign-in page; the operator's list, not every app with a grant. */
+  frameableAppOrigins?: string[];
 }
 interface HandoffRow {
   id: string; request_digest: Hex; request: WalletHandoffRequest; origin: string;
   state: "prepared" | "issued" | "consumed"; created_at_ms: string; expires_at_ms: string; retain_until_ms: string;
-  session_id: string | null; code_hash: Hex | null; issued_at_ms: string | null; code_expires_at_ms: string | null;
+  launch_signature: Hex | null; session_id: string | null; code_hash: Hex | null; issued_at_ms: string | null; code_expires_at_ms: string | null;
   consumed_at_ms: string | null; exchange_digest: Hex | null; receipt_until_ms: string | null; grant_document: WalletAppGrant | null;
 }
 function invalid(): never { throw new RestError(400, "WALLET_HANDOFF_INVALID", "Wallet handoff input is invalid."); }
@@ -72,8 +74,12 @@ export class PostgresWalletHandoffStore {
   private readonly maxRecords: number;
   private readonly maxOriginRecords: number;
   private readonly grants: PostgresWalletAppGrantStore;
+  private readonly frameable: Set<string>;
   constructor(private readonly pool: Pool, options: WalletHandoffStoreOptions) {
-    const v = fields(options, ["issuer", "audience"], ["codeLifetimeMs", "receiptRetentionMs", "maxRecords", "maxOriginRecords", "grantStore"]);
+    const v = fields(options, ["issuer", "audience"], ["codeLifetimeMs", "receiptRetentionMs", "maxRecords", "maxOriginRecords", "grantStore", "frameableAppOrigins"]);
+    const frameableAppOrigins = v.frameableAppOrigins === undefined ? [] : v.frameableAppOrigins;
+    if (!Array.isArray(frameableAppOrigins) || frameableAppOrigins.some(value => typeof value !== "string")) invalid();
+    try { this.frameable = new Set((frameableAppOrigins as string[]).map(value => validateWalletPolicyOrigin(value))); } catch { invalid(); }
     this.issuer = handoffOrigin(v.issuer);
     try { this.audience = walletAppAudience(v.audience); } catch { invalid(); }
     this.codeLifetimeMs = (v.codeLifetimeMs ?? 60_000) as number; this.receiptRetentionMs = (v.receiptRetentionMs ?? 86_400_000) as number;
@@ -131,6 +137,41 @@ export class PostgresWalletHandoffStore {
       const result = intent(row); this.configured(result.request); this.liveRequest(result.request, await now(client));
       await policy(client, result.request, result.expiresAtMs); return result;
     });
+  }
+  /** The intent's app origin when that app is admitted to frame the sign-in page; otherwise undefined. */
+  async frameOrigin(inputId: string): Promise<string | undefined> {
+    const origin = (await this.getIntent(inputId)).request.origin;
+    return this.frameable.has(origin) ? origin : undefined;
+  }
+  /** A launch made into a frame the app owns has no cookie to carry its claim: the verified launch
+   * signature is kept on the row instead, for the framed approval to present. Admitted apps only. */
+  async claimLaunch(inputId: string, launchSignature: Hex): Promise<void> {
+    const id = validateWalletHandoffToken(inputId);
+    if (typeof launchSignature !== 'string' || !/^0x[0-9a-f]{130}$/.test(launchSignature))
+      throw new RestError(403, 'WALLET_HANDOFF_UNCLAIMED', 'Return to the app and start the wallet connection again.');
+    const hinted = await this.getIntent(id);
+    if (!this.frameable.has(hinted.request.origin)) throw new RestError(403, 'WALLET_HANDOFF_UNCLAIMED', 'This app cannot frame the wallet sign-in.');
+    await verifyWalletHandoffLaunchSignature({ request: hinted.request, intentId: id }, launchSignature);
+    const claimedDigest = hashTypedData(walletHandoffRequestDocument(hinted.request));
+    return this.transaction(async client => {
+      const row = (await client.query<HandoffRow>("SELECT * FROM rest_wallet_handoffs WHERE id=$1 FOR UPDATE", [id])).rows[0];
+      if (!row || row.request_digest !== claimedDigest) inactive();
+      const request = intent(row).request; this.configured(request);
+      this.liveRequest(request, await now(client));
+      if (row.state !== "prepared") conflict();
+      await policy(client, request, request.expiresAtMs);
+      await client.query("UPDATE rest_wallet_handoffs SET launch_signature=$2 WHERE id=$1 AND state='prepared'", [id, launchSignature]);
+    });
+  }
+  /** The launch signature a framed launch left on the row, for the framed approval. */
+  async framedLaunch(inputId: string): Promise<{ intent: WalletHandoffIntent; launchSignature: Hex }> {
+    const id = validateWalletHandoffToken(inputId);
+    const hinted = await this.getIntent(id);
+    if (!this.frameable.has(hinted.request.origin)) throw new RestError(403, 'WALLET_HANDOFF_UNCLAIMED', 'This app cannot frame the wallet sign-in.');
+    const row = (await this.pool.query<HandoffRow>("SELECT * FROM rest_wallet_handoffs WHERE id=$1", [id])).rows[0];
+    if (!row) inactive();
+    if (row.state !== "prepared" || !row.launch_signature) throw new RestError(403, 'WALLET_HANDOFF_UNCLAIMED', 'Return to the app and start the wallet connection again.');
+    return { intent: intent(row), launchSignature: row.launch_signature };
   }
   async issue(inputId: string, inputSessionId: string, launchSignature: Hex): Promise<WalletHandoffIssuedCode> {
     const id = validateWalletHandoffToken(inputId);

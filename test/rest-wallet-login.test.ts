@@ -47,6 +47,15 @@ describe("discoverable wallet login pure boundary",()=>{
     expect(()=>verifyWalletLoginProof(f.draft,randomBytes(32).toString("base64url"),f.credential,f.assertion)).toThrow();
     expect(()=>verifyWalletLoginProof(f.draft,f.flowToken,{...f.credential,backupEligible:false},f.assertion)).toThrow();
   });
+  it("admits an assertion made inside an app's frame only for the one top origin the sign-in names",()=>{
+    const f=fixture(), app="https://beep.example";
+    const framed=(topOrigin?:string)=>signGet({...f.registration,rpId,origin,challenge:f.challenge,...(topOrigin?{topOrigin}:{})});
+    expect(verifyWalletLoginProof(f.draft,f.flowToken,f.credential,framed(app),{topOrigin:app}).credentialId).toBe(f.credential.credentialId);
+    // A top-level assertion still passes under an admitted framer; a framed one never passes without or under another.
+    expect(verifyWalletLoginProof(f.draft,f.flowToken,f.credential,f.assertion,{topOrigin:app}).credentialId).toBe(f.credential.credentialId);
+    expect(()=>verifyWalletLoginProof(f.draft,f.flowToken,f.credential,framed(app))).toThrow();
+    expect(()=>verifyWalletLoginProof(f.draft,f.flowToken,f.credential,framed("https://evil.example"),{topOrigin:app})).toThrow();
+  });
   it("rejects a validly encoded assertion signed by a different P256 key",()=>{
     const f=fixture(), other=fixture();
     const forged=signGet({...f.registration,key:other.registration.key,rpId,origin,challenge:f.challenge});

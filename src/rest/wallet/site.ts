@@ -42,7 +42,8 @@ export interface WalletSiteOptions {
   devices?: WalletDeviceSiteOptions['devices'];
   deviceBrowserScript?: string;
   login: Pick<PostgresWalletLoginStore, 'begin' | 'identifyCompletion' | 'complete' | 'identifySession' | 'identityKnown' | 'readSession' | 'viewSession' | 'logout' | 'passkeyName'>;
-  handoff: Pick<PostgresWalletHandoffStore, 'prepare' | 'getIntent' | 'issue' | 'identifyExchange' | 'exchange'>;
+  handoff: Pick<PostgresWalletHandoffStore, 'prepare' | 'getIntent' | 'issue' | 'identifyExchange' | 'exchange'>
+    & Partial<Pick<PostgresWalletHandoffStore, 'frameOrigin' | 'claimLaunch' | 'framedLaunch'>>;
   policy: Pick<PostgresWalletPolicyStore, 'readActivePolicy'>;
   refresh: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
   payments?: Pick<PostgresWalletPaymentReviewStore, 'get' | 'approve' | 'cancel'> & Partial<Pick<PostgresWalletPaymentReviewStore, 'frameOrigin'>>;
@@ -210,10 +211,24 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     mountWalletDevices(app, { origin, devices: options.devices, browserScript: options.deviceBrowserScript, basePath: base,
       session: (c, mutate) => paymentSession(c, mutate), onEvent: (action, outcome) => emit(action, outcome) });
   }
+  // Pages an admitted app may frame: inside a frame the app controls what surrounds the approval,
+  // so the set of apps is the operator's, not every app with a grant. Anything else keeps the
+  // default: no framing.
+  const frameable = new Set((options.frameableAppOrigins ?? []).map(value => validateWalletPolicyOrigin(value)));
+  const framedBy = (c: Context, framer: string | undefined) => {
+    if (!framer || !frameable.has(framer)) return;
+    c.header('Content-Security-Policy', pageHeaders['Content-Security-Policy'].replace("frame-ancestors 'none'", `frame-ancestors ${framer}`));
+    c.header('X-Frame-Options', undefined);
+  };
   // A bare visit without a session is a signup (which also logs in), served right here so nothing
-  // redirects or repaints. App returns and stale cookies still get the landing page.
-  const landing = (c: Context) => options.signup && !readWalletCookie(c.req.raw, walletSessionCookie) && new URL(c.req.url).search === ''
-    ? c.html(walletSignupPage({ base })) : c.html(walletPage(!!options.signup, !!options.recovery, base));
+  // redirects or repaints. App returns and stale cookies still get the landing page. An app return
+  // may be framed by the app whose intent it carries, when that app is admitted to.
+  const landing = async (c: Context) => {
+    if (options.signup && !readWalletCookie(c.req.raw, walletSessionCookie) && new URL(c.req.url).search === '') return c.html(walletSignupPage({ base }));
+    const intentId = c.req.query('intent');
+    if (intentId && handoff.frameOrigin && frameable.size) framedBy(c, await handoff.frameOrigin(intentId).catch(() => undefined));
+    return c.html(walletPage(!!options.signup, !!options.recovery, base));
+  };
   app.get(base || '/', landing);
   if (base) app.get(`${base}/`, landing);
   app.get(`${base}/assets/wallet.js`, c => c.body(browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
@@ -273,21 +288,14 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     if (!options.payments) reject(503, 'WALLET_PAYMENTS_UNAVAILABLE');
     return options.payments;
   };
-  const frameable = new Set((options.frameableAppOrigins ?? []).map(value => validateWalletPolicyOrigin(value)));
   app.get(`${base}/payment`, async c => {
     const service = payments();
     if (!options.paymentBrowserScript) reject(503, 'WALLET_PAYMENTS_UNAVAILABLE');
     // The page may be framed by the one app its review was prepared for (the app shows it inside
-    // its own checkout and delegates the passkey prompt to the frame), and only when that app is
-    // admitted to: inside a frame the app controls what surrounds the approval, so the set of apps
-    // is the operator's, not every app with a grant. A review that is not live, or a page opened
-    // without one, keeps the default: no framing.
+    // its own checkout and delegates the passkey prompt to the frame). A review that is not live,
+    // or a page opened without one, keeps the default: no framing.
     const review = c.req.query('review');
-    const framer = review && service.frameOrigin && frameable.size ? await service.frameOrigin(review).catch(() => undefined) : undefined;
-    if (framer && frameable.has(framer)) {
-      c.header('Content-Security-Policy', pageHeaders['Content-Security-Policy'].replace("frame-ancestors 'none'", `frame-ancestors ${framer}`));
-      c.header('X-Frame-Options', undefined);
-    }
+    if (review && service.frameOrigin && frameable.size) framedBy(c, await service.frameOrigin(review).catch(() => undefined));
     return c.html(walletPaymentPage(base));
   });
   app.get(`${base}/assets/wallet-payment.js`, c => {
@@ -367,9 +375,53 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     await verifyWalletHandoffLaunchSignature({ request: intent.request, intentId: intent.id }, claim.signature);
     const remaining = Math.floor((intent.expiresAtMs - Date.now()) / 1000);
     if (remaining < 1) reject(410, 'WALLET_HANDOFF_EXPIRED');
-    c.header('Set-Cookie', walletCookie(walletLaunchCookie, `${claim.intentId}.${claim.signature}`, Math.min(930, remaining)), { append: true });
+    if (claim.framed) {
+      // A frame the app owns gets no cookie (SameSite), so the claim stays on the row; admitted apps only.
+      if (!frameable.has(intent.request.origin) || !handoff.claimLaunch) reject(403, 'WALLET_HANDOFF_UNCLAIMED');
+      await handoff.claimLaunch(intent.id, claim.signature);
+      framedBy(c, intent.request.origin);
+    } else {
+      c.header('Set-Cookie', walletCookie(walletLaunchCookie, `${claim.intentId}.${claim.signature}`, Math.min(930, remaining)), { append: true });
+    }
     emit('handoff_launch', 'ok');
     return c.redirect(origin + (base || '/') + '?intent=' + intent.id, 303);
+  });
+  // The sign-in inside an admitted app's frame: the intent id admits the page, the launch signature
+  // on the row is the browser-launch claim, and one passkey assertion naming the app as its top
+  // origin both signs in and approves the grant. No cookie takes part; the flow token rides in the
+  // response instead, readable only by this page (the app is cross-origin to the frame), and the
+  // session it derives is never handed to the browser.
+  const framedIntent = async (id: string) => {
+    if (!handoff.framedLaunch || !frameable.size) reject(403, 'WALLET_HANDOFF_UNCLAIMED');
+    const launched = await handoff.framedLaunch(id);
+    if (!frameable.has(launched.intent.request.origin)) reject(403, 'WALLET_HANDOFF_UNCLAIMED');
+    return launched;
+  };
+  app.post(`${base}/authorize/:id/begin`, async c => {
+    central(c); fields(await readWalletJson(c.req.raw), []);
+    await framedIntent(c.req.param('id'));
+    const result = await login.begin();
+    emit('login_begin', 'ok');
+    return c.json({ loginId: result.login.id, flowToken: result.flowToken, publicKey: { rpId: result.login.rpId,
+      challenge: Buffer.from(result.login.challenge.slice(2), 'hex').toString('base64url'), userVerification: 'required', timeout: 90_000 },
+      expiresAtMs: result.login.expiresAtMs }, 201);
+  });
+  app.post(`${base}/authorize/:id/approve`, async c => {
+    central(c);
+    const body = fields(await readWalletJson(c.req.raw), ['loginId', 'flowToken', 'assertion']);
+    if (typeof body.loginId !== 'string' || typeof body.flowToken !== 'string') reject();
+    const { intent, launchSignature } = await framedIntent(c.req.param('id'));
+    const input = { loginId: body.loginId, flowToken: body.flowToken, assertion: assertion(body.assertion) };
+    const framed = { topOrigin: intent.request.origin };
+    const identity = await login.identifyCompletion(input, framed);
+    if (await login.identityKnown(identity.accountId)) void demand(identity.accountId, false); else await demand(identity.accountId);
+    const result = await login.complete(input, framed);
+    emit('login_complete', 'ok');
+    const issued = await handoff.issue(intent.id, result.session.id, launchSignature);
+    if (issued.issuer !== origin) reject(503, 'WALLET_UNAVAILABLE');
+    const callback = new URL(issued.callbackUri);
+    callback.searchParams.set('code', issued.code); callback.searchParams.set('state', issued.state); callback.searchParams.set('iss', issued.issuer);
+    emit('handoff_issue', 'ok'); return c.json({ redirectUri: callback.href });
   });
   app.post(`${base}/authorize/issue`, async c => {
     central(c); const token = cookie(c, walletSessionCookie);

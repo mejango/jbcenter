@@ -10,7 +10,7 @@ import { PostgresWalletCeremonyStore, lockWalletCeremonyAdmission, walletCeremon
 import { copyWalletLoginCompletion, createWalletLoginDraft, deriveWalletCentralSessionToken, validateWalletCentralSession,
   validateWalletLoginDraft, verifyWalletLoginProof, walletCentralSessionLifetimeMs, walletCentralSessionTokenHash,
   walletLoginChallenge, walletLoginFlowTokenHash, type WalletCentralSession, type WalletLoginChallenge,
-  type WalletLoginCompletion, type WalletLoginDraft } from "./login.js";
+  type WalletLoginCompletion, type WalletLoginDraft, type WalletLoginProofOptions } from "./login.js";
 
 interface LoginRow {
   id: string; session_id: string; ceremony_id: string; rp_id: string; flow_token_hash: string; draft: WalletLoginDraft;
@@ -164,8 +164,8 @@ export class PostgresWalletLoginStore {
     });
   }
   /** Internal proof-verified refresh identity only; this neither consumes nor creates a session. */
-  async identifyCompletion(input: WalletLoginCompletion): Promise<{ accountId: string }> {
-    const proof = await this.proof(input);
+  async identifyCompletion(input: WalletLoginCompletion, options: WalletLoginProofOptions = {}): Promise<{ accountId: string }> {
+    const proof = await this.proof(input, options);
     return this.transaction(async client => {
       const locked = await lockedContext(client, proof.context.accountId, proof.context.enrollment.intent.id);
       sameCaptured(locked, proof.context);
@@ -179,8 +179,8 @@ export class PostgresWalletLoginStore {
       return { accountId: proof.context.accountId };
     });
   }
-  async complete(input: WalletLoginCompletion): Promise<{ session: WalletCentralSession; sessionToken: string; replayed: boolean }> {
-    const proof = await this.proof(input), identity = proof.context.prior?.identity;
+  async complete(input: WalletLoginCompletion, options: WalletLoginProofOptions = {}): Promise<{ session: WalletCentralSession; sessionToken: string; replayed: boolean }> {
+    const proof = await this.proof(input, options), identity = proof.context.prior?.identity;
     if (!identity) inactive();
     const identityDigest = walletAuthorityIdentityDigest(identity);
     const sessionToken = deriveWalletCentralSessionToken(proof.input.flowToken, proof.draft.id);
@@ -278,7 +278,7 @@ export class PostgresWalletLoginStore {
     if (!Number.isSafeInteger(limitValue) || limitValue < 1 || limitValue > 1000) invalid();
     return this.transaction(client => this.cleanupInTransaction(client, limitValue));
   }
-  private async proof(raw: WalletLoginCompletion) {
+  private async proof(raw: WalletLoginCompletion, options: WalletLoginProofOptions) {
     // Copy mutable request bytes before the first await. Cryptography and expensive W3/context
     // validation happen outside the completion transaction, followed by exact locked comparisons.
     const input = copyWalletLoginCompletion(raw);
@@ -297,7 +297,7 @@ export class PostgresWalletLoginStore {
     // The full context above validates immutable lineage; the possession verifier needs
     // only the current key. Keep the existing proof format and compare lineage under locks.
     const { recovery: _recovery, device: _device, ...proofCredential } = signedIn as WalletAuthorityCredential & { device?: unknown };
-    return { input, draft, context, signedIn, proof: verifyWalletLoginProof(draft, input.flowToken, proofCredential, input.assertion) };
+    return { input, draft, context, signedIn, proof: verifyWalletLoginProof(draft, input.flowToken, proofCredential, input.assertion, options) };
   }
   private async lockLogin(client: PoolClient, id: string): Promise<LoginRow> {
     const row = (await client.query<LoginRow>("SELECT * FROM rest_wallet_logins WHERE id=$1 FOR UPDATE", [id])).rows[0];

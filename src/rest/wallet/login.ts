@@ -164,9 +164,12 @@ export function copyWalletLoginCompletion(input: WalletLoginCompletion): WalletL
     signature: boundedBytes(a.signature, 8, 72) } };
 }
 /** Proof verification only. Expiry, current mapping, epochs and one-use consumption are durable
- * store responsibilities; this must never be treated as a session or onchain authorization. */
+ * store responsibilities; this must never be treated as a session or onchain authorization.
+ * `topOrigin`: the one app origin admitted to frame the sign-in page; the assertion must then be
+ * cross-origin under it. Absent, the assertion must not be cross-origin at all. */
+export interface WalletLoginProofOptions { topOrigin?: string }
 export function verifyWalletLoginProof(inputDraft: WalletLoginDraft, flowToken: string, credential: WalletAuthorityCredential,
-  assertion: WalletAssertion): WalletLoginProof {
+  assertion: WalletAssertion, options: WalletLoginProofOptions = {}): WalletLoginProof {
   const draft = validateWalletLoginDraft(inputDraft);
   const input = copyWalletLoginCompletion({ loginId: draft.id, flowToken, assertion });
   if (!timingSafeEqual(Buffer.from(walletLoginFlowTokenHash(input.flowToken), "hex"), Buffer.from(draft.flowTokenHash, "hex"))) unauthorized();
@@ -177,6 +180,7 @@ export function verifyWalletLoginProof(inputDraft: WalletLoginDraft, flowToken: 
     typeof credential.backupEligible !== "boolean" || credential.supersededAtMs !== null) unauthorized();
   try {
     const proof = verifyWalletAssertion(input.assertion, { purpose: "login", ...walletLoginChallenge(draft),
+      ...(options.topOrigin ? { topOrigin: options.topOrigin } : {}),
       credential: { id: credential.credentialId, publicKey: credential.publicKey, userHandle: credential.userHandle,
         backupEligible: credential.backupEligible }, requireUserHandle: true });
     return { verificationDigest: enrollmentDigest(["Juicebox Center verified login possession v1", draft.id, draft.ceremony.contextDigest,

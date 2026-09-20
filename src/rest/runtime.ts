@@ -213,6 +213,7 @@ export async function createRestRuntime(options: {
     const appGrants = new PostgresWalletAppGrantStore(options.pool);
     const handoff = new PostgresWalletHandoffStore(options.pool, {
       grantStore: appGrants, issuer: origin, audience: options.audience ?? options.config.publicOrigin,
+      ...(options.wallet?.frameableAppOrigins ? { frameableAppOrigins: options.wallet.frameableAppOrigins } : {}),
     });
     const authority = new PostgresWalletAuthorityStore(options.pool);
     // One refresh is one hosted inspection (~25 s measured, 90 s budget); the lease outlives the attempt.

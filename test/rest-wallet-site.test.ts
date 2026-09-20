@@ -378,3 +378,77 @@ describe('dedicated Center wallet HTTP journey',()=>{
     const {options}=setup();expect(()=>createWalletSite({...options,origin:new URL(audience).origin})).toThrow();
   });
 });
+
+describe('sign-in framed by an admitted app',()=>{
+  const assertion={credentialId:flow,userHandle:token,authenticatorData:Buffer.alloc(37).toString('base64url'),clientDataJSON:Buffer.from('{}').toString('base64url'),signature:Buffer.alloc(70).toString('base64url')};
+  async function framedSetup(admitted:string[]|null=[appOrigin]) {
+    const base=setup();
+    const intent=await base.options.handoff.getIntent(flow);
+    const launchSignature=await appKey.signTypedData(walletHandoffLaunchDocument({request:intent.request,intentId:flow}));
+    const handoff={...base.options.handoff,
+      frameOrigin:vi.fn(async(id:string)=>{if(id!==flow)throw new RestError(403,'WALLET_HANDOFF_INACTIVE','private');return appOrigin;}),
+      claimLaunch:vi.fn(async()=>undefined),
+      framedLaunch:vi.fn(async(id:string)=>{if(id!==flow)throw new RestError(403,'WALLET_HANDOFF_UNCLAIMED','private');return {intent,launchSignature};})};
+    return {...setup({handoff,...(admitted?{frameableAppOrigins:admitted}:{})}),intent,launchSignature,handoff};
+  }
+  it('lets exactly the intent\'s app origin frame the sign-in page, and nothing frame it otherwise',async()=>{
+    const {app}=await framedSetup();
+    const framed=await app.fetch(new Request(origin+'/wallet?intent='+flow));
+    expect(framed.status).toBe(200);expect(framed.headers.get('content-security-policy')).toContain(`frame-ancestors ${appOrigin};`);
+    expect(framed.headers.get('x-frame-options')).toBeNull();
+    for(const path of ['/wallet?intent='+token,'/wallet/authorize/'+flow]){
+      const plain=await app.fetch(new Request(origin+path));
+      expect(plain.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");expect(plain.headers.get('x-frame-options')).toBe('DENY');
+    }
+    for(const admitted of [['https://other.example'],null]){
+      const gated=await (await framedSetup(admitted)).app.fetch(new Request(origin+'/wallet?intent='+flow));
+      expect(gated.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");expect(gated.headers.get('x-frame-options')).toBe('DENY');
+    }
+  });
+  it('keeps a framed launch\'s claim on the row instead of a cookie, for admitted apps only',async()=>{
+    const {app,handoff,launchSignature}=await framedSetup();
+    const body=new URLSearchParams({intentId:flow,signature:launchSignature}).toString();
+    const headers={origin:appOrigin,'content-type':'application/x-www-form-urlencoded','sec-fetch-mode':'navigate','sec-fetch-dest':'iframe'};
+    const result=await app.fetch(new Request(origin+'/wallet/launch',{method:'POST',headers,body}));
+    expect(result.status).toBe(303);expect(result.headers.get('location')).toBe(origin+'/wallet?intent='+flow);
+    expect(result.headers.get('set-cookie')).toBeNull();expect(handoff.claimLaunch).toHaveBeenCalledWith(flow,launchSignature);
+    expect(result.headers.get('content-security-policy')).toContain(`frame-ancestors ${appOrigin};`);
+    // A document launch by the same app still takes the cookie path and leaves the row alone.
+    const document=await app.fetch(new Request(origin+'/wallet/launch',{method:'POST',headers:{...headers,'sec-fetch-dest':'document'},body}));
+    expect(document.status).toBe(303);expect(document.headers.get('set-cookie')).toContain(`${walletLaunchCookie}=${flow}.${launchSignature}`);
+    expect(handoff.claimLaunch).toHaveBeenCalledTimes(1);
+    for(const admitted of [['https://other.example'],null]){
+      const gated=await framedSetup(admitted);
+      const refused=await gated.app.fetch(new Request(origin+'/wallet/launch',{method:'POST',headers,body:new URLSearchParams({intentId:flow,signature:gated.launchSignature}).toString()}));
+      expect(refused.status).toBe(403);expect(refused.headers.get('set-cookie')).toBeNull();expect(gated.handoff.claimLaunch).not.toHaveBeenCalled();
+    }
+  });
+  it('signs in and issues the callback by intent id and one passkey naming the app, with no cookie either way',async()=>{
+    const {app,options,launchSignature}=await framedSetup();
+    const begun=await app.fetch(request(`/wallet/authorize/${flow}/begin`,{}));
+    expect(begun.status).toBe(201);expect(begun.headers.get('set-cookie')).toBeNull();
+    const challenge=await begun.json();expect(challenge.loginId).toBe(loginId);expect(challenge.flowToken).toBe(flow);expect(challenge.csrfToken).toBeUndefined();
+    const approved=await app.fetch(request(`/wallet/authorize/${flow}/approve`,{loginId,flowToken:flow,assertion}));
+    expect(approved.status).toBe(200);expect(approved.headers.get('set-cookie')).toBeNull();
+    expect(options.login.identifyCompletion).toHaveBeenCalledWith(expect.objectContaining({loginId,flowToken:flow}),{topOrigin:appOrigin});
+    expect(options.login.complete).toHaveBeenCalledWith(expect.objectContaining({loginId,flowToken:flow}),{topOrigin:appOrigin});
+    expect(options.refresh.request).toHaveBeenCalledWith(accountId);
+    expect(options.handoff.issue).toHaveBeenCalledWith(flow,'22222222-2222-4222-8222-222222222222',launchSignature);
+    const result=await approved.json();const callback=new URL(result.redirectUri);expect(callback.origin).toBe(appOrigin);
+    expect(callback.searchParams.get('code')).toBe(flow);expect(callback.searchParams.get('state')).toBe(token);expect(callback.searchParams.get('iss')).toBe(origin);
+    expect(JSON.stringify(result)).not.toContain(token+'"');
+    // An intent that was never launched into a frame, or an app not admitted, has no framed sign-in.
+    expect((await app.fetch(request(`/wallet/authorize/${token}/begin`,{}))).status).toBe(403);
+    expect((await app.fetch(request(`/wallet/authorize/${token}/approve`,{loginId,flowToken:flow,assertion}))).status).toBe(403);
+    const gated=await framedSetup(['https://other.example']);
+    expect((await gated.app.fetch(request(`/wallet/authorize/${flow}/begin`,{}))).status).toBe(403);
+    expect((await gated.app.fetch(request(`/wallet/authorize/${flow}/approve`,{loginId,flowToken:flow,assertion}))).status).toBe(403);
+    expect(gated.options.login.complete).not.toHaveBeenCalled();expect(gated.options.handoff.issue).not.toHaveBeenCalled();
+  });
+  it('never admits a framing top origin on the cookie sign-in',async()=>{
+    const {app,options}=await framedSetup();
+    const response=await app.fetch(request('/wallet/login/complete',{loginId,assertion},{cookie:`${walletFlowCookie}=${flow}`,'x-center-wallet-csrf':walletCsrfToken(flow)}));
+    expect(response.status).toBe(200);expect(options.login.complete).toHaveBeenCalledTimes(1);
+    expect((options.login.complete as ReturnType<typeof vi.fn>).mock.calls[0]).toHaveLength(1);
+  });
+});

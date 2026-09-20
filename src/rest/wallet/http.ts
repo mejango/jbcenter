@@ -157,11 +157,14 @@ export async function readWalletJson(request: Request, timeoutMs = 5000): Promis
   if (performance.now() >= deadline) throw new RestError(408, 'WALLET_HTTP_BODY_TIMEOUT', 'Wallet request body did not arrive in time.');
   return value as Record<string, unknown>;
 }
+/** The app's launch form, submitted into this tab, a window the app opened, or (`framed`) a frame the
+ * app owns; the route decides whether that app may frame. */
 export async function readWalletLaunchForm(request: Request) {
-  if (request.method !== 'POST' || request.headers.get('sec-fetch-dest') !== 'document'
+  const destination = request.headers.get('sec-fetch-dest');
+  if (request.method !== 'POST' || (destination !== 'document' && destination !== 'iframe')
     || request.headers.get('sec-fetch-mode') !== 'navigate') invalid(403, 'WALLET_HTTP_ORIGIN');
   if (!/^application\/x-www-form-urlencoded(?:; ?charset=utf-8)?$/i.test(request.headers.get('content-type') ?? '')) invalid(415, 'WALLET_HTTP_CONTENT_TYPE');
   const fields = new URLSearchParams(await readWalletBody(request, 5000, 512));
   if (fields.size !== 2 || fields.getAll('intentId').length !== 1 || fields.getAll('signature').length !== 1) invalid();
-  return walletLaunchClaim(`${fields.get('intentId')}.${fields.get('signature')}`);
+  return { ...walletLaunchClaim(`${fields.get('intentId')}.${fields.get('signature')}`), framed: destination === 'iframe' };
 }

@@ -15,7 +15,8 @@ import { PostgresWalletLoginStore } from "../src/rest/wallet/loginPostgres.js";
 import { createWalletLoginDraft } from "../src/rest/wallet/login.js";
 import { PostgresWalletAuthorityStore } from "../src/rest/wallet/authorityPostgres.js";
 import { walletAuthorityContextDigest, walletAuthorityExpectedAnchor } from "../src/rest/wallet/authority.js";
-import { completeWalletLoginFixture, walletLoginFixtureOrigin, walletLoginFixtureRpId } from "./fixtures/wallet-login-setup.js";
+import { completeWalletLoginFixture, createWalletLoginSetup, walletLoginFixtureOrigin, walletLoginFixtureRpId } from "./fixtures/wallet-login-setup.js";
+import { signGet } from "./fixtures/wallet-enrollment-crypto.js";
 
 const connectionString = process.env.TEST_DATABASE_URL, suite = connectionString ? describe : describe.skip;
 const schema = `wallet_handoff_${randomUUID().replaceAll("-", "")}`;
@@ -187,6 +188,43 @@ suite("PostgreSQL wallet handoff with genuine request-key proofs and credentiall
     const issued=await store.issue(prepared.id,login.session.id,signature);
     expect(issued.callbackUri).toBe(input.request.callbackUri);
     await expect(store.issue(prepared.id,login.session.id,signature)).rejects.toMatchObject({code:'WALLET_HANDOFF_CONFLICT'});
+  });
+
+  it("signs in and issues from inside an admitted app's frame with one passkey naming the app, and never otherwise", async () => {
+    const setup = await createWalletLoginSetup(pool, { lifetimeMs: 30_000 });
+    const logins = new PostgresWalletLoginStore(pool, { rpId: walletLoginFixtureRpId, origin: walletLoginFixtureOrigin });
+    const framed = new PostgresWalletHandoffStore(pool, options({ frameableAppOrigins: [origin] })), plain = new PostgresWalletHandoffStore(pool, options());
+    const input = await request(), prepared = await framed.prepare({ request: input.request, signature: input.signature }, origin);
+    const proof = walletHandoffLaunchDocument({ request: input.request, intentId: prepared.id }), launchSignature = await appKey.signTypedData(proof);
+    // The launch claim goes on the row for an admitted app only, and only with the app's own launch proof.
+    await expect(plain.claimLaunch(prepared.id, launchSignature)).rejects.toMatchObject({ code: "WALLET_HANDOFF_UNCLAIMED" });
+    await expect(framed.claimLaunch(prepared.id, await otherKey.signTypedData(proof))).rejects.toMatchObject({ code: "WALLET_HANDOFF_SIGNATURE_INVALID" });
+    await expect(framed.framedLaunch(prepared.id)).rejects.toMatchObject({ code: "WALLET_HANDOFF_UNCLAIMED" });
+    expect(await plain.frameOrigin(prepared.id)).toBeUndefined();
+    await framed.claimLaunch(prepared.id, launchSignature);
+    expect(await framed.frameOrigin(prepared.id)).toBe(origin);
+    expect((await handoffRow(prepared.id)).launch_signature).toBe(launchSignature);
+    const launched = await framed.framedLaunch(prepared.id);
+    expect(launched.launchSignature).toBe(launchSignature); expect(launched.intent.id).toBe(prepared.id);
+    await expect(plain.framedLaunch(prepared.id)).rejects.toMatchObject({ code: "WALLET_HANDOFF_UNCLAIMED" });
+    // One passkey made inside the app's frame: its client data names the app as the top origin.
+    const begun = await logins.begin();
+    const assertion = (topOrigin?: string) => signGet({ ...setup.credential, challenge: begun.login.challenge,
+      rpId: walletLoginFixtureRpId, origin: walletLoginFixtureOrigin, ...(topOrigin ? { topOrigin } : {}) });
+    const framedInput = { loginId: begun.login.id, flowToken: begun.flowToken, assertion: assertion(origin) };
+    await expect(logins.identifyCompletion(framedInput)).rejects.toMatchObject({ code: "WALLET_LOGIN_UNAUTHORIZED" });
+    await expect(logins.identifyCompletion(framedInput, { topOrigin: secondOrigin })).rejects.toMatchObject({ code: "WALLET_LOGIN_UNAUTHORIZED" });
+    expect(await logins.identifyCompletion(framedInput, { topOrigin: origin })).toEqual({ accountId: setup.accountId });
+    const completed = await logins.complete(framedInput, { topOrigin: origin });
+    expect(completed.session.accountId).toBe(setup.accountId);
+    // The session anchors the grant; the frame never held its token.
+    const issued = await framed.issue(prepared.id, completed.session.id, launched.launchSignature);
+    expect(issued.callbackUri).toBe(input.request.callbackUri);
+    expect(await handoffRow(prepared.id)).toMatchObject({ state: "issued", session_id: completed.session.id });
+    const process = await worker();
+    const result = await process.request({ action: "exchange", input: await exchangeInput(input.request, prepared.id, issued.code, input.verifier) });
+    expect(result.status).toBe(200);
+    expect(result.body.grant).toMatchObject({ kind: "wallet-app", accountId: setup.accountId, origin, callbackUri: input.request.callbackUri });
   });
 
   it("reports handoff-specific validation errors for malformed preparation and configuration", async () => {

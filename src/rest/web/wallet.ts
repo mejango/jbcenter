@@ -28,6 +28,32 @@ let completionAttempted = false;
 let paymentReviewId: string | null = null;
 let nativePrompt: AbortController | null = null, retryAction: (() => Promise<void>) | null = null;
 let nextRetry: () => Promise<void> = load;
+// Framed inside an admitted app's page, this page signs in without a Center session or cookie: the
+// intent admits it, the launch signature kept on the row is the browser-launch claim, and one
+// passkey assertion naming the app as its top origin both signs in and approves the grant. The app
+// controls what surrounds the frame, so the sign-in button works only while the frame is large
+// enough and, where the browser can tell (Intersection Observer v2), while the button itself is
+// visible and unobscured; otherwise the person is sent to open the sign-in as a page of its own.
+const framed = window.self !== window.top;
+const openAsPage = document.getElementById("wallet-open") as HTMLAnchorElement | null;
+if (framed) {
+  document.documentElement.classList.add("framed");
+  // The frame is sized to this page: its height is told to the page framing it (the app admitted
+  // by frame-ancestors) whenever it changes. A number only.
+  const content = document.querySelector("main") ?? document.body;
+  const report = () => window.parent.postMessage({ type: "juicebox-center:size", height: Math.ceil(content.getBoundingClientRect().bottom + window.scrollY) }, "*");
+  try { new ResizeObserver(report).observe(content); } catch { /* No observer: the frame keeps its default height. */ }
+  window.addEventListener("load", report);
+}
+let signInVisible = !framed;
+if (framed) {
+  try {
+    const observer = new IntersectionObserver(entries => { const entry = entries[entries.length - 1]; if (!entry) return;
+      signInVisible = entry.isIntersecting && (entry as { isVisible?: boolean }).isVisible !== false; render(); }, { threshold: 0.9, trackVisibility: true, delay: 100 } as IntersectionObserverInit);
+    observer.observe(signIn);
+  } catch { signInVisible = true; }
+}
+const frameTooSmall = () => framed && window.innerWidth < 300;
 
 class InvalidResponse extends Error {}
 class HttpFailure extends Error { constructor(readonly status: number, readonly code?: string, readonly appOrigin?: string) { super("Wallet request failed"); } }
@@ -62,7 +88,8 @@ function token(value: unknown): string {
 function setStatus(state: string, message: string) { status.dataset.state = state; status.textContent = message; }
 function render() {
   signIn.hidden = !sessionKnown || !!session || !!pending;
-  signIn.disabled = busy;
+  signIn.disabled = busy || frameTooSmall() || !signInVisible;
+  const openRow = document.getElementById("wallet-open-row"); if (openRow) openRow.hidden = !framed || !intent || busy;
   retry.hidden = !retryAction || busy;
   // A page that is leaving for an app shows nothing it has not shown yet.
   const leaving = !!intent && busy;
@@ -150,7 +177,7 @@ async function run(action: () => Promise<void>) {
         pending = null; csrf = ""; completionAttempted = false;
         setStatus("ready", "This sign-in expired or could not be authorized. Try your passkey again.");
       } else {
-        retryAction = readSession;
+        retryAction = framed ? load : readSession;
         setStatus("retry", "Account access changed or the request expired. Check your account again.");
       }
     } else {
@@ -179,6 +206,9 @@ async function load() {
   if (create) { create.href = `${base}/create` + query.search; create.hidden = false; }
   const recover = document.getElementById("wallet-recover") as HTMLAnchorElement | null;
   if (recover) { recover.href = `${base}/recover` + query.search; recover.hidden = false; }
+  // Signing up and recovery are pages of their own: a passkey is only ever created top-level.
+  if (framed) for (const link of [create, recover, openAsPage]) if (link) { link.target = "_top"; link.rel = "noopener"; }
+  if (openAsPage) openAsPage.href = `${base}${query.search}`;
   const rpId = string(config.rpId, 253);
   if (location.hostname !== rpId && !location.hostname.endsWith(`.${rpId}`)) throw new InvalidResponse();
   configuration = { issuer: location.origin, audience: string(config.audience), rpId };
@@ -191,6 +221,11 @@ async function load() {
       || callback.href !== callbackUri || !["https:", "http:"].includes(callback.protocol)) throw new InvalidResponse();
     intent = { id: intentId, callbackUri, state: token(requested.state), expiresAtMs: future(result.expiresAtMs) };
     destination.textContent = `Returning to ${callback.origin} after sign-in.`; destination.hidden = false;
+  }
+  if (framed && intent) {
+    // No cookie reaches a cross-site frame, so there is no session to read; the sign-in below carries its own proof.
+    ahead?.catch(() => undefined); ahead = null; session = null; sessionKnown = true;
+    setStatus("ready", "Sign in with your passkey."); return;
   }
   await readSession();
 }
@@ -213,6 +248,7 @@ async function continueSession() {
 }
 async function login() {
   nextRetry = login;
+  if (framed && intent) return framedSignIn();
   if (pending) return completeLogin();
   if (!window.isSecureContext || !navigator.credentials?.get) {
     setStatus("error", "This browser cannot use passkeys here. Open Center in a browser that supports passkeys."); return;
@@ -257,6 +293,45 @@ async function completeLogin() {
   pending = null; completionAttempted = false;
   await continueSession();
 }
+// The framed sign-in: begin, one passkey prompt, approve; the approval's answer is the app's callback.
+async function framedSignIn() {
+  nextRetry = framedSignIn;
+  if (!intent) throw new InvalidResponse();
+  if (frameTooSmall() || !signInVisible) { setStatus("ready", "Open this sign-in as a page of its own to continue."); return; }
+  if (!window.isSecureContext || !navigator.credentials?.get) {
+    setStatus("error", "This browser cannot use passkeys here. Open Center in a browser that supports passkeys."); return;
+  }
+  future(intent.expiresAtMs);
+  setStatus("checking", "Preparing your passkey sign-in…");
+  const begun = await request(`${base}/authorize/${intent.id}/begin`, {}), publicKey = record(begun.publicKey);
+  if (publicKey.rpId !== configuration.rpId || publicKey.userVerification !== "required" || publicKey.timeout !== 90_000) throw new InvalidResponse();
+  const challenge = decode(publicKey.challenge); if (challenge.length !== 32) throw new InvalidResponse();
+  const loginId = string(begun.loginId, 36), flowToken = token(begun.flowToken); future(begun.expiresAtMs);
+  nativePrompt = new AbortController(); setStatus("authenticating", "Use your passkey to sign in."); render();
+  const credential = await navigator.credentials.get({ publicKey: { rpId: configuration.rpId, challenge,
+    userVerification: "required", timeout: 90_000 }, signal: nativePrompt.signal });
+  if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAssertionResponse)) throw new InvalidResponse();
+  const assertion = credential.response;
+  nativePrompt = null;
+  // Approval may refresh the account's authority on Base first; the site holds the request up to 90 s.
+  setStatus("checking", "Checking your account. This can take up to a minute…");
+  const result = await readyRequest(`${base}/authorize/${intent.id}/approve`, { loginId, flowToken, assertion: {
+    credentialId: encode(credential.rawId), userHandle: assertion.userHandle ? encode(assertion.userHandle) : null,
+    authenticatorData: encode(assertion.authenticatorData), clientDataJSON: encode(assertion.clientDataJSON), signature: encode(assertion.signature) } },
+    undefined, 100_000);
+  setStatus("returning", "Returning to your Juicebox app…");
+  location.replace(checkedRedirect(result));
+}
+function checkedRedirect(result: Json): string {
+  if (!intent) throw new InvalidResponse();
+  const redirectUri = string(result.redirectUri, 4096), redirect = new URL(redirectUri);
+  const keys = [...redirect.searchParams.keys()];
+  if (redirectUri.split("?")[0] !== intent.callbackUri || redirect.hash || keys.length !== 3
+    || new Set(keys).size !== 3 || keys.some(key => !["code", "state", "iss"].includes(key))
+    || redirect.searchParams.get("state") !== intent.state || redirect.searchParams.get("iss") !== configuration.issuer) throw new InvalidResponse();
+  token(redirect.searchParams.get("code"));
+  return redirectUri;
+}
 async function issue() {
   nextRetry = issue;
   if (!intent || !session) throw new InvalidResponse();
@@ -264,13 +339,7 @@ async function issue() {
   setStatus("returning", "Returning to your Juicebox app…");
   // Issuing needs fresh on-chain authority; after idle that is a hosted refresh of ~25 s.
   const result = await readyRequest(`${base}/authorize/issue`, { intentId: intent.id }, csrf, undefined, 90, 1000);
-  const redirectUri = string(result.redirectUri, 4096), redirect = new URL(redirectUri);
-  const keys = [...redirect.searchParams.keys()];
-  if (redirectUri.split("?")[0] !== intent.callbackUri || redirect.hash || keys.length !== 3
-    || new Set(keys).size !== 3 || keys.some(key => !["code", "state", "iss"].includes(key))
-    || redirect.searchParams.get("state") !== intent.state || redirect.searchParams.get("iss") !== configuration.issuer) throw new InvalidResponse();
-  token(redirect.searchParams.get("code"));
-  location.replace(redirectUri);
+  location.replace(checkedRedirect(result));
 }
 async function logout() {
   nextRetry = logout; setStatus("checking", "Signing out…");
@@ -448,6 +517,7 @@ if (deviceAdd && devicePanel) {
   element("wallet-device-cancel").addEventListener("click", () => { device = null; render(); });
 }
 signIn.addEventListener("click", () => void run(login));
+if (framed) window.addEventListener("resize", render);
 retry.addEventListener("click", () => { if (retryAction) void run(retryAction); });
 cancel.addEventListener("click", () => nativePrompt?.abort());
 signOut.addEventListener("click", () => void run(logout));
