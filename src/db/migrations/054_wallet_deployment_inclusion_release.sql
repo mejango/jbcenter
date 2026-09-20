@@ -96,8 +96,11 @@ BEGIN
   SELECT * INTO d FROM rest_wallet_deployments WHERE id=NEW.id;
   SELECT * INTO p FROM rest_wallet_deployment_pools WHERE id=d.pool_id;
   cost := (NEW.receipt->'evidence'->'fees'->>'totalWei')::numeric;
-  -- Reservations of the other released operations stay ahead of the balance floor.
-  others := rest_wallet_deployment_reserved_wei(p.id)-COALESCE(d.reserved_wei,0);
+  -- Reservations of the other released operations stay ahead of the balance floor, and so does the
+  -- active operation's: it may already be included (and paid) without being released yet.
+  others := rest_wallet_deployment_reserved_wei(p.id)-COALESCE(d.reserved_wei,0)
+    +COALESCE((SELECT GREATEST(a.maximum_execution_cost,COALESCE((SELECT (admission->'reservation'->>'totalWei')::numeric
+      FROM rest_wallet_deployment_dispatches WHERE operation_id=a.id),0)) FROM rest_wallet_deployments a WHERE a.id=p.active_operation_id AND a.state='signed'),0);
   window_ := CASE WHEN p.active_operation_id IS NULL THEN 0 ELSE 1 END;
   IF (d.state='signed' AND d.settlement_id IS NULL AND d.released_at IS NOT NULL AND p.id=NEW.pool_id
     AND p.active_operation_id IS DISTINCT FROM d.id

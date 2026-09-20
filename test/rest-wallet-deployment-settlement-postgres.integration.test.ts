@@ -170,6 +170,30 @@ suite("durable sequential local deployment settlement", () => {
     const retry = await preparedSettlementUser(pool, store);
     expect((await store.claim(retry.input)).operation.template!.transaction.nonce).toBe("2");
   });
+  it("settles behind an active operation that is already included and paid but not yet released", async () => {
+    await initializedSettlementPool(pool, store);
+    const first = await releasedSettlementUser(pool, store), second = await signedSettlementUser(pool, store);
+    expect(second.pool).toMatchObject({ activeOperationId: second.operation.id, accounting: { nextNonce: "2" } });
+    const context = await store.loadSettlementContext(first.operation.id);
+    const evidence = syntheticSettlement(context, await settlementDatabaseNow(pool));
+    // The chain already holds nonce 2 and its fee left the balance; the accounting has not released it.
+    evidence.funding.confirmedNonce = evidence.funding.pendingNonce = "3";
+    evidence.funding.balanceWei = String(BigInt(evidence.funding.balanceWei) - BigInt(second.operation.signed!.maximumExecutionCost));
+    const short = structuredClone(evidence); short.funding.balanceWei = String(BigInt(short.funding.balanceWei) - 1n);
+    expect((await store.settle(context, short)).pool.accounting!.fence).toMatchObject({ reason: "balance-deficit" });
+    await pool.query("UPDATE rest_wallet_deployment_pools SET accounting=jsonb_set(accounting,'{fence}','null'),revision=revision+1").catch(() => undefined);
+  });
+  it("settles behind an included, unreleased active operation without a false balance fence", async () => {
+    await initializedSettlementPool(pool, store);
+    const first = await releasedSettlementUser(pool, store), second = await signedSettlementUser(pool, store);
+    const context = await store.loadSettlementContext(first.operation.id);
+    const evidence = syntheticSettlement(context, await settlementDatabaseNow(pool));
+    evidence.funding.confirmedNonce = evidence.funding.pendingNonce = "3";
+    evidence.funding.balanceWei = String(BigInt(evidence.funding.balanceWei) - BigInt(second.operation.signed!.maximumExecutionCost));
+    const result = await store.settle(context, evidence);
+    expect(result.settlement).toMatchObject({ nonce: "1", sequence: 1 });
+    expect(result.pool).toMatchObject({ activeOperationId: second.operation.id, accounting: { nextNonce: "2", sequence: 1, fence: null } });
+  });
   it("settles released inclusions in nonce order", async () => {
     await initializedSettlementPool(pool, store);
     const first = await releasedSettlementUser(pool, store), second = await releasedSettlementUser(pool, store);

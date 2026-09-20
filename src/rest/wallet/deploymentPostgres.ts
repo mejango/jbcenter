@@ -402,9 +402,11 @@ export class PostgresWalletDeploymentStore {
       if (actual.dispatch && actual.dispatch.leaseUntil > now) busy();
       const nonce = operation.template!.transaction.nonce, nextNonce = String(BigInt(nonce) + 1n), cost = BigInt(proof.fees.totalWei);
       // The lane was released at inclusion; this operation's own reservation gives way to its debit
-      // while the other released operations' reservations stay ahead of the balance floor.
+      // while the other released operations' reservations stay ahead of the balance floor, and so
+      // does the active operation's: it may be included and paid before it is released.
       const allocation = BigInt(pool.configuration.allocationWei), spentWei = BigInt(pool.accounting!.spentWei) + cost;
-      const others = BigInt(pool.reservedWei) - BigInt(operation.reservedWei ?? "0"), floor = allocation - spentWei - others;
+      const others = BigInt(pool.reservedWei) - BigInt(operation.reservedWei ?? "0") + await this.activeReservation(pool, client);
+      const floor = allocation - spentWei - others;
       const reason = walletDeploymentFundingConflict(actual, proof.funding, null, String(floor < 0n ? 0n : floor)) ??
         walletDeploymentSettlementNonceConflict(pool, nonce, proof.funding, proof.finalizedNonce);
       if (reason) {
@@ -428,6 +430,13 @@ export class PostgresWalletDeploymentStore {
       assertWalletDeploymentSettlementEvidence(proof, actual, await walletCeremonyDatabaseNow(client));
       return { settlement: receipt, pool: result, replayed: false };
     });
+  }
+  /** The active operation's admitted maximum cost once signed: its Base reservation, else its execution ceiling. */
+  private async activeReservation(pool: WalletDeploymentPool, client: PoolClient): Promise<bigint> {
+    if (!pool.activeOperationId) return 0n;
+    const row = (await client.query<{ reserved: string | null }>(`SELECT GREATEST(a.maximum_execution_cost,COALESCE((SELECT (admission->'reservation'->>'totalWei')::numeric
+      FROM rest_wallet_deployment_dispatches WHERE operation_id=a.id),0))::text AS reserved FROM rest_wallet_deployments a WHERE a.id=$1 AND a.state='signed'`, [pool.activeOperationId])).rows[0];
+    return row?.reserved ? BigInt(row.reserved) : 0n;
   }
   private async lastSettlement(pool: WalletDeploymentPool, client: PoolClient): Promise<WalletDeploymentSettlementReceipt | null> {
     if (!pool.accounting?.lastSettlementId) return null;

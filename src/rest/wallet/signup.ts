@@ -211,8 +211,11 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
           const observation = await chain.observeSigned(structuredClone({ enrollment: context.enrollment, operation: context.operation }), stopSignal.signal);
           await deployments.saveObservation({ operationId: lowest.id, expectedRevision: context.operation.revision,
             signedHash: context.operation.signed!.hash, observation });
-          const state = observation.transaction.state;
-          if (["reorged", "nonce-conflict", "not-observed", "pending"].includes(state)) {
+          const state = observation.transaction.state, nonce = observation.transaction.nonce;
+          // A reorged read from a provider head before the admission block is staleness, not chain
+          // evidence; only a sender nonce rewound below ours (or no inclusion at a fresh head) fences.
+          const rewound = state === "reorged" && nonce !== null && BigInt(nonce.confirmed) < BigInt(context.operation.template!.transaction.nonce);
+          if (rewound || ["nonce-conflict", "not-observed", "pending"].includes(state)) {
             await deployments.fenceAccounting(await deployments.loadFundingContext(poolId), { reason: "inclusion-reorged", operationId: lowest.id });
             event({ stage: "deployment", outcome: "fenced", operationId: lowest.id, reason: state });
           } else if (canonical(state) && observation.finality.state === "finalized") {
