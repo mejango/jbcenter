@@ -18,7 +18,7 @@ export function walletPaymentPage(base = '/wallet'): string {
 <dt>Metadata</dt><dd id="payment-metadata"></dd><dt>Operation</dt><dd id="payment-operation"></dd>
 <dt>Approval expires</dt><dd id="payment-expiry"></dd></dl></details></section>
 <div class="actions"><button id="payment-approve" type="button" hidden>Approve payment</button>
-<button id="payment-cancel" type="button" class="link" hidden>Decline payment</button>
+<button id="payment-cancel" type="button" class="link" hidden>Decline</button>
 <button id="payment-prompt-cancel" type="button" class="secondary" hidden>Cancel passkey prompt</button>
 <button id="payment-retry" type="button" class="secondary" hidden>Check payment again</button>
 <a id="payment-return" class="action-link" hidden>Return to app</a></div>

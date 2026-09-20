@@ -27,8 +27,10 @@ if (framed) {
   document.documentElement.classList.add('framed');
   // The frame is sized to this page: its height is told to the page framing it (the app admitted
   // by frame-ancestors) whenever it changes. A number only.
-  const report = () => window.parent.postMessage({ type: 'juicebox-center:size', height: document.documentElement.scrollHeight }, '*');
-  try { new ResizeObserver(report).observe(document.body); } catch { /* No observer: the frame keeps its default height. */ }
+  // The content's own bottom (the document's scroll height is never less than the frame's viewport).
+  const content = document.querySelector('main') ?? document.body;
+  const report = () => window.parent.postMessage({ type: 'juicebox-center:size', height: Math.ceil(content.getBoundingClientRect().bottom + window.scrollY) }, '*');
+  try { new ResizeObserver(report).observe(content); } catch { /* No observer: the frame keeps its default height. */ }
   window.addEventListener('load', report);
 }
 let approveVisible = !framed;
@@ -212,7 +214,8 @@ function goBackToApp() {
   returning = true;
   // Approval is the send: Center submits the operation now, and the app shows what happened to it.
   setStatus('approved', 'Approved. Sending on Base… the app will show the result.'); render();
-  const back = callback(review); setTimeout(() => location.assign(back), 800);
+  // Framed inside the app, the app shows what happens next: no beat here.
+  const back = callback(review); setTimeout(() => location.assign(back), framed ? 0 : 800);
 }
 async function approvePayment() {
   if (!review || review.status !== 'pending' || expired() || uncertain) return;
