@@ -22,7 +22,7 @@ const deviceAdd = element<HTMLButtonElement>("wallet-device-add"), devicePanel =
 let device: { view: DeviceView; link: string } | null = null, deviceTimer: ReturnType<typeof setInterval> | null = null;
 const signIn = element<HTMLButtonElement>("wallet-signin"), retry = element<HTMLButtonElement>("wallet-retry");
 const cancel = element<HTMLButtonElement>("wallet-cancel"), signOut = element<HTMLButtonElement>("wallet-logout");
-let configuration: Configuration, intent: Intent | null = null, session: Session | null = null;
+let configuration: Configuration, intent: Intent | null = null, session: Session | null = null, framerOrigin: string | null = null;
 let sessionKnown = false, busy = false, csrf = "", pending: Completion | null = null;
 let completionAttempted = false;
 let paymentReviewId: string | null = null;
@@ -36,6 +36,7 @@ let nextRetry: () => Promise<void> = load;
 // v2's occlusion verdict is not consulted here, because browsers report every element inside a
 // top-layer <dialog> — where the app's sign-in modal puts the frame — as not visible.
 const framed = window.self !== window.top;
+let reportSize: (() => void) | null = null;
 const openAsPage = document.getElementById("wallet-open") as HTMLAnchorElement | null;
 if (framed) {
   document.documentElement.classList.add("framed");
@@ -43,8 +44,32 @@ if (framed) {
   // by frame-ancestors) whenever it changes. A number only.
   const content = document.querySelector("main") ?? document.body;
   const report = () => window.parent.postMessage({ type: "juicebox-center:size", height: Math.ceil(content.getBoundingClientRect().bottom + window.scrollY) }, "*");
+  reportSize = report;
   try { new ResizeObserver(report).observe(content); } catch { /* No observer: the frame keeps its default height. */ }
   window.addEventListener("load", report);
+}
+// The app that frames this page may hand it its own colours, font and corner radius, so the sign-in
+// reads as part of that app. Only the framing page (the intent's app, admitted by frame-ancestors) is
+// heard, and only plain values: colours, a font-family list, a radius. Nothing else about the page
+// is the app's to change.
+const themeTokens: Record<string, RegExp> = {
+  background: /^#[0-9a-f]{3,8}$/i, foreground: /^#[0-9a-f]{3,8}$/i, muted: /^#[0-9a-f]{3,8}$/i, line: /^#[0-9a-f]{3,8}$/i,
+  accent: /^#[0-9a-f]{3,8}$/i, accentForeground: /^#[0-9a-f]{3,8}$/i,
+  font: /^[\w\s,'"-]{1,200}$/, radius: /^(?:\d{1,3}(?:\.\d+)?(?:px|rem|em)\s*){1,4}$/,
+};
+const themeVariables: Record<string, string> = { background: "--wallet-bg", foreground: "--wallet-fg", muted: "--wallet-muted", line: "--wallet-line",
+  accent: "--wallet-accent", accentForeground: "--wallet-accent-fg", font: "--wallet-font", radius: "--wallet-radius" };
+function listenForTheme(framer: string) {
+  window.addEventListener("message", event => {
+    const data = event.data as { type?: unknown; theme?: unknown } | null;
+    if (event.source !== window.parent || event.origin !== framer || data?.type !== "juicebox-center:theme" || !data.theme || typeof data.theme !== "object") return;
+    for (const [key, value] of Object.entries(data.theme as Record<string, unknown>)) {
+      const pattern = themeTokens[key];
+      if (pattern && typeof value === "string" && pattern.test(value.trim())) document.documentElement.style.setProperty(themeVariables[key]!, value.trim());
+    }
+  });
+  // The app answers a size report with its theme; ask once the listener is in place.
+  reportSize?.();
 }
 let signInVisible = !framed;
 if (framed) {
@@ -221,9 +246,12 @@ async function load() {
     if (callback.origin !== requested.origin || callback.username || callback.password || callback.hash || callback.search
       || callback.href !== callbackUri || !["https:", "http:"].includes(callback.protocol)) throw new InvalidResponse();
     intent = { id: intentId, callbackUri, state: token(requested.state), expiresAtMs: future(result.expiresAtMs) };
-    destination.textContent = `Returning to ${callback.origin} after sign-in.`; destination.hidden = false;
+    framerOrigin = callback.origin;
+    // Inside the app's own page there is nowhere else to return to.
+    destination.textContent = `Returning to ${callback.origin} after sign-in.`; destination.hidden = framed;
   }
   if (framed && intent) {
+    listenForTheme(framerOrigin!);
     // No cookie reaches a cross-site frame, so there is no session to read; the sign-in below carries its own proof.
     ahead?.catch(() => undefined); ahead = null; session = null; sessionKnown = true;
     setStatus("ready", "Sign in with your passkey."); return;
