@@ -23,7 +23,14 @@ let uncertain = false, canRetry = false, nativePrompt: AbortController | null = 
 // and, where the browser can tell (Intersection Observer v2), while the button itself is visible
 // and unobscured; otherwise the customer is sent to open the review as a page of its own.
 const framed = window.self !== window.top;
-if (framed) document.documentElement.classList.add('framed');
+if (framed) {
+  document.documentElement.classList.add('framed');
+  // The frame is sized to this page: its height is told to the page framing it (the app admitted
+  // by frame-ancestors) whenever it changes. A number only.
+  const report = () => window.parent.postMessage({ type: 'juicebox-center:size', height: document.documentElement.scrollHeight }, '*');
+  try { new ResizeObserver(report).observe(document.body); } catch { /* No observer: the frame keeps its default height. */ }
+  window.addEventListener('load', report);
+}
 let approveVisible = !framed;
 if (framed) {
   try {

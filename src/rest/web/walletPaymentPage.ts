@@ -35,7 +35,7 @@ details.quiet>summary::after{content:"";display:inline-block;width:.35em;height:
 #payment-status:empty{display:none}
 /* Framed inside the app's page: the app's gutter is 2.7rem and the frame sits 1.6rem into it, so 1.1rem here
  * (less the border) lines this text up with the app's; no brand or page margins. */
-html.framed main{margin:0 auto;padding:1rem calc(1.1rem - 1px)}html.framed .brand{display:none}html.framed h1{margin-top:.5rem}html.framed #payment-status{margin:1rem 0}
+html.framed main{margin:0 auto;padding:1.25rem calc(1.6rem - 1px) 1.5rem}html.framed .brand{display:none}html.framed h1{margin-top:.5rem}html.framed #payment-status{margin:1rem 0}
 .actions button.link{margin:0}
 .action-link{display:inline-flex;align-items:center;min-height:3rem;padding:.75rem 1rem;border:1px solid #172019;color:inherit;max-width:100%;overflow-wrap:anywhere}
 @media(max-width:400px){.action-link{justify-content:center;width:100%}}`;
