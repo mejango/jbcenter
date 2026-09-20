@@ -53,6 +53,31 @@ describe("hosted Base deployment producers on a Base-shaped local chain", () => 
     expect(assertWalletDeploymentDispatchAdmission(admission, context, Date.now())).toEqual(admission);
     expect(fixture.sends()).toHaveLength(0);
   });
+  it("admits on the first pass when Base has mined past the observed head, pinned to that head", async () => {
+    const context = await initialized(), observed = context.operation.observation!.head!;
+    // The worker observed at head N; by the time the admission's identity reads return, Base is at
+    // N+2. The send must still go out on this pass: the observed head is re-verified canonical and
+    // every state read is pinned to it by hash, so nothing waits for "latest" to stand still.
+    await fixture.rpc("anvil_mine", ["0x2", "0x0"]);
+    const value = transport(), admission = await value.admit(context);
+    expect(admission.environment.head).toEqual(observed);
+    expect(BigInt((await fixture.rpc<{ number: string }>("eth_getBlockByNumber", ["latest", false])).number)).toBe(BigInt(observed.blockNumber) + 2n);
+    expect(assertWalletDeploymentDispatchAdmission(admission, context, Date.now())).toEqual(admission);
+    expect(await value.broadcast(admission)).toBe("accepted");
+    expect(fixture.sends()).toHaveLength(1);
+  });
+  it.each(["observed-block", "latest-behind"])("refuses admission when the observed head is not canonical or latest is behind it (%s)", async check => {
+    const context = await initialized(), observed = context.operation.observation!.head!;
+    await fixture.rpc("anvil_mine", ["0x1", "0x0"]);
+    fixture.faults.transform = (method, params, result) => {
+      if (method !== "eth_getBlockByNumber" || !result || typeof result !== "object") return result;
+      if (check === "observed-block" && params[0] === toHex(BigInt(observed.blockNumber))) return { ...result, hash: `0x${"ab".repeat(32)}` };
+      if (check === "latest-behind" && params[0] === "latest") return { ...result, number: toHex(BigInt(observed.blockNumber) - 1n) };
+      return result;
+    };
+    await expect(transport().admit(context)).rejects.toMatchObject({ status: 502, details: { check } });
+    expect(fixture.sends()).toHaveLength(0);
+  });
   it("refuses admission when the remaining allocation cannot cover the reservation", async () => {
     let context = await initialized();
     const reservation = (await transport().admit(context)).reservation!;

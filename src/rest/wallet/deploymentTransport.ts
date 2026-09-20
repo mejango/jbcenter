@@ -55,7 +55,9 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
   const { reads, limits, kind } = adapter, genesisHash = adapter.genesisHash.toLowerCase() as Hex, now = adapter.now ?? Date.now;
   if (!Number.isSafeInteger(limits.admissionLifetimeMs) || limits.admissionLifetimeMs < 1 || limits.admissionLifetimeMs > bounds.admissionLifetimeMs)
     throw new RestError(500, "WALLET_DEPLOYMENT_CONFIG_INVALID", "The admission lifetime exceeds the reviewed bound.");
-  function invalid(): never { throw new RestError(403, "WALLET_DEPLOYMENT_TRANSPORT_INVALID", "A current exact deployment capability is required."); }
+  function invalid(check?: string): never {
+    throw new RestError(403, "WALLET_DEPLOYMENT_TRANSPORT_INVALID", "A current exact deployment capability is required.", check ? { check } : undefined);
+  }
   function unavailable(check?: string | Record<string, unknown>): never {
     throw new RestError(502, "WALLET_DEPLOYMENT_TRANSPORT_UNAVAILABLE", "The configured chain could not verify deployment admission.",
       typeof check === "string" ? { check } : check);
@@ -71,7 +73,7 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
   }
   const quantity = (value: unknown) => walletDeploymentQuantity(value, unavailable), block = (value: unknown, at: number) => walletDeploymentBlock(value, at, unavailable);
   function decimal(value: unknown): bigint {
-    if (typeof value !== "string" || !/^(0|[1-9][0-9]{0,77})$/.test(value) || BigInt(value) >= 1n << 256n) invalid();
+    if (typeof value !== "string" || !/^(0|[1-9][0-9]{0,77})$/.test(value) || BigInt(value) >= 1n << 256n) invalid("decimal");
     return BigInt(value);
   }
   async function identity(rpc: WalletDeploymentRpcScope): Promise<WalletDeploymentEnvironment> {
@@ -84,42 +86,56 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
     async admit(input: WalletDeploymentExecutionContext, signal?: AbortSignal): Promise<WalletDeploymentDispatchAdmission> {
       // The context is loaded by the coordinator. Its shape cannot establish database provenance.
       enrollmentDigest(input); const context = structuredClone(input), observedAt = now(), deadline = performance.now() + limits.totalTimeoutMs;
-      if (!time(observedAt)) invalid();
+      if (!time(observedAt)) invalid("clock");
       const { pool, enrollment, operation } = context, config = pool.configuration;
       const accounting = pool.accounting ? assertWalletDeploymentAccounting(pool.accounting, pool) : null;
       const remainingWei = walletDeploymentRemainingWei(pool);
       if (accounting && (accounting.fence || accounting.nextNonce !== operation.template?.transaction.nonce ||
-          accounting.environment.kind !== kind || accounting.environment.genesisHash !== genesisHash)) invalid();
-      if (kind === "base-mainnet" && (!accounting || !adapter.reserve)) invalid();
+          accounting.environment.kind !== kind || accounting.environment.genesisHash !== genesisHash)) invalid("accounting");
+      if (kind === "base-mainnet" && (!accounting || !adapter.reserve)) invalid("base-accounting");
       const observation = assertWalletDeploymentObservation(operation.observation);
-      if (pool.state !== "active" || pool.activeOperationId !== operation.id || config.chainId !== 8453 ||
-          pool.configurationDigest !== enrollmentDigest(config) || operation.poolConfigurationDigest !== pool.configurationDigest ||
-          operation.poolId !== config.id || operation.enrollmentId !== enrollment.intent.id || operation.id !== operation.approval.id ||
+      // The log names the first failed rule; every failure is the same refusal.
+      const rule = ([
+        ["pool", () => pool.state !== "active" || pool.activeOperationId !== operation.id || config.chainId !== 8453 ||
+          pool.configurationDigest !== enrollmentDigest(config) || operation.poolConfigurationDigest !== pool.configurationDigest || operation.poolId !== config.id],
+        ["operation", () => operation.enrollmentId !== enrollment.intent.id || operation.id !== operation.approval.id ||
           operation.state !== "signed" || !operation.signed || !operation.template || !operation.admission ||
-          !Number.isSafeInteger(operation.revision) || operation.revision < 1 || !same(operation.template.sender, config.sender) ||
-          observation.operationId !== operation.id || observation.transactionHash !== operation.signed.hash || observation.templateCommitment !== operation.templateCommitment ||
-          observation.transaction.state !== "not-observed" || observation.wallet.state !== "undeployed" || !observation.head ||
-          !same(observation.wallet.address, enrollment.creation!.address) || observation.wallet.initializerHash !== enrollment.creation!.initializerHash ||
-          observation.observedAt > observedAt || observedAt - observation.observedAt >= config.policy.maximumObservationAgeMs ||
-          observation.transaction.nonce?.confirmed !== operation.template.transaction.nonce || observation.transaction.nonce.pending !== operation.template.transaction.nonce ||
-          operation.historicalCanonicalObservation?.finality.state === "finalized") invalid();
+          !Number.isSafeInteger(operation.revision) || operation.revision < 1 || !same(operation.template!.sender, config.sender)],
+        ["observation", () => observation.operationId !== operation.id || observation.transactionHash !== operation.signed!.hash ||
+          observation.templateCommitment !== operation.templateCommitment || observation.transaction.state !== "not-observed" ||
+          observation.wallet.state !== "undeployed" || !observation.head ||
+          !same(observation.wallet.address, enrollment.creation!.address) || observation.wallet.initializerHash !== enrollment.creation!.initializerHash],
+        ["observation-age", () => observation.observedAt > observedAt || observedAt - observation.observedAt >= config.policy.maximumObservationAgeMs],
+        ["observation-nonce", () => observation.transaction.nonce?.confirmed !== operation.template!.transaction.nonce ||
+          observation.transaction.nonce?.pending !== operation.template!.transaction.nonce],
+        ["finalized-history", () => operation.historicalCanonicalObservation?.finality.state === "finalized"],
+      ] satisfies [string, () => boolean][]).find(([, failed]) => failed());
+      if (rule) invalid(rule[0]);
       const policy = walletDeploymentRelayPolicy(config);
-      const signed = await validateSignedWalletDeployment({ enrollment, approval: operation.approval, template: operation.template,
-        rawTransaction: operation.signed.rawTransaction, policy });
-      if (signed.hash !== operation.signed.hash || signed.templateCommitment !== operation.templateCommitment ||
-          signed.maximumExecutionCost !== operation.signed.maximumExecutionCost || decimal(remainingWei) < BigInt(signed.maximumExecutionCost)) invalid();
+      const signed = await validateSignedWalletDeployment({ enrollment, approval: operation.approval, template: operation.template!,
+        rawTransaction: operation.signed!.rawTransaction, policy });
+      if (signed.hash !== operation.signed!.hash || signed.templateCommitment !== operation.templateCommitment ||
+          signed.maximumExecutionCost !== operation.signed!.maximumExecutionCost) invalid("signed");
+      if (decimal(remainingWei) < BigInt(signed.maximumExecutionCost)) invalid("allocation");
       const expiresAt = Math.min(observedAt + limits.admissionLifetimeMs, observation.observedAt + config.policy.maximumObservationAgeMs,
-        Number((BigInt(observation.head.timestamp) + 300n) * 1000n));
-      function fresh() { const current = now(); if (!time(current) || current < observedAt || current >= expiresAt || performance.now() >= deadline) invalid(); }
+        Number((BigInt(observation.head!.timestamp) + 300n) * 1000n));
+      function fresh() { const current = now(); if (!time(current) || current < observedAt || current >= expiresAt || performance.now() >= deadline) invalid("expired"); }
       const rpc = operationRpc(reads, limits, signal);
       try {
         fresh(); const environment = await identity(rpc), environmentDigest = enrollmentDigest(environment);
         if (accounting && environmentDigest !== enrollmentDigest(accounting.environment)) unavailable("accounting-environment");
-        const latest = block(await rpc.request("eth_getBlockByNumber", ["latest", false]), observedAt), head = latest.head;
-        if (enrollmentDigest(head) !== enrollmentDigest(observation.head) ||
-            (operation.highestObservedHead !== null && BigInt(head.blockNumber) < decimal(operation.highestObservedHead))) invalid();
-        const observedBlock = block(await rpc.request("eth_getBlockByNumber", [toHex(BigInt(observation.head.blockNumber)), false]), observedAt);
-        if (enrollmentDigest(observedBlock.head) !== enrollmentDigest(observation.head)) unavailable("observed-block");
+        // Base mines every two seconds, so the observed head is rarely still "latest" by the time the
+        // identity reads return. The admission is pinned to the observed head by hash: it must still
+        // be canonical (the by-number read below) and latest must be at or past it, within the
+        // observation-age window; the fee ceiling is checked against latest's base fee.
+        const head = observation.head!;
+        if (operation.highestObservedHead !== null && BigInt(head.blockNumber) < decimal(operation.highestObservedHead)) invalid("head-rewound");
+        const [latest, observedBlock] = await Promise.all([
+          rpc.request("eth_getBlockByNumber", ["latest", false]).then(value => block(value, observedAt)),
+          rpc.request("eth_getBlockByNumber", [toHex(BigInt(head.blockNumber)), false]).then(value => block(value, observedAt)),
+        ]);
+        if (enrollmentDigest(observedBlock.head) !== enrollmentDigest(head)) unavailable("observed-block");
+        if (BigInt(latest.head.blockNumber) < BigInt(head.blockNumber)) unavailable("latest-behind");
         async function settlementAnchor() {
           if (!accounting?.lastSettlementAnchor) return;
           const prior = accounting.lastSettlementAnchor, current = await rpc.request("eth_getBlockByNumber", [toHex(BigInt(prior.blockNumber)), false]);
@@ -127,7 +143,7 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
               quantity(current.timestamp) !== BigInt(prior.timestamp)) unavailable("settlement-anchor");
         }
         await settlementAnchor();
-        const tag = { blockHash: head.blockHash, requireCanonical: true as const }, tx = operation.template.transaction;
+        const tag = { blockHash: head.blockHash, requireCanonical: true as const }, tx = operation.template!.transaction;
         const snapshot = { evidence: head, tag, request: (method: string, params: readonly unknown[]) => rpc.request(method, [...params, tag]) };
         const manifest = enrollment.intent.manifest;
         const pins = [manifest.singleton, manifest.factory, manifest.safe7579, manifest.launchpad, manifest.entryPoint!, manifest.smartSessions,
@@ -168,7 +184,7 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
           rpc.request("eth_getBlockByNumber", [toHex(BigInt(head.blockNumber)), false]), rpc.request("eth_getTransactionCount", [config.sender, "pending"]), identity(rpc),
         ]);
         const finalBlock = block(canonical, now());
-        if (enrollmentDigest(finalBlock.head) !== enrollmentDigest(head) || finalBlock.baseFee !== latest.baseFee ||
+        if (enrollmentDigest(finalBlock.head) !== enrollmentDigest(head) || finalBlock.baseFee !== observedBlock.baseFee ||
             quantity(pendingAgain) !== nonce || enrollmentDigest(environmentAgain) !== environmentDigest) unavailable("recheck");
         await settlementAnchor();
         fresh(); rpc.check();
@@ -188,19 +204,19 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
     },
     async broadcast(admission: WalletDeploymentDispatchAdmission, signal?: AbortSignal, dispatchLeaseUntil?: number): Promise<"accepted" | "unknown"> {
       const capability = capabilities.get(admission);
-      if (!capability) invalid();
+      if (!capability) invalid("capability");
       capabilities.delete(admission); // Consume before any await, including a refused attempt.
       let frozen: WalletDeploymentDispatchAdmission;
-      try { if (enrollmentDigest(admission) !== capability.digest) invalid(); frozen = structuredClone(admission); } catch { return invalid(); }
-      if (dispatchLeaseUntil !== undefined && !time(dispatchLeaseUntil)) invalid();
+      try { if (enrollmentDigest(admission) !== capability.digest) invalid("capability"); frozen = structuredClone(admission); } catch { return invalid("capability"); }
+      if (dispatchLeaseUntil !== undefined && !time(dispatchLeaseUntil)) invalid("lease");
       const expiresAt = Math.min(frozen.expiresAt, dispatchLeaseUntil ?? frozen.expiresAt);
-      const startedAt = now(); if (!time(startedAt)) invalid();
+      const startedAt = now(); if (!time(startedAt)) invalid("clock");
       const deadline = Math.min(capability.deadline, performance.now() + expiresAt - startedAt);
       function fresh() {
         const current = now();
-        if (!time(current) || current < frozen.observedAt || current >= expiresAt || performance.now() >= deadline) invalid();
+        if (!time(current) || current < frozen.observedAt || current >= expiresAt || performance.now() >= deadline) invalid("expired");
       }
-      try { if (enrollmentDigest(admission) !== capability.digest) invalid(); fresh(); } catch { return invalid(); }
+      try { if (enrollmentDigest(admission) !== capability.digest) invalid("capability"); fresh(); } catch { return invalid("expired"); }
       const rpc = operationRpc(reads, limits, signal);
       try {
         if (enrollmentDigest(await identity(rpc)) !== capability.environment) return "unknown";

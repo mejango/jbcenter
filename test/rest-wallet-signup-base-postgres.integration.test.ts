@@ -109,9 +109,15 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
       expect(latestReads).toBeGreaterThan(0);
       const claimed = (await deployments.get(operation.id))!;
       expect(claimed.template!.transaction.nonce).toBe(String(index + 2));
-      await signup.tick();
+      // Base keeps mining while the worker signs, observes and admits: the send goes out on this
+      // first pass, pinned to the observed head, even though "latest" moved past it meanwhile.
+      let tickLatestReads = 0;
+      fixture.faults.after = async (method, params) => { if (method === "eth_getBlockByNumber" && params[0] === "latest" && ++tickLatestReads <= 3) await fixture.rpc("anvil_mine", ["0x1", "0x0"]); };
+      try { await signup.tick(); } finally { fixture.faults.after = async () => undefined; }
+      expect(tickLatestReads).toBeGreaterThan(1);
       const dispatch = (await deployments.getDispatch(operation.id))!;
       expect(dispatch.status).toBe("accepted");
+      expect(BigInt(dispatch.admission.environment.head.blockNumber)).toBeLessThan(BigInt((await fixture.rpc<{ number: string }>("eth_getBlockByNumber", ["latest", false])).number));
       expect(dispatch.admission).toMatchObject({ version: "center-wallet-deployment-base-admission-v1", baseTotalAffordability: "reserved" });
       expect(BigInt(dispatch.admission.reservation!.totalWei)).toBeGreaterThan(BigInt(claimed.signed?.maximumExecutionCost ?? (await deployments.get(operation.id))!.signed!.maximumExecutionCost));
       expect(fixture.sends()).toHaveLength(index + 1);
