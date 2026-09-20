@@ -202,6 +202,8 @@ suite("PostgreSQL wallet handoff with genuine request-key proofs and credentiall
     await expect(framed.framedLaunch(prepared.id)).rejects.toMatchObject({ code: "WALLET_HANDOFF_UNCLAIMED" });
     expect(await plain.frameOrigin(prepared.id)).toBeUndefined();
     await framed.claimLaunch(prepared.id, launchSignature);
+    // Launched again into a frame (the person closed and reopened it): the same claim, nothing to change.
+    await framed.claimLaunch(prepared.id, launchSignature);
     expect(await framed.frameOrigin(prepared.id)).toBe(origin);
     expect((await handoffRow(prepared.id)).launch_signature).toBe(launchSignature);
     const launched = await framed.framedLaunch(prepared.id);

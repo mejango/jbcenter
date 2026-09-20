@@ -133,8 +133,13 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     // Unknown failures (database, provider) keep a bounded reason so the log names them.
     emit('request', status >= 500 ? 'unavailable' : 'rejected', code, known ? scalars(error)
       : { reason: String((error as { message?: unknown })?.message ?? error).slice(0, 160), path: c.req.path.slice(0, 80) });
-    if (c.req.path === `${base}/launch` && c.req.header('Sec-Fetch-Mode') === 'navigate')
+    if (c.req.path === `${base}/launch` && c.req.header('Sec-Fetch-Mode') === 'navigate') {
+      // A launch that failed inside an admitted app's frame shows this page there rather than the browser's own
+      // "refused to connect"; the form's Origin header names the app, and the page holds nothing private.
+      const framer = c.req.header('Origin');
+      if (c.req.header('Sec-Fetch-Dest') === 'iframe' && framer && frameable.has(framer)) framedBy(c, framer);
       return c.html('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connection unavailable</title><link rel="stylesheet" href=`${base}/assets/wallet.css`></head><body><main><h1>Connection unavailable</h1><p>This connection expired or could not be verified. Return to the app and connect again.</p></main></body></html>', status as ContentfulStatusCode);
+    }
     // An expired app request names the app's public origin so the page can send the person back.
     const appOrigin = code === 'WALLET_HANDOFF_EXPIRED' && known ? (scalars(error)?.origin as unknown) : undefined;
     const app = typeof appOrigin === 'string' && /^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?$/.test(appOrigin) ? { app: { origin: appOrigin } } : {};

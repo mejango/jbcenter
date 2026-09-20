@@ -160,6 +160,9 @@ export class PostgresWalletHandoffStore {
       this.liveRequest(request, await now(client));
       if (row.state !== "prepared") conflict();
       await policy(client, request, request.expiresAtMs);
+      // The same intent launched again (a closed frame reopened) already carries this claim.
+      if (row.launch_signature === launchSignature) return;
+      if (row.launch_signature !== null) conflict();
       await client.query("UPDATE rest_wallet_handoffs SET launch_signature=$2 WHERE id=$1 AND state='prepared'", [id, launchSignature]);
     });
   }
