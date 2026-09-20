@@ -239,6 +239,29 @@ describe.skipIf(!available)("canonical passkey owner profile in the pinned local
       0n, 0n, 0n, zeroAddress, zeroAddress, directBackupApproval] }), account, backup);
     expect((await read(safe.abi, account, "getOwners") as Address[]).length).toBe(2);
   });
+  it("joins a full inspection already under way instead of running a second one, then carries it to the pinned block", async () => {
+    const calls: string[] = [];
+    const counted = { request: (chain: number, method: string, params: readonly unknown[]) => { calls.push(method); return transport.request(chain, method, params); } };
+    const service = () => createSmartAccountService({ rpc: counted, manifests: [manifest], registry: new MemorySmartAccountRegistry(),
+      audience: "https://wallet.juicebox.center", moduleInspectors: [createSafe7579Inspector({ rpc: counted,
+        utility: pin(utility), inspectSessions: createInstalledSessionVerifier({ rpc: counted }).inspectAllAt })] });
+    await service().inspect({ manifestId: manifest.id, address: account });
+    const single = calls.filter((m) => m === "debug_traceTransaction").length;
+    expect(single).toBeGreaterThan(0);
+    calls.length = 0;
+    const own = service();
+    // The worker's inspection is in flight when activation asks for the account at a later block.
+    const behind = own.inspect({ manifestId: manifest.id, address: account });
+    await rpc("evm_mine", []);
+    const block = await rpc<{ hash: Hex; number: Hex; timestamp: Hex }>("eth_getBlockByNumber", ["latest", false]);
+    const later: RestBlockEvidence = { chainId: 8453, blockHash: block.hash, blockNumber: String(BigInt(block.number)), timestamp: String(BigInt(block.timestamp)), source: "onchain" };
+    const joined = await own.inspect({ manifestId: manifest.id, address: account }, undefined, later, true);
+    const full = await behind;
+    expect(joined.stateHash).toBe(full.stateHash);
+    expect(joined.evidence).toEqual(later);
+    // One inspection's traces, not two: the join carried the first result to the later block.
+    expect(calls.filter((m) => m === "debug_traceTransaction").length).toBe(single);
+  });
   it("checks in one round trip that a verified passkey profile still holds", async () => {
     const state = await inspect(), snap = await snapshot();
     expect(await passkeyOwnerProfileHolds({ profile: state.ownerProfile!, snapshot: snap })).toBe(true);

@@ -275,15 +275,17 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
   /** The wallet's full inspection, behind the released lane: the account service keeps the verified
    * state, activation binds from it and the authority refresh carries it, each after re-checking its
    * block. It runs beside the pass so the next user's send does not wait on it. */
+  const inspecting = new Set<string>();
   async function inspectBehind(operationId: string, enrollmentId: string) {
-    const started = performance.now();
+    const started = performance.now(); inspecting.add(operationId);
     try {
       const enrollment = await enrollments.get(enrollmentId);
-      if (!enrollment?.creation) return;
+      if (!enrollment?.creation || smart.remembered(enrollment.intent.manifest.id, enrollment.creation.address)) return;
       await smart.inspect({ manifestId: enrollment.intent.manifest.id, address: enrollment.creation.address }, stopSignal.signal);
       event({ stage: "deployment", outcome: "inspected", operationId, elapsedMs: Math.round(performance.now() - started) });
       notify(enrollmentId);
     } catch (error) { failure(operationId, error, "deployment", "inspection_failed"); }
+    finally { inspecting.delete(operationId); }
   }
   /** One pass moves the active operation (sign, send, observe, release at canonical inclusion)
    * and then the lowest released nonce (observe, fence if it left the canonical chain, settle at
@@ -302,13 +304,15 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
           if (recovered.dispatch === "accepted" && recovered.operation.signed) { notify(record.enrollmentId); void preconfirm(active.id, record.enrollmentId, recovered.operation.signed.hash); }
           const latest = await deployments.get(active.id);
           if (latest?.state === "signed" && latest.releasedAt === null && latest.observation && canonical(latest.observation.transaction.state)) {
+            // The account exists at the canonical receipt: the page hears it and the inspection
+            // starts now; the lane's release (which may wait out the dispatch lease) follows.
+            preconfirmed.delete(latest.id); notify(latest.enrollmentId);
+            if (!inspecting.has(latest.id)) void inspectBehind(latest.id, latest.enrollmentId).catch(() => undefined);
             const released = await deployments.release({ operationId: latest.id, expectedRevision: latest.revision });
             event({ stage: "deployment", outcome: released.pool.accounting?.fence ? "fenced" : "released", operationId: latest.id });
-            preconfirmed.delete(latest.id); notify(latest.enrollmentId);
-            if (released.operation.releasedAt !== null && released.operation.template) {
+            notify(latest.enrollmentId);
+            if (released.operation.releasedAt !== null && released.operation.template)
               queue.push({ ...active, nonce: released.operation.template.transaction.nonce, releasedAt: released.operation.releasedAt });
-              void inspectBehind(latest.id, latest.enrollmentId).catch(() => undefined);
-            }
           }
         }
       } catch (error) { failure(active.id, error); }

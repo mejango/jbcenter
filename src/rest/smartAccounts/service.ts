@@ -326,6 +326,9 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
   ): Promise<SmartAccountState> {
     exactObject(input, ["manifestId", "address"], "account");
     const key = keyOf(input.manifestId, String(input.address));
+    // A full inspection already under way for this account (the creation worker's, behind a
+    // released lane) is joined rather than doubled: its result is then carried to `at` below.
+    if (reuse && at && !recent.has(key) && inflight.has(key)) await inflight.get(key)!.catch(() => undefined);
     const entry = recent.get(key), cached = entry?.state;
     const age = cached === undefined ? null : now() - Number(cached.evidence.timestamp) * 1000;
     const fresh = age !== null && age < reuseMs;
@@ -342,10 +345,11 @@ export function createSmartAccountService(options: SmartAccountDependencies) {
       // A full verification that landed meanwhile is the better entry; the carried state is still right at its block.
       if (carried) { if (recent.get(key) === entry) keep(carried, entry.fullBlock); return carried; }
     }
-    const state = await inspectFresh(input, signal, at);
-    keep(state);
-    return state;
+    const work = inspectFresh(input, signal, at).then(state => { keep(state); return state; });
+    if (!inflight.has(key)) { inflight.set(key, work); void work.catch(() => undefined).finally(() => { if (inflight.get(key) === work) inflight.delete(key); }); }
+    return work;
   }
+  const inflight = new Map<string, Promise<SmartAccountState>>();
   /** Carries a verified state to a pinned block when nothing that could change the account's
    * authority happened in between. Every change to owners, threshold, singleton, fallback, guard or
    * modules leaves one of three logs (the account's own, the adapter's initialization for it, or an

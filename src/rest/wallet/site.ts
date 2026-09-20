@@ -13,7 +13,7 @@ import type { WalletCentralSession } from './login.js';
 import { verifyWalletHandoffLaunchSignature, type WalletHandoffExchangeInput, type WalletHandoffRequest } from './handoff.js';
 import { assertWalletHttpHost, assertWalletHttpRequest, assertWalletCsrf, readWalletCookie,
   readWalletLaunchForm, walletLaunchClaim, walletLaunchCookie,
-  readWalletJson, walletCookie, walletCsrfToken, walletFlowCookie, walletSessionCookie, walletHttpAssertion as assertion, walletPageHeaders as pageHeaders } from './http.js';
+  readWalletJson, walletCookie, walletCsrfToken, walletFlowCookie, walletSessionCookie, walletSignupCookie, walletHttpAssertion as assertion, walletPageHeaders as pageHeaders } from './http.js';
 import type { PostgresWalletLoginStore } from './loginPostgres.js';
 import type { PostgresWalletHandoffStore } from './handoffPostgres.js';
 import type { PostgresWalletPolicyStore } from './policyPostgres.js';
@@ -267,6 +267,9 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     c.header('Set-Cookie', walletCookie(walletSessionCookie, result.sessionToken,
       Math.max(1, Math.min(3600, Math.floor((result.session.expiresAtMs - Date.now()) / 1000)))), { append: true });
     c.header('Set-Cookie', walletCookie(walletFlowCookie, null, 0), { append: true });
+    // A signed-in browser has no signup to continue: the next "Sign up" shows the form, not the
+    // finished signup's "log in". An unfinished signup can still be picked up with its passkey.
+    c.header('Set-Cookie', walletCookie(walletSignupCookie, null, 0), { append: true });
     emit('login_complete', 'ok');
     return c.json({ session: publicSession(result.session, await login.passkeyName(result.session)), csrfToken: walletCsrfToken(result.sessionToken), replayed: result.replayed });
   });

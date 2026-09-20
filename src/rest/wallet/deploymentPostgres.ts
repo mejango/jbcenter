@@ -471,7 +471,8 @@ export class PostgresWalletDeploymentStore {
       if (!observation || !canonicalObservation(observation) || !observation.head || !observation.transaction.nonce || !current.historicalCanonicalObservation) conflict();
       const now = await walletCeremonyDatabaseNow(client);
       const dispatch = (await client.query<DispatchRow>("SELECT * FROM rest_wallet_deployment_dispatches WHERE operation_id=$1 FOR UPDATE", [operationId])).rows[0];
-      if (dispatch && Number(dispatch.lease_until) > now) busy();
+      // A settled attempt holds nothing more; only one still in flight keeps the lane.
+      if (dispatch && dispatch.status === "in-flight" && Number(dispatch.lease_until) > now) busy();
       if (observation.transaction.nonce.confirmed !== next || observation.transaction.nonce.pending !== next) {
         // Our inclusion is canonical but the sender's nonce is not exactly past it: another sender
         // holds the key or the provider contradicts itself. Retain everything and stop for review.

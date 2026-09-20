@@ -90,7 +90,7 @@ that remembered verification when it is under four minutes old (its block re-che
 canonical) and the first authority observation after the binding carries the same
 state at its own block (`carried` on the authority chain: canonical, live, matching
 the bound state, no prior anchor past it); every later observation inspects in full.
-Settlement's observation is still the full one. Fewer than five passkey prompts
+Settlement's observation is still the full one. The page hears "ready" and the inspection starts at the canonical observation, before the release; a settled dispatch attempt no longer holds the lane for the rest of its 15 s lease (migration 056); activation joins an inspection already in flight; a completed login drops the signup continuation cookie. Fewer than five passkey prompts
 (create, check, approve, setup, login) needs protocol changes (fold possession into
 the creation approval; fold the setup grant into login).
 

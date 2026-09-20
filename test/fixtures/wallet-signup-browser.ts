@@ -263,10 +263,14 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     expect(await page.locator('#wallet-status').getAttribute('data-state')).toBe('busy');
     expect(await page.getByRole('button', { name: 'Log in', exact: true }).isVisible()).toBe(false);
     releaseRefresh(); refreshHold = Promise.resolve();
-    await contains('Log in with your passkey');
-    if (kitMode) expect(await page.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('center:signup:browser:')))).toEqual([]);
-    await page.getByRole('button', { name: 'Log in', exact: true }).click();
+    // The Continue click carries through to the login once the authority is verified; a browser
+    // that wants a fresh click for the prompt (or a slower refresh) leaves the Log in button instead.
+    for (let i = 0; i < 40 && !(await page.locator('#wallet-status').textContent())?.includes('You are signed in'); i++) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (i >= 12 && await page.getByRole('button', { name: 'Log in', exact: true }).isVisible()) { await page.getByRole('button', { name: 'Log in', exact: true }).click({ timeout: 2000 }).catch(() => undefined); }
+    }
     await contains('You are signed in');
+    if (kitMode) expect(await page.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('center:signup:browser:')))).toEqual([]);
     expect((await page.locator('#wallet-address').textContent())?.toLowerCase()).toBe(originalAddress?.toLowerCase());
     expect(await page.locator('#wallet-passkey').textContent()).toBe('Juicebox test');
     if (!kitMode) {

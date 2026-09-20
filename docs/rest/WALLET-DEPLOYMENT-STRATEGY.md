@@ -69,7 +69,7 @@ Use canonical confirmed sender nonce for an empty exclusive lane; pending nonce 
 
 A third party may deploy the exact deterministic wallet first. Its verified readiness does not finalize an older treasury transaction, which may still execute or revert and cost fees. Missing initialization evidence is not success even with a successful factory receipt.
 
-The lane is released at canonical inclusion once the sender's confirmed nonce is exactly one past the included nonce (migration 054): the released inclusion keeps its signed bytes, receipt history and a reservation of its admitted maximum cost until its finalized settlement, the queue is bounded at eight, settlements run in nonce order, and a released inclusion that is later observed as not canonical fences the pool for operator reconciliation instead of resending. Additional prepaid lanes require separate pressure evidence.
+The lane is released at canonical inclusion once the sender's confirmed nonce is exactly one past the included nonce (migration 054; since 056 a settled dispatch attempt — provider answer recorded — no longer holds the lane for the rest of its lease, only an attempt still in flight does): the released inclusion keeps its signed bytes, receipt history and a reservation of its admitted maximum cost until its finalized settlement, the queue is bounded at eight, settlements run in nonce order, and a released inclusion that is later observed as not canonical fences the pool for operator reconciliation instead of resending. Additional prepaid lanes require separate pressure evidence.
 
 ## Remaining implementation and observations
 

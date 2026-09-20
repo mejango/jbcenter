@@ -105,7 +105,7 @@ function accept(result: { view: View | null; csrfToken?: string }) {
   view = result.view; known = true;
   if (result.csrfToken) { if (decode(result.csrfToken).length !== 32) throw new Error('Invalid signup context.'); csrf = result.csrfToken; }
   // Flashblocks: the receipt arrives before the block; the page says so, and waits for the block.
-  if (view?.phase === 'deploying') view.preconfirmed ? messageLinked('Included', ', confirming…') : messageLinked('Creating', steps.deploying.slice('Creating'.length));
+  if (view?.phase === 'deploying') view.preconfirmed ? messageLinked('Almost', ' there…') : messageLinked('Creating', steps.deploying.slice('Creating'.length));
   else message(view ? steps[view.phase] + (view.phase === 'awaiting_activation' ? mode() === 'kit' ? recoverySecret ? ' Now, save your backup password.' : '' : ' Continue to log in.' : '') : '');
   if (view?.phase === 'ready_to_sign_in' && kitSavedWallet === view.walletAddress) recoverySecret = null;
 }
@@ -258,8 +258,13 @@ async function advance() {
     }
     // The passkey already consented to this account when it created the wallet; Center binds the
     // account from that proof. No prompt: reading and preparing need no grant, payments still do.
-    messageLinked('Checking', ' your new account. This can take up to a minute…');
+    messageLinked('Finishing', ' your account…');
     await send('activate', {});
+    // The same click carries through to the login: the authority is verified within a second or
+    // two of activation now, so wait briefly for it and open the login prompt from this gesture.
+    // If it takes longer, or the browser wants a fresh click for the prompt, the Log in button waits.
+    for (let i = 0; i < 12 && current()?.phase === 'preparing_sign_in'; i++) { await new Promise(resolve => setTimeout(resolve, 500)); await observe(); }
+    if (current()?.phase === 'ready_to_sign_in') await login();
   } else if (view.phase === 'ready_to_sign_in') {
     await login();
   }
@@ -347,7 +352,7 @@ async function loginFlow() {
   const challenge = decode(publicKey.challenge); if (challenge.length !== 32) throw new Error('Invalid passkey challenge.');
   message('Log in with the prompt.');
   const proof = await assertion('0x' + Array.from(challenge, byte => byte.toString(16).padStart(2, '0')).join(''), publicKey.rpId);
-  message('Checking your account. This can take up to a minute…');
+  message('Logging in…');
   const result = await walletRequest(`${base}/login/complete`, { loginId: begun.loginId, assertion: proof }, begun.csrfToken, 100000);
   if (result?.session?.loginId !== begun.loginId) throw new Error('Sign-in could not be confirmed.');
   location.replace((base || '/') + location.search);

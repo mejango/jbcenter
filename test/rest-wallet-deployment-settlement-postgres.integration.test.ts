@@ -55,7 +55,7 @@ suite("durable sequential local deployment settlement", () => {
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 5 });
     for (const name of ["013_rest_wallet_ceremonies.sql", "015_rest_wallet_enrollment.sql", "046_wallet_signup_window.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql", "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql",
-      "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "034_wallet_deployment_base.sql", "054_wallet_deployment_inclusion_release.sql"])
+      "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "034_wallet_deployment_base.sql", "054_wallet_deployment_inclusion_release.sql", "056_wallet_deployment_release_after_settled_dispatch.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
     store = new PostgresWalletDeploymentStore(pool);
   });
@@ -310,6 +310,26 @@ suite("durable sequential local deployment settlement", () => {
     const context = await initializedSettlementPool(pool, store);
     await expect(pool.query("UPDATE rest_wallet_deployment_pools SET revision=0")).rejects.toMatchObject({ code: "23514" });
     expect((await store.loadFundingContext(context.pool.configuration.id)).pool).toEqual(context.pool);
+  });
+  it("releases the lane as soon as the attempt is settled, without waiting out its lease", async () => {
+    await initializedSettlementPool(pool, store); let context = await signedSettlementUser(pool, store);
+    const observed = syntheticDeploymentObservation(context, await settlementDatabaseNow(pool));
+    await store.saveObservation({ operationId: context.operation.id, signedHash: context.operation.signed!.hash, expectedRevision: context.operation.revision, observation: observed });
+    context = await store.loadSettlementContext(context.operation.id);
+    const legacy = syntheticDeploymentAdmission(context, await settlementDatabaseNow(pool));
+    const admission = { ...legacy, version: "center-wallet-deployment-local-admission-v2" as const,
+      environment: { kind: "unforked-anvil" as const, genesisHash: context.pool.accounting!.environment.genesisHash, head: legacy.environment.head },
+      accounting: { digest: enrollmentDigest(context.pool.accounting), remainingWei: walletDeploymentRemainingWei(context.pool), nextNonce: context.pool.accounting!.nextNonce } };
+    const lease = await store.leaseDispatch({ operationId: context.operation.id, expectedRevision: context.operation.revision, signedHash: context.operation.signed!.hash, admission, leaseMs: 15_000 });
+    const settled = await store.settleDispatch({ operationId: context.operation.id, expectedRevision: lease.revision, leaseToken: lease.leaseToken, signedHash: context.operation.signed!.hash, status: "accepted" });
+    expect(settled.journal.status).toBe("accepted"); expect(settled.journal.leaseUntil).toBeGreaterThan(Date.now());
+    const included = canonicalInclusion(context, await settlementDatabaseNow(pool));
+    included.head = observed.head; included.wallet.evidence = observed.head; included.transaction.receipt!.block = observed.head!;
+    const saved = await store.saveObservation({ operationId: context.operation.id, signedHash: context.operation.signed!.hash, expectedRevision: context.operation.revision, observation: included });
+    // The provider answered; that attempt sends nothing more. The lease's remaining 15 s hold nothing.
+    const released = await store.release({ operationId: context.operation.id, expectedRevision: saved.operation.revision });
+    expect(released.operation.releasedAt).not.toBeNull();
+    expect(released.operation.reservedWei).toBe(context.operation.signed!.maximumExecutionCost);
   });
   it("retains the lane while a dispatch lease is live, then releases and settles after expiry", async () => {
     await initializedSettlementPool(pool, store); let context = await signedSettlementUser(pool, store);
