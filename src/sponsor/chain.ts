@@ -51,7 +51,7 @@ function describeError(error: unknown): string {
 }
 
 export type SponsorEvent =
-  | { event: "bundle"; intentId: string; bundleUuid: string; chainIds: number[] }
+  | { event: "bundle"; intentId: string; bundleUuid: string; chainIds: number[]; paymentChainId: number; offeredPaymentChainIds: number[] }
   | { event: "payment"; intentId: string; chainId: number; transactionHash: Hex; wei: string }
   | { event: "sent"; intentId: string; chainId: number; transactionHash: Hex }
   | { event: "confirmed"; intentId: string; chainId: number; projectId: string }
