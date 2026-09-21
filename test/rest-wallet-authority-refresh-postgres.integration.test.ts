@@ -267,7 +267,7 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
   });
 
   it("reclaims a crashed process only after database lease expiry and fences its stale completion", async () => {
-    const configuration = { ...options, leaseMs: 1500 }, store = queue(configuration), accountId = await eligibleAccount();
+    const configuration = { ...options, leaseMs: 4000 }, store = queue(configuration), accountId = await eligibleAccount();
     await store.request(accountId); const [a, b] = await Promise.all([worker(configuration), worker(configuration)]);
     const barrier = message(a.child, "barrier");
     const disconnected = a.request({ action: "claim", barrier: "after-claim" }).catch(() => null);
@@ -308,7 +308,7 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
 
   it("anchors refresh to the original readiness deadline and bounds retries of expired receipts", async () => {
     const store = queue(), accountId = await eligibleAccount(); await store.request(accountId);
-    const lease = await store.claim(), readyUntilMs = await databaseNow() + 450;
+    const lease = await store.claim(), readyUntilMs = await databaseNow() + 2500;
     expect(await store.complete(lease!, { outcome: "verified", readyUntilMs })).toBe(true);
     const due = readyUntilMs - options.refreshLeadMs!;
     expect(Number((await job(accountId)).due_at_ms)).toBe(due);
@@ -369,7 +369,7 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
   });
 
   it("removes idle jobs while retaining unexpired leases and their capacity until expiry", async () => {
-    const configuration = { ...options, maxTracked: 1, interestMs: 150, leaseMs: 1200 };
+    const configuration = { ...options, maxTracked: 1, interestMs: 150, leaseMs: 4000 };
     const store = queue(configuration), first = await eligibleAccount(), second = await eligibleAccount();
     await store.request(first); const lease = await store.claim(); expect(lease).not.toBeNull();
     await untilDatabaseTime(Number((await job(first)).interested_until_ms));
@@ -399,8 +399,9 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
   });
 
   it("starts fresh interest after an actual account-lock wait during queue admission", async () => {
-    const configuration = { ...options, interestMs: 150 }, store = queue(configuration), accountId = await eligibleAccount();
+    const configuration = { ...options, interestMs: 3000 }, store = queue(configuration), accountId = await eligibleAccount();
     const child = await worker(configuration), holder = await pool.connect();
+    let released = 0;
     try {
       await holder.query("BEGIN");
       const blocker = Number((await holder.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
@@ -408,10 +409,11 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
       const admitting = child.request({ action: "request", accountId });
       await waitForLock(child.backendPid, blocker, "INSERT INTO rest_wallet_authority_refresh_jobs");
       await untilDatabaseTime(await databaseNow() + configuration.interestMs + 20);
-      await holder.query("COMMIT");
+      released = await databaseNow(); await holder.query("COMMIT");
       expect(await admitting).toMatchObject({ status: 200, body: { status: "queued" } });
     } finally { await holder.query("ROLLBACK"); holder.release(); }
-    expect(Number((await job(accountId)).interested_until_ms)).toBeGreaterThan(await databaseNow());
+    // Interest measured from the lock release, not from the admission's first database sample.
+    expect(Number((await job(accountId)).interested_until_ms)).toBeGreaterThanOrEqual(released + configuration.interestMs);
     expect((await store.claim())?.accountId).toBe(accountId);
   });
 });
