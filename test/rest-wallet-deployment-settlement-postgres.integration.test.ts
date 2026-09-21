@@ -138,9 +138,13 @@ suite("durable sequential local deployment settlement", () => {
   });
   it("rolls back all settlement writes when evidence expires behind a process barrier", async () => {
     await initializedSettlementPool(pool, store); const context = await releasedSettlementUser(pool, store), child = await worker();
-    const evidence = syntheticSettlement(context, await settlementDatabaseNow(pool)); evidence.funding.expiresAt = evidence.funding.observedAt + 300;
+    const evidence = syntheticSettlement(context, await settlementDatabaseNow(pool)); evidence.funding.expiresAt = evidence.funding.observedAt + 2_000;
     const reached = message(child.child, "barrier"), request = child.request({ action: "settle", context, evidence, barrier: "after-debit", continueBarrier: true });
-    await reached; await new Promise(resolve => setTimeout(resolve, 350)); child.child.send({ kind: "continue" });
+    // The window has to survive the request that reaches the barrier; the database clock ends it.
+    await reached;
+    await pool.query("SELECT pg_sleep(greatest(0, $1::bigint + 50 - floor(extract(epoch FROM clock_timestamp())*1000)) / 1000.0)",
+      [String(evidence.funding.expiresAt)]);
+    child.child.send({ kind: "continue" });
     expect((await request).status).toBe(409); expect(await store.getSettlement(context.operation.id)).toBeNull();
     expect(await store.loadSettlementContext(context.operation.id)).toEqual(context);
   });

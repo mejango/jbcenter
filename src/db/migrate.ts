@@ -8,7 +8,9 @@ const migrationsDirectory = join(dirname(fileURLToPath(import.meta.url)), "migra
 export async function migrate(pool: Pool): Promise<void> {
   const client = await pool.connect();
   try {
-    await client.query("SELECT pg_advisory_lock(hashtext('jbcenter-migrations'))");
+    // The set writes one schema, so the lock that serializes concurrent runners belongs to
+    // that schema; separate schemas hold separate locks and migrate independently.
+    await client.query("SELECT pg_advisory_lock(hashtextextended(current_schema() || ':jbcenter-migrations', 0))");
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         filename text PRIMARY KEY,
@@ -36,7 +38,7 @@ export async function migrate(pool: Pool): Promise<void> {
     }
   } finally {
     try {
-      await client.query("SELECT pg_advisory_unlock(hashtext('jbcenter-migrations'))");
+      await client.query("SELECT pg_advisory_unlock(hashtextextended(current_schema() || ':jbcenter-migrations', 0))");
     } finally {
       client.release();
     }

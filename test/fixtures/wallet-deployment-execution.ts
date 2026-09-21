@@ -54,11 +54,15 @@ export function syntheticDeploymentObservation(context: WalletDeploymentExecutio
     fees: { executionWei: null, l1Wei: null, operatorWei: null, totalWei: null }, dispatchEligible: false };
 }
 export function syntheticDeploymentAdmission(context: WalletDeploymentExecutionContext, now = Date.now()): Extract<WalletDeploymentDispatchAdmission, { version: "center-wallet-deployment-local-admission-v1" }> {
-  const operation = context.operation;
+  const operation = context.operation, observation = operation.observation!;
+  // The admission window is the one the production producer computes in deploymentTransport:
+  // bounded by the local admission lifetime, the observation age policy and the observed head.
+  const expiresAt = Math.min(now + 5000, observation.observedAt + context.pool.configuration.policy.maximumObservationAgeMs,
+    Number((BigInt(observation.head!.timestamp) + 300n) * 1000n));
   return { version: "center-wallet-deployment-local-admission-v1", operationId: operation.id,
     poolConfigurationDigest: operation.poolConfigurationDigest, templateCommitment: operation.templateCommitment!, transactionHash: operation.signed!.hash,
     operationRevision: operation.revision, observationDigest: enrollmentDigest(operation.observation),
-    environment: { kind: "unforked-anvil", genesisHash: `0x${"de".repeat(32)}`, head: operation.observation!.head! },
-    observedAt: now, expiresAt: now + 3000, balanceWei: context.pool.configuration.allocationWei,
+    environment: { kind: "unforked-anvil", genesisHash: `0x${"de".repeat(32)}`, head: observation.head! },
+    observedAt: now, expiresAt, balanceWei: context.pool.configuration.allocationWei,
     maximumExecutionCost: operation.signed!.maximumExecutionCost, feeScope: "local-execution-only", baseTotalAffordability: "unknown" };
 }

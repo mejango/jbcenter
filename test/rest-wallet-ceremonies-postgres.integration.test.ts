@@ -16,6 +16,8 @@ const children: ChildProcess[] = [];
 const draft = (accountId = "wallet:fixture") => createWalletCeremony({
   accountId, purpose: "payment", contextDigest: digest, expiresAt: Date.now() + 120_000,
 });
+const databaseNow = async () =>
+  Number((await pool.query<{ now: string }>("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::text AS now")).rows[0]!.now);
 const consume = (record: WalletCeremony): WalletCeremonyConsume => ({
   id: record.id, accountId: record.accountId, purpose: record.purpose, contextDigest: record.contextDigest,
   challenge: record.challenge, expiresAt: record.expiresAt, proofDigest: digest, resultId: randomUUID(),
@@ -100,8 +102,8 @@ suite("PostgreSQL wallet ceremony storage (does not verify authentication)", () 
   });
 
   it("uses database time despite a caller clock that tries to extend a challenge", async () => {
-    await expect(store.issue({ ...draft(), expiresAt: Date.now() - 1 })).rejects.toMatchObject({ code: "WALLET_CEREMONY_EXPIRED" });
-    await expect(store.issue({ ...draft(), expiresAt: Date.now() + 1_200_000 })).rejects.toMatchObject({ code: "WALLET_CEREMONY_INVALID" });
+    await expect(store.issue({ ...draft(), expiresAt: await databaseNow() - 1 })).rejects.toMatchObject({ code: "WALLET_CEREMONY_EXPIRED" });
+    await expect(store.issue({ ...draft(), expiresAt: await databaseNow() + 1_200_000 })).rejects.toMatchObject({ code: "WALLET_CEREMONY_INVALID" });
   });
 
   it("rejects malformed receipt IDs and duplicate challenges without leaking a database error", async () => {
@@ -128,12 +130,15 @@ suite("PostgreSQL wallet ceremony storage (does not verify authentication)", () 
   });
 
   it("recovers an expired consumed receipt without turning it into a new authorization", async () => {
-    const record = await store.issue({ ...draft(), expiresAt: Date.now() + 300 }), request = consume(record);
+    // The store gates expiry on the database clock, so the receipt's window and the wait that
+    // outlives it both come from that clock rather than a fixed application-side sleep.
+    const record = await store.issue({ ...draft(), expiresAt: await databaseNow() + 2_000 }), request = consume(record);
     await store.consume(request);
-    await pool.query("SELECT pg_sleep(0.4)");
+    await pool.query("SELECT pg_sleep(greatest(0, $1::bigint + 1 - floor(extract(epoch FROM clock_timestamp())*1000)) / 1000.0)",
+      [String(record.expiresAt)]);
     const recovered = await store.get({ id: record.id, accountId: record.accountId });
     expect(recovered?.resultId).toBe(request.resultId);
-    expect(recovered!.expiresAt).toBeLessThan(Date.now());
+    expect(recovered!.expiresAt).toBeLessThan(await databaseNow());
     await expect(store.consume(request)).resolves.toMatchObject({ replayed: true });
   });
 
