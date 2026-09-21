@@ -75,7 +75,12 @@ describe('metadata MCP publication boundary', () => {
       listed.tools
         .filter((tool) => tool.annotations?.readOnlyHint === false)
         .map((tool) => tool.name),
-    ).toEqual(['jb_pin_project_logo', 'jb_pin_project_metadata']);
+    ).toEqual([
+      'jb_pin_project_logo',
+      'jb_pin_project_metadata',
+      'jb_publish_intent',
+      'jb_deploy_intent',
+    ]);
     const prepared = await client.callTool({
       name: 'jb_prepare_project_metadata',
       arguments: {
