@@ -1,14 +1,16 @@
-import { encodeAbiParameters, encodeEventTopics, zeroAddress, type Hex } from "viem";
-import { describe, expect, it } from "vitest";
+import { encodeAbiParameters, encodeEventTopics, zeroAddress, type Address, type Hex } from "viem";
+import { describe, expect, it, vi } from "vitest";
 import {
   canonicalDeploymentChains,
   RpcDeploymentVerifier,
   type ReceiptReader,
 } from "../src/deploymentVerifier.js";
+import type { RpcUpstreams } from "../src/rpc.js";
 
 const projects = "0x1111111111111111111111111111111111111111" as const;
 const deployer = "0x3333333333333333333333333333333333333333" as const;
 const wrapper = "0x4444444444444444444444444444444444444444" as const;
+const FORWARDER = "0x5555555555555555555555555555555555555555" as const;
 const hash = `0x${"22".repeat(32)}` as const;
 const call = { chainId: 1, to: deployer, data: "0x12345678" as const };
 const createEvent = [
@@ -25,8 +27,10 @@ const createEvent = [
 ] as const;
 
 type Receipt = Awaited<ReturnType<ReceiptReader["getTransactionReceipt"]>>;
+type Log = Receipt["logs"][number];
+type Transaction = Awaited<ReturnType<ReceiptReader["getTransaction"]>>;
 
-function createLog(projectId = 42n) {
+function createLog(projectId = 42n): Log {
   return {
     address: projects,
     topics: encodeEventTopics({
@@ -38,24 +42,33 @@ function createLog(projectId = 42n) {
   };
 }
 
-function reader(
-  overrides: Partial<Receipt> = {},
-  trace: unknown = { type: "CALL", to: deployer, input: call.data },
+function successReceipt(...logs: Log[]): Receipt {
+  return { status: "success" as const, blockNumber: 10n, logs };
+}
+
+function callFrame(to: Address, input: Hex, extra: Record<string, unknown> = {}) {
+  return { type: "CALL", to, input, ...extra };
+}
+
+function fakeReader(
+  options: {
+    receipt?: Receipt;
+    transaction?: Transaction;
+    trace?: unknown;
+  } = {},
 ): ReceiptReader {
-  const receipt: Receipt = {
-    status: "success" as const,
-    blockNumber: 10n,
-    logs: [createLog()],
-    ...overrides,
-  };
+  const receipt = options.receipt ?? successReceipt(createLog());
+  const transaction = options.transaction ?? { to: FORWARDER, input: "0xdeadbeef" as Hex };
+  const trace = options.trace ?? callFrame(deployer, call.data);
   return {
-    getTransactionReceipt: async () => receipt,
-    getBlockNumber: async () => 11n,
-    traceTransaction: async () => trace,
+    getTransactionReceipt: vi.fn(async () => receipt),
+    getBlockNumber: vi.fn(async () => 11n),
+    getTransaction: vi.fn(async () => transaction),
+    traceTransaction: vi.fn(async () => trace),
   };
 }
 
-function verifier(receiptReader = reader()) {
+function verifier(receiptReader = fakeReader()) {
   const chains = new Map([
     [
       1,
@@ -85,7 +98,7 @@ describe("RPC deployment verification", () => {
 
   it("rejects reverted, unconfirmed, and mismatched project claims", async () => {
     await expect(
-      verifier(reader({ status: "reverted" })).verify({
+      verifier(fakeReader({ receipt: { ...successReceipt(createLog()), status: "reverted" } })).verify({
         chainId: 1,
         projectId: "42",
         transactionHash: hash,
@@ -103,7 +116,7 @@ describe("RPC deployment verification", () => {
       }),
     ).rejects.toThrow("exactly");
     const unconfirmed: ReceiptReader = {
-      ...reader(),
+      ...fakeReader(),
       getBlockNumber: async () => 10n,
     };
     await expect(
@@ -131,14 +144,11 @@ describe("RPC deployment verification", () => {
   });
 
   it("accepts the committed call inside a successful wrapper transaction", async () => {
-    const wrapped = {
-      type: "CALL",
-      to: wrapper,
-      input: "0xabcdef01",
-      calls: [{ type: "CALL", to: deployer, input: call.data }],
-    };
+    const wrapped = callFrame(wrapper, "0xabcdef01", {
+      calls: [callFrame(deployer, call.data)],
+    });
     await expect(
-      verifier(reader({}, wrapped)).verify({
+      verifier(fakeReader({ trace: wrapped })).verify({
         chainId: 1,
         projectId: "42",
         transactionHash: hash,
@@ -157,21 +167,20 @@ describe("RPC deployment verification", () => {
       call,
     };
     await expect(
-      verifier(reader({}, { type: "CALL", to: deployer, input: "0x87654321" })).verify(claim),
+      verifier(fakeReader({ trace: callFrame(deployer, "0x87654321") })).verify(claim),
     ).rejects.toThrow("committed");
     await expect(
       verifier(
-        reader({}, {
-          type: "CALL",
-          to: wrapper,
-          input: "0xabcdef01",
-          calls: [{ type: "CALL", to: deployer, input: call.data, error: "execution reverted" }],
+        fakeReader({
+          trace: callFrame(wrapper, "0xabcdef01", {
+            calls: [callFrame(deployer, call.data, { error: "execution reverted" })],
+          }),
         }),
       ).verify(claim),
     ).rejects.toThrow("committed");
-    await expect(verifier(reader({}, { unexpected: true })).verify(claim)).rejects.toThrow(
-      "malformed",
-    );
+    await expect(
+      verifier(fakeReader({ trace: { unexpected: true } })).verify(claim),
+    ).rejects.toThrow("malformed");
     await expect(
       verifier().verify({ ...claim, call: { ...call, chainId: 10 } }),
     ).rejects.toThrow("chain does not match");
@@ -179,7 +188,7 @@ describe("RPC deployment verification", () => {
 
   it("rejects a transaction which creates more than one project", async () => {
     await expect(
-      verifier(reader({ logs: [createLog(), createLog(43n)] })).verify({
+      verifier(fakeReader({ receipt: successReceipt(createLog(), createLog(43n)) })).verify({
         chainId: 1,
         projectId: "42",
         transactionHash: hash,
@@ -200,6 +209,67 @@ describe("RPC deployment verification", () => {
       confirmations: 2,
       deploymentVersion: "6",
     });
-    expect(() => canonicalDeploymentChains(new Map())).toThrow("needs an RPC upstream");
+    expect(canonicalDeploymentChains(new Map()).size).toBe(0);
+  });
+});
+
+describe("deployment verifier fast path and testnet configuration", () => {
+  const upstreams: RpcUpstreams = new Map(
+    [1, 10, 8453, 42161, 11155111, 11155420, 84532, 421614].map((chainId) => [
+      chainId,
+      [`https://rpc-${chainId}.example`],
+    ]),
+  );
+  const chains = new Map(
+    [84532, 8453].map((chainId) => [
+      chainId,
+      {
+        rpcUrl: "https://rpc.example",
+        projectsAddress: projects,
+        confirmations: 2,
+        deploymentVersion: "6",
+      },
+    ]),
+  );
+  const claim = {
+    chainId: 1,
+    projectId: "7",
+    transactionHash: hash,
+    deploymentVersion: "6",
+    call,
+  };
+
+  it("a top-level transaction matching the call verifies without a trace", async () => {
+    const reader = fakeReader({
+      receipt: successReceipt(createLog(7n)),
+      transaction: { to: call.to, input: call.data },
+    });
+    reader.traceTransaction = vi.fn(async () => {
+      throw new Error("trace must not run");
+    });
+    const verifier = new RpcDeploymentVerifier(chains, new Map([[84532, reader]]));
+    await expect(
+      verifier.verify({ ...claim, chainId: 84532, call: { ...call, chainId: 84532 } }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("a relayed transaction falls back to the trace", async () => {
+    const reader = fakeReader({
+      receipt: successReceipt(createLog(7n)),
+      transaction: { to: FORWARDER, input: "0xdeadbeef" },
+      trace: callFrame(call.to, call.data),
+    });
+    const verifier = new RpcDeploymentVerifier(chains, new Map([[8453, reader]]));
+    await expect(
+      verifier.verify({ ...claim, chainId: 8453, call: { ...call, chainId: 8453 } }),
+    ).resolves.toBeUndefined();
+    expect(reader.traceTransaction).toHaveBeenCalled();
+  });
+
+  it("testnets are configured", () => {
+    const configured = canonicalDeploymentChains(upstreams);
+    expect([...configured.keys()].sort()).toEqual(
+      [1, 10, 8453, 42161, 84532, 421614, 11155111, 11155420].sort(),
+    );
   });
 });

@@ -45,6 +45,7 @@ export type ReceiptReader = {
     logs: readonly { address: Address; data: Hex; topics: readonly Hex[] }[];
   }>;
   getBlockNumber(): Promise<bigint>;
+  getTransaction(args: { hash: Hex }): Promise<{ to: Address | null; input: Hex }>;
   traceTransaction(hash: Hex): Promise<unknown>;
 };
 
@@ -124,24 +125,21 @@ function containsCommittedCall(trace: unknown, expected: DeploymentCall): boolea
 }
 
 const PROJECTS = "0x6017d1fba9dc279bfa0b03fd931c22e242ab3691" as Address;
-const DEPLOYMENT_CHAIN_IDS = [1, 10, 8453, 42161] as const;
+const DEPLOYMENT_CHAIN_IDS = [1, 10, 8453, 42161, 11155111, 11155420, 84532, 421614] as const;
 
 export function canonicalDeploymentChains(upstreams: RpcUpstreams): Map<number, ChainRpcConfig> {
-  return new Map(
-    DEPLOYMENT_CHAIN_IDS.map((chainId) => {
-      const rpcUrl = upstreams.get(chainId)?.[0];
-      if (!rpcUrl) throw new Error(`Canonical deployment chain ${chainId} needs an RPC upstream`);
-      return [
-        chainId,
-        {
-          rpcUrl,
-          projectsAddress: PROJECTS,
-          confirmations: 2,
-          deploymentVersion: "6",
-        },
-      ];
-    }),
-  );
+  const configured = new Map<number, ChainRpcConfig>();
+  for (const chainId of DEPLOYMENT_CHAIN_IDS) {
+    const rpcUrl = upstreams.get(chainId)?.[0];
+    if (!rpcUrl) continue;
+    configured.set(chainId, {
+      rpcUrl,
+      projectsAddress: PROJECTS,
+      confirmations: 2,
+      deploymentVersion: "6",
+    });
+  }
+  return configured;
 }
 
 export class RpcDeploymentVerifier implements DeploymentVerifier {
@@ -170,6 +168,11 @@ export class RpcDeploymentVerifier implements DeploymentVerifier {
       this.readers.set(chainId, {
         getTransactionReceipt: (args) => client.getTransactionReceipt(args),
         getBlockNumber: () => client.getBlockNumber(),
+        getTransaction: (args) =>
+          client.getTransaction(args).then((transaction) => ({
+            to: transaction.to,
+            input: transaction.input,
+          })),
         traceTransaction: (hash) =>
           request({
             method: "debug_traceTransaction",
@@ -235,17 +238,23 @@ export class RpcDeploymentVerifier implements DeploymentVerifier {
         "Transaction must create exactly the claimed project on canonical JBProjects",
       );
     }
-    let trace: unknown;
-    try {
-      trace = await reader.traceTransaction(claim.transactionHash);
-    } catch (error) {
-      if (error instanceof DeploymentVerificationError) throw error;
-      throw new DeploymentVerificationError("Transaction trace is not available from RPC");
-    }
-    if (!containsCommittedCall(trace, claim.call)) {
-      throw new DeploymentVerificationError(
-        "Transaction did not execute the deployment call committed by the signed intent",
-      );
+    const transaction = await reader.getTransaction({ hash: claim.transactionHash });
+    const direct =
+      transaction.to?.toLowerCase() === claim.call.to.toLowerCase() &&
+      transaction.input.toLowerCase() === claim.call.data.toLowerCase();
+    if (!direct) {
+      let trace: unknown;
+      try {
+        trace = await reader.traceTransaction(claim.transactionHash);
+      } catch (error) {
+        if (error instanceof DeploymentVerificationError) throw error;
+        throw new DeploymentVerificationError("Transaction trace is not available from RPC");
+      }
+      if (!containsCommittedCall(trace, claim.call)) {
+        throw new DeploymentVerificationError(
+          "The transaction did not execute the committed deployment call",
+        );
+      }
     }
   }
 }
