@@ -210,6 +210,9 @@ async function run(action: () => Promise<void>, quiet = false) {
     }
     message(error instanceof DOMException && native && (error.name === 'AbortError' || (error.name === 'NotAllowedError' && native.signal.aborted))
       ? 'Passkey prompt cancelled. You can try again.'
+      // A browser (or a framing app) that does not let a passkey be made inside another app's page.
+      : error instanceof DOMException && native && inFrame() && error.name === 'NotAllowedError' && view?.phase === 'awaiting_registration'
+      ? 'This browser will not create a passkey inside another app. Open Fullscreen below to sign up on a page of its own.'
       : error instanceof DOMException && native
       ? `The passkey prompt did not complete (${error.name}${error.message ? ': ' + error.message : ''}). If your passkey manager just saved this passkey, wait a moment and try again.`
       : error instanceof DOMException && error.name === 'AbortError'
