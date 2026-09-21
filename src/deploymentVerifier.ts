@@ -128,7 +128,7 @@ function containsCommittedCall(trace: unknown, expected: DeploymentCall): boolea
   return false;
 }
 
-const PROJECTS = "0x6017d1fba9dc279bfa0b03fd931c22e242ab3691" as Address;
+export const PROJECTS = "0x6017d1fba9dc279bfa0b03fd931c22e242ab3691" as Address;
 const DEPLOYMENT_CHAIN_IDS = [1, 10, 8453, 42161, 11155111, 11155420, 84532, 421614] as const;
 
 export function canonicalDeploymentChains(upstreams: RpcUpstreams): Map<number, ChainRpcConfig> {

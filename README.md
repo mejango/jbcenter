@@ -283,6 +283,8 @@ chain. The call target and complete calldata are part of the signed content, mak
 deployment directly executable and independently verifiable without re-deriving time-sensitive
 arguments.
 
+A published intent is firm: there is no edit, replace or withdraw. Publish a new intent instead.
+
 ## Read and search
 
 ```http
@@ -311,6 +313,20 @@ Search returns a merge-friendly page:
 Query this endpoint and Bendystraw concurrently. JB Center ranks textual searches with
 PostgreSQL full-text search and lists recent intents when `q` is empty.
 
+`GET /v1/intents/:id` additionally carries a per-chain `deploys` array once a deploy has been
+requested (see "Request a sponsored deploy" below), independent of `deployments`:
+
+```json
+{
+  "deploys": [
+    { "chainId": 84532, "status": "queued", "transactionHash": null, "bundleUuid": null, "error": null, "createdAt": "...", "updatedAt": "..." }
+  ]
+}
+```
+
+`status` is `queued`, `sent`, `confirmed` or `failed`. `bundleUuid` identifies the Relayr bundle
+once one has been submitted; `transactionHash` and `error` fill in as each chain settles.
+
 ## Record deployment
 
 Any trusted webclient can associate an onchain project with its signed intent:
@@ -333,6 +349,34 @@ direct or nested `CALL` whose target and calldata exactly match the signed per-c
 Nested matching supports Safe and Relayr execution. Deployment records are write-once per intent
 and chain. Recording the first deployment removes the intent from search while preserving the
 `.jb`, signature, exact launch call, and deployment provenance at its direct URL.
+
+## Request a sponsored deploy
+
+A trusted webclient can ask JB Center to execute an undeployed intent's own signed calls, at
+Center's expense, instead of the publisher paying gas directly:
+
+```http
+POST /v1/intents/:id/deploy
+```
+
+```json
+{
+  "deploys": [
+    { "chainId": 84532, "status": "queued", "transactionHash": null, "bundleUuid": null, "error": null, "createdAt": "...", "updatedAt": "..." },
+    { "chainId": 421614, "status": "queued", "transactionHash": null, "bundleUuid": null, "error": null, "createdAt": "...", "updatedAt": "..." }
+  ]
+}
+```
+
+The response is `202` the first time and `200` on every later call for the same intent, always
+returning the same rows: the request is idempotent per intent, not per call. JB Center only
+sponsors an intent whose `chainIds` are entirely mainnets or entirely testnets from its supported
+set, never a mix. A worker signs each call as a forwarded request, submits the bundle through
+Relayr, and confirms it against the same canonical `JBProjects.Create` event and per-chain call
+match used for `POST /v1/intents/:id/deployments`; a confirmed chain both updates its `deploys` row
+and records the deployment. The route answers `503` with no sponsor configured or while paused,
+`404` for an unknown intent, `400` for an already-deployed or unsponsorable intent, and `429` once
+the requester's daily quota or the shared daily sponsorship budget is spent.
 
 ## Authentication boundaries
 
@@ -364,6 +408,15 @@ The remaining controls are environment variables:
 - `WALLET_RECOVERY_SIGNER_KEY`, `WALLET_RECOVERY_MAX_OPERATIONS`, `WALLET_RECOVERY_MAX_COST_WEI` — together, the dedicated Base recovery relay: its private key (distinct from creation), the lifetime operation cap and the whole fee budget in wei.
 - `PARA_API_KEY` — public browser API key for account sign-in; authorize the Center origin in the Para dashboard. No Para server secret is used.
 - `PARA_ENVIRONMENT` — `BETA` (default) or `PROD`, matching the public key.
+- `SPONSOR_SIGNER_KEY` — optional private key that turns on `POST /v1/intents/:id/deploy`. It funds
+  every sponsored chain plus the Relayr payment chain; keep it a dedicated key, distinct from every
+  other configured signer.
+- `SPONSOR_PAUSED` — set to `1` to pause sponsored deploys without unsetting the signer key.
+- `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` — deploy requests one requester may queue per day; default `5`.
+- `SPONSOR_DAILY_BUDGET_WEI` — total wei reserved for sponsored deploys per rolling day, across every requester; default `50000000000000000`.
+- `SPONSOR_MAX_GAS` — gas ceiling per forwarded deployment call; default `8000000`.
+- `SPONSOR_MAX_FEE_PER_GAS` — max fee per gas the sponsor signs when paying for the Relayr bundle; default `1000000000`.
+- `SPONSOR_CONFIRMATIONS` — confirmations awaited on each destination chain before a sponsored deploy is recorded; default `2`.
 - `METRICS_TOKEN` — required 32-character bearer token for `GET /metrics`.
 - `FILEBASE_RPC_TOKEN` — bucket-scoped bearer token for Filebase's IPFS RPC API; never expose it to
   a browser.

@@ -13,7 +13,7 @@ import { Metrics } from "../observability.js";
 import { createRestApp } from "./app.js";
 import { createRestAuth, PostgresAccountStore } from "./auth/index.js";
 import { createContractOwnerVerifier } from "./contractOwner.js";
-import { getContractCatalog } from "./contracts/catalog.js";
+import { getContractCatalog, type ContractCatalog } from "./contracts/catalog.js";
 import { RestError, type RestRpc } from "./core.js";
 import { restRequest } from "./context.js";
 import { apiDocsCss, apiDocsPage, buildRestOpenApi } from "./docs/index.js";
@@ -151,6 +151,8 @@ export async function createRestRuntime(options: {
   site: RestSite;
   transactions: TransactionService;
   wallet?: RestWalletRuntime;
+  rpc: RestRpc;
+  catalog: ContractCatalog;
   stop(): Promise<void>;
 }> {
   const contracts = await getContractCatalog();
@@ -696,6 +698,8 @@ export async function createRestRuntime(options: {
       ...assets,
     },
     transactions,
+    rpc,
+    catalog: contracts,
     ...(wallet ? { wallet } : {}),
     async stop() {
       stopped = true;
