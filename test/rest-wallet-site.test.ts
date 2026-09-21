@@ -157,7 +157,7 @@ describe('dedicated Center wallet HTTP journey',()=>{
   it('serves the wallet at the host root when mounted without a path prefix, and keeps /wallet links working',async()=>{
     const {app}=setup({ basePath: '', signup: {} as never, signupBrowserScript: '/* signup */' });
     const root=await app.fetch(new Request(origin+'/'));
-    expect(root.status).toBe(200);expect(await root.text()).toContain('Sign up with a passkey');
+    expect(root.status).toBe(200);expect(await root.text()).toContain('id="signup-form"');
     expect(await (await app.fetch(new Request(origin+'/'))).text()).toContain('content=""');
     expect((await app.fetch(new Request(origin+'/create'))).status).toBe(200);
     expect((await app.fetch(new Request(origin+'/assets/wallet-signup.js'))).status).toBe(200);
@@ -184,7 +184,7 @@ describe('dedicated Center wallet HTTP journey',()=>{
   it('serves a bare landing visit as the signup page unless a session cookie or app return is present',async()=>{
     const {app}=setup({ signup: {} as never, signupBrowserScript: '/* signup */' });
     const bare=await app.fetch(new Request(origin+'/wallet'));
-    expect(bare.status).toBe(200);expect(await bare.text()).toContain('Sign up with a passkey');
+    expect(bare.status).toBe(200);expect(await bare.text()).toContain('id="signup-form"');
     expect((await app.fetch(new Request(origin+'/wallet',{headers:{cookie:`${walletSessionCookie}=${token}`}}))).status).toBe(200);
     expect((await app.fetch(new Request(origin+'/wallet?intent='+flow))).status).toBe(200);
     expect((await app.fetch(new Request(origin+'/wallet?payment='+loginId))).status).toBe(200);
