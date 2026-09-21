@@ -4,11 +4,15 @@ import {
   getAddress,
   http,
   isAddressEqual,
+  keccak256,
+  stringToHex,
   type Address,
   type Hex,
 } from "viem";
 import type { RpcUpstreams } from "./rpc.js";
 import type { DeploymentCall } from "./types.js";
+
+export const CREATE_TOPIC: Hex = keccak256(stringToHex("Create(uint256,address,address)"));
 
 const createEvent = [
   {
