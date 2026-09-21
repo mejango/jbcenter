@@ -417,11 +417,16 @@ The remaining controls are environment variables:
 - `WALLET_RECOVERY_SIGNER_KEY`, `WALLET_RECOVERY_MAX_OPERATIONS`, `WALLET_RECOVERY_MAX_COST_WEI` — together, the dedicated Base recovery relay: its private key (distinct from creation), the lifetime operation cap and the whole fee budget in wei.
 - `PARA_API_KEY` — public browser API key for account sign-in; authorize the Center origin in the Para dashboard. No Para server secret is used.
 - `PARA_ENVIRONMENT` — `BETA` (default) or `PROD`, matching the public key.
-- `SPONSOR_SIGNER_KEY` — optional private key that turns on `POST /v1/intents/:id/deploy`. It funds
-  every sponsored chain plus the Relayr payment chain; keep it a dedicated key, distinct from every
-  other configured signer.
+- `SPONSOR_SIGNER_KEY` — optional private key that turns on `POST /v1/intents/:id/deploy`. It only
+  needs ETH on the one rollup it pays the Relayr prepayment from; that prepayment carries the
+  destination chains' creation fees and Relayr's executor supplies them there. Keep it a dedicated
+  key, distinct from every other configured signer.
 - `SPONSOR_PAUSED` — set to `1` to pause sponsored deploys without unsetting the signer key.
 - `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` — deploy requests one requester may queue per day; default `5`.
+- `PUBLISH_PER_PUBLISHER_PER_DAY` — publish requests one publisher key may sign per rolling day; default `20`.
+- `PUBLISH_PER_IP_PER_HOUR` — publish requests one IP may make per rolling hour; default `60`. A
+  platform whose server publishes on behalf of its users — one signing key, one outbound IP — needs
+  both of these and `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` raised past their per-caller defaults.
 - `SPONSOR_DAILY_BUDGET_WEI` — total wei reserved for sponsored deploys per rolling day, across every requester; default `50000000000000000`.
 - `SPONSOR_MAX_GAS` — gas ceiling per forwarded deployment call; default `8000000`.
 - `SPONSOR_MAX_FEE_PER_GAS` — max fee per gas the sponsor signs when paying for the Relayr bundle; default `1000000000`.
