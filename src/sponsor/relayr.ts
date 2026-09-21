@@ -30,6 +30,14 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 /** Center signs every forward request with its own sponsor key, so the sponsor
  * EOA is the `_msgSender()` the forwarder appends on each destination chain. */
+/** Ethereum and Sepolia base fees dwarf the sponsor fee cap; pay the bundle on a rollup whenever Relayr offers one. */
+const L1_CHAIN_IDS = new Set([1, 11155111]);
+
+export function choosePayment<T extends { chainId: number }>(options: readonly T[], rpcUrls: Map<number, string>): T | undefined {
+  const configured = options.filter((option) => rpcUrls.has(option.chainId));
+  return configured.find((option) => !L1_CHAIN_IDS.has(option.chainId)) ?? configured[0];
+}
+
 export function createRelayrLane(options: {
   chain: SponsorshipChain;
   catalog: ContractCatalog;
@@ -170,7 +178,7 @@ export function createRelayrLane(options: {
           now(),
           reservationWei(policy, chainIds.length),
         );
-        const payment = quote.payments.find((option) => rpcUrls.has(option.chainId));
+        const payment = choosePayment(quote.payments, rpcUrls);
         if (!payment) return track.failRest("relayr returned no payment option on a configured chain");
         const paymentClient = client(payment.chainId);
         const fees = await paymentClient.estimateFeesPerGas();
@@ -181,7 +189,14 @@ export function createRelayrLane(options: {
           return report.deferred("sponsor balance too low");
         // The bundle is durable before any ETH leaves the key, so a re-claim resumes it.
         await report.bundle(quote.bundleUuid);
-        onEvent({ event: "bundle", intentId: intent.id, bundleUuid: quote.bundleUuid, chainIds });
+        onEvent({
+          event: "bundle",
+          intentId: intent.id,
+          bundleUuid: quote.bundleUuid,
+          chainIds,
+          paymentChainId: payment.chainId,
+          offeredPaymentChainIds: quote.payments.map((option) => option.chainId),
+        });
         const raw = await signer.signTransaction({
           type: "eip1559",
           chainId: payment.chainId,
