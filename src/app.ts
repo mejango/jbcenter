@@ -3,7 +3,7 @@ import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import Busboy from "busboy";
 import { Readable, Transform } from "node:stream";
-import { isHex, size, verifyMessage, type Hex } from "viem";
+import { isHex, size, verifyMessage, type Address, type Hex } from "viem";
 import { authenticate } from "./auth.js";
 import { FAVICON_SVG } from "./branding.js";
 import {
@@ -134,6 +134,15 @@ function cursor(value: string | undefined): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 0) throw new BadRequest("cursor is invalid");
   return parsed;
+}
+
+function optionalAddress(value: string | undefined, name: string): Address | undefined {
+  if (value === undefined) return undefined;
+  try {
+    return address(value, name);
+  } catch {
+    throw new BadRequest(`${name} must be an Ethereum address`);
+  }
 }
 
 const pinPath = (path: string) => path.startsWith("/v1/pins/");
@@ -644,7 +653,14 @@ export function createApp(
     const rawLimit = c.req.query("limit") ?? "20";
     const limit = positiveInteger(rawLimit, "limit");
     if (limit > 100) throw new BadRequest("limit must not exceed 100");
-    return c.json(await store.search(query, limit, cursor(c.req.query("cursor"))));
+    const owner = optionalAddress(c.req.query("owner"), "owner");
+    const publisher = optionalAddress(c.req.query("publisher"), "publisher");
+    return c.json(
+      await store.search(query, limit, cursor(c.req.query("cursor")), {
+        ...(owner ? { owner } : {}),
+        ...(publisher ? { publisher } : {}),
+      }),
+    );
   });
 
   app.post("/v1/intents/:id/deployments", async (c) => {

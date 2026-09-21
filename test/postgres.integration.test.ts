@@ -99,14 +99,14 @@ suite("PostgreSQL store", () => {
     }, { maxIntents: 100, maxBytes: 1_000_000 });
     expect(created.created).toBe(true);
     expect((await store!.getIntent(created.intent.id))?.envelope).toEqual(created.intent.envelope);
-    expect((await store!.search("climate", 20, 0)).items).toHaveLength(1);
+    expect((await store!.search("climate", 20, 0, {})).items).toHaveLength(1);
 
     await store!.recordDeployment(created.intent.id, {
       chainId: 1,
       projectId: "42",
       transactionHash: `0x${"33".repeat(32)}`,
     });
-    expect((await store!.search("climate", 20, 0)).items).toHaveLength(0);
+    expect((await store!.search("climate", 20, 0, {})).items).toHaveLength(0);
     expect((await store!.getIntent(created.intent.id))?.deployments[0]?.projectId).toBe("42");
 
     const duplicates = await Promise.all(
@@ -163,6 +163,27 @@ suite("PostgreSQL store", () => {
         { maxIntents: 1, maxBytes: 1_000_000 },
       ),
     ).rejects.toThrow("quota");
+  });
+
+  it("filters search by owner and publisher without regard to address casing", async () => {
+    const owner = "0x5555555555555555555555555555555555555555";
+    const publisher = "0x6666666666666666666666666666666666666666";
+    const value = newIntent({ name: "filterable" });
+    await store!.createIntent(
+      { ...value, owner, publisher },
+      { maxIntents: 100, maxBytes: 10_000_000 },
+    );
+
+    expect((await store!.search("", 20, 0, { owner: owner.toUpperCase() as `0x${string}` })).items)
+      .toHaveLength(1);
+    expect((await store!.search("filterable", 20, 0, { owner })).totalCount).toBe(1);
+    expect((await store!.search("", 20, 0, { publisher })).items).toHaveLength(1);
+    expect((await store!.search("", 20, 0, { owner, publisher: owner as `0x${string}` })).items)
+      .toHaveLength(0);
+    expect(
+      (await store!.search("", 20, 0, { owner: "0x7777777777777777777777777777777777777777" }))
+        .totalCount,
+    ).toBe(0);
   });
 
   it("deploy queue is idempotent, leases rows, and sums wei", async () => {

@@ -37,6 +37,11 @@ export type DeployPatch = {
   spentWei?: bigint;
 };
 
+export type SearchFilters = {
+  owner?: Address;
+  publisher?: Address;
+};
+
 export interface Store {
   health(): Promise<void>;
   consumeRequest(
@@ -51,7 +56,12 @@ export interface Store {
     limits: StorageLimits,
   ): Promise<{ intent: Intent; created: boolean }>;
   getIntent(id: string): Promise<Intent | null>;
-  search(query: string, limit: number, offset: number): Promise<SearchPage>;
+  search(
+    query: string,
+    limit: number,
+    offset: number,
+    filters: SearchFilters,
+  ): Promise<SearchPage>;
   recordDeployment(intentId: string, value: NewDeployment): Promise<Deployment>;
   queueDeploys(
     intentId: string,

@@ -90,7 +90,7 @@ describe("co-hosted MCP configuration", () => {
     await expect(services.center.search({ query: "example" })).resolves.toEqual(
       { items: [], totalCount: 0, nextCursor: null },
     );
-    expect(store.search).toHaveBeenCalledWith("example", 20, 0);
+    expect(store.search).toHaveBeenCalledWith("example", 20, 0, {});
     await expect(services.rpc.client(1).getChainId()).resolves.toBe(1);
     expect(rpc.request).toHaveBeenCalledOnce();
   });
@@ -135,7 +135,7 @@ describe("Center database read bridge", () => {
     await expect(
       fetcher(`${ORIGIN}/v1/search?q=+Public+goods+&limit=3&cursor=21`),
     ).resolves.toEqual({ items: [], totalCount: 0, nextCursor: null });
-    expect(store.search).toHaveBeenCalledWith("Public goods", 3, 21);
+    expect(store.search).toHaveBeenCalledWith("Public goods", 3, 21, {});
     expect(store.consumeRequest).toHaveBeenCalledWith(
       "center:mcp:reads",
       600,

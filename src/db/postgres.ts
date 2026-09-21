@@ -7,6 +7,7 @@ import {
   type DeployPatch,
   type NewDeployment,
   type NewIntent,
+  type SearchFilters,
   type StorageLimits,
   type Store,
 } from "../store.js";
@@ -275,14 +276,30 @@ export class PostgresStore implements Store {
       : null;
   }
 
-  async search(query: string, limit: number, offset: number): Promise<SearchPage> {
-    const params: unknown[] = [];
-    const search = query
-      ? "AND search_vector @@ websearch_to_tsquery('simple', $1)"
-      : "";
-    if (query) params.push(query);
-    const limitParam = params.push(limit);
-    const offsetParam = params.push(offset);
+  async search(
+    query: string,
+    limit: number,
+    offset: number,
+    filters: SearchFilters,
+  ): Promise<SearchPage> {
+    const filterParams: unknown[] = [];
+    const conditions: string[] = [];
+    if (query) {
+      filterParams.push(query);
+      conditions.push(`search_vector @@ websearch_to_tsquery('simple', $${filterParams.length})`);
+    }
+    if (filters.owner) {
+      filterParams.push(filters.owner.toLowerCase());
+      conditions.push(`lower(owner) = $${filterParams.length}`);
+    }
+    if (filters.publisher) {
+      filterParams.push(filters.publisher.toLowerCase());
+      conditions.push(`lower(publisher) = $${filterParams.length}`);
+    }
+    const where = conditions.length ? `AND ${conditions.join(" AND ")}` : "";
+    const rowParams = [...filterParams, limit, offset];
+    const limitParam = filterParams.length + 1;
+    const offsetParam = filterParams.length + 2;
     const order = query
       ? "ts_rank(search_vector, websearch_to_tsquery('simple', $1)) DESC, created_at DESC, id"
       : "created_at DESC, id";
@@ -290,16 +307,16 @@ export class PostgresStore implements Store {
       this.pool.query<IntentRow>(
         `${selectIntent}
          WHERE NOT EXISTS (SELECT 1 FROM deployments WHERE deployments.intent_id = intents.id)
-         ${search}
+         ${where}
          ORDER BY ${order}
          LIMIT $${limitParam} OFFSET $${offsetParam}`,
-        params,
+        rowParams,
       ),
       this.pool.query<{ count: string }>(
         `SELECT count(*)::text AS count FROM intents
          WHERE NOT EXISTS (SELECT 1 FROM deployments WHERE deployments.intent_id = intents.id)
-         ${search}`,
-        query ? [query] : [],
+         ${where}`,
+        filterParams,
       ),
     ]);
     const totalCount = Number(count.rows[0]!.count);

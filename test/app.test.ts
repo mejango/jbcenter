@@ -279,6 +279,29 @@ describe("JB Center API", () => {
     expect(deployed.deployments[0]?.projectId).toBe("42");
   });
 
+  it("filters search by owner and publisher, case-insensitively", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { deploymentVerifier: verifier });
+    await publish(app);
+    const owner = account.address;
+    const other = "0x4444444444444444444444444444444444444444";
+
+    const page = async (query: string) =>
+      (await (await app.request(`/v1/search?${query}`, { headers: trusted })).json()) as SearchPage;
+
+    expect((await page(`owner=${owner.toLowerCase()}`)).items).toHaveLength(1);
+    expect((await page(`owner=${owner.toUpperCase().replace("0X", "0x")}`)).items).toHaveLength(1);
+    expect((await page(`publisher=${owner.toLowerCase()}`)).items).toHaveLength(1);
+    expect((await page(`q=climate&owner=${owner}`)).items).toHaveLength(1);
+    expect((await page(`q=climate&owner=${other}`)).items).toHaveLength(0);
+    expect((await page(`owner=${other}`)).totalCount).toBe(0);
+    expect((await page(`publisher=${other}`)).items).toHaveLength(0);
+
+    const invalid = await app.request("/v1/search?owner=not-an-address", { headers: trusted });
+    expect(invalid.status).toBe(400);
+    expect(((await invalid.json()) as { error: { code: string } }).error.code).toBe("bad_request");
+  });
+
   it("rejects a signature after the signed content is changed", async () => {
     const store = new MemoryStore();
     const app = createApp(store);

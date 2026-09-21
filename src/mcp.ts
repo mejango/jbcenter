@@ -10,6 +10,7 @@ import {
   type PinProjectMetadataJson,
   type Services,
 } from "@juicebox/mcp/host";
+import { getAddress } from "viem";
 import { originsForEnvironment } from "./app.js";
 import { isIpfsCid, type PinningService } from "./ipfs.js";
 import {
@@ -19,7 +20,7 @@ import {
   RpcBadRequest,
   type RpcGateway,
 } from "./rpc.js";
-import type { Store } from "./store.js";
+import type { SearchFilters, Store } from "./store.js";
 
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -198,7 +199,7 @@ export function createCenterReadFetcher(store: Store, centerUrl: string) {
       if (
         [...params.keys()].some(
           (key) =>
-            !["q", "limit", "cursor"].includes(key) ||
+            !["q", "limit", "cursor", "owner", "publisher"].includes(key) ||
             params.getAll(key).length !== 1,
         )
       )
@@ -216,7 +217,14 @@ export function createCenterReadFetcher(store: Store, centerUrl: string) {
         !Number.isSafeInteger(offset)
       )
         invalidRequest();
-      read = () => store.search(query, limit, offset);
+      const filters: SearchFilters = {};
+      for (const key of ["owner", "publisher"] as const) {
+        const value = params.get(key);
+        if (value === null) continue;
+        if (!/^0x[0-9a-fA-F]{40}$/u.test(value)) invalidRequest();
+        filters[key] = getAddress(value);
+      }
+      read = () => store.search(query, limit, offset, filters);
     } else if (pathname.startsWith(`${prefix}/v1/intents/`)) {
       const id = pathname.slice(`${prefix}/v1/intents/`.length);
       if (!UUID.test(id) || target.search) invalidRequest();

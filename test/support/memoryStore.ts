@@ -4,6 +4,7 @@ import {
   type DeployPatch,
   type NewDeployment,
   type NewIntent,
+  type SearchFilters,
   type StorageLimits,
   type Store,
 } from "../../src/store.js";
@@ -63,10 +64,19 @@ export class MemoryStore implements Store {
     return intent ? { ...intent, deploys: byChainId(intent.deploys) } : null;
   }
 
-  async search(query: string, limit: number, offset: number): Promise<SearchPage> {
+  async search(
+    query: string,
+    limit: number,
+    offset: number,
+    filters: SearchFilters,
+  ): Promise<SearchPage> {
+    const owner = filters.owner?.toLowerCase();
+    const publisher = filters.publisher?.toLowerCase();
     const values = this.intents.filter(
       (intent) =>
         intent.deployments.length === 0 &&
+        (owner === undefined || intent.owner?.toLowerCase() === owner) &&
+        (publisher === undefined || intent.publisher.toLowerCase() === publisher) &&
         [intent.name, intent.description, intent.tagline, ...intent.tags]
           .filter(Boolean)
           .join(" ")
