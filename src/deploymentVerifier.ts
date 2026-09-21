@@ -128,18 +128,21 @@ const PROJECTS = "0x6017d1fba9dc279bfa0b03fd931c22e242ab3691" as Address;
 const DEPLOYMENT_CHAIN_IDS = [1, 10, 8453, 42161, 11155111, 11155420, 84532, 421614] as const;
 
 export function canonicalDeploymentChains(upstreams: RpcUpstreams): Map<number, ChainRpcConfig> {
-  const configured = new Map<number, ChainRpcConfig>();
-  for (const chainId of DEPLOYMENT_CHAIN_IDS) {
-    const rpcUrl = upstreams.get(chainId)?.[0];
-    if (!rpcUrl) continue;
-    configured.set(chainId, {
-      rpcUrl,
-      projectsAddress: PROJECTS,
-      confirmations: 2,
-      deploymentVersion: "6",
-    });
-  }
-  return configured;
+  return new Map(
+    DEPLOYMENT_CHAIN_IDS.map((chainId) => {
+      const rpcUrl = upstreams.get(chainId)?.[0];
+      if (!rpcUrl) throw new Error(`Canonical deployment chain ${chainId} needs an RPC upstream`);
+      return [
+        chainId,
+        {
+          rpcUrl,
+          projectsAddress: PROJECTS,
+          confirmations: 2,
+          deploymentVersion: "6",
+        },
+      ];
+    }),
+  );
 }
 
 export class RpcDeploymentVerifier implements DeploymentVerifier {
@@ -238,7 +241,12 @@ export class RpcDeploymentVerifier implements DeploymentVerifier {
         "Transaction must create exactly the claimed project on canonical JBProjects",
       );
     }
-    const transaction = await reader.getTransaction({ hash: claim.transactionHash });
+    let transaction: Awaited<ReturnType<ReceiptReader["getTransaction"]>>;
+    try {
+      transaction = await reader.getTransaction({ hash: claim.transactionHash });
+    } catch {
+      throw new DeploymentVerificationError("Transaction is not available from RPC");
+    }
     const direct =
       transaction.to?.toLowerCase() === claim.call.to.toLowerCase() &&
       transaction.input.toLowerCase() === claim.call.data.toLowerCase();

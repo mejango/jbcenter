@@ -2,6 +2,7 @@ import { encodeAbiParameters, encodeEventTopics, zeroAddress, type Address, type
 import { describe, expect, it, vi } from "vitest";
 import {
   canonicalDeploymentChains,
+  DeploymentVerificationError,
   RpcDeploymentVerifier,
   type ReceiptReader,
 } from "../src/deploymentVerifier.js";
@@ -200,16 +201,21 @@ describe("RPC deployment verification", () => {
 
   it("uses reviewed canonical V6 chain metadata with configured RPCs", () => {
     const chains = canonicalDeploymentChains(
-      new Map([1, 10, 8453, 42161].map((chainId) => [chainId, [`https://rpc-${chainId}.example`]])),
+      new Map(
+        [1, 10, 8453, 42161, 11155111, 11155420, 84532, 421614].map((chainId) => [
+          chainId,
+          [`https://rpc-${chainId}.example`],
+        ]),
+      ),
     );
-    expect([...chains.keys()]).toEqual([1, 10, 8453, 42161]);
+    expect([...chains.keys()]).toEqual([1, 10, 8453, 42161, 11155111, 11155420, 84532, 421614]);
     expect(chains.get(1)).toMatchObject({
       rpcUrl: "https://rpc-1.example",
       projectsAddress: "0x6017d1fba9dc279bfa0b03fd931c22e242ab3691",
       confirmations: 2,
       deploymentVersion: "6",
     });
-    expect(canonicalDeploymentChains(new Map()).size).toBe(0);
+    expect(() => canonicalDeploymentChains(new Map())).toThrow("needs an RPC upstream");
   });
 });
 
@@ -264,6 +270,17 @@ describe("deployment verifier fast path and testnet configuration", () => {
       verifier.verify({ ...claim, chainId: 8453, call: { ...call, chainId: 8453 } }),
     ).resolves.toBeUndefined();
     expect(reader.traceTransaction).toHaveBeenCalled();
+  });
+
+  it("rejects when the transaction is not available from RPC", async () => {
+    const reader = fakeReader({ receipt: successReceipt(createLog(7n)) });
+    reader.getTransaction = vi.fn(async () => {
+      throw new Error("rpc down");
+    });
+    const verifier = new RpcDeploymentVerifier(chains, new Map([[84532, reader]]));
+    await expect(
+      verifier.verify({ ...claim, chainId: 84532, call: { ...call, chainId: 84532 } }),
+    ).rejects.toThrow(DeploymentVerificationError);
   });
 
   it("testnets are configured", () => {
