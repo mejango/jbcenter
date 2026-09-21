@@ -30,7 +30,7 @@ import {
   type SponsorEvent,
 } from "../../src/sponsor/chain.js";
 import { readSponsorPolicy, reservationWei } from "../../src/sponsor/policy.js";
-import { createRelayrLane } from "../../src/sponsor/relayr.js";
+import { choosePayment, createRelayrLane } from "../../src/sponsor/relayr.js";
 import type { Intent } from "../../src/types.js";
 
 const signer = privateKeyToAccount(`0x${"11".repeat(32)}`);
@@ -168,6 +168,7 @@ function paymentCalldata(): Hex {
 function fakeProvider(options: {
   chainIds: number[];
   paymentChainId: number;
+  paymentChainIds?: number[];
   hashAfter: number;
   hashes: Map<number, Hex>;
   amount: bigint;
@@ -185,16 +186,14 @@ function fakeProvider(options: {
     return {
       bundle_uuid: BUNDLE,
       tx_uuids: TX_UUIDS.slice(0, entries.length),
-      payment_info: [
-        {
-          chain: options.paymentChainId,
-          target: RELAYR_PAYMENT_ADDRESS,
-          token: RELAYR_NATIVE_TOKEN,
-          amount: options.amount.toString(),
-          calldata: paymentCalldata(),
-          payment_deadline: PAYMENT_DEADLINE.toString(),
-        },
-      ],
+      payment_info: (options.paymentChainIds ?? [options.paymentChainId]).map((chain) => ({
+        chain,
+        target: RELAYR_PAYMENT_ADDRESS,
+        token: RELAYR_NATIVE_TOKEN,
+        amount: options.amount.toString(),
+        calldata: paymentCalldata(),
+        payment_deadline: PAYMENT_DEADLINE.toString(),
+      })),
     };
   });
   const status = vi.fn(async () => {
@@ -363,6 +362,7 @@ function installRpc(
 function harness(options: {
   chainIds: number[];
   paymentChainId: number;
+  paymentChainIds?: number[];
   hashAfter: number;
   projectIds: string[];
   amount?: bigint;
@@ -392,6 +392,7 @@ function harness(options: {
   const provider = fakeProvider({
     chainIds: options.chainIds,
     paymentChainId: options.paymentChainId,
+    ...(options.paymentChainIds ? { paymentChainIds: options.paymentChainIds } : {}),
     hashAfter: options.hashAfter,
     hashes,
     amount,
@@ -484,7 +485,7 @@ describe("relayr sponsorship lane", () => {
     expect(report.confirmed).toHaveBeenCalledWith(8453, hashes.get(8453), "12");
     expect(report.confirmed).toHaveBeenCalledWith(10, hashes.get(10), "3");
     expect(laneEvents).toEqual([
-      { event: "bundle", intentId: "intent-1", bundleUuid: BUNDLE, chainIds },
+      { event: "bundle", intentId: "intent-1", bundleUuid: BUNDLE, chainIds, paymentChainId: 8453, offeredPaymentChainIds: [8453] },
       {
         event: "payment",
         intentId: "intent-1",
@@ -652,5 +653,32 @@ describe("relayr sponsorship lane", () => {
     expect(provider.create).not.toHaveBeenCalled();
     expect(report.failed).toHaveBeenCalledWith(8453, "creation fee above the sponsor ceiling");
     expect(report.failed).toHaveBeenCalledWith(10, "creation fee above the sponsor ceiling");
+  });
+});
+
+describe("payment chain choice", () => {
+  test("pays on a rollup when Relayr also offers the L1 testnet", async () => {
+    const chainIds = [84532, 11155420];
+    const { chain, lane, laneEvents, prepayments, report } = harness({
+      chainIds,
+      paymentChainId: 11155111,
+      paymentChainIds: [11155111, 84532],
+      hashAfter: 1,
+      projectIds: ["4", "5"],
+    });
+    await lane.deploy(intent(chainIds), chainIds, report);
+    expect(chain.prepare).toHaveBeenCalledTimes(2);
+    expect(prepayments).toHaveLength(1);
+    expect(parseTransaction(prepayments[0]!).chainId).toBe(84532);
+    const bundle = laneEvents.find((event) => event.event === "bundle");
+    expect(bundle).toMatchObject({ paymentChainId: 84532, offeredPaymentChainIds: [11155111, 84532] });
+  });
+
+  test("choosePayment prefers any configured rollup and falls back to the L1 option", () => {
+    const rpcUrls = new Map([[11155111, "http://l1"], [84532, "http://base"], [11155420, "http://op"]]);
+    expect(choosePayment([{ chainId: 11155111 }, { chainId: 84532 }], rpcUrls)?.chainId).toBe(84532);
+    expect(choosePayment([{ chainId: 11155111 }], rpcUrls)?.chainId).toBe(11155111);
+    expect(choosePayment([{ chainId: 421614 }], rpcUrls)).toBeUndefined();
+    expect(choosePayment([{ chainId: 1 }, { chainId: 10 }], new Map([[1, "http://eth"], [10, "http://op"]]))?.chainId).toBe(10);
   });
 });
