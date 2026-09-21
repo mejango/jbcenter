@@ -28,6 +28,7 @@ export function llmsIndex(audience = "https://juicebox.center"): string {
 - [OpenAPI](${origin}/api/v1/openapi.json): current HTTP schemas.
 - [Live capabilities](${origin}/api/v1/capabilities): check availability on the chosen chain before planning.
 - [Agent guide](${origin}/api/docs/ai-guide): exact transaction review and recovery.
+- Project intents: \`POST ${origin}/v1/intents\` publishes a signed, frozen project deployment; \`POST ${origin}/v1/intents/:id/deploy\` requests a sponsored execution of its own calls.
 - [Transaction lifecycle](${origin}/api/docs/transactions): pending, failed, and partially completed operations.
 - [Authentication](${origin}/api/docs/authentication): signed requests and bot API grants.
 - [Juicebox V6 skills](https://github.com/mejango/juicebox-skills): portable protocol and integration guidance.

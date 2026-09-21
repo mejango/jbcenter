@@ -44,6 +44,24 @@ class PinStore implements Store {
   ): Promise<never> {
     throw new Error("not used");
   }
+  async queueDeploys(): Promise<never> {
+    throw new Error("not used");
+  }
+  async listDeploys(): Promise<never> {
+    throw new Error("not used");
+  }
+  async claimQueuedDeploys(): Promise<never> {
+    throw new Error("not used");
+  }
+  async updateDeploy(): Promise<never> {
+    throw new Error("not used");
+  }
+  async releaseClaim(): Promise<never> {
+    throw new Error("not used");
+  }
+  async sponsoredWeiSince(): Promise<never> {
+    throw new Error("not used");
+  }
 }
 
 function app(pinning?: PinningService, store = new PinStore()) {

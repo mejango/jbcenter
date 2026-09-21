@@ -41,6 +41,7 @@ import {
   type PinningService,
 } from "./ipfs.js";
 import { ConflictError, StorageLimitError, type Store } from "./store.js";
+import { sponsorFamily, reservationWei, type SponsorRuntime } from "./sponsor/policy.js";
 import type { JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
 import { llmsIndex } from "./llms.js";
@@ -56,6 +57,8 @@ const PIN_PER_CALLER = 10;
 const PIN_PER_SITE = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const TX_HASH = /^0x[0-9a-f]{64}$/iu;
+/** Both sponsored-deploy refusals reset on a rolling day. */
+const RETRY_AFTER_SECONDS = "86400";
 
 class BadRequest extends Error {}
 class PayloadTooLarge extends Error {}
@@ -81,6 +84,9 @@ export type AppOptions = {
   /** Keyless RPC from any origin (IPFS-hosted sites like juicescan): per-IP and shared budgets. */
   rpcPublicRequestLimitPerMinute?: number;
   rpcPublicSiteLimitPerMinute?: number;
+  publishPerPublisherPerDay?: number;
+  publishPerIpPerHour?: number;
+  sponsor?: SponsorRuntime;
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -602,6 +608,12 @@ export function createApp(
       signature: signed,
     });
     if (!valid) throw new BadRequest("signature does not match publisher and project intent");
+    const ip = await store.consumeRequest(`publish:ip:${callerIp(c)}`, options.publishPerIpPerHour ?? 60, 3600);
+    const who = await store.consumeRequest(`publish:${publisher.toLowerCase()}`, options.publishPerPublisherPerDay ?? 20, 86_400);
+    if (!ip.allowed || !who.allowed) {
+      c.header("Retry-After", who.allowed ? "3600" : "86400");
+      return c.json({ error: { code: "publish_limit", message: "Publish limit reached; try again later" } }, 429);
+    }
     const result = await store.createIntent({
       ...extractMetadata(envelope.jb),
       contentHash: hash,
@@ -668,6 +680,54 @@ export function createApp(
     await options.deploymentVerifier.verify(claim);
     const deployment = await store.recordDeployment(id, claim);
     return c.json(deployment, 201);
+  });
+
+  app.post("/v1/intents/:id/deploy", async (c) => {
+    const sponsor = options.sponsor;
+    if (!sponsor || sponsor.policy.paused) {
+      return c.json(
+        { error: { code: "unavailable", message: "Sponsored deploys are paused" } },
+        503,
+      );
+    }
+    const id = c.req.param("id");
+    if (!UUID.test(id)) throw new BadRequest("intent id is invalid");
+    const intent = await store.getIntent(id);
+    if (!intent) return c.json({ error: { code: "not_found", message: "Intent not found" } }, 404);
+    if (intent.deploys.length) return c.json({ deploys: intent.deploys }, 200);
+    if (intent.status !== "undeployed") throw new BadRequest(`intent is ${intent.status}`);
+    if (!sponsorFamily(intent.envelope.chainIds)) throw new BadRequest("intent chains are not sponsorable");
+    const requester = c.get("client");
+    const reserved = reservationWei(sponsor.policy, intent.envelope.chainIds.length);
+    const spent = await store.sponsoredWeiSince(new Date(Date.now() - 86_400_000));
+    // The budget is checked before the quota so a budget refusal costs the requester nothing.
+    if (spent + reserved > sponsor.policy.dailyBudgetWei) {
+      return c.json(
+        { error: { code: "sponsor_budget", message: "The daily sponsorship budget is spent" } },
+        429,
+        { "Retry-After": RETRY_AFTER_SECONDS },
+      );
+    }
+    const quota = await store.consumeRequest(
+      `deploy:${requester}`,
+      sponsor.policy.perRequesterPerDay,
+      86_400,
+    );
+    if (!quota.allowed) {
+      return c.json(
+        { error: { code: "sponsor_quota", message: "Daily sponsored deploy quota reached" } },
+        429,
+        { "Retry-After": RETRY_AFTER_SECONDS },
+      );
+    }
+    const deploys = await store.queueDeploys(
+      id,
+      intent.envelope.chainIds,
+      requester,
+      reserved / BigInt(intent.envelope.chainIds.length),
+    );
+    sponsor.kick();
+    return c.json({ deploys }, 202);
   });
 
   return app;

@@ -1,104 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { privateKeyToAccount } from "viem/accounts";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, originsForEnvironment } from "../src/app.js";
 import { JUICESCAN } from "../src/journeyGraph.js";
 import { DeploymentVerificationError } from "../src/deploymentVerifier.js";
+import { readSponsorPolicy, type SponsorPolicy } from "../src/sponsor/policy.js";
 import type { RpcGateway } from "../src/rpc.js";
-import {
-  ConflictError,
-  type NewDeployment,
-  type NewIntent,
-  type StorageLimits,
-  type Store,
-} from "../src/store.js";
-import type { Deployment, Intent, SearchPage } from "../src/types.js";
-
-class MemoryStore implements Store {
-  async cleanupRateLimits() { return 0; }
-  intents: Intent[] = [];
-  requests = new Map<string, number>();
-
-  async health() {}
-
-  async consumeRequest(client: string, limit: number) {
-    const count = (this.requests.get(client) ?? 0) + 1;
-    this.requests.set(client, count);
-    return { allowed: count <= limit, remaining: Math.max(0, limit - count) };
-  }
-
-  async createIntent(value: NewIntent, _limits: StorageLimits) {
-    const existing = this.intents.find(
-      (intent) => intent.publisher === value.publisher && intent.contentHash === value.contentHash,
-    );
-    if (existing) return { intent: existing, created: false };
-    const intent: Intent = {
-      ...value,
-      id: randomUUID(),
-      status: "undeployed",
-      createdAt: new Date().toISOString(),
-      deployments: [],
-    };
-    this.intents.push(intent);
-    return { intent, created: true };
-  }
-
-  async getIntent(id: string) {
-    return this.intents.find((intent) => intent.id === id) ?? null;
-  }
-
-  async search(query: string, limit: number, offset: number): Promise<SearchPage> {
-    const values = this.intents.filter(
-      (intent) =>
-        intent.deployments.length === 0 &&
-        [intent.name, intent.description, intent.tagline, ...intent.tags]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(query.toLowerCase()),
-    );
-    const page = values.slice(offset, offset + limit);
-    return {
-      items: page.map((intent) => ({
-        source: "jbcenter",
-        status: "undeployed",
-        intentId: intent.id,
-        contentHash: intent.contentHash,
-        format: intent.envelope.format,
-        deploymentVersion: intent.envelope.deploymentVersion,
-        chainIds: intent.envelope.chainIds,
-        publisher: intent.publisher,
-        name: intent.name,
-        description: intent.description,
-        tagline: intent.tagline,
-        tags: intent.tags,
-        logoUri: intent.logoUri,
-        owner: intent.owner,
-        createdAt: intent.createdAt,
-      })),
-      totalCount: values.length,
-      nextCursor: offset + page.length < values.length ? String(offset + page.length) : null,
-    };
-  }
-
-  async recordDeployment(intentId: string, value: NewDeployment): Promise<Deployment> {
-    const intent = this.intents.find(({ id }) => id === intentId)!;
-    const existing = intent.deployments.find(({ chainId }) => chainId === value.chainId);
-    if (existing) {
-      if (
-        existing.projectId !== value.projectId ||
-        existing.transactionHash !== value.transactionHash
-      ) {
-        throw new ConflictError("A different deployment is already recorded for that chain");
-      }
-      return existing;
-    }
-    const deployment: Deployment = { ...value, createdAt: new Date().toISOString() };
-    intent.deployments.push(deployment);
-    intent.status = "deployed";
-    return deployment;
-  }
-}
+import type { Store } from "../src/store.js";
+import type { Intent, IntentDeploy, SearchPage } from "../src/types.js";
+import { MemoryStore } from "./support/memoryStore.js";
 
 describe('reserved production credential origin during rollout', () => {
   it.each(['/', '/accounts', '/assets/para.js', '/wallet', '/ipfs/bafytest'])('keeps %s closed before the wallet host is configured', async path => {
@@ -147,19 +57,44 @@ const envelope = {
   },
 };
 
-async function publish(app: ReturnType<typeof createApp>) {
+const testnetEnvelope = {
+  ...envelope,
+  chainIds: [84532, 421614],
+  deploymentCalls: [
+    {
+      chainId: 84532,
+      to: "0x3333333333333333333333333333333333333333",
+      data: "0x12345678",
+    },
+    {
+      chainId: 421614,
+      to: "0x3333333333333333333333333333333333333333",
+      data: "0x12345678",
+    },
+  ],
+  jb: { ...envelope.jb, chains: [84532, 421614] },
+};
+
+async function publishWith(
+  app: ReturnType<typeof createApp>,
+  envelopeLike: Record<string, unknown>,
+) {
   const preparedResponse = await app.request("/v1/intents/message", {
     method: "POST",
     headers: trusted,
-    body: JSON.stringify(envelope),
+    body: JSON.stringify(envelopeLike),
   });
   const prepared = (await preparedResponse.json()) as { message: string };
   const signature = await account.signMessage({ message: prepared.message });
   return app.request("/v1/intents", {
     method: "POST",
     headers: trusted,
-    body: JSON.stringify({ ...envelope, publisher: account.address, signature }),
+    body: JSON.stringify({ ...envelopeLike, publisher: account.address, signature }),
   });
+}
+
+async function publish(app: ReturnType<typeof createApp>) {
+  return publishWith(app, envelope);
 }
 
 describe("JB Center API", () => {
@@ -541,10 +476,178 @@ describe("JB Center API", () => {
 
   it("keeps concurrent duplicate publications idempotent", async () => {
     const store = new MemoryStore();
-    const app = createApp(store);
+    const app = createApp(store, { publishPerPublisherPerDay: 10_000 });
     const responses = await Promise.all(Array.from({ length: 25 }, () => publish(app)));
     expect(responses.filter(({ status }) => status === 201)).toHaveLength(1);
     expect(responses.filter(({ status }) => status === 200)).toHaveLength(24);
     expect(store.intents).toHaveLength(1);
+  });
+
+  it("publishing is capped per publisher per day and per ip per hour", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { publishPerPublisherPerDay: 1, publishPerIpPerHour: 5 });
+    expect((await publish(app)).status).toBe(201);
+    const again = await publishWith(app, { ...envelope, jb: { ...envelope.jb, name: "second" } });
+    expect(again.status).toBe(429);
+    expect(((await again.json()) as { error: { code: string } }).error.code).toBe("publish_limit");
+    expect(again.headers.get("Retry-After")).toBe("86400");
+  });
+
+  it("publishes per-ip limit with correct Retry-After header", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { publishPerIpPerHour: 1, publishPerPublisherPerDay: 100 });
+    expect((await publish(app)).status).toBe(201);
+    const again = await publishWith(app, { ...envelope, jb: { ...envelope.jb, name: "second" } });
+    expect(again.status).toBe(429);
+    expect(((await again.json()) as { error: { code: string } }).error.code).toBe("publish_limit");
+    expect(again.headers.get("Retry-After")).toBe("3600");
+  });
+});
+
+describe("sponsored deploy requests", () => {
+  let sponsor: { policy: SponsorPolicy; kick: ReturnType<typeof vi.fn> };
+
+  beforeEach(() => {
+    sponsor = { policy: readSponsorPolicy({}), kick: vi.fn() };
+  });
+
+  it("queues every chain once and is idempotent", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor });
+    const intent = (await (await publishWith(app, testnetEnvelope)).json()) as Intent;
+    const first = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(first.status).toBe(202);
+    expect(
+      ((await first.json()) as { deploys: IntentDeploy[] }).deploys.map((d) => d.chainId),
+    ).toEqual([84532, 421614]);
+    expect(sponsor.kick).toHaveBeenCalledTimes(1);
+    const second = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(second.status).toBe(200);
+    expect(sponsor.kick).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses unsponsorable chains, spent budgets and a paused policy", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor });
+    const mainnet = (await (await publish(app)).json()) as Intent;
+    expect(
+      (await app.request(`/v1/intents/${mainnet.id}/deploy`, { method: "POST", headers: trusted }))
+        .status,
+    ).toBe(400);
+
+    const tight = createApp(store, {
+      sponsor: { ...sponsor, policy: { ...sponsor.policy, dailyBudgetWei: 1n } },
+    });
+    const testnet = (await (await publishWith(tight, testnetEnvelope)).json()) as Intent;
+    const budget = await tight.request(`/v1/intents/${testnet.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(budget.status).toBe(429);
+    expect(budget.headers.get("Retry-After")).toBe("86400");
+    expect(((await budget.json()) as { error: { code: string } }).error.code).toBe(
+      "sponsor_budget",
+    );
+    // A budget refusal costs the requester nothing: the quota is consumed after that check.
+    expect([...store.requests.keys()].filter((key) => key.startsWith("deploy:"))).toEqual([]);
+
+    const paused = createApp(store, {
+      sponsor: { ...sponsor, policy: { ...sponsor.policy, paused: true } },
+    });
+    const pausedResponse = await paused.request(`/v1/intents/${testnet.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(pausedResponse.status).toBe(503);
+  });
+
+  it("is unavailable with no sponsor configured", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store);
+    const intent = (await (await publish(app)).json()) as Intent;
+    const response = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(response.status).toBe(503);
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+      "unavailable",
+    );
+  });
+
+  it("rejects an invalid intent id and reports a missing intent", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor });
+    const invalid = await app.request("/v1/intents/not-a-uuid/deploy", {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(invalid.status).toBe(400);
+    const missing = await app.request(`/v1/intents/${randomUUID()}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(missing.status).toBe(404);
+  });
+
+  it("refuses a deploy request once the intent is already deployed", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor, deploymentVerifier: verifier });
+    const intent = (await (await publish(app)).json()) as Intent;
+    await app.request(`/v1/intents/${intent.id}/deployments`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({
+        chainId: 1,
+        projectId: "42",
+        transactionHash: `0x${"12".repeat(32)}`,
+      }),
+    });
+    const response = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("enforces the per-requester daily quota", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor: { ...sponsor, policy: { ...sponsor.policy, perRequesterPerDay: 1 } } });
+    const first = (await (await publishWith(app, testnetEnvelope)).json()) as Intent;
+    expect(
+      (await app.request(`/v1/intents/${first.id}/deploy`, { method: "POST", headers: trusted }))
+        .status,
+    ).toBe(202);
+    const second = (await (
+      await publishWith(app, { ...testnetEnvelope, jb: { ...testnetEnvelope.jb, name: "second" } })
+    ).json()) as Intent;
+    const quota = await app.request(`/v1/intents/${second.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(quota.status).toBe(429);
+    expect(quota.headers.get("Retry-After")).toBe("86400");
+    expect(((await quota.json()) as { error: { code: string } }).error.code).toBe(
+      "sponsor_quota",
+    );
+  });
+
+  it("reserves the budget split evenly across chains", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor });
+    const intent = (await (await publishWith(app, testnetEnvelope)).json()) as Intent;
+    await app.request(`/v1/intents/${intent.id}/deploy`, { method: "POST", headers: trusted });
+    const stored = store.intents.find((item) => item.id === intent.id)!;
+    const reservedWei = (stored.deploys as unknown as { reservedWei: bigint }[]).map(
+      (deploy) => deploy.reservedWei,
+    );
+    const expectedTotal = 2n * (sponsor.policy.maximumGas * sponsor.policy.maximumFeePerGas + 100_000_000_000_000n);
+    expect(reservedWei).toEqual([expectedTotal / 2n, expectedTotal / 2n]);
   });
 });

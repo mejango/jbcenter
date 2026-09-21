@@ -137,6 +137,19 @@ const intentSchema = z.object({
       }),
     )
     .max(16),
+  deploys: z
+    .array(
+      z.object({
+        chainId: chainIdSchema,
+        status: z.enum(['queued', 'sent', 'confirmed', 'failed']),
+        transactionHash: hashSchema.nullable(),
+        bundleUuid: z.string().max(200).nullable(),
+        error: z.string().max(8192).nullable(),
+        createdAt: z.string().max(64),
+        updatedAt: z.string().max(64),
+      }),
+    )
+    .max(16),
 });
 
 function invalidInput(): never {

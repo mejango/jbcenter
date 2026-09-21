@@ -16,6 +16,15 @@ export class Metrics {
     oldestPendingAt: number;
   }>();
 
+  private sponsor = { bundles: 0, paymentsWei: 0n, failures: 0 };
+
+  /** Sponsored deploys move real money; only aggregate counts are exported. */
+  observeSponsorEvent(event: { event: string; wei?: string }): void {
+    if (event.event === "bundle") this.sponsor.bundles += 1;
+    if (event.event === "payment") this.sponsor.paymentsWei += BigInt(event.wei ?? "0");
+    if (event.event === "failed") this.sponsor.failures += 1;
+  }
+
   startRestRecovery(): void {
     for (const task of ["nonce_cleanup", "rate_limit_cleanup", "transactions", "user_operations"] as const) {
       this.recovery.set(task, { completedAt: 0, failures: 0, totalFailures: 0, runs: 0, oldestPendingAt: 0 });
@@ -97,6 +106,12 @@ export class Metrics {
       `jbcenter_http_request_duration_milliseconds_total ${this.durationMs}`,
       "# TYPE jbcenter_http_requests_in_flight gauge",
       `jbcenter_http_requests_in_flight ${this.inFlight}`,
+      "# TYPE jbcenter_sponsor_bundles_total counter",
+      `jbcenter_sponsor_bundles_total ${this.sponsor.bundles}`,
+      "# TYPE jbcenter_sponsor_payments_wei_total counter",
+      `jbcenter_sponsor_payments_wei_total ${this.sponsor.paymentsWei}`,
+      "# TYPE jbcenter_sponsor_failures_total counter",
+      `jbcenter_sponsor_failures_total ${this.sponsor.failures}`,
       "# TYPE jbcenter_rest_recovery_last_completed_timestamp_seconds gauge",
       ...[...this.recovery].map(([task, state]) =>
         `jbcenter_rest_recovery_last_completed_timestamp_seconds{task="${task}"} ${state.completedAt}`),

@@ -4,11 +4,15 @@ import {
   getAddress,
   http,
   isAddressEqual,
+  keccak256,
+  stringToHex,
   type Address,
   type Hex,
 } from "viem";
 import type { RpcUpstreams } from "./rpc.js";
 import type { DeploymentCall } from "./types.js";
+
+export const CREATE_TOPIC: Hex = keccak256(stringToHex("Create(uint256,address,address)"));
 
 const createEvent = [
   {
@@ -45,6 +49,7 @@ export type ReceiptReader = {
     logs: readonly { address: Address; data: Hex; topics: readonly Hex[] }[];
   }>;
   getBlockNumber(): Promise<bigint>;
+  getTransaction(args: { hash: Hex }): Promise<{ to: Address | null; input: Hex }>;
   traceTransaction(hash: Hex): Promise<unknown>;
 };
 
@@ -123,8 +128,8 @@ function containsCommittedCall(trace: unknown, expected: DeploymentCall): boolea
   return false;
 }
 
-const PROJECTS = "0x6017d1fba9dc279bfa0b03fd931c22e242ab3691" as Address;
-const DEPLOYMENT_CHAIN_IDS = [1, 10, 8453, 42161] as const;
+export const PROJECTS = "0x6017d1fba9dc279bfa0b03fd931c22e242ab3691" as Address;
+const DEPLOYMENT_CHAIN_IDS = [1, 10, 8453, 42161, 11155111, 11155420, 84532, 421614] as const;
 
 export function canonicalDeploymentChains(upstreams: RpcUpstreams): Map<number, ChainRpcConfig> {
   return new Map(
@@ -170,6 +175,11 @@ export class RpcDeploymentVerifier implements DeploymentVerifier {
       this.readers.set(chainId, {
         getTransactionReceipt: (args) => client.getTransactionReceipt(args),
         getBlockNumber: () => client.getBlockNumber(),
+        getTransaction: (args) =>
+          client.getTransaction(args).then((transaction) => ({
+            to: transaction.to,
+            input: transaction.input,
+          })),
         traceTransaction: (hash) =>
           request({
             method: "debug_traceTransaction",
@@ -235,17 +245,28 @@ export class RpcDeploymentVerifier implements DeploymentVerifier {
         "Transaction must create exactly the claimed project on canonical JBProjects",
       );
     }
-    let trace: unknown;
+    let transaction: Awaited<ReturnType<ReceiptReader["getTransaction"]>>;
     try {
-      trace = await reader.traceTransaction(claim.transactionHash);
-    } catch (error) {
-      if (error instanceof DeploymentVerificationError) throw error;
-      throw new DeploymentVerificationError("Transaction trace is not available from RPC");
+      transaction = await reader.getTransaction({ hash: claim.transactionHash });
+    } catch {
+      throw new DeploymentVerificationError("Transaction is not available from RPC");
     }
-    if (!containsCommittedCall(trace, claim.call)) {
-      throw new DeploymentVerificationError(
-        "Transaction did not execute the deployment call committed by the signed intent",
-      );
+    const direct =
+      transaction.to?.toLowerCase() === claim.call.to.toLowerCase() &&
+      transaction.input.toLowerCase() === claim.call.data.toLowerCase();
+    if (!direct) {
+      let trace: unknown;
+      try {
+        trace = await reader.traceTransaction(claim.transactionHash);
+      } catch (error) {
+        if (error instanceof DeploymentVerificationError) throw error;
+        throw new DeploymentVerificationError("Transaction trace is not available from RPC");
+      }
+      if (!containsCommittedCall(trace, claim.call)) {
+        throw new DeploymentVerificationError(
+          "The transaction did not execute the committed deployment call",
+        );
+      }
     }
   }
 }
