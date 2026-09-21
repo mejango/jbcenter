@@ -61,11 +61,16 @@ export interface DeploymentVerifier {
 
 type TraceCall = {
   type: string;
+  from: Address | null;
   to: Address;
   input: Hex;
   error?: string;
   calls: TraceCall[];
 };
+
+/** The canonical ERC2771Forwarder, deployed at the same address on every supported chain. */
+export const FORWARDER = "0x3ba60b60933916a7c87d0860dcee62a0ce34e3e2" as Address;
+const FORWARDED_SENDER_HEX_LENGTH = 40;
 
 const MAX_TRACE_DEPTH = 128;
 const MAX_TRACE_FRAMES = 100_000;
@@ -87,8 +92,10 @@ function traceCall(value: unknown, depth: number, frames: { count: number }): Tr
     throw new DeploymentVerificationError("RPC returned a malformed transaction trace");
   }
   let to: Address;
+  let from: Address | null = null;
   try {
     to = getAddress(raw.to);
+    if (typeof raw.from === "string") from = getAddress(raw.from);
   } catch {
     throw new DeploymentVerificationError("RPC returned a malformed transaction trace");
   }
@@ -100,11 +107,29 @@ function traceCall(value: unknown, depth: number, frames: { count: number }): Tr
   }
   return {
     type: raw.type,
+    from,
     to,
     input: raw.input as Hex,
     ...(raw.error ? { error: raw.error } : {}),
     calls: (raw.calls ?? []).map((call) => traceCall(call, depth + 1, frames)),
   };
+}
+
+/**
+ * A direct call carries the committed calldata verbatim. The ERC-2771 forwarder appends the
+ * signer's 20-byte address, so a call made by the canonical forwarder matches when its input is
+ * the committed calldata followed by exactly one address.
+ */
+function executesCommittedData(call: TraceCall, data: Hex): boolean {
+  const input = call.input.toLowerCase();
+  const committed = data.toLowerCase();
+  if (input === committed) return true;
+  return (
+    call.from !== null &&
+    isAddressEqual(call.from, FORWARDER) &&
+    input.length === committed.length + FORWARDED_SENDER_HEX_LENGTH &&
+    input.startsWith(committed)
+  );
 }
 
 function containsCommittedCall(trace: unknown, expected: DeploymentCall): boolean {
@@ -115,12 +140,7 @@ function containsCommittedCall(trace: unknown, expected: DeploymentCall): boolea
   while (stack.length) {
     const { call, ancestorFailed } = stack.pop()!;
     const failed = ancestorFailed || Boolean(call.error);
-    if (
-      !failed &&
-      call.type.toUpperCase() === "CALL" &&
-      isAddressEqual(call.to, expected.to) &&
-      call.input.toLowerCase() === expected.data.toLowerCase()
-    ) {
+    if (!failed && call.type.toUpperCase() === "CALL" && isAddressEqual(call.to, expected.to) && executesCommittedData(call, expected.data)) {
       return true;
     }
     stack.push(...call.calls.map((child) => ({ call: child, ancestorFailed: failed })));
