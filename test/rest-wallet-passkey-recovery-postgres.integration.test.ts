@@ -135,7 +135,8 @@ suite('durable replacement-passkey proof intake (canonical state explicitly mode
     expect((await store.get(id, value.begun.flowToken))!.proof).toBeNull();
   });
   it('expires unaccepted proofs and preserves the exact accepted receipt after its deadline', async () => {
-    const short = new PostgresWalletRecoveryStore(pool, { ...policy, lifetimeMs: 1200 });
+    // Registration and proof both sign real credentials, so the lifetime covers that work.
+    const short = new PostgresWalletRecoveryStore(pool, { ...policy, lifetimeMs: 4_000 });
     const accepted = await registered(short), receipt = await short.prove(accepted.record.intent.id, accepted.begun.flowToken, accepted.proof);
     const pending = await registered(short);
     await pool.query('SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.02)', [pending.record.intent.expiresAtMs]);
@@ -273,7 +274,8 @@ suite('durable replacement-passkey proof intake (canonical state explicitly mode
     expect(await store.get(expired.record.intent.id, expired.flowToken)).toBeNull();
   }, 15000);
   it('reclaims expired unproved recoveries while preserving accepted proofs and their immutable history', async () => {
-    const short = new PostgresWalletRecoveryStore(pool, { ...policy, lifetimeMs: 1200 });
+    // Registration and proof both sign real credentials, so the lifetime covers that work.
+    const short = new PostgresWalletRecoveryStore(pool, { ...policy, lifetimeMs: 4_000 });
     const accepted = await registered(short), receipt = await short.prove(accepted.record.intent.id, accepted.begun.flowToken, accepted.proof);
     const abandoned = await registered(short);
     await pool.query('SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.02)', [abandoned.record.intent.expiresAtMs]);

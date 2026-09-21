@@ -241,7 +241,8 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
   });
 
   it("preserves the global start budget through idle cleanup and process replacement", async () => {
-    const configuration = { ...options, maxTracked: 2, maxConcurrent: 2, maxStartsPerMinute: 1, interestMs: 500 };
+    // Interest covers the admissions and claims below; the wait after them is what ends it.
+    const configuration = { ...options, maxTracked: 2, maxConcurrent: 2, maxStartsPerMinute: 1, interestMs: 5_000 };
     const store = queue(configuration), ids = await Promise.all([eligibleAccount(), eligibleAccount(), eligibleAccount()]);
     const [a, b] = await Promise.all([worker(configuration), worker(configuration)]);
     for (const id of ids.slice(0, 2)) expect((await a.request({ action: "request", accountId: id })).body.status).toBe("queued");
