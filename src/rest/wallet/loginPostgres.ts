@@ -14,7 +14,7 @@ import { copyWalletSignupAssertion } from "./signupPostgres.js";
 import { verifyWalletDevicePossession, walletDeviceDocument } from "./deviceAddition.js";
 import type { WalletDeviceRecord } from "./devicesPostgres.js";
 import type { WalletDeploymentOperation } from "./deploymentPostgres.js";
-import { verifyWalletAssertion, type WalletAssertion } from "./webauthn.js";
+import { verifyWalletAssertion, type WalletAssertion, type WalletCeremonyOptions } from "./webauthn.js";
 import { copyWalletLoginCompletion, createWalletLoginDraft, deriveWalletCentralSessionToken, validateWalletCentralSession,
   validateWalletLoginDraft, verifyWalletLoginProof, walletCentralSessionLifetimeMs, walletCentralSessionTokenHash,
   walletLoginChallenge, walletLoginFlowTokenHash, type WalletCentralSession, type WalletLoginChallenge,
@@ -240,16 +240,17 @@ export class PostgresWalletLoginStore {
    * its claim's clock, exactly as a claim replay) and the credential must still be the current one;
    * the login row records the deployment it came from and consumes a ceremony never handed to a
    * browser. Everything else about the session (lifetime, epochs, revocation) is the same. */
-  async completeFromSignup(input: { enrollment: WalletEnrollment; operation: WalletDeploymentOperation; assertion: WalletAssertion }):
+  async completeFromSignup(input: { enrollment: WalletEnrollment; operation: WalletDeploymentOperation; assertion: WalletAssertion; topOrigin?: string }):
     Promise<{ session: WalletCentralSession; sessionToken: string }> {
     const { enrollment, operation } = input, assertion = copyWalletSignupAssertion(input.assertion);
+    const ceremony: WalletCeremonyOptions = input.topOrigin ? { topOrigin: input.topOrigin } : {};
     if (!enrollment.receipt || enrollment.state !== "verified" || operation.enrollmentId !== enrollment.intent.id ||
         operation.state === "prepared" || !operation.claimedAt || !operation.proofDigest) unauthorized();
     const accountId = enrollment.receipt.accountId, candidate = enrollment.candidate!, proofDigest = operation.proofDigest;
     // The claim's proof, re-derived: same document, same credential, the claim's clock.
-    if (verifyWalletDeploymentProof(enrollment, operation.approval, assertion, operation.claimedAt).verificationDigest !== proofDigest) unauthorized();
+    if (verifyWalletDeploymentProof(enrollment, operation.approval, assertion, operation.claimedAt, ceremony).verificationDigest !== proofDigest) unauthorized();
     const verified = verifyWalletAssertion(assertion, { purpose: "deploy", challenge: hashTypedData(walletDeploymentDocument(enrollment, operation.approval)),
-      rpId: enrollment.intent.rpId, origin: enrollment.intent.origin, requireUserHandle: true,
+      rpId: enrollment.intent.rpId, origin: enrollment.intent.origin, ...ceremony, requireUserHandle: true,
       credential: { id: candidate.credentialId, userHandle: candidate.userHandle, publicKey: candidate.publicKey, backupEligible: candidate.backupEligible } });
     const context = await this.authority.loadContext(accountId), identity = context.prior?.identity;
     if (!identity || context.enrollment.intent.id !== enrollment.intent.id || context.credential.credentialId !== candidate.credentialId ||

@@ -7,7 +7,7 @@ import {
 import { PostgresWalletCeremonyStore, lockWalletCeremonyAdmission, walletCeremonyDatabaseNow } from "./ceremoniesPostgres.js";
 import { walletCeremonyRetentionMs } from "./ceremonies.js";
 import type { WalletRegistrationResponse } from "./registration.js";
-import type { WalletAssertion } from "./webauthn.js";
+import type { WalletAssertion, WalletCeremonyOptions } from "./webauthn.js";
 import type { Hex } from "viem";
 import type { WalletCredentialDevice } from "./devices.js";
 import type { WalletCredentialRecovery } from "./credentialRecovery.js";
@@ -173,10 +173,10 @@ export class PostgresWalletEnrollmentStore {
     return row ? walletEnrollmentOf(row) : null;
   }
 
-  async acceptRegistration(id: string, response: WalletRegistrationResponse): Promise<WalletEnrollment> {
+  async acceptRegistration(id: string, response: WalletRegistrationResponse, options: WalletCeremonyOptions = {}): Promise<WalletEnrollment> {
     const registration = copyWalletEnrollmentRegistration(response), before = await this.get(id);
     if (!before) missing();
-    const prepared = prepareWalletEnrollmentCandidate(before, registration);
+    const prepared = prepareWalletEnrollmentCandidate(before, registration, options);
     return this.transaction(async client => {
       // Issuance admission always precedes enrollment and ceremony rows, including retries.
       await lockWalletCeremonyAdmission(client);
@@ -204,14 +204,15 @@ export class PostgresWalletEnrollmentStore {
   }
 
   async finalize(id: string, input: { assertion: WalletAssertion; backupSignature: Hex },
-    options: { passkeyChallenge?: Hex; passkeyName?: string } = {}): Promise<{ record: WalletEnrollment; replayed: boolean }> {
+    options: { passkeyChallenge?: Hex; passkeyName?: string } & WalletCeremonyOptions = {}): Promise<{ record: WalletEnrollment; replayed: boolean }> {
     const proof = copyWalletEnrollmentProof(input), before = await this.get(id);
     if (!before) missing();
     if (!before.candidate || !before.creation || !before.possession)
       throw new RestError(409, "WALLET_ENROLLMENT_STATE", "Registration must precede possession verification.");
     const passkeyName = copyWalletPasskeyName(options.passkeyName);
     // Expensive parsing/crypto precede row locks. The locked snapshot must remain byte-for-byte equal.
-    const verified = await verifyWalletEnrollmentProof(before, proof, options.passkeyChallenge ? { passkeyChallenge: options.passkeyChallenge } : {});
+    const verified = await verifyWalletEnrollmentProof(before, proof, { ...(options.passkeyChallenge ? { passkeyChallenge: options.passkeyChallenge } : {}),
+      ...(options.topOrigin ? { topOrigin: options.topOrigin } : {}) });
     return this.transaction(async client => {
       const current = await lockWalletEnrollmentInTransaction(client, id);
       if (enrollmentDigest([current.intent, current.candidate, current.creation, current.possession])

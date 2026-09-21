@@ -1,6 +1,7 @@
 import { getAddress, hashTypedData, isAddress, type Address, type Hex } from 'viem';
 import type { createLocalWalletSignup } from '../wallet/signup.js';
 import { base } from './walletBase.js';
+import { checkedRedirect, framed, listenForTheme } from './walletFramed.js';
 import { createWalletRecoverySecret, recoveryAccountFromPhrase, serializeWalletRecoveryKit,
   type WalletRecoveryKitIdentity, type WalletRecoverySecret } from './walletRecoveryKit.js';
 
@@ -22,6 +23,14 @@ function announce(title: string, text: string) {
   });
 }
 let view: View | null = null, known = false, busy = false, csrf = '', native: AbortController | null = null;
+// Inside an admitted app's frame the signup is the app's intent's: no cookie reaches a cross-site frame, so the
+// flow token rides in every request body and each request is admitted by the intent behind the framed launch.
+// The account made here is the same account; at the end the app gets its code and the frame returns to it.
+let intentId: string | null = null, flowToken = '', resumeToken = '';
+const inFrame = () => framed && !!intentId;
+/** The intent the frame was launched with, as the app's return is checked against it. */
+let intentReturn: { callbackUri: string; state: string } | null = null;
+const intentView = () => { if (!intentReturn) throw new Error('Return to the original app to start this signup.'); return intentReturn; };
 // A log-in in progress is the whole page; the signup form waits until it fails.
 let loggingIn = false;
 let pending: { path: string; body: unknown; csrf: string } | null = null;
@@ -89,15 +98,18 @@ async function failure(response: Response) {
 const slowPaths = new Set(['activate', 'login/complete']);
 async function request(path: string, body?: unknown, proof = csrf): Promise<any> {
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), slowPaths.has(path) ? 90000 : 15000);
+  // Framed: every step is a POST carrying the intent and the flow token; a resume carries its own token.
+  const framedBody = inFrame() ? { intentId, ...(path === 'begin' || path === 'resume/begin' ? {} : path === 'resume/complete' ? { resumeToken } : { flowToken }), ...(body as object ?? {}) } : body;
   try {
-    const response = await fetch(`${base}/signup/` + path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal,
-      ...(body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json', 'x-center-wallet-request': '1',
-        ...(proof ? { 'x-center-wallet-csrf': proof } : {}) }, body: JSON.stringify(body) }) });
+    const response = await fetch(`${base}/signup/` + (inFrame() ? 'framed/' : '') + path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal,
+      ...(framedBody === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json', 'x-center-wallet-request': '1',
+        ...(proof && !inFrame() ? { 'x-center-wallet-csrf': proof } : {}) }, body: JSON.stringify(framedBody) }) });
     if (!response.ok) throw await failure(response);
     return await response.json();
   } finally { clearTimeout(timer); }
 }
-function accept(result: { view: View | null; csrfToken?: string }) {
+function accept(result: { view: View | null; csrfToken?: string; flowToken?: string }) {
+  if (typeof result.flowToken === 'string') { if (!/^[A-Za-z0-9_-]{43}$/.test(result.flowToken)) throw new Error('Invalid signup context.'); flowToken = result.flowToken; }
   if (result.view) {
     if (result.view.origin !== location.origin || result.view.rpId !== location.hostname || !(result.view.phase in steps)) throw new Error('The account host or signup changed.');
     if (view && view.enrollmentId !== result.view.enrollmentId && !pending?.path.startsWith('resume/')) throw new Error('Another signup replaced this page. Reload before continuing.');
@@ -170,10 +182,12 @@ async function send(path: string, body: unknown, proof = csrf) {
   // A replayed activation (its first reply lost) may have signed the account in: the session
   // cookie is set, so this page is done.
   if (result?.signedIn) { sessionTried = true; message('Logging in…'); location.replace((base || '/') + location.search); }
+  // A framed activation that signed the account in answers with the app's return: the frame goes there.
+  if (typeof result?.redirectUri === 'string') { sessionTried = true; message('Returning to your app…'); location.replace(checkedRedirect(result, intentView(), location.origin)); }
 }
 async function observe() {
   if (pending) { const saved = pending; await send(saved.path, saved.body, saved.csrf); }
-  else accept(await request('state'));
+  else accept(await request('state', inFrame() ? {} : undefined));
 }
 // A background poll (`quiet`) guards re-entrancy like any run but never dims the controls: the
 // person is not waiting on a button, so nothing should flash every couple of seconds.
@@ -222,7 +236,8 @@ async function assertion(challenge: string, rpId: string) {
 async function advance() {
   if (!view) return;
   if (view.phase === 'expired') {
-    await send('restart', {}); csrf = '';
+    if (inFrame()) { view = null; flowToken = ''; } else await send('restart', {});
+    csrf = '';
   } else if (view.phase === 'awaiting_registration' && view.registration) {
     message('Create the passkey in the prompt.'); native = new AbortController(); render();
     const value = await navigator.credentials.create({ publicKey: { rp: { id: view.rpId, name: 'Juicebox' },
@@ -292,7 +307,10 @@ let approvedHere = false, sessionTried = false;
 async function session(): Promise<boolean> {
   if (!approvedHere || sessionTried) return false;
   sessionTried = true; message('Logging in…');
-  try { await request('session', {}); location.replace((base || '/') + location.search); return true; }
+  try {
+    const result = await request('session', {});
+    location.replace(inFrame() ? checkedRedirect(result, intentView(), location.origin) : (base || '/') + location.search); return true;
+  }
   catch { return false; }
 }
 form.addEventListener('submit', event => { event.preventDefault(); void run(async () => {
@@ -340,7 +358,9 @@ el('recovery-copy').addEventListener('click', () => { void run(async () => {
 next.addEventListener('click', () => { void run(advance); });
 el('recovery-restart-link').addEventListener('click', event => { event.preventDefault(); restart.click(); });
 restart.addEventListener('click', () => { void run(async () => {
-  await send('restart', {}); csrf = ''; pending = null; recoverySecret = null; kitSavedWallet = null;
+  // A framed page holds its continuation in memory alone: forgetting it is local.
+  if (inFrame()) { view = null; flowToken = ''; } else await send('restart', {});
+  csrf = ''; pending = null; recoverySecret = null; kitSavedWallet = null;
 }); });
 check.addEventListener('click', () => { void run(async () => {
   message('Checking your signup…'); await observe(); pollCount = 0;
@@ -351,8 +371,9 @@ cancel.addEventListener('click', () => native?.abort());
 async function walletRequest(path: string, body: unknown, proof?: string, timeoutMs = 15000): Promise<any> {
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal, method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-center-wallet-request': '1', ...(proof ? { 'x-center-wallet-csrf': proof } : {}) }, body: JSON.stringify(body) });
+    const response = await fetch(path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal,
+      ...(body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json', 'x-center-wallet-request': '1',
+        ...(proof ? { 'x-center-wallet-csrf': proof } : {}) }, body: JSON.stringify(body) }) });
     if (!response.ok) throw await failure(response);
     return await response.json();
   } finally { clearTimeout(timer); }
@@ -363,6 +384,7 @@ async function login() {
   try { await loginFlow(); } finally { loggingIn = false; }
 }
 async function loginFlow() {
+  if (inFrame()) return framedLogin();
   message('Logging in…');
   const begun = await walletRequest(`${base}/login/begin`, {}), publicKey = begun.publicKey;
   if (publicKey?.rpId !== location.hostname || publicKey.userVerification !== 'required' || typeof begun.loginId !== 'string' || typeof begun.csrfToken !== 'string') throw new Error('The account host changed.');
@@ -374,9 +396,23 @@ async function loginFlow() {
   if (result?.session?.loginId !== begun.loginId) throw new Error('Sign-in could not be confirmed.');
   location.replace((base || '/') + location.search);
 }
+/** Inside the frame: the passkey sign-in the wallet landing page runs framed (the intent admits it, no cookie), then the app's return. */
+async function framedLogin() {
+  message('Logging in…');
+  const begun = await walletRequest(`${base}/authorize/${intentId}/begin`, {}), publicKey = begun.publicKey;
+  if (publicKey?.rpId !== location.hostname || publicKey.userVerification !== 'required' || typeof begun.loginId !== 'string' || typeof begun.flowToken !== 'string') throw new Error('The account host changed.');
+  const challenge = decode(publicKey.challenge); if (challenge.length !== 32) throw new Error('Invalid passkey challenge.');
+  message('Log in with the prompt.');
+  const proof = await assertion('0x' + Array.from(challenge, byte => byte.toString(16).padStart(2, '0')).join(''), publicKey.rpId);
+  message('Logging in…');
+  const result = await walletRequest(`${base}/authorize/${intentId}/approve`, { loginId: begun.loginId, flowToken: begun.flowToken, assertion: proof }, undefined, 100000);
+  message('Returning to your app…');
+  location.replace(checkedRedirect(result, intentView(), location.origin));
+}
 async function resumeSignup() {
   await announce('Pick up your signup', 'That passkey belongs to an unfinished signup. One more passkey prompt picks it up where you left off.');
   const begun = await request('resume/begin', {}); message('Pick up your signup with the prompt.');
+  if (inFrame()) { if (typeof begun.resumeToken !== 'string') throw new Error('Invalid signup context.'); resumeToken = begun.resumeToken; }
   const proof = await assertion(begun.challenge.challenge, begun.challenge.rpId);
   await send('resume/complete', { resumeId: begun.challenge.id, assertion: proof }, begun.csrfToken);
 }
@@ -394,7 +430,8 @@ let source: EventSource | null = null, heard = 0, lastPoll = 0, retryAt = 0;
 const live = () => Date.now() - heard < 40000;
 function stream() {
   if (!polling() || disposed) { source?.close(); source = null; return; }
-  if (source || typeof EventSource !== 'function' || Date.now() < retryAt) return;
+  // The stream rides the continuation cookie, which a frame does not have: there, the poll alone carries the view.
+  if (source || inFrame() || typeof EventSource !== 'function' || Date.now() < retryAt) return;
   try {
     source = new EventSource(`${base}/signup/events`);
     source.onmessage = event => { try { const result = JSON.parse(event.data); if (!busy && !pending) { accept(result); render(); } heard = Date.now(); } catch { /* The poll still carries the view. */ } };
@@ -419,5 +456,16 @@ void run(async () => {
   if (url.hash || url.searchParams.size > 1 || [...url.searchParams].some(([key, value]) => key === 'intent' ? !/^[A-Za-z0-9_-]{43}$/.test(value)
     : key === 'payment' ? !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value) : true)) throw new Error('Return to the original app to start this signup.');
   el<HTMLAnchorElement>('wallet-back').href = (base || '/') + url.search;
+  if (framed && url.searchParams.has('intent')) {
+    intentId = url.searchParams.get('intent');
+    // The intent behind this frame: its app is the one framing the page, and its return is where the frame ends up.
+    const result = await walletRequest(`${base}/authorize/${intentId}`, undefined);
+    const requested = result?.request, callbackUri = requested?.callbackUri;
+    if (typeof callbackUri !== 'string' || typeof requested?.state !== 'string' || typeof requested?.origin !== 'string') throw new Error('Return to the original app to start this signup.');
+    intentReturn = { callbackUri, state: requested.state };
+    listenForTheme(requested.origin);
+    // The ways out of the frame: "log in" stays in the frame; the page of its own opens on top.
+    const fullscreen = el<HTMLAnchorElement>('signup-fullscreen'); fullscreen.href = `${base}/create${url.search}`; fullscreen.hidden = false;
+  }
   await observe();
 });

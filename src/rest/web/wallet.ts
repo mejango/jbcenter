@@ -1,5 +1,6 @@
 import { base } from './walletBase.js';
 import { qrSvg } from "./qr.js";
+import { checkedRedirect, framed, listenForTheme } from "./walletFramed.js";
 /** No credentials, assertions, CSRF values or handoff codes are persisted by this page. */
 type Json = Record<string, unknown>;
 type Configuration = { issuer: string; audience: string; rpId: string };
@@ -35,42 +36,7 @@ let nextRetry: () => Promise<void> = load;
 // just that the frame be large enough and the button be scrolled into view; Intersection Observer
 // v2's occlusion verdict is not consulted here, because browsers report every element inside a
 // top-layer <dialog> — where the app's sign-in modal puts the frame — as not visible.
-const framed = window.self !== window.top;
-let reportSize: (() => void) | null = null;
 const openAsPage = document.getElementById("wallet-open") as HTMLAnchorElement | null;
-if (framed) {
-  document.documentElement.classList.add("framed");
-  // The frame is sized to this page: its height is told to the page framing it (the app admitted
-  // by frame-ancestors) whenever it changes. A number only.
-  const content = document.querySelector("main") ?? document.body;
-  const report = () => window.parent.postMessage({ type: "juicebox-center:size", height: Math.ceil(content.getBoundingClientRect().bottom + window.scrollY) }, "*");
-  reportSize = report;
-  try { new ResizeObserver(report).observe(content); } catch { /* No observer: the frame keeps its default height. */ }
-  window.addEventListener("load", report);
-}
-// The app that frames this page may hand it its own colours, font and corner radius, so the sign-in
-// reads as part of that app. Only the framing page (the intent's app, admitted by frame-ancestors) is
-// heard, and only plain values: colours, a font-family list, a radius. Nothing else about the page
-// is the app's to change.
-const themeTokens: Record<string, RegExp> = {
-  background: /^#[0-9a-f]{3,8}$/i, foreground: /^#[0-9a-f]{3,8}$/i, muted: /^#[0-9a-f]{3,8}$/i, line: /^#[0-9a-f]{3,8}$/i,
-  accent: /^#[0-9a-f]{3,8}$/i, accentForeground: /^#[0-9a-f]{3,8}$/i,
-  font: /^[\w\s,'"-]{1,200}$/, radius: /^(?:\d{1,3}(?:\.\d+)?(?:px|rem|em)\s*){1,4}$/,
-};
-const themeVariables: Record<string, string> = { background: "--wallet-bg", foreground: "--wallet-fg", muted: "--wallet-muted", line: "--wallet-line",
-  accent: "--wallet-accent", accentForeground: "--wallet-accent-fg", font: "--wallet-font", radius: "--wallet-radius" };
-function listenForTheme(framer: string) {
-  window.addEventListener("message", event => {
-    const data = event.data as { type?: unknown; theme?: unknown } | null;
-    if (event.source !== window.parent || event.origin !== framer || data?.type !== "juicebox-center:theme" || !data.theme || typeof data.theme !== "object") return;
-    for (const [key, value] of Object.entries(data.theme as Record<string, unknown>)) {
-      const pattern = themeTokens[key];
-      if (pattern && typeof value === "string" && pattern.test(value.trim())) document.documentElement.style.setProperty(themeVariables[key]!, value.trim());
-    }
-  });
-  // The app answers a size report with its theme; ask once the listener is in place.
-  reportSize?.();
-}
 let signInVisible = !framed;
 if (framed) {
   try {
@@ -232,11 +198,11 @@ async function load() {
   if (create) { create.href = `${base}/create` + query.search; create.hidden = false; }
   const recover = document.getElementById("wallet-recover") as HTMLAnchorElement | null;
   if (recover) { recover.href = `${base}/recover` + query.search; recover.hidden = false; }
-  // Signing up and recovery are pages of their own: a passkey is only ever created top-level. In a frame the three
-  // ways out share one row, in the app's words.
+  // In a frame the three ways out share one row, in the app's words.
   if (openAsPage) openAsPage.href = `${base}${query.search}`;
   if (framed) {
-    for (const link of [create, recover, openAsPage]) if (link) { link.target = "_top"; link.rel = "noopener"; }
+    // Signing up stays in the frame (Center admits the same app to frame it); recovery and the page of its own open on top.
+    for (const link of [recover, openAsPage]) if (link) { link.target = "_top"; link.rel = "noopener"; }
     if (recover) recover.textContent = "Recover";
     if (openAsPage) { openAsPage.textContent = "Fullscreen"; document.getElementById("wallet-links")?.append(openAsPage); }
   }
@@ -354,17 +320,11 @@ async function framedSignIn() {
     authenticatorData: encode(assertion.authenticatorData), clientDataJSON: encode(assertion.clientDataJSON), signature: encode(assertion.signature) } },
     undefined, 100_000);
   setStatus("returning", "Returning to your Juicebox app…");
-  location.replace(checkedRedirect(result));
+  location.replace(appReturn(result));
 }
-function checkedRedirect(result: Json): string {
-  if (!intent) throw new InvalidResponse();
-  const redirectUri = string(result.redirectUri, 4096), redirect = new URL(redirectUri);
-  const keys = [...redirect.searchParams.keys()];
-  if (redirectUri.split("?")[0] !== intent.callbackUri || redirect.hash || keys.length !== 3
-    || new Set(keys).size !== 3 || keys.some(key => !["code", "state", "iss"].includes(key))
-    || redirect.searchParams.get("state") !== intent.state || redirect.searchParams.get("iss") !== configuration.issuer) throw new InvalidResponse();
-  token(redirect.searchParams.get("code"));
-  return redirectUri;
+/** The app's return, checked; anything else is an unverifiable response, never a navigation. */
+function appReturn(result: Json): string {
+  try { return checkedRedirect(result, intent!, configuration.issuer); } catch { throw new InvalidResponse(); }
 }
 async function issue() {
   nextRetry = issue;
@@ -373,7 +333,7 @@ async function issue() {
   setStatus("returning", "Returning to your Juicebox app…");
   // Issuing needs fresh on-chain authority; after idle that is a hosted refresh of ~25 s.
   const result = await readyRequest(`${base}/authorize/issue`, { intentId: intent.id }, csrf, undefined, 90, 1000);
-  location.replace(checkedRedirect(result));
+  location.replace(appReturn(result));
 }
 async function logout() {
   nextRetry = logout; setStatus("checking", "Signing out…");

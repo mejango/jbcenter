@@ -8,7 +8,7 @@ import { createWalletEnrollmentIntent, enrollmentDigest, type WalletEnrollment }
 import { currentWalletCredentialInTransaction, lockWalletEnrollmentInTransaction, PostgresWalletEnrollmentStore } from "./enrollmentPostgres.js";
 import { lockWalletCeremonyAdmission, PostgresWalletCeremonyStore, walletCeremonyDatabaseNow } from "./ceremoniesPostgres.js";
 import { walletCeremonyRetentionMs, type WalletCeremonyDraft } from "./ceremonies.js";
-import { validateWalletRpConfiguration, verifyWalletAssertion, type WalletAssertion } from "./webauthn.js";
+import { validateWalletRpConfiguration, verifyWalletAssertion, type WalletAssertion, type WalletCeremonyOptions } from "./webauthn.js";
 
 export interface WalletSignupFlow {
   id: string; enrollmentId: string; passkeyName: string; expiresAtMs: number; revision: number;
@@ -177,7 +177,7 @@ export class PostgresWalletSignupStore {
       return { challenge: resumeChallenge(draft), resumeToken };
     });
   }
-  async completeResume(input: { resumeId: string; resumeToken: string; assertion: WalletAssertion }) {
+  async completeResume(input: { resumeId: string; resumeToken: string; assertion: WalletAssertion }, ceremony: WalletCeremonyOptions = {}) {
     fields(input, ["resumeId", "resumeToken", "assertion"]);
     const { resumeId, resumeToken } = input, assertion = copyWalletSignupAssertion(input.assertion);
     if (!uuid.test(resumeId) || !token(resumeToken)) unauthorized();
@@ -191,7 +191,7 @@ export class PostgresWalletSignupStore {
     if (!enrollment?.candidate || enrollment.candidate.credentialId !== assertion.credentialId ||
       enrollment.intent.rpId !== this.policy.rpId || enrollment.intent.origin !== this.policy.origin) unauthorized();
     try { verifyWalletAssertion(assertion, { purpose: "signup-resume", challenge: resumeChallenge(prior.draft).challenge,
-      rpId: this.policy.rpId, origin: this.policy.origin, requireUserHandle: true,
+      rpId: this.policy.rpId, origin: this.policy.origin, ...(ceremony.topOrigin ? { topOrigin: ceremony.topOrigin } : {}), requireUserHandle: true,
       credential: { id: enrollment.candidate.credentialId, userHandle: enrollment.intent.userHandle,
         publicKey: enrollment.candidate.publicKey, backupEligible: enrollment.candidate.backupEligible } }); }
     catch { unauthorized(); }

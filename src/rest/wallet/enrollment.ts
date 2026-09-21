@@ -8,7 +8,7 @@ import { preparePasskeySafe7579Creation, validatePasskeyCreationManifest } from 
 import type { ContractPin, SmartAccountManifest } from "../smartAccounts/types.js";
 import { assertWalletCeremonyDraft, createWalletCeremony, type WalletCeremonyDraft } from "./ceremonies.js";
 import { parseWalletRegistration, type WalletRegistrationCandidate, type WalletRegistrationResponse } from "./registration.js";
-import { validateWalletRpConfiguration, verifyWalletAssertion, type WalletAssertion } from "./webauthn.js";
+import { validateWalletRpConfiguration, verifyWalletAssertion, type WalletAssertion, type WalletCeremonyOptions } from "./webauthn.js";
 
 export interface WalletEnrollmentIntent {
   id: string;
@@ -226,12 +226,12 @@ export function walletEnrollmentDocument(record: WalletEnrollment) {
 
 /** Unproven none attestation freezes a candidate only. The caller must atomically consume
  * registration and persist this candidate with its new possession ceremony, or persist neither. */
-export function prepareWalletEnrollmentCandidate(record: WalletEnrollment, response: WalletRegistrationResponse) {
+export function prepareWalletEnrollmentCandidate(record: WalletEnrollment, response: WalletRegistrationResponse, options: WalletCeremonyOptions = {}) {
   try {
     assertWalletEnrollmentIntent(record.intent);
     const intent = record.intent;
     const candidate = parseWalletRegistration(response, { challenge: asHex(Buffer.from(intent.registration.challenge, "base64url").toString("hex")),
-      rpId: intent.rpId, origin: intent.origin, userHandle: intent.userHandle });
+      rpId: intent.rpId, origin: intent.origin, userHandle: intent.userHandle, ...(options.topOrigin ? { topOrigin: options.topOrigin } : {}) });
     const candidateDigest = enrollmentDigest(candidate);
     const creation = preparePasskeySafe7579Creation({ manifest: intent.manifest, publicKey: candidate.publicKey,
       recoveryOwner: intent.recoveryOwner, saltNonce: intent.saltNonce });
@@ -251,10 +251,10 @@ export function prepareWalletEnrollmentCandidate(record: WalletEnrollment, respo
  * still signs the enrollment document itself. The receipt digest binds identity, not the
  * challenge, so a folded proof and a separate proof produce the same verified receipt. */
 export async function verifyWalletEnrollmentProof(record: WalletEnrollment, proof: { assertion: WalletAssertion; backupSignature: Hex },
-  options: { passkeyChallenge?: Hex } = {}): Promise<{ verificationDigest: string }> {
+  options: { passkeyChallenge?: Hex } & WalletCeremonyOptions = {}): Promise<{ verificationDigest: string }> {
   try {
     fields(proof, ["assertion", "backupSignature"]);
-    fields(options, [], ["passkeyChallenge"]);
+    fields(options, [], ["passkeyChallenge", "topOrigin"]);
     if (options.passkeyChallenge !== undefined && !/^0x[0-9a-f]{64}$/.test(options.passkeyChallenge)) invalid();
     // Snapshot bounded public context; submitted proof bytes are bounded/verified synchronously
     // before recovery's await, so no unbounded proof clone or caller-owned context survives it.
@@ -262,7 +262,7 @@ export async function verifyWalletEnrollmentProof(record: WalletEnrollment, proo
     const snapshot = structuredClone(record);
     const typedData = walletEnrollmentDocument(snapshot), challenge = hashTypedData(typedData), candidate = snapshot.candidate!;
     verifyWalletAssertion(proof.assertion, { purpose: "registration", challenge: options.passkeyChallenge ?? challenge, rpId: snapshot.intent.rpId, origin: snapshot.intent.origin,
-      requireUserHandle: true, credential: { id: candidate.credentialId, userHandle: candidate.userHandle,
+      ...(options.topOrigin ? { topOrigin: options.topOrigin } : {}), requireUserHandle: true, credential: { id: candidate.credentialId, userHandle: candidate.userHandle,
         publicKey: candidate.publicKey, backupEligible: candidate.backupEligible } });
     const signature = canonicalEoaSignature(proof.backupSignature);
     const backupOwner = (await recoverAddress({ hash: challenge, signature })).toLowerCase();

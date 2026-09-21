@@ -10,7 +10,7 @@ function setup(extra: Partial<WalletSignupSiteOptions> = {}) {
   const signup = { begin: vi.fn(async () => ({ flowToken: token, view })), status: vi.fn(async () => view),
     register: vi.fn(async () => view), proveEnrollment: vi.fn(async () => view),
     prepareDeployment: vi.fn(), approveDeployment: vi.fn(), activate: vi.fn(),
-    session: vi.fn(async () => ({ session: { expiresAtMs: Date.now() + 3600000, accountId: 'eip155:8453:0x' + '11'.repeat(20) }, sessionToken: 'A'.repeat(43) })),
+    session: vi.fn(async () => ({ session: { id: '22222222-2222-4222-8222-222222222222', expiresAtMs: Date.now() + 3600000, accountId: 'eip155:8453:0x' + '11'.repeat(20) }, sessionToken: 'A'.repeat(43) })),
     listeners: new Set<() => void>(),
     watch: vi.fn(async (_token: string, listener: () => void) => { signup.listeners.add(listener); return () => signup.listeners.delete(listener); }),
     beginResume: vi.fn(async () => ({ resumeToken: token, challenge: { id: 'resume', challenge: '0x' + '11'.repeat(32) } })),
@@ -156,4 +156,73 @@ describe('signup HTTP authority boundary', () => {
     expect(outage.status).toBe(503); expect(outage.headers.get('set-cookie')).toBeNull();
   });
 
+});
+
+describe('signup framed by an admitted app', () => {
+  const appOrigin = 'https://beep.example.test', intentId = Buffer.alloc(32, 9).toString('base64url');
+  const assertion = { credentialId: token, userHandle: token, authenticatorData: Buffer.alloc(37).toString('base64url'), clientDataJSON: Buffer.from('{}').toString('base64url'), signature: Buffer.alloc(70).toString('base64url') };
+  const registration = { type: 'public-key', credentialId: token, rawId: token, clientDataJSON: Buffer.from('{}').toString('base64url'), attestationObject: Buffer.alloc(40).toString('base64url') };
+  const plain = { origin, 'content-type': 'application/json', 'x-center-wallet-request': '1' };
+  function framedSetup() {
+    const framed = {
+      frameOrigin: vi.fn(async (id: string) => id === intentId ? appOrigin : undefined),
+      framedBy: vi.fn((c: { header(name: string, value: string | undefined): void }, framer: string | undefined) => { if (framer === appOrigin) { c.header('Content-Security-Policy', `frame-ancestors ${framer};`); c.header('X-Frame-Options', undefined); } }),
+      intent: vi.fn(async (id: string) => { if (id !== intentId) throw new RestError(403, 'WALLET_HANDOFF_UNCLAIMED', 'private'); return { id, request: { origin: appOrigin } }; }),
+      issue: vi.fn(async () => appOrigin + '/center/callback?code=c&state=s&iss=' + encodeURIComponent(origin)),
+    };
+    return { ...setup({ framed }), framed };
+  }
+  it('lets exactly the intent\'s app frame the signup page', async () => {
+    const { app } = framedSetup();
+    const framedPage = await app.fetch(new Request(origin + '/wallet/create?intent=' + intentId));
+    expect(framedPage.status).toBe(200); expect(framedPage.headers.get('content-security-policy')).toContain(`frame-ancestors ${appOrigin};`); expect(framedPage.headers.get('x-frame-options')).toBeNull();
+    for (const path of ['/wallet/create', '/wallet/create?intent=' + token]) {
+      const page = await app.fetch(new Request(origin + path));
+      expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'"); expect(page.headers.get('x-frame-options')).toBe('DENY');
+    }
+    expect((await setup().app.fetch(new Request(origin + '/wallet/create?intent=' + intentId))).headers.get('x-frame-options')).toBe('DENY');
+  });
+  it('runs every step by intent and flow token in the body, naming the app as the ceremonies\' top origin, with no cookie', async () => {
+    const { app, signup, framed } = framedSetup();
+    const begun = await app.fetch(post('framed/begin', { intentId, recoveryOwner: '0x' + '22'.repeat(20), passkeyName: 'Juicebox test' }, plain));
+    expect(begun.status).toBe(201); expect(begun.headers.get('set-cookie')).toBeNull();
+    expect(await begun.json()).toEqual({ view, flowToken: token });
+    const state = await app.fetch(post('framed/state', { intentId, flowToken: token }, plain));
+    expect(state.status).toBe(200); expect((await state.json()).view).toEqual(view); expect(signup.status).toHaveBeenCalledWith(token);
+    const registered = await app.fetch(post('framed/register', { intentId, flowToken: token, ...registration }, plain));
+    expect(registered.status).toBe(200); expect(signup.register).toHaveBeenCalledWith(token, expect.objectContaining({ credentialId: token }), { topOrigin: appOrigin });
+    signup.prepareDeployment.mockResolvedValue({ id: 'approval' }); signup.approveDeployment.mockResolvedValue(view);
+    expect((await app.fetch(post('framed/deployment/review', { intentId, flowToken: token }, plain))).status).toBe(200);
+    expect(signup.prepareDeployment).toHaveBeenCalledWith(token);
+    const approved = await app.fetch(post('framed/deployment/approve', { intentId, flowToken: token, approvalId: 'approval', assertion, backupSignature: '0x' + '11'.repeat(65) }, plain));
+    expect(approved.status).toBe(200);
+    expect(signup.approveDeployment).toHaveBeenCalledWith(token, expect.objectContaining({ approvalId: 'approval', backupSignature: '0x' + '11'.repeat(65) }), { topOrigin: appOrigin });
+    // Activation that reaches the login signs the new account in and answers with the app's return; no cookie is set.
+    signup.activate.mockResolvedValue({ ...view, phase: 'ready_to_sign_in' });
+    const activated = await app.fetch(post('framed/activate', { intentId, flowToken: token }, plain));
+    expect(activated.status).toBe(200); expect(activated.headers.get('set-cookie')).toBeNull();
+    expect((await activated.json()).redirectUri).toContain(appOrigin + '/center/callback?code=');
+    expect(signup.session).toHaveBeenCalledWith(token); expect(framed.issue).toHaveBeenCalledWith(intentId, '22222222-2222-4222-8222-222222222222');
+    const session = await app.fetch(post('framed/session', { intentId, flowToken: token }, plain));
+    expect(session.status).toBe(200); expect(session.headers.get('set-cookie')).toBeNull(); expect((await session.json()).redirectUri).toContain('code=');
+    const resume = await app.fetch(post('framed/resume/begin', { intentId }, plain));
+    expect(resume.status).toBe(201); expect(resume.headers.get('set-cookie')).toBeNull(); expect((await resume.json()).resumeToken).toBe(token);
+    const resumed = await app.fetch(post('framed/resume/complete', { intentId, resumeToken: token, resumeId: 'resume', assertion }, plain));
+    expect(resumed.status).toBe(200); expect(resumed.headers.get('set-cookie')).toBeNull();
+    expect(signup.completeResume).toHaveBeenCalledWith(expect.objectContaining({ resumeId: 'resume', resumeToken: token }), { topOrigin: appOrigin });
+    expect(await resumed.json()).toEqual({ view, flowToken: token, replayed: true });
+  });
+  it('refuses a framed step without an admitted framed launch, and a cookie step never names a top origin', async () => {
+    const { app, signup } = framedSetup();
+    for (const [path, body] of [['framed/begin', { intentId: token, recoveryOwner: '0x' + '22'.repeat(20), passkeyName: 'x' }], ['framed/state', { intentId: token, flowToken: token }],
+      ['framed/register', { intentId: token, flowToken: token, ...registration }], ['framed/activate', { intentId: token, flowToken: token }]] as const) {
+      expect((await app.fetch(post(path, body, plain))).status).toBe(403);
+    }
+    expect((await app.fetch(post('framed/state', { flowToken: token }, plain))).status).toBe(400);
+    expect((await app.fetch(post('framed/register', { intentId, flowToken: 'short', ...registration }, plain))).status).toBe(403);
+    expect(signup.register).not.toHaveBeenCalled();
+    expect((await app.fetch(post('register', registration))).status).toBe(200);
+    expect(signup.register).toHaveBeenCalledTimes(1); expect((signup.register as ReturnType<typeof vi.fn>).mock.calls[0]).toHaveLength(2);
+    expect((await setup().app.fetch(post('framed/begin', { intentId, recoveryOwner: '0x' + '22'.repeat(20), passkeyName: 'x' }, plain))).status).toBe(404);
+  });
 });

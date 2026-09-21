@@ -5,7 +5,7 @@ import { assertWalletCeremonyDraft, type WalletCeremonyDraft } from "./ceremonie
 /** A deployment approval stays a five-minute decision; only the signup window grew. */
 const walletDeploymentApprovalMaxLifetimeMs = 300_000;
 import { assertRegisteredWalletEnrollment, assertVerifiedWalletEnrollment, enrollmentDigest, type WalletEnrollment } from "./enrollment.js";
-import { verifyWalletAssertion, type WalletAssertion } from "./webauthn.js";
+import { verifyWalletAssertion, type WalletAssertion, type WalletCeremonyOptions } from "./webauthn.js";
 import { validateSignedTransaction } from "../transactions/signed.js";
 import type { RelayPolicy } from "../transactions/types.js";
 
@@ -146,7 +146,7 @@ export function walletDeploymentDocument(enrollment: WalletEnrollment, approval:
  * consume this exact ceremony/proof with the enrollment, treasury lane, nonce and template atomically.
  * EIP1559 has no execution deadline: expiry cannot cancel an already claimed/signed deployment. */
 export function verifyWalletDeploymentProof(enrollment: WalletEnrollment, approval: WalletDeploymentApproval,
-  assertion: WalletAssertion, now: number): { verificationDigest: string } {
+  assertion: WalletAssertion, now: number, options: WalletCeremonyOptions = {}): { verificationDigest: string } {
   try {
     enrollmentDigest(enrollment);
     enrollmentDigest(approval);
@@ -154,7 +154,7 @@ export function verifyWalletDeploymentProof(enrollment: WalletEnrollment, approv
     const challenge = hashTypedData(walletDeploymentDocument(snapshot, frozenApproval)), candidate = snapshot.candidate!;
     if (!timestamp(now) || now < frozenApproval.issuedAt || now >= frozenApproval.expiresAt) invalid();
     verifyWalletAssertion(assertion, { purpose: "deploy", challenge, rpId: snapshot.intent.rpId, origin: snapshot.intent.origin,
-      requireUserHandle: true, credential: { id: candidate.credentialId, userHandle: candidate.userHandle,
+      ...(options.topOrigin ? { topOrigin: options.topOrigin } : {}), requireUserHandle: true, credential: { id: candidate.credentialId, userHandle: candidate.userHandle,
         publicKey: candidate.publicKey, backupEligible: candidate.backupEligible } });
     return { verificationDigest: enrollmentDigest({ version: "center-wallet-deployment-proof-v1", documentHash: challenge,
       enrollmentCommitment: frozenApproval.enrollmentCommitment, credentialId: candidate.credentialId, publicKey: candidate.publicKey }) };

@@ -9,6 +9,8 @@ export type WalletAssertion = {
   signature: Uint8Array;
   userHandle: string | null;
 };
+/** The one app origin admitted to frame the page a ceremony runs on; absent, the ceremony must be top-level. */
+export type WalletCeremonyOptions = { topOrigin?: string };
 export type WalletAssertionExpectation = {
   /** Loaded from the server's ceremony record, never copied from assertion/request metadata. */
   purpose: WalletAssertionPurpose;

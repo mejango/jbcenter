@@ -140,6 +140,20 @@ describe("unproven wallet registration candidate", () => {
     expect(parseWalletRegistration(makeResponse({ flags: 0x45 }), expected)).toMatchObject({ backupEligible: false, backedUp: false });
   });
 
+  it("admits a passkey created inside an app's frame only for the one top origin the signup names", () => {
+    const framed = (data: string) => makeResponse({ json: clientJSON().slice(0, -1).replace('"crossOrigin":false', '"crossOrigin":true') + data + "}" });
+    const admitted = { ...expected, topOrigin: "https://beep.example" };
+    expect(parseWalletRegistration(framed(',"topOrigin":"https://beep.example"'), admitted).credentialId).toBe(credentialId);
+    expect(parseWalletRegistration(framed(""), admitted).credentialId).toBe(credentialId);
+    // A top-level creation still passes under an admitted framer; a framed one never passes without one or under another.
+    expect(parseWalletRegistration(makeResponse(), admitted).credentialId).toBe(credentialId);
+    for (const [json, against] of [
+      [framed(',"topOrigin":"https://beep.example"'), expected], [framed(""), expected],
+      [framed(',"topOrigin":"https://evil.example"'), admitted],
+      [makeResponse({ json: clientJSON().slice(0, -1) + ',"topOrigin":"https://beep.example"}' }), admitted],
+    ] as const) expect(() => parseWalletRegistration(json, against)).toThrow();
+  });
+
   it("preserves valid CBOR map ordering and integer-width variants", () => {
     const reordered = new Map([...coseKey()].reverse());
     expect(parseWalletRegistration(makeResponse({ cose: encode(reordered) }), expected).publicKey).toEqual({ x: hex(x), y: hex(y) });

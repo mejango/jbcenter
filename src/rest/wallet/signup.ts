@@ -17,7 +17,7 @@ import type { WalletDeploymentAdmission, WalletDeploymentOperation } from "./dep
 import type { WalletEnrollment } from "./enrollment.js";
 import type { createWalletAuthorityService } from "./authorityService.js";
 import type { WalletRegistrationResponse } from "./registration.js";
-import type { WalletAssertion } from "./webauthn.js";
+import type { WalletAssertion, WalletCeremonyOptions } from "./webauthn.js";
 
 export interface LocalWalletSignupDependencies {
   flows: PostgresWalletSignupStore; enrollments: PostgresWalletEnrollmentStore; deployments: PostgresWalletDeploymentStore;
@@ -25,7 +25,7 @@ export interface LocalWalletSignupDependencies {
   chain: ReturnType<typeof createWalletDeploymentChain>; smart: ReturnType<typeof createSmartAccountService>;
   registry: Pick<VerifiedSmartAccountRegistry, "list">; authority: ReturnType<typeof createWalletAuthorityService>; poolId: string;
   /** With it, a fresh signup is signed in from its creation approval once the account is ready (see `session`). */
-  login?: { completeFromSignup(input: { enrollment: WalletEnrollment; operation: WalletDeploymentOperation; assertion: WalletAssertion }):
+  login?: { completeFromSignup(input: { enrollment: WalletEnrollment; operation: WalletDeploymentOperation; assertion: WalletAssertion; topOrigin?: string }):
     Promise<{ session: unknown; sessionToken: string }> };
   /** How often a released inclusion is re-read while it waits for finality (default 15 s; a local chain may use 0). */
   releasedObservationIntervalMs?: number;
@@ -115,14 +115,16 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     const begun = await flows.begin(input);
     return { flowToken: begun.flowToken, view: await status(begun.flowToken) };
   }
-  async function register(flowToken: string, input: WalletRegistrationResponse) {
+  // `ceremony.topOrigin`: the app admitted to frame the signup page; every passkey ceremony of a framed signup
+  // must then name it. Absent, ceremonies must be top-level, as before.
+  async function register(flowToken: string, input: WalletRegistrationResponse, ceremony: WalletCeremonyOptions = {}) {
     const registration = copyWalletEnrollmentRegistration(input), { enrollment } = await context(flowToken);
-    await enrollments.acceptRegistration(enrollment.intent.id, registration);
+    await enrollments.acceptRegistration(enrollment.intent.id, registration, ceremony);
     return status(flowToken);
   }
-  async function proveEnrollment(flowToken: string, input: { assertion: WalletAssertion; backupSignature: Hex }) {
+  async function proveEnrollment(flowToken: string, input: { assertion: WalletAssertion; backupSignature: Hex }, ceremony: WalletCeremonyOptions = {}) {
     const proof = copyWalletEnrollmentProof(input), { flow, enrollment } = await context(flowToken);
-    await enrollments.finalize(enrollment.intent.id, proof, { passkeyName: flow.passkeyName });
+    await enrollments.finalize(enrollment.intent.id, proof, { passkeyName: flow.passkeyName, ...ceremony });
     return status(flowToken);
   }
   type Speculated = { at: number; funding: WalletDeploymentFundingEvidence; admission: WalletDeploymentAdmission };
@@ -177,7 +179,8 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
       initializerHash: enrollment.creation!.initializerHash, expiresAtMs: operation.approval.expiresAt, rpId: enrollment.intent.rpId,
       credentialId: enrollment.candidate!.credentialId, document, challenge: hashTypedData(document) };
   }
-  async function approveDeployment(flowToken: string, input: { approvalId: string; assertion: WalletAssertion; backupSignature?: Hex }) {
+  async function approveDeployment(flowToken: string, input: { approvalId: string; assertion: WalletAssertion; backupSignature?: Hex },
+    ceremony: WalletCeremonyOptions = {}) {
     fields(input, ["approvalId", "assertion"], ["backupSignature"]);
     const approvalId = input.approvalId, assertion = copyWalletSignupAssertion(input.assertion);
     let { flow, enrollment } = await context(flowToken);
@@ -192,7 +195,7 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
       // possession; the recovery owner's signature over the enrollment document rides along.
       if (input.backupSignature === undefined) state();
       await enrollments.finalize(enrollment.intent.id, { assertion: input.assertion, backupSignature: input.backupSignature },
-        { passkeyChallenge: hashTypedData(walletDeploymentDocument(enrollment, operation.approval)), passkeyName: flow.passkeyName });
+        { passkeyChallenge: hashTypedData(walletDeploymentDocument(enrollment, operation.approval)), passkeyName: flow.passkeyName, ...ceremony });
       ({ flow, enrollment } = await context(flowToken));
       if (flow.deploymentId !== approvalId || enrollment.state !== "verified") state();
     }
@@ -206,7 +209,7 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     let claimed = false;
     if (carried) {
       try {
-        await deployments.claim({ operationId: approvalId, assertion, admission: carried.admission, funding: carried.funding }); claimed = true;
+        await deployments.claim({ operationId: approvalId, assertion, admission: carried.admission, funding: carried.funding, ...ceremony }); claimed = true;
         event({ stage: "approval", outcome: "carried", operationId: approvalId, elapsedMs: Date.now() - carried.at });
       } catch (error) {
         if (!(error instanceof RestError) || ![409, 410].includes(error.status)) throw error;
@@ -215,19 +218,19 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     }
     if (!claimed) {
       const reads = await chainReads(enrollment, operation);
-      await deployments.claim({ operationId: approvalId, assertion, admission: reads.admission, funding: reads.funding });
+      await deployments.claim({ operationId: approvalId, assertion, admission: reads.admission, funding: reads.funding, ...ceremony });
       event({ stage: "approval", outcome: "inline", operationId: approvalId });
     }
     // The approval's assertion is held for the signup session (in memory, this process, ≤ 15 min,
     // once), for this continuation as it is now: a resume rotates the flow, and the hold with it.
     for (const [id, held] of approvals) if (Date.now() - held.at > 900_000) approvals.delete(id);
     if (approvals.size >= 256) approvals.delete(approvals.keys().next().value!);
-    approvals.set(enrollment.intent.id, { deploymentId: approvalId, flowRevision: flow.revision, assertion, at: Date.now() });
+    approvals.set(enrollment.intent.id, { deploymentId: approvalId, flowRevision: flow.revision, assertion, at: Date.now(), ceremony });
     // The worker's next pass (sign, admit, send) starts now rather than at its next 1 s tick.
     void detachedFromRequest(tick).catch(() => undefined);
     return status(flowToken);
   }
-  const approvals = new Map<string, { deploymentId: string; flowRevision: number; assertion: WalletAssertion; at: number }>();
+  const approvals = new Map<string, { deploymentId: string; flowRevision: number; assertion: WalletAssertion; at: number; ceremony: WalletCeremonyOptions }>();
   /** A fresh signup's session from its creation approval: the assertion this process verified at
    * the claim signs the account in once its authority is verified. The store re-verifies it against
    * the claimed deployment; anything held longer than 15 minutes, a resumed signup or a restarted
@@ -241,7 +244,7 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     const operation = await deployments.get(held.deploymentId);
     if (!operation) state();
     approvals.delete(enrollment.intent.id);
-    const result = await options.login.completeFromSignup({ enrollment, operation, assertion: held.assertion });
+    const result = await options.login.completeFromSignup({ enrollment, operation, assertion: held.assertion, ...held.ceremony });
     event({ stage: "setup", outcome: "session" });
     return result;
   }

@@ -17,6 +17,9 @@ export type WalletRegistrationExpectation = {
   origin: string;
   /** Opaque stable handle supplied in creation options. It is not returned/proven by attestation. */
   userHandle: string;
+  /** The one origin admitted to frame the page the passkey is created on: a cross-origin creation must
+   * then name it as its top origin. Absent: the creation must not be cross-origin at all. */
+  topOrigin?: string;
 };
 /** An unproven candidate, never an active credential, session, hardware claim or deployment approval. */
 export type WalletRegistrationCandidate = {
@@ -85,9 +88,10 @@ export function parseWalletRegistration(response: WalletRegistrationResponse, ex
     const clientData = readWalletClientData(json);
     if (clientData.type !== "webauthn.create" ||
         clientData.challenge !== Buffer.from(expected.challenge.slice(2), "hex").toString("base64url") ||
-        clientData.origin !== expected.origin ||
-        (Object.hasOwn(clientData, "crossOrigin") && clientData.crossOrigin !== false) ||
-        Object.hasOwn(clientData, "topOrigin")) return invalid();
+        clientData.origin !== expected.origin) return invalid();
+    if (clientData.crossOrigin === true) {
+      if (!expected.topOrigin || (Object.hasOwn(clientData, "topOrigin") && clientData.topOrigin !== expected.topOrigin)) return invalid();
+    } else if ((Object.hasOwn(clientData, "crossOrigin") && clientData.crossOrigin !== false) || Object.hasOwn(clientData, "topOrigin")) return invalid();
 
     const attestation = exactMap(decode(boundedBytes(response.attestationObject, 1, 2048), cborOptions), ["fmt", "attStmt", "authData"]);
     if (attestation.get("fmt") !== "none") return invalid();

@@ -10,7 +10,7 @@ import { enrollmentDigest, type WalletEnrollment } from "./enrollment.js";
 import { currentWalletCredentialInTransaction, lockWalletEnrollmentInTransaction, PostgresWalletEnrollmentStore } from "./enrollmentPostgres.js";
 import { lockWalletCeremonyAdmission, PostgresWalletCeremonyStore, walletCeremonyDatabaseNow } from "./ceremoniesPostgres.js";
 import { walletCeremonyRetentionMs } from "./ceremonies.js";
-import type { WalletAssertion } from "./webauthn.js";
+import type { WalletAssertion, WalletCeremonyOptions } from "./webauthn.js";
 import { assertWalletDeploymentObservation, type WalletDeploymentObservation } from "./deploymentObservation.js";
 import { assertWalletDeploymentDispatchAdmission, walletDeploymentDispatchLimits } from "./deploymentDispatch.js";
 import type { WalletDeploymentExecutionContext, WalletDeploymentDispatchClaim, WalletDeploymentDispatchJournal,
@@ -110,6 +110,8 @@ export interface WalletDeploymentRecoveryPage {
 export interface WalletDeploymentClaim {
   operationId: string;
   assertion: WalletAssertion;
+  /** The app admitted to frame the page the approval was made on, when it was. */
+  topOrigin?: string;
   funding?: WalletDeploymentFundingEvidence;
   admission: WalletDeploymentAdmission;
 }
@@ -630,16 +632,18 @@ export class PostgresWalletDeploymentStore {
 
   async claim(input: WalletDeploymentClaim): Promise<{ operation: WalletDeploymentOperation; replayed: boolean }> {
     // Binary proofs are copied before the first await; arbitrary JSON/private key material is rejected.
-    if (!input || ![3,4].includes(Object.keys(input).length) || Object.keys(input).some(key => !["operationId", "assertion", "admission", "funding"].includes(key))) invalid();
+    if (!input || ![3,4,5].includes(Object.keys(input).length) || Object.keys(input).some(key => !["operationId", "assertion", "admission", "funding", "topOrigin"].includes(key))) invalid();
     const funding = input.funding === undefined ? null : (enrollmentDigest(input.funding), structuredClone(input.funding));
     id(input.operationId);
+    if (input.topOrigin !== undefined && (typeof input.topOrigin !== "string" || !/^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?$/.test(input.topOrigin))) invalid();
+    const ceremony: WalletCeremonyOptions = input.topOrigin ? { topOrigin: input.topOrigin } : {};
     const operationId = input.operationId, assertion = copyProof(input.assertion), admission = checkedAdmission(input.admission);
     const before = await this.required(operationId), beforePool = await this.poolRecord(before.poolId);
     const enrollment = await this.enrollments.get(before.enrollmentId);
     if (!enrollment) missing();
     const sampledNow = Number((await this.pool.query<{ now: string }>(`SELECT ${nowSql} AS now`)).rows[0]!.now);
     // Historical verification is available only after a durable claim receipt was loaded.
-    const proof = verifyWalletDeploymentProof(enrollment, before.approval, assertion, before.claimedAt ?? sampledNow);
+    const proof = verifyWalletDeploymentProof(enrollment, before.approval, assertion, before.claimedAt ?? sampledNow, ceremony);
     const template = before.state === "prepared" ? admissionTemplate(enrollment, before, beforePool, admission) : before.template!;
     return this.transaction(async client => {
       const pool = await this.poolRecord(before.poolId, client);
@@ -651,7 +655,7 @@ export class PostgresWalletDeploymentStore {
             commitment(current.template) !== current.templateCommitment || pool.activeOperationId !== current.id) conflict();
         // Never renew/reconsume the ceremony or adopt a retry's nonce/fee quote. The original receipt
         // remains recoverable after expiry, current-key supersession and ceremony retention cleanup.
-        verifyWalletDeploymentProof(currentEnrollment, current.approval, assertion, current.claimedAt);
+        verifyWalletDeploymentProof(currentEnrollment, current.approval, assertion, current.claimedAt, ceremony);
         return { operation: current, replayed: true };
       }
       // A v2 approval may have been prepared before possession was proved; the claim itself

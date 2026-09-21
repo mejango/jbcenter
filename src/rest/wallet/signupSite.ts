@@ -17,6 +17,14 @@ export interface WalletSignupSiteOptions {
   refresh?: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
   signup: Pick<ReturnType<typeof createLocalWalletSignup>, 'begin' | 'status' | 'register' | 'proveEnrollment' |
     'prepareDeployment' | 'approveDeployment' | 'activate' | 'session' | 'beginResume' | 'completeResume' | 'watch'>;
+  /** Signing up inside an admitted app's frame: the app that may frame an intent's pages, the CSP swap that admits
+   * it, the intent behind a framed launch, and the code issued to the app once the new account has a session. */
+  framed?: {
+    frameOrigin(intentId: string): Promise<string | undefined>;
+    framedBy(c: Context, framer: string | undefined): void;
+    intent(intentId: string): Promise<{ id: string; request: { origin: string } }>;
+    issue(intentId: string, sessionId: string): Promise<string>;
+  };
 }
 function invalid(status = 400): never { throw new RestError(status, 'WALLET_SIGNUP_HTTP_INVALID', 'Reload the original signup and retry its current step.'); }
 /** Installed only by the dedicated wallet host. No trusted-app CORS grants signup access. */
@@ -56,7 +64,12 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
     kick((value as { view?: { phase?: string; walletAddress?: string | null } } | null)?.view);
     return c.body(serialize(value), 200, { 'Content-Type': 'application/json' });
   };
-  app.get(`${base}/create`, c => c.html(walletSignupPage({ base })));
+  app.get(`${base}/create`, async c => {
+    // The signup for an app's intent may be framed by that app, when it is admitted to (see the wallet landing).
+    const intentId = c.req.query('intent');
+    if (intentId && options.framed) options.framed.framedBy(c, await options.framed.frameOrigin(intentId).catch(() => undefined));
+    return c.html(walletSignupPage({ base }));
+  });
   app.get(`${base}/assets/wallet-signup.js`, c => c.body(options.browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
   app.get(`${base}/assets/wallet-signup.css`, c => c.body(walletSignupCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
   // The view, pushed: on connect, on every phase change this process's worker or an action reports,
@@ -184,4 +197,83 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
     const resumed = await signup.completeResume({ resumeId: input.resumeId as string, resumeToken, assertion: walletHttpAssertion(input.assertion) });
     return json(c, result(c, resumed.flowToken, await signup.status(resumed.flowToken), resumed.replayed));
   });
+  // The same signup inside an admitted app's frame, with no cookie: Center's cookies never reach a
+  // cross-site frame, so the flow token rides in every request body instead (readable only by this
+  // page; the app is cross-origin to it), the intent behind the framed launch admits each request,
+  // and every passkey ceremony must name the app as its top origin. The routes mirror the cookie
+  // ones step for step; the account made here is the same account.
+  const framed = options.framed;
+  if (framed) {
+    const admitted = async (c: Context, fields: string[], optional: string[] = []) => {
+      const input = await body(c, ['intentId', ...fields], optional);
+      if (typeof input.intentId !== 'string') invalid();
+      const intent = await framed.intent(input.intentId);
+      return { input, intent, ceremony: { topOrigin: intent.request.origin } };
+    };
+    const flowToken = (input: Record<string, unknown>) => {
+      if (typeof input.flowToken !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(input.flowToken)) invalid(403);
+      return input.flowToken;
+    };
+    app.post(`${base}/signup/framed/state`, async c => {
+      const { input } = await admitted(c, ['flowToken']);
+      try { return json(c, { view: await signup.status(flowToken(input)) }); }
+      catch (error) {
+        if (!(error instanceof RestError) || error.code !== 'WALLET_SIGNUP_UNAUTHORIZED') throw error;
+        return c.json({ view: null });
+      }
+    });
+    app.post(`${base}/signup/framed/begin`, async c => {
+      const { input } = await admitted(c, ['recoveryOwner', 'passkeyName']);
+      const started = await signup.begin({ recoveryOwner: input.recoveryOwner as Address, passkeyName: input.passkeyName as string });
+      return c.json({ view: started.view, flowToken: started.flowToken }, 201);
+    });
+    app.post(`${base}/signup/framed/register`, async c => {
+      const { input, ceremony } = await admitted(c, ['flowToken', 'type', 'credentialId', 'rawId', 'clientDataJSON', 'attestationObject']);
+      if (input.type !== 'public-key') invalid();
+      walletHttpBytes(input.credentialId, 1, 1023);
+      return json(c, { view: await signup.register(flowToken(input), { type: 'public-key', credentialId: input.credentialId as string,
+        rawId: walletHttpBytes(input.rawId, 1, 1023), clientDataJSON: walletHttpBytes(input.clientDataJSON, 1, 2048),
+        attestationObject: walletHttpBytes(input.attestationObject, 1, 2048) }, ceremony) });
+    });
+    app.post(`${base}/signup/framed/deployment/review`, async c => {
+      const { input } = await admitted(c, ['flowToken']);
+      return json(c, await signup.prepareDeployment(flowToken(input)));
+    });
+    app.post(`${base}/signup/framed/deployment/approve`, async c => {
+      const { input, ceremony } = await admitted(c, ['flowToken', 'approvalId', 'assertion'], ['backupSignature']);
+      if (input.backupSignature !== undefined && (typeof input.backupSignature !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(input.backupSignature))) invalid();
+      return json(c, { view: await signup.approveDeployment(flowToken(input), { approvalId: input.approvalId as string, assertion: walletHttpAssertion(input.assertion),
+        ...(input.backupSignature === undefined ? {} : { backupSignature: input.backupSignature as Hex }) }, ceremony) });
+    });
+    // The new account's session anchors the code the app exchanges; the session itself is never handed to the browser.
+    const signedIn = async (intentId: string, token: string) => {
+      const session = (await signup.session(token)).session as { id: string };
+      return framed.issue(intentId, session.id);
+    };
+    app.post(`${base}/signup/framed/activate`, async c => {
+      const { input, intent } = await admitted(c, ['flowToken']);
+      const token = flowToken(input), view = await signup.activate(token);
+      let redirectUri: string | undefined;
+      if (view.phase === 'ready_to_sign_in') {
+        try { redirectUri = await signedIn(intent.id, token); }
+        catch (error) { if (!(error instanceof RestError) || error.status >= 500) throw error; /* a refused hold: the page's own attempt, then the sign-in */ }
+      }
+      return json(c, { view, ...(redirectUri ? { redirectUri } : {}) });
+    });
+    app.post(`${base}/signup/framed/session`, async c => {
+      const { input, intent } = await admitted(c, ['flowToken']);
+      return c.json({ redirectUri: await signedIn(intent.id, flowToken(input)) });
+    });
+    app.post(`${base}/signup/framed/resume/begin`, async c => {
+      await admitted(c, []);
+      const resumed = await signup.beginResume();
+      return c.json({ challenge: resumed.challenge, resumeToken: resumed.resumeToken }, 201);
+    });
+    app.post(`${base}/signup/framed/resume/complete`, async c => {
+      const { input, ceremony } = await admitted(c, ['resumeToken', 'resumeId', 'assertion']);
+      if (typeof input.resumeToken !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(input.resumeToken)) invalid(403);
+      const resumed = await signup.completeResume({ resumeId: input.resumeId as string, resumeToken: input.resumeToken, assertion: walletHttpAssertion(input.assertion) }, ceremony);
+      return json(c, { view: await signup.status(resumed.flowToken), flowToken: resumed.flowToken, replayed: resumed.replayed });
+    });
+  }
 }

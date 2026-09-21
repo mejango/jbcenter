@@ -79,6 +79,30 @@ suite("durable pre-account signup continuation and purpose-bound recovery", () =
     expect(await store.authenticate(value.begun.flowToken)).not.toBeNull();
     expect((await store.completeResume({ resumeId: resume.challenge.id, resumeToken: resume.resumeToken, assertion: good })).replayed).toBe(false);
   });
+  it("accepts a signup made inside an admitted app's frame only when every ceremony names that app", async () => {
+    const app = "https://homerun.money", enrollments = new PostgresWalletEnrollmentStore(pool);
+    const begun = await store.begin({ recoveryOwner: enrollmentBackupAccount.address, passkeyName: "Juicebox test" });
+    const enrollment = await enrollments.get(begun.flow.enrollmentId);
+    const registration = (topOrigin?: string) => createRegistration({ rpId, origin, userHandle: enrollment!.intent.userHandle,
+      challenge: `0x${Buffer.from(enrollment!.intent.registration.challenge, "base64url").toString("hex")}`, ...(topOrigin ? { topOrigin } : {}) });
+    // A framed creation is refused without the admission, and under another app; admitted, it is the same candidate.
+    await expect(enrollments.acceptRegistration(begun.flow.enrollmentId, registration(app).response)).rejects.toMatchObject({ status: 400 });
+    await expect(enrollments.acceptRegistration(begun.flow.enrollmentId, registration(app).response, { topOrigin: "https://beep.biz" })).rejects.toMatchObject({ status: 400 });
+    const credential = registration(app);
+    const pending = await enrollments.acceptRegistration(begun.flow.enrollmentId, credential.response, { topOrigin: app });
+    const document = walletEnrollmentDocument(pending), backupSignature = await signBackupProof(document);
+    const proof = (topOrigin?: string) => ({ assertion: signGet({ ...credential, rpId, origin, challenge: hashTypedData(document), ...(topOrigin ? { topOrigin } : {}) }), backupSignature });
+    await expect(enrollments.finalize(pending.intent.id, proof(app))).rejects.toMatchObject({ status: 403 });
+    await expect(enrollments.finalize(pending.intent.id, proof(app), { topOrigin: "https://beep.biz" })).rejects.toMatchObject({ status: 403 });
+    const verified = await enrollments.finalize(pending.intent.id, proof(app), { topOrigin: app });
+    expect(verified.record.state).toBe("verified");
+    // The framed resume names the app too.
+    const resume = await store.beginResume();
+    const resumption = (topOrigin?: string) => ({ resumeId: resume.challenge.id, resumeToken: resume.resumeToken,
+      assertion: signGet({ ...credential, rpId, origin, challenge: resume.challenge.challenge, ...(topOrigin ? { topOrigin } : {}) }) });
+    await expect(store.completeResume(resumption(app))).rejects.toMatchObject({ status: 403 });
+    expect((await store.completeResume(resumption(app), { topOrigin: app })).flow.enrollmentId).toBe(pending.intent.id);
+  });
   it("lets a verified enrollment resume after its original deadline without renewing genesis", async () => {
     const value = await registered({ enrollmentLifetimeMs: 1500 }), record = await verify(value);
     await pool.query("SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.03)", [record.intent.expiresAt]);
