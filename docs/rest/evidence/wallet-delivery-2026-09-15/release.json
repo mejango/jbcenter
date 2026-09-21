@@ -1,0 +1,1578 @@
+{
+  "schemaVersion": 1,
+  "runId": "2026-09-15T02-18-00.628Z-e738f026",
+  "startedAt": "2026-09-15T02:18:00.629Z",
+  "endedAt": "2026-09-15T02:21:38.705Z",
+  "revision": "ac6e48d52fb43d5c90205e9892fff4ccaa011484",
+  "dirty": false,
+  "sourceStart": {
+    "revision": "ac6e48d52fb43d5c90205e9892fff4ccaa011484",
+    "dirty": false,
+    "fingerprint": "bcc76d6f349d49717b79f1688aaaa1a29a218336bd088d73275c5cb677a455b5"
+  },
+  "sourceEnd": {
+    "revision": "ac6e48d52fb43d5c90205e9892fff4ccaa011484",
+    "dirty": false,
+    "fingerprint": "bcc76d6f349d49717b79f1688aaaa1a29a218336bd088d73275c5cb677a455b5"
+  },
+  "sourceChangedDuringCheck": false,
+  "node": "22.23.1",
+  "mode": "release",
+  "status": "passed",
+  "steps": [
+    {
+      "name": "v6-payment-extract",
+      "status": "passed",
+      "startedAt": "2026-09-15T02:18:00.928Z",
+      "log": "v6-payment-extract.log",
+      "timeoutMs": 30000,
+      "endedAt": "2026-09-15T02:18:01.017Z",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "name": "v6-payment-sources",
+      "status": "passed",
+      "startedAt": "2026-09-15T02:18:01.018Z",
+      "log": "v6-payment-sources.log",
+      "timeoutMs": 30000,
+      "endedAt": "2026-09-15T02:18:01.426Z",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "name": "execution",
+      "status": "passed",
+      "startedAt": "2026-09-15T02:18:01.445Z",
+      "log": "execution.log",
+      "timeoutMs": 600000,
+      "endedAt": "2026-09-15T02:18:05.369Z",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "name": "wallet-compatibility",
+      "status": "passed",
+      "startedAt": "2026-09-15T02:18:05.371Z",
+      "log": "wallet-compatibility.log",
+      "timeoutMs": 600000,
+      "endedAt": "2026-09-15T02:18:06.892Z",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "name": "mcp",
+      "status": "passed",
+      "startedAt": "2026-09-15T02:18:06.893Z",
+      "log": "mcp.log",
+      "timeoutMs": 600000,
+      "endedAt": "2026-09-15T02:18:25.606Z",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "name": "typecheck",
+      "status": "passed",
+      "startedAt": "2026-09-15T02:18:25.607Z",
+      "log": "typecheck.log",
+      "timeoutMs": 600000,
+      "endedAt": "2026-09-15T02:18:37.773Z",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "name": "service",
+      "status": "passed",
+      "startedAt": "2026-09-15T02:18:37.774Z",
+      "log": "service.log",
+      "timeoutMs": 600000,
+      "endedAt": "2026-09-15T02:21:23.313Z",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "name": "build",
+      "status": "passed",
+      "startedAt": "2026-09-15T02:21:23.319Z",
+      "log": "build.log",
+      "timeoutMs": 600000,
+      "endedAt": "2026-09-15T02:21:38.415Z",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "suites": [
+    {
+      "name": "execution/target-evidence",
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "execution/legacy/test/CenterSessionGuard.t.sol:CenterSessionGuardTest",
+      "total": 12,
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "execution/legacy/test/FullStack.t.sol:FullStackTest",
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "execution/current-pimlico/test/CenterSessionGuardV2.t.sol:CenterSessionGuardV2Test",
+      "total": 20,
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "execution/current-pimlico/test/FullStackV2.t.sol:FullStackV2Test",
+      "total": 15,
+      "passed": 15,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/PasskeyStack.t.sol:PasskeyStackTest",
+      "total": 24,
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/Bootstrap.t.sol:PasskeyBootstrapTest",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/application.test.ts",
+      "total": 29,
+      "passed": 29,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/adapters/bendystraw-schema.test.ts",
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/adapters/bendystraw.test.ts",
+      "total": 17,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/adapters/http.test.ts",
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/adapters/jbcenter.test.ts",
+      "total": 16,
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/adapters/rpc.test.ts",
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/domain/boundaries.test.ts",
+      "total": 11,
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/domain/rulesets.test.ts",
+      "total": 20,
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/integration/discovery.test.ts",
+      "total": 12,
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/integration/http.test.ts",
+      "total": 24,
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/integration/mcp.test.ts",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/integration/metadata-tools.test.ts",
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/services/configuration.test.ts",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/services/development-sync.test.ts",
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/services/development.test.ts",
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/services/extensions.test.ts",
+      "total": 17,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/services/knowledge.test.ts",
+      "total": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/services/metadata.test.ts",
+      "total": 30,
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/services/payments.test.ts",
+      "total": 22,
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/services/plans.test.ts",
+      "total": 66,
+      "passed": 66,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/services/products.test.ts",
+      "total": 25,
+      "passed": 25,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/services/projects.test.ts",
+      "total": 11,
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/services/rollout-sync.test.ts",
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mcp/tests/services/routing.test.ts",
+      "total": 27,
+      "passed": 27,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/app.test.ts",
+      "total": 21,
+      "passed": 21,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/auth.test.ts",
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/deploymentVerifier.test.ts",
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/intent.test.ts",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/ipfs.test.ts",
+      "total": 27,
+      "passed": 27,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/ipfsCache.test.ts",
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/ipfsGateway.test.ts",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/journeyGraph.test.ts",
+      "total": 29,
+      "passed": 29,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/mcp.test.ts",
+      "total": 41,
+      "passed": 41,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/postgres.integration.test.ts",
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/production-health.test.ts",
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-approvals.test.ts",
+      "total": 29,
+      "passed": 29,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-auth-node.test.ts",
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-auth-store.test.ts",
+      "total": 39,
+      "passed": 39,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-auth.test.ts",
+      "total": 35,
+      "passed": 35,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-center-client.test.ts",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-center-session-client.test.ts",
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-client-approvals.test.ts",
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-client-cli.test.ts",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-client.test.ts",
+      "total": 24,
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-contract-catalog.test.ts",
+      "total": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-dispatch-authority.test.ts",
+      "total": 23,
+      "passed": 23,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-execution-app.test.ts",
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-execution-config.test.ts",
+      "total": 17,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-execution-runtime.test.ts",
+      "total": 12,
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-factory-history.test.ts",
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-guard-deployment.test.ts",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-guide.test.ts",
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-http.test.ts",
+      "total": 23,
+      "passed": 23,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-indexer-fetch.test.ts",
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-indexer-generation.test.ts",
+      "total": 11,
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-indexer.test.ts",
+      "total": 289,
+      "passed": 289,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-omnichain.test.ts",
+      "total": 33,
+      "passed": 33,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-onboarding-memory.test.ts",
+      "total": 24,
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-openapi-indexer.test.ts",
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-openapi-sessions.test.ts",
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-openapi-smart-accounts.test.ts",
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-openapi-sponsorship.test.ts",
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-openapi.test.ts",
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-para-networks.test.ts",
+      "total": 23,
+      "passed": 23,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-para-restoration.test.ts",
+      "total": 29,
+      "passed": 29,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-para.test.ts",
+      "total": 25,
+      "passed": 25,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-passkey-creation-evm.test.ts",
+      "total": 16,
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-passkey-creation.test.ts",
+      "total": 29,
+      "passed": 29,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-passkey-evidence.test.ts",
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-passkey-onboarding.test.ts",
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-passkey-profile-evm.test.ts",
+      "total": 22,
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-passkey-signatures.test.ts",
+      "total": 39,
+      "passed": 39,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-passkey-user-operations.test.ts",
+      "total": 51,
+      "passed": 51,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-pimlico-current-stack.test.ts",
+      "total": 18,
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-production-check.test.ts",
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-protocol-semantics.test.ts",
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-protocol.test.ts",
+      "total": 18,
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-relayr-payment-event.test.ts",
+      "total": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-relayr-payment-evm.test.ts",
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-relayr-payment-source.test.ts",
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-required-checks.test.ts",
+      "total": 26,
+      "passed": 26,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-rpc.test.ts",
+      "total": 33,
+      "passed": 33,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-runtime.integration.test.ts",
+      "total": 12,
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-sessions-postgres.integration.test.ts",
+      "total": 21,
+      "passed": 21,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-sessions-service.test.ts",
+      "total": 32,
+      "passed": 32,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-sessions.test.ts",
+      "total": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-signed-transaction.test.ts",
+      "total": 24,
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-smart-account-checkpoints.test.ts",
+      "total": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-smart-account-onboarding-store.integration.test.ts",
+      "total": 18,
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-smart-account-onboarding.test.ts",
+      "total": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-smart-accounts-compiler.test.ts",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-smart-accounts-envelope.test.ts",
+      "total": 17,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-smart-accounts-inspector-evm.test.ts",
+      "total": 37,
+      "passed": 37,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-smart-accounts-policy-evm.test.ts",
+      "total": 12,
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-smart-accounts-postgres.integration.test.ts",
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-smart-accounts-targets.test.ts",
+      "total": 26,
+      "passed": 26,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-smart-accounts.test.ts",
+      "total": 21,
+      "passed": 21,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-smart-client.test.ts",
+      "total": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-smart-web.test.ts",
+      "total": 20,
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-sponsor-routes.test.ts",
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-sponsorship-execution.test.ts",
+      "total": 60,
+      "passed": 60,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-sponsorship-nonces.test.ts",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-sponsorship-postgres.integration.test.ts",
+      "total": 17,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-sponsorship-provider.test.ts",
+      "total": 79,
+      "passed": 79,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-sponsorship.test.ts",
+      "total": 38,
+      "passed": 38,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-transactions-postgres.integration.test.ts",
+      "total": 23,
+      "passed": 23,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-transactions-store.test.ts",
+      "total": 28,
+      "passed": 28,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-transactions.test.ts",
+      "total": 30,
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-user-operations-chain-execution.test.ts",
+      "total": 46,
+      "passed": 46,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-user-operations-codec-provider.test.ts",
+      "total": 54,
+      "passed": 54,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-user-operations-evm.test.ts",
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-user-operations-postgres.integration.test.ts",
+      "total": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-user-operations-service.test.ts",
+      "total": 25,
+      "passed": 25,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-user-operations-sponsorship.test.ts",
+      "total": 47,
+      "passed": 47,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-user-operations-store.test.ts",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-user-operations-v6-payment-semantics.test.ts",
+      "total": 67,
+      "passed": 67,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-v6-payment-fixture.test.ts",
+      "total": 17,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-app-auth-postgres.integration.test.ts",
+      "total": 30,
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-app-authority.test.ts",
+      "total": 29,
+      "passed": 29,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-app-dispatch.test.ts",
+      "total": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-app-grants-postgres.integration.test.ts",
+      "total": 32,
+      "passed": 32,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-app-grants.test.ts",
+      "total": 20,
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-app-refresh-postgres.integration.test.ts",
+      "total": 28,
+      "passed": 28,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-app-sessions.test.ts",
+      "total": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-authority-chain.test.ts",
+      "total": 24,
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-authority-evm.test.ts",
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-authority-postgres.integration.test.ts",
+      "total": 26,
+      "passed": 26,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-authority-refresh-postgres.integration.test.ts",
+      "total": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-authority-refresh.test.ts",
+      "total": 15,
+      "passed": 15,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-authority-service.test.ts",
+      "total": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-authority.test.ts",
+      "total": 51,
+      "passed": 51,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-base-fee-observation.test.ts",
+      "total": 15,
+      "passed": 15,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-base-receipt-fees.test.ts",
+      "total": 59,
+      "passed": 59,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-browser.test.ts",
+      "total": 21,
+      "passed": 21,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-ceremonies-postgres.integration.test.ts",
+      "total": 22,
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-client.test.ts",
+      "total": 41,
+      "passed": 41,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-connect-browser-postgres.integration.test.ts",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-dependency-bundle.test.ts",
+      "total": 50,
+      "passed": 50,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-dependency-funding.test.ts",
+      "total": 62,
+      "passed": 62,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-chain-evm.test.ts",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-chain.test.ts",
+      "total": 66,
+      "passed": 66,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-dispatch-evm-postgres.integration.test.ts",
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-execution-postgres.integration.test.ts",
+      "total": 22,
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-execution.test.ts",
+      "total": 30,
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-fees-anvil.test.ts",
+      "total": 24,
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-fees.test.ts",
+      "total": 44,
+      "passed": 44,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-local-anvil.test.ts",
+      "total": 54,
+      "passed": 54,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-observation-evm.test.ts",
+      "total": 11,
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-observation.test.ts",
+      "total": 87,
+      "passed": 87,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-postgres.integration.test.ts",
+      "total": 74,
+      "passed": 74,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-scalar-evm.test.ts",
+      "total": 24,
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-settlement-evm-postgres.integration.test.ts",
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-settlement-local-anvil.test.ts",
+      "total": 43,
+      "passed": 43,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-settlement-postgres.integration.test.ts",
+      "total": 26,
+      "passed": 26,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment-settlement.test.ts",
+      "total": 37,
+      "passed": 37,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-deployment.test.ts",
+      "total": 65,
+      "passed": 65,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-device-probe-browser.test.ts",
+      "total": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-device-probe.test.ts",
+      "total": 30,
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-enrollment-browser.test.ts",
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-enrollment-postgres.integration.test.ts",
+      "total": 18,
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-enrollment-pressure.test.ts",
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-handoff-postgres.integration.test.ts",
+      "total": 50,
+      "passed": 50,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-handoff.test.ts",
+      "total": 85,
+      "passed": 85,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-http.test.ts",
+      "total": 24,
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-login-postgres.integration.test.ts",
+      "total": 29,
+      "passed": 29,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-login.test.ts",
+      "total": 18,
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-passkey-evm.test.ts",
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-passkey-recovery-postgres.integration.test.ts",
+      "total": 12,
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-passkey-recovery.test.ts",
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-payment-browser.test.ts",
+      "total": 26,
+      "passed": 26,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-payment-client.test.ts",
+      "total": 60,
+      "passed": 60,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-payment-http-postgres.integration.test.ts",
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-payment-public.test.ts",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-payment-reviews-postgres.integration.test.ts",
+      "total": 33,
+      "passed": 33,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-payment-reviews.test.ts",
+      "total": 32,
+      "passed": 32,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-policy-postgres.integration.test.ts",
+      "total": 23,
+      "passed": 23,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-policy.test.ts",
+      "total": 78,
+      "passed": 78,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-pressure-postgres.integration.test.ts",
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-pressure-schedule.test.ts",
+      "total": 12,
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-production-stack.test.ts",
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-recovery-browser.test.ts",
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-recovery-dispatch-postgres.integration.test.ts",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-recovery-flow-postgres.integration.test.ts",
+      "total": 11,
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-recovery-kit.test.ts",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-recovery-lineage.test.ts",
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-recovery-review.test.ts",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-recovery-rotation.test.ts",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-recovery-site.test.ts",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-recovery.test.ts",
+      "total": 28,
+      "passed": 28,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-registration.test.ts",
+      "total": 38,
+      "passed": 38,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-runtime.test.ts",
+      "total": 15,
+      "passed": 15,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-signup-evm-postgres.integration.test.ts",
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-signup-postgres.integration.test.ts",
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-signup-site.test.ts",
+      "total": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-site-postgres.integration.test.ts",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-site.test.ts",
+      "total": 31,
+      "passed": 31,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-v6-payment-evm.test.ts",
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rest-wallet-webauthn.test.ts",
+      "total": 48,
+      "passed": 48,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/rpc.test.ts",
+      "total": 37,
+      "passed": 37,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test/server.test.ts",
+      "total": 11,
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0
+    }
+  ],
+  "database": {
+    "major": 16,
+    "schemaPermissions": true
+  },
+  "totals": {
+    "total": 4583,
+    "passed": 4583,
+    "failed": 0,
+    "skipped": 0
+  },
+  "ci": {
+    "url": "https://github.com/mejango/jbcenter/actions/runs/34921022953",
+    "conclusion": "success",
+    "revision": "ac6e48d52fb43d5c90205e9892fff4ccaa011484"
+  }
+}

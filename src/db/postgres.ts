@@ -4,12 +4,21 @@ import type { Address, Hex } from "viem";
 import {
   ConflictError,
   StorageLimitError,
+  type DeployPatch,
   type NewDeployment,
   type NewIntent,
   type StorageLimits,
   type Store,
 } from "../store.js";
-import type { Deployment, DeploymentCall, Intent, SearchItem, SearchPage } from "../types.js";
+import type {
+  Deployment,
+  DeploymentCall,
+  Intent,
+  IntentDeploy,
+  IntentDeployStatus,
+  SearchItem,
+  SearchPage,
+} from "../types.js";
 
 type IntentRow = QueryResultRow & {
   id: string;
@@ -37,6 +46,19 @@ type DeploymentRow = QueryResultRow & {
   created_at: Date;
 };
 
+type IntentDeployRow = QueryResultRow & {
+  chain_id: string;
+  status: IntentDeployStatus;
+  bundle_uuid: string | null;
+  transaction_hash: Hex | null;
+  error: string | null;
+  created_at: Date;
+  updated_at: Date;
+};
+
+/** Deploy errors are public; a coded lane message never needs more room than this. */
+const DEPLOY_ERROR_LIMIT = 300;
+
 const deployment = (row: DeploymentRow): Deployment => ({
   chainId: Number(row.chain_id),
   projectId: row.project_id,
@@ -44,7 +66,17 @@ const deployment = (row: DeploymentRow): Deployment => ({
   createdAt: row.created_at.toISOString(),
 });
 
-function intent(row: IntentRow, deployments: Deployment[] = []): Intent {
+const toDeploy = (row: IntentDeployRow): IntentDeploy => ({
+  chainId: Number(row.chain_id),
+  status: row.status,
+  transactionHash: row.transaction_hash,
+  bundleUuid: row.bundle_uuid,
+  error: row.error,
+  createdAt: row.created_at.toISOString(),
+  updatedAt: row.updated_at.toISOString(),
+});
+
+function intent(row: IntentRow, deployments: Deployment[] = [], deploys: IntentDeploy[] = []): Intent {
   const chainIds = row.chain_ids.map(Number);
   return {
     id: row.id,
@@ -67,6 +99,7 @@ function intent(row: IntentRow, deployments: Deployment[] = []): Intent {
     owner: row.owner,
     createdAt: row.created_at.toISOString(),
     deployments,
+    deploys,
   };
 }
 
@@ -76,8 +109,38 @@ const selectIntent = `
   FROM intents
 `;
 
-export function createPool(connectionString: string): Pool {
-  return new Pool({ connectionString, max: 10 });
+const selectDeploys = `
+  SELECT chain_id, status, bundle_uuid, transaction_hash, error, created_at, updated_at
+  FROM intent_deploys WHERE intent_id = $1 ORDER BY chain_id
+`;
+
+export function createPool(connectionString: string): Pool & { connectsSinceLast(): number } {
+  const pool = new Pool({
+    connectionString,
+    max: 10,
+    // pg closes an idle connection after 10 s by default, so the first requests of a payment after
+    // any quiet each opened a fresh one (TCP, SCRAM, backend start: tens of ms per acquisition,
+    // several per admission). Kept connections cost nothing while the pool is under its maximum.
+    idleTimeoutMillis: 600_000,
+    // A kept socket whose peer went away silently would otherwise fail the next request instead of
+    // being dropped while idle.
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 30_000,
+    connectionTimeoutMillis: 5_000,
+    statement_timeout: 10_000,
+    query_timeout: 12_000,
+    idle_in_transaction_session_timeout: 10_000,
+  });
+  // A connection the server terminates (idle-in-transaction timeout, restart) emits "error" on
+  // the client that holds it. Without a listener that is an uncaught exception and the whole
+  // process dies; with one, the query in flight rejects and the caller reports it.
+  const report = (source: string) => (error: Error) =>
+    console.error(JSON.stringify({ level: "error", service: "db", code: "PG_CONNECTION_ERROR", source, message: String(error.message).slice(0, 200) }));
+  let connects = 0;
+  pool.on("error", report("idle"));
+  pool.on("connect", (client) => { client.on("error", report("client")); connects += 1; });
+  // Connections opened since the last call, for the maintenance tick's db_pool line.
+  return Object.assign(pool, { connectsSinceLast: () => { const n = connects; connects = 0; return n; } });
 }
 
 export class PostgresStore implements Store {
@@ -93,10 +156,7 @@ export class PostgresStore implements Store {
     windowSeconds = 60,
   ): Promise<{ allowed: boolean; remaining: number }> {
     const result = await this.pool.query<{ request_count: number }>(
-      `WITH cleanup AS (
-         DELETE FROM rate_limits WHERE window_start < now() - interval '2 days'
-       )
-       INSERT INTO rate_limits (client_name, window_start, request_count)
+      `INSERT INTO rate_limits (client_name, window_start, request_count)
        VALUES (
          $1,
          to_timestamp(floor(extract(epoch FROM now()) / $2) * $2),
@@ -109,6 +169,12 @@ export class PostgresStore implements Store {
     );
     const count = result.rows[0]!.request_count;
     return { allowed: count <= limit, remaining: Math.max(0, limit - count) };
+  }
+
+  /** Drops spent rate-limit windows; runs on the maintenance tick, not in front of every request. */
+  async cleanupRateLimits(): Promise<number> {
+    const result = await this.pool.query("DELETE FROM rate_limits WHERE window_start < now() - interval '2 days'");
+    return result.rowCount ?? 0;
   }
 
   async createIntent(
@@ -195,16 +261,17 @@ export class PostgresStore implements Store {
   }
 
   async getIntent(id: string): Promise<Intent | null> {
-    const [intentResult, deploymentResult] = await Promise.all([
+    const [intentResult, deploymentResult, deployResult] = await Promise.all([
       this.pool.query<IntentRow>(`${selectIntent} WHERE id = $1`, [id]),
       this.pool.query<DeploymentRow>(
         `SELECT chain_id, project_id::text, transaction_hash, created_at
          FROM deployments WHERE intent_id = $1 ORDER BY chain_id`,
         [id],
       ),
+      this.pool.query<IntentDeployRow>(selectDeploys, [id]),
     ]);
     return intentResult.rows[0]
-      ? intent(intentResult.rows[0], deploymentResult.rows.map(deployment))
+      ? intent(intentResult.rows[0], deploymentResult.rows.map(deployment), deployResult.rows.map(toDeploy))
       : null;
   }
 
@@ -290,5 +357,103 @@ export class PostgresStore implements Store {
       throw new ConflictError("A different deployment is already recorded for that chain");
     }
     return deployment(current);
+  }
+
+  async queueDeploys(
+    intentId: string,
+    chainIds: number[],
+    requester: string,
+    reservedWeiPerChain: bigint,
+  ): Promise<IntentDeploy[]> {
+    await this.pool.query(
+      `INSERT INTO intent_deploys (intent_id, chain_id, requester, reserved_wei)
+       SELECT $1, unnest($2::bigint[]), $3, $4::numeric
+       ON CONFLICT (intent_id, chain_id) DO NOTHING`,
+      [intentId, chainIds, requester, reservedWeiPerChain.toString()],
+    );
+    return this.listDeploys(intentId);
+  }
+
+  async listDeploys(intentId: string): Promise<IntentDeploy[]> {
+    const result = await this.pool.query<IntentDeployRow>(selectDeploys, [intentId]);
+    return result.rows.map(toDeploy);
+  }
+
+  async claimQueuedDeploys(
+    leaseSeconds: number,
+    limit: number,
+  ): Promise<{ intentId: string; chainIds: number[] }[]> {
+    // A row whose attempts are spent is a dead end: retire it, and release its
+    // reservation only when no bundle was ever submitted for it.
+    await this.pool.query(
+      `UPDATE intent_deploys SET status = 'failed', error = 'attempts exhausted',
+         reserved_wei = CASE WHEN bundle_uuid IS NULL THEN 0 ELSE reserved_wei END,
+         updated_at = now()
+       WHERE status IN ('queued', 'sent') AND attempts >= 3
+         AND (lease_until IS NULL OR lease_until < now())`,
+    );
+    // A 'sent' row whose lease expired carries a bundle, so the worker resumes it.
+    const result = await this.pool.query<{ intent_id: string; chain_id: string }>(
+      `WITH picked AS (
+         SELECT intent_id FROM intent_deploys
+         WHERE status IN ('queued', 'sent') AND (lease_until IS NULL OR lease_until < now()) AND attempts < 3
+         GROUP BY intent_id ORDER BY intent_id LIMIT $2
+       )
+       UPDATE intent_deploys d SET lease_until = now() + make_interval(secs => $1), attempts = attempts + 1, updated_at = now()
+       FROM picked WHERE d.intent_id = picked.intent_id AND d.status IN ('queued', 'sent')
+         AND (d.lease_until IS NULL OR d.lease_until < now()) AND d.attempts < 3
+       RETURNING d.intent_id, d.chain_id`,
+      [leaseSeconds, limit],
+    );
+    const byIntent = new Map<string, number[]>();
+    for (const row of result.rows) {
+      const chainIds = byIntent.get(row.intent_id) ?? [];
+      chainIds.push(Number(row.chain_id));
+      byIntent.set(row.intent_id, chainIds);
+    }
+    return [...byIntent.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([intentId, chainIds]) => ({ intentId, chainIds: chainIds.sort((a, b) => a - b) }));
+  }
+
+  async updateDeploy(intentId: string, chainId: number, patch: DeployPatch): Promise<void> {
+    // A failed row that carries a bundle keeps its reservation: the prepayment may
+    // already have left the key, and the budget must keep counting it.
+    await this.pool.query(
+      `UPDATE intent_deploys SET status = $3,
+         transaction_hash = coalesce($4, transaction_hash), bundle_uuid = coalesce($5, bundle_uuid),
+         error = $6, spent_wei = coalesce($7::numeric, spent_wei),
+         reserved_wei = CASE
+           WHEN $3 = 'confirmed' THEN 0
+           WHEN $3 = 'failed' AND bundle_uuid IS NULL AND $5::text IS NULL THEN 0
+           ELSE reserved_wei END,
+         updated_at = now()
+       WHERE intent_id = $1 AND chain_id = $2`,
+      [
+        intentId,
+        chainId,
+        patch.status,
+        patch.transactionHash ?? null,
+        patch.bundleUuid ?? null,
+        patch.error?.slice(0, DEPLOY_ERROR_LIMIT) ?? null,
+        patch.spentWei?.toString() ?? null,
+      ],
+    );
+  }
+
+  async releaseClaim(intentId: string, chainIds: number[]): Promise<void> {
+    await this.pool.query(
+      `UPDATE intent_deploys SET attempts = greatest(attempts - 1, 0), lease_until = NULL, updated_at = now()
+       WHERE intent_id = $1 AND chain_id = ANY($2::bigint[])`,
+      [intentId, chainIds],
+    );
+  }
+
+  async sponsoredWeiSince(since: Date): Promise<bigint> {
+    const result = await this.pool.query<{ wei: string }>(
+      "SELECT coalesce(sum(reserved_wei + spent_wei), 0)::text AS wei FROM intent_deploys WHERE created_at >= $1",
+      [since],
+    );
+    return BigInt(result.rows[0]!.wei);
   }
 }

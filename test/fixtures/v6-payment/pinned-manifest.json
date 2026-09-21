@@ -1,0 +1,1267 @@
+{
+  "version": "center-v6-payment-fixture-manifest-v1",
+  "source": {
+    "repository": "https://github.com/Bananapus/nana-core-v6",
+    "commit": "feff600654aee6fb1747dded692f18068b2230a6",
+    "compiler": "0.8.28+commit.7893614a"
+  },
+  "scope": "Offline local V6 payment execution with an unchanged six-decimal MockERC20 fixture. No Circle USDC, Base deployment, live provider, or physical-device evidence.",
+  "bundle": {
+    "file": "pinned.json.gz",
+    "compression": "gzip",
+    "sha256": "6825a1ebe2bc23cabfa1a8308b49bac25f582cf7e9bea8e42b3f786edb7d324c",
+    "byteLength": 664654,
+    "uncompressedSha256": "0ffb1b444e49f74dcd5fa2a78d208307a4340347dc1ecac268d0879003e3b8a5",
+    "uncompressedByteLength": 3328057
+  },
+  "counts": {
+    "artifacts": 16,
+    "compilerSources": 135,
+    "licenses": 5,
+    "files": 156
+  },
+  "files": [
+    {
+      "path": "LICENSE",
+      "kind": "license",
+      "sha256": "d3cd0050c3795ab576aec0ad538117319f51f48103115a080536b7cc00b44f3c",
+      "byteLength": 1066,
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@bananapus/permission-ids-v6/LICENSE",
+      "kind": "license",
+      "sha256": "d3cd0050c3795ab576aec0ad538117319f51f48103115a080536b7cc00b44f3c",
+      "byteLength": 1066,
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@bananapus/permission-ids-v6/src/JBPermissionIds.sol",
+      "kind": "compiler-source",
+      "sha256": "fb4685957f1417c1b07641fdf575615e00c113bcbfe3f5e24278a448f9ac2c98",
+      "byteLength": 10213,
+      "keccak256": "0x6c349a6d856ec91339ef2de647b235d501b1b54652efc046dd35e25d85fe4311",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/LICENSE",
+      "kind": "license",
+      "sha256": "20aebc68b11c063133aa2af0ef4bb29875477c6d16d715718f0daec563938b84",
+      "byteLength": 1090,
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/access/Ownable.sol",
+      "kind": "compiler-source",
+      "sha256": "38578bd71c0a909840e67202db527cc6b4e6b437e0f39f0c909da32c1e30cb81",
+      "byteLength": 3102,
+      "keccak256": "0xff6d0bb2e285473e5311d9d3caacb525ae3538a80758c10649a4d61029b017bb",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/governance/utils/IVotes.sol",
+      "kind": "compiler-source",
+      "sha256": "059fcf54ee8e21e9dac976491d7d7441049ce12e351a8c66b894846243b60a0b",
+      "byteLength": 2323,
+      "keccak256": "0xdf466d4c6aa9da903595262100def9c6d960045b2ada0357edc47953bc5e18d6",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/governance/utils/Votes.sol",
+      "kind": "compiler-source",
+      "sha256": "8ba04ef5d879df0eac088ee30f38798e15c447423b52b539820d1f17217fe3b8",
+      "byteLength": 9712,
+      "keccak256": "0x356ccc41954918db31a917fcd718db150fa4649b6aa2ea8054bef309310c24d7",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/interfaces/IERC1271.sol",
+      "kind": "compiler-source",
+      "sha256": "2d17bba201aa2f9c55e317315b872272a60361848dfceb6b1e77081265c79a27",
+      "byteLength": 656,
+      "keccak256": "0x66c7ec42c6c43712be2107a50ab4529379bc76a632b425babec698d9da921ac6",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/interfaces/IERC1363.sol",
+      "kind": "compiler-source",
+      "sha256": "9c3a75a925a6dac9e88b03cddc58d42fe3131b0aaaad84408521f3f7af2f991b",
+      "byteLength": 4454,
+      "keccak256": "0xd5ea07362ab630a6a3dee4285a74cf2377044ca2e4be472755ad64d7c5d4b69d",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/interfaces/IERC165.sol",
+      "kind": "compiler-source",
+      "sha256": "dfb3f56fa928a7c6cae41a7ce2c86b9210fa18d33fa26389099d66a0fa790368",
+      "byteLength": 193,
+      "keccak256": "0x0afcb7e740d1537b252cb2676f600465ce6938398569f09ba1b9ca240dde2dfc",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/interfaces/IERC20.sol",
+      "kind": "compiler-source",
+      "sha256": "0158e2d3e0e28bedd99eec13dcf1a8aa3a70a5b7e4bb2ad709609c95fcc740d1",
+      "byteLength": 182,
+      "keccak256": "0x1a6221315ce0307746c2c4827c125d821ee796c74a676787762f4778671d4f44",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/interfaces/IERC5267.sol",
+      "kind": "compiler-source",
+      "sha256": "f89772d2d4fafcbef8b73bb10ee9a3373edec2eedb2f1b302320915b351dc3d1",
+      "byteLength": 740,
+      "keccak256": "0xfb223a85dd0b2175cfbbaa325a744e2cd74ecd17c3df2b77b0722f991d2725ee",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/interfaces/IERC5805.sol",
+      "kind": "compiler-source",
+      "sha256": "2b1e317a9ad0303948d00cfee78c42f99f7558c8d2002a7c63f04d2b70324cac",
+      "byteLength": 272,
+      "keccak256": "0x8fbf3dddff71246ff9ffe21f9f0195a40583c4101c94c747691291f8b9e14ebd",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/interfaces/IERC6372.sol",
+      "kind": "compiler-source",
+      "sha256": "b82e19cde1eaa6c179ac49ba38db89d8cf291522e3c7b90cc2dd327df2e6cc4d",
+      "byteLength": 520,
+      "keccak256": "0xed0f7f14eb30c80a82855ddc3f7267bb6290546e5847a8ffc33f599ce4bc5eb6",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/interfaces/draft-IERC6093.sol",
+      "kind": "compiler-source",
+      "sha256": "fa7068f56bc180571a6095be6eaef06d51dbe81e30cb128397d993c9599ecc30",
+      "byteLength": 6540,
+      "keccak256": "0x1b88b3fb3d85ba5496d7d5f396f83ee1fddcdd6762059ff65992655b67920998",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/metatx/ERC2771Context.sol",
+      "kind": "compiler-source",
+      "sha256": "6f0bf2dfc6aead1ea285c982b1f526e5837b47295950f430c9373508ccfd0698",
+      "byteLength": 3621,
+      "keccak256": "0x9695d220b99dcf62910533bdf5d40d4cf6a4e04d5b106b6803a80586486dc7f7",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/proxy/Clones.sol",
+      "kind": "compiler-source",
+      "sha256": "06c768a2b794ea59dd6d6c1bfe33cf5098a4a8921aec14cf066576a2bffafce6",
+      "byteLength": 14522,
+      "keccak256": "0x5a1847c0c6b92d60711f04cba9eaff572ae1f657cff1b8ca4ba065bcdbd68d8b",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/token/ERC20/ERC20.sol",
+      "kind": "compiler-source",
+      "sha256": "50f34ae16a067a41c2c1091445d11d63788e54c717677cb6d6b0e4cdea2ad21d",
+      "byteLength": 10800,
+      "keccak256": "0x669464167428061ee0f8618b73b3ee90aff8405683e7ddde8cd77dadaa1afe29",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/token/ERC20/IERC20.sol",
+      "kind": "compiler-source",
+      "sha256": "01b6f5c4fa45fd38822b286ecef6daf983d27306dd6362496fa71b3e4600b72c",
+      "byteLength": 2781,
+      "keccak256": "0x74ed01eb66b923d0d0cfe3be84604ac04b76482a55f9dd655e1ef4d367f95bc2",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol",
+      "kind": "compiler-source",
+      "sha256": "53584e84cd4851447b3149219f8c1b41397f7c753f85da07eda7f17ac6846e47",
+      "byteLength": 2721,
+      "keccak256": "0x73d9dc25e0edb50767d29665bea0092e29b68776feb39c3f48781e4bab7cdda5",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol",
+      "kind": "compiler-source",
+      "sha256": "9e9b494831630db53ffd1d0bce7fe22d606ce9263fc8d4d1983d235261e918e9",
+      "byteLength": 3606,
+      "keccak256": "0xa8eecb7822f96130e5c64b5ac25c9e0394948f05c517d4e3dc8a15033679ee6a",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol",
+      "kind": "compiler-source",
+      "sha256": "0b7132f17d14d1d84b41b0bb429be62dafdff00fd3470f68724d8018eb07f57a",
+      "byteLength": 684,
+      "keccak256": "0xd6fa4088198f04eef10c5bce8a2f4d60554b7ec4b987f684393c01bf79b94d9f",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol",
+      "kind": "compiler-source",
+      "sha256": "c302edfbf7f396e1130be81278c5c994543868f0f5bf0c0fb3f557e166d8d3f2",
+      "byteLength": 3808,
+      "keccak256": "0x53befc41288eaa87edcd3a7be7e8475a32e44c6a29f9bf52fae789781301d9ff",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+      "kind": "compiler-source",
+      "sha256": "c2394cb2a327f234711da34884947f4aa0f6dd2791d1d6303a0c7acfaf81bca3",
+      "byteLength": 13314,
+      "keccak256": "0x304d732678032a9781ae85c8f204c8fba3d3a5e31c02616964e75cfdc5049098",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/token/ERC721/ERC721.sol",
+      "kind": "compiler-source",
+      "sha256": "ef8e2398c78851bd2ec12bc48d923058c557889d5a3d5ee4919c17ff0fb3517e",
+      "byteLength": 16201,
+      "keccak256": "0xf6bb0dc431a9c50e25756412ec14cfcd4dc61dd40b8dc0e1b58ec09fce6d5564",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/token/ERC721/IERC721.sol",
+      "kind": "compiler-source",
+      "sha256": "ff0eb9902bf0ac099205615fac90eacf34fae637571b05aab3ea35dea53d5f17",
+      "byteLength": 4929,
+      "keccak256": "0xf78f05f3b8c9f75570e85300d7b4600d7f6f6a198449273f31d44c1641adb46f",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol",
+      "kind": "compiler-source",
+      "sha256": "eafee3ffdc7cb2fba4bf6bd16fb28f8e5b4679742e81c2ad42a1b1df5c179feb",
+      "byteLength": 997,
+      "keccak256": "0x88cd5e3bee2e8c36b8d9058fbcaa81ad5704281b25634122234b55ea853d8055",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/token/ERC721/extensions/IERC721Metadata.sol",
+      "kind": "compiler-source",
+      "sha256": "33223782ea652dca413702ce92f9f59d91d758a035065b24bbedb7dc60c63a78",
+      "byteLength": 792,
+      "keccak256": "0xf46268c37522320bb2119a5a394bc5c739a95c0c574c8d08e8c643f4d06e5c76",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/token/ERC721/utils/ERC721Utils.sol",
+      "kind": "compiler-source",
+      "sha256": "b48e95db8c85866c1d88af8e82f346e0d22d24b5aac5b936079d958c72e13b9f",
+      "byteLength": 1923,
+      "keccak256": "0xc7efbc23214ad7dced8bf2249460f4bda114d57f6a0079f84040654280f455bd",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/Address.sol",
+      "kind": "compiler-source",
+      "sha256": "73e54e15285455f0e01e136c3663732641537614723ae5dbd820eb3cb036b1fd",
+      "byteLength": 6803,
+      "keccak256": "0x0fa9e0d3a859900b5a46f70a03c73adf259603d5e05027a37fe0b45529d85346",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/Bytes.sol",
+      "kind": "compiler-source",
+      "sha256": "3ce9120a27934c75a074cb785d3a88868069ef6529dbe4dc6b845af0836f3c70",
+      "byteLength": 14737,
+      "keccak256": "0xf80e4b96b6849936ea0fabd76cf81b13d7276295fddb1e1c07afb3ddf650b0ac",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/Context.sol",
+      "kind": "compiler-source",
+      "sha256": "847fda5460fee70f56f4200f59b82ae622bb03c79c77e67af010e31b7e2cc5b6",
+      "byteLength": 963,
+      "keccak256": "0x493033a8d1b176a037b2cc6a04dad01a5c157722049bbecf632ca876224dd4b2",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/Create2.sol",
+      "kind": "compiler-source",
+      "sha256": "9623aa59745a23a72f313adc5adbf583968bf366a7cbf3fc43c1148d7d2c3c86",
+      "byteLength": 4372,
+      "keccak256": "0xe06ddfff69f3ba154d92102d9a85db2780e045303a587360cf12195216e851ca",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/Errors.sol",
+      "kind": "compiler-source",
+      "sha256": "0704b9d6c032cca8512a3bc3f30f49f86f1f03102d2896a3d23e794b82efea66",
+      "byteLength": 896,
+      "keccak256": "0x6afa713bfd42cf0f7656efa91201007ac465e42049d7de1d50753a373648c123",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/LowLevelCall.sol",
+      "kind": "compiler-source",
+      "sha256": "e128cbe9c6c406d5a42c26e4079c0a95b369ce552f2d0c3dfd2fcb836c5708f2",
+      "byteLength": 5547,
+      "keccak256": "0x6ba3db1346fc75a832aa6cd075e12f6f1fa172fa2122a020f324c319fe5be75e",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/Nonces.sol",
+      "kind": "compiler-source",
+      "sha256": "9b4cbb85d1f5053c744e83302538eb643a713ffd14bc37665b224f1c66529339",
+      "byteLength": 1490,
+      "keccak256": "0x0082767004fca261c332e9ad100868327a863a88ef724e844857128845ab350f",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/Panic.sol",
+      "kind": "compiler-source",
+      "sha256": "270fc8401c1a13fae6a7a4a2dd6e381b95d658896701e51f0d3e2688acab3dec",
+      "byteLength": 1973,
+      "keccak256": "0xf7fe324703a64fc51702311dc51562d5cb1497734f074e4f483bfb6717572d7a",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/ShortStrings.sol",
+      "kind": "compiler-source",
+      "sha256": "1cfa08d3c551e9ec0b9cd249b09987f04e7e90f352e1a5e3b0d6a3bc426b3de7",
+      "byteLength": 4310,
+      "keccak256": "0x0768b3bdb701fe4994b3be932ca8635551dfebe04c645f77500322741bebf57c",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/StorageSlot.sol",
+      "kind": "compiler-source",
+      "sha256": "75704538dcb223239280c6726d9a31cf769a7816718517c997fc7d63bdb70778",
+      "byteLength": 4182,
+      "keccak256": "0xcf74f855663ce2ae00ed8352666b7935f6cddea2932fdf2c3ecd30a9b1cd0e97",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/Strings.sol",
+      "kind": "compiler-source",
+      "sha256": "e318709bbe73a7831d64c1351e8bdc43780b245f25191234e361e6ab9b98c67b",
+      "byteLength": 21538,
+      "keccak256": "0x1fdc2de9585ab0f1c417f02a873a2b6343cd64bb7ffec6b00ffa11a4a158d9e8",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/cryptography/ECDSA.sol",
+      "kind": "compiler-source",
+      "sha256": "ba7c2d314fcd61c9783e0b3f0c664d004b76b408fda6a84edc8267d17c5012d6",
+      "byteLength": 12152,
+      "keccak256": "0xbeb5cad8aaabe0d35d2ec1a8414d91e81e5a8ca679add4cf57e2f33476861f40",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/cryptography/EIP712.sol",
+      "kind": "compiler-source",
+      "sha256": "2845caaaf70757b6cce612ae4ffbec2c382cb3d1cb9765c98fa649c0f5f1c794",
+      "byteLength": 6695,
+      "keccak256": "0x8440117ea216b97a7bad690a67449fd372c840d073c8375822667e14702782b4",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol",
+      "kind": "compiler-source",
+      "sha256": "538a0d7c4f0ec5a8562f58561890f7b49d14580674ecf58bc5f505b45c73df65",
+      "byteLength": 8631,
+      "keccak256": "0x6d8579873b9650426bfbd2a754092d1725049ca05e4e3c8c2c82dd9f3453129d",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/introspection/ERC165.sol",
+      "kind": "compiler-source",
+      "sha256": "61a2b12c96857aaa35f48aeda67a4281637a42494c0b3795be0ae976aa7b3793",
+      "byteLength": 879,
+      "keccak256": "0x2d9dc2fe26180f74c11c13663647d38e259e45f95eb88f57b61d2160b0109d3e",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/introspection/IERC165.sol",
+      "kind": "compiler-source",
+      "sha256": "9055c2994b37dea1a41b7b7926dcb510f05dbe2540b0aafc5fbee9558fffd0ca",
+      "byteLength": 871,
+      "keccak256": "0x8891738ffe910f0cf2da09566928589bf5d63f4524dd734fd9cedbac3274dd5c",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/math/Math.sol",
+      "kind": "compiler-source",
+      "sha256": "bdfdbe133991c0c78042957ff5cd97167926fcaf6d15664f3835a076cb066457",
+      "byteLength": 32664,
+      "keccak256": "0x59973a93b1f983f94e10529f46ca46544a9fec2b5f56fb1390bbe9e0dc79f857",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/math/SafeCast.sol",
+      "kind": "compiler-source",
+      "sha256": "5779bc848bde39f1ad7bc02b4f708a0040888e0083b1a33f119cd94639350134",
+      "byteLength": 34940,
+      "keccak256": "0xc8cae21c9ae4a46e5162ff9bf5b351d6fa6a6eba72d515f3bc1bdfeda7fdf083",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/math/SignedMath.sol",
+      "kind": "compiler-source",
+      "sha256": "1ed50b1056af886752f0fb48a0165d381e69bb4a4b18b893b066dc144a7e08d7",
+      "byteLength": 2613,
+      "keccak256": "0xb1970fac7b64e6c09611e6691791e848d5e3fe410fa5899e7df2e0afd77a99e3",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/structs/Checkpoints.sol",
+      "kind": "compiler-source",
+      "sha256": "e8efef277044b66b660e7888e0f7093022e4a437e2d95a82ffc590e6699abd94",
+      "byteLength": 28340,
+      "keccak256": "0xffca8f1d67bf069a2237a4631c6af36b141f33fb8e894ef58e6a4f72fc098f77",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@openzeppelin/contracts/utils/types/Time.sol",
+      "kind": "compiler-source",
+      "sha256": "8085f943150cce1a10aa843f83519960c3010efe5792a9ee58f87c1993d33472",
+      "byteLength": 5155,
+      "keccak256": "0x3765cc1833212456000f02d5de0478c2055b5f318e27032537c6d47c91e68b05",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@prb/math/LICENSE.md",
+      "kind": "license",
+      "sha256": "a0c3ca8a9da8c8f87a49cfd382f8f163954c991d7f445366120fdd9f5b2af1b7",
+      "byteLength": 1081,
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@prb/math/src/Common.sol",
+      "kind": "compiler-source",
+      "sha256": "81145b028890197fb260a7ce21c9654e2847eca7a58553948c5b70700adef554",
+      "byteLength": 25815,
+      "keccak256": "0x1949276271967e9954a65f27c1c32e1dd73cbd1f3d2af88f2fdd694ba4b7da60",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@uniswap/permit2/LICENSE",
+      "kind": "license",
+      "sha256": "e0e163f93b3c53b5af417ba2395506ecc7c043b50481a15017f3a6b0875a5e78",
+      "byteLength": 1069,
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@uniswap/permit2/src/interfaces/IAllowanceTransfer.sol",
+      "kind": "compiler-source",
+      "sha256": "a31c712c5cc8d171818a4225c09011f9ba86b2d5edf6045ac812bab93b6bbb87",
+      "byteLength": 7703,
+      "keccak256": "0x37f0ac203b6ef605c9533e1a739477e8e9dcea90710b40e645a367f8a21ace29",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@uniswap/permit2/src/interfaces/IEIP712.sol",
+      "kind": "compiler-source",
+      "sha256": "e386407da496dbe874c10a81801c55744fb2922a51389a51c79001422e81e0cd",
+      "byteLength": 144,
+      "keccak256": "0xfdccf2b9639070803cd0e4198427fb0df3cc452ca59bd3b8a0d957a9a4254138",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@uniswap/permit2/src/interfaces/IPermit2.sol",
+      "kind": "compiler-source",
+      "sha256": "51a2a4da1246abda880b17c72f7c45ab3a8dc4bcaac5ff7ba78221b6603cd7ce",
+      "byteLength": 548,
+      "keccak256": "0xaa631cc9f53e699301d94233007110a345e6779011def484e8dd97b8fe0af771",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "node_modules/@uniswap/permit2/src/interfaces/ISignatureTransfer.sol",
+      "kind": "compiler-source",
+      "sha256": "8e7f355d7751cf96e81069c17fb97a3ec973c9391fbbb58ad3fb6e75be5cb19b",
+      "byteLength": 6875,
+      "keccak256": "0xe6df9966f8841dc3958ee86169c89de97e7f614c81c28b9dc947b12d732df64e",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "out/JBController.sol/JBController.json",
+      "kind": "artifact",
+      "sha256": "c82734286de92e6794cc025b3d6151157213afd3c72870dc2d25c0042add16c2",
+      "byteLength": 403518,
+      "contractName": "JBController",
+      "catalogContractId": "@bananapus/core-v6:src/JBController.sol:JBController"
+    },
+    {
+      "path": "out/JBDirectory.sol/JBDirectory.json",
+      "kind": "artifact",
+      "sha256": "62daaae322de1dde576e284ef4369d9609ae4a83e519a4184589a1f59ac20a38",
+      "byteLength": 92985,
+      "contractName": "JBDirectory",
+      "catalogContractId": "@bananapus/core-v6:src/JBDirectory.sol:JBDirectory"
+    },
+    {
+      "path": "out/JBERC20.sol/JBERC20.json",
+      "kind": "artifact",
+      "sha256": "92249c47996f9c25d0c6c92f679769abad82eb19951f5f1f0b35e474154e0b2a",
+      "byteLength": 167712,
+      "contractName": "JBERC20",
+      "catalogContractId": "@bananapus/core-v6:src/JBERC20.sol:JBERC20"
+    },
+    {
+      "path": "out/JBFeelessAddresses.sol/JBFeelessAddresses.json",
+      "kind": "artifact",
+      "sha256": "22e2ea1313c89c923e3381ce7113953eaf0bef7a4499891a86972342314ab0a1",
+      "byteLength": 38090,
+      "contractName": "JBFeelessAddresses",
+      "catalogContractId": "@bananapus/core-v6:src/JBFeelessAddresses.sol:JBFeelessAddresses"
+    },
+    {
+      "path": "out/JBFundAccessLimits.sol/JBFundAccessLimits.json",
+      "kind": "artifact",
+      "sha256": "cd931cd2370cd560d0b41f65cb6f519a03c99660926ee7283e15ca9124409c2e",
+      "byteLength": 72422,
+      "contractName": "JBFundAccessLimits",
+      "catalogContractId": "@bananapus/core-v6:src/JBFundAccessLimits.sol:JBFundAccessLimits"
+    },
+    {
+      "path": "out/JBHeldFees.sol/JBHeldFees.json",
+      "kind": "artifact",
+      "sha256": "a002bebc560682e721f962a4ea05d107d066bbec3bd613efcc16241a56ed66ce",
+      "byteLength": 35648,
+      "contractName": "JBHeldFees",
+      "catalogContractId": "@bananapus/core-v6:src/libraries/JBHeldFees.sol:JBHeldFees"
+    },
+    {
+      "path": "out/JBMultiTerminal.sol/JBMultiTerminal.json",
+      "kind": "artifact",
+      "sha256": "0a20da489b14be8c01fc9940d9867bd51e8681510743ebc61307c4d5acd66a91",
+      "byteLength": 368974,
+      "contractName": "JBMultiTerminal",
+      "catalogContractId": "@bananapus/core-v6:src/JBMultiTerminal.sol:JBMultiTerminal"
+    },
+    {
+      "path": "out/JBPayoutSplitGroupLib.sol/JBPayoutSplitGroupLib.json",
+      "kind": "artifact",
+      "sha256": "940a6ba8ce7b5e2470d6d49238b4c0e70387f0e6cecd73ad5df8369480b3c74c",
+      "byteLength": 64333,
+      "contractName": "JBPayoutSplitGroupLib",
+      "catalogContractId": "@bananapus/core-v6:src/libraries/JBPayoutSplitGroupLib.sol:JBPayoutSplitGroupLib"
+    },
+    {
+      "path": "out/JBPermissions.sol/JBPermissions.json",
+      "kind": "artifact",
+      "sha256": "687c5fbbbf0db71a1e32b8b6eca4d81aca144b3629635228afe464a7d638a90c",
+      "byteLength": 45475,
+      "contractName": "JBPermissions",
+      "catalogContractId": "@bananapus/core-v6:src/JBPermissions.sol:JBPermissions"
+    },
+    {
+      "path": "out/JBPrices.sol/JBPrices.json",
+      "kind": "artifact",
+      "sha256": "8b9e8f4a45245511f7dbafdfc3cac6a02323d5499fbfcd98eb140eb9e0b9c875",
+      "byteLength": 78507,
+      "contractName": "JBPrices",
+      "catalogContractId": "@bananapus/core-v6:src/JBPrices.sol:JBPrices"
+    },
+    {
+      "path": "out/JBProjects.sol/JBProjects.json",
+      "kind": "artifact",
+      "sha256": "dd37f9181d65711753928925f74ba49915f455c482c53fdadb7a2b93eb650432",
+      "byteLength": 126395,
+      "contractName": "JBProjects",
+      "catalogContractId": "@bananapus/core-v6:src/JBProjects.sol:JBProjects"
+    },
+    {
+      "path": "out/JBRulesets.sol/JBRulesets.json",
+      "kind": "artifact",
+      "sha256": "b016f500e232cc15aaf05311678a67c9840f8ed29356045fc3e4e66f53b280ee",
+      "byteLength": 125126,
+      "contractName": "JBRulesets",
+      "catalogContractId": "@bananapus/core-v6:src/JBRulesets.sol:JBRulesets"
+    },
+    {
+      "path": "out/JBSplits.sol/JBSplits.json",
+      "kind": "artifact",
+      "sha256": "e3a998a48620a9a76547eb35bf6a3c480ec69c554442a3343c9e51a58e45715b",
+      "byteLength": 59764,
+      "contractName": "JBSplits",
+      "catalogContractId": "@bananapus/core-v6:src/JBSplits.sol:JBSplits"
+    },
+    {
+      "path": "out/JBTerminalStore.sol/JBTerminalStore.json",
+      "kind": "artifact",
+      "sha256": "4c7b4567c8b4e277a64257baccb4143fc868af8885f65500b2f9caeaa43dcdde",
+      "byteLength": 257239,
+      "contractName": "JBTerminalStore",
+      "catalogContractId": "@bananapus/core-v6:src/JBTerminalStore.sol:JBTerminalStore"
+    },
+    {
+      "path": "out/JBTokens.sol/JBTokens.json",
+      "kind": "artifact",
+      "sha256": "5cdc47f55b7b95f0cb03dd653775a04212f620b1dee9632b12e3fd69f9acb12f",
+      "byteLength": 106019,
+      "contractName": "JBTokens",
+      "catalogContractId": "@bananapus/core-v6:src/JBTokens.sol:JBTokens"
+    },
+    {
+      "path": "out/MockERC20.sol/MockERC20.json",
+      "kind": "artifact",
+      "sha256": "17243795fc862e6583c649c0c92a206fb5322ee327d0d3ea776f1e3e0dd39130",
+      "byteLength": 40978,
+      "contractName": "MockERC20"
+    },
+    {
+      "path": "src/JBController.sol",
+      "kind": "compiler-source",
+      "sha256": "47f61541033adfa32e5e37e729e17a27f1139be72685b6b75d59f48bdd35ad44",
+      "byteLength": 70180,
+      "keccak256": "0x8a8c8079269dd558a2e2372ad96bc9949c95e3fb7fcd744f60f34b68087d82e0",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/JBDirectory.sol",
+      "kind": "compiler-source",
+      "sha256": "9b2038919ca6d978152994ac86b4df71507657f8ec0da3ee6fec1920f71c1387",
+      "byteLength": 19953,
+      "keccak256": "0x09ce6d2eb70ce570ebe01039376135dcecf7f0f122f539167dcacc3bf769233c",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/JBERC20.sol",
+      "kind": "compiler-source",
+      "sha256": "501da2d672f610f552336d56dce7fea1eb740abf7b4bb77dee5bd80c04bc9b04",
+      "byteLength": 16637,
+      "keccak256": "0xc854dc622bbab7f63edfa637ae6d08802f0786e44dec5db2a99d01b75a925c1c",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/JBFeelessAddresses.sol",
+      "kind": "compiler-source",
+      "sha256": "7c0992fc641c99ed51a59e86b8ae8c3984bf75c0befe49c126a171b909fa3735",
+      "byteLength": 7781,
+      "keccak256": "0xa2e42e95640eec9184f202b37dc7a528984e1d5f93bcbe15bee702a634fc18a1",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/JBFundAccessLimits.sol",
+      "kind": "compiler-source",
+      "sha256": "0bd826cc7a02e42907981f71cee6c896c74c63929f3c0b6e1d97cd87fe25ce73",
+      "byteLength": 18759,
+      "keccak256": "0xc8e961376ec63f8a6c3cf7b5ba3234102af707115f41b129a50c7a124fba7d87",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/JBMultiTerminal.sol",
+      "kind": "compiler-source",
+      "sha256": "26031478ef847285122b2baa361766e07408f4f1b7044e6a79d8cd0c6797d3ae",
+      "byteLength": 111931,
+      "keccak256": "0x0e413b9add6f3fdd20ccd056f8f18642aee51d9c0b3bb04ec26f20dd4ba311d8",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/JBPermissions.sol",
+      "kind": "compiler-source",
+      "sha256": "247958811dc070b0792932e424b5da9b4b040b50ab8a143eeafe886915b59a05",
+      "byteLength": 13445,
+      "keccak256": "0xae149d73aa2c3d8c84031d48a70083e52a727ff3bf22c750b8d1550b25f1e9e4",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/JBPrices.sol",
+      "kind": "compiler-source",
+      "sha256": "f79f861cedb3a23a312fd7c93515082ce8ea10279fb33f5fba9583260f89018e",
+      "byteLength": 19253,
+      "keccak256": "0xbaea4e5537f5ad96165659d36546867f904e3efa468b644db4b2d6b962b89a82",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/JBProjects.sol",
+      "kind": "compiler-source",
+      "sha256": "1c39fdf1abc88920fa6e7329350ddac5f87b195d9410e55d826135a37c4894fe",
+      "byteLength": 11268,
+      "keccak256": "0x0b4bcd4556e49889fdd75b56def2ae8c2ff6f6d4bff1272bf18c4dccf26afeca",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/JBRulesets.sol",
+      "kind": "compiler-source",
+      "sha256": "3b2cedd1c6ec29226700fbc94d2cc63cfde3ffc0ea12342a7e0e5d64facb5a45",
+      "byteLength": 56809,
+      "keccak256": "0xaadfde9998467b66de13f65ddf9a95ba3331007d2545d1484bc70abb6deed991",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/JBSplits.sol",
+      "kind": "compiler-source",
+      "sha256": "95ad8cbcedc1a52f77ab92c56db02eb0b4d66fe3f476e6737db07cbbbdab0b92",
+      "byteLength": 19721,
+      "keccak256": "0x484df8c0f807acf2c32c4f42fb7203aa69bab67b0daf0b9ad0a28c3fbc9daa95",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/JBTerminalStore.sol",
+      "kind": "compiler-source",
+      "sha256": "1d46aab45291ecd55177dcf2da0ae89da65ac3e875516d1eebb5c1d96626d64d",
+      "byteLength": 69446,
+      "keccak256": "0x3acf8a1a18a103b8eac16859431c2050409c359da1c2b1a1e729e2b243111922",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/JBTokens.sol",
+      "kind": "compiler-source",
+      "sha256": "7c3ad56483ba54a2efe1e7d4697abc17e7332e6b6f55ac8a1a1d239a5e39d5fc",
+      "byteLength": 21069,
+      "keccak256": "0x12c049e1db0103b8873fc14f60b2e8f33507903e66f0a360da4283ea6cdcb3d9",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/abstract/JBControlled.sol",
+      "kind": "compiler-source",
+      "sha256": "a8105da127d58e7649c958dbf0eb5f29f5b046d4bfa3cdaa5ba8be5920954336",
+      "byteLength": 2834,
+      "keccak256": "0x73d904a90ee3d8d60f71f4f14650ad4ddd9e6dd3bd537095bb9218a0e893dec0",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/abstract/JBPermissioned.sol",
+      "kind": "compiler-source",
+      "sha256": "1df51bf6fa86cd318ec0a589276ef1b7bebec4d6ba382fb6a182e156b1c2aca0",
+      "byteLength": 4880,
+      "keccak256": "0x16a1fa9f031564f9f3253d5e21327b228651269263bfbde10eb04862c65ed577",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/enums/JBApprovalStatus.sol",
+      "kind": "compiler-source",
+      "sha256": "c68e24f86e91cac166a1b3b4959e7dc052864b5dec81cc5dfad95c136c1adf34",
+      "byteLength": 865,
+      "keccak256": "0x266153a67cfe69b2228b31e57ad4dd2765956dc829c6d8e85dd7269cbbc2acee",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBActiveVotes.sol",
+      "kind": "compiler-source",
+      "sha256": "fae63bf4400d2cbcaed0e13ecfd9cdac6256eaf3357d92bd6ad964f0e5fe7a2a",
+      "byteLength": 736,
+      "keccak256": "0x2e5b40c3b1347e9763b8e77aeb989a5200f4011a30c6616a996b91b4ead1de40",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBCashOutHook.sol",
+      "kind": "compiler-source",
+      "sha256": "3d047b6c8574efcda237f26f81f4c21398950bdda2fbd4b600209cb0c4f6d5b2",
+      "byteLength": 796,
+      "keccak256": "0x2a6d327092775fdbeaf922b8364403102cae437f765f662fe142bf97e87c2ef1",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBCashOutTerminal.sol",
+      "kind": "compiler-source",
+      "sha256": "8c2662eb040968f035ce6261d7e534be06dc2080b0d4d133c817f008f68c9d9d",
+      "byteLength": 4590,
+      "keccak256": "0x4923d51fd680cc280a9e90eec8e0597334ae2beb8c04d71289e319d7f82aa70b",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBControlled.sol",
+      "kind": "compiler-source",
+      "sha256": "4d27b2e06cd1cb75d47973bf2cace4be7c5643a8e93d2b2013fa3a3a8e4402b6",
+      "byteLength": 358,
+      "keccak256": "0x7d34d26ea389c5f3fa39a9c6b2fee18af4a1accf10d8b097b3eb2b48550ef1a9",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBController.sol",
+      "kind": "compiler-source",
+      "sha256": "aef673d97b93cd610d98f73590ff31096ad93414c96d1133808b02aa6bfdfd8f",
+      "byteLength": 19409,
+      "keccak256": "0x7032c26dd11cec1ed279bd96a63c0b4f77126835e9fec744e259495827f9ad92",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBDirectory.sol",
+      "kind": "compiler-source",
+      "sha256": "d951661c8a85fc1d11e1ca33200ca811a4af7031115a3212739afc56a641f5e6",
+      "byteLength": 5254,
+      "keccak256": "0xb8f3ba0a544360b32c9f0a704168ee93c2960accfc010735c8cbea54941e63d5",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBDirectoryAccessControl.sol",
+      "kind": "compiler-source",
+      "sha256": "41ba502bfdf5228fca322b897d691a27fc993450d1fd259fcf9d591597db9039",
+      "byteLength": 795,
+      "keccak256": "0x963e641f7b02187389fa813ab177b8d0f20a7a543f6ce2306e8d5f9db95d56e3",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBFeeTerminal.sol",
+      "kind": "compiler-source",
+      "sha256": "73badbb790b2a7d153b7417894baef081af6b3e14b38acb8da5d78383dc79302",
+      "byteLength": 3897,
+      "keccak256": "0xaaa9a98ad8967e1ab71b560f1cc07fc53d4900a8d595d53f5fb090d8e004562f",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBFeelessAddresses.sol",
+      "kind": "compiler-source",
+      "sha256": "18a9fed6d5a3d3fa90b26228622c0e3cc13aaccdaf89d9a3ce09f5f38970e954",
+      "byteLength": 3167,
+      "keccak256": "0x13cad5a8ef2daeb7634d93df6c9f6d1681b5344f4cdc89b03bbbd0953802fd8a",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBFeelessHook.sol",
+      "kind": "compiler-source",
+      "sha256": "6fad4a7fb097220c61d2e0b251461b2ef2f59390cd9c124659df61cb04d5bc65",
+      "byteLength": 1940,
+      "keccak256": "0x39b8d6e9798a90f555ea9ca44ade52f2fec5964df8994494bd5f4cfd42853602",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBFundAccessLimits.sol",
+      "kind": "compiler-source",
+      "sha256": "a7c4303a5a043c28534c90dce8fa27f214d619e19e8ce75f03621fdbd82e614f",
+      "byteLength": 4218,
+      "keccak256": "0x0cb50a855cccbbe7c74a1ebc454112b7b63f502badd019895dd936365ac73340",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBMigratable.sol",
+      "kind": "compiler-source",
+      "sha256": "f0313016e04c7fe82347efcb352c7adfac25e747675636344160bf31bcc3c7b9",
+      "byteLength": 1456,
+      "keccak256": "0x9629eed070beccef081b5d4fc6e11ed5c36713adf3a4b3835dbff33a685ec07f",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBMultiTerminal.sol",
+      "kind": "compiler-source",
+      "sha256": "3e0e368fb66b77152f09d03fa520966ec38fe410a87a0f990db1811b4949564b",
+      "byteLength": 2521,
+      "keccak256": "0x8e258ab09d0b1c429236d98a78610b829a9604e88f7c20fc1041535922c8b207",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBPayHook.sol",
+      "kind": "compiler-source",
+      "sha256": "f7a5c64c2877ac6556c901e752ea99605a373bc1effe4eb56fae5665342c009b",
+      "byteLength": 755,
+      "keccak256": "0x08599d439d898566b311bc4bedf7f0050ce25c86e246c43f673f3ab4d2457f21",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBPayerTracker.sol",
+      "kind": "compiler-source",
+      "sha256": "b5489241dc8467e1dcb0280ec99b9b33b1260333733fa4474e49eaf5d59cae17",
+      "byteLength": 891,
+      "keccak256": "0x3001bd8830eb6a679ad8da45228285c01781fa1b5aa69d2ce7c83b754319ebb1",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBPayoutTerminal.sol",
+      "kind": "compiler-source",
+      "sha256": "18fd65538b50afaa155bf26b5cbfd4849a2b116c544b259cbff371b6106803ba",
+      "byteLength": 5943,
+      "keccak256": "0x67353962158e3349be384d3ceec89db2b7525c5f5c7f6c8cb8f98aeb09142e95",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBPermissioned.sol",
+      "kind": "compiler-source",
+      "sha256": "a4bcfa379be45d016ac2a4aef89342e60f6e291142a04937c7fcecbb74c3398e",
+      "byteLength": 352,
+      "keccak256": "0xa43d05c9cc31cd768072e60d4f097d60dfe199469bfc96aa8df29346a15ee4dc",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBPermissions.sol",
+      "kind": "compiler-source",
+      "sha256": "641b5fc8d2a4031417f1cc7758282e3fdfe5f4d22b0a5e2bbed89629d5458283",
+      "byteLength": 3921,
+      "keccak256": "0xb32e13d512a7deb9ba1e47bbc0992817a63caa9e1f2913d6c55b637a57084037",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBPermitTerminal.sol",
+      "kind": "compiler-source",
+      "sha256": "7b172255378df560e6226f2b20c344f787f671aa33b691972a8eb2ba66954c42",
+      "byteLength": 789,
+      "keccak256": "0x5540c746854add8cdc1911f9903a77c9fc97098d8d205075b8baf07485be5cd2",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBPriceFeed.sol",
+      "kind": "compiler-source",
+      "sha256": "7aa463fd73a5ce2044a53b7caa79a79b7e03f7e4a34adc6856e7dc75ec4f5f3f",
+      "byteLength": 485,
+      "keccak256": "0x3a948500b5397c90e926f3bdef9423e7f095f906b23cd1503009802c80bedb41",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBPrices.sol",
+      "kind": "compiler-source",
+      "sha256": "fed12dff60a873f43b84aebf3ea84b850b042031fda08bf7fa5c0a305c308e72",
+      "byteLength": 5513,
+      "keccak256": "0xed5e532f6ee86029a1a4a1ba8b593296f772909a5f9d95da6cc6c595a838446f",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBProjectUriRegistry.sol",
+      "kind": "compiler-source",
+      "sha256": "c007ef967cb34c338ca71b3b8395a772548c11b017e3a5511b6f9e473418c9e4",
+      "byteLength": 644,
+      "keccak256": "0x4342aaa8b9566e17691f69fc71e050350dd89b63f5040f092f115610d7a6c0eb",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBProjects.sol",
+      "kind": "compiler-source",
+      "sha256": "775b527a37a7f0e2f4f4f6082858b0cca45a7b2c8a858dd3698636051c529912",
+      "byteLength": 2800,
+      "keccak256": "0x72c6cbda5a93593e3cc49ef6c4e0848a4b6daa88c188c4192776af86c49911dc",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBRulesetApprovalHook.sol",
+      "kind": "compiler-source",
+      "sha256": "fb27504efd0009f0d928cd1f9acb45e2c87ecf9ff8795f87df12a9d70bbf68e4",
+      "byteLength": 1484,
+      "keccak256": "0x4c6fdc68e73bfb9eec7f448406d3169f9114c6752982620b77fd1f79cea1152a",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBRulesetDataHook.sol",
+      "kind": "compiler-source",
+      "sha256": "d44a7f2b41ced035d7e302742cbaa8d5049ad0c8f51fba2bcbed05c8ace3ad33",
+      "byteLength": 3564,
+      "keccak256": "0xf9aad7d3c7de29e020af4fea893bbaa6a1c0e9a8ae5860331c9f4d68d1a5a99f",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBRulesets.sol",
+      "kind": "compiler-source",
+      "sha256": "5c39156f4476a684d8ec4546d90d7a3c9e4840a028093b2f7fa69591e9615ae0",
+      "byteLength": 8955,
+      "keccak256": "0x37d354e6bb84a16b90fbadb1015605aa7c5a5a9751550959d013d0174b537918",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBSplitHook.sol",
+      "kind": "compiler-source",
+      "sha256": "c7d3310044e10074793c0270fbc82780190443288be46d78ac1a03be4a82f7f5",
+      "byteLength": 855,
+      "keccak256": "0x8155763689f6f51b5c6712ac6f23728b248a8924e69e63f8aa14d01c78ea17f1",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBSplits.sol",
+      "kind": "compiler-source",
+      "sha256": "7458cdf9a0e8969436d0ba9f49f1337804e759ee268e34fc63c3f5d434013952",
+      "byteLength": 1878,
+      "keccak256": "0x9d27fe4d9aa6dcbb24a24ee1fc16e51b51fab1c4ab1eace93981e73f3c4ce636",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBTerminal.sol",
+      "kind": "compiler-source",
+      "sha256": "2abdf446a7d3f3fb0ced99761b453747ed27532fc13486ae17df14661fc9999a",
+      "byteLength": 8779,
+      "keccak256": "0xa3621c12f7c2e33ee38b5de626a5939190d8a12b1e5318a7cd8d398595480cec",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBTerminalStore.sol",
+      "kind": "compiler-source",
+      "sha256": "424ed3c8ff9feeb222e656e9ace67ba9e453f8a5e5dc8682939dabdf18396375",
+      "byteLength": 14055,
+      "keccak256": "0x0ab2fd1b5249ff9dcbb51585df7df8c09af309a984fb0a2378426c7fd1800f43",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBToken.sol",
+      "kind": "compiler-source",
+      "sha256": "d7e75eaa6b3fe52208d53edcdebee7aa4bd2cbfb33b09c46d36abbb199ac82c7",
+      "byteLength": 1955,
+      "keccak256": "0xadb3a7c3c149b60b6b51fdfb2acc814956d8aa9bb94e745c0e907c171b0983f2",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBTokenUriResolver.sol",
+      "kind": "compiler-source",
+      "sha256": "83a8b93c3232882799335d2efb5a170e275b6609ed7b871548829fa46c8051e8",
+      "byteLength": 393,
+      "keccak256": "0xcbdb1448260ebea5937411516957ef199099e34ff997e7f2a617c2898f921994",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/interfaces/IJBTokens.sol",
+      "kind": "compiler-source",
+      "sha256": "ccf5e151a5d3d0deb28ffc0ef66e5b36b5a0fe42ea9d5fd7f434373bb4345ff1",
+      "byteLength": 8359,
+      "keccak256": "0xf7b458ce7e75e1c4daf2052873846b7c99abb098c0d5fbb2ee5d18e132e4a76c",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/libraries/JBCashOuts.sol",
+      "kind": "compiler-source",
+      "sha256": "e890cd30ad9d27f26ae79f241768f42e47f61a921049e357a006f27328015814",
+      "byteLength": 6103,
+      "keccak256": "0x02077cebb8074e7cd800a415ed78cf4c82572d753ed36ab8e6d5f5e40f5856a3",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/libraries/JBConstants.sol",
+      "kind": "compiler-source",
+      "sha256": "1bad0f13dfc325dc72fa16643c1665a07dc67e3d64a096a35d28de5e9d14c530",
+      "byteLength": 2145,
+      "keccak256": "0x5d4b095f3b94c52f89b9cf8a8104de0242497e61f1b32ddc82e78a9ba71a6d0f",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/libraries/JBFees.sol",
+      "kind": "compiler-source",
+      "sha256": "b28eec91ab2b7aaa05a956a633d2423b544a51922bb483ccefa48de6ca2f3ad3",
+      "byteLength": 3255,
+      "keccak256": "0x8f09351a739b9b99258bf6034190fd8bc9e48adc4ece31615dbeaa0f830859aa",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/libraries/JBFixedPointNumber.sol",
+      "kind": "compiler-source",
+      "sha256": "5a4a0444f9602d66dc175d8237c8d190333b4668f70c63bcefc49a271b772291",
+      "byteLength": 723,
+      "keccak256": "0x5e260964f6c2d08b2a2929630fe4f261e8a93f40f0d073ed1a8174dbc3ca2fef",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/libraries/JBHeldFees.sol",
+      "kind": "compiler-source",
+      "sha256": "8206023fa779fd5822d9163954cb0987dd8a9e091a523a0aa839f5c197ee7e3f",
+      "byteLength": 9775,
+      "keccak256": "0x5820432dbebcdc2e4343a2c4ada2b4f545048baa8225c12895f10072082899ba",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/libraries/JBMetadataResolver.sol",
+      "kind": "compiler-source",
+      "sha256": "26901f9e02430485ae92e44abf0d8bbf3919ae2c2c25089dd44f56992ce5b271",
+      "byteLength": 16052,
+      "keccak256": "0x8f671604390274457e0d13806f9ca9aab44c784f4492612771bada213ed261bd",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/libraries/JBPayerTrackerLib.sol",
+      "kind": "compiler-source",
+      "sha256": "3e5704a7ea01f89c72b6f3f034bfcf008d2e54d95e4423a6ad5fcc77bee08d9c",
+      "byteLength": 1859,
+      "keccak256": "0x5a13bae1bbbf4f7d538dfe203e653b870041e53e3fe45a3d14b7f46530fae118",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/libraries/JBPayoutSplitGroupLib.sol",
+      "kind": "compiler-source",
+      "sha256": "793188915975f2386bc578c659bc375bb1cbefd168cc4f3f7773c52fe52742b6",
+      "byteLength": 14111,
+      "keccak256": "0x4bbf3c970e4efc0edaa0e71ea4f9e17acea4492834efa0540dbed7177adc2b88",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/libraries/JBRulesetMetadataResolver.sol",
+      "kind": "compiler-source",
+      "sha256": "b92c09c2ad45d99e88d2847167845d29aa1302da013728783c5a95ba9cfe30a8",
+      "byteLength": 8158,
+      "keccak256": "0xbd3b117f9457dbe55bd29a2daf368a682c0ab25cbedc0139f309809a4ab646c5",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/libraries/JBSplitGroupIds.sol",
+      "kind": "compiler-source",
+      "sha256": "4a6c7400fb8202e2119f3a5dd145d1bb338d384bede692ccf67edb3e222a098d",
+      "byteLength": 437,
+      "keccak256": "0x11bf07e3f5cfef20b86ac5e242bb174a878cfcb95fde839b663011acc5ad388a",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/libraries/JBSurplus.sol",
+      "kind": "compiler-source",
+      "sha256": "4db334d1d570d47a01242a2e243033ee322e420be8401c8c0a1edc1020bf253a",
+      "byteLength": 2030,
+      "keccak256": "0xc8a3f9b8081d106742a18bb0988983e1beb43a9df3f8d2e6cd3833c0acd1f3ea",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBAccountingContext.sol",
+      "kind": "compiler-source",
+      "sha256": "cb71c859470a01df178329fd622c143768915989142239546ef98c217c461487",
+      "byteLength": 785,
+      "keccak256": "0xf53e975ce2632558a95d0a57679dbb8afff984d06daaa530cd4c442e467c3403",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBAfterCashOutRecordedContext.sol",
+      "kind": "compiler-source",
+      "sha256": "ef2b24b2c17186cd3ade0afda2bbdccab5654e9168acfea50a46a5bdf4e35a05",
+      "byteLength": 1545,
+      "keccak256": "0x8cd6d13c98bd825d7e61cb3b2f5cbf56e77f9a2f85eaa0e27d82f1fb8d5af4f7",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBAfterPayRecordedContext.sol",
+      "kind": "compiler-source",
+      "sha256": "e620f235eb5943629f6f18f767424af7e986a42321f4869bfe0328c6eaf83ff5",
+      "byteLength": 1446,
+      "keccak256": "0xcf1761f48e4cbd6eeeb64bb19e434eff50a7f666b2116657f88f63d19620c6de",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBBeforeCashOutRecordedContext.sol",
+      "kind": "compiler-source",
+      "sha256": "76e6b41e5002afd8f3121605c8e692a2b56fcc4f6b0a7505c5c2f162769248a1",
+      "byteLength": 1905,
+      "keccak256": "0xd3af6ce6d8ef731aa746e08de846f0422b34a568a3d1000fb8f85a32ba5701b0",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBBeforePayRecordedContext.sol",
+      "kind": "compiler-source",
+      "sha256": "7a9c5747183b3675b5bd9f8d118d4988ccc7f258483bb0f98e4f6613c3876d6b",
+      "byteLength": 1303,
+      "keccak256": "0xa5e4dd0ffa54c8e56f3bb6a437b2e13ef8728ee15aee3d7cb1d0dc96317e75dd",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBCashOutHookSpecification.sol",
+      "kind": "compiler-source",
+      "sha256": "172daab998c3c49b2c741dd7c811d39e2c6017f5d715e7adc74887d0739ce78f",
+      "byteLength": 638,
+      "keccak256": "0x1579c160a19e68eb06158f56120acf06b8aa4bbbc9836c80fabbb3d2e57ccf3d",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBCurrencyAmount.sol",
+      "kind": "compiler-source",
+      "sha256": "640c5782ba6a72080e4d7bb2275b5915c3ea6ab2135a82e0160af06535561d64",
+      "byteLength": 358,
+      "keccak256": "0x7f321bbcbd13abfbc8f0d08a5adaaf8ef312db5bb899012fcffb6170fbb962a9",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBFee.sol",
+      "kind": "compiler-source",
+      "sha256": "b951f86319724414f4f64fe1fc1b49ead8a96fa857f813326e7d4e54ec2aa31d",
+      "byteLength": 702,
+      "keccak256": "0x354a99f21d8fa1e306886b0163c8b2daed66d32a2b2bcf6eb1dcefecfc7ef471",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBFundAccessLimitGroup.sol",
+      "kind": "compiler-source",
+      "sha256": "a616af4915694160de73428a2d151d1e1355b7f30898d7524ec992d84a32a7a6",
+      "byteLength": 1392,
+      "keccak256": "0x7e62015441edc056c3959fb0e5d0b59a1b209a91ce4beab9d3f6c25e02daf0c0",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBPayHookSpecification.sol",
+      "kind": "compiler-source",
+      "sha256": "fb84cc11fa1ab2b5bc4bc4d15c6c4797ceff48796ff92aa2f6417b3d9015f3ef",
+      "byteLength": 609,
+      "keccak256": "0x28f565b626774c36a990ac999f268fbaf9d7f7861e862fab1fb8301f2534e8d1",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBPermissionsData.sol",
+      "kind": "compiler-source",
+      "sha256": "c9638359f9d88f7050135b5739fad7ba311de33b63c8e79d2428ea7ba8a5c396",
+      "byteLength": 566,
+      "keccak256": "0x9cb75b1171657be08950f9fc9f6c2bcb2496f618de4ab932141d424dec29d9df",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBRuleset.sol",
+      "kind": "compiler-source",
+      "sha256": "b4e9f6b719cad901241eb6014b5d118dbc51f307308d0435ba60569970adf5bd",
+      "byteLength": 2145,
+      "keccak256": "0xd03f45345597fca43effe3bc593572c989f4294d909505e331cbd2640a801d23",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBRulesetConfig.sol",
+      "kind": "compiler-source",
+      "sha256": "4bbbdb8562442b85175ad2b3f30ff3dc74958bd109d9b018d2b0a871cf9bf372",
+      "byteLength": 1863,
+      "keccak256": "0x812ca14f18e228fde272c0caf56a59b71302bfb4f9c514ac6fb0989ab8e1c48e",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBRulesetMetadata.sol",
+      "kind": "compiler-source",
+      "sha256": "006960e83ea57928780f3a87c0fefa9066709de9ae3c53f228b7584606454853",
+      "byteLength": 3199,
+      "keccak256": "0xbb9bda3b7ebb6796fa091ee6ce3182ad2a03dc35b89df0fb1107fae7c26ae0b4",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBRulesetWeightCache.sol",
+      "kind": "compiler-source",
+      "sha256": "9f6c02ee752aece2a12b3ae512a649fe64b9c5508582214ca6afcccfaaaff835",
+      "byteLength": 284,
+      "keccak256": "0x523d7c561f4040820c411309d10ee117ad3bf9ae30353d9b5fbe827f15411aaf",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBRulesetWithMetadata.sol",
+      "kind": "compiler-source",
+      "sha256": "214e10e5591b09d54888674b1968c84922dbad01efb6f1c174f17b0a6c059d9b",
+      "byteLength": 340,
+      "keccak256": "0x1bcfadf20488f6df65227f8d4d0fbf9b7539456a2389567f7fe3900d23289bc3",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBSingleAllowance.sol",
+      "kind": "compiler-source",
+      "sha256": "32ff43c6eec3ad79a813c5753f07506c2c2927c35e8caa19f5be9b4b23f3ae69",
+      "byteLength": 697,
+      "keccak256": "0x8782e1148524829a4f154442744c25963d0faba623c8a9583eaa8bc2290a040d",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBSplit.sol",
+      "kind": "compiler-source",
+      "sha256": "0ee3155ddb48410c9e8168f9868b6615d3c713bd918747ab7b7a6f981502eb3c",
+      "byteLength": 2643,
+      "keccak256": "0xf50ba85591d86076ff127e97af2c4b7d1a1be3e20e25d784b64591697d71ab52",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBSplitGroup.sol",
+      "kind": "compiler-source",
+      "sha256": "ec97e8d22922e79a73e3f19f1b6d90e2f5607a31e06be20c9c1fb13c8946579a",
+      "byteLength": 375,
+      "keccak256": "0x8dc98fa9e730bee8bcc0a8acf1bc4db1c9b0edf307d969c9c9caa4d6b8d856d9",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBSplitHookContext.sol",
+      "kind": "compiler-source",
+      "sha256": "708b7fbdaa01e014e7e330e15e130abe41e02e16e1ad8828353cdfb4602f70cf",
+      "byteLength": 755,
+      "keccak256": "0xa2246f4960ec2b24db3fbfce5d59782cdb9a8fb3c3f832a2c39ddc92859ff170",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBTerminalConfig.sol",
+      "kind": "compiler-source",
+      "sha256": "edf9a16e641e81be0852b6b577f428ce6ac70d4bf6c12d80fd24e47c977d97dc",
+      "byteLength": 444,
+      "keccak256": "0x9e31505080d3754b6d7db96095b0545930ef6dbc035b91fcc32fdc76a0e7c2a5",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "src/structs/JBTokenAmount.sol",
+      "kind": "compiler-source",
+      "sha256": "bfd9e2becf4bac41fcce3e4fae2b1eda1572805fcd28fd25bbdc8471edb0abbf",
+      "byteLength": 578,
+      "keccak256": "0xc61593d33d5ec30e695d382948a1b944d01e29a8f2bfd29f75ecebcdbc7816de",
+      "spdxLicense": "MIT"
+    },
+    {
+      "path": "test/mock/MockERC20.sol",
+      "kind": "compiler-source",
+      "sha256": "be4ae551670dacd5b3d48571eb30a8db68602c3ae09586238abb915ff8b601d3",
+      "byteLength": 435,
+      "keccak256": "0xef0304dafd6af24652d512bbb08405d8f1fea2b8d478371bc6d4442c5432a935",
+      "spdxLicense": "MIT"
+    }
+  ]
+}

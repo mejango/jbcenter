@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 1,
+  "contractName": "SafeWebAuthnSignerProxy",
+  "deploymentStatus": "undeployed",
+  "source": {
+    "repository": "https://github.com/safe-fndn/safe-modules",
+    "commit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+    "path": "modules/passkey/contracts/SafeWebAuthnSignerProxy.sol",
+    "sha256": "315a714a806c2acd8873440a25968d4417586691423da3e77d42b5a229421cdc"
+  },
+  "compiler": {
+    "version": "0.8.26+commit.8a97fa7a",
+    "evmVersion": "paris",
+    "optimizer": {
+      "enabled": true,
+      "runs": 10000000
+    },
+    "viaIR": true,
+    "metadata": {
+      "bytecodeHash": "ipfs",
+      "appendCBOR": true
+    }
+  },
+  "compilerInputSha256": "e8f00487decbdce768bb681d4f84b16d6be689ed04f433afafcaefa2048a30eb",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "singleton",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "x",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "y",
+          "type": "uint256"
+        },
+        {
+          "internalType": "P256.Verifiers",
+          "name": "verifiers",
+          "type": "uint176"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "stateMutability": "payable",
+      "type": "fallback"
+    }
+  ],
+  "bytecode": "0x610100346100ad57601f6101b538819003918201601f19168301916001600160401b038311848410176100b2578084926080946040528339810103126100ad578051906001600160a01b03821682036100ad5760208101516040820151606090920151926001600160b01b03841684036100ad5760805260a05260c05260e05260405160ec90816100c98239608051816082015260a05181604d015260c051816027015260e0518160010152f35b600080fd5b634e487b7160e01b600052604160045260246000fdfe7f000000000000000000000000000000000000000000000000000000000000000060b63601527f000000000000000000000000000000000000000000000000000000000000000060a03601527f000000000000000000000000000000000000000000000000000000000000000036608001523660006080376000806056360160807f00000000000000000000000000000000000000000000000000000000000000005af43d600060803e60b1573d6080fd5b3d6080f3fea264697066735822122065c838c624ba438597bccb5b928a77c7d69c2eb18ae974c7fc6ee5597e1f2c6b64736f6c634300081a0033",
+  "deployedBytecode": "0x7f000000000000000000000000000000000000000000000000000000000000000060b63601527f000000000000000000000000000000000000000000000000000000000000000060a03601527f000000000000000000000000000000000000000000000000000000000000000036608001523660006080376000806056360160807f00000000000000000000000000000000000000000000000000000000000000005af43d600060803e60b1573d6080fd5b3d6080f3fea264697066735822122065c838c624ba438597bccb5b928a77c7d69c2eb18ae974c7fc6ee5597e1f2c6b64736f6c634300081a0033",
+  "immutableReferences": {
+    "226": [
+      {
+        "length": 32,
+        "start": 130
+      }
+    ],
+    "229": [
+      {
+        "length": 32,
+        "start": 77
+      }
+    ],
+    "232": [
+      {
+        "length": 32,
+        "start": 39
+      }
+    ],
+    "236": [
+      {
+        "length": 32,
+        "start": 1
+      }
+    ]
+  },
+  "metadata": {
+    "compiler": {
+      "version": "0.8.26+commit.8a97fa7a"
+    },
+    "language": "Solidity",
+    "output": {
+      "abi": [
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "singleton",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "x",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "y",
+              "type": "uint256"
+            },
+            {
+              "internalType": "P256.Verifiers",
+              "name": "verifiers",
+              "type": "uint176"
+            }
+          ],
+          "stateMutability": "nonpayable",
+          "type": "constructor"
+        },
+        {
+          "stateMutability": "payable",
+          "type": "fallback"
+        }
+      ],
+      "devdoc": {
+        "custom:security-contact": "bounty@safe.global",
+        "details": "A specialized proxy to a {SafeWebAuthnSignerSingleton} signature validator implementation for Safe accounts. Using a proxy pattern for the signature validator greatly reduces deployment gas costs.",
+        "kind": "dev",
+        "methods": {
+          "constructor": {
+            "params": {
+              "singleton": "The {SafeWebAuthnSignerSingleton} implementation to proxy to.",
+              "verifiers": "The P-256 verifiers used for ECDSA signature verification.",
+              "x": "The x coordinate of the P-256 public key of the WebAuthn credential.",
+              "y": "The y coordinate of the P-256 public key of the WebAuthn credential."
+            }
+          }
+        },
+        "title": "Safe WebAuthn Signer Proxy",
+        "version": 1
+      },
+      "userdoc": {
+        "kind": "user",
+        "methods": {
+          "constructor": {
+            "notice": "Creates a new WebAuthn Safe Signer Proxy."
+          }
+        },
+        "version": 1
+      }
+    },
+    "settings": {
+      "compilationTarget": {
+        "contracts/SafeWebAuthnSignerProxy.sol": "SafeWebAuthnSignerProxy"
+      },
+      "evmVersion": "paris",
+      "libraries": {},
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "optimizer": {
+        "enabled": true,
+        "runs": 10000000
+      },
+      "remappings": [],
+      "viaIR": true
+    },
+    "sources": {
+      "contracts/SafeWebAuthnSignerProxy.sol": {
+        "keccak256": "0xa0d9a9f54a0e39f307a77c4a71c2ff194ba334580b03573d57454435f6c3429b",
+        "license": "LGPL-3.0-only",
+        "urls": [
+          "bzz-raw://b95e7ce281507095eb72b854c48e65c05dbaacf4ca8eb7aa91b1ee7261071ea9",
+          "dweb:/ipfs/QmSw8CHAdNpQLsrYZaFNKdJUmaGpbipyjoDp649Ev8YLXE"
+        ]
+      },
+      "contracts/interfaces/IP256Verifier.sol": {
+        "keccak256": "0x570fcadf7b6c1fba1dd426a442862aab2685e756b20d39555abe09822d0644cc",
+        "license": "LGPL-3.0-only",
+        "urls": [
+          "bzz-raw://a8f14a0788034543facfc50e94f92a2ac911cf029d57352c787d9ecbcc8313ef",
+          "dweb:/ipfs/QmQoutRcoQ7j9mmVHVxjMESVLLPzwsYvqcWkcSD58cwB2F"
+        ]
+      },
+      "contracts/libraries/P256.sol": {
+        "keccak256": "0x8bd55e6e14db10526d40f74b5955dfda30cf105cb097807a1a47dab26e06acb6",
+        "license": "LGPL-3.0-only",
+        "urls": [
+          "bzz-raw://350cab103413118a681e415bcfc219aa42ef88df67de633f5a3dbcb59cf5fe05",
+          "dweb:/ipfs/QmSrZ8mUHQ98EWdCZoyN4LuPVHSTdXJ6aRd2uHqq9knwyx"
+        ]
+      },
+      "contracts/libraries/WebAuthn.sol": {
+        "keccak256": "0x77e5a4f240be46c0264cd7a1c043ed58e34cced024e9afd9904c3067e814c8f6",
+        "license": "LGPL-3.0-only",
+        "urls": [
+          "bzz-raw://54b8a1e15049faa7af567aac2b1549e4243b392704d37d793c81776c333c7f50",
+          "dweb:/ipfs/QmQJWEM2e4oeyqfiatbctWzbb7z17DmvQEZBgHEtMMFTS2"
+        ]
+      }
+    },
+    "version": 1
+  }
+}

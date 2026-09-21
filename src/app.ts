@@ -5,6 +5,7 @@ import Busboy from "busboy";
 import { Readable, Transform } from "node:stream";
 import { isHex, size, verifyMessage, type Hex } from "viem";
 import { authenticate } from "./auth.js";
+import { FAVICON_SVG } from "./branding.js";
 import {
   DeploymentVerificationError,
   type DeploymentVerifier,
@@ -16,7 +17,17 @@ import {
   signingMessage,
 } from "./intent.js";
 import { extractMetadata } from "./metadata.js";
+import {
+  HOMEPAGE_CSS,
+  HOMEPAGE_CSS_PATH,
+  HOMEPAGE_HEADERS,
+  HOMEPAGE_HTML,
+  HOMEPAGE_JS_PATH,
+} from "./homepage.js";
+import { HOMEPAGE_JS } from "./directoryClient.js";
 import { Metrics } from "./observability.js";
+import { createIpfsGateway } from "./ipfsGateway.js";
+import type { IpfsDiskCache } from "./ipfsCache.js";
 import {
   parseRpcRequest,
   RPC_BODY_LIMIT,
@@ -26,49 +37,28 @@ import {
 } from "./rpc.js";
 import {
   PIN_LIMITS,
-  safeIpfsPath,
   type PinResult,
   type PinningService,
 } from "./ipfs.js";
 import { ConflictError, StorageLimitError, type Store } from "./store.js";
+import { sponsorFamily, reservationWei, type SponsorRuntime } from "./sponsor/policy.js";
 import type { JbcenterEnv } from "./types.js";
+import { mountRestSite, type RestSite } from "./rest/site.js";
+import { llmsIndex } from "./llms.js";
+import { JUICESCAN } from "./journeyGraph.js";
+import { originsForEnvironment } from "./firstParty.js";
+export { originsForEnvironment } from "./firstParty.js";
 
 const MAX_BODY_BYTES = 16_800_000;
-const PRODUCTION_ORIGINS = [
-  "https://juicebox.money",
-  "https://revnet.money",
-  "https://eth.shop",
-  "https://succulent.money",
-  "https://homerun.money",
-] as const;
-const DEV_ORIGINS = [
-  "https://dev.juicebox.money",
-  "https://dev.revnet.money",
-  "http://localhost:3001",
-  "http://localhost:3002",
-  "https://dev.eth.shop",
-  "http://localhost:3003",
-  "https://dev.succulent.money",
-  "http://localhost:3004",
-  "http://localhost:3010",
-  "http://localhost:3014",
-] as const;
-
-export function originsForEnvironment(environment = process.env.RAILWAY_ENVIRONMENT_NAME) {
-  return environment === "dev" ? DEV_ORIGINS : PRODUCTION_ORIGINS;
-}
 
 export const ALLOWED_ORIGINS = originsForEnvironment();
 const PIN_WINDOW_SECONDS = 10 * 60;
 const PIN_PER_CALLER = 10;
 const PIN_PER_SITE = 200;
-const IPFS_GATEWAYS = [
-  "https://gateway.pinata.cloud/ipfs",
-  "https://dweb.link/ipfs",
-  "https://ipfs.io/ipfs",
-] as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const TX_HASH = /^0x[0-9a-f]{64}$/iu;
+/** Both sponsored-deploy refusals reset on a rolling day. */
+const RETRY_AFTER_SECONDS = "86400";
 
 class BadRequest extends Error {}
 class PayloadTooLarge extends Error {}
@@ -76,14 +66,17 @@ class UnsupportedMedia extends Error {}
 class PinFailed extends Error {}
 
 export type AppOptions = {
+  rest?: RestSite;
   allowedOrigins?: readonly string[];
   deploymentVerifier?: DeploymentVerifier;
   requestLimitPerMinute?: number;
   maxIntentsPerClient?: number;
   maxStorageBytesPerClient?: number;
   metricsToken?: string;
+  metrics?: Metrics;
   pinning?: PinningService;
   gatewayFetch?: typeof fetch;
+  ipfsCache?: IpfsDiskCache;
   maxMediaBytes?: number;
   rpc?: RpcGateway;
   rpcRequestLimitPerMinute?: number;
@@ -91,6 +84,9 @@ export type AppOptions = {
   /** Keyless RPC from any origin (IPFS-hosted sites like juicescan): per-IP and shared budgets. */
   rpcPublicRequestLimitPerMinute?: number;
   rpcPublicSiteLimitPerMinute?: number;
+  publishPerPublisherPerDay?: number;
+  publishPerIpPerHour?: number;
+  sponsor?: SponsorRuntime;
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -284,26 +280,12 @@ async function streamMedia(
   });
 }
 
-const SAFE_GATEWAY_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Expose-Headers": "Accept-Ranges, Content-Length, Content-Range, ETag",
-  "Content-Security-Policy": "default-src 'none'; sandbox",
-  "Cross-Origin-Resource-Policy": "cross-origin",
-  "X-Content-Type-Options": "nosniff",
-} as const;
-
-function downloadable(type: string): boolean {
-  return /^(?:text\/(?:html|xml|css|javascript|ecmascript)|application\/(?:xhtml\+xml|xml|javascript|ecmascript|pdf|wasm))/iu.test(
-    type,
-  );
-}
-
 export function createApp(
   store: Store,
   options: AppOptions = {},
 ): Hono<JbcenterEnv> {
   const app = new Hono<JbcenterEnv>();
-  const metrics = new Metrics();
+  const metrics = options.metrics ?? new Metrics();
   const allowedOrigins = options.allowedOrigins ?? ALLOWED_ORIGINS;
 
   app.onError((error, c) => {
@@ -349,6 +331,59 @@ export function createApp(
   });
 
   app.use("*", metrics.middleware());
+  // Dynamic responses stay out of intermediary caches; public assets opt in below.
+  app.use("*", async (c, next) => {
+    c.header("Cache-Control", "no-store");
+    await next();
+  });
+
+  // DNS may be attached before the wallet runtime is activated. Reserve its credential
+  // origin even then: legacy Accounts, Para and IPFS must never execute on this host.
+  app.use('*', async (c, next) => {
+    const hostname = new URL(c.req.url).hostname;
+    const wireHostname = c.req.header('Host')?.toLowerCase().split(':')[0];
+    if (!options.rest?.wallet && [hostname, wireHostname].includes('wallet.juicebox.center')) {
+      return c.text('Juicebox wallet setup is in progress. Please try again later.', 503, {
+        'Cache-Control': 'no-store', 'Retry-After': '60', 'Referrer-Policy': 'no-referrer',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+      });
+    }
+    await next();
+  });
+
+  if (options.rest) mountRestSite(app, options.rest);
+
+  app.get("/", (c) => c.html(HOMEPAGE_HTML, 200, HOMEPAGE_HEADERS));
+  app.get("/favicon.svg", (c) => c.body(FAVICON_SVG, 200, {
+    "Content-Type": "image/svg+xml; charset=utf-8",
+    "Cache-Control": "public, max-age=300",
+    "X-Content-Type-Options": "nosniff",
+  }));
+  app.get("/llms.txt", (c) => c.text(llmsIndex(options.rest?.audience), 200, {
+    "Cache-Control": "public, max-age=300",
+    "X-Content-Type-Options": "nosniff",
+  }));
+  // Stable cross-site links follow the same reviewed deployment as the directory.
+  app.get("/inspect/:chain/:project", (c) => {
+    const chain = c.req.param("chain");
+    const project = c.req.param("project");
+    if (!["eth", "op", "base", "arb", "sep", "opsep", "basesep", "arbsep"].includes(chain)
+      || !/^[1-9]\d{0,15}$/.test(project)
+      || !Number.isSafeInteger(Number(project))) {
+      return c.text("Use a supported chain slug and a positive safe-integer project ID.", 400);
+    }
+    c.header("Cache-Control", "public, max-age=300");
+    return c.redirect(`${JUICESCAN}#${chain}:${project}`, 302);
+  });
+  app.get(HOMEPAGE_CSS_PATH, (c) => c.body(HOMEPAGE_CSS, 200, {
+    ...HOMEPAGE_HEADERS,
+    "Content-Type": "text/css; charset=UTF-8",
+  }));
+  app.get(HOMEPAGE_JS_PATH, (c) => c.body(HOMEPAGE_JS, 200, {
+    ...HOMEPAGE_HEADERS,
+    "Content-Type": "application/javascript; charset=UTF-8",
+  }));
 
   app.get("/healthz", (c) => c.json({ ok: true }));
 
@@ -367,111 +402,11 @@ export function createApp(
     return c.text(metrics.render(), 200, { "Content-Type": "text/plain; version=0.0.4" });
   });
 
-  app.get("/ipfs/*", async (c) => {
-    const path = safeIpfsPath(c.req.path.slice("/ipfs/".length));
-    if (!path) {
-      return c.json(
-        { error: { code: "bad_request", message: "IPFS path is invalid" } },
-        400,
-        SAFE_GATEWAY_HEADERS,
-      );
-    }
-    const etag = `"ipfs:${path}"`;
-    const cache = "public, max-age=31536000, s-maxage=31536000, immutable";
-    const headers = { ...SAFE_GATEWAY_HEADERS, "Cache-Control": cache, ETag: etag };
-    const range = c.req.header("range");
-    if (
-      !range &&
-      c.req.header("if-none-match")?.split(",").map((value) => value.trim()).includes(etag)
-    ) {
-      return new Response(null, { status: 304, headers });
-    }
-
-    const gatewayFetch = options.gatewayFetch ?? fetch;
-    let upstream: Response | null = null;
-    let lastStatus = 502;
-    for (const gateway of IPFS_GATEWAYS) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10_000);
-      try {
-        const response = await gatewayFetch(`${gateway}/${path}`, {
-          headers: {
-            ...(range ? { Range: range } : {}),
-            ...(c.req.header("if-range") ? { "If-Range": c.req.header("if-range")! } : {}),
-          },
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (response.ok) {
-          upstream = response;
-          break;
-        }
-        lastStatus = response.status;
-        await response.body?.cancel();
-      } catch {
-        // Try the next independent public gateway.
-      } finally {
-        clearTimeout(timeout);
-      }
-    }
-    if (!upstream) {
-      return new Response(
-        JSON.stringify({
-          error: { code: "gateway_unavailable", message: "IPFS gateways are unavailable" },
-        }),
-        {
-          status: lastStatus,
-          headers: { ...SAFE_GATEWAY_HEADERS, "Content-Type": "application/json" },
-        },
-      );
-    }
-    const declaredLength = Number(upstream.headers.get("content-length") ?? 0);
-    if (!Number.isFinite(declaredLength) || declaredLength < 0) {
-      return c.json(
-        { error: { code: "bad_gateway", message: "IPFS response is invalid" } },
-        502,
-        SAFE_GATEWAY_HEADERS,
-      );
-    }
-    if (declaredLength > PIN_LIMITS.gateway) {
-      return c.json(
-        { error: { code: "content_too_large", message: "IPFS asset is too large" } },
-        413,
-        SAFE_GATEWAY_HEADERS,
-      );
-    }
-
-    const upstreamType = upstream.headers.get("content-type") ?? "application/octet-stream";
-    const download = downloadable(upstreamType);
-    let streamed = 0;
-    const body = upstream.body?.pipeThrough(
-      new TransformStream<Uint8Array, Uint8Array>({
-        transform(chunk, controller) {
-          streamed += chunk.byteLength;
-          if (streamed > PIN_LIMITS.gateway) {
-            controller.error(new Error("IPFS asset exceeded the gateway limit"));
-            return;
-          }
-          controller.enqueue(chunk);
-        },
-      }),
-    );
-    return new Response(body, {
-      status: upstream.status,
-      headers: {
-        ...headers,
-        "Content-Type": download ? "application/octet-stream" : upstreamType,
-        ...(download ? { "Content-Disposition": "attachment; filename=ipfs-asset" } : {}),
-        ...(declaredLength > 0 ? { "Content-Length": String(declaredLength) } : {}),
-        ...(upstream.headers.get("accept-ranges") || upstream.status === 206
-          ? { "Accept-Ranges": upstream.headers.get("accept-ranges") ?? "bytes" }
-          : {}),
-        ...(upstream.headers.get("content-range")
-          ? { "Content-Range": upstream.headers.get("content-range")! }
-          : {}),
-      },
-    });
+  const ipfsGateway = createIpfsGateway({
+    ...(options.gatewayFetch ? { fetcher: options.gatewayFetch } : {}),
+    ...(options.ipfsCache ? { cache: options.ipfsCache } : {}),
   });
+  app.on(["GET", "HEAD"], "/ipfs/*", (c) => ipfsGateway(c.req.raw));
 
   app.use("/v1/*", async (c, next) => {
     const origin = c.req.header("origin");
@@ -673,6 +608,12 @@ export function createApp(
       signature: signed,
     });
     if (!valid) throw new BadRequest("signature does not match publisher and project intent");
+    const ip = await store.consumeRequest(`publish:ip:${callerIp(c)}`, options.publishPerIpPerHour ?? 60, 3600);
+    const who = await store.consumeRequest(`publish:${publisher.toLowerCase()}`, options.publishPerPublisherPerDay ?? 20, 86_400);
+    if (!ip.allowed || !who.allowed) {
+      c.header("Retry-After", who.allowed ? "3600" : "86400");
+      return c.json({ error: { code: "publish_limit", message: "Publish limit reached; try again later" } }, 429);
+    }
     const result = await store.createIntent({
       ...extractMetadata(envelope.jb),
       contentHash: hash,
@@ -739,6 +680,54 @@ export function createApp(
     await options.deploymentVerifier.verify(claim);
     const deployment = await store.recordDeployment(id, claim);
     return c.json(deployment, 201);
+  });
+
+  app.post("/v1/intents/:id/deploy", async (c) => {
+    const sponsor = options.sponsor;
+    if (!sponsor || sponsor.policy.paused) {
+      return c.json(
+        { error: { code: "unavailable", message: "Sponsored deploys are paused" } },
+        503,
+      );
+    }
+    const id = c.req.param("id");
+    if (!UUID.test(id)) throw new BadRequest("intent id is invalid");
+    const intent = await store.getIntent(id);
+    if (!intent) return c.json({ error: { code: "not_found", message: "Intent not found" } }, 404);
+    if (intent.deploys.length) return c.json({ deploys: intent.deploys }, 200);
+    if (intent.status !== "undeployed") throw new BadRequest(`intent is ${intent.status}`);
+    if (!sponsorFamily(intent.envelope.chainIds)) throw new BadRequest("intent chains are not sponsorable");
+    const requester = c.get("client");
+    const reserved = reservationWei(sponsor.policy, intent.envelope.chainIds.length);
+    const spent = await store.sponsoredWeiSince(new Date(Date.now() - 86_400_000));
+    // The budget is checked before the quota so a budget refusal costs the requester nothing.
+    if (spent + reserved > sponsor.policy.dailyBudgetWei) {
+      return c.json(
+        { error: { code: "sponsor_budget", message: "The daily sponsorship budget is spent" } },
+        429,
+        { "Retry-After": RETRY_AFTER_SECONDS },
+      );
+    }
+    const quota = await store.consumeRequest(
+      `deploy:${requester}`,
+      sponsor.policy.perRequesterPerDay,
+      86_400,
+    );
+    if (!quota.allowed) {
+      return c.json(
+        { error: { code: "sponsor_quota", message: "Daily sponsored deploy quota reached" } },
+        429,
+        { "Retry-After": RETRY_AFTER_SECONDS },
+      );
+    }
+    const deploys = await store.queueDeploys(
+      id,
+      intent.envelope.chainIds,
+      requester,
+      reserved / BigInt(intent.envelope.chainIds.length),
+    );
+    sponsor.kick();
+    return c.json({ deploys }, 202);
   });
 
   return app;

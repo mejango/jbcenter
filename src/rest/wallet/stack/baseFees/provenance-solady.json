@@ -1,0 +1,28 @@
+{
+  "repository": "https://github.com/Vectorized/solady",
+  "commit": "5315d937d79b335c668896d7533ac603adac5315",
+  "license": "MIT",
+  "files": [
+    {
+      "local": "LibZip.sol",
+      "upstream": "src/utils/LibZip.sol",
+      "url": "https://raw.githubusercontent.com/Vectorized/solady/5315d937d79b335c668896d7533ac603adac5315/src/utils/LibZip.sol",
+      "sha256": "0a34cf3ff06ca525212bcecb31720ea5213d89e292ef3d47ff6c6b8a0ddb3b44"
+    },
+    {
+      "local": "LICENSE-Solady.txt",
+      "upstream": "LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/Vectorized/solady/5315d937d79b335c668896d7533ac603adac5315/LICENSE.txt",
+      "sha256": "d6d82ff512a8e99b20c90f754b6bcd7e68225c44a29022cb14d68549f7d6ee44"
+    }
+  ],
+  "referenceWrapper": {
+    "local": "BaseSignedFeeReference.sol",
+    "origin": "Center test-only wrapper; not an upstream oracle artifact or deployment",
+    "compiler": "solc 0.8.26",
+    "evmVersion": "cancun",
+    "optimizer": { "enabled": true, "runs": 200 },
+    "metadata": "disabled",
+    "input": "Full signed transaction envelope with no +68 signature padding"
+  }
+}

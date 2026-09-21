@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "repo": "https://github.com/eth-infinitism/account-abstraction",
+    "commit": "59edfbc5e9862d58ebda3429c9890c3497a1d433",
+    "artifactSha256": "952e7ce1e69354b9e80d0e68e0cbcc64f9304dd25c17170c3732114ea5421b04",
+    "artifactPath": "package/artifacts/EntryPoint.json",
+    "artifactUrl": "https://registry.npmjs.org/@account-abstraction/contracts/-/contracts-0.7.0.tgz",
+    "packageName": "@account-abstraction/contracts",
+    "packageVersion": "0.7.0"
+  },
+  "tarballSha256": "b4bf491250a21319635eecd14ce78784623d53a9135db7049a08789b1f134169",
+  "artifactRawRuntimeCodeHash": "0x9e463f940dd6b9cebd7a95b349fe517a73f00539ae0cc4f8ecace4640fb2096f",
+  "runtimeCodeHash": "0x8db5ff695839d655407cc8490bb7a5d82337a86a6b39c3f0258aa6c3b582fc58",
+  "runtimeBytes": 16035,
+  "sourcePins": [
+    {
+      "path": "contracts/utils/Exec.sol",
+      "sha256": "8ccaa8a5230a7e7722d25f070ab6e1ce9ada315d9649da34cce3a061c1b985cc",
+      "npmMatchesVerifiedSource": true,
+      "gitBlob": "ee8d71ac0d8b227b644b8282705814fea79782ec",
+      "githubCommitMatchesNpm": true
+    },
+    {
+      "path": "contracts/core/Helpers.sol",
+      "sha256": "4ec549dbe1685def37cbe8699eb5376ce4466dcd0c6ffffd7c0d7e0f7a5b89a3",
+      "npmMatchesVerifiedSource": true,
+      "gitBlob": "8579008613a5b9f73a791e3cdf388d09fd094b4f",
+      "githubCommitMatchesNpm": true
+    },
+    {
+      "path": "contracts/core/EntryPoint.sol",
+      "sha256": "ddad73961da5bad85f0656d9c8e6e729d36a02854198765d335fb59205a55b9e",
+      "npmMatchesVerifiedSource": true,
+      "gitBlob": "44501524df76c23eef6e60fda97dd9440fad01b7",
+      "githubCommitMatchesNpm": true
+    },
+    {
+      "path": "contracts/core/NonceManager.sol",
+      "sha256": "fbb29dadcaaa4df16a38d5bbe642737034b2a3b8318a7d8c75b4936892b10366",
+      "npmMatchesVerifiedSource": true,
+      "gitBlob": "7bef62e99ddbad7d6195bcf77bf22161395ac638",
+      "githubCommitMatchesNpm": true
+    },
+    {
+      "path": "contracts/core/StakeManager.sol",
+      "sha256": "56ef93b31c8fb80d1806c69aad5d65f86951df0b145664b5c49018958239b644",
+      "npmMatchesVerifiedSource": true,
+      "gitBlob": "f90210b7e38f907a5ad801c84efe7678d17472cd",
+      "githubCommitMatchesNpm": true
+    },
+    {
+      "path": "contracts/core/SenderCreator.sol",
+      "sha256": "84b46309bf6d890c13362c9c449ff927fa72465741517fc405c8c24baae2d1a3",
+      "npmMatchesVerifiedSource": true,
+      "gitBlob": "43ea80367eff0d026136260c4eb4db5dc87e0274",
+      "githubCommitMatchesNpm": true
+    },
+    {
+      "path": "contracts/interfaces/IAccount.sol",
+      "sha256": "0c44401dd9df8d5b02d6a03170e163f2ca3434c382d41a31e022ceb789cf95ef",
+      "npmMatchesVerifiedSource": true,
+      "gitBlob": "e3b355fbc2799194cc83bba06b463e189cdbe80b",
+      "githubCommitMatchesNpm": true
+    },
+    {
+      "path": "contracts/core/UserOperationLib.sol",
+      "sha256": "43faeb07191dea518fe9dd1111b775911af572427c6d6a51bfa6cc4c5b08c9aa",
+      "npmMatchesVerifiedSource": true,
+      "gitBlob": "dcf5740cc284d5eb39468455ebd4317878a16658",
+      "githubCommitMatchesNpm": true
+    },
+    {
+      "path": "contracts/interfaces/IPaymaster.sol",
+      "sha256": "14bfb45b3ade4fad4ae09a19c5270e00c75ed0d9d0bf15e0dd499371a111cd23",
+      "npmMatchesVerifiedSource": true,
+      "gitBlob": "9176a0b242a513c2f74c9d296c50b015ec014b3f",
+      "githubCommitMatchesNpm": true
+    },
+    {
+      "path": "contracts/interfaces/IAggregator.sol",
+      "sha256": "bc6df43d690bcaf2da8255748070e880eb7390e74ea98f6e36eb0a9f4b128ac1",
+      "npmMatchesVerifiedSource": true,
+      "gitBlob": "070d8f27a2cef16127a4bbf7b93ceb5b81a67cde",
+      "githubCommitMatchesNpm": true
+    },
+    {
+      "path": "contracts/interfaces/IEntryPoint.sol",
+      "sha256": "06f97dfe27d09b478a1e82855ab57485b11ea68e3804b03e879f184bbc667fb7",
+      "npmMatchesVerifiedSource": true,
+      "gitBlob": "28c26f98e6cbaf0fbb2e7ff623e7d5c9cb6d2eae",
+      "githubCommitMatchesNpm": true
+    },
+    {
+      "path": "contracts/interfaces/INonceManager.sol",
+      "sha256": "4a600598dca29462afaebf27de758c83344d9d9871a53c1cdbe448510491d0e3",
+      "npmMatchesVerifiedSource": true,
+      "gitBlob": "2f993f6875ca974cc62364f98e260d5bfd677b79",
+      "githubCommitMatchesNpm": true
+    },
+    {
+      "path": "contracts/interfaces/IStakeManager.sol",
+      "sha256": "6334881d2273350b92fd4b0ecabbed9a844ef5d114832097ecd2b631010b6033",
+      "npmMatchesVerifiedSource": true,
+      "gitBlob": "69083e93f5af0225ac2717426c6e04b7d558eff4",
+      "githubCommitMatchesNpm": true
+    },
+    {
+      "path": "contracts/interfaces/IAccountExecute.sol",
+      "sha256": "a96aabf8dcfa68a83325678e23200956c667a91ce448f2d63efb10ca947edc3e",
+      "npmMatchesVerifiedSource": true,
+      "gitBlob": "4433c80ce3e9e83a8f7d031cd8b699c80149687b",
+      "githubCommitMatchesNpm": true
+    },
+    {
+      "path": "contracts/interfaces/PackedUserOperation.sol",
+      "sha256": "40fcd99da0814312f0353417de64f70805f4cd7ec4cb4573c8b4c4d48540f562",
+      "npmMatchesVerifiedSource": true,
+      "gitBlob": "fe20de56573fe205a20f7133734b577d5255f321",
+      "githubCommitMatchesNpm": true
+    }
+  ],
+  "compiler": {
+    "language": "Solidity",
+    "compiler": "solc",
+    "compilerVersion": "0.8.23+commit.f704f362",
+    "compilerSettings": {
+      "viaIR": true,
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "libraries": {},
+      "optimizer": {
+        "runs": 1000000,
+        "enabled": true
+      },
+      "evmVersion": "paris",
+      "remappings": []
+    },
+    "name": "EntryPoint",
+    "fullyQualifiedName": "contracts/core/EntryPoint.sol:EntryPoint"
+  },
+  "immutableReferences": {
+    "140": [
+      {
+        "start": 3362,
+        "length": 32
+      },
+      {
+        "start": 12875,
+        "length": 32
+      }
+    ]
+  },
+  "immutableValues": {
+    "140": "0x000000000000000000000000efc2c1444ebcc4db75e7613d20c6a62ff67a167c"
+  },
+  "checks": {
+    "npmArtifactCreationEqualsVerifiedRecompiled": true,
+    "npmArtifactRuntimeEqualsVerifiedRecompiled": true,
+    "declaredImmutableSubstitutionEqualsVerifiedOnchain": true,
+    "all15NpmCompiledProjectSourcesEqualPinnedGitHubSources": true
+  },
+  "verifier": {
+    "url": "https://sourcify.dev/server/v2/contract/1/0x0000000071727De22E5E9d8BAf0edAc6f37da032?fields=all",
+    "runtimeMatch": "exact_match",
+    "creationMatch": "exact_match",
+    "verifiedAt": "2024-08-08T14:08:53Z",
+    "reportedDeployment": {
+      "transactionHash": "0x5c81ea86f6c54481d3e21c78675b4f1d985c1fa62b678dcdfdf7934ddd6e127e",
+      "blockNumber": "19274877",
+      "transactionIndex": "13",
+      "deployer": "0x81ead4918134AE386dbd04346216E20AB8F822C4"
+    }
+  },
+  "chainScope": {
+    "chainIds": [
+      1,
+      10,
+      8453,
+      42161,
+      11155111,
+      11155420,
+      84532,
+      421614
+    ],
+    "note": "Parent independently observed the matching runtime on these eight chains. This binding task compares artifact against the supplied observed hash and Sourcify Ethereum bytecode; it does not re-probe the chains."
+  },
+  "helper": {
+    "address": "0xEFC2c1444eBCC4Db75e7613d20C6a62fF67A167C",
+    "runtimeCodeHash": "0x283c9d14378f5f4c4e24045b87d621d48443fa5b4af7dd7180a599b3756a7689",
+    "runtimeBytes": 451,
+    "immutableReferences": {},
+    "verifiedRuntimeMatch": "exact_match",
+    "verifiedCreationBytecodeEmbeddedInOfficialEntryPointArtifactAtByteOffset": 16171,
+    "verifiedRuntimeEmbeddedInOfficialEntryPointArtifactAtByteOffset": 16199,
+    "verifiedSourceEqualsEntryPointCompiledSource": true,
+    "verifierUrl": "https://sourcify.dev/server/v2/contract/1/0xEFC2c1444eBCC4Db75e7613d20C6a62fF67A167C?fields=all",
+    "reportedDeployment": {
+      "transactionHash": "0x5c81ea86f6c54481d3e21c78675b4f1d985c1fa62b678dcdfdf7934ddd6e127e",
+      "blockNumber": "19274877",
+      "transactionIndex": "13",
+      "deployer": "0x81ead4918134AE386dbd04346216E20AB8F822C4"
+    },
+    "limitation": "Verified bytecode is Ethereum-only historical evidence; helper runtime has not been independently probed at current blocks across all eight chains.",
+    "rejectedArtifact": {
+      "path": "package/artifacts/SenderCreator.json",
+      "sha256": "5ebfc9c2e22283e965aa785e2c18d542acbfa3411b9bde0391bd70af70dc2102",
+      "reason": "Standalone npm helper artifact uses a different compilation (531-byte runtime). The deployed helper is the 451-byte viaIR build embedded in official EntryPoint creation code."
+    }
+  }
+}

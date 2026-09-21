@@ -1,0 +1,40 @@
+{
+  "observedAtUtc": "2026-09-07T14:15:05.218701+00:00",
+  "officialRepository": "https://github.com/ethereum/solc-bin",
+  "manifestGitCommit": "dd4f9bd179a15910a8c02ebeccc3d016614d97b0",
+  "compilerRelease": "0.8.26+commit.8a97fa7a",
+  "platforms": {
+    "linux-amd64": {
+      "version": "0.8.26",
+      "longVersion": "0.8.26+commit.8a97fa7a",
+      "binaryFilename": "solc-linux-amd64-v0.8.26+commit.8a97fa7a",
+      "sha256": "d5f23436f443edb85d8e76906d12f0a86ce0490e7663a9e608efeb7a93f149ef",
+      "keccak256": "0x9d138fc8bb5c20b4aaaa3a868d16eb897584ce8536a5c3a466d718e47ccbafb7",
+      "pinnedManifestUrl": "https://raw.githubusercontent.com/ethereum/solc-bin/dd4f9bd179a15910a8c02ebeccc3d016614d97b0/linux-amd64/list.json",
+      "pinnedManifestSha256": "78b63682e0e994bfbdf432b5eb1837b6d5190a21256e5e22971673bdc41bb0ce",
+      "pinnedBinaryUrl": "https://raw.githubusercontent.com/ethereum/solc-bin/dd4f9bd179a15910a8c02ebeccc3d016614d97b0/linux-amd64/solc-linux-amd64-v0.8.26+commit.8a97fa7a",
+      "canonicalBinaryUrl": "https://binaries.soliditylang.org/linux-amd64/solc-linux-amd64-v0.8.26+commit.8a97fa7a",
+      "publishedIpfsUrls": [
+        "dweb:/ipfs/Qmctr14Exi4R3nbhcg3fYsMDesZ8PBzfgPpLfprvFy7ANZ"
+      ],
+      "rollingAndPinnedEntryMatch": true
+    },
+    "macosx-amd64": {
+      "version": "0.8.26",
+      "longVersion": "0.8.26+commit.8a97fa7a",
+      "binaryFilename": "solc-macosx-amd64-v0.8.26+commit.8a97fa7a",
+      "sha256": "0ff016aef2396b12d1fc65429d8ea6cf53c2ee4b041bb8925644615ee1c30ab9",
+      "keccak256": "0x1fe5674db955096ce35421344384d35b124e58d716f0e9518e8efe0a50604bc1",
+      "pinnedManifestUrl": "https://raw.githubusercontent.com/ethereum/solc-bin/dd4f9bd179a15910a8c02ebeccc3d016614d97b0/macosx-amd64/list.json",
+      "pinnedManifestSha256": "1db6361cbe5234c4a8457c588b5112bcd9213c02c769198f6b831b813a5b313e",
+      "pinnedBinaryUrl": "https://raw.githubusercontent.com/ethereum/solc-bin/dd4f9bd179a15910a8c02ebeccc3d016614d97b0/macosx-amd64/solc-macosx-amd64-v0.8.26+commit.8a97fa7a",
+      "canonicalBinaryUrl": "https://binaries.soliditylang.org/macosx-amd64/solc-macosx-amd64-v0.8.26+commit.8a97fa7a",
+      "publishedIpfsUrls": [
+        "dweb:/ipfs/QmXY5ZNZsz6x9hDo1ziDf2RLP3KWcEkVFmt8sGsG27c8Qh"
+      ],
+      "rollingAndPinnedEntryMatch": true
+    }
+  },
+  "checkMethod": "Read and hash the full installed binary bytes with SHA-256; no dependence on executable --version output.",
+  "schemaVersion": 1
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "profile": "bootstrap-experiment-not-activated",
+  "suites": [
+    {
+      "name": "test/Bootstrap.t.sol:PasskeyBootstrapTest",
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "total": 10
+    }
+  ],
+  "measurements": {
+    "bootstrapActualGasUsed": 897029,
+    "bootstrapInitCodeBytes": 1304,
+    "bootstrapPackedUserOperationBytes": 2400,
+    "directFactoryExecutionGas": 481707
+  },
+  "limits": [
+    "Required local execution evidence; no hosted bundler or production deployment claim.",
+    "The canonical 500,000 verification-gas limit explicitly rejects this EntryPoint bootstrap.",
+    "The extra signer CREATE2 conflicts with current factory canonical mempool restrictions.",
+    "Initial UserOperation uses a prefunded EntryPoint deposit; direct factory uses test caller gas."
+  ],
+  "inputsSha256": {
+    "manifest": "fc835390cb8203e78e1a6d584d589300cec32c5f1ad9180c5ab2c9c5ca81272e",
+    "test": "c57b944709cc17be2953bee169dec11b48c77851485df8777546969dafc25211",
+    "verifier": "a2c4b9ffeb24cfe07f83c306536475dd03bfe03896b0a12ad906142fe5c8adc7",
+    "compilerCache": "09585cf68e617dc292587f0b2c35db3acc3f8ba40643784815b804be60e1e056"
+  }
+}

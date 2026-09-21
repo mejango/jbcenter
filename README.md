@@ -2,11 +2,101 @@
 
 JB Center is the small shared offchain service beside Bendystraw. It stores signed, undeployed
 Juicebox project intents and provides the ecosystem's redundant IPFS pinning, public read gateway,
-and credential-hiding read-only Ethereum RPC. Webclients can render an intent as a project page and include it beside deployed
+credential-hiding read-only Ethereum RPC, the Juicebox V6 MCP at
+`https://juicebox.center/mcp`, and authenticated REST at `https://juicebox.center/api/v1`.
+Webclients can render an intent as a project page and include it beside deployed
 Bendystraw projects in search. When a deployment is recorded, the intent leaves default search.
 
-There are no server-side drafts. A stored intent is immutable; changing a project means publishing a
-new intent.
+Stored project intents are immutable; changing one means publishing a new intent. REST transaction
+plans are separate immutable records with durable execution progress.
+
+## V6 REST API
+
+Start at [the API directory](https://juicebox.center/api), [OpenAPI](https://juicebox.center/api/v1/openapi.json),
+or the [signed-request quickstart](docs/rest/QUICKSTART.md). Select **Sign in** at
+[Accounts](https://juicebox.center/accounts) with email, phone, social login, or an existing wallet, then create API connections with explicit
+read, plan, and relay scopes. Every live API request carries a short-lived EIP-712 signature binding
+its audience, account, signer, method, exact path/query, raw body, nonce, and idempotency key.
+Private keys stay with the client. API grants never substitute for onchain signing authority.
+
+GET endpoints cover canonical contract reads and the V6-compatible Bendystraw schema. Project reads
+require an explicit `source=onchain` or `source=bendystraw`; an unavailable source never silently falls
+back to the other. The pinned catalog includes official core, buyback, 721, router, revnet, sucker,
+and other V6 repositories, with exact deployed ABI variants and per-chain availability. Experimental
+apps/extensions remain outside this protocol surface.
+
+POST endpoints prepare transaction plans and relay externally signed transactions. Plans bind the
+wallet, chains, destinations, calldata, values, dependencies, evidence, and expiry. Durable nonce,
+idempotency, and transport reservations prevent conflicting submissions. A receipt confirms one
+transaction; operation effects and cross-chain settlement have separate evidence.
+Fund movement requires fresh owner consent unless an installed smart-account session already
+authorizes that exact action within an explicit spending allocation. Direct and prepaid dispatch
+require a fresh signed owner request or an additional owner approval attached to the bot submission.
+An old wallet transaction signature is insufficient.
+
+Read [authentication](docs/rest/AUTHENTICATION.md), [contracts](docs/rest/CONTRACTS.md),
+[indexed reads](docs/rest/INDEXER.md), [transactions](docs/rest/TRANSACTIONS.md),
+[omnichain projects](docs/rest/OMNICHAIN.md), [sponsorship](docs/rest/SPONSORSHIP.md), and
+[AI integration](docs/rest/AI_GUIDE.md). Prepaid execution supports externally funded gas for eligible exact
+owner-signed calls, with independent destination verification. Hosted ERC-4337 execution supports
+reviewed Safe accounts, exact owner-signed bundles, and seven- or thirty-day bot sessions with
+onchain spending and gas limits. The browser facilitates account creation, binding, activation,
+local signing, quotas and revocation. Read the [session lifecycle](docs/rest/SESSIONS.md) and
+[execution runbook](docs/rest/EXECUTION_OPERATIONS.md) before enabling it: providers require operator
+configuration, and the checked session guard still requires a verified deployment on each enabled
+chain. Live capabilities report configured availability. Gas sponsorship is separate from permission
+to spend funds.
+
+## Shared passkey wallets
+
+Center is building shared passkey wallets for Homerun and Beep, including signup
+without an existing wallet and recovery to the same account. Shared contracts
+are deployed across eight chains; the local signup and recovery journeys are
+tested. **Consumer production signup remains disabled while hosted Base creation
+and recovery services are completed.** Center retains its Para integration.
+
+Read the [delivery report](docs/rest/CENTER-WALLET-DELIVERY.md) for what is built,
+the evidence and remaining production gates. The
+[implementation handoff](docs/rest/CENTER-WALLET-HANDOFF.md) identifies the next
+slice, repository state, operating constraints and validation commands.
+
+## Ecosystem directory
+
+`https://juicebox.center/` is a public V6 directory. Eight connected question maps lead to apps,
+owner workflows, development tools, APIs, agent setup, audits, repositories, and WIP extensions.
+Routes share destinations and include labeled return paths: revisit launch settings, revise an
+integration after transaction review, or publish replacement metadata after retrieving a CID.
+Crossovers connect related tasks. The maps use three columns on desktop and stack on phones.
+A small browser script draws decorative connectors, highlights the chosen route, and supports
+direct links (`#api/rpc`, for example), keyboard navigation, and browser history. It renders a
+finite set of nodes and edges; cycles never recursively expand the page.
+All content is server-rendered. The complete directory stays available as a collapsible reference
+and opens by default without JavaScript. Directory navigation
+does not query storage or upstream services. The API branch includes public RPC and IPFS reads,
+supported networks, and upload examples with their approved-origin requirements.
+The WIP branch holds extensions with unfinished production functionality, with a specific status
+note for each. A deployed frontend alone does not imply its contracts or payment flow are ready.
+
+Edit shared questions, transitions, and map placements in [`src/journeyGraph.ts`](src/journeyGraph.ts).
+Each node's title is also the label of every option pointing to it. Keep that title concise;
+use its separate prompt for the question inside the card. Edges only identify destinations,
+so option labels and destination headings stay in sync.
+Maintain the complete directory and repository links in [`src/directory.ts`](src/directory.ts).
+Every sequence of questions must reach a resource with an external link or a usable reference.
+Graph validation rejects question-only cycles (even with an escape route), dead ends, empty
+resources, and broken destinations or placements. Optional returns remain available after a
+resource has been reached, under “Optional next steps.” Shared nodes have an explicit home view
+for crossovers, so a destination does not change sections when map declarations are reordered.
+Tests verify these rules, reachable routes, and shared destinations.
+Layout and styling live in [`src/homepage.ts`](src/homepage.ts), with browser behavior in
+[`src/directoryClient.ts`](src/directoryClient.ts). Keep monospace type, square corners, and minimal
+copy. Do not use middot separators. Verify public destinations, protocol versions, and feature
+availability before adding or changing a link. Distinguish source repositories from live apps.
+`/`, `/directory.css`, and `/directory.js` are public and cached for five minutes. These exact routes do not
+change the API, IPFS, or MCP access rules.
+Stylesheet and script URLs include content hashes so updates bypass older cached assets.
+Juicescan links to its published CID on `eth.sucks`, with a separate source link. Update the CID
+from successful publisher or pin-provider records, not an unverified local build hash.
 
 ## Run it
 
@@ -15,15 +105,58 @@ Requires Node 22 and PostgreSQL 14 or newer.
 ```sh
 cp .env.example .env
 npm install
+npm --prefix mcp ci --ignore-scripts
 npm run dev
 ```
 
-Browser requests are accepted only from the origins hardcoded for the active Railway environment.
+Pinning and intent API requests require an origin hardcoded for the active Railway environment.
 Production accepts `https://juicebox.money`, `https://revnet.money`, `https://eth.shop`,
 `https://succulent.money`, and `https://homerun.money`. `dev` accepts the first four sites'
 `dev.` subdomains, `http://localhost:3001` through `http://localhost:3004`, and Homerun's
-`http://localhost:3010` and `http://localhost:3014`. `GET /healthz` is public for infrastructure health checks, and
-`/ipfs/*` is a public read gateway.
+`http://localhost:3010` and `http://localhost:3014`. The homepage, `/ipfs/*` read gateway, and `/v1/rpc/:chainId`
+RPC are public; RPC accepts any or no Origin. `GET /healthz` is public for infrastructure checks.
+
+## Connect an assistant through MCP
+
+The `mcp/` package provides **57 V6-only tools across ten capability families**: project and
+account intelligence, payments and cash-outs, launches and ruleset changes, buyback hooks, router
+terminals, 721 shops, revnets and loans, omnichain operations, source and webclient development,
+and reviewed project metadata publication. Read the [26 user journeys](mcp/docs/USER_JOURNEYS.md)
+and [tool catalog](mcp/docs/TOOLS.md) for exact coverage and limitations.
+
+Point a Streamable HTTP MCP client at:
+
+```json
+{
+  "mcpServers": {
+    "juicebox": { "url": "https://juicebox.center/mcp" }
+  }
+}
+```
+
+The server routes `/mcp` directly to the MCP transport before Center's browser API middleware.
+MCP uses Center's store, read-only RPC gateway, and pinning service through bounded internal
+callbacks. It does not send HTTP requests back to itself or impersonate an approved browser Origin.
+Its Host and browser Origin checks remain active; non-browser clients do not need to invent an Origin.
+Search removes non-V6 intent listings while preserving the upstream cursor; a mixed-version source
+count is not reported as a V6 total. Direct intent reads also reject other deployment versions.
+
+An assistant can prepare new project metadata using `jb_prepare_project_metadata`, show the exact
+JSON and public visibility and potential permanence, then call `jb_pin_project_metadata` only after the user
+explicitly approves that document. The expiring review token commits to the exact UTF-8 bytes.
+Pinning returns a CID and `ipfs://` URI for a separately reviewed V6 launch. A local logo file is
+pinned first with `jb_pin_project_logo` (one image of at most 1 MiB, same explicit approval, same
+anonymous MCP pin budget as JSON) and referenced as `ipfs://<cid>`; HTTPS logos are rejected because
+the first-party webclients only render content-addressed images. Neither tool merges existing
+metadata, updates an existing project, signs, or broadcasts a transaction. Agents and scripts pin
+through the MCP; the `/v1/pins/*` routes below are for approved browser origins.
+
+`/mcp/healthz` reports MCP liveness and `/mcp/readyz` reports local MCP readiness with upstream
+health explicitly unchecked. Center's `/readyz` continues checking PostgreSQL. The integrated
+service uses PostgreSQL-backed shared backend quotas: 600 Center reads per minute; 5,000 MCP RPC
+requests per minute, also subject to `RPC_SITE_LIMIT_PER_MINUTE`; and ten MCP pins per ten minutes,
+also subject to the existing 200-per-site pin budget. These are service-wide budgets across
+replicas, in addition to MCP transport limits. See [MCP deployment](mcp/docs/DEPLOYMENT.md).
 
 ## Pin and read IPFS content
 
@@ -55,12 +188,26 @@ Reads are deliberately public and require neither auth nor an IP allowlist:
 
 ```http
 GET /ipfs/:cid[/safe/path]
+HEAD /ipfs/:cid[/safe/path]
 ```
 
-The read gateway validates the CID and path, falls back across independent public gateways, caps
-responses at 500 MiB, and forwards HTTP byte ranges so browsers can seek through video and audio.
-It emits cross-origin and immutable-cache headers and forces executable or navigable content to
-download. Pin writes use a PostgreSQL-backed ten-per-caller and 200-per-site budget per ten minutes.
+The read gateway validates the CID and path and serves retained content directly from disk when
+`IPFS_CACHE_DIR` is configured. On a miss it tries Filebase before Pinata, dweb.link and ipfs.io,
+streams the response to the caller while writing to disk, and publishes the cache entry only after
+the full body succeeds. Concurrent requests for the same CID/path share that fill. Failed,
+truncated and partial responses are never retained. Header waits are capped at ten seconds per
+gateway, full streams at five minutes, and responses at 500 MiB.
+
+The cache survives restarts and removes the least recently used copies to stay within its byte
+budget. It also caps entries at 10,000 and concurrent fills at 16; filesystem metadata overhead is
+additional. Eviction never unpins content from Filebase or Pinata. Cached content supports HEAD,
+conditional requests and single HTTP byte ranges for seeking; cold HEAD/range requests go straight
+to an upstream gateway without filling the cache. `X-IPFS-Cache: HIT`, `MISS` or `BYPASS` identifies
+the origin's disk-cache behavior.
+
+Successful reads emit cross-origin and one-year immutable browser/CDN cache headers. Errors use
+`no-store`. Executable or navigable content is forced to download. Pin writes use a
+PostgreSQL-backed ten-per-caller and 200-per-site budget per ten minutes.
 An Origin header is a browser boundary, not identity; production should put a WAF in front if
 provider spend becomes meaningful.
 
@@ -80,16 +227,16 @@ The endpoint accepts one JSON-RPC request at a time and permits only an explicit
 methods used by ordinary viem public clients. Transaction submission, signing, wallet, debug,
 trace, admin, and txpool methods are rejected. Log queries require a block hash, `latest`-only
 poll, or a concrete range of at most 50,000 blocks. Requests are capped at 256 KiB, responses at
-5 MiB, and upstream calls at 12 seconds. Center fails over across up to three configured upstreams
-without returning their credential-bearing URLs to clients.
+5 MiB, and each upstream attempt at four seconds. Production tries Dwellir then PublicNode
+without returning credential-bearing URLs to clients.
 
 Trusted origins get the site's per-caller and shared budgets. Every other caller — sites served
 from IPFS such as juicescan have no stable origin to allowlist — is served keyless with `*` CORS
 under a tighter per-IP budget and a separate shared public budget, so public traffic can never
 starve the trusted sites. An `Origin` header is not identity, so upstream provider quotas remain
 the final spend boundary.
-Wallets must continue submitting transactions through their own wallet transport; Center is only a
-public-client read transport.
+This public RPC route remains a read transport. Externally wallet-signed transaction submission
+uses the separately authenticated REST plan/submission API.
 
 ## Publish an intent
 
@@ -117,16 +264,16 @@ submit the same fields plus `publisher` and `signature` to `POST /v1/intents`. R
 publisher and content is idempotent.
 
 ```ts
-const prepared = await central("/v1/intents/message", envelope)
+const prepared = await central("/v1/intents/message", envelope);
 const signature = await walletClient.signMessage({
   account,
   message: prepared.message,
-})
+});
 const intent = await central("/v1/intents", {
   ...envelope,
   publisher: account.address,
   signature,
-})
+});
 ```
 
 JB Center accepts any JSON object as `jb`, caps signed envelopes at 16.8 MB, and indexes common
@@ -135,6 +282,8 @@ when the `.jb` declares them. `deploymentCalls` must contain exactly one ABI-enc
 chain. The call target and complete calldata are part of the signed content, making the frozen
 deployment directly executable and independently verifiable without re-deriving time-sensitive
 arguments.
+
+A published intent is firm: there is no edit, replace or withdraw. Publish a new intent instead.
 
 ## Read and search
 
@@ -147,13 +296,15 @@ Search returns a merge-friendly page:
 
 ```json
 {
-  "items": [{
-    "source": "jbcenter",
-    "status": "undeployed",
-    "intentId": "...",
-    "chainIds": [1],
-    "name": "Example"
-  }],
+  "items": [
+    {
+      "source": "jbcenter",
+      "status": "undeployed",
+      "intentId": "...",
+      "chainIds": [1],
+      "name": "Example"
+    }
+  ],
   "totalCount": 1,
   "nextCursor": null
 }
@@ -161,6 +312,22 @@ Search returns a merge-friendly page:
 
 Query this endpoint and Bendystraw concurrently. JB Center ranks textual searches with
 PostgreSQL full-text search and lists recent intents when `q` is empty.
+
+`GET /v1/intents/:id` additionally carries a per-chain `deploys` array once a deploy has been
+requested (see "Request a sponsored deploy" below), independent of `deployments`:
+
+```json
+{
+  "deploys": [
+    { "chainId": 84532, "status": "queued", "transactionHash": null, "bundleUuid": null, "error": null, "createdAt": "...", "updatedAt": "..." }
+  ]
+}
+```
+
+`deploys` is always present, and is empty until a deploy is requested. `status` is `queued`,
+`sent`, `confirmed` or `failed`. `bundleUuid` identifies the Relayr bundle once one has been
+submitted; `transactionHash` and `error` fill in as each chain settles. `error` is always a coded,
+bounded message: upstream exception text never reaches this field.
 
 ## Record deployment
 
@@ -185,6 +352,41 @@ Nested matching supports Safe and Relayr execution. Deployment records are write
 and chain. Recording the first deployment removes the intent from search while preserving the
 `.jb`, signature, exact launch call, and deployment provenance at its direct URL.
 
+## Request a sponsored deploy
+
+A trusted webclient can ask JB Center to execute an undeployed intent's own signed calls, at
+Center's expense, instead of the publisher paying gas directly:
+
+```http
+POST /v1/intents/:id/deploy
+```
+
+```json
+{
+  "deploys": [
+    { "chainId": 84532, "status": "queued", "transactionHash": null, "bundleUuid": null, "error": null, "createdAt": "...", "updatedAt": "..." },
+    { "chainId": 421614, "status": "queued", "transactionHash": null, "bundleUuid": null, "error": null, "createdAt": "...", "updatedAt": "..." }
+  ]
+}
+```
+
+The response is `202` the first time and `200` on every later call for the same intent, always
+returning the same rows: the request is idempotent per intent, not per call. JB Center only
+sponsors an intent whose `chainIds` are entirely mainnets or entirely testnets from its supported
+set, never a mix. A worker signs each call as a forwarded request, submits the bundle through
+Relayr, and confirms it against the same canonical `JBProjects.Create` event and per-chain call
+match used for `POST /v1/intents/:id/deployments`; a confirmed chain both updates its `deploys` row
+and records the deployment. The route answers `503` with no sponsor configured or while paused,
+`404` for an unknown intent, `400` for an already-deployed or unsponsorable intent, and `429` with
+`Retry-After: 86400` once the shared daily sponsorship budget or the requester's daily quota is
+spent. The budget is checked first, so a refused request does not consume the requester's quota.
+
+The sponsor charges the budget what it actually spent: when the Relayr prepayment settles, its
+gas and value are written as `spentWei` on the payment's first claimed chain, before any
+destination chain confirms. A chain that fails after a bundle was submitted keeps its reservation,
+because the money may already have left the key. Center must run a single replica while sponsoring:
+the deploy queue is leased, not locked across processes.
+
 ## Authentication boundaries
 
 Client access uses the two reviewed browser origins; signed intents provide publisher authenticity.
@@ -207,11 +409,41 @@ The remaining controls are environment variables:
 - `RPC_PUBLIC_SITE_LIMIT_PER_MINUTE` — shared keyless RPC budget across untrusted origins; default `5000`.
 - `MAX_INTENTS_PER_CLIENT` — lifetime intent count per client; default `10000`.
 - `MAX_STORAGE_BYTES_PER_CLIENT` — lifetime stored envelope bytes per client; default 1 GiB.
+- `WALLET_ORIGIN` — hosted passkey wallet origin (for example `https://my.juicebox.center`); mounts the wallet site with the reviewed Base manifest.
+- `WALLET_NETWORKS_PAYER_KEY` — optional private key funding Relayr bundles that deploy an account on more chains (Base ETH for Optimism and Arbitrum, Base Sepolia ETH for the testnets). A separate key: the creation and recovery keys track their own nonces.
+- `WALLET_LEGACY_ORIGINS` — optional comma-separated former wallet origins; requests on those hosts redirect (301) to the same path on `WALLET_ORIGIN`.
+- `WALLET_FRAMEABLE_APP_ORIGINS` — optional comma-separated app origins admitted to frame their own payment reviews and sign-ins inside their pages (`frame-ancestors` names the one app each review or intent was prepared for). Inside a frame no Center cookie takes part: a review is admitted by its id, a sign-in or signup by its intent id plus the launch signature kept on the row (the signup's flow token rides in request bodies), and every passkey ceremony must name the app as its top origin. A framed signup needs the app's `<iframe allow="publickey-credentials-create; publickey-credentials-get">` and a browser that creates passkeys in a cross-origin frame; the page inside offers "Fullscreen" otherwise. Recovery stays top-level. Absent, nothing frames Center.
+- `WALLET_CREATION_SIGNER_KEY`, `WALLET_CREATION_POOL_ID`, `WALLET_CREATION_ALLOCATION_WEI`, `WALLET_CREATION_INITIAL_NONCE` — together, the dedicated Base creation treasury: its private key, permanent pool UUID, whole allocation in wei and the sender's expected first nonce. Startup fails if only some are set; see [WALLET_SIGNUP.md](WALLET_SIGNUP.md).
+- `WALLET_RECOVERY_SIGNER_KEY`, `WALLET_RECOVERY_MAX_OPERATIONS`, `WALLET_RECOVERY_MAX_COST_WEI` — together, the dedicated Base recovery relay: its private key (distinct from creation), the lifetime operation cap and the whole fee budget in wei.
+- `PARA_API_KEY` — public browser API key for account sign-in; authorize the Center origin in the Para dashboard. No Para server secret is used.
+- `PARA_ENVIRONMENT` — `BETA` (default) or `PROD`, matching the public key.
+- `SPONSOR_SIGNER_KEY` — optional private key that turns on `POST /v1/intents/:id/deploy`. It funds
+  every sponsored chain plus the Relayr payment chain; keep it a dedicated key, distinct from every
+  other configured signer.
+- `SPONSOR_PAUSED` — set to `1` to pause sponsored deploys without unsetting the signer key.
+- `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` — deploy requests one requester may queue per day; default `5`.
+- `SPONSOR_DAILY_BUDGET_WEI` — total wei reserved for sponsored deploys per rolling day, across every requester; default `50000000000000000`.
+- `SPONSOR_MAX_GAS` — gas ceiling per forwarded deployment call; default `8000000`.
+- `SPONSOR_MAX_FEE_PER_GAS` — max fee per gas the sponsor signs when paying for the Relayr bundle; default `1000000000`.
+- `SPONSOR_CONFIRMATIONS` — confirmations awaited on each destination chain before a sponsored deploy is recorded; default `2`, and a lower value is raised to `2`, which the deployment verifier requires.
 - `METRICS_TOKEN` — required 32-character bearer token for `GET /metrics`.
 - `FILEBASE_RPC_TOKEN` — bucket-scoped bearer token for Filebase's IPFS RPC API; never expose it to
   a browser.
 - `PINATA_JWT` — scoped Pinata token with `org:files:write`; never expose it to a browser.
+- `IPFS_CACHE_DIR` — optional dedicated persistent directory for public IPFS reads; unset disables disk caching.
+- `IPFS_CACHE_MAX_BYTES` — retained and in-progress content-byte budget, default `4294967296` (4 GiB). Allow extra volume capacity for filesystem metadata.
 - `DATABASE_URL` — PostgreSQL connection string; require TLS in the production provider settings.
+- `MCP_PLAN_SECRET` — required in production; a cryptographically random secret with at least
+  32 bytes, stable across replicas. It authenticates unsigned transaction plans and separately
+  scoped metadata review tokens; it is never a wallet key.
+- `MCP_PUBLIC_ORIGIN` — default `https://juicebox.center`, without `/mcp` or another path.
+- `MCP_BENDYSTRAW_MAINNET_URL`, `MCP_BENDYSTRAW_TESTNET_URL` — independently configured complete
+  GraphQL endpoints. An absent network reports `NOT_CONFIGURED` and cannot fall back to another.
+- `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS` — optional comma-separated additions to the MCP
+  transport allowlists. Center's active environment browser origins are included automatically.
+- `MCP_PLAN_TTL_SECONDS` — transaction-plan lifetime; default `300`, range `30`–`1800` seconds.
+- `MCP_MAX_CONCURRENT_REQUESTS` — MCP HTTP operations per process; default `16`, range `1`–`128`.
+- `MCP_KNOWLEDGE_PATH` — optional reviewed source-bundle override; packaged references are the default.
 
 `GET /healthz` is process liveness. `GET /readyz` checks PostgreSQL. `GET /metrics` returns protected
 Prometheus metrics. Requests are logged as one-line JSON with request ID, caller,
@@ -221,6 +453,27 @@ The included `Dockerfile` runs as the unprivileged Node user, and `railway.json`
 deployment health checks. Set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30`, configure continuous uptime
 monitoring separately, and enable automated PostgreSQL backups and retention with the database
 provider.
+
+For persistent IPFS reads on Railway, attach a volume at `/data`. Through Railway's maintenance
+shell, initialize only `/data/ipfs` once with ownership `1000:1000` and permissions `0700`.
+Then set `IPFS_CACHE_DIR=/data/ipfs` and keep the byte budget below the available volume capacity.
+Keep Docker's default unprivileged Node user; no root startup setting is needed.
+One process must own the cache directory. Railway volumes prevent replicas and add a brief stop
+between deployments. Startup removes abandoned fills and reloads complete entries from the volume.
+Railway's optional CDN can serve immutable IPFS responses at the edge; account, API, health and
+metrics responses use `no-store`. `X-Cache` describes the CDN, while `X-IPFS-Cache` describes the
+origin response that the CDN retained.
+
+The [production monitor](.github/workflows/production.yml) checks the public service and protected
+receipt-recovery metrics every five minutes using GitHub Actions. Set its
+`PRODUCTION_METRICS_TOKEN` repository secret to the server's `METRICS_TOKEN`; the script needs no
+installed dependencies. See [production operations](docs/rest/PRODUCTION_OPERATIONS.md) for backup,
+restore and monitoring evidence, and the [real-wallet check](docs/rest/PRODUCTION_CHECK.md) for
+the remaining owner-approved four-chain verification. Scheduled Actions can be delayed, and failed-run
+notifications follow the operator's GitHub settings.
+
+Start from the [user journey map](docs/rest/USER_JOURNEYS.md) for the shortest supported path and
+the approvals each journey needs.
 
 The CI workflow runs the complete suite against PostgreSQL 16 and builds the production container on
 every pull request. Keep JB Center as the workflow's repository root (or move the workflow to the
@@ -232,6 +485,7 @@ monorepo root and set its working directory).
 npm test
 npm run typecheck
 npm run build
+npm run check
 TEST_DATABASE_URL=postgresql://... npm test
 ```
 

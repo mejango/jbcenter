@@ -1,0 +1,2047 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-07T14:39:12.734646+00:00",
+  "readOnly": true,
+  "source": {
+    "repo": "https://github.com/pimlicolabs/singleton-paymaster",
+    "commit": "2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05",
+    "artifactSha256": "e686a8a4ffb342ba06abaf062eced2ef2b9b2696e7447979b80a971ed00246cd",
+    "artifactType": "locallyReproducedCompilerOutput",
+    "verificationInputSha256": "62d61383f8ec0fa155778ff0662d2ddadb174d5948e5d3af2df23604686096ef",
+    "verifiedSourceUrl": "https://sourcify.dev/server/v2/contract/42161/0x777777777777AeC03fd955926DbF81597e66834C?fields=all",
+    "commitProvenance": "Exact published source and build-settings match; source-equivalent commits prevent uniquely inferring the deployment checkout."
+  },
+  "artifactPath": "../artifacts/PimlicoSingletonPaymasterV7.json",
+  "artifactFileSha256": "fac8552a3463679a8673466ba891284e998bf81cf665b7c4bb7159c6594887e6",
+  "compilerInputPath": "pimlico-compiler-input.json",
+  "compilerInputSha256": "62d61383f8ec0fa155778ff0662d2ddadb174d5948e5d3af2df23604686096ef",
+  "compiler": {
+    "language": "Solidity",
+    "compiler": "solc",
+    "compilerVersion": "0.8.26+commit.8a97fa7a",
+    "compilerSettings": {
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "libraries": {},
+      "optimizer": {
+        "runs": 1000000,
+        "details": {
+          "cse": true,
+          "yul": false,
+          "inliner": true,
+          "peephole": true,
+          "deduplicate": true,
+          "orderLiterals": true,
+          "jumpdestRemover": true,
+          "constantOptimizer": true,
+          "simpleCounterForLoopUncheckedIncrement": true
+        }
+      },
+      "evmVersion": "london",
+      "remappings": [
+        ":@account-abstraction-v6/=lib/account-abstraction-v6/contracts/",
+        ":@account-abstraction-v7/=lib/account-abstraction-v7/contracts/",
+        ":@openzeppelin-v4.8.3/=lib/openzeppelin-contracts-v4.8.3/",
+        ":@openzeppelin-v5.0.2/=lib/openzeppelin-contracts-v5.0.2/",
+        ":@openzeppelin/contracts/=lib/openzeppelin-contracts-v5.0.2/contracts/",
+        ":account-abstraction-v6/=lib/account-abstraction-v6/contracts/",
+        ":account-abstraction-v7/=lib/account-abstraction-v7/contracts/",
+        ":ds-test/=lib/openzeppelin-contracts-v5.0.0/lib/forge-std/lib/ds-test/src/",
+        ":erc4626-tests/=lib/openzeppelin-contracts-v5.0.0/lib/erc4626-tests/",
+        ":forge-std/=lib/forge-std/src/",
+        ":openzeppelin-contracts-v4.8.3/=lib/openzeppelin-contracts-v4.8.3/",
+        ":openzeppelin-contracts-v5.0.2/=lib/openzeppelin-contracts-v5.0.2/",
+        ":solady/=lib/solady/src/"
+      ]
+    },
+    "name": "SingletonPaymasterV7",
+    "fullyQualifiedName": "src/SingletonPaymasterV7.sol:SingletonPaymasterV7"
+  },
+  "compilerArtifactSerialization": "UTF-8 JSON sorted keys recursively, compact separators, trailing newline",
+  "compilerInputNormalization": "The 28 metadata source paths are retained; nine duplicate import-alias source keys are omitted. This reproduces the verified AST IDs, immutable references, metadata and bytecode exactly. Output selection adds ABI, bytecode, deployed bytecode, metadata and AST.",
+  "sourcePins": [
+    {
+      "path": "lib/account-abstraction-v6/contracts/core/Helpers.sol",
+      "sha256": "6dc58b8b9c13c17aa4dfe9c2304f5e34d4b134640afd349ca956a306a1335f5a",
+      "keccak256": "0x591c87519f7155d1909210276b77925ab2722a99b7b5d5649aecc36ebbdb045a",
+      "gitBlobSha1": "6767fd6691d48e48bca030399e9d3ea6d0fe5103",
+      "commit": "abff2aca61a8f0934e533d0d352978055fddbd96",
+      "sourceUrl": "https://github.com/eth-infinitism/account-abstraction/blob/abff2aca61a8f0934e533d0d352978055fddbd96/contracts/core/Helpers.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v6/contracts/interfaces/IPaymaster.sol",
+      "sha256": "36588c8736996f48561dd8975311318bc8398d75719ebec814bfd6ad655e87d6",
+      "keccak256": "0x36858ba8685024974f533530420688da3454d29996ebc42e410673a1ed2ec456",
+      "gitBlobSha1": "af50367acfc799073ecdbceddf6764b1ec6fd45d",
+      "commit": "abff2aca61a8f0934e533d0d352978055fddbd96",
+      "sourceUrl": "https://github.com/eth-infinitism/account-abstraction/blob/abff2aca61a8f0934e533d0d352978055fddbd96/contracts/interfaces/IPaymaster.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v6/contracts/interfaces/UserOperation.sol",
+      "sha256": "627a8acc3a205702dc5a9d8edcf5c0cc3d9c89d3ea773ec1a39694774e948fec",
+      "keccak256": "0x61374003361059087fdcf17967a7bba052badeaf5c7f0ae689166f8aafd3a45c",
+      "gitBlobSha1": "46ca75c6d87bf348ddeac10bf2ee00832712f271",
+      "commit": "abff2aca61a8f0934e533d0d352978055fddbd96",
+      "sourceUrl": "https://github.com/eth-infinitism/account-abstraction/blob/abff2aca61a8f0934e533d0d352978055fddbd96/contracts/interfaces/UserOperation.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v7/contracts/core/Helpers.sol",
+      "sha256": "4ec549dbe1685def37cbe8699eb5376ce4466dcd0c6ffffd7c0d7e0f7a5b89a3",
+      "keccak256": "0x6247e011a6cb0b263b3aa098822977181674d91b62e5bdfe04c6e66f72da25d6",
+      "gitBlobSha1": "8579008613a5b9f73a791e3cdf388d09fd094b4f",
+      "commit": "7af70c8993a6f42973f520ae0752386a5032abe7",
+      "sourceUrl": "https://github.com/eth-infinitism/account-abstraction/blob/7af70c8993a6f42973f520ae0752386a5032abe7/contracts/core/Helpers.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v7/contracts/core/UserOperationLib.sol",
+      "sha256": "43faeb07191dea518fe9dd1111b775911af572427c6d6a51bfa6cc4c5b08c9aa",
+      "keccak256": "0x9d50ece985d35f82e33e5da417595c86fac10449e3d10895d08363d33aad454b",
+      "gitBlobSha1": "dcf5740cc284d5eb39468455ebd4317878a16658",
+      "commit": "7af70c8993a6f42973f520ae0752386a5032abe7",
+      "sourceUrl": "https://github.com/eth-infinitism/account-abstraction/blob/7af70c8993a6f42973f520ae0752386a5032abe7/contracts/core/UserOperationLib.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v7/contracts/interfaces/IAggregator.sol",
+      "sha256": "bc6df43d690bcaf2da8255748070e880eb7390e74ea98f6e36eb0a9f4b128ac1",
+      "keccak256": "0xf100d6fcc0c3b450b13e979b6a42c628c292a1bc340eccc2e7796b80e3975588",
+      "gitBlobSha1": "070d8f27a2cef16127a4bbf7b93ceb5b81a67cde",
+      "commit": "7af70c8993a6f42973f520ae0752386a5032abe7",
+      "sourceUrl": "https://github.com/eth-infinitism/account-abstraction/blob/7af70c8993a6f42973f520ae0752386a5032abe7/contracts/interfaces/IAggregator.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v7/contracts/interfaces/IEntryPoint.sol",
+      "sha256": "06f97dfe27d09b478a1e82855ab57485b11ea68e3804b03e879f184bbc667fb7",
+      "keccak256": "0x1972a5fcb3a808b58c85af5741949ef6af11ab0debd3ae8c708171ae1ae0d0c4",
+      "gitBlobSha1": "28c26f98e6cbaf0fbb2e7ff623e7d5c9cb6d2eae",
+      "commit": "7af70c8993a6f42973f520ae0752386a5032abe7",
+      "sourceUrl": "https://github.com/eth-infinitism/account-abstraction/blob/7af70c8993a6f42973f520ae0752386a5032abe7/contracts/interfaces/IEntryPoint.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v7/contracts/interfaces/INonceManager.sol",
+      "sha256": "4a600598dca29462afaebf27de758c83344d9d9871a53c1cdbe448510491d0e3",
+      "keccak256": "0xd575af0f6ebbd5f0b2933307d44cd7b4e03a69f4b817a67db5409bd3c89aeecb",
+      "gitBlobSha1": "2f993f6875ca974cc62364f98e260d5bfd677b79",
+      "commit": "7af70c8993a6f42973f520ae0752386a5032abe7",
+      "sourceUrl": "https://github.com/eth-infinitism/account-abstraction/blob/7af70c8993a6f42973f520ae0752386a5032abe7/contracts/interfaces/INonceManager.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v7/contracts/interfaces/IStakeManager.sol",
+      "sha256": "6334881d2273350b92fd4b0ecabbed9a844ef5d114832097ecd2b631010b6033",
+      "keccak256": "0xbe5ca9e7f254d031687419e7b96ef48c9c63e9398bbe992dc72ffc6dc14e0a04",
+      "gitBlobSha1": "69083e93f5af0225ac2717426c6e04b7d558eff4",
+      "commit": "7af70c8993a6f42973f520ae0752386a5032abe7",
+      "sourceUrl": "https://github.com/eth-infinitism/account-abstraction/blob/7af70c8993a6f42973f520ae0752386a5032abe7/contracts/interfaces/IStakeManager.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v7/contracts/interfaces/PackedUserOperation.sol",
+      "sha256": "40fcd99da0814312f0353417de64f70805f4cd7ec4cb4573c8b4c4d48540f562",
+      "keccak256": "0x1129b46381db68eddbc5cb49e50664667b66b03c480453858e7b25eabe444359",
+      "gitBlobSha1": "fe20de56573fe205a20f7133734b577d5255f321",
+      "commit": "7af70c8993a6f42973f520ae0752386a5032abe7",
+      "sourceUrl": "https://github.com/eth-infinitism/account-abstraction/blob/7af70c8993a6f42973f520ae0752386a5032abe7/contracts/interfaces/PackedUserOperation.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/access/AccessControl.sol",
+      "sha256": "1086a1ad3788972b885ff3f209da510615dde6214d46b29e1cd2a4924f66c06d",
+      "keccak256": "0xa0e92d42942f4f57c5be50568dac11e9d00c93efcb458026e18d2d9b9b2e7308",
+      "gitBlobSha1": "3e3341e9cfd62e7137f4dd4ea6445b43e4c619c1",
+      "commit": "dbb6104ce834628e473d2173bbc9d47f81a9eec3",
+      "sourceUrl": "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/access/AccessControl.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/access/IAccessControl.sol",
+      "sha256": "1d6ef09193265172824fa1139e85cba422117ca918961183f080e692489d8c3b",
+      "keccak256": "0xb6b36edd6a2999fd243ff226d6cbf84bd71af2432bbd0dfe19392996a1d9cb41",
+      "gitBlobSha1": "2ac89ca73569c2449e7a19fd2b19f8482e16984c",
+      "commit": "dbb6104ce834628e473d2173bbc9d47f81a9eec3",
+      "sourceUrl": "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/access/IAccessControl.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/utils/Context.sol",
+      "sha256": "847fda5460fee70f56f4200f59b82ae622bb03c79c77e67af010e31b7e2cc5b6",
+      "keccak256": "0x493033a8d1b176a037b2cc6a04dad01a5c157722049bbecf632ca876224dd4b2",
+      "gitBlobSha1": "4e535fe03c243f864568b8f4430c17c25dbadb47",
+      "commit": "dbb6104ce834628e473d2173bbc9d47f81a9eec3",
+      "sourceUrl": "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/utils/Context.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/utils/Strings.sol",
+      "sha256": "0519199dbc635f98ce2e4537986604ee618bca665c65e9a1738702dfacf72010",
+      "keccak256": "0x55f102ea785d8399c0e58d1108e2d289506dde18abc6db1b7f68c1f9f9bc5792",
+      "gitBlobSha1": "b2c0a40fb2a900056d77c4f84d4c121f188e61aa",
+      "commit": "dbb6104ce834628e473d2173bbc9d47f81a9eec3",
+      "sourceUrl": "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/utils/Strings.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/utils/cryptography/ECDSA.sol",
+      "sha256": "37828cb50b47bcc51c7b770bde15d5885d871ef1e67028057a0b788c3568726e",
+      "keccak256": "0xeed0a08b0b091f528356cbc7245891a4c748682d4f6a18055e8e6ca77d12a6cf",
+      "gitBlobSha1": "04b3e5e06468b1727ec9bd695e16a46c2177051b",
+      "commit": "dbb6104ce834628e473d2173bbc9d47f81a9eec3",
+      "sourceUrl": "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/utils/cryptography/ECDSA.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/utils/cryptography/MessageHashUtils.sol",
+      "sha256": "2fd5c641cf452efd15f784827cb2835664970d7fbc166bf80824ed27011cc374",
+      "keccak256": "0xba333517a3add42cd35fe877656fc3dfcc9de53baa4f3aabbd6d12a92e4ea435",
+      "gitBlobSha1": "8836693e79b181b04f2bf54d35f2aa1e693262c1",
+      "commit": "dbb6104ce834628e473d2173bbc9d47f81a9eec3",
+      "sourceUrl": "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/utils/cryptography/MessageHashUtils.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/utils/introspection/ERC165.sol",
+      "sha256": "99348354365cbdeb90157e2903334b861a00d69faab7720ae542d911d5c70d87",
+      "keccak256": "0x9e8778b14317ba9e256c30a76fd6c32b960af621987f56069e1e819c77c6a133",
+      "gitBlobSha1": "1e77b60d7394f089cbe0fa0e408d7581eb17e77e",
+      "commit": "dbb6104ce834628e473d2173bbc9d47f81a9eec3",
+      "sourceUrl": "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/utils/introspection/ERC165.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/utils/introspection/IERC165.sol",
+      "sha256": "07ae1ac964ab74dedada999e2dfc642031a6495469cffc0bf715daa4f1e4f904",
+      "keccak256": "0x4296879f55019b23e135000eb36896057e7101fb7fb859c5ef690cf14643757b",
+      "gitBlobSha1": "c09f31fe12886c14f464d21e04167066d9feafbb",
+      "commit": "dbb6104ce834628e473d2173bbc9d47f81a9eec3",
+      "sourceUrl": "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/utils/introspection/IERC165.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/utils/math/Math.sol",
+      "sha256": "a6ee779fc42e6bf01b5e6a963065706e882b016affbedfd8be19a71ea48e6e15",
+      "keccak256": "0x005ec64c6313f0555d59e278f9a7a5ab2db5bdc72a027f255a37c327af1ec02d",
+      "gitBlobSha1": "9681524529b34f34033ae97064a2700bfc4eec00",
+      "commit": "dbb6104ce834628e473d2173bbc9d47f81a9eec3",
+      "sourceUrl": "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/utils/math/Math.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/utils/math/SignedMath.sol",
+      "sha256": "768c28e3a33c3312e57ae8a1caaec2893bc89ac6e386621de018f85e9a2d6e99",
+      "keccak256": "0x5f7e4076e175393767754387c962926577f1660dd9b810187b9002407656be72",
+      "gitBlobSha1": "66a615162921b564204ebcc30037d4d806855b28",
+      "commit": "dbb6104ce834628e473d2173bbc9d47f81a9eec3",
+      "sourceUrl": "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/utils/math/SignedMath.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/solady/src/utils/SafeTransferLib.sol",
+      "sha256": "86b07c78f78c36117da64449bd89d7ad419026ca4af4749f1f1b7d2173603bcc",
+      "keccak256": "0x583f47701d9b47bb3ef80fcabbbd62fbb58a01733b7a57e19658b4b02468883a",
+      "gitBlobSha1": "6eaa0b02dca2502cb29909322ed9d2d70f55bda9",
+      "commit": "1f43cc8005cc3b3c8361dd7dbdd2cdeaf0f99e66",
+      "sourceUrl": "https://github.com/Vectorized/solady/blob/1f43cc8005cc3b3c8361dd7dbdd2cdeaf0f99e66/src/utils/SafeTransferLib.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "src/SingletonPaymasterV7.sol",
+      "sha256": "6db491288d1003d8cf5dcd623077f94716b25ea8c69d9c0fa0d94310c5451b57",
+      "keccak256": "0xd4000b9a38f5cb7bd9e67a7b706294beadb715c5606cef1a789713e4e68c70ab",
+      "gitBlobSha1": "6138aba6a32578e9c23905c2df94ab8777b72530",
+      "commit": "2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05",
+      "sourceUrl": "https://github.com/pimlicolabs/singleton-paymaster/blob/2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05/src/SingletonPaymasterV7.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "src/base/BasePaymaster.sol",
+      "sha256": "bb3341a96670ccea74c96ccde006b74ff038c6028f3114eaca10e3ab0b87dfa7",
+      "keccak256": "0xa9576c362e6f4852690dec7108e91642c37c1eeb4840834744c4bb0303b4a53f",
+      "gitBlobSha1": "59a73eb59b8b0ad3de9d822517f10f90ef86d226",
+      "commit": "2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05",
+      "sourceUrl": "https://github.com/pimlicolabs/singleton-paymaster/blob/2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05/src/base/BasePaymaster.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "src/base/BaseSingletonPaymaster.sol",
+      "sha256": "6bd40754ddc429302645545f2b1cf6d4b3c2d62cff4fb0911d473096aca611ed",
+      "keccak256": "0x8d7e10b2b5c96ec8b4f4ed1ea4c6c539d970b4c1e1e419b9d6927bd6e4cf4061",
+      "gitBlobSha1": "cc0fab63d188d6bfca6200236ff3e7e88c3f57b0",
+      "commit": "2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05",
+      "sourceUrl": "https://github.com/pimlicolabs/singleton-paymaster/blob/2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05/src/base/BaseSingletonPaymaster.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "src/base/ManagerAccessControl.sol",
+      "sha256": "cb219188a426bdfec79008a50806b3f87129eb0e081630abb4b7bae2211d1ba0",
+      "keccak256": "0x967d2d38eba35375435e0ed137049e82ae608f92f74671106b93434fc9c1ee82",
+      "gitBlobSha1": "c8c03e13c6728f28347d87dc558e982d1be87bd4",
+      "commit": "2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05",
+      "sourceUrl": "https://github.com/pimlicolabs/singleton-paymaster/blob/2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05/src/base/ManagerAccessControl.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "src/base/MultiSigner.sol",
+      "sha256": "3817d51a3519e70a735bf0331072f7b18c4f4668440cef2135d01116a87c826a",
+      "keccak256": "0x12e13fdd22093912de270852fc8138633e3c54043ad9628860c11da8d4856b77",
+      "gitBlobSha1": "fd81e4e6cc8f13fda010f226a108e7865217ca3e",
+      "commit": "2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05",
+      "sourceUrl": "https://github.com/pimlicolabs/singleton-paymaster/blob/2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05/src/base/MultiSigner.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "src/interfaces/IPaymasterV7.sol",
+      "sha256": "b814f6562ba113ed74f81dc59a395dd369415552c9b25a616ec3aa39a5d3ccc7",
+      "keccak256": "0x2c2ae21371eee7145302400f45c5ec86a09409e8ae8dcd461d02435e3467bf91",
+      "gitBlobSha1": "4296ece41a4e90f27422c5d18d8e06c10fd58478",
+      "commit": "2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05",
+      "sourceUrl": "https://github.com/pimlicolabs/singleton-paymaster/blob/2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05/src/interfaces/IPaymasterV7.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "src/interfaces/PostOpMode.sol",
+      "sha256": "a6b3b0c9ed8b9eedb249471b3719fd40a7c52b6f1a363f4f209d54b93fa6c768",
+      "keccak256": "0xc92288c76725ac80e16f61295a13ddf9365dabfcda5cc0ac2095ea0b280b3641",
+      "gitBlobSha1": "30e06f69214e3f1e9f92fa7758af55e706ac7108",
+      "commit": "2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05",
+      "sourceUrl": "https://github.com/pimlicolabs/singleton-paymaster/blob/2f710c1cee1ae2d5f5bbf3c41aade9ff8e4d4c05/src/interfaces/PostOpMode.sol",
+      "pinnedSourceMatchesVerified": true
+    }
+  ],
+  "dependencyPins": {
+    "lib/account-abstraction-v6": "abff2aca61a8f0934e533d0d352978055fddbd96",
+    "lib/account-abstraction-v7": "7af70c8993a6f42973f520ae0752386a5032abe7",
+    "lib/openzeppelin-contracts-v5.0.2": "dbb6104ce834628e473d2173bbc9d47f81a9eec3",
+    "lib/solady": "1f43cc8005cc3b3c8361dd7dbdd2cdeaf0f99e66"
+  },
+  "immutableBindings": {
+    "4020": {
+      "name": "PAYMASTER_DATA_OFFSET",
+      "sourcePath": "src/SingletonPaymasterV7.sol",
+      "references": [
+        {
+          "length": 32,
+          "start": 2898
+        },
+        {
+          "length": 32,
+          "start": 5450
+        },
+        {
+          "length": 32,
+          "start": 5995
+        }
+      ],
+      "value": "0x0000000000000000000000000000000000000000000000000000000000000034"
+    },
+    "4768": {
+      "name": "entryPoint",
+      "sourcePath": "src/base/BasePaymaster.sol",
+      "references": [
+        {
+          "length": 32,
+          "start": 1065
+        },
+        {
+          "length": 32,
+          "start": 1766
+        },
+        {
+          "length": 32,
+          "start": 2281
+        },
+        {
+          "length": 32,
+          "start": 3736
+        },
+        {
+          "length": 32,
+          "start": 3930
+        },
+        {
+          "length": 32,
+          "start": 4073
+        },
+        {
+          "length": 32,
+          "start": 4257
+        },
+        {
+          "length": 32,
+          "start": 5335
+        }
+      ],
+      "value": "0x0000000000000000000000000000000071727de22e5e9d8baf0edac6f37da032"
+    },
+    "5077": {
+      "name": "VERIFYING_MODE",
+      "sourcePath": "src/base/BaseSingletonPaymaster.sol",
+      "references": [
+        {
+          "length": 32,
+          "start": 2628
+        },
+        {
+          "length": 32,
+          "start": 5632
+        },
+        {
+          "length": 32,
+          "start": 5734
+        },
+        {
+          "length": 32,
+          "start": 7006
+        },
+        {
+          "length": 32,
+          "start": 7283
+        }
+      ],
+      "value": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "5081": {
+      "name": "ERC20_MODE",
+      "sourcePath": "src/base/BaseSingletonPaymaster.sol",
+      "references": [
+        {
+          "length": 32,
+          "start": 5583
+        },
+        {
+          "length": 32,
+          "start": 5797
+        },
+        {
+          "length": 32,
+          "start": 6605
+        }
+      ],
+      "value": "0x0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    "5085": {
+      "name": "MODE_AND_ALLOW_ALL_BUNDLERS_LENGTH",
+      "sourcePath": "src/base/BaseSingletonPaymaster.sol",
+      "references": [
+        {
+          "length": 32,
+          "start": 2713
+        },
+        {
+          "length": 32,
+          "start": 2804
+        },
+        {
+          "length": 32,
+          "start": 2864
+        }
+      ],
+      "value": "0x0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    "5089": {
+      "name": "ERC20_PAYMASTER_DATA_LENGTH",
+      "sourcePath": "src/base/BaseSingletonPaymaster.sol",
+      "references": [
+        {
+          "length": 32,
+          "start": 2771
+        },
+        {
+          "length": 32,
+          "start": 8372
+        }
+      ],
+      "value": "0x0000000000000000000000000000000000000000000000000000000000000075"
+    },
+    "5093": {
+      "name": "VERIFYING_PAYMASTER_DATA_LENGTH",
+      "sourcePath": "src/base/BaseSingletonPaymaster.sol",
+      "references": [
+        {
+          "length": 32,
+          "start": 2680
+        },
+        {
+          "length": 32,
+          "start": 7924
+        }
+      ],
+      "value": "0x000000000000000000000000000000000000000000000000000000000000000c"
+    }
+  },
+  "rawRuntimeCodeHash": "0xdacf36df936378ee78521653f1738e15ffeb88cc0738e5cadc378545a7e96bd4",
+  "runtimeCodeHash": "0x337b6e1b6c2167c0528c5240c028ead407c673595b2820029b69741b76d98fbc",
+  "runtimeBytes": 15118,
+  "chainIds": [
+    1,
+    10,
+    8453,
+    42161
+  ],
+  "observations": [
+    {
+      "chainId": 1,
+      "address": "0x777777777777AeC03fd955926DbF81597e66834C",
+      "block": {
+        "number": "0x18b9995",
+        "hash": "0x7218eb93a4a0f963eb7b8f51274e3df8a2dbe45c5de8773e90092b0739e2a967"
+      },
+      "runtimeCodeHash": "0x337b6e1b6c2167c0528c5240c028ead407c673595b2820029b69741b76d98fbc",
+      "bytes": 15118,
+      "artifactRuntimeMatches": true
+    },
+    {
+      "chainId": 10,
+      "address": "0x777777777777AeC03fd955926DbF81597e66834C",
+      "block": {
+        "number": "0x95571c3",
+        "hash": "0x755f255ee9faa2ef5ca3860b7dfc48436cc00e4f7c47dc5512c189d27b48009f"
+      },
+      "runtimeCodeHash": "0x337b6e1b6c2167c0528c5240c028ead407c673595b2820029b69741b76d98fbc",
+      "bytes": 15118,
+      "artifactRuntimeMatches": true
+    },
+    {
+      "chainId": 8453,
+      "address": "0x777777777777AeC03fd955926DbF81597e66834C",
+      "block": {
+        "number": "0x30a312b",
+        "hash": "0x6450b0d50b7665b9d74c2e103e02e6d0e2c2e8ffea2f93b5278e08ac23ad9973"
+      },
+      "runtimeCodeHash": "0x337b6e1b6c2167c0528c5240c028ead407c673595b2820029b69741b76d98fbc",
+      "bytes": 15118,
+      "artifactRuntimeMatches": true
+    },
+    {
+      "chainId": 42161,
+      "address": "0x777777777777AeC03fd955926DbF81597e66834C",
+      "block": {
+        "number": "0x1df685dd",
+        "hash": "0x217e9df9af451dc5478855aeb702725c8c6279c2417902c35330ef992f622150"
+      },
+      "runtimeCodeHash": "0x337b6e1b6c2167c0528c5240c028ead407c673595b2820029b69741b76d98fbc",
+      "bytes": 15118,
+      "artifactRuntimeMatches": true
+    }
+  ],
+  "verifiedSources": [
+    {
+      "chainId": 1,
+      "address": "0x777777777777AeC03fd955926DbF81597e66834C",
+      "sourcifyUrl": "https://sourcify.dev/server/v2/contract/1/0x777777777777AeC03fd955926DbF81597e66834C?fields=all",
+      "sourcifyResponseSha256": "527679a9bbcf63fae0cdf2854e4b38f5ab3f805d7ef0a8c6bae099433a169080",
+      "creationMatch": "exact_match",
+      "runtimeMatch": "exact_match",
+      "verifiedAt": "2025-03-28T18:14:33Z",
+      "deployment": {
+        "transactionHash": "0xad008e3c52c4245419f12871382d8078851540bded47687eabe897b37a3c099a",
+        "blockNumber": "22076092",
+        "transactionIndex": "223",
+        "deployer": "0x4337001Fff419768e088Ce247456c1B892888084"
+      },
+      "locallyReproducedRawRuntimeMatches": true,
+      "locallyReproducedBoundRuntimeMatches": true,
+      "blockscoutUrl": "https://eth.blockscout.com/api/v2/smart-contracts/0x777777777777AeC03fd955926DbF81597e66834C",
+      "blockscoutResponseSha256": "31118c9007151966e25dcd4e255a084ca80c232669a930307c732b9c1ff21ec9",
+      "blockscoutFullyVerified": true,
+      "blockscoutRuntimeMatches": true
+    },
+    {
+      "chainId": 10,
+      "address": "0x777777777777AeC03fd955926DbF81597e66834C",
+      "sourcifyUrl": "https://sourcify.dev/server/v2/contract/10/0x777777777777AeC03fd955926DbF81597e66834C?fields=all",
+      "sourcifyResponseSha256": "68aa0b30e031db1c544ad2fc8cf4879bdc16fe917ba23a708f7662819686569f",
+      "creationMatch": "exact_match",
+      "runtimeMatch": "exact_match",
+      "verifiedAt": "2025-04-18T17:56:16Z",
+      "deployment": {
+        "transactionHash": "0xc8e6b4a5bcf023a04f62ed5fd7223b1752e2fa5bf967e072d7f289cd137f4af7",
+        "blockNumber": "133365131",
+        "transactionIndex": "7",
+        "deployer": "0x4337001Fff419768e088Ce247456c1B892888084"
+      },
+      "locallyReproducedRawRuntimeMatches": true,
+      "locallyReproducedBoundRuntimeMatches": true,
+      "blockscoutUrl": "https://optimism.blockscout.com/api/v2/smart-contracts/0x777777777777AeC03fd955926DbF81597e66834C",
+      "blockscoutResponseSha256": "1d50761f468ddb1f89387e1d8562f679219afdbf20c9d03c5ce7d6f02f7b6e79",
+      "blockscoutFullyVerified": true,
+      "blockscoutRuntimeMatches": true
+    },
+    {
+      "chainId": 8453,
+      "address": "0x777777777777AeC03fd955926DbF81597e66834C",
+      "sourcifyUrl": "https://sourcify.dev/server/v2/contract/8453/0x777777777777AeC03fd955926DbF81597e66834C?fields=all",
+      "sourcifyResponseSha256": "70cf9b20c2d58a19f6b16e7f0757503df891a6e58b476f1ffa47129bdb1ad848",
+      "creationMatch": "exact_match",
+      "runtimeMatch": "exact_match",
+      "verifiedAt": "2025-04-09T19:15:40Z",
+      "deployment": {
+        "transactionHash": "0x1bb0ca545363116acf0c9e491df0eda744c91f6498da331babb4f3de8f622944",
+        "blockNumber": "27769907",
+        "transactionIndex": "148",
+        "deployer": "0x4337001Fff419768e088Ce247456c1B892888084"
+      },
+      "locallyReproducedRawRuntimeMatches": true,
+      "locallyReproducedBoundRuntimeMatches": true,
+      "blockscoutUrl": "https://base.blockscout.com/api/v2/smart-contracts/0x777777777777AeC03fd955926DbF81597e66834C",
+      "blockscoutResponseSha256": "86677ee01fdc72825b7edea74080c6da44337583ccd831a40ed1e8f25a1891d5",
+      "blockscoutFullyVerified": true,
+      "blockscoutRuntimeMatches": true
+    },
+    {
+      "chainId": 42161,
+      "address": "0x777777777777AeC03fd955926DbF81597e66834C",
+      "sourcifyUrl": "https://sourcify.dev/server/v2/contract/42161/0x777777777777AeC03fd955926DbF81597e66834C?fields=all",
+      "sourcifyResponseSha256": "9b1a07f767d5c1a20baa5eec3ee8f125bd8c6d686ca5025d3bd90b0d0a5b5e82",
+      "creationMatch": "exact_match",
+      "runtimeMatch": "exact_match",
+      "verifiedAt": "2025-04-05T19:49:07Z",
+      "deployment": {
+        "transactionHash": "0x296263bd4cecbe2418736f329cdbf643beb42958dc80b310a448ee4be4e98130",
+        "blockNumber": "317088725",
+        "transactionIndex": "2",
+        "deployer": "0x4337001Fff419768e088Ce247456c1B892888084"
+      },
+      "locallyReproducedRawRuntimeMatches": true,
+      "locallyReproducedBoundRuntimeMatches": true,
+      "blockscoutUrl": "https://arbitrum.blockscout.com/api/v2/smart-contracts/0x777777777777AeC03fd955926DbF81597e66834C",
+      "blockscoutResponseSha256": "0d6d4d9376115e4e1b00b45007dd4f24e08aa06926fb072fa91cc3d91ab1db9b",
+      "blockscoutFullyVerified": true,
+      "blockscoutRuntimeMatches": true
+    }
+  ],
+  "gasOnlyProfile": {
+    "id": "pimlico-v7-current-flags",
+    "paymasterAndDataBytes": 130,
+    "paymasterDataBytes": 78,
+    "flagsOffset": 52,
+    "allowedFlags": [
+      0,
+      1
+    ],
+    "modeShift": 1,
+    "verifyingMode": 0,
+    "allowAllBundlersMask": 1,
+    "validUntilOffset": 53,
+    "validAfterOffset": 59,
+    "signatureOffset": 65,
+    "signatureBytes": 65,
+    "validationContext": "empty",
+    "tokenCharge": "none"
+  },
+  "metadata": {
+    "compiler": {
+      "version": "0.8.26+commit.8a97fa7a"
+    },
+    "language": "Solidity",
+    "output": {
+      "abi": [
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "_entryPoint",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "_owner",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "_manager",
+              "type": "address"
+            },
+            {
+              "internalType": "address[]",
+              "name": "_signers",
+              "type": "address[]"
+            }
+          ],
+          "stateMutability": "nonpayable",
+          "type": "constructor"
+        },
+        {
+          "inputs": [],
+          "name": "AccessControlBadConfirmation",
+          "type": "error"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "account",
+              "type": "address"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "neededRole",
+              "type": "bytes32"
+            }
+          ],
+          "name": "AccessControlUnauthorizedAccount",
+          "type": "error"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "account",
+              "type": "address"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "neededRole",
+              "type": "bytes32"
+            }
+          ],
+          "name": "AccessControlUnauthorizedAccount",
+          "type": "error"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "bundler",
+              "type": "address"
+            }
+          ],
+          "name": "BundlerNotAllowed",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "ECDSAInvalidSignature",
+          "type": "error"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "uint256",
+              "name": "length",
+              "type": "uint256"
+            }
+          ],
+          "name": "ECDSAInvalidSignatureLength",
+          "type": "error"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "bytes32",
+              "name": "s",
+              "type": "bytes32"
+            }
+          ],
+          "name": "ECDSAInvalidSignatureS",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "ExchangeRateInvalid",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "PaymasterAndDataLengthInvalid",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "PaymasterConfigLengthInvalid",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "PaymasterModeInvalid",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "PaymasterSignatureLengthInvalid",
+          "type": "error"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "string",
+              "name": "msg",
+              "type": "string"
+            }
+          ],
+          "name": "PostOpTransferFromFailed",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "PreFundTooHigh",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "RecipientInvalid",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "TokenAddressInvalid",
+          "type": "error"
+        },
+        {
+          "anonymous": false,
+          "inputs": [
+            {
+              "indexed": false,
+              "internalType": "address",
+              "name": "bundler",
+              "type": "address"
+            },
+            {
+              "indexed": false,
+              "internalType": "bool",
+              "name": "allowed",
+              "type": "bool"
+            }
+          ],
+          "name": "BundlerAllowlistUpdated",
+          "type": "event"
+        },
+        {
+          "anonymous": false,
+          "inputs": [
+            {
+              "indexed": true,
+              "internalType": "bytes32",
+              "name": "role",
+              "type": "bytes32"
+            },
+            {
+              "indexed": true,
+              "internalType": "bytes32",
+              "name": "previousAdminRole",
+              "type": "bytes32"
+            },
+            {
+              "indexed": true,
+              "internalType": "bytes32",
+              "name": "newAdminRole",
+              "type": "bytes32"
+            }
+          ],
+          "name": "RoleAdminChanged",
+          "type": "event"
+        },
+        {
+          "anonymous": false,
+          "inputs": [
+            {
+              "indexed": true,
+              "internalType": "bytes32",
+              "name": "role",
+              "type": "bytes32"
+            },
+            {
+              "indexed": true,
+              "internalType": "address",
+              "name": "account",
+              "type": "address"
+            },
+            {
+              "indexed": true,
+              "internalType": "address",
+              "name": "sender",
+              "type": "address"
+            }
+          ],
+          "name": "RoleGranted",
+          "type": "event"
+        },
+        {
+          "anonymous": false,
+          "inputs": [
+            {
+              "indexed": true,
+              "internalType": "bytes32",
+              "name": "role",
+              "type": "bytes32"
+            },
+            {
+              "indexed": true,
+              "internalType": "address",
+              "name": "account",
+              "type": "address"
+            },
+            {
+              "indexed": true,
+              "internalType": "address",
+              "name": "sender",
+              "type": "address"
+            }
+          ],
+          "name": "RoleRevoked",
+          "type": "event"
+        },
+        {
+          "anonymous": false,
+          "inputs": [
+            {
+              "indexed": false,
+              "internalType": "address",
+              "name": "signer",
+              "type": "address"
+            }
+          ],
+          "name": "SignerAdded",
+          "type": "event"
+        },
+        {
+          "anonymous": false,
+          "inputs": [
+            {
+              "indexed": false,
+              "internalType": "address",
+              "name": "signer",
+              "type": "address"
+            }
+          ],
+          "name": "SignerRemoved",
+          "type": "event"
+        },
+        {
+          "anonymous": false,
+          "inputs": [
+            {
+              "indexed": true,
+              "internalType": "bytes32",
+              "name": "userOpHash",
+              "type": "bytes32"
+            },
+            {
+              "indexed": true,
+              "internalType": "address",
+              "name": "user",
+              "type": "address"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint8",
+              "name": "paymasterMode",
+              "type": "uint8"
+            },
+            {
+              "indexed": false,
+              "internalType": "address",
+              "name": "token",
+              "type": "address"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "tokenAmountPaid",
+              "type": "uint256"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "exchangeRate",
+              "type": "uint256"
+            }
+          ],
+          "name": "UserOperationSponsored",
+          "type": "event"
+        },
+        {
+          "inputs": [],
+          "name": "DEFAULT_ADMIN_ROLE",
+          "outputs": [
+            {
+              "internalType": "bytes32",
+              "name": "",
+              "type": "bytes32"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "MANAGER_ROLE",
+          "outputs": [
+            {
+              "internalType": "bytes32",
+              "name": "",
+              "type": "bytes32"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "uint256",
+              "name": "_actualGasCost",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "_actualUserOpFeePerGas",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint128",
+              "name": "postOpGas",
+              "type": "uint128"
+            },
+            {
+              "internalType": "uint256",
+              "name": "preOpGasApproximation",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "executionGasLimit",
+              "type": "uint256"
+            }
+          ],
+          "name": "_expectedPenaltyGasCost",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "pure",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "_signer",
+              "type": "address"
+            }
+          ],
+          "name": "addSigner",
+          "outputs": [],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "uint32",
+              "name": "unstakeDelaySec",
+              "type": "uint32"
+            }
+          ],
+          "name": "addStake",
+          "outputs": [],
+          "stateMutability": "payable",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "deposit",
+          "outputs": [],
+          "stateMutability": "payable",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "entryPoint",
+          "outputs": [
+            {
+              "internalType": "contract IEntryPoint",
+              "name": "",
+              "type": "address"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "uint256",
+              "name": "_actualGasCost",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "_postOpGas",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "_actualUserOpFeePerGas",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "_exchangeRate",
+              "type": "uint256"
+            }
+          ],
+          "name": "getCostInToken",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "pure",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "getDeposit",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "uint8",
+              "name": "_mode",
+              "type": "uint8"
+            },
+            {
+              "components": [
+                {
+                  "internalType": "address",
+                  "name": "sender",
+                  "type": "address"
+                },
+                {
+                  "internalType": "uint256",
+                  "name": "nonce",
+                  "type": "uint256"
+                },
+                {
+                  "internalType": "bytes",
+                  "name": "initCode",
+                  "type": "bytes"
+                },
+                {
+                  "internalType": "bytes",
+                  "name": "callData",
+                  "type": "bytes"
+                },
+                {
+                  "internalType": "bytes32",
+                  "name": "accountGasLimits",
+                  "type": "bytes32"
+                },
+                {
+                  "internalType": "uint256",
+                  "name": "preVerificationGas",
+                  "type": "uint256"
+                },
+                {
+                  "internalType": "bytes32",
+                  "name": "gasFees",
+                  "type": "bytes32"
+                },
+                {
+                  "internalType": "bytes",
+                  "name": "paymasterAndData",
+                  "type": "bytes"
+                },
+                {
+                  "internalType": "bytes",
+                  "name": "signature",
+                  "type": "bytes"
+                }
+              ],
+              "internalType": "struct PackedUserOperation",
+              "name": "_userOp",
+              "type": "tuple"
+            }
+          ],
+          "name": "getHash",
+          "outputs": [
+            {
+              "internalType": "bytes32",
+              "name": "",
+              "type": "bytes32"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "bytes32",
+              "name": "role",
+              "type": "bytes32"
+            }
+          ],
+          "name": "getRoleAdmin",
+          "outputs": [
+            {
+              "internalType": "bytes32",
+              "name": "",
+              "type": "bytes32"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "bytes32",
+              "name": "role",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "address",
+              "name": "account",
+              "type": "address"
+            }
+          ],
+          "name": "grantRole",
+          "outputs": [],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "bytes32",
+              "name": "role",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "address",
+              "name": "account",
+              "type": "address"
+            }
+          ],
+          "name": "hasRole",
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "bundler",
+              "type": "address"
+            }
+          ],
+          "name": "isBundlerAllowed",
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "allowed",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "enum PostOpMode",
+              "name": "mode",
+              "type": "uint8"
+            },
+            {
+              "internalType": "bytes",
+              "name": "context",
+              "type": "bytes"
+            },
+            {
+              "internalType": "uint256",
+              "name": "actualGasCost",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "actualUserOpFeePerGas",
+              "type": "uint256"
+            }
+          ],
+          "name": "postOp",
+          "outputs": [],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "_signer",
+              "type": "address"
+            }
+          ],
+          "name": "removeSigner",
+          "outputs": [],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "bytes32",
+              "name": "role",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "address",
+              "name": "callerConfirmation",
+              "type": "address"
+            }
+          ],
+          "name": "renounceRole",
+          "outputs": [],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "bytes32",
+              "name": "role",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "address",
+              "name": "account",
+              "type": "address"
+            }
+          ],
+          "name": "revokeRole",
+          "outputs": [],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "account",
+              "type": "address"
+            }
+          ],
+          "name": "signers",
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "isValidSigner",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "bytes4",
+              "name": "interfaceId",
+              "type": "bytes4"
+            }
+          ],
+          "name": "supportsInterface",
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "unlockStake",
+          "outputs": [],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address[]",
+              "name": "bundlers",
+              "type": "address[]"
+            },
+            {
+              "internalType": "bool",
+              "name": "allowed",
+              "type": "bool"
+            }
+          ],
+          "name": "updateBundlerAllowlist",
+          "outputs": [],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "components": [
+                {
+                  "internalType": "address",
+                  "name": "sender",
+                  "type": "address"
+                },
+                {
+                  "internalType": "uint256",
+                  "name": "nonce",
+                  "type": "uint256"
+                },
+                {
+                  "internalType": "bytes",
+                  "name": "initCode",
+                  "type": "bytes"
+                },
+                {
+                  "internalType": "bytes",
+                  "name": "callData",
+                  "type": "bytes"
+                },
+                {
+                  "internalType": "bytes32",
+                  "name": "accountGasLimits",
+                  "type": "bytes32"
+                },
+                {
+                  "internalType": "uint256",
+                  "name": "preVerificationGas",
+                  "type": "uint256"
+                },
+                {
+                  "internalType": "bytes32",
+                  "name": "gasFees",
+                  "type": "bytes32"
+                },
+                {
+                  "internalType": "bytes",
+                  "name": "paymasterAndData",
+                  "type": "bytes"
+                },
+                {
+                  "internalType": "bytes",
+                  "name": "signature",
+                  "type": "bytes"
+                }
+              ],
+              "internalType": "struct PackedUserOperation",
+              "name": "userOp",
+              "type": "tuple"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "userOpHash",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "uint256",
+              "name": "requiredPreFund",
+              "type": "uint256"
+            }
+          ],
+          "name": "validatePaymasterUserOp",
+          "outputs": [
+            {
+              "internalType": "bytes",
+              "name": "context",
+              "type": "bytes"
+            },
+            {
+              "internalType": "uint256",
+              "name": "validationData",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address payable",
+              "name": "withdrawAddress",
+              "type": "address"
+            }
+          ],
+          "name": "withdrawStake",
+          "outputs": [],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address payable",
+              "name": "withdrawAddress",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "amount",
+              "type": "uint256"
+            }
+          ],
+          "name": "withdrawTo",
+          "outputs": [],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        }
+      ],
+      "devdoc": {
+        "author": "Pimlico (https://github.com/pimlicolabs/singleton-paymaster/blob/main/src/SingletonPaymasterV7.sol)Using Solady (https://github.com/vectorized/solady)",
+        "custom:security-contact": "security@pimlico.io",
+        "details": "Inherits from BaseSingletonPaymaster.",
+        "errors": {
+          "AccessControlBadConfirmation()": [
+            {
+              "details": "The caller of a function is not the expected one. NOTE: Don't confuse with {AccessControlUnauthorizedAccount}."
+            }
+          ],
+          "AccessControlUnauthorizedAccount(address,bytes32)": [
+            {
+              "details": "The `account` is missing a role."
+            }
+          ],
+          "BundlerNotAllowed(address)": [
+            {
+              "params": {
+                "bundler": "address of the bundler that was not allowlisted"
+              }
+            }
+          ],
+          "ECDSAInvalidSignature()": [
+            {
+              "details": "The signature derives the `address(0)`."
+            }
+          ],
+          "ECDSAInvalidSignatureLength(uint256)": [
+            {
+              "details": "The signature has an invalid length."
+            }
+          ],
+          "ECDSAInvalidSignatureS(bytes32)": [
+            {
+              "details": "The signature has an S value that is in the upper half order."
+            }
+          ],
+          "PostOpTransferFromFailed(string)": [
+            {
+              "details": "We need to throw with params due to this bug in EntryPoint v0.6: https://github.com/eth-infinitism/account-abstraction/pull/293"
+            }
+          ]
+        },
+        "events": {
+          "BundlerAllowlistUpdated(address,bool)": {
+            "params": {
+              "allowed": "True if was allowlisted, false if removed from allowlist",
+              "bundler": "Address of the bundler"
+            }
+          },
+          "RoleAdminChanged(bytes32,bytes32,bytes32)": {
+            "details": "Emitted when `newAdminRole` is set as ``role``'s admin role, replacing `previousAdminRole` `DEFAULT_ADMIN_ROLE` is the starting admin for all roles, despite {RoleAdminChanged} not being emitted signaling this."
+          },
+          "RoleGranted(bytes32,address,address)": {
+            "details": "Emitted when `account` is granted `role`. `sender` is the account that originated the contract call, an admin role bearer except when using {AccessControl-_setupRole}."
+          },
+          "RoleRevoked(bytes32,address,address)": {
+            "details": "Emitted when `account` is revoked `role`. `sender` is the account that originated the contract call:   - if using `revokeRole`, it is the admin role bearer   - if using `renounceRole`, it is the role bearer (i.e. `account`)"
+          },
+          "UserOperationSponsored(bytes32,address,uint8,address,uint256,uint256)": {
+            "details": "Emitted when a user operation is sponsored by the paymaster."
+          }
+        },
+        "kind": "dev",
+        "methods": {
+          "addStake(uint32)": {
+            "params": {
+              "unstakeDelaySec": "- The unstake delay for this paymaster. Can only be increased."
+            }
+          },
+          "getCostInToken(uint256,uint256,uint256,uint256)": {
+            "params": {
+              "_actualGasCost": "The gas consumed by the userOperation.",
+              "_actualUserOpFeePerGas": "The actual gas cost of the userOperation.",
+              "_exchangeRate": "The token exchange rate - how many tokens one full ETH (1e18 wei) is worth.",
+              "_postOpGas": "The gas overhead of transfering the ERC-20 when making the postOp payment."
+            },
+            "returns": {
+              "_0": "uint256 The gasCost in token units."
+            }
+          },
+          "getHash(uint8,(address,uint256,bytes,bytes,bytes32,uint256,bytes32,bytes,bytes))": {
+            "params": {
+              "_mode": "The mode that we want to get the hash for.",
+              "_userOp": "The user operation data."
+            },
+            "returns": {
+              "_0": "bytes32 The hash that the signer should sign over."
+            }
+          },
+          "getRoleAdmin(bytes32)": {
+            "details": "Returns the admin role that controls `role`. See {grantRole} and {revokeRole}. To change a role's admin, use {_setRoleAdmin}."
+          },
+          "grantRole(bytes32,address)": {
+            "details": "Grants `role` to `account`. If `account` had not been already granted `role`, emits a {RoleGranted} event. Requirements: - the caller must have ``role``'s admin role. May emit a {RoleGranted} event."
+          },
+          "hasRole(bytes32,address)": {
+            "details": "Returns `true` if `account` has been granted `role`."
+          },
+          "postOp(uint8,bytes,uint256,uint256)": {
+            "params": {
+              "actualGasCost": "- Actual gas used so far (without this postOp call).",
+              "actualUserOpFeePerGas": "- the gas price this UserOp pays. This value is based on the UserOp's maxFeePerGas                        and maxPriorityFee (and basefee)                        It is not the same as tx.gasprice, which is what the bundler pays.",
+              "context": "- The context value returned by validatePaymasterUserOp",
+              "mode": "- Enum with the following options:                        opSucceeded - User operation succeeded.                        opReverted  - User op reverted. The paymaster still has to pay for gas.                        postOpReverted - never passed in a call to postOp()."
+            }
+          },
+          "renounceRole(bytes32,address)": {
+            "details": "Revokes `role` from the calling account. Roles are often managed via {grantRole} and {revokeRole}: this function's purpose is to provide a mechanism for accounts to lose their privileges if they are compromised (such as when a trusted device is misplaced). If the calling account had been revoked `role`, emits a {RoleRevoked} event. Requirements: - the caller must be `callerConfirmation`. May emit a {RoleRevoked} event."
+          },
+          "revokeRole(bytes32,address)": {
+            "details": "Revokes `role` from `account`. If `account` had been granted `role`, emits a {RoleRevoked} event. Requirements: - the caller must have ``role``'s admin role. May emit a {RoleRevoked} event."
+          },
+          "supportsInterface(bytes4)": {
+            "details": "See {IERC165-supportsInterface}."
+          },
+          "updateBundlerAllowlist(address[],bool)": {
+            "params": {
+              "allowed": "Boolean indicating if bundlers should be allowed or not",
+              "bundlers": "Array of bundler addresses"
+            }
+          },
+          "validatePaymasterUserOp((address,uint256,bytes,bytes,bytes32,uint256,bytes32,bytes,bytes),bytes32,uint256)": {
+            "params": {
+              "maxCost": "- The maximum cost of this transaction (based on maximum gas and gas price from userOp).",
+              "userOp": "- The user operation.",
+              "userOpHash": "- Hash of the user's request data."
+            },
+            "returns": {
+              "context": "       - Value to send to a postOp. Zero length to signify postOp is not required.",
+              "validationData": "- Signature and time-range of this operation, encoded the same as the return                          value of validateUserOperation.                          <20-byte> sigAuthorizer - 0 for valid signature, 1 to mark signature failure,                                                    other values are invalid for paymaster.                          <6-byte> validUntil - last timestamp this operation is valid. 0 for \"indefinite\"                          <6-byte> validAfter - first timestamp this operation is valid                          Note that the validation code cannot use block.timestamp (or block.number) directly."
+            }
+          },
+          "withdrawStake(address)": {
+            "params": {
+              "withdrawAddress": "- The address to send withdrawn value."
+            }
+          },
+          "withdrawTo(address,uint256)": {
+            "params": {
+              "amount": "- Amount to withdraw.",
+              "withdrawAddress": "- Target to send to."
+            }
+          }
+        },
+        "title": "SingletonPaymasterV7",
+        "version": 1
+      },
+      "userdoc": {
+        "errors": {
+          "BundlerNotAllowed(address)": [
+            {
+              "notice": "Error for bundler not allowed"
+            }
+          ],
+          "ExchangeRateInvalid()": [
+            {
+              "notice": "The token exchange rate is invalid."
+            }
+          ],
+          "PaymasterAndDataLengthInvalid()": [
+            {
+              "notice": "The paymaster data length is invalid."
+            }
+          ],
+          "PaymasterConfigLengthInvalid()": [
+            {
+              "notice": "The paymaster data length is invalid for the selected mode."
+            }
+          ],
+          "PaymasterModeInvalid()": [
+            {
+              "notice": "The paymaster data mode is invalid. The mode should be 0 or 1."
+            }
+          ],
+          "PaymasterSignatureLengthInvalid()": [
+            {
+              "notice": "The paymaster signature length is invalid."
+            }
+          ],
+          "PostOpTransferFromFailed(string)": [
+            {
+              "notice": "The payment failed due to the TransferFrom call in the PostOp reverting."
+            }
+          ],
+          "PreFundTooHigh()": [
+            {
+              "notice": "The preFund is too high."
+            }
+          ],
+          "RecipientInvalid()": [
+            {
+              "notice": "The recipient is invalid."
+            }
+          ],
+          "TokenAddressInvalid()": [
+            {
+              "notice": "The token is invalid."
+            }
+          ]
+        },
+        "events": {
+          "BundlerAllowlistUpdated(address,bool)": {
+            "notice": "Event for changing a bundler allowlist configuration"
+          },
+          "SignerAdded(address)": {
+            "notice": "Emitted when a signer is added."
+          },
+          "SignerRemoved(address)": {
+            "notice": "Emitted when a signer is removed."
+          }
+        },
+        "kind": "user",
+        "methods": {
+          "addStake(uint32)": {
+            "notice": "Add stake for this paymaster. This method can also carry eth value to add to the current stake."
+          },
+          "deposit()": {
+            "notice": "Add a deposit for this paymaster, used for paying for transaction fees."
+          },
+          "getCostInToken(uint256,uint256,uint256,uint256)": {
+            "notice": "Gets the cost in amount of tokens."
+          },
+          "getDeposit()": {
+            "notice": "Return current paymaster's deposit on the entryPoint."
+          },
+          "getHash(uint8,(address,uint256,bytes,bytes,bytes32,uint256,bytes32,bytes,bytes))": {
+            "notice": "Hashses the userOperation data when used in ERC-20 mode."
+          },
+          "isBundlerAllowed(address)": {
+            "notice": "Allowlist of bundlers to use if restricting bundlers is enabled by flag"
+          },
+          "postOp(uint8,bytes,uint256,uint256)": {
+            "notice": "Post-operation handler. Must verify sender is the entryPoint."
+          },
+          "signers(address)": {
+            "notice": "Mapping of valid signers."
+          },
+          "unlockStake()": {
+            "notice": "Unlock the stake, in order to withdraw it. The paymaster can't serve requests once unlocked, until it calls addStake again"
+          },
+          "updateBundlerAllowlist(address[],bool)": {
+            "notice": "Add or remove multiple bundlers to/from the allowlist"
+          },
+          "validatePaymasterUserOp((address,uint256,bytes,bytes,bytes32,uint256,bytes32,bytes,bytes),bytes32,uint256)": {
+            "notice": "Payment validation: check if paymaster agrees to pay. Must verify sender is the entryPoint. Revert to reject this request. Note that bundlers will reject this method if it changes the state, unless the paymaster is trusted (whitelisted). The paymaster pre-pays using its deposit, and receive back a refund after the postOp method returns."
+          },
+          "withdrawStake(address)": {
+            "notice": "Withdraw the entire paymaster's stake. stake must be unlocked first (and then wait for the unstakeDelay to be over)"
+          },
+          "withdrawTo(address,uint256)": {
+            "notice": "Withdraw value from the deposit."
+          }
+        },
+        "notice": "An ERC-4337 Paymaster contract which supports two modes, Verifying and ERC-20. In ERC-20 mode, the paymaster sponsors a UserOperation in exchange for tokens. In Verifying mode, the paymaster sponsors a UserOperation and deducts prepaid balance from the user's Pimlico balance.",
+        "version": 1
+      }
+    },
+    "settings": {
+      "compilationTarget": {
+        "src/SingletonPaymasterV7.sol": "SingletonPaymasterV7"
+      },
+      "evmVersion": "london",
+      "libraries": {},
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "optimizer": {
+        "details": {
+          "constantOptimizer": true,
+          "cse": true,
+          "deduplicate": true,
+          "inliner": true,
+          "jumpdestRemover": true,
+          "orderLiterals": true,
+          "peephole": true,
+          "simpleCounterForLoopUncheckedIncrement": true,
+          "yul": false
+        },
+        "runs": 1000000
+      },
+      "remappings": [
+        ":@account-abstraction-v6/=lib/account-abstraction-v6/contracts/",
+        ":@account-abstraction-v7/=lib/account-abstraction-v7/contracts/",
+        ":@openzeppelin-v4.8.3/=lib/openzeppelin-contracts-v4.8.3/",
+        ":@openzeppelin-v5.0.2/=lib/openzeppelin-contracts-v5.0.2/",
+        ":@openzeppelin/contracts/=lib/openzeppelin-contracts-v5.0.2/contracts/",
+        ":account-abstraction-v6/=lib/account-abstraction-v6/contracts/",
+        ":account-abstraction-v7/=lib/account-abstraction-v7/contracts/",
+        ":ds-test/=lib/openzeppelin-contracts-v5.0.0/lib/forge-std/lib/ds-test/src/",
+        ":erc4626-tests/=lib/openzeppelin-contracts-v5.0.0/lib/erc4626-tests/",
+        ":forge-std/=lib/forge-std/src/",
+        ":openzeppelin-contracts-v4.8.3/=lib/openzeppelin-contracts-v4.8.3/",
+        ":openzeppelin-contracts-v5.0.2/=lib/openzeppelin-contracts-v5.0.2/",
+        ":solady/=lib/solady/src/"
+      ]
+    },
+    "sources": {
+      "lib/account-abstraction-v6/contracts/core/Helpers.sol": {
+        "keccak256": "0x591c87519f7155d1909210276b77925ab2722a99b7b5d5649aecc36ebbdb045a",
+        "license": "GPL-3.0",
+        "urls": [
+          "bzz-raw://69643e83f68e6a13d5075c7565bfce326673b0bd98c432033c4603ea84835746",
+          "dweb:/ipfs/QmSwSzjYyV7qudi5vvsmzHMG2Z4YJZxX51RRXXVCLaNcEU"
+        ]
+      },
+      "lib/account-abstraction-v6/contracts/interfaces/IPaymaster.sol": {
+        "keccak256": "0x36858ba8685024974f533530420688da3454d29996ebc42e410673a1ed2ec456",
+        "license": "GPL-3.0",
+        "urls": [
+          "bzz-raw://616cbcf51778b1961b7f20a547bec7efae6d1d565df0f651926241ed8bde9ad8",
+          "dweb:/ipfs/QmaVsgffUUmeUJYgStvRr8cNZ1LBbrc3FYNLW4JT1dVLia"
+        ]
+      },
+      "lib/account-abstraction-v6/contracts/interfaces/UserOperation.sol": {
+        "keccak256": "0x61374003361059087fdcf17967a7bba052badeaf5c7f0ae689166f8aafd3a45c",
+        "license": "GPL-3.0",
+        "urls": [
+          "bzz-raw://6ff83c59432e733bf6304dda27cd4b0f34401917dd535e2669cc842d2d26568c",
+          "dweb:/ipfs/QmPJbHU5TAjHqUTZzAcicEeG2nknmwCN43L4EW9LHbknTN"
+        ]
+      },
+      "lib/account-abstraction-v7/contracts/core/Helpers.sol": {
+        "keccak256": "0x6247e011a6cb0b263b3aa098822977181674d91b62e5bdfe04c6e66f72da25d6",
+        "license": "GPL-3.0",
+        "urls": [
+          "bzz-raw://ca829a69b3fbc74fec8e140d42a2bf93bc3512609272f031c846470f61f0ab7e",
+          "dweb:/ipfs/QmP3r3MBgAN39KeVB1rCGJWwcBcotNt26ALtAR54poQ1Jc"
+        ]
+      },
+      "lib/account-abstraction-v7/contracts/core/UserOperationLib.sol": {
+        "keccak256": "0x9d50ece985d35f82e33e5da417595c86fac10449e3d10895d08363d33aad454b",
+        "license": "GPL-3.0",
+        "urls": [
+          "bzz-raw://b1d11cc364c8bf7ed5388268c895b5ffed16e87dfbcb320ddeeba5e7974315dc",
+          "dweb:/ipfs/QmYSpvjxEjweietQrYZagwQ52ipy7eXx4rwvnTzXKeGeMS"
+        ]
+      },
+      "lib/account-abstraction-v7/contracts/interfaces/IAggregator.sol": {
+        "keccak256": "0xf100d6fcc0c3b450b13e979b6a42c628c292a1bc340eccc2e7796b80e3975588",
+        "license": "GPL-3.0",
+        "urls": [
+          "bzz-raw://192938b5b27234d35c8098a319e879363c79f750eea4d0e409dc889a8ce5b155",
+          "dweb:/ipfs/QmURpaJFPqEtkKP2ngBsgZhAGN8wAWh5XQpYmCkiz4Urz5"
+        ]
+      },
+      "lib/account-abstraction-v7/contracts/interfaces/IEntryPoint.sol": {
+        "keccak256": "0x1972a5fcb3a808b58c85af5741949ef6af11ab0debd3ae8c708171ae1ae0d0c4",
+        "license": "GPL-3.0",
+        "urls": [
+          "bzz-raw://baa9837ae73b9e2362a47d42d081d7c0f3d8e878e5edb381117d94a6968949c9",
+          "dweb:/ipfs/QmUmo6FUE7fv5z1WzW1YFjxp8PqaeN2JrEee9au59w3Xhe"
+        ]
+      },
+      "lib/account-abstraction-v7/contracts/interfaces/INonceManager.sol": {
+        "keccak256": "0xd575af0f6ebbd5f0b2933307d44cd7b4e03a69f4b817a67db5409bd3c89aeecb",
+        "license": "GPL-3.0",
+        "urls": [
+          "bzz-raw://3b1e2dea9b05cfba9d13339ed16d96457dc861013cc4f3f35b71a80f82448db3",
+          "dweb:/ipfs/QmVaGy5uGDMSiU2SzyokTjoHFyb39VVG5wtaM9KTnHyZSk"
+        ]
+      },
+      "lib/account-abstraction-v7/contracts/interfaces/IStakeManager.sol": {
+        "keccak256": "0xbe5ca9e7f254d031687419e7b96ef48c9c63e9398bbe992dc72ffc6dc14e0a04",
+        "license": "GPL-3.0-only",
+        "urls": [
+          "bzz-raw://1fffec71c38627a26fabb423350148009579f092623fb02b471a12d973763a00",
+          "dweb:/ipfs/QmRBi31QEYXHj3x1AnQ2jKa2eziZH1b9av396P3b4dw6bj"
+        ]
+      },
+      "lib/account-abstraction-v7/contracts/interfaces/PackedUserOperation.sol": {
+        "keccak256": "0x1129b46381db68eddbc5cb49e50664667b66b03c480453858e7b25eabe444359",
+        "license": "GPL-3.0",
+        "urls": [
+          "bzz-raw://499a948aba60480dba6e25c763b8d918f1c246eb7a3302e04f493e080f3295be",
+          "dweb:/ipfs/QmeRhhswf4NACcBKam2PyjpTP2ddSm648kah5kkQJsvwz3"
+        ]
+      },
+      "lib/openzeppelin-contracts-v5.0.2/contracts/access/AccessControl.sol": {
+        "keccak256": "0xa0e92d42942f4f57c5be50568dac11e9d00c93efcb458026e18d2d9b9b2e7308",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://46326c0bb1e296b67185e81c918e0b40501b8b6386165855df0a3f3c634b6a80",
+          "dweb:/ipfs/QmTwyrDYtsxsk6pymJTK94PnEpzsmkpUxFuzEiakDopy4Z"
+        ]
+      },
+      "lib/openzeppelin-contracts-v5.0.2/contracts/access/IAccessControl.sol": {
+        "keccak256": "0xb6b36edd6a2999fd243ff226d6cbf84bd71af2432bbd0dfe19392996a1d9cb41",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://1fd2f35495652e57e3f99bc6c510bc5f7dd398a176ea2e72d8ed730aebc6ca26",
+          "dweb:/ipfs/QmTQV6X4gkikTib49cho5iDX3JvSQbdsoEChoDwrk3CbbH"
+        ]
+      },
+      "lib/openzeppelin-contracts-v5.0.2/contracts/utils/Context.sol": {
+        "keccak256": "0x493033a8d1b176a037b2cc6a04dad01a5c157722049bbecf632ca876224dd4b2",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://6a708e8a5bdb1011c2c381c9a5cfd8a9a956d7d0a9dc1bd8bcdaf52f76ef2f12",
+          "dweb:/ipfs/Qmax9WHBnVsZP46ZxEMNRQpLQnrdE4dK8LehML1Py8FowF"
+        ]
+      },
+      "lib/openzeppelin-contracts-v5.0.2/contracts/utils/Strings.sol": {
+        "keccak256": "0x55f102ea785d8399c0e58d1108e2d289506dde18abc6db1b7f68c1f9f9bc5792",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://6e52e0a7765c943ef14e5bcf11e46e6139fa044be564881378349236bf2e3453",
+          "dweb:/ipfs/QmZEeeXoFPW47amyP35gfzomF9DixqqTEPwzBakv6cZw6i"
+        ]
+      },
+      "lib/openzeppelin-contracts-v5.0.2/contracts/utils/cryptography/ECDSA.sol": {
+        "keccak256": "0xeed0a08b0b091f528356cbc7245891a4c748682d4f6a18055e8e6ca77d12a6cf",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://ba80ba06c8e6be852847e4c5f4492cef801feb6558ae09ed705ff2e04ea8b13c",
+          "dweb:/ipfs/QmXRJDv3xHLVQCVXg1ZvR35QS9sij5y9NDWYzMfUfAdTHF"
+        ]
+      },
+      "lib/openzeppelin-contracts-v5.0.2/contracts/utils/cryptography/MessageHashUtils.sol": {
+        "keccak256": "0xba333517a3add42cd35fe877656fc3dfcc9de53baa4f3aabbd6d12a92e4ea435",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://2ceacff44c0fdc81e48e0e0b1db87a2076d3c1fb497341de077bf1da9f6b406c",
+          "dweb:/ipfs/QmRUo1muMRAewxrKQ7TkXUtknyRoR57AyEkoPpiuZQ8FzX"
+        ]
+      },
+      "lib/openzeppelin-contracts-v5.0.2/contracts/utils/introspection/ERC165.sol": {
+        "keccak256": "0x9e8778b14317ba9e256c30a76fd6c32b960af621987f56069e1e819c77c6a133",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://1777404f1dcd0fac188e55a288724ec3c67b45288e49cc64723e95e702b49ab8",
+          "dweb:/ipfs/QmZFdC626GButBApwDUvvTnUzdinevC3B24d7yyh57XkiA"
+        ]
+      },
+      "lib/openzeppelin-contracts-v5.0.2/contracts/utils/introspection/IERC165.sol": {
+        "keccak256": "0x4296879f55019b23e135000eb36896057e7101fb7fb859c5ef690cf14643757b",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://87b3541437c8c443ccd36795e56a338ed12855eec17f8da624511b8d1a7e14df",
+          "dweb:/ipfs/QmeJQCtZrQjtJLr6u7ZHWeH3pBnjtLWzvRrKViAi7UZqxL"
+        ]
+      },
+      "lib/openzeppelin-contracts-v5.0.2/contracts/utils/math/Math.sol": {
+        "keccak256": "0x005ec64c6313f0555d59e278f9a7a5ab2db5bdc72a027f255a37c327af1ec02d",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://4ece9f0b9c8daca08c76b6b5405a6446b6f73b3a15fab7ff56e296cbd4a2c875",
+          "dweb:/ipfs/QmQyRpyPRL5SQuAgj6SHmbir3foX65FJjbVTTQrA2EFg6L"
+        ]
+      },
+      "lib/openzeppelin-contracts-v5.0.2/contracts/utils/math/SignedMath.sol": {
+        "keccak256": "0x5f7e4076e175393767754387c962926577f1660dd9b810187b9002407656be72",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://7d533a1c97cd43a57cd9c465f7ee8dd0e39ae93a8fb8ff8e5303a356b081cdcc",
+          "dweb:/ipfs/QmVBEei6aTnvYNZp2CHYVNKyZS4q1KkjANfY39WVXZXVoT"
+        ]
+      },
+      "lib/solady/src/utils/SafeTransferLib.sol": {
+        "keccak256": "0x583f47701d9b47bb3ef80fcabbbd62fbb58a01733b7a57e19658b4b02468883a",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://2523bfac005e21ef9963fdb3c08b2c61824e2b5ce2f53d1a1828b01ed995217c",
+          "dweb:/ipfs/QmbBjVG9tZyeZSQH4m5GUzNBwo2iuvLoZYbmhT4gxnJc4J"
+        ]
+      },
+      "src/SingletonPaymasterV7.sol": {
+        "keccak256": "0xd4000b9a38f5cb7bd9e67a7b706294beadb715c5606cef1a789713e4e68c70ab",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://ec5ad484737f91c09a458b35a4da56b6ee7b4c7efc16feb7cd927f1d97981442",
+          "dweb:/ipfs/QmRh1ZFdNWCwxo96AEM1MhLsyU2N3yADWSYFgTWuqJR8wg"
+        ]
+      },
+      "src/base/BasePaymaster.sol": {
+        "keccak256": "0xa9576c362e6f4852690dec7108e91642c37c1eeb4840834744c4bb0303b4a53f",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://73e8ebc1c64ce98507f55d35a33c45745777a79d4ef0d7d5cc72eaa2c348d7ab",
+          "dweb:/ipfs/QmVeVNTWqGdG1hMotew7GwWEeruwWoqUFek3nossMveF2X"
+        ]
+      },
+      "src/base/BaseSingletonPaymaster.sol": {
+        "keccak256": "0x8d7e10b2b5c96ec8b4f4ed1ea4c6c539d970b4c1e1e419b9d6927bd6e4cf4061",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://2d121ef33976647e64a3400e7151d7f866be8c14857579294bf9778189447b30",
+          "dweb:/ipfs/QmQ4z4goemAWwvDEr7VvZ71DsLdyqXo23eJQCnmbginEqP"
+        ]
+      },
+      "src/base/ManagerAccessControl.sol": {
+        "keccak256": "0x967d2d38eba35375435e0ed137049e82ae608f92f74671106b93434fc9c1ee82",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://19899059a05b81c0c4e4a21a48c2fb1b8cc9336c1f21fe972e4ffc0ad73ad1cc",
+          "dweb:/ipfs/QmUjLTgE6SuQetLX6BVY3doCAUbiH4ywwRyWmeMrTAKWCq"
+        ]
+      },
+      "src/base/MultiSigner.sol": {
+        "keccak256": "0x12e13fdd22093912de270852fc8138633e3c54043ad9628860c11da8d4856b77",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://cb2c4ac036678402e9f83b7c044feb2def8c3c3b02e2fad4115e2f8360b0dc99",
+          "dweb:/ipfs/QmcmhBjwCvYPCXCe4NDZFJ75tr5YcKiMRKNLzYgCZw1BRA"
+        ]
+      },
+      "src/interfaces/IPaymasterV7.sol": {
+        "keccak256": "0x2c2ae21371eee7145302400f45c5ec86a09409e8ae8dcd461d02435e3467bf91",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://250f08271fb045382c6b0fd2f6e19e5ccfd079d7003af3c390eeb07c7593ee88",
+          "dweb:/ipfs/QmPaHHTpqgdV5S7yPTkQrBe8iKVhM6dML33L8ittBp9xSp"
+        ]
+      },
+      "src/interfaces/PostOpMode.sol": {
+        "keccak256": "0xc92288c76725ac80e16f61295a13ddf9365dabfcda5cc0ac2095ea0b280b3641",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://a61b991968e186d266611202f55c6d7bb1c783fefd0da4ec6c06eb8baf84697a",
+          "dweb:/ipfs/QmWi11DzdFwHx5CKwZwKVhopLhYER5KhAZ7XGc3GXRPVMW"
+        ]
+      }
+    },
+    "version": 1
+  }
+}

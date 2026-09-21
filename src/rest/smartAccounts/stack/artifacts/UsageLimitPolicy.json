@@ -1,0 +1,359 @@
+{
+  "schemaVersion": 1,
+  "contractName": "UsageLimitPolicy",
+  "address": "0x00000000001d4479FA2A947026204d0283ceDe4B",
+  "abi": [
+    {
+      "type": "function",
+      "name": "checkAction",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "ConfigId"
+        },
+        {
+          "name": "account",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "checkUserOpPolicy",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "ConfigId"
+        },
+        {
+          "name": "op",
+          "type": "tuple",
+          "internalType": "struct PackedUserOperation",
+          "components": [
+            {
+              "name": "sender",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "nonce",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "initCode",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "callData",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "accountGasLimits",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "preVerificationGas",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "gasFees",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "paymasterAndData",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "signature",
+              "type": "bytes",
+              "internalType": "bytes"
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "getUsageLimit",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "ConfigId"
+        },
+        {
+          "name": "mxer",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "smartAccount",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "limit",
+          "type": "uint128",
+          "internalType": "uint128"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getUsed",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "ConfigId"
+        },
+        {
+          "name": "mxer",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "smartAccount",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "used",
+          "type": "uint128",
+          "internalType": "uint128"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "initializeWithMultiplexer",
+      "inputs": [
+        {
+          "name": "account",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "configId",
+          "type": "bytes32",
+          "internalType": "ConfigId"
+        },
+        {
+          "name": "initData",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "supportsInterface",
+      "inputs": [
+        {
+          "name": "interfaceID",
+          "type": "bytes4",
+          "internalType": "bytes4"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "pure"
+    },
+    {
+      "type": "function",
+      "name": "usageLimitConfigs",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "ConfigId"
+        },
+        {
+          "name": "multiplexer",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "userOpSender",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "limit",
+          "type": "uint128",
+          "internalType": "uint128"
+        },
+        {
+          "name": "used",
+          "type": "uint128",
+          "internalType": "uint128"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "event",
+      "name": "PolicySet",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "ConfigId"
+        },
+        {
+          "name": "multiplexer",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        },
+        {
+          "name": "account",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "error",
+      "name": "PolicyNotInitialized",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "ConfigId"
+        },
+        {
+          "name": "multiplexer",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "account",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    }
+  ],
+  "bytecode": "0x6080604052348015600e575f5ffd5b506106688061001c5f395ff3fe608060405234801561000f575f5ffd5b506004361061007a575f3560e01c80637129edce116100585780637129edce146100f2578063831b65a514610105578063989c9e4614610150578063ed12b7f114610165575f5ffd5b806301ffc9a71461007e57806305c00895146100a657806359eac90d146100c7575b5f5ffd5b61009161008c3660046103d5565b6101c8565b60405190151581526020015b60405180910390f35b6100b96100b436600461045c565b610234565b60405190815260200161009d565b6100da6100d53660046104cf565b61024b565b6040516001600160801b03909116815260200161009d565b6100b9610100366004610508565b610288565b6100da6101133660046104cf565b5f928352602083815260408085206001600160a01b039485168652825280852092909316845252902054600160801b90046001600160801b031690565b61016361015e366004610553565b6102a0565b005b6101a86101733660046104cf565b5f60208181529381526040808220855292815282812090935282529020546001600160801b0380821691600160801b90041682565b604080516001600160801b0393841681529290911660208301520161009d565b5f6001600160e01b031982166301ffc9a760e01b14806101f857506001600160e01b03198216634c4e4f2360e11b145b8061021357506001600160e01b03198216633894f6e760e11b145b8061022e57506001600160e01b031982166305c0089560e01b145b92915050565b5f61024087338861033b565b979650505050505050565b5f838152602081815260408083206001600160a01b03808716855290835281842090851684529091529020546001600160801b03165b9392505050565b5f610281833361029b60208601866105a9565b61033b565b5f6102ae60108284866105c2565b6102b7916105e9565b60801c9050833386836102fb5760405163369d19e760e11b815260048101939093526001600160a01b03918216602484015216604482015260640160405180910390fd5b5050505f9384526020848152604080862033875282528086206001600160a01b03979097168652959052939092206001600160801b039093169092555050565b5f838152602081815260408083206001600160a01b0380871685529083528184209085168452909152812080546001600160801b0380821691849161038991600160801b9004166001610630565b9050816001600160801b0316816001600160801b031611156103b15760019350505050610281565b82546001600160801b03918216600160801b02911617909155505f90509392505050565b5f602082840312156103e5575f5ffd5b81356001600160e01b031981168114610281575f5ffd5b80356001600160a01b0381168114610412575f5ffd5b919050565b5f5f83601f840112610427575f5ffd5b50813567ffffffffffffffff81111561043e575f5ffd5b602083019150836020828501011115610455575f5ffd5b9250929050565b5f5f5f5f5f5f60a08789031215610471575f5ffd5b86359550610481602088016103fc565b945061048f604088016103fc565b935060608701359250608087013567ffffffffffffffff8111156104b1575f5ffd5b6104bd89828a01610417565b979a9699509497509295939492505050565b5f5f5f606084860312156104e1575f5ffd5b833592506104f1602085016103fc565b91506104ff604085016103fc565b90509250925092565b5f5f60408385031215610519575f5ffd5b82359150602083013567ffffffffffffffff811115610536575f5ffd5b83016101208186031215610548575f5ffd5b809150509250929050565b5f5f5f5f60608587031215610566575f5ffd5b61056f856103fc565b935060208501359250604085013567ffffffffffffffff811115610591575f5ffd5b61059d87828801610417565b95989497509550505050565b5f602082840312156105b9575f5ffd5b610281826103fc565b5f5f858511156105d0575f5ffd5b838611156105dc575f5ffd5b5050820193919092039150565b80356fffffffffffffffffffffffffffffffff198116906010841015610629576001600160801b03196001600160801b03198560100360031b1b82161691505b5092915050565b6001600160801b03818116838216019081111561022e57634e487b7160e01b5f52601160045260245ffdfea164736f6c634300081c000a",
+  "deployedBytecode": "0x608060405234801561000f575f5ffd5b506004361061007a575f3560e01c80637129edce116100585780637129edce146100f2578063831b65a514610105578063989c9e4614610150578063ed12b7f114610165575f5ffd5b806301ffc9a71461007e57806305c00895146100a657806359eac90d146100c7575b5f5ffd5b61009161008c3660046103d5565b6101c8565b60405190151581526020015b60405180910390f35b6100b96100b436600461045c565b610234565b60405190815260200161009d565b6100da6100d53660046104cf565b61024b565b6040516001600160801b03909116815260200161009d565b6100b9610100366004610508565b610288565b6100da6101133660046104cf565b5f928352602083815260408085206001600160a01b039485168652825280852092909316845252902054600160801b90046001600160801b031690565b61016361015e366004610553565b6102a0565b005b6101a86101733660046104cf565b5f60208181529381526040808220855292815282812090935282529020546001600160801b0380821691600160801b90041682565b604080516001600160801b0393841681529290911660208301520161009d565b5f6001600160e01b031982166301ffc9a760e01b14806101f857506001600160e01b03198216634c4e4f2360e11b145b8061021357506001600160e01b03198216633894f6e760e11b145b8061022e57506001600160e01b031982166305c0089560e01b145b92915050565b5f61024087338861033b565b979650505050505050565b5f838152602081815260408083206001600160a01b03808716855290835281842090851684529091529020546001600160801b03165b9392505050565b5f610281833361029b60208601866105a9565b61033b565b5f6102ae60108284866105c2565b6102b7916105e9565b60801c9050833386836102fb5760405163369d19e760e11b815260048101939093526001600160a01b03918216602484015216604482015260640160405180910390fd5b5050505f9384526020848152604080862033875282528086206001600160a01b03979097168652959052939092206001600160801b039093169092555050565b5f838152602081815260408083206001600160a01b0380871685529083528184209085168452909152812080546001600160801b0380821691849161038991600160801b9004166001610630565b9050816001600160801b0316816001600160801b031611156103b15760019350505050610281565b82546001600160801b03918216600160801b02911617909155505f90509392505050565b5f602082840312156103e5575f5ffd5b81356001600160e01b031981168114610281575f5ffd5b80356001600160a01b0381168114610412575f5ffd5b919050565b5f5f83601f840112610427575f5ffd5b50813567ffffffffffffffff81111561043e575f5ffd5b602083019150836020828501011115610455575f5ffd5b9250929050565b5f5f5f5f5f5f60a08789031215610471575f5ffd5b86359550610481602088016103fc565b945061048f604088016103fc565b935060608701359250608087013567ffffffffffffffff8111156104b1575f5ffd5b6104bd89828a01610417565b979a9699509497509295939492505050565b5f5f5f606084860312156104e1575f5ffd5b833592506104f1602085016103fc565b91506104ff604085016103fc565b90509250925092565b5f5f60408385031215610519575f5ffd5b82359150602083013567ffffffffffffffff811115610536575f5ffd5b83016101208186031215610548575f5ffd5b809150509250929050565b5f5f5f5f60608587031215610566575f5ffd5b61056f856103fc565b935060208501359250604085013567ffffffffffffffff811115610591575f5ffd5b61059d87828801610417565b95989497509550505050565b5f602082840312156105b9575f5ffd5b610281826103fc565b5f5f858511156105d0575f5ffd5b838611156105dc575f5ffd5b5050820193919092039150565b80356fffffffffffffffffffffffffffffffff198116906010841015610629576001600160801b03196001600160801b03198560100360031b1b82161691505b5092915050565b6001600160801b03818116838216019081111561022e57634e487b7160e01b5f52601160045260245ffdfea164736f6c634300081c000a",
+  "runtimeCodeHash": "0xa85499ae68f4ac7819fa0c9a06dfb89538a820879ed356913915ea5daac62cdd",
+  "source": {
+    "repository": "https://github.com/rhinestonewtf/smartsessions",
+    "commit": "75279a6c80ad50ea623d06954e9d71ab753e8a52",
+    "path": "contracts/external/policies/UsageLimitPolicy.sol",
+    "url": "https://github.com/rhinestonewtf/smartsessions/blob/75279a6c80ad50ea623d06954e9d71ab753e8a52/contracts/external/policies/UsageLimitPolicy.sol",
+    "sha256": "38a15ba4addd23a49a81231340d7bfad8427489611e8566cd5cdba9f2c21af04",
+    "artifactUrl": "https://github.com/rhinestonewtf/smartsessions/blob/75279a6c80ad50ea623d06954e9d71ab753e8a52/artifacts/UsageLimitPolicy/UsageLimitPolicy.json",
+    "artifactSha256": "c06398b0762696fa6215b548ecbd6ec905dfaf5b683cb1eb28ff4304f9157417"
+  },
+  "compiler": {
+    "version": "0.8.28+commit.7893614a"
+  },
+  "immutableBindings": [],
+  "observedChains": [
+    {
+      "chainId": 1,
+      "blockNumber": 25923564,
+      "blockHash": "0xbac9e54e25e680ee48bca7789b184d9b3381c874bbe4d7ec06f1d76a0f8c232b"
+    },
+    {
+      "chainId": 10,
+      "blockNumber": 156581143,
+      "blockHash": "0x7ddeae68083dad055cdc68c824e5f8b013e4e4e73f6185615b0943ebad84f51f"
+    },
+    {
+      "chainId": 8453,
+      "blockNumber": 50985858,
+      "blockHash": "0xa7b951a156b1ee18fc70b59f008788783b962079f5461289651ba8faf867f250"
+    },
+    {
+      "chainId": 42161,
+      "blockNumber": 502586459,
+      "blockHash": "0x90307c892f4b501b6c7099a8f69265257526a80a96382f7461b05168b489529d"
+    },
+    {
+      "chainId": 11155111,
+      "blockNumber": 11652313,
+      "blockHash": "0xc64ba0916f27d6fbf36a423cf505019f49aacc84e2588ead231e9b886c2d4a77"
+    },
+    {
+      "chainId": 11155420,
+      "blockNumber": 48479262,
+      "blockHash": "0xea935ef2e621d6d8f39d417174aba0fea0dc75060da5847ab93acd2ff14edcd6"
+    },
+    {
+      "chainId": 84532,
+      "blockNumber": 46496388,
+      "blockHash": "0xa7b5d570c30f9f10834fa1ae574840c8d4fee3fc86c5228de4b098bbbbfd79c1"
+    },
+    {
+      "chainId": 421614,
+      "blockNumber": 306285936,
+      "blockHash": "0xfcda7da50e5bf13d1f8a27754dae0e9c0c783c0761bfd9fa47d24197d215659f"
+    }
+  ],
+  "limitations": [
+    "Counts UserOperations when used globally; batches can contain several calls.",
+    "Counters consumed during validation can remain consumed after execution failure."
+  ]
+}

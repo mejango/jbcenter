@@ -1,0 +1,203 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-07T06:04:25.883Z",
+  "readOnly": true,
+  "contracts": [
+    {
+      "name": "SimpleGasPolicy",
+      "address": "0x0000000000d14A6F771494592218d8F9c2ddEbB6",
+      "runtimeCodeHash": "0xfe3fcc7cc101836366707dedfbb3964d7bae59c40c274ecf9328ad4492bee852",
+      "artifactSha256": "9f7063115f88187a18a6d1e7f857e55e19a9549b5dcf06c36271d3a3c74a46ba",
+      "sourceSha256": "0854c3fa4e1c68d90e8e31270e88b4b2cb612fcf8932fce0425e91a33e10debf"
+    },
+    {
+      "name": "UsageLimitPolicy",
+      "address": "0x00000000001d4479FA2A947026204d0283ceDe4B",
+      "runtimeCodeHash": "0xa85499ae68f4ac7819fa0c9a06dfb89538a820879ed356913915ea5daac62cdd",
+      "artifactSha256": "c06398b0762696fa6215b548ecbd6ec905dfaf5b683cb1eb28ff4304f9157417",
+      "sourceSha256": "38a15ba4addd23a49a81231340d7bfad8427489611e8566cd5cdba9f2c21af04"
+    }
+  ],
+  "observations": [
+    {
+      "chainId": 1,
+      "blockNumber": 25923564,
+      "blockHash": "0xbac9e54e25e680ee48bca7789b184d9b3381c874bbe4d7ec06f1d76a0f8c232b",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "contracts": [
+        {
+          "name": "SimpleGasPolicy",
+          "address": "0x0000000000d14A6F771494592218d8F9c2ddEbB6",
+          "runtimeCodeHash": "0xfe3fcc7cc101836366707dedfbb3964d7bae59c40c274ecf9328ad4492bee852",
+          "bytes": 2093,
+          "artifactRuntimeMatches": true
+        },
+        {
+          "name": "UsageLimitPolicy",
+          "address": "0x00000000001d4479FA2A947026204d0283ceDe4B",
+          "runtimeCodeHash": "0xa85499ae68f4ac7819fa0c9a06dfb89538a820879ed356913915ea5daac62cdd",
+          "bytes": 1640,
+          "artifactRuntimeMatches": true
+        }
+      ]
+    },
+    {
+      "chainId": 10,
+      "blockNumber": 156581143,
+      "blockHash": "0x7ddeae68083dad055cdc68c824e5f8b013e4e4e73f6185615b0943ebad84f51f",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "contracts": [
+        {
+          "name": "SimpleGasPolicy",
+          "address": "0x0000000000d14A6F771494592218d8F9c2ddEbB6",
+          "runtimeCodeHash": "0xfe3fcc7cc101836366707dedfbb3964d7bae59c40c274ecf9328ad4492bee852",
+          "bytes": 2093,
+          "artifactRuntimeMatches": true
+        },
+        {
+          "name": "UsageLimitPolicy",
+          "address": "0x00000000001d4479FA2A947026204d0283ceDe4B",
+          "runtimeCodeHash": "0xa85499ae68f4ac7819fa0c9a06dfb89538a820879ed356913915ea5daac62cdd",
+          "bytes": 1640,
+          "artifactRuntimeMatches": true
+        }
+      ]
+    },
+    {
+      "chainId": 8453,
+      "blockNumber": 50985858,
+      "blockHash": "0xa7b951a156b1ee18fc70b59f008788783b962079f5461289651ba8faf867f250",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "contracts": [
+        {
+          "name": "SimpleGasPolicy",
+          "address": "0x0000000000d14A6F771494592218d8F9c2ddEbB6",
+          "runtimeCodeHash": "0xfe3fcc7cc101836366707dedfbb3964d7bae59c40c274ecf9328ad4492bee852",
+          "bytes": 2093,
+          "artifactRuntimeMatches": true
+        },
+        {
+          "name": "UsageLimitPolicy",
+          "address": "0x00000000001d4479FA2A947026204d0283ceDe4B",
+          "runtimeCodeHash": "0xa85499ae68f4ac7819fa0c9a06dfb89538a820879ed356913915ea5daac62cdd",
+          "bytes": 1640,
+          "artifactRuntimeMatches": true
+        }
+      ]
+    },
+    {
+      "chainId": 42161,
+      "blockNumber": 502586459,
+      "blockHash": "0x90307c892f4b501b6c7099a8f69265257526a80a96382f7461b05168b489529d",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "contracts": [
+        {
+          "name": "SimpleGasPolicy",
+          "address": "0x0000000000d14A6F771494592218d8F9c2ddEbB6",
+          "runtimeCodeHash": "0xfe3fcc7cc101836366707dedfbb3964d7bae59c40c274ecf9328ad4492bee852",
+          "bytes": 2093,
+          "artifactRuntimeMatches": true
+        },
+        {
+          "name": "UsageLimitPolicy",
+          "address": "0x00000000001d4479FA2A947026204d0283ceDe4B",
+          "runtimeCodeHash": "0xa85499ae68f4ac7819fa0c9a06dfb89538a820879ed356913915ea5daac62cdd",
+          "bytes": 1640,
+          "artifactRuntimeMatches": true
+        }
+      ]
+    },
+    {
+      "chainId": 11155111,
+      "blockNumber": 11652313,
+      "blockHash": "0xc64ba0916f27d6fbf36a423cf505019f49aacc84e2588ead231e9b886c2d4a77",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "contracts": [
+        {
+          "name": "SimpleGasPolicy",
+          "address": "0x0000000000d14A6F771494592218d8F9c2ddEbB6",
+          "runtimeCodeHash": "0xfe3fcc7cc101836366707dedfbb3964d7bae59c40c274ecf9328ad4492bee852",
+          "bytes": 2093,
+          "artifactRuntimeMatches": true
+        },
+        {
+          "name": "UsageLimitPolicy",
+          "address": "0x00000000001d4479FA2A947026204d0283ceDe4B",
+          "runtimeCodeHash": "0xa85499ae68f4ac7819fa0c9a06dfb89538a820879ed356913915ea5daac62cdd",
+          "bytes": 1640,
+          "artifactRuntimeMatches": true
+        }
+      ]
+    },
+    {
+      "chainId": 11155420,
+      "blockNumber": 48479262,
+      "blockHash": "0xea935ef2e621d6d8f39d417174aba0fea0dc75060da5847ab93acd2ff14edcd6",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "contracts": [
+        {
+          "name": "SimpleGasPolicy",
+          "address": "0x0000000000d14A6F771494592218d8F9c2ddEbB6",
+          "runtimeCodeHash": "0xfe3fcc7cc101836366707dedfbb3964d7bae59c40c274ecf9328ad4492bee852",
+          "bytes": 2093,
+          "artifactRuntimeMatches": true
+        },
+        {
+          "name": "UsageLimitPolicy",
+          "address": "0x00000000001d4479FA2A947026204d0283ceDe4B",
+          "runtimeCodeHash": "0xa85499ae68f4ac7819fa0c9a06dfb89538a820879ed356913915ea5daac62cdd",
+          "bytes": 1640,
+          "artifactRuntimeMatches": true
+        }
+      ]
+    },
+    {
+      "chainId": 84532,
+      "blockNumber": 46496388,
+      "blockHash": "0xa7b5d570c30f9f10834fa1ae574840c8d4fee3fc86c5228de4b098bbbbfd79c1",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "contracts": [
+        {
+          "name": "SimpleGasPolicy",
+          "address": "0x0000000000d14A6F771494592218d8F9c2ddEbB6",
+          "runtimeCodeHash": "0xfe3fcc7cc101836366707dedfbb3964d7bae59c40c274ecf9328ad4492bee852",
+          "bytes": 2093,
+          "artifactRuntimeMatches": true
+        },
+        {
+          "name": "UsageLimitPolicy",
+          "address": "0x00000000001d4479FA2A947026204d0283ceDe4B",
+          "runtimeCodeHash": "0xa85499ae68f4ac7819fa0c9a06dfb89538a820879ed356913915ea5daac62cdd",
+          "bytes": 1640,
+          "artifactRuntimeMatches": true
+        }
+      ]
+    },
+    {
+      "chainId": 421614,
+      "blockNumber": 306285936,
+      "blockHash": "0xfcda7da50e5bf13d1f8a27754dae0e9c0c783c0761bfd9fa47d24197d215659f",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "contracts": [
+        {
+          "name": "SimpleGasPolicy",
+          "address": "0x0000000000d14A6F771494592218d8F9c2ddEbB6",
+          "runtimeCodeHash": "0xfe3fcc7cc101836366707dedfbb3964d7bae59c40c274ecf9328ad4492bee852",
+          "bytes": 2093,
+          "artifactRuntimeMatches": true
+        },
+        {
+          "name": "UsageLimitPolicy",
+          "address": "0x00000000001d4479FA2A947026204d0283ceDe4B",
+          "runtimeCodeHash": "0xa85499ae68f4ac7819fa0c9a06dfb89538a820879ed356913915ea5daac62cdd",
+          "bytes": 1640,
+          "artifactRuntimeMatches": true
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Public RPC observations are not a deployment audit or current account/policy configuration verification.",
+    "No deployed mandatory-paymaster policy was verified; CenterSessionGuard is separate local undeployed code."
+  ]
+}

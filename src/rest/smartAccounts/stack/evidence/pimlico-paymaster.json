@@ -1,0 +1,513 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-07T06:21:54.919Z",
+  "readOnly": true,
+  "source": {
+    "repo": "https://github.com/pimlicolabs/singleton-paymaster",
+    "commit": "114e6ef7aa3abf56c1f5890137deff53eb0e3f49",
+    "artifactSha256": "7bc70f8426988ad979df9f93ced11f05b17b2f033ed16128eb7e6a06fa339982",
+    "artifactType": "locallyReproducedCompilerOutput",
+    "verificationInputSha256": "87083f962b707ad939b3ec28a02453a383599a8c8dbc57c4a97bcf9093111697",
+    "verifiedSourceUrl": "https://sourcify.dev/server/v2/contract/1/0x0000000000000039cd5e8aE05257CE51C473ddd1?fields=all"
+  },
+  "artifactPath": "../artifacts/PimlicoSingletonPaymasterV7.json",
+  "artifactFileSha256": "f607c262834e3f53687961c26515d72b8358be62747265f66d08b9e0c21181de",
+  "sourcePins": [
+    {
+      "path": "src/base/MultiSigner.sol",
+      "sha256": "1bfe6a92571c6df0c2356461aebfff4797612e5501db4c3e32bbcd5e8686902a",
+      "sourceUrl": "https://github.com/pimlicolabs/singleton-paymaster/blob/114e6ef7aa3abf56c1f5890137deff53eb0e3f49/src/base/MultiSigner.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "src/base/BasePaymaster.sol",
+      "sha256": "b3db82eb3f0183c15eca0fbc8b260b84b329a903c31135ac9fdfcc5fa55d2f91",
+      "sourceUrl": "https://github.com/pimlicolabs/singleton-paymaster/blob/114e6ef7aa3abf56c1f5890137deff53eb0e3f49/src/base/BasePaymaster.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "src/SingletonPaymasterV7.sol",
+      "sha256": "0d31830dd91a8a97484e4d866165ade57a4d89c7056c6457915307a7eb081a2f",
+      "sourceUrl": "https://github.com/pimlicolabs/singleton-paymaster/blob/114e6ef7aa3abf56c1f5890137deff53eb0e3f49/src/SingletonPaymasterV7.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "src/interfaces/PostOpMode.sol",
+      "sha256": "e858b0ecc0ad25b4290970cc4ab93ca4c95097e1bde1109f4a1e0d25c27f0e34",
+      "sourceUrl": "https://github.com/pimlicolabs/singleton-paymaster/blob/114e6ef7aa3abf56c1f5890137deff53eb0e3f49/src/interfaces/PostOpMode.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "src/interfaces/IPaymasterV6.sol",
+      "sha256": "cffd7939aee2e56ebeb31e7e3ccfa5a1c7b84ac813fce6d9cb16c47d80bff715",
+      "sourceUrl": "https://github.com/pimlicolabs/singleton-paymaster/blob/114e6ef7aa3abf56c1f5890137deff53eb0e3f49/src/interfaces/IPaymasterV6.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "src/interfaces/IPaymasterV7.sol",
+      "sha256": "5182e1bf18dc8894d3d37626d0d841e243c32183de9401d3b39f7e7d930021ec",
+      "sourceUrl": "https://github.com/pimlicolabs/singleton-paymaster/blob/114e6ef7aa3abf56c1f5890137deff53eb0e3f49/src/interfaces/IPaymasterV7.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "src/base/BaseSingletonPaymaster.sol",
+      "sha256": "f976f6f904604792de90ef1739f819a3ee9b526370d91d1aca92713a8d1bfdc5",
+      "sourceUrl": "https://github.com/pimlicolabs/singleton-paymaster/blob/114e6ef7aa3abf56c1f5890137deff53eb0e3f49/src/base/BaseSingletonPaymaster.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/solady/src/utils/SafeTransferLib.sol",
+      "sha256": "86b07c78f78c36117da64449bd89d7ad419026ca4af4749f1f1b7d2173603bcc",
+      "sourceUrl": "https://raw.githubusercontent.com/Vectorized/solady/1f43cc8005cc3b3c8361dd7dbdd2cdeaf0f99e66/src/utils/SafeTransferLib.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/solady/src/utils/SignatureCheckerLib.sol",
+      "sha256": "bcc35f1a607ca30c11c3222fa19f470d91296699f2bff89ca41ab5b163440c21",
+      "sourceUrl": "https://raw.githubusercontent.com/Vectorized/solady/1f43cc8005cc3b3c8361dd7dbdd2cdeaf0f99e66/src/utils/SignatureCheckerLib.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v6/contracts/core/Helpers.sol",
+      "sha256": "6dc58b8b9c13c17aa4dfe9c2304f5e34d4b134640afd349ca956a306a1335f5a",
+      "sourceUrl": "https://raw.githubusercontent.com/eth-infinitism/account-abstraction/abff2aca61a8f0934e533d0d352978055fddbd96/contracts/core/Helpers.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v7/contracts/core/Helpers.sol",
+      "sha256": "4ec549dbe1685def37cbe8699eb5376ce4466dcd0c6ffffd7c0d7e0f7a5b89a3",
+      "sourceUrl": "https://raw.githubusercontent.com/eth-infinitism/account-abstraction/7af70c8993a6f42973f520ae0752386a5032abe7/contracts/core/Helpers.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/utils/Context.sol",
+      "sha256": "847fda5460fee70f56f4200f59b82ae622bb03c79c77e67af010e31b7e2cc5b6",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/utils/Context.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/utils/Strings.sol",
+      "sha256": "0519199dbc635f98ce2e4537986604ee618bca665c65e9a1738702dfacf72010",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/utils/Strings.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v6/contracts/interfaces/IPaymaster.sol",
+      "sha256": "36588c8736996f48561dd8975311318bc8398d75719ebec814bfd6ad655e87d6",
+      "sourceUrl": "https://raw.githubusercontent.com/eth-infinitism/account-abstraction/abff2aca61a8f0934e533d0d352978055fddbd96/contracts/interfaces/IPaymaster.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v7/contracts/core/UserOperationLib.sol",
+      "sha256": "43faeb07191dea518fe9dd1111b775911af572427c6d6a51bfa6cc4c5b08c9aa",
+      "sourceUrl": "https://raw.githubusercontent.com/eth-infinitism/account-abstraction/7af70c8993a6f42973f520ae0752386a5032abe7/contracts/core/UserOperationLib.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/access/Ownable.sol",
+      "sha256": "38578bd71c0a909840e67202db527cc6b4e6b437e0f39f0c909da32c1e30cb81",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/access/Ownable.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v7/contracts/interfaces/IAggregator.sol",
+      "sha256": "bc6df43d690bcaf2da8255748070e880eb7390e74ea98f6e36eb0a9f4b128ac1",
+      "sourceUrl": "https://raw.githubusercontent.com/eth-infinitism/account-abstraction/7af70c8993a6f42973f520ae0752386a5032abe7/contracts/interfaces/IAggregator.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v7/contracts/interfaces/IEntryPoint.sol",
+      "sha256": "06f97dfe27d09b478a1e82855ab57485b11ea68e3804b03e879f184bbc667fb7",
+      "sourceUrl": "https://raw.githubusercontent.com/eth-infinitism/account-abstraction/7af70c8993a6f42973f520ae0752386a5032abe7/contracts/interfaces/IEntryPoint.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/utils/math/Math.sol",
+      "sha256": "a6ee779fc42e6bf01b5e6a963065706e882b016affbedfd8be19a71ea48e6e15",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/utils/math/Math.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v6/contracts/interfaces/UserOperation.sol",
+      "sha256": "627a8acc3a205702dc5a9d8edcf5c0cc3d9c89d3ea773ec1a39694774e948fec",
+      "sourceUrl": "https://raw.githubusercontent.com/eth-infinitism/account-abstraction/abff2aca61a8f0934e533d0d352978055fddbd96/contracts/interfaces/UserOperation.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v7/contracts/interfaces/INonceManager.sol",
+      "sha256": "4a600598dca29462afaebf27de758c83344d9d9871a53c1cdbe448510491d0e3",
+      "sourceUrl": "https://raw.githubusercontent.com/eth-infinitism/account-abstraction/7af70c8993a6f42973f520ae0752386a5032abe7/contracts/interfaces/INonceManager.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v7/contracts/interfaces/IStakeManager.sol",
+      "sha256": "6334881d2273350b92fd4b0ecabbed9a844ef5d114832097ecd2b631010b6033",
+      "sourceUrl": "https://raw.githubusercontent.com/eth-infinitism/account-abstraction/7af70c8993a6f42973f520ae0752386a5032abe7/contracts/interfaces/IStakeManager.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/utils/math/SignedMath.sol",
+      "sha256": "768c28e3a33c3312e57ae8a1caaec2893bc89ac6e386621de018f85e9a2d6e99",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/utils/math/SignedMath.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/account-abstraction-v7/contracts/interfaces/PackedUserOperation.sol",
+      "sha256": "40fcd99da0814312f0353417de64f70805f4cd7ec4cb4573c8b4c4d48540f562",
+      "sourceUrl": "https://raw.githubusercontent.com/eth-infinitism/account-abstraction/7af70c8993a6f42973f520ae0752386a5032abe7/contracts/interfaces/PackedUserOperation.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/utils/cryptography/ECDSA.sol",
+      "sha256": "37828cb50b47bcc51c7b770bde15d5885d871ef1e67028057a0b788c3568726e",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/utils/cryptography/ECDSA.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/utils/introspection/IERC165.sol",
+      "sha256": "07ae1ac964ab74dedada999e2dfc642031a6495469cffc0bf715daa4f1e4f904",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/utils/introspection/IERC165.sol",
+      "pinnedSourceMatchesVerified": true
+    },
+    {
+      "path": "lib/openzeppelin-contracts-v5.0.2/contracts/utils/cryptography/MessageHashUtils.sol",
+      "sha256": "2fd5c641cf452efd15f784827cb2835664970d7fbc166bf80824ed27011cc374",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts/dbb6104ce834628e473d2173bbc9d47f81a9eec3/contracts/utils/cryptography/MessageHashUtils.sol",
+      "pinnedSourceMatchesVerified": true
+    }
+  ],
+  "compiler": {
+    "language": "Solidity",
+    "compiler": "solc",
+    "compilerVersion": "0.8.26+commit.8a97fa7a",
+    "compilerSettings": {
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "libraries": {},
+      "optimizer": {
+        "runs": 1000000,
+        "enabled": true
+      },
+      "evmVersion": "paris",
+      "remappings": [
+        ":@account-abstraction-v6/=lib/account-abstraction-v6/contracts/",
+        ":@account-abstraction-v7/=lib/account-abstraction-v7/contracts/",
+        ":@openzeppelin-v4.8.3/=lib/openzeppelin-contracts-v4.8.3/",
+        ":@openzeppelin-v5.0.2/=lib/openzeppelin-contracts-v5.0.2/",
+        ":@openzeppelin/contracts/=lib/openzeppelin-contracts-v5.0.2/contracts/",
+        ":account-abstraction-v6/=lib/account-abstraction-v6/contracts/",
+        ":account-abstraction-v7/=lib/account-abstraction-v7/contracts/",
+        ":ds-test/=lib/openzeppelin-contracts-v5.0.0/lib/forge-std/lib/ds-test/src/",
+        ":erc4626-tests/=lib/openzeppelin-contracts-v5.0.0/lib/erc4626-tests/",
+        ":forge-std/=lib/forge-std/src/",
+        ":openzeppelin-contracts-v4.8.3/=lib/openzeppelin-contracts-v4.8.3/",
+        ":openzeppelin-contracts-v5.0.2/=lib/openzeppelin-contracts-v5.0.2/",
+        ":solady/=lib/solady/src/"
+      ]
+    },
+    "name": "SingletonPaymasterV7",
+    "fullyQualifiedName": "src/SingletonPaymasterV7.sol:SingletonPaymasterV7"
+  },
+  "compilerInputOutputSelection": {
+    "*": {
+      "*": [
+        "abi",
+        "evm.bytecode",
+        "evm.deployedBytecode",
+        "metadata"
+      ],
+      "": [
+        "ast"
+      ]
+    }
+  },
+  "compilerArtifactSerialization": "UTF-8 JSON sorted keys recursively, compact separators, trailing newline",
+  "runtimeCodeHash": "0x1cd962f550282d1e4eadd0db10a956db2338c40f69c8b07cb434486275e1c11a",
+  "rawRuntimeCodeHash": "0x5dd13b323aab7133a9350cd3f5c8b453bd0a6a1432adcd58f8e856c86eb3a293",
+  "immutableBindings": {
+    "3955": {
+      "name": "PAYMASTER_DATA_OFFSET",
+      "sourcePath": "src/SingletonPaymasterV7.sol",
+      "references": [
+        {
+          "length": 32,
+          "start": 3074
+        },
+        {
+          "length": 32,
+          "start": 3527
+        }
+      ],
+      "value": "0x0000000000000000000000000000000000000000000000000000000000000034"
+    },
+    "4415": {
+      "name": "entryPoint",
+      "sourcePath": "src/base/BasePaymaster.sol",
+      "references": [
+        {
+          "length": 32,
+          "start": 807
+        },
+        {
+          "length": 32,
+          "start": 1079
+        },
+        {
+          "length": 32,
+          "start": 1420
+        },
+        {
+          "length": 32,
+          "start": 1792
+        },
+        {
+          "length": 32,
+          "start": 1997
+        },
+        {
+          "length": 32,
+          "start": 2134
+        },
+        {
+          "length": 32,
+          "start": 2313
+        },
+        {
+          "length": 32,
+          "start": 2914
+        }
+      ],
+      "value": "0x0000000000000000000000000000000071727de22e5e9d8baf0edac6f37da032"
+    },
+    "4672": {
+      "name": "VERIFYING_MODE",
+      "sourcePath": "src/base/BaseSingletonPaymaster.sol",
+      "references": [
+        {
+          "length": 32,
+          "start": 1588
+        },
+        {
+          "length": 32,
+          "start": 3167
+        },
+        {
+          "length": 32,
+          "start": 3269
+        },
+        {
+          "length": 32,
+          "start": 4356
+        },
+        {
+          "length": 32,
+          "start": 4583
+        }
+      ],
+      "value": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "4676": {
+      "name": "ERC20_MODE",
+      "sourcePath": "src/base/BaseSingletonPaymaster.sol",
+      "references": [
+        {
+          "length": 32,
+          "start": 3118
+        },
+        {
+          "length": 32,
+          "start": 3332
+        },
+        {
+          "length": 32,
+          "start": 4018
+        },
+        {
+          "length": 32,
+          "start": 4774
+        }
+      ],
+      "value": "0x0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    "4680": {
+      "name": "ERC20_PAYMASTER_DATA_LENGTH",
+      "sourcePath": "src/base/BaseSingletonPaymaster.sol",
+      "references": [
+        {
+          "length": 32,
+          "start": 1689
+        },
+        {
+          "length": 32,
+          "start": 5540
+        }
+      ],
+      "value": "0x0000000000000000000000000000000000000000000000000000000000000050"
+    },
+    "4684": {
+      "name": "VERIFYING_PAYMASTER_DATA_LENGTH",
+      "sourcePath": "src/base/BaseSingletonPaymaster.sol",
+      "references": [
+        {
+          "length": 32,
+          "start": 1637
+        },
+        {
+          "length": 32,
+          "start": 5128
+        }
+      ],
+      "value": "0x000000000000000000000000000000000000000000000000000000000000000c"
+    }
+  },
+  "checks": {
+    "all27CompiledSourcesMatchPinnedProjectAndSubmoduleCommits": true,
+    "localCompilerCreationMatchesVerifiedRecompiled": true,
+    "localCompilerRuntimeMatchesVerifiedRecompiled": true,
+    "declaredImmutableSubstitutionEqualsVerifiedOnchain": true,
+    "allEightCanonicalBlockReadsMatchRuntime": true
+  },
+  "verifier": {
+    "url": "https://sourcify.dev/server/v2/contract/1/0x0000000000000039cd5e8aE05257CE51C473ddd1?fields=all",
+    "runtimeMatch": "exact_match",
+    "creationMatch": "exact_match",
+    "verifiedAt": "2024-09-10T09:15:05Z",
+    "reportedDeployment": {
+      "transactionHash": "0x9eec13144b7f34127df35da82f27e9e6c195644fc01bf0a10d201fc9b1d98eb1",
+      "blockNumber": "20587220",
+      "transactionIndex": "161",
+      "deployer": "0x433704c40F80cBff02e86FD36Bc8baC5e31eB0c1"
+    },
+    "proxyResolution": {
+      "isProxy": false,
+      "proxyType": null,
+      "implementations": []
+    }
+  },
+  "gasOnlyProfile": {
+    "id": "pimlico-singleton-v7-legacy-verifying",
+    "paymasterAndDataBytes": 130,
+    "paymasterDataBytes": 78,
+    "modeOffset": 52,
+    "modeValue": 0,
+    "validUntilOffset": 53,
+    "validAfterOffset": 59,
+    "signatureOffset": 65,
+    "signatureBytes": 65,
+    "validationContext": "empty",
+    "tokenCharge": "none"
+  },
+  "sourceSemantics": {
+    "parser": "src/base/BaseSingletonPaymaster.sol:168-180 reads the entire byte directly as mode; it does not split bundler flags.",
+    "verifying": "src/SingletonPaymasterV7.sol:107-122 verifies authorized signer and returns empty context, preventing token-charge postOp.",
+    "erc20": "Mode1 is ERC20 charging and is excluded.",
+    "signature": "src/base/BaseSingletonPaymaster.sol:232-252 parses validity bounds and permits64/65 bytes; pinned OpenZeppelin ECDSA.recover(bytes) only accepts65 bytes.",
+    "newerFormatExcluded": "Upstream commit43c4bce438f65ba2f6e5405c45bc0890c2536aff changed encoding on2025-02-04. New format flags must not be inferred for this runtime."
+  },
+  "chainIds": [
+    1,
+    10,
+    8453,
+    42161,
+    11155111,
+    11155420,
+    84532,
+    421614
+  ],
+  "observations": [
+    {
+      "chainId": 1,
+      "publicRpcUrl": "https://ethereum-rpc.publicnode.com",
+      "blockNumber": 25923649,
+      "blockHash": "0xff16736257cfb221324a4207912342f06e24e96ecee64e8eed86f347cc01e205",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "artifactRuntimeMatches": true,
+      "address": "0x0000000000000039cd5e8aE05257CE51C473ddd1",
+      "runtimeCodeHash": "0x1cd962f550282d1e4eadd0db10a956db2338c40f69c8b07cb434486275e1c11a",
+      "runtimeBytes": 8883
+    },
+    {
+      "chainId": 10,
+      "publicRpcUrl": "https://mainnet.optimism.io",
+      "blockNumber": 156581624,
+      "blockHash": "0x807849ba8e355ff3389f102b477f02223432bd5db11634b0dd911dd68b1ef6bf",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "artifactRuntimeMatches": true,
+      "address": "0x0000000000000039cd5e8aE05257CE51C473ddd1",
+      "runtimeCodeHash": "0x1cd962f550282d1e4eadd0db10a956db2338c40f69c8b07cb434486275e1c11a",
+      "runtimeBytes": 8883
+    },
+    {
+      "chainId": 8453,
+      "publicRpcUrl": "https://mainnet.base.org",
+      "blockNumber": 50986360,
+      "blockHash": "0xa1cc820f2ad6f7c15039e5766aafbf21fa9fd7097fc478e70fb14f1355293f22",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "artifactRuntimeMatches": true,
+      "address": "0x0000000000000039cd5e8aE05257CE51C473ddd1",
+      "runtimeCodeHash": "0x1cd962f550282d1e4eadd0db10a956db2338c40f69c8b07cb434486275e1c11a",
+      "runtimeBytes": 8883
+    },
+    {
+      "chainId": 42161,
+      "publicRpcUrl": "https://arb1.arbitrum.io/rpc",
+      "blockNumber": 502590425,
+      "blockHash": "0x5c3d291d5144e8318be71fd178339f14ea28d4128c1f35ccf7e92c4bab5e0b57",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "artifactRuntimeMatches": true,
+      "address": "0x0000000000000039cd5e8aE05257CE51C473ddd1",
+      "runtimeCodeHash": "0x1cd962f550282d1e4eadd0db10a956db2338c40f69c8b07cb434486275e1c11a",
+      "runtimeBytes": 8883
+    },
+    {
+      "chainId": 11155111,
+      "publicRpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+      "blockNumber": 11652393,
+      "blockHash": "0x78b4e9c36602702ff626b49b3d4b13ef04ad5525e1e3685fa6f5452c77f91ff7",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "artifactRuntimeMatches": true,
+      "address": "0x0000000000000039cd5e8aE05257CE51C473ddd1",
+      "runtimeCodeHash": "0x1cd962f550282d1e4eadd0db10a956db2338c40f69c8b07cb434486275e1c11a",
+      "runtimeBytes": 8883
+    },
+    {
+      "chainId": 11155420,
+      "publicRpcUrl": "https://sepolia.optimism.io",
+      "blockNumber": 48479742,
+      "blockHash": "0xc357c760b76271fbea5b46c1aeedcb8386f63bb54ab83138a4642da9b6849a99",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "artifactRuntimeMatches": true,
+      "address": "0x0000000000000039cd5e8aE05257CE51C473ddd1",
+      "runtimeCodeHash": "0x1cd962f550282d1e4eadd0db10a956db2338c40f69c8b07cb434486275e1c11a",
+      "runtimeBytes": 8883
+    },
+    {
+      "chainId": 84532,
+      "publicRpcUrl": "https://sepolia.base.org",
+      "blockNumber": 46496889,
+      "blockHash": "0x1dc826d819ac07ddd584651e8fb8f24c6377e5d0259d1405ad3363ee1f06ff51",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "artifactRuntimeMatches": true,
+      "address": "0x0000000000000039cd5e8aE05257CE51C473ddd1",
+      "runtimeCodeHash": "0x1cd962f550282d1e4eadd0db10a956db2338c40f69c8b07cb434486275e1c11a",
+      "runtimeBytes": 8883
+    },
+    {
+      "chainId": 421614,
+      "publicRpcUrl": "https://sepolia-rollup.arbitrum.io/rpc",
+      "blockNumber": 306289962,
+      "blockHash": "0x3c20c7e0c6b518507331830365b705a70e212fb5af6979dbe680ad8b60f2ead6",
+      "method": "eth_getCode at block number with block hash rechecked",
+      "artifactRuntimeMatches": true,
+      "address": "0x0000000000000039cd5e8aE05257CE51C473ddd1",
+      "runtimeCodeHash": "0x1cd962f550282d1e4eadd0db10a956db2338c40f69c8b07cb434486275e1c11a",
+      "runtimeBytes": 8883
+    }
+  ],
+  "limitations": [
+    "This evidence proves historical source and bytecode identity, not a live provider configuration, sponsorship approval, or audit.",
+    "A configured Pimlico API must return this exact address/runtime and legacy mode0 profile; other deployments require separate review.",
+    "Canonical block observations are historical; execution must inspect the selected chain and runtime again at its own canonical snapshot."
+  ]
+}

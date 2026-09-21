@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "auditRecord": "https://github.com/safe-fndn/safe-modules/blob/dfd3b05966e727dbb7a2fdeef52e4b230f63304e/modules/passkey/docs/v0.2.1/audit.md",
+  "auditCommit": "c3a4d0671099c5e17fda7287b764b93f6b9801df",
+  "vendoredCommit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+  "comparison": "git show exact audit commit source compared byte-for-byte to vendored source; audit covers upstream contracts, not Center integration.",
+  "files": {
+    "modules/passkey/contracts/SafeWebAuthnSignerFactory.sol": {
+      "auditSourceSha256": "e474f21631a50f14d4d8e1babf38bca457a445965a302743d164d042f6351f1f",
+      "vendoredSourceSha256": "e474f21631a50f14d4d8e1babf38bca457a445965a302743d164d042f6351f1f",
+      "identical": true
+    },
+    "modules/passkey/contracts/SafeWebAuthnSignerProxy.sol": {
+      "auditSourceSha256": "315a714a806c2acd8873440a25968d4417586691423da3e77d42b5a229421cdc",
+      "vendoredSourceSha256": "315a714a806c2acd8873440a25968d4417586691423da3e77d42b5a229421cdc",
+      "identical": true
+    },
+    "modules/passkey/contracts/SafeWebAuthnSignerSingleton.sol": {
+      "auditSourceSha256": "293a54a8c50af59b4b35f5c08f07233f81a1da92596ab563f1458365b83802f4",
+      "vendoredSourceSha256": "293a54a8c50af59b4b35f5c08f07233f81a1da92596ab563f1458365b83802f4",
+      "identical": true
+    },
+    "modules/passkey/contracts/base/SignatureValidator.sol": {
+      "auditSourceSha256": "f4063fcf0db41caa7cabcb94197e8496d3cdbc30cf9c29ade6a609fffb7e1934",
+      "vendoredSourceSha256": "f4063fcf0db41caa7cabcb94197e8496d3cdbc30cf9c29ade6a609fffb7e1934",
+      "identical": true
+    },
+    "modules/passkey/contracts/libraries/ERC1271.sol": {
+      "auditSourceSha256": "2ea1ef29ffef0c803a58592d96bdbad80b3f8e310c53c708401726f22afd6d00",
+      "vendoredSourceSha256": "2ea1ef29ffef0c803a58592d96bdbad80b3f8e310c53c708401726f22afd6d00",
+      "identical": true
+    },
+    "modules/passkey/contracts/libraries/P256.sol": {
+      "auditSourceSha256": "64a636c49d2bc054d9bd72c5c1da471bec6d9b5b41d9e88caf7f68588776dd67",
+      "vendoredSourceSha256": "64a636c49d2bc054d9bd72c5c1da471bec6d9b5b41d9e88caf7f68588776dd67",
+      "identical": true
+    },
+    "modules/passkey/contracts/libraries/WebAuthn.sol": {
+      "auditSourceSha256": "f70f06ed0ed66522bb2e8257713142b9c4a21187909bf567d1ca7b9f859f2fea",
+      "vendoredSourceSha256": "f70f06ed0ed66522bb2e8257713142b9c4a21187909bf567d1ca7b9f859f2fea",
+      "identical": true
+    },
+    "modules/passkey/contracts/interfaces/ISafeSignerFactory.sol": {
+      "auditSourceSha256": "bda82182cad1645dacecee5bca619a7775959b4871740843f9be517fe468a04e",
+      "vendoredSourceSha256": "bda82182cad1645dacecee5bca619a7775959b4871740843f9be517fe468a04e",
+      "identical": true
+    },
+    "modules/passkey/contracts/interfaces/IP256Verifier.sol": {
+      "auditSourceSha256": "d07c126c0695c64a4e864e4b270753b21ce61a4e7efe5736a6f4d4648f0e33ba",
+      "vendoredSourceSha256": "d07c126c0695c64a4e864e4b270753b21ce61a4e7efe5736a6f4d4648f0e33ba",
+      "identical": true
+    },
+    "modules/passkey/contracts/verifiers/FCLP256Verifier.sol": {
+      "auditSourceSha256": "83329167b68447ccf1f1a0b011a7e78b6eb87dc6ca4f253f1978d41c8218b0f8",
+      "vendoredSourceSha256": "83329167b68447ccf1f1a0b011a7e78b6eb87dc6ca4f253f1978d41c8218b0f8",
+      "identical": true
+    },
+    "modules/passkey/contracts/vendor/FCL/FCL_ecdsa.sol": {
+      "auditSourceSha256": "0117cfa38f9f45e23f31071f7b10e760f01a1f88666f3cf60a24fb6236fe8d68",
+      "vendoredSourceSha256": "0117cfa38f9f45e23f31071f7b10e760f01a1f88666f3cf60a24fb6236fe8d68",
+      "identical": true
+    },
+    "modules/passkey/contracts/vendor/FCL/FCL_elliptic.sol": {
+      "auditSourceSha256": "9a59d987f90a4c72403cb3be27be8cc1efacae08144e1f7b691c71ee51eb0874",
+      "vendoredSourceSha256": "9a59d987f90a4c72403cb3be27be8cc1efacae08144e1f7b691c71ee51eb0874",
+      "identical": true
+    }
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "source": {
+    "repo": "https://github.com/safe-global/safe-contracts",
+    "commit": "bf943f80fec5ac647159d26161446ac5d716a294",
+    "artifactSha256": "b05eaeaf7278097e52a9e9b38410de2a812c23fa3622373473e73eaa19646ecd",
+    "artifactPath": "package/build/artifacts/contracts/proxies/SafeProxy.sol/SafeProxy.json",
+    "artifactUrl": "https://registry.npmjs.org/@safe-global/safe-contracts/-/safe-contracts-1.4.1.tgz",
+    "packageName": "@safe-global/safe-contracts",
+    "packageVersion": "1.4.1"
+  },
+  "sourceSha256": "a32e2bb41a928cc17ac82a7240571e7ad8b8230555f711c13343584d8a4802bb",
+  "packageSourceMatchesPinnedRepository": true,
+  "runtimeCodeHash": "0xd7d408ebcd99b2b70be43e20253d6d92a8ea8fab29bd3be7f55b10032331fb4c",
+  "runtimeBytes": 171,
+  "creationCodeHash": "0x1856e0ee08399d74e0ea0b03adca210aeade6f748969ac023cdcb4dd62dcaf5f",
+  "observations": [
+    {
+      "chainId": 1,
+      "publicRpcUrl": "https://ethereum-rpc.publicnode.com",
+      "blockNumber": 25923531,
+      "blockHash": "0x55d2cd83c39a84a17dd5ca29523bf2b68fbdd307a8d758a69c0345737bf29bcd",
+      "factory": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+      "method": "proxyCreationCode()",
+      "observedCreationBytecodeHash": "0x1856e0ee08399d74e0ea0b03adca210aeade6f748969ac023cdcb4dd62dcaf5f",
+      "matchesOfficialCreationBytecode": true
+    },
+    {
+      "chainId": 10,
+      "publicRpcUrl": "https://mainnet.optimism.io",
+      "blockNumber": 156580939,
+      "blockHash": "0x7570f32bc9f0429402f81d2b888ae1f2a494ffde36d1f7d360cfb433b01a1a20",
+      "factory": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+      "method": "proxyCreationCode()",
+      "observedCreationBytecodeHash": "0x1856e0ee08399d74e0ea0b03adca210aeade6f748969ac023cdcb4dd62dcaf5f",
+      "matchesOfficialCreationBytecode": true
+    },
+    {
+      "chainId": 8453,
+      "publicRpcUrl": "https://mainnet.base.org",
+      "blockNumber": 50985654,
+      "blockHash": "0x1084077d0c0e9c2f125180da0d376818a30fb037d83220b05508c70cfb34c66f",
+      "factory": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+      "method": "proxyCreationCode()",
+      "observedCreationBytecodeHash": "0x1856e0ee08399d74e0ea0b03adca210aeade6f748969ac023cdcb4dd62dcaf5f",
+      "matchesOfficialCreationBytecode": true
+    },
+    {
+      "chainId": 42161,
+      "publicRpcUrl": "https://arb1.arbitrum.io/rpc",
+      "blockNumber": 502584873,
+      "blockHash": "0x0dc56282989b8154a2dfbdda125ad7b862e2a85d3825023f48614d255fbf2a03",
+      "factory": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+      "method": "proxyCreationCode()",
+      "observedCreationBytecodeHash": "0x1856e0ee08399d74e0ea0b03adca210aeade6f748969ac023cdcb4dd62dcaf5f",
+      "matchesOfficialCreationBytecode": true
+    },
+    {
+      "chainId": 11155111,
+      "publicRpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+      "blockNumber": 11652278,
+      "blockHash": "0x9b1ac8be04f9e188357e70f5015b5fee5413af55fc82b534c9a02ed4049b0b79",
+      "factory": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+      "method": "proxyCreationCode()",
+      "observedCreationBytecodeHash": "0x1856e0ee08399d74e0ea0b03adca210aeade6f748969ac023cdcb4dd62dcaf5f",
+      "matchesOfficialCreationBytecode": true
+    },
+    {
+      "chainId": 11155420,
+      "publicRpcUrl": "https://sepolia.optimism.io",
+      "blockNumber": 48479057,
+      "blockHash": "0x0076cffef8fb201649fac4200491ff538e28c9fa8d18495751c697de542df6bb",
+      "factory": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+      "method": "proxyCreationCode()",
+      "observedCreationBytecodeHash": "0x1856e0ee08399d74e0ea0b03adca210aeade6f748969ac023cdcb4dd62dcaf5f",
+      "matchesOfficialCreationBytecode": true
+    },
+    {
+      "chainId": 84532,
+      "publicRpcUrl": "https://sepolia.base.org",
+      "blockNumber": 46496183,
+      "blockHash": "0x7530dfb86344251d05a56f218eeff34a33ce082f1da0f84852f98f8fe0452ee8",
+      "factory": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+      "method": "proxyCreationCode()",
+      "observedCreationBytecodeHash": "0x1856e0ee08399d74e0ea0b03adca210aeade6f748969ac023cdcb4dd62dcaf5f",
+      "matchesOfficialCreationBytecode": true
+    },
+    {
+      "chainId": 421614,
+      "publicRpcUrl": "https://sepolia-rollup.arbitrum.io/rpc",
+      "blockNumber": 306284300,
+      "blockHash": "0xeb58308a0815a6633ae3d291d718dc75335993733cea830f1b2afe10bb74ec96",
+      "factory": "0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67",
+      "method": "proxyCreationCode()",
+      "observedCreationBytecodeHash": "0x1856e0ee08399d74e0ea0b03adca210aeade6f748969ac023cdcb4dd62dcaf5f",
+      "matchesOfficialCreationBytecode": true
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "sourceRevision": "ac6e48d52fb43d5c90205e9892fff4ccaa011484",
+  "sourceSha256": {
+    "src/rest/wallet/baseReceiptFees.ts": "b3b565f3143bb9d24a69271309b762b1bd205bf45b92240f3f0b8913e24ccabc",
+    "src/rest/wallet/baseFeeObservation.ts": "7dca87ca0155bcf748e749467623c8ddc37c88250f8b3c166cba6c3c611f226a",
+    "src/rest/wallet/operationRpc.ts": "706d1133966f23dce288772da8726ae33182d4da52a1b0771d03957d1c57d5b5",
+    "src/rest/wallet/deploymentFees.ts": "3069d0cb40a81e1878a73895da6dfe6fdc292179b19c3994b232a918b0d3c9d2",
+    "src/rest/rpc.ts": "a2dfccd2c55562c8f9106a55c563882ca4e60ff2f9df0b68a21d5f713fbfc9c9",
+    "src/rpc.ts": "1d3a75f624275a9267538308e5b52a28e62f53d618df0a75c4a206c85f48f9ef"
+  },
+  "version": "center-base-live-fee-observation-v1",
+  "observedAt": "2026-09-15T02:20:23.189Z",
+  "provider": "Center Dwellir Base archive",
+  "physicalRequests": 28,
+  "results": [
+    {
+      "profile": "base-fjord-jovian-receipt-v1",
+      "transactionHash": "0x49058bea9e67003a40542a19d1adb734d27a68cfb4b64915fb08c381d6468374",
+      "blockHash": "0x5686652b8a3619dbd2b7f76215a2d689be7c8854233c2379cc09c1298dcf4297",
+      "blockNumber": "51317810",
+      "blockTimestamp": "1789424967",
+      "transactionIndex": "67",
+      "status": "success",
+      "gasUsed": "1031087",
+      "effectiveGasPrice": "8400000",
+      "parameters": {
+        "profile": "fjord-jovian",
+        "l1BaseFeeScalar": "2269",
+        "l1BlobBaseFeeScalar": "1055762",
+        "l1BaseFee": "90070327",
+        "l1BlobBaseFee": "4375908",
+        "operatorFeeScalar": "0",
+        "operatorFeeConstant": "0"
+      },
+      "daFootprintGasScalar": "148",
+      "executionWei": "8661130800000",
+      "l1Wei": "16289011957",
+      "operatorWei": "0",
+      "totalWei": "8677419811957",
+      "futureFeeCeiling": null,
+      "durationMs": 3978
+    },
+    {
+      "profile": "base-fjord-jovian-receipt-v1",
+      "transactionHash": "0xd11408ca1fb871a80f143ca0d7437461eaafa49e856bbd689242df518e67fe3e",
+      "blockHash": "0x68c6d34ed76212fca994bf0c51882671d860ac8dee9b84cc19b2d24223093586",
+      "blockNumber": "51317815",
+      "blockTimestamp": "1789424977",
+      "transactionIndex": "93",
+      "status": "success",
+      "gasUsed": "1283281",
+      "effectiveGasPrice": "8400000",
+      "parameters": {
+        "profile": "fjord-jovian",
+        "l1BaseFeeScalar": "2269",
+        "l1BlobBaseFeeScalar": "1055762",
+        "l1BaseFee": "90057146",
+        "l1BlobBaseFee": "4663095",
+        "operatorFeeScalar": "0",
+        "operatorFeeConstant": "0"
+      },
+      "daFootprintGasScalar": "148",
+      "executionWei": "10779560400000",
+      "l1Wei": "13179076760",
+      "operatorWei": "0",
+      "totalWei": "10792739476760",
+      "futureFeeCeiling": null,
+      "durationMs": 2809
+    }
+  ],
+  "dispatchEnabled": false,
+  "scope": "Actual read-only calls through the new observer. Historical receipt consistency only; no new transaction, finality qualification or production dispatch authority."
+}

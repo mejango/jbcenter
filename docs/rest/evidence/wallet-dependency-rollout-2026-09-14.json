@@ -1,0 +1,734 @@
+{
+  "version": "center-wallet-dependency-rollout-result-v1",
+  "observedAt": "2026-09-14T23:07:24.886Z",
+  "operatorRevision": "94d89f6209cd755d7f9020e5bc778f8a21fc122d",
+  "operatorFingerprint": "4603761699bdda84ecf63554ba82263b238e9df988a6d9de12b6909f35c8de87",
+  "releaseCheck": {
+    "passed": 4501,
+    "failed": 0,
+    "skipped": 0,
+    "summarySha256": "472f9a34aec1f87e6c46e6cb1ca1f05303305d82f41b2e3c9f032f21ecb74086"
+  },
+  "review": "User-selected Claude Fable 5.1 model-assisted review; not third-party audit certification.",
+  "payments": [
+    {
+      "chainId": 1,
+      "payer": "0x097334063a5c2505d8df1C660B996699c27E6Fd3",
+      "bundleUuid": "0ca4f3b1-b702-4c8e-aa2d-afcfb17ea1f6",
+      "bodyHash": "f06f6eb13b213b55b38f9bd0da5ca56ef04251fd58e6f06e1d21a6fb2f526f56",
+      "hash": "0x320d20b66524eefe1eb02032a72aab158c0de9997e417c4285c26fe9acaa654f",
+      "paymentFinalized": true,
+      "actualCostWei": "3484875950828271",
+      "providerReportedPayment": "received"
+    },
+    {
+      "chainId": 11155111,
+      "payer": "0x097334063a5c2505d8df1C660B996699c27E6Fd3",
+      "bundleUuid": "14dacf51-45ca-4dbe-858e-92e65235f698",
+      "bodyHash": "fa712b27ef34b727351ce61029e3ed8691a77db56ecb57abcbe83202e742a861",
+      "hash": "0xcb541b59e24fff8a224f633ab750d9d224f107553a759ec51209463e7505034e",
+      "paymentFinalized": true,
+      "actualCostWei": "15986827873005615",
+      "providerReportedPayment": "received"
+    }
+  ],
+  "chains": [
+    {
+      "chainId": 1,
+      "finalizedAnchor": {
+        "hash": "0x2e6b22fe3290a89a83007110d7dd6f779aaec777a57f02b7e12ac3dcb0bbcfea",
+        "number": "0x18c67b3",
+        "timestamp": "0x6aa87ad7"
+      },
+      "runtimeObservations": [
+        {
+          "name": "DeploymentProxy",
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "runtimeCodeHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989",
+          "present": true,
+          "observedHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989"
+        },
+        {
+          "name": "FCLP256Verifier",
+          "address": "0xFbe0614fFB2226cd6d1D3F9A79BC73d7647b4C61",
+          "runtimeCodeHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80",
+          "present": true,
+          "observedHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80"
+        },
+        {
+          "name": "SafeWebAuthnSignerFactory",
+          "address": "0x48c4F4B3d2684f39437F68faC4Ecc49f8F85163D",
+          "runtimeCodeHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d",
+          "present": true,
+          "observedHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d"
+        },
+        {
+          "name": "SafeWebAuthnSignerSingleton",
+          "address": "0x6613cA05f68002B7091963D9D4AB0DB232ed0648",
+          "runtimeCodeHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971",
+          "source": {
+            "repository": "https://github.com/safe-fndn/safe-modules",
+            "commit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+            "artifactSha256": "5ec6c7e6a21c62fd2d310181b9c9f28abf8dfdea1ea0c2677ae9573ad2e031d1"
+          },
+          "present": true,
+          "observedHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971"
+        }
+      ],
+      "singletonBinding": true,
+      "deployments": [
+        {
+          "hash": "0x5c33959c4b4d4f3a9b61caf5bf096cdd7313b8e6635c4f8c9083d8bd12b57a95",
+          "txUuid": "975e3d99-40c6-499a-bba2-39561c4d563e",
+          "state": "finalized",
+          "executionSucceeded": true,
+          "blockHash": "0x185cc36545d91162a8b38a9acc2ea6e4e808e54bfe63c8907ba3bb5a9eb775f6",
+          "blockNumber": "0x18c6740"
+        },
+        {
+          "hash": "0x90c73475c99d029d05c3aa8bbc4af74a205abf66e3daf8d802d97fbf6c4ea60b",
+          "txUuid": "f36d955c-8921-437d-928b-fc7bc14731d8",
+          "state": "finalized",
+          "executionSucceeded": true,
+          "blockHash": "0x2cceb10e0e6fe88e29cc276046b4c63e922dff2c459d5550519bcc68470a192b",
+          "blockNumber": "0x18c673e"
+        }
+      ]
+    },
+    {
+      "chainId": 10,
+      "finalizedAnchor": {
+        "hash": "0xc04070e08bf8326879947b33f441861d3a5f42d8332e95728ea5c75dd37c8978",
+        "number": "0x95a4f48",
+        "timestamp": "0x6aa87849"
+      },
+      "runtimeObservations": [
+        {
+          "name": "DeploymentProxy",
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "runtimeCodeHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989",
+          "present": true,
+          "observedHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989"
+        },
+        {
+          "name": "FCLP256Verifier",
+          "address": "0xFbe0614fFB2226cd6d1D3F9A79BC73d7647b4C61",
+          "runtimeCodeHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80",
+          "present": true,
+          "observedHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80"
+        },
+        {
+          "name": "SafeWebAuthnSignerFactory",
+          "address": "0x48c4F4B3d2684f39437F68faC4Ecc49f8F85163D",
+          "runtimeCodeHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d",
+          "present": true,
+          "observedHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d"
+        },
+        {
+          "name": "SafeWebAuthnSignerSingleton",
+          "address": "0x6613cA05f68002B7091963D9D4AB0DB232ed0648",
+          "runtimeCodeHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971",
+          "source": {
+            "repository": "https://github.com/safe-fndn/safe-modules",
+            "commit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+            "artifactSha256": "5ec6c7e6a21c62fd2d310181b9c9f28abf8dfdea1ea0c2677ae9573ad2e031d1"
+          },
+          "present": true,
+          "observedHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971"
+        }
+      ],
+      "singletonBinding": true,
+      "deployments": [
+        {
+          "hash": "0x8fe98d9e10e04901a29ee55dc8a8a935340dfaf1846851feb1f807493489b005",
+          "txUuid": "fd38a81f-266f-499a-b23c-fa43bf7c324d",
+          "state": "finalized",
+          "executionSucceeded": true,
+          "blockHash": "0x3ab9fbd664d875d30a8cf9591992d7e36efff082d1309c9f63f460f4c241273b",
+          "blockNumber": "0x95a4dc7"
+        },
+        {
+          "hash": "0x0518c12a6450666e393b7204b7516eb0dcdb40a2a34515534f2114305f4e3679",
+          "txUuid": "4349cdb1-171e-41d9-9239-25754bcaeadb",
+          "state": "finalized",
+          "executionSucceeded": true,
+          "blockHash": "0xca37168cee828ab827f82fca2f1b25333a434fe7d9a056ec9602036bb83282a4",
+          "blockNumber": "0x95a4dcd"
+        }
+      ]
+    },
+    {
+      "chainId": 8453,
+      "finalizedAnchor": {
+        "hash": "0x41e8a3ef7dcc213dc3460969548e734c3b492aff053b7d3b1b00857b749d9bdf",
+        "number": "0x30f0e25",
+        "timestamp": "0x6aa8792d"
+      },
+      "runtimeObservations": [
+        {
+          "name": "DeploymentProxy",
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "runtimeCodeHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989",
+          "present": true,
+          "observedHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989"
+        },
+        {
+          "name": "FCLP256Verifier",
+          "address": "0xFbe0614fFB2226cd6d1D3F9A79BC73d7647b4C61",
+          "runtimeCodeHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80",
+          "present": true,
+          "observedHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80"
+        },
+        {
+          "name": "SafeWebAuthnSignerFactory",
+          "address": "0x48c4F4B3d2684f39437F68faC4Ecc49f8F85163D",
+          "runtimeCodeHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d",
+          "present": true,
+          "observedHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d"
+        },
+        {
+          "name": "SafeWebAuthnSignerSingleton",
+          "address": "0x6613cA05f68002B7091963D9D4AB0DB232ed0648",
+          "runtimeCodeHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971",
+          "source": {
+            "repository": "https://github.com/safe-fndn/safe-modules",
+            "commit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+            "artifactSha256": "5ec6c7e6a21c62fd2d310181b9c9f28abf8dfdea1ea0c2677ae9573ad2e031d1"
+          },
+          "present": true,
+          "observedHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971"
+        }
+      ],
+      "singletonBinding": true,
+      "deployments": [
+        {
+          "hash": "0x49058bea9e67003a40542a19d1adb734d27a68cfb4b64915fb08c381d6468374",
+          "txUuid": "be919436-f0fb-468f-9d56-de3e1309674c",
+          "state": "finalized",
+          "executionSucceeded": true,
+          "blockHash": "0x5686652b8a3619dbd2b7f76215a2d689be7c8854233c2379cc09c1298dcf4297",
+          "blockNumber": "0x30f0c32"
+        },
+        {
+          "hash": "0xd11408ca1fb871a80f143ca0d7437461eaafa49e856bbd689242df518e67fe3e",
+          "txUuid": "f0d0af2b-16a4-4065-a1f9-7e1177b858cf",
+          "state": "finalized",
+          "executionSucceeded": true,
+          "blockHash": "0x68c6d34ed76212fca994bf0c51882671d860ac8dee9b84cc19b2d24223093586",
+          "blockNumber": "0x30f0c37"
+        }
+      ]
+    },
+    {
+      "chainId": 42161,
+      "finalizedAnchor": {
+        "hash": "0xb413bb043f5b7c1d4662082cb1797649547ef909232754e911a4b3f154e02c68",
+        "number": "0x1e1d1c22",
+        "timestamp": "0x6aa87a2c"
+      },
+      "runtimeObservations": [
+        {
+          "name": "DeploymentProxy",
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "runtimeCodeHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989",
+          "present": true,
+          "observedHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989"
+        },
+        {
+          "name": "FCLP256Verifier",
+          "address": "0xFbe0614fFB2226cd6d1D3F9A79BC73d7647b4C61",
+          "runtimeCodeHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80",
+          "present": true,
+          "observedHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80"
+        },
+        {
+          "name": "SafeWebAuthnSignerFactory",
+          "address": "0x48c4F4B3d2684f39437F68faC4Ecc49f8F85163D",
+          "runtimeCodeHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d",
+          "present": true,
+          "observedHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d"
+        },
+        {
+          "name": "SafeWebAuthnSignerSingleton",
+          "address": "0x6613cA05f68002B7091963D9D4AB0DB232ed0648",
+          "runtimeCodeHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971",
+          "source": {
+            "repository": "https://github.com/safe-fndn/safe-modules",
+            "commit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+            "artifactSha256": "5ec6c7e6a21c62fd2d310181b9c9f28abf8dfdea1ea0c2677ae9573ad2e031d1"
+          },
+          "present": true,
+          "observedHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971"
+        }
+      ],
+      "singletonBinding": true,
+      "deployments": [
+        {
+          "hash": "0xb7645733a518fa50d619017340a57a333b603ca2a3bd3015301b6051a98db719",
+          "txUuid": "01622c54-edb8-4754-aea3-95f93c0235c2",
+          "state": "finalized",
+          "executionSucceeded": true,
+          "blockHash": "0xaf18b98910699745d19028fa4317bdbc676762cafc598d9978706da384eaedc1",
+          "blockNumber": "0x1e1d0908"
+        },
+        {
+          "hash": "0x2d71111944776f211db9e825fa84e34951c62f8aebc4f4e63da653c18b481587",
+          "txUuid": "0ed729dc-9d71-4e7f-8dda-7dc6441e2e85",
+          "state": "finalized",
+          "executionSucceeded": true,
+          "blockHash": "0x47885c990c2c6413dce9e046cbc744fecebb2b5ee980649047b26b0cc21e26ea",
+          "blockNumber": "0x1e1d0931"
+        }
+      ]
+    },
+    {
+      "chainId": 11155111,
+      "finalizedAnchor": {
+        "hash": "0x1efd4700ae007cd2fc3c36f749ba3797cde0149a96b5163783126b129af4efc7",
+        "number": "0xb29e3c",
+        "timestamp": "0x6aa87a60"
+      },
+      "runtimeObservations": [
+        {
+          "name": "DeploymentProxy",
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "runtimeCodeHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989",
+          "present": true,
+          "observedHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989"
+        },
+        {
+          "name": "FCLP256Verifier",
+          "address": "0xFbe0614fFB2226cd6d1D3F9A79BC73d7647b4C61",
+          "runtimeCodeHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80",
+          "present": true,
+          "observedHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80"
+        },
+        {
+          "name": "SafeWebAuthnSignerFactory",
+          "address": "0x48c4F4B3d2684f39437F68faC4Ecc49f8F85163D",
+          "runtimeCodeHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d",
+          "present": true,
+          "observedHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d"
+        },
+        {
+          "name": "SafeWebAuthnSignerSingleton",
+          "address": "0x6613cA05f68002B7091963D9D4AB0DB232ed0648",
+          "runtimeCodeHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971",
+          "source": {
+            "repository": "https://github.com/safe-fndn/safe-modules",
+            "commit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+            "artifactSha256": "5ec6c7e6a21c62fd2d310181b9c9f28abf8dfdea1ea0c2677ae9573ad2e031d1"
+          },
+          "present": true,
+          "observedHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971"
+        }
+      ],
+      "singletonBinding": true,
+      "deployments": [
+        {
+          "hash": "0x3f14934bff96616c8852c452dc2b89ef8c467f90e93b070949bcffa702d7ca96",
+          "txUuid": "59f05505-bcf8-46c7-969a-9f2ea0c4124d",
+          "state": "finalized",
+          "executionSucceeded": true,
+          "blockHash": "0x20f2277cf571823e2be398071300f8bdf56fd580e411cf49211b1126d1f19b2d",
+          "blockNumber": "0xb29de6"
+        }
+      ]
+    },
+    {
+      "chainId": 11155420,
+      "finalizedAnchor": {
+        "hash": "0xe4039fcb3a5e442635959c7c126cd4633c9a58e672a361f9c749ab41d3235fa0",
+        "number": "0x2e8ce7d",
+        "timestamp": "0x6aa878a6"
+      },
+      "runtimeObservations": [
+        {
+          "name": "DeploymentProxy",
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "runtimeCodeHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989",
+          "present": true,
+          "observedHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989"
+        },
+        {
+          "name": "FCLP256Verifier",
+          "address": "0xFbe0614fFB2226cd6d1D3F9A79BC73d7647b4C61",
+          "runtimeCodeHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80",
+          "present": true,
+          "observedHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80"
+        },
+        {
+          "name": "SafeWebAuthnSignerFactory",
+          "address": "0x48c4F4B3d2684f39437F68faC4Ecc49f8F85163D",
+          "runtimeCodeHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d",
+          "present": true,
+          "observedHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d"
+        },
+        {
+          "name": "SafeWebAuthnSignerSingleton",
+          "address": "0x6613cA05f68002B7091963D9D4AB0DB232ed0648",
+          "runtimeCodeHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971",
+          "source": {
+            "repository": "https://github.com/safe-fndn/safe-modules",
+            "commit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+            "artifactSha256": "5ec6c7e6a21c62fd2d310181b9c9f28abf8dfdea1ea0c2677ae9573ad2e031d1"
+          },
+          "present": true,
+          "observedHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971"
+        }
+      ],
+      "singletonBinding": true,
+      "deployments": [
+        {
+          "hash": "0x488ba4ea21430db684645604e08b805ece36eb6b11fdd443034868b7709a7878",
+          "txUuid": "c67399ee-bbff-42bc-94d7-5435ddd13c2b",
+          "state": "finalized",
+          "executionSucceeded": true,
+          "blockHash": "0x8b51cfdd4fe7e79f5107233b3b2e5d7af44da37c9ac12d10443327430b9443d2",
+          "blockNumber": "0x2e8cd4b"
+        },
+        {
+          "hash": "0xf0c269c8f3dde933519a4fa934881cb61e31f172f56a31ed2dd12e5cd1738620",
+          "txUuid": "0e6694c3-3bec-44e3-b8c7-28a8de711bb3",
+          "state": "finalized",
+          "executionSucceeded": true,
+          "blockHash": "0x88c493046a1280307236f30a8dd6040a878ac47ca0b12afcf80581c920434454",
+          "blockNumber": "0x2e8cd51"
+        }
+      ]
+    },
+    {
+      "chainId": 84532,
+      "finalizedAnchor": {
+        "hash": "0xf6a12692cbef2d17e977e3d3eb50c4c113cbb3fad0c506f37d894a1be6397940",
+        "number": "0x2ca8cb4",
+        "timestamp": "0x6aa87848"
+      },
+      "runtimeObservations": [
+        {
+          "name": "DeploymentProxy",
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "runtimeCodeHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989",
+          "present": true,
+          "observedHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989"
+        },
+        {
+          "name": "FCLP256Verifier",
+          "address": "0xFbe0614fFB2226cd6d1D3F9A79BC73d7647b4C61",
+          "runtimeCodeHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80",
+          "present": true,
+          "observedHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80"
+        },
+        {
+          "name": "SafeWebAuthnSignerFactory",
+          "address": "0x48c4F4B3d2684f39437F68faC4Ecc49f8F85163D",
+          "runtimeCodeHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d",
+          "present": true,
+          "observedHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d"
+        },
+        {
+          "name": "SafeWebAuthnSignerSingleton",
+          "address": "0x6613cA05f68002B7091963D9D4AB0DB232ed0648",
+          "runtimeCodeHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971",
+          "source": {
+            "repository": "https://github.com/safe-fndn/safe-modules",
+            "commit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+            "artifactSha256": "5ec6c7e6a21c62fd2d310181b9c9f28abf8dfdea1ea0c2677ae9573ad2e031d1"
+          },
+          "present": true,
+          "observedHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971"
+        }
+      ],
+      "singletonBinding": true,
+      "deployments": [
+        {
+          "hash": "0x52967b1dbb37c604f2578d98e01772afae082793e02dba9aa0992697f1406b63",
+          "txUuid": "aabe0d5f-6b53-4c27-be52-0f119fd5bf38",
+          "state": "finalized",
+          "executionSucceeded": true,
+          "blockHash": "0x42188c72c0027e1421c96854cc878e3d7e39fc581820f6227f17c979d3a5d6d9",
+          "blockNumber": "0x2ca8bb1"
+        }
+      ]
+    },
+    {
+      "chainId": 421614,
+      "finalizedAnchor": {
+        "hash": "0x2e1c80c0bf98d0622888d1ebee49d47bcb1a62ad1798162be93a160f93a26139",
+        "number": "0x126a34cb",
+        "timestamp": "0x6aa87a08"
+      },
+      "runtimeObservations": [
+        {
+          "name": "DeploymentProxy",
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "runtimeCodeHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989",
+          "present": true,
+          "observedHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989"
+        },
+        {
+          "name": "FCLP256Verifier",
+          "address": "0xFbe0614fFB2226cd6d1D3F9A79BC73d7647b4C61",
+          "runtimeCodeHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80",
+          "present": true,
+          "observedHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80"
+        },
+        {
+          "name": "SafeWebAuthnSignerFactory",
+          "address": "0x48c4F4B3d2684f39437F68faC4Ecc49f8F85163D",
+          "runtimeCodeHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d",
+          "present": true,
+          "observedHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d"
+        },
+        {
+          "name": "SafeWebAuthnSignerSingleton",
+          "address": "0x6613cA05f68002B7091963D9D4AB0DB232ed0648",
+          "runtimeCodeHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971",
+          "source": {
+            "repository": "https://github.com/safe-fndn/safe-modules",
+            "commit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+            "artifactSha256": "5ec6c7e6a21c62fd2d310181b9c9f28abf8dfdea1ea0c2677ae9573ad2e031d1"
+          },
+          "present": true,
+          "observedHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971"
+        }
+      ],
+      "singletonBinding": true,
+      "deployments": [
+        {
+          "hash": "0x0dc1c6cb95bd9d56acf88c4ef8b21a9fec425fd47f9f1f33e391e6d3e5cd686d",
+          "txUuid": "71626ccb-51cf-40e0-b6f6-e99666c91ab1",
+          "state": "finalized",
+          "executionSucceeded": true,
+          "blockHash": "0x8f69dcc0301e6353f5302dc58b1764d6ae0e450102e520a320ecca1593636c7e",
+          "blockNumber": "0x126a25b1"
+        },
+        {
+          "hash": "0x03cb8cfd83728c9b5232c6f4fb40f6858f7e0f69919dbe98003e320db98649ec",
+          "txUuid": "165372e2-f0d3-4a13-b4f3-59902956151e",
+          "state": "finalized",
+          "executionSucceeded": true,
+          "blockHash": "0xd230c5c6d70b03de956038c1b6b87c7f42801efd9a1f4ae060c3b80ab46bcb54",
+          "blockNumber": "0x126a25dc"
+        }
+      ]
+    }
+  ],
+  "baseStack": {
+    "status": "dependencies-verified",
+    "manifest": {
+      "id": "center-passkey-base-v1",
+      "mode": "execution-candidate",
+      "chainId": 8453,
+      "safeVersion": "1.4.1",
+      "proxyRuntimeCodeHash": "0xd7d408ebcd99b2b70be43e20253d6d92a8ea8fab29bd3be7f55b10032331fb4c",
+      "singleton": {
+        "address": "0x29fcB43b46531BcA003ddC8FCB67FFE91900C762",
+        "runtimeCodeHash": "0xb1f926978a0f44a2c0ec8fe822418ae969bd8c3f18d61e5103100339894f81ff",
+        "source": {
+          "repository": "https://github.com/safe-global/safe-contracts",
+          "commit": "bf943f80fec5ac647159d26161446ac5d716a294",
+          "artifactSha256": "a57d54c0d757ca7fb86693480797de69c880878690b67061f6f9624e11def8bd"
+        }
+      },
+      "factory": {
+        "address": "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67",
+        "runtimeCodeHash": "0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317",
+        "source": {
+          "repository": "https://github.com/safe-global/safe-contracts",
+          "commit": "bf943f80fec5ac647159d26161446ac5d716a294",
+          "artifactSha256": "f77ccb60e95345e6583216e82feb5430098679d62aa4aeda7388df3831476997"
+        }
+      },
+      "safe7579": {
+        "address": "0x7579f2AD53b01c3D8779Fe17928e0D48885B0003",
+        "runtimeCodeHash": "0xc9c3866bdfbdb586211254dbe457aa3d1c9fd1acf1bbaa36e4c86c3ebc156b69",
+        "source": {
+          "repository": "https://github.com/rhinestonewtf/safe7579",
+          "commit": "f22a194148ff087f0c16125e530512e59794e188",
+          "artifactSha256": "5e40d3584872cd8bc0cea680f720a69c1cc49656e3f69e796deed718bb7cd37c"
+        }
+      },
+      "launchpad": {
+        "address": "0x75798463024Bda64D83c94A64Bc7D7eaB41300eF",
+        "runtimeCodeHash": "0x044b5e0086072ca4cb8e39c4d7fe5ae78def953b347eacd8d3abbba56946fb6e",
+        "source": {
+          "repository": "https://github.com/rhinestonewtf/safe7579",
+          "commit": "f22a194148ff087f0c16125e530512e59794e188",
+          "artifactSha256": "f897d0454ff6728a836b3e81b34afbc47900d6b40c5477d25d6c9ef5bc0ec186"
+        }
+      },
+      "entryPoint": {
+        "address": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+        "runtimeCodeHash": "0x8db5ff695839d655407cc8490bb7a5d82337a86a6b39c3f0258aa6c3b582fc58",
+        "source": {
+          "repository": "https://github.com/eth-infinitism/account-abstraction",
+          "commit": "59edfbc5e9862d58ebda3429c9890c3497a1d433",
+          "artifactSha256": "952e7ce1e69354b9e80d0e68e0cbcc64f9304dd25c17170c3732114ea5421b04"
+        },
+        "version": "0.7"
+      },
+      "smartSessions": {
+        "address": "0x00000000002B0eCfbD0496EE71e01257dA0E37DE",
+        "runtimeCodeHash": "0xf2817b8943b9fc813ad3602de2f0b973dc6b7e190f1b77dc9eb02b8d3022ab0c",
+        "source": {
+          "repository": "https://github.com/rhinestonewtf/smartsessions",
+          "commit": "f24dddfcbf7269e10dcd4da90dae0a6ae6ccf188",
+          "artifactSha256": "0627bf4d72f954aa0168de4773e95571c782308cf0cb03935e4c19c417cff6ea"
+        },
+        "generation": "legacy-validator"
+      },
+      "policies": [],
+      "moduleInspectorId": "safe7579-f22a194-trace-v1",
+      "ownerProfile": {
+        "version": "center-passkey-v1",
+        "signerFactory": {
+          "address": "0x48c4F4B3d2684f39437F68faC4Ecc49f8F85163D",
+          "runtimeCodeHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d",
+          "source": {
+            "repository": "https://github.com/safe-fndn/safe-modules",
+            "commit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+            "artifactSha256": "ac9585e28b510a8f705fee07ddf2f6d5568f6a083059a3cc3eb60ce0d55ea3c2"
+          }
+        },
+        "signerSingleton": {
+          "address": "0x6613cA05f68002B7091963D9D4AB0DB232ed0648",
+          "runtimeCodeHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971",
+          "source": {
+            "repository": "https://github.com/safe-fndn/safe-modules",
+            "commit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+            "artifactSha256": "5ec6c7e6a21c62fd2d310181b9c9f28abf8dfdea1ea0c2677ae9573ad2e031d1"
+          }
+        },
+        "p256Verifier": {
+          "address": "0xFbe0614fFB2226cd6d1D3F9A79BC73d7647b4C61",
+          "runtimeCodeHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80",
+          "source": {
+            "repository": "https://github.com/safe-fndn/safe-modules",
+            "commit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+            "artifactSha256": "cbd421df28af9002b4562e2cd136d47e802ee14a310b41e63f01617459a21adc"
+          }
+        }
+      },
+      "creationProfile": {
+        "version": "center-passkey-bootstrap-v1",
+        "multiSend": {
+          "address": "0x38869bf66a61cF6bDB996A6aE40D5853Fd43B526",
+          "runtimeCodeHash": "0x0e4f7fc66550a322d1e7688e181b75e217e662a4f3f4d6a29b22bc61217c4b77",
+          "source": {
+            "repository": "https://github.com/safe-global/safe-contracts",
+            "commit": "bf943f80fec5ac647159d26161446ac5d716a294",
+            "artifactSha256": "cdfa2bbcba64c698db975a0c332457f3ec1a0653f147ff6b5d2ee8771084961b"
+          }
+        }
+      },
+      "revision": "0xb7e29918ff85d6eb8b925a81bcc3259f2d1d83f22c92ea17bd912d65a3d64008"
+    },
+    "observed": [
+      {
+        "name": "DeploymentProxy",
+        "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+        "runtimeCodeHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989",
+        "deployed": true
+      },
+      {
+        "name": "SafeL2",
+        "address": "0x29fcB43b46531BcA003ddC8FCB67FFE91900C762",
+        "runtimeCodeHash": "0xb1f926978a0f44a2c0ec8fe822418ae969bd8c3f18d61e5103100339894f81ff",
+        "deployed": true
+      },
+      {
+        "name": "SafeProxyFactory",
+        "address": "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67",
+        "runtimeCodeHash": "0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317",
+        "deployed": true
+      },
+      {
+        "name": "Safe7579",
+        "address": "0x7579f2AD53b01c3D8779Fe17928e0D48885B0003",
+        "runtimeCodeHash": "0xc9c3866bdfbdb586211254dbe457aa3d1c9fd1acf1bbaa36e4c86c3ebc156b69",
+        "deployed": true
+      },
+      {
+        "name": "Safe7579Launchpad",
+        "address": "0x75798463024Bda64D83c94A64Bc7D7eaB41300eF",
+        "runtimeCodeHash": "0x044b5e0086072ca4cb8e39c4d7fe5ae78def953b347eacd8d3abbba56946fb6e",
+        "deployed": true
+      },
+      {
+        "name": "Safe7579DCUtil",
+        "address": "0x3fB7a8Bee59D8C5b2F1Cf6CE93e5E694Cb233B57",
+        "runtimeCodeHash": "0x82fdfe9fa24df2d8444d9b7b10151a89bb4625f88206d1b20aa0796f68577237",
+        "deployed": true
+      },
+      {
+        "name": "EntryPoint",
+        "address": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+        "runtimeCodeHash": "0x8db5ff695839d655407cc8490bb7a5d82337a86a6b39c3f0258aa6c3b582fc58",
+        "deployed": true
+      },
+      {
+        "name": "SenderCreator",
+        "address": "0xEFC2c1444eBCC4Db75e7613d20C6a62fF67A167C",
+        "runtimeCodeHash": "0x283c9d14378f5f4c4e24045b87d621d48443fa5b4af7dd7180a599b3756a7689",
+        "deployed": true
+      },
+      {
+        "name": "SmartSession",
+        "address": "0x00000000002B0eCfbD0496EE71e01257dA0E37DE",
+        "runtimeCodeHash": "0xf2817b8943b9fc813ad3602de2f0b973dc6b7e190f1b77dc9eb02b8d3022ab0c",
+        "deployed": true
+      },
+      {
+        "name": "MultiSend",
+        "address": "0x38869bf66a61cF6bDB996A6aE40D5853Fd43B526",
+        "runtimeCodeHash": "0x0e4f7fc66550a322d1e7688e181b75e217e662a4f3f4d6a29b22bc61217c4b77",
+        "deployed": true
+      },
+      {
+        "name": "FCLP256Verifier",
+        "address": "0xFbe0614fFB2226cd6d1D3F9A79BC73d7647b4C61",
+        "runtimeCodeHash": "0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80",
+        "deployed": true
+      },
+      {
+        "name": "SafeWebAuthnSignerFactory",
+        "address": "0x48c4F4B3d2684f39437F68faC4Ecc49f8F85163D",
+        "runtimeCodeHash": "0x17a1f05aec1ba76cb7752e0759aa6c8cc261ba970bad3a347933dacc4403066d",
+        "deployed": true
+      },
+      {
+        "name": "SafeWebAuthnSignerSingleton",
+        "address": "0x6613cA05f68002B7091963D9D4AB0DB232ed0648",
+        "runtimeCodeHash": "0x92bf5a599ad1714bfaa89963b9d8ed29112d36c97b9340670375d83a1508a971",
+        "deployed": true
+      }
+    ],
+    "dispatchEnabled": false
+  },
+  "limitations": [
+    "Dwellir is the single RPC provider; these checks are not independent consensus proofs.",
+    "Arbitrum finalized observations intermittently returned a stale finalized block. Prior observations remain in the operator journal. This snapshot observed all dependencies and deployment receipts finalized.",
+    "Shared dependency deployment does not activate consumer wallets. Signup, recovery, fee admission, restore/reconciliation, browser/device and pressure acceptance remain required."
+  ],
+  "rawEvidence": [
+    {
+      "path": "destination-observations/observation-c86d5882-c6f6-42dd-9740-50fe28f60dc4.json",
+      "sha256": "436916182d766a3fe208fe1119dda7765e41c5564c7cb96c871f6582c126d6e3"
+    },
+    {
+      "path": "funding/0ca4f3b1-b702-4c8e-aa2d-afcfb17ea1f6/observation-26bf0b9c-daea-4180-8ea4-518227d7af1a.json",
+      "sha256": "b9e161033d435109d4bef7f6635a00b99f95cbf7d90028262d90121a9d9d3024"
+    },
+    {
+      "path": "funding/14dacf51-45ca-4dbe-858e-92e65235f698/observation-b729978a-fa98-47b3-b7dd-3414e29676f3.json",
+      "sha256": "1aa14212c4402495b428c46986af94ece9d57853756198efe8d3296f5cc04bed"
+    },
+    {
+      "path": "destination-observations/base-stack-47f16a86-f288-4b69-842e-728532f3501d.json",
+      "sha256": "31db10b889f9ccf56e2e02fb9a28ff3b0010f526fcae9681bdc2862e71304d61"
+    }
+  ],
+  "observerSha256": "cc61c09b0487f5f6c974173aae9b1cd7e33aa445b9f251e04ea4cc230eccf953",
+  "walletActivationChains": []
+}
