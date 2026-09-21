@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { request } from "node:http";
-import { connect } from "node:net";
+import { connect, type Socket } from "node:net";
 import type { Readable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -449,34 +449,52 @@ describe("Center and MCP share one HTTP listener", () => {
 
   it("rejects a pipelined readiness request during draining while existing Center work finishes", async () => {
     let finishRpc: (() => void) | undefined;
+    let beginRpc: (() => void) | undefined;
+    const rpcStarted = new Promise<void>((resolve) => {
+      beginRpc = resolve;
+    });
     const rpc: RpcGateway = {
       supports: () => true,
       request: async (_chainId, body) => {
         await new Promise<void>((resolve) => {
           finishRpc = resolve;
+          beginRpc!();
         });
         return { jsonrpc: "2.0", id: body.id, result: "0x2105" };
       },
     };
     const { server, url, store } = await start({ app: { rpc }, grace: 1000 });
     const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] });
+    const accepted = new Promise<Socket>((resolve) => server.server.once("connection", resolve));
     const socket = connect(Number(url.port), "127.0.0.1");
+    // Nagle holds a small pipelined write until the first request is acknowledged, and this
+    // test withholds the response that would carry that acknowledgement.
+    socket.setNoDelay(true);
     const result = new Promise<string>((resolve, reject) => {
       const chunks: Buffer[] = [];
       socket.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
       socket.once("error", reject);
       socket.once("end", () => resolve(Buffer.concat(chunks).toString()));
     });
+    const peer = await accepted;
+    let received = "";
+    // Node's own socket reader runs before this listener, so the pipelined request has been
+    // parsed and dispatched by the time the bytes show up here.
+    const pipelined = new Promise<void>((resolve) => {
+      peer.on("data", (chunk) => {
+        received += chunk.toString();
+        if (received.includes("GET /readyz")) resolve();
+      });
+    });
     socket.write(
       `POST /v1/rpc/8453 HTTP/1.1\r\nHost: 127.0.0.1:${url.port}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
     );
-    await vi.waitFor(() => expect(finishRpc).toBeTypeOf("function"));
+    await rpcStarted;
     const closing = server.close();
     socket.write(
       `GET /readyz HTTP/1.1\r\nHost: 127.0.0.1:${url.port}\r\nConnection: close\r\n\r\n`,
     );
-    // Allow Node to dispatch the pipelined request before releasing the earlier response.
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await pipelined;
     finishRpc!();
     const responses = await result;
     expect(responses).toContain("HTTP/1.1 200 OK");
