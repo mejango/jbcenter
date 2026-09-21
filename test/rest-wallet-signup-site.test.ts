@@ -10,6 +10,7 @@ function setup(extra: Partial<WalletSignupSiteOptions> = {}) {
   const signup = { begin: vi.fn(async () => ({ flowToken: token, view })), status: vi.fn(async () => view),
     register: vi.fn(async () => view), proveEnrollment: vi.fn(async () => view),
     prepareDeployment: vi.fn(), approveDeployment: vi.fn(), activate: vi.fn(),
+    session: vi.fn(async () => ({ session: { expiresAtMs: Date.now() + 3600000, accountId: 'eip155:8453:0x' + '11'.repeat(20) }, sessionToken: 'A'.repeat(43) })),
     listeners: new Set<() => void>(),
     watch: vi.fn(async (_token: string, listener: () => void) => { signup.listeners.add(listener); return () => signup.listeners.delete(listener); }),
     beginResume: vi.fn(async () => ({ resumeToken: token, challenge: { id: 'resume', challenge: '0x' + '11'.repeat(32) } })),
@@ -58,6 +59,17 @@ describe('signup HTTP authority boundary', () => {
     signup.status.mockResolvedValueOnce({ ...preparing, phase: 'ready_to_sign_in' } as never);
     expect((await app.fetch(new Request(origin + '/wallet/signup/state', { headers }))).status).toBe(200);
     expect(refresh.request).toHaveBeenCalledTimes(1);
+  });
+  it('signs a fresh signup in from its approval: the session cookie is set as a login sets it and the continuation is dropped', async () => {
+    const { app, signup } = setup(), response = await app.fetch(post('session', {}));
+    expect(response.status).toBe(200); expect(await response.json()).toEqual({ signedIn: true });
+    const cookies = response.headers.get('set-cookie') ?? '';
+    expect(cookies).toContain('__Host-center-wallet=' + 'A'.repeat(43)); expect(cookies).toContain('Secure; HttpOnly; SameSite=Lax');
+    expect(cookies).toContain(`${walletSignupCookie}=; `);
+    expect(signup.session).toHaveBeenCalledWith(token);
+    // Same-origin browser context and CSRF are required, as for every signup action.
+    const noCsrf = { ...headers }; delete (noCsrf as Partial<typeof headers>)['x-center-wallet-csrf'];
+    expect((await app.fetch(post('session', {}, noCsrf))).status).toBe(403);
   });
   it('streams the view on connect and on every phase change, and ends the stream when the view cannot be read', async () => {
     const { app, signup } = setup(), current = { ...view, phase: 'deploying' as string };

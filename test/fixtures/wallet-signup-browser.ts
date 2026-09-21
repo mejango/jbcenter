@@ -33,6 +33,8 @@ import type { startWalletDeploymentAnvil } from './wallet-deployment-anvil.js';
 export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDependencies, 'flows'> & {
   pool: Pool; fixture: Awaited<ReturnType<typeof startWalletDeploymentAnvil>>;
   recoveryMode?: 'wallet' | 'kit'; expectedNextNonce?: string;
+  /** Lose the continuation cookie and pick the signup up with its passkey before activation (default). */
+  resume?: boolean;
 }) {
   let app = new Hono(), lostRegistration = false, lostSetup = false;
   let recoveryKitText: string | null = null;
@@ -61,8 +63,8 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('No local signup listener.');
   const origin = `http://localhost:${address.port}`;
   const flows = new PostgresWalletSignupStore(options.pool, { origin, rpId: 'localhost', manifest: options.fixture.manifest });
-  const signup = createLocalWalletSignup({ ...options, flows, releasedObservationIntervalMs: 0 });
   const login = new PostgresWalletLoginStore(options.pool, { origin, rpId: 'localhost' });
+  const signup = createLocalWalletSignup({ ...options, flows, login, releasedObservationIntervalMs: 0 });
   let refreshHold: Promise<void> = Promise.resolve(), releaseRefresh = () => {};
   const recoveryObserver = createWalletAuthorityChain({ rpc: options.fixture.readOnlyRpc, manifest: options.fixture.manifest, utility: options.fixture.utility });
   const relay = privateKeyToAccount(`0x${'77'.repeat(32)}`);
@@ -223,13 +225,16 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       expect(kit.mnemonic.split(' ')).toHaveLength(24);
       expect(kit.mnemonic).toBe(shown);
     }
-    await context.clearCookies({ name: walletSignupCookie });
-    await page.reload();
-    await page.getByRole('link', { name: 'log in' }).click();
-    await proceed('Pick up your signup');
-    await contains('Your account is ready');
-    expect(await page.locator('#signup-address').textContent()).toBe(originalAddress);
-    expect(await flows.authenticate(cookie.value)).toBeNull();
+    const resumed = options.resume ?? true;
+    if (resumed) {
+      await context.clearCookies({ name: walletSignupCookie });
+      await page.reload();
+      await page.getByRole('link', { name: 'log in' }).click();
+      await proceed('Pick up your signup');
+      await contains('Your account is ready');
+      expect(await page.locator('#signup-address').textContent()).toBe(originalAddress);
+      expect(await flows.authenticate(cookie.value)).toBeNull();
+    }
     if (kitMode) {
       const kit = JSON.parse(encoded);
       expect(await page.locator('#recovery-phrase').inputValue()).toBe('');
@@ -270,6 +275,14 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       if (i >= 12 && await page.getByRole('button', { name: 'Log in', exact: true }).isVisible()) { await page.getByRole('button', { name: 'Log in', exact: true }).click({ timeout: 2000 }).catch(() => undefined); }
     }
     await contains('You are signed in');
+    // An unresumed signup is signed in from its creation approval, with no login prompt; a journey
+    // that resumed the signup with its passkey (the cookie-recovery step) gets the login prompt.
+    const signupSessions = await options.pool.query("SELECT count(*)::text AS c FROM rest_wallet_logins WHERE proof->>'kind'='signup-approval' AND account_id=$1",
+      [`eip155:8453:${(originalAddress ?? '').toLowerCase()}`]);
+    expect(Number(signupSessions.rows[0].c)).toBe(resumed ? 0 : 1);
+    expect(observed.some(o => o.path === '/signup/session' && o.status === 200)).toBe(!resumed);
+    expect(observed.some(o => o.path === '/login/complete' && o.status === 200)).toBe(resumed);
+    expect((await context.cookies()).some(item => item.name === walletSignupCookie)).toBe(false);
     if (kitMode) expect(await page.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('center:signup:browser:')))).toEqual([]);
     expect((await page.locator('#wallet-address').textContent())?.toLowerCase()).toBe(originalAddress?.toLowerCase());
     expect(await page.locator('#wallet-passkey').textContent()).toBe('Juicebox test');

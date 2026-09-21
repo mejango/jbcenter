@@ -111,6 +111,7 @@ function accept(result: { view: View | null; csrfToken?: string }) {
 }
 function render() {
   spin(); stream();
+  if (view?.phase === 'ready_to_sign_in' && approvedHere && !sessionTried && !busy) void run(async () => { if (!(await session())) render(); });
   form.querySelector('button')!.disabled = engaged;
   name.disabled = engaged;
   // The kit is presented once the wallet exists. Earlier phases still need the words in memory
@@ -264,7 +265,7 @@ async function advance() {
     // two of activation now, so wait briefly for it and open the login prompt from this gesture.
     // If it takes longer, or the browser wants a fresh click for the prompt, the Log in button waits.
     for (let i = 0; i < 12 && current()?.phase === 'preparing_sign_in'; i++) { await new Promise(resolve => setTimeout(resolve, 500)); await observe(); }
-    if (current()?.phase === 'ready_to_sign_in') await login();
+    if (current()?.phase === 'ready_to_sign_in' && !(await session())) await login();
   } else if (view.phase === 'ready_to_sign_in') {
     await login();
   }
@@ -277,6 +278,16 @@ async function approve(backupSignature?: Hex) {
   message('Approve creating your account: use your passkey in the prompt.');
   const proof = await assertion(deployment.challenge, view!.rpId);
   await send('deployment/approve', { approvalId: deployment.id, assertion: proof, ...(backupSignature ? { backupSignature } : {}) });
+  approvedHere = true;
+}
+// The approval's passkey signature signs the new account in once it is ready: no login prompt. Only
+// when that is not on offer (a resumed signup, a restarted server) does the login button appear.
+let approvedHere = false, sessionTried = false;
+async function session(): Promise<boolean> {
+  if (!approvedHere || sessionTried) return false;
+  sessionTried = true; message('Logging in…');
+  try { await request('session', {}); location.replace((base || '/') + location.search); return true; }
+  catch { return false; }
 }
 form.addEventListener('submit', event => { event.preventDefault(); void run(async () => {
   const passkeyName = name.value.trim(), selected = choice();

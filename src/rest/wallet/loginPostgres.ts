@@ -7,6 +7,12 @@ import { walletAuthorityIdentityDigest, walletAuthorityMaximumAgeMs, type Wallet
 import { PostgresWalletAuthorityStore } from "./authorityPostgres.js";
 import { currentWalletCredentialInTransaction, currentWalletDevicesInTransaction, lockWalletEnrollmentInTransaction } from "./enrollmentPostgres.js";
 import { PostgresWalletCeremonyStore, lockWalletCeremonyAdmission, walletCeremonyDatabaseNow } from "./ceremoniesPostgres.js";
+import { hashTypedData } from "viem";
+import { verifyWalletDeploymentProof, walletDeploymentDocument } from "./deployment.js";
+import type { WalletEnrollment } from "./enrollment.js";
+import { copyWalletSignupAssertion } from "./signupPostgres.js";
+import type { WalletDeploymentOperation } from "./deploymentPostgres.js";
+import { verifyWalletAssertion, type WalletAssertion } from "./webauthn.js";
 import { copyWalletLoginCompletion, createWalletLoginDraft, deriveWalletCentralSessionToken, validateWalletCentralSession,
   validateWalletLoginDraft, verifyWalletLoginProof, walletCentralSessionLifetimeMs, walletCentralSessionTokenHash,
   walletLoginChallenge, walletLoginFlowTokenHash, type WalletCentralSession, type WalletLoginChallenge,
@@ -224,6 +230,68 @@ export class PostgresWalletLoginStore {
       if (proof.draft.expiresAtMs <= finalNow) expired();
       active(updated, locked, finalNow, "settled");
       return { session, sessionToken, replayed: false };
+    });
+  }
+  /** A fresh signup's session, from the creation-approval assertion the claim already verified: the
+   * passkey's one signature approves creation and, once the account's authority is verified, signs
+   * it in. The assertion is re-verified here against the claimed deployment (its own proof digest,
+   * its claim's clock, exactly as a claim replay) and the credential must still be the current one;
+   * the login row records the deployment it came from and consumes a ceremony never handed to a
+   * browser. Everything else about the session (lifetime, epochs, revocation) is the same. */
+  async completeFromSignup(input: { enrollment: WalletEnrollment; operation: WalletDeploymentOperation; assertion: WalletAssertion }):
+    Promise<{ session: WalletCentralSession; sessionToken: string }> {
+    const { enrollment, operation } = input, assertion = copyWalletSignupAssertion(input.assertion);
+    if (!enrollment.receipt || enrollment.state !== "verified" || operation.enrollmentId !== enrollment.intent.id ||
+        operation.state === "prepared" || !operation.claimedAt || !operation.proofDigest) unauthorized();
+    const accountId = enrollment.receipt.accountId, candidate = enrollment.candidate!, proofDigest = operation.proofDigest;
+    // The claim's proof, re-derived: same document, same credential, the claim's clock.
+    if (verifyWalletDeploymentProof(enrollment, operation.approval, assertion, operation.claimedAt).verificationDigest !== proofDigest) unauthorized();
+    const verified = verifyWalletAssertion(assertion, { purpose: "deploy", challenge: hashTypedData(walletDeploymentDocument(enrollment, operation.approval)),
+      rpId: enrollment.intent.rpId, origin: enrollment.intent.origin, requireUserHandle: true,
+      credential: { id: candidate.credentialId, userHandle: candidate.userHandle, publicKey: candidate.publicKey, backupEligible: candidate.backupEligible } });
+    const context = await this.authority.loadContext(accountId), identity = context.prior?.identity;
+    if (!identity || context.enrollment.intent.id !== enrollment.intent.id || context.credential.credentialId !== candidate.credentialId ||
+        context.credential.supersededAtMs !== null || context.credential.recovery) unauthorized();
+    const identityDigest = walletAuthorityIdentityDigest(identity);
+    return this.transaction(async client => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended('wallet-logins:' || 'rest_wallet_logins'::regclass::oid::text, 0))");
+      await lockWalletCeremonyAdmission(client);
+      const locked = await lockedContext(client, accountId, enrollment.intent.id);
+      sameCaptured(locked, context);
+      const now = await walletCeremonyDatabaseNow(client);
+      settled(locked, now);
+      if (stable(locked.authority!.snapshot!.identity) !== stable(identity)) inactive();
+      // One session per creation approval.
+      const prior = await client.query("SELECT 1 FROM rest_wallet_logins WHERE proof->>'deploymentId'=$1", [operation.id]);
+      if (prior.rowCount) conflict();
+      const count = Number((await client.query("SELECT count(*)::text AS count FROM rest_wallet_logins WHERE account_id=$1", [accountId])).rows[0].count);
+      if (count >= this.options.maxAccountSessions) limit();
+      const { draft, flowToken } = createWalletLoginDraft({ rpId: this.options.rpId, origin: this.options.origin, nowMs: now, lifetimeMs: this.options.loginLifetimeMs });
+      await this.ceremonies.issueInTransaction(client, draft.ceremony, null);
+      await client.query(`INSERT INTO rest_wallet_logins(id,session_id,ceremony_id,rp_id,flow_token_hash,issued_at_ms,expires_at_ms,retain_until_ms,draft)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`, [draft.id, draft.sessionId, draft.ceremony.id, draft.rpId, draft.flowTokenHash,
+        draft.issuedAtMs, draft.expiresAtMs, draft.retainUntilMs, JSON.stringify(draft)]);
+      const proof = { kind: "signup-approval", verificationDigest: proofDigest, deploymentId: operation.id, credentialId: verified.credentialId,
+        userHandle: verified.userHandle!, signCount: verified.signCount, backupEligible: verified.backupEligible, backedUp: verified.backedUp };
+      await this.ceremonies.consumeInTransaction(client, { ...draft.ceremony, proofDigest: proof.verificationDigest, resultId: draft.sessionId });
+      const sessionToken = deriveWalletCentralSessionToken(flowToken, draft.id), sessionTokenHash = walletCentralSessionTokenHash(sessionToken);
+      const createdAtMs = await walletCeremonyDatabaseNow(client);
+      const session = validateWalletCentralSession({ id: draft.sessionId, loginId: draft.id, accountId, enrollmentId: enrollment.intent.id,
+        rpId: draft.rpId, credentialId: proof.credentialId, userHandle: proof.userHandle,
+        authorityEpoch: locked.authority!.authority_epoch, sessionEpoch: locked.authority!.session_epoch,
+        bindingId: identity.bindingId, bindingAuthorizationDigest: identity.bindingAuthorizationDigest, authorityIdentityDigest: identityDigest,
+        createdAtMs, expiresAtMs: createdAtMs + walletCentralSessionLifetimeMs, revokedAtMs: null });
+      const updated = (await client.query<LoginRow>(`UPDATE rest_wallet_logins SET completed_at_ms=$2,proof_digest=$3,proof=$4::jsonb,
+        session_token_hash=$5,account_id=$6,enrollment_id=$7,credential_id=$8,user_handle=$9,authority_epoch=$10,session_epoch=$11,
+        binding_id=$12,binding_authorization_digest=$13,authority_identity_digest=$14,authority_identity=$15::jsonb,
+        session_expires_at_ms=$16,session_document=$17::jsonb WHERE id=$1 AND completed_at_ms IS NULL RETURNING *`,
+      [draft.id, session.createdAtMs, proof.verificationDigest, JSON.stringify(proof), sessionTokenHash,
+        session.accountId, session.enrollmentId, session.credentialId, session.userHandle, session.authorityEpoch, session.sessionEpoch,
+        session.bindingId, session.bindingAuthorizationDigest, session.authorityIdentityDigest, JSON.stringify(identity),
+        session.expiresAtMs, JSON.stringify(session)])).rows[0];
+      if (!updated) conflict();
+      active(updated, locked, await walletCeremonyDatabaseNow(client), "settled");
+      return { session, sessionToken };
     });
   }
   /** Whether a verified observation has ever established this account's identity: a sign-in can be served

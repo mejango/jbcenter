@@ -130,36 +130,40 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
         // observation-age window; the fee ceiling is checked against latest's base fee.
         const head = observation.head!;
         if (operation.highestObservedHead !== null && BigInt(head.blockNumber) < decimal(operation.highestObservedHead)) invalid("head-rewound");
-        const [latest, observedBlock] = await Promise.all([
-          rpc.request("eth_getBlockByNumber", ["latest", false]).then(value => block(value, observedAt)),
-          rpc.request("eth_getBlockByNumber", [toHex(BigInt(head.blockNumber)), false]).then(value => block(value, observedAt)),
-        ]);
-        if (enrollmentDigest(observedBlock.head) !== enrollmentDigest(head)) unavailable("observed-block");
-        if (BigInt(latest.head.blockNumber) < BigInt(head.blockNumber)) unavailable("latest-behind");
         async function settlementAnchor() {
           if (!accounting?.lastSettlementAnchor) return;
           const prior = accounting.lastSettlementAnchor, current = await rpc.request("eth_getBlockByNumber", [toHex(BigInt(prior.blockNumber)), false]);
           if (!record(current) || !same(current.hash, prior.blockHash) || quantity(current.number) !== BigInt(prior.blockNumber) ||
               quantity(current.timestamp) !== BigInt(prior.timestamp)) unavailable("settlement-anchor");
         }
-        await settlementAnchor();
+        // Every provider round trip is ~400 ms on Base: independent reads go out together, and the
+        // pinned state reads do not wait for the pin and signer checks they do not depend on.
+        const [latest, observedBlock] = await Promise.all([
+          rpc.request("eth_getBlockByNumber", ["latest", false]).then(value => block(value, observedAt)),
+          rpc.request("eth_getBlockByNumber", [toHex(BigInt(head.blockNumber)), false]).then(value => block(value, observedAt)),
+          settlementAnchor(),
+        ]);
+        if (enrollmentDigest(observedBlock.head) !== enrollmentDigest(head)) unavailable("observed-block");
+        if (BigInt(latest.head.blockNumber) < BigInt(head.blockNumber)) unavailable("latest-behind");
         const tag = { blockHash: head.blockHash, requireCanonical: true as const }, tx = operation.template!.transaction;
         const snapshot = { evidence: head, tag, request: (method: string, params: readonly unknown[]) => rpc.request(method, [...params, tag]) };
         const manifest = enrollment.intent.manifest;
         const pins = [manifest.singleton, manifest.factory, manifest.safe7579, manifest.launchpad, manifest.entryPoint!, manifest.smartSessions,
           manifest.creationProfile!.multiSend, ...manifest.policies];
-        for (let start = 0; start < pins.length; start += 8) await Promise.all(pins.slice(start, start + 8).map(async pin => {
-          const code = await snapshot.request("eth_getCode", [pin.address]);
-          if (typeof code !== "string" || !/^0x(?:[0-9a-fA-F]{2}){1,49152}$/.test(code) || !same(keccak256(code as Hex), pin.runtimeCodeHash)) unavailable("pin");
-        }));
-        const signer = await inspectPasskeyCreationSigner({ manifest, publicKey: enrollment.candidate!.publicKey, snapshot });
-        if (!same(signer.address, enrollment.creation!.bootstrap.signerAddress)) unavailable("signer");
-        const [balanceRaw, confirmedRaw, pendingRaw, receipt, transaction, ...codes] = await Promise.all([
+        async function pinned() {
+          for (let start = 0; start < pins.length; start += 8) await Promise.all(pins.slice(start, start + 8).map(async pin => {
+            const code = await snapshot.request("eth_getCode", [pin.address]);
+            if (typeof code !== "string" || !/^0x(?:[0-9a-fA-F]{2}){1,49152}$/.test(code) || !same(keccak256(code as Hex), pin.runtimeCodeHash)) unavailable("pin");
+          }));
+        }
+        const [, signer, balanceRaw, confirmedRaw, pendingRaw, receipt, transaction, ...codes] = await Promise.all([
+          pinned(), inspectPasskeyCreationSigner({ manifest, publicKey: enrollment.candidate!.publicKey, snapshot }),
           snapshot.request("eth_getBalance", [config.sender]), snapshot.request("eth_getTransactionCount", [config.sender]),
           rpc.request("eth_getTransactionCount", [config.sender, "pending"]), rpc.request("eth_getTransactionReceipt", [signed.hash]),
           rpc.request("eth_getTransactionByHash", [signed.hash]), ...[config.sender, enrollment.intent.recoveryOwner, enrollment.creation!.address]
             .map(address => snapshot.request("eth_getCode", [address])),
         ]);
+        if (!same(signer.address, enrollment.creation!.bootstrap.signerAddress)) unavailable("signer");
         const balance = quantity(balanceRaw), nonce = BigInt(tx.nonce);
         // The log names the first failed check; the outcome is the same bounded "not now".
         const blocked = receipt !== null ? "receipt" : transaction !== null ? "transaction" : codes.some(code => code !== "0x") ? "code"
@@ -169,12 +173,13 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
         if (blocked) unavailable(blocked);
         const call = { type: "0x2", from: config.sender, to: tx.to, data: tx.data, value: "0x0", nonce: toHex(nonce),
           gas: toHex(BigInt(tx.gas)), maxFeePerGas: toHex(BigInt(tx.maxFeePerGas)), maxPriorityFeePerGas: toHex(BigInt(tx.maxPriorityFeePerGas)), accessList: [] };
-        const [simulation, estimated] = await Promise.all([snapshot.request("eth_call", [call]), rpc.request("eth_estimateGas", [call, toHex(BigInt(head.blockNumber))])]);
+        // The simulation and the Base reservation pricing are independent reads at the same head.
+        const [simulation, estimated, priced] = await Promise.all([snapshot.request("eth_call", [call]),
+          rpc.request("eth_estimateGas", [call, toHex(BigInt(head.blockNumber))]), adapter.reserve ? adapter.reserve(rpc, head, signed.rawTransaction) : null]);
         if (!same(simulation, encodeAbiParameters([{ type: "address" }], [enrollment.creation!.address])) ||
             quantity(estimated) === 0n || quantity(estimated) > BigInt(tx.gas)) unavailable("simulation");
         let reservation: WalletDeploymentBaseReservation | null = null;
-        if (adapter.reserve) {
-          const priced = await adapter.reserve(rpc, head, signed.rawTransaction);
+        if (priced) {
           const totalWei = BigInt(signed.maximumExecutionCost) + walletDeploymentBaseReservationMargin * (BigInt(priced.l1WeiAtParameters) + BigInt(priced.operatorMaximumWei));
           // ponytail: fixed 2x margin on the uncapped L1/operator portion; a reservation is not a fee ceiling.
           if (totalWei > decimal(remainingWei) || balance < totalWei) unavailable("reservation");
@@ -182,11 +187,11 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
         }
         const [canonical, pendingAgain, environmentAgain] = await Promise.all([
           rpc.request("eth_getBlockByNumber", [toHex(BigInt(head.blockNumber)), false]), rpc.request("eth_getTransactionCount", [config.sender, "pending"]), identity(rpc),
+          settlementAnchor(),
         ]);
         const finalBlock = block(canonical, now());
         if (enrollmentDigest(finalBlock.head) !== enrollmentDigest(head) || finalBlock.baseFee !== observedBlock.baseFee ||
             quantity(pendingAgain) !== nonce || enrollmentDigest(environmentAgain) !== environmentDigest) unavailable("recheck");
-        await settlementAnchor();
         fresh(); rpc.check();
         const common = { operationId: operation.id, poolConfigurationDigest: pool.configurationDigest, templateCommitment: signed.templateCommitment,
           transactionHash: signed.hash, operationRevision: operation.revision, observationDigest: enrollmentDigest(observation),

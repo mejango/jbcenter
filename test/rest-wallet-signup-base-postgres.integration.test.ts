@@ -76,14 +76,15 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
     const flows = new PostgresWalletSignupStore(pool, { rpId, origin: issuer, manifest: fixture.manifest });
     const events: string[] = [];
     const login = new PostgresWalletLoginStore(pool, { rpId, origin: issuer });
+    const sessionsBefore = async () => Number((await pool.query("SELECT count(*)::text AS c FROM rest_wallet_logins WHERE completed_at_ms IS NOT NULL")).rows[0].c);
     let recoveryTarget: Pick<Parameters<typeof exerciseWalletRecoveryEvm>[0], "enrollment" | "originalKey" | "originalSessionToken"> | null = null;
     const operations: string[] = [];
-    const signup = createLocalWalletSignup({ flows, enrollments, deployments, settlement, execution, smart, authority,
+    const signup = createLocalWalletSignup({ flows, enrollments, deployments, settlement, execution, smart, authority, login,
       registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id, releasedObservationIntervalMs: 0,
       onEvent: event => events.push(`${event.stage}:${event.outcome}`) });
     const until = async (name: string) => { for (let i = 0; i < 600 && !events.includes(name); i++) await new Promise(r => setTimeout(r, 25)); expect(events, events.join(' ')).toContain(name); };
     for (let index = 0; index < 2; index++) {
-      const begun = await signup.begin({ recoveryOwner: enrollmentBackupAccount.address, passkeyName: "Juicebox test" }), flowToken = begun.flowToken;
+      const begun = await signup.begin({ recoveryOwner: enrollmentBackupAccount.address, passkeyName: "Juicebox test" }); let flowToken = begun.flowToken;
       const initial = (await enrollments.get(begun.view.enrollmentId))!;
       const credential = createRegistration({ challenge: `0x${Buffer.from(initial.intent.registration.challenge, "base64url").toString("hex")}`,
         rpId, origin: issuer, userHandle: initial.intent.userHandle });
@@ -157,6 +158,30 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
       expect(fixture.requests.length - before).toBeLessThan(8);
       expect(refreshed.snapshot.acceptedAnchor).toEqual(remembered.evidence);
       expect((await signup.status(flowToken)).phase).toBe("ready_to_sign_in");
+      // The creation approval's signature signs the new account in: no login prompt. Once only;
+      // the ordinary login still works beside it. A continuation resumed with the passkey (a
+      // rotated token, an advanced revision) is refused the signup session server-side: the first
+      // user resumes and is refused, the second is signed in.
+      const completed = await sessionsBefore();
+      if (index === 0) {
+        const resume = await signup.beginResume();
+        const resumed = await signup.completeResume({ resumeId: resume.challenge.id, resumeToken: resume.resumeToken,
+          assertion: signGet({ ...credential, rpId, origin: issuer, challenge: resume.challenge.challenge }) });
+        expect((await signup.status(resumed.flowToken)).phase).toBe("ready_to_sign_in");
+        await expect(signup.session(resumed.flowToken)).rejects.toMatchObject({ status: 409 });
+        await expect(signup.session(flowToken)).rejects.toMatchObject({ status: 403 });
+        expect(await sessionsBefore()).toBe(completed);
+        flowToken = resumed.flowToken;
+      }
+      const signedIn = index === 0 ? null : await signup.session(flowToken);
+      if (signedIn) {
+      expect((signedIn.session as { accountId: string; credentialId: string }).accountId).toBe(record.receipt!.accountId);
+      expect((await login.readSession(signedIn.sessionToken))?.accountId).toBe(record.receipt!.accountId);
+      expect(await sessionsBefore()).toBe(completed + 1);
+      await expect(signup.session(flowToken)).rejects.toMatchObject({ status: 409 });
+      const signupLogin = (await pool.query("SELECT proof FROM rest_wallet_logins WHERE proof->>'deploymentId'=$1", [operation.id])).rows[0];
+      expect(signupLogin.proof).toMatchObject({ kind: "signup-approval", deploymentId: operation.id, verificationDigest: claimed.proofDigest });
+      }
       const begunLogin = await login.begin(), loggedIn = await login.complete({ loginId: begunLogin.login.id, flowToken: begunLogin.flowToken,
         assertion: signGet({ ...credential, challenge: begunLogin.login.challenge, rpId, origin: issuer }) });
       expect(loggedIn.session.accountId).toBe(record.receipt!.accountId);

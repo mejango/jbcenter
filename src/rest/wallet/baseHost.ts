@@ -81,7 +81,7 @@ export async function createBaseWalletSignupHost(context: BaseWalletHostContext,
       origin: context.wallet.origin, manifest: options.manifest }),
     enrollments: new PostgresWalletEnrollmentStore(context.pool),
     deployments, settlement, execution, chain, smart: context.smart, registry: new PostgresSmartAccountRegistry(context.pool), authority,
-    poolId: configuration.id, preconfirmationReads: reader.reads, ...(options.onEvent ? { onEvent: options.onEvent } : {}) });
+    poolId: configuration.id, preconfirmationReads: reader.reads, login: context.wallet.login, ...(options.onEvent ? { onEvent: options.onEvent } : {}) });
 }
 
 export interface BaseWalletRecoveryHostOptions {

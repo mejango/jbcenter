@@ -24,6 +24,9 @@ export interface LocalWalletSignupDependencies {
   settlement: ReturnType<typeof createLocalAnvilWalletDeploymentSettlement>; execution: ReturnType<typeof createWalletDeploymentExecution>;
   chain: ReturnType<typeof createWalletDeploymentChain>; smart: ReturnType<typeof createSmartAccountService>;
   registry: Pick<VerifiedSmartAccountRegistry, "list">; authority: ReturnType<typeof createWalletAuthorityService>; poolId: string;
+  /** With it, a fresh signup is signed in from its creation approval once the account is ready (see `session`). */
+  login?: { completeFromSignup(input: { enrollment: WalletEnrollment; operation: WalletDeploymentOperation; assertion: WalletAssertion }):
+    Promise<{ session: unknown; sessionToken: string }> };
   /** How often a released inclusion is re-read while it waits for finality (default 15 s; a local chain may use 0). */
   releasedObservationIntervalMs?: number;
   /** Display only: right after a send, the receipt is read a few times for a Flashblocks
@@ -215,9 +218,32 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
       await deployments.claim({ operationId: approvalId, assertion, admission: reads.admission, funding: reads.funding });
       event({ stage: "approval", outcome: "inline", operationId: approvalId });
     }
+    // The approval's assertion is held for the signup session (in memory, this process, ≤ 15 min,
+    // once), for this continuation as it is now: a resume rotates the flow, and the hold with it.
+    for (const [id, held] of approvals) if (Date.now() - held.at > 900_000) approvals.delete(id);
+    if (approvals.size >= 256) approvals.delete(approvals.keys().next().value!);
+    approvals.set(enrollment.intent.id, { deploymentId: approvalId, flowRevision: flow.revision, assertion, at: Date.now() });
     // The worker's next pass (sign, admit, send) starts now rather than at its next 1 s tick.
     void detachedFromRequest(tick).catch(() => undefined);
     return status(flowToken);
+  }
+  const approvals = new Map<string, { deploymentId: string; flowRevision: number; assertion: WalletAssertion; at: number }>();
+  /** A fresh signup's session from its creation approval: the assertion this process verified at
+   * the claim signs the account in once its authority is verified. The store re-verifies it against
+   * the claimed deployment; anything held longer than 15 minutes, a resumed signup or a restarted
+   * process gets the ordinary login prompt instead. */
+  async function session(flowToken: string) {
+    const { flow, enrollment } = await context(flowToken), held = approvals.get(enrollment.intent.id);
+    // A resumed continuation (rotated token, advanced revision) is not the one that approved.
+    if (!options.login || !held || Date.now() - held.at > 900_000 || held.flowRevision !== flow.revision) state();
+    const current = await status(flowToken);
+    if (current.phase !== "ready_to_sign_in" || current.deploymentId !== held.deploymentId) state();
+    const operation = await deployments.get(held.deploymentId);
+    if (!operation) state();
+    approvals.delete(enrollment.intent.id);
+    const result = await options.login.completeFromSignup({ enrollment, operation, assertion: held.assertion });
+    event({ stage: "setup", outcome: "session" });
+    return result;
   }
   /** Binds the created wallet to its account from the consent the passkey already gave at
    * enrollment. No prompt and no browser grant; login needs only the worker's verified authority. */
@@ -369,6 +395,6 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
     try { return await Promise.race([running.then(() => true, () => true), new Promise<boolean>(resolve => { timeout = setTimeout(() => resolve(false), 5000); })]); }
     finally { if (timeout) clearTimeout(timeout); }
   }
-  return { begin, status, register, proveEnrollment, prepareDeployment, approveDeployment, activate, watch,
+  return { begin, status, register, proveEnrollment, prepareDeployment, approveDeployment, activate, session, watch,
     beginResume: flows.beginResume.bind(flows), completeResume: flows.completeResume.bind(flows), tick, start, stop };
 }

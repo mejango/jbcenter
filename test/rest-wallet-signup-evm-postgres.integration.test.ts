@@ -211,7 +211,7 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
     // The same account gains a device first; recovery then replaces the primary with the device kept.
     const added = await exerciseWalletDeviceEvm({ pool, fixture, smart, authority, ...recoveryTarget!, audience: 'https://juicebox.center' });
     await exerciseWalletRecoveryEvm({ pool, fixture, smart, authority, ...recoveryTarget!, originalSessionToken: added.primarySessionToken, audience: 'https://juicebox.center' });
-    await exerciseSignupBrowser({ pool, fixture, enrollments, deployments, settlement, execution, smart, authority,
+    await exerciseSignupBrowser({ pool, fixture, enrollments, deployments, settlement, execution, smart, authority, resume: false,
       registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id });
     await exerciseSignupBrowser({ pool, fixture, enrollments, deployments, settlement, execution, smart, authority,
       recoveryMode: 'kit', expectedNextNonce: '6',

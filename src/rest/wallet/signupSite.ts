@@ -6,7 +6,7 @@ import { walletAppFields } from './appGrants.js';
 import type { createLocalWalletSignup } from './signup.js';
 import { walletSignupPage, walletSignupCss } from '../web/walletSignupPage.js';
 import { assertWalletHttpHost, assertWalletHttpRequest, assertWalletCsrf, readWalletCookie, readWalletJson,
-  walletCookie, walletCsrfToken, walletSignupCookie, walletSignupResumeCookie, walletHttpBytes, walletHttpAssertion, walletPageHeaders,
+  walletCookie, walletCsrfToken, walletSessionCookie, walletSignupCookie, walletSignupResumeCookie, walletHttpBytes, walletHttpAssertion, walletPageHeaders,
   type WalletCookieName } from './http.js';
 
 export interface WalletSignupSiteOptions {
@@ -16,7 +16,7 @@ export interface WalletSignupSiteOptions {
   /** The authority refresh worker hooks; a "preparing" view asks it to verify the new wallet. */
   refresh?: { request(accountId: string): Promise<unknown>; tick(): Promise<unknown> };
   signup: Pick<ReturnType<typeof createLocalWalletSignup>, 'begin' | 'status' | 'register' | 'proveEnrollment' |
-    'prepareDeployment' | 'approveDeployment' | 'activate' | 'beginResume' | 'completeResume' | 'watch'>;
+    'prepareDeployment' | 'approveDeployment' | 'activate' | 'session' | 'beginResume' | 'completeResume' | 'watch'>;
 }
 function invalid(status = 400): never { throw new RestError(status, 'WALLET_SIGNUP_HTTP_INVALID', 'Reload the original signup and retry its current step.'); }
 /** Installed only by the dedicated wallet host. No trusted-app CORS grants signup access. */
@@ -151,6 +151,16 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
   app.post(`${base}/signup/activate`, async c => {
     await body(c, []);
     return json(c, { view: await signup.activate(cookie(c, walletSignupCookie)) });
+  });
+  // The fresh signup's session, from its creation approval (see `signup.session`): the session
+  // cookie is set as a login sets it and the signup continuation is done with.
+  app.post(`${base}/signup/session`, async c => {
+    await body(c, []);
+    const result = await signup.session(cookie(c, walletSignupCookie)), session = result.session as { expiresAtMs: number };
+    c.header('Set-Cookie', walletCookie(walletSessionCookie, result.sessionToken,
+      Math.max(1, Math.min(3600, Math.floor((session.expiresAtMs - Date.now()) / 1000)))), { append: true });
+    c.header('Set-Cookie', walletCookie(walletSignupCookie, null, 0), { append: true });
+    return c.json({ signedIn: true });
   });
   app.post(`${base}/signup/resume/begin`, async c => {
     await body(c, []);

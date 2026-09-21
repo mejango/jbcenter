@@ -90,7 +90,16 @@ that remembered verification when it is under four minutes old (its block re-che
 canonical) and the first authority observation after the binding carries the same
 state at its own block (`carried` on the authority chain: canonical, live, matching
 the bound state, no prior anchor past it); every later observation inspects in full.
-Settlement's observation is still the full one. The page hears "ready" and the inspection starts at the canonical observation, before the release; a settled dispatch attempt no longer holds the lane for the rest of its 15 s lease (migration 056); activation joins an inspection already in flight; a completed login drops the signup continuation cookie. Fewer than five passkey prompts
+Settlement's observation is still the full one. The page hears "ready" and the inspection starts at the canonical observation, before the release; a settled dispatch attempt no longer holds the lane for the rest of its 15 s lease (migration 056); activation joins an inspection already in flight; a completed login drops the signup continuation cookie. **Signup session:** a fresh signup is
+signed in from its creation-approval assertion (`PostgresWalletLoginStore.completeFromSignup`,
+`POST /signup/session`): the assertion the claim verified is held in the approving process's memory
+(≤ 15 min, once), re-verified at issuance against the claimed deployment's proof digest with the
+claim's clock, and completes a login row whose proof says `signup-approval` and names the
+deployment, once the account's authority is verified; a resumed signup (the hold names the
+approving continuation's revision, which a resume advances), a restarted process or anything
+older gets the ordinary login prompt, server-side. The admission's independent reads now go out
+together (identity, latest, observed head, settlement anchor; pins, signer, state; simulation and
+reservation; the recheck). Fewer than five passkey prompts
 (create, check, approve, setup, login) needs protocol changes (fold possession into
 the creation approval; fold the setup grant into login).
 
