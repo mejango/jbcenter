@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { MemoryStore } from "./memoryStore.js";
+import { MemoryStore } from "../support/memoryStore.js";
 import { createSponsorWorker } from "../../src/sponsor/worker.js";
 import type { DeployLane } from "../../src/sponsor/chain.js";
 import { DeploymentVerificationError } from "../../src/deploymentVerifier.js";
@@ -86,6 +86,26 @@ describe("sponsor worker", () => {
     expect(after?.deploys.map((d) => [d.status, d.error])).toEqual([
       ["failed", "boom"],
       ["failed", "not attempted: an earlier chain failed"],
+    ]);
+  });
+
+  test("worker marks a sent-but-unconfirmed chain failed with the thrown message when the lane throws", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
+    await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
+    const lane: DeployLane = {
+      deploy: vi.fn(async (_i, _c, report) => {
+        await report.sent(84532, HASH, BUNDLE);
+        throw new Error("bundle submission failed");
+      }),
+    };
+    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn() }, lane, policy });
+    await worker.runOnce();
+    worker.stop();
+    const after = await store.getIntent(intent.id);
+    expect(after?.deploys.map((d) => [d.status, d.error])).toEqual([
+      ["failed", "bundle submission failed"],
+      ["failed", "bundle submission failed"],
     ]);
   });
 

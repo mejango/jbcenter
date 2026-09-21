@@ -53,9 +53,9 @@ export function createSponsorWorker(options: {
       try {
         await lane.deploy(intent, chainIds, report);
       } catch (error) {
-        const first = chainIds.find((c) => !done.has(c));
-        if (first !== undefined) {
-          await report.failed(first, error instanceof Error ? error.message : String(error));
+        const message = error instanceof Error ? error.message : String(error);
+        for (const chainId of chainIds) {
+          if (!done.has(chainId)) await report.failed(chainId, message);
         }
       }
       for (const chainId of chainIds) {
