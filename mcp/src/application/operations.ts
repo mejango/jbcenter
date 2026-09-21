@@ -34,6 +34,7 @@ import {
 import { DomainError } from '../domain/errors.js';
 import type { PlanDraft } from '../domain/types.js';
 import { INDEXED_VALUE_SEMANTICS } from '../adapters/bendystraw.js';
+import { upstreamErrorDetails } from '../adapters/http.js';
 import { resolveProjectIdentifier } from '../services/identity.js';
 import { KNOWLEDGE_CATEGORIES } from '../services/knowledge.js';
 import {
@@ -120,11 +121,8 @@ import { observed } from './preparation.js';
 
 /** Center's publish-limit refusal becomes a fixed sentence; every other code stays the bounded generic. */
 function publishRefusal(error: unknown): unknown {
-  const details =
-    error instanceof DomainError && typeof error.details === 'object' && error.details !== null
-      ? (error.details as { status?: number; code?: string })
-      : {};
-  if (details.status === 429 && details.code === 'publish_limit')
+  const { status, code } = upstreamErrorDetails(error);
+  if (status === 429 && code === 'publish_limit')
     return new DomainError(
       'PUBLISH_LIMIT',
       "Center's publish limit for this publisher or address is reached. Try again later.",
@@ -132,6 +130,18 @@ function publishRefusal(error: unknown): unknown {
     );
   return error;
 }
+
+/** The V6 Center deployment commitment: shared by local preparation and signed publication. */
+const centerIntentEnvelopeShape = {
+  format: z.string().max(113),
+  deploymentVersion: z.literal('6'),
+  chainIds: z.array(chainIdSchema).min(1).max(8),
+  deploymentCalls: z
+    .array(z.object({ chainId: chainIdSchema, to: addressSchema, data: hexSchema }).strict())
+    .min(1)
+    .max(8),
+  jb: jsonObjectSchema,
+};
 
 function definitions(s: Services): ProtocolOperation[] {
   const operations = [
@@ -581,16 +591,7 @@ function definitions(s: Services): ProtocolOperation[] {
     defineOperation(
       'prepare_intent',
       'Locally prepare the exact JB Center content commitment and signing message for a V6 deployment intent. Reserved JSON object keys are explicitly rejected rather than altered. No pin, signature, publication, or deployment occurs.',
-      {
-        format: z.string().max(113),
-        deploymentVersion: z.literal('6'),
-        chainIds: z.array(chainIdSchema).min(1).max(8),
-        deploymentCalls: z
-          .array(z.object({ chainId: chainIdSchema, to: addressSchema, data: hexSchema }).strict())
-          .min(1)
-          .max(8),
-        jb: jsonObjectSchema,
-      },
+      centerIntentEnvelopeShape,
       (input) => s.center.prepareIntent({ ...input, jb: input.jb as JBCenterJsonObject }),
     ),
     operationWithSchema(
@@ -598,16 +599,7 @@ function definitions(s: Services): ProtocolOperation[] {
       'Publish a V6 JB Center project intent the user has already signed. The envelope, publisher and signature are stored unchanged; the signature is verified against this exact envelope before anything is sent. This server holds no key and signs nothing. Publication is a persistent external mutation: a published intent cannot be edited, replaced or withdrawn. It is not wallet approval and moves no funds. Republishing identical content from the same publisher returns the existing intent.',
       z
         .object({
-          format: z.string().max(113),
-          deploymentVersion: z.literal('6'),
-          chainIds: z.array(chainIdSchema).min(1).max(8),
-          deploymentCalls: z
-            .array(
-              z.object({ chainId: chainIdSchema, to: addressSchema, data: hexSchema }).strict(),
-            )
-            .min(1)
-            .max(8),
-          jb: jsonObjectSchema,
+          ...centerIntentEnvelopeShape,
           publisher: addressSchema,
           signature: hexSchema,
         })

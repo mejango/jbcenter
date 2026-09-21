@@ -29,6 +29,19 @@ export function upstreamErrorCode(body: string): string | undefined {
   return typeof code === 'string' && ERROR_CODE.test(code) ? code : undefined;
 }
 
+/**
+ * The bounded `{status, code}` an `UPSTREAM_HTTP_ERROR` DomainError already carries, computed by
+ * `upstreamErrorCode` when the failure was first observed. Callers read this instead of narrowing
+ * `error.details` themselves, so the one extraction is shared rather than repeated per caller.
+ */
+export function upstreamErrorDetails(error: unknown): { status?: number; code?: string } {
+  if (!(error instanceof DomainError) || error.code !== 'UPSTREAM_HTTP_ERROR') return {};
+  const details = error.details;
+  return details && typeof details === 'object'
+    ? (details as { status?: number; code?: string })
+    : {};
+}
+
 /** Read at most a bounded prefix of a failure body, then stop the stream. */
 async function boundedText(response: Response, limit: number): Promise<string> {
   if (!response.body) return '';

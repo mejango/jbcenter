@@ -9,7 +9,12 @@ export {
   type CenterDeployPage,
   type CenterDeployRow,
 } from './adapters/jbcenter.js';
-export { fetchJson, upstreamErrorCode, type FetchJsonOptions } from './adapters/http.js';
+export {
+  fetchJson,
+  upstreamErrorCode,
+  upstreamErrorDetails,
+  type FetchJsonOptions,
+} from './adapters/http.js';
 export { consumeRequest, withRequestBudget } from './domain/context.js';
 export { DomainError, publicError } from './domain/errors.js';
 export { jsonSafe, canonicalJson, assertUnambiguousJson } from './domain/json.js';

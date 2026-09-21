@@ -264,6 +264,39 @@ describe('transport-independent protocol operations', () => {
     expect(await operations.execute('get_intent', { id: INTENT_ID })).toEqual(v6);
   });
 
+  it('maps a Center publish-limit refusal to a fixed sentence and code, and leaves other refusals as the bounded generic', async () => {
+    const publishInput = {
+      format: 'juicebox.money/v1',
+      deploymentVersion: '6' as const,
+      chainIds: [8453],
+      deploymentCalls: [{ chainId: 8453, to: TERMINAL, data: '0x12345678' }],
+      jb: { name: 'Test', chains: [8453] },
+      publisher: ACCOUNT,
+      signature: `0x${'01'.repeat(65)}`,
+    };
+    const publishIntent = vi.spyOn(services.center, 'publishIntent');
+    publishIntent.mockRejectedValueOnce(
+      new DomainError('UPSTREAM_HTTP_ERROR', 'The upstream returned HTTP 429.', {
+        retryable: true,
+        details: { status: 429, code: 'publish_limit' },
+      }),
+    );
+    await expect(operations.execute('publish_intent', publishInput)).rejects.toMatchObject({
+      code: 'PUBLISH_LIMIT',
+      message: "Center's publish limit for this publisher or address is reached. Try again later.",
+    });
+    publishIntent.mockRejectedValueOnce(
+      new DomainError('UPSTREAM_HTTP_ERROR', 'The upstream returned HTTP 500.', {
+        retryable: true,
+        details: { status: 500 },
+      }),
+    );
+    await expect(operations.execute('publish_intent', publishInput)).rejects.toMatchObject({
+      code: 'UPSTREAM_HTTP_ERROR',
+    });
+    expect(publishIntent).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects unsupported versions and unknown nested or top-level fields before typed service calls', async () => {
     const quote = vi.spyOn(services.payments, 'quotePay');
     const invalidInputs = [
