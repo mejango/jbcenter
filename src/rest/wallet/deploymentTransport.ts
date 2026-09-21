@@ -122,8 +122,7 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
       function fresh() { const current = now(); if (!time(current) || current < observedAt || current >= expiresAt || performance.now() >= deadline) invalid("expired"); }
       const rpc = operationRpc(reads, limits, signal);
       try {
-        fresh(); const environment = await identity(rpc), environmentDigest = enrollmentDigest(environment);
-        if (accounting && environmentDigest !== enrollmentDigest(accounting.environment)) unavailable("accounting-environment");
+        fresh();
         // Base mines every two seconds, so the observed head is rarely still "latest" by the time the
         // identity reads return. The admission is pinned to the observed head by hash: it must still
         // be canonical (the by-number read below) and latest must be at or past it, within the
@@ -138,11 +137,14 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
         }
         // Every provider round trip is ~400 ms on Base: independent reads go out together, and the
         // pinned state reads do not wait for the pin and signer checks they do not depend on.
-        const [latest, observedBlock] = await Promise.all([
+        const [environment, latest, observedBlock] = await Promise.all([
+          identity(rpc),
           rpc.request("eth_getBlockByNumber", ["latest", false]).then(value => block(value, observedAt)),
           rpc.request("eth_getBlockByNumber", [toHex(BigInt(head.blockNumber)), false]).then(value => block(value, observedAt)),
           settlementAnchor(),
         ]);
+        const environmentDigest = enrollmentDigest(environment);
+        if (accounting && environmentDigest !== enrollmentDigest(accounting.environment)) unavailable("accounting-environment");
         if (enrollmentDigest(observedBlock.head) !== enrollmentDigest(head)) unavailable("observed-block");
         if (BigInt(latest.head.blockNumber) < BigInt(head.blockNumber)) unavailable("latest-behind");
         const tag = { blockHash: head.blockHash, requireCanonical: true as const }, tx = operation.template!.transaction;
@@ -151,7 +153,7 @@ export function createWalletDeploymentTransport(adapter: WalletDeploymentChainAd
         const pins = [manifest.singleton, manifest.factory, manifest.safe7579, manifest.launchpad, manifest.entryPoint!, manifest.smartSessions,
           manifest.creationProfile!.multiSend, ...manifest.policies];
         async function pinned() {
-          for (let start = 0; start < pins.length; start += 8) await Promise.all(pins.slice(start, start + 8).map(async pin => {
+          for (let start = 0; start < pins.length; start += 16) await Promise.all(pins.slice(start, start + 16).map(async pin => {
             const code = await snapshot.request("eth_getCode", [pin.address]);
             if (typeof code !== "string" || !/^0x(?:[0-9a-fA-F]{2}){1,49152}$/.test(code) || !same(keccak256(code as Hex), pin.runtimeCodeHash)) unavailable("pin");
           }));

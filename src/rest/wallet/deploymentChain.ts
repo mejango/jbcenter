@@ -166,9 +166,9 @@ export function createWalletDeploymentChain(options: WalletDeploymentChainOption
       // occupied address and Base (post-Cancun) cannot vacate one after its creating transaction,
       // so a successful creation in our receipt is the unique factory deployment: no genesis-to-head
       // factory scan is needed, and none fits the provider's 500-block log windows.
-      let creationLog: Record<string, unknown> | null = null;
+      let creationLog: Record<string, unknown> | null = null, codeAt: { head: RestBlockEvidence; code: string } | null = null;
       async function inspectWallet(head: RestBlockEvidence) {
-        const code = rpcHex(await rpc.request("eth_getCode", [creation.address, tag(head)]), "observed Safe runtime", 49_152);
+        const code = codeAt && codeAt.head === head ? codeAt.code : rpcHex(await rpc.request("eth_getCode", [creation.address, tag(head)]), "observed Safe runtime", 49_152);
         if (code === "0x") {
           output.wallet = { ...output.wallet, state: "undeployed", evidence: head, reason: null }; return;
         }
@@ -258,8 +258,10 @@ export function createWalletDeploymentChain(options: WalletDeploymentChainOption
           if (BigInt(finalized.blockNumber) > BigInt(head.blockNumber)) invalid();
           output.finality = { state: BigInt(finalized.blockNumber) >= number ? "finalized" : "unfinalized", evidence: finalized };
         } else {
-          const [confirmedRaw, pendingRaw] = await Promise.all([rpc.request("eth_getTransactionCount", [sender, tag(head)]),
-            rpc.request("eth_getTransactionCount", [sender, "pending"])]);
+          // The wallet's code at the head is read with the nonces: nothing here depends on the other.
+          const [confirmedRaw, pendingRaw, walletCode] = await Promise.all([rpc.request("eth_getTransactionCount", [sender, tag(head)]),
+            rpc.request("eth_getTransactionCount", [sender, "pending"]), rpc.request("eth_getCode", [creation.address, tag(head)])]);
+          codeAt = { head, code: rpcHex(walletCode, "observed Safe runtime", 49_152) };
           const confirmed = quantity(confirmedRaw), pending = quantity(pendingRaw), nonce = BigInt(template.nonce);
           if (pending < confirmed || confirmed > BigInt(Number.MAX_SAFE_INTEGER) || pending > BigInt(Number.MAX_SAFE_INTEGER)) invalid();
           output.transaction.nonce = { confirmed: String(confirmed), pending: String(pending) };
@@ -345,24 +347,25 @@ export function createWalletDeploymentChain(options: WalletDeploymentChainOption
         const snapshot = { evidence, tag, request: (method: string, params: readonly unknown[]) => rpc.request(method, [...params, tag]) };
         const dependencies = [manifest.factory, manifest.singleton, manifest.safe7579, manifest.launchpad, manifest.entryPoint!,
           manifest.smartSessions, utility, manifest.creationProfile!.multiSend, ...manifest.policies];
-        // Bounded fan-out; every helper uses this same operation budget and canonical snapshot.
-        for (let start = 0; start < dependencies.length; start += 8)
-          await Promise.all(dependencies.slice(start, start + 8).map(async pin => {
+        // Every read here is pinned to the same canonical snapshot and independent of the others
+        // (dependency pins, the creation signer, the account codes, the sender's nonces and balance),
+        // so they go out together; each helper still charges this one operation budget.
+        const [, signer, , confirmedRaw, pendingRaw, balanceRaw] = await Promise.all([
+          Promise.all(dependencies.map(async pin => {
             const code = rpcHex(await snapshot.request("eth_getCode", [pin.address]), "deployment dependency runtime", 49_152);
             if (code === "0x" || !same(keccak256(code), pin.runtimeCodeHash))
               fail("WALLET_DEPLOYMENT_RUNTIME_MISMATCH", "A deployment dependency differs from its configured runtime pin.");
-          }));
-        const signer = await inspectPasskeyCreationSigner({ manifest, publicKey: enrollment.candidate!.publicKey, snapshot });
-        if (!same(signer.address, enrollment.creation!.bootstrap.signerAddress))
-          fail("WALLET_DEPLOYMENT_CREATION_MISMATCH", "The reviewed signer does not match enrolled creation.", 409);
-        await Promise.all([sender, enrollment.intent.recoveryOwner, creation.address].map(async address => {
-          if (rpcHex(await snapshot.request("eth_getCode", [address]), "deployment account runtime", 49_152) !== "0x")
-            fail("WALLET_DEPLOYMENT_ACCOUNT_CODE", "The sender and recovery owner must be code-free and the Safe must be undeployed.");
-        }));
-        const [confirmedRaw, pendingRaw, balanceRaw] = await Promise.all([
+          })),
+          inspectPasskeyCreationSigner({ manifest, publicKey: enrollment.candidate!.publicKey, snapshot }),
+          Promise.all([sender, enrollment.intent.recoveryOwner, creation.address].map(async address => {
+            if (rpcHex(await snapshot.request("eth_getCode", [address]), "deployment account runtime", 49_152) !== "0x")
+              fail("WALLET_DEPLOYMENT_ACCOUNT_CODE", "The sender and recovery owner must be code-free and the Safe must be undeployed.");
+          })),
           snapshot.request("eth_getTransactionCount", [sender]), rpc.request("eth_getTransactionCount", [sender, "pending"]),
           snapshot.request("eth_getBalance", [sender]),
         ]);
+        if (!same(signer.address, enrollment.creation!.bootstrap.signerAddress))
+          fail("WALLET_DEPLOYMENT_CREATION_MISMATCH", "The reviewed signer does not match enrolled creation.", 409);
         const confirmed = quantity(confirmedRaw), pending = quantity(pendingRaw), balance = quantity(balanceRaw);
         if (confirmed > BigInt(Number.MAX_SAFE_INTEGER) || confirmed !== pending)
           fail("WALLET_DEPLOYMENT_NONCE_NOT_READY", "The canonical confirmed nonce and provider pending signal must agree for this sender lane.", 409);

@@ -95,18 +95,21 @@ export function createBaseWalletDeploymentReader(options: BaseWalletDeploymentOp
   } };
   async function identity(rpc: WalletDeploymentRpcScope, at?: RestBlockEvidence): Promise<WalletDeploymentEnvironment> {
     const tag = at ? { blockHash: at.blockHash, requireCanonical: true as const } : "latest";
-    const [chain, genesis] = await Promise.all([rpc.request("eth_chainId", []), rpc.request("eth_getBlockByNumber", ["0x0", false])]);
-    if (quantity(chain) !== 8453n || !record(genesis) || quantity(genesis.number) !== 0n || !same(genesis.hash, genesisHash)) unavailable({ check: "chain-identity" });
-    await Promise.all(baseWalletChainPins.predeploys.map(async pin => {
-      const [proxyCode, implementation, implementationCode] = await Promise.all([
+    // One round trip: the chain id, the genesis and every predeploy pin are independent reads; the
+    // chain identity is judged first, then the pins.
+    const [chain, genesis, ...predeploys] = await Promise.all([rpc.request("eth_chainId", []), rpc.request("eth_getBlockByNumber", ["0x0", false]),
+      ...baseWalletChainPins.predeploys.map(pin => Promise.all([
         rpc.request("eth_getCode", [pin.address, tag]), rpc.request("eth_getStorageAt", [pin.address, baseWalletChainPins.implementationSlot, tag]),
         rpc.request("eth_getCode", [pin.implementation, tag]),
-      ]);
+      ]))]);
+    if (quantity(chain) !== 8453n || !record(genesis) || quantity(genesis.number) !== 0n || !same(genesis.hash, genesisHash)) unavailable({ check: "chain-identity" });
+    baseWalletChainPins.predeploys.forEach((pin, index) => {
+      const [proxyCode, implementation, implementationCode] = predeploys[index]!;
       if (typeof proxyCode !== "string" || !/^0x(?:[0-9a-fA-F]{2}){1,49152}$/.test(proxyCode) || keccak256(proxyCode as Hex) !== baseWalletChainPins.proxyRuntimeCodeHash ||
           typeof implementation !== "string" || !same(implementation, padHex(pin.implementation, { size: 32 })) ||
           typeof implementationCode !== "string" || !/^0x(?:[0-9a-fA-F]{2}){1,49152}$/.test(implementationCode) ||
           keccak256(implementationCode as Hex) !== pin.implementationRuntimeCodeHash) unavailable({ check: "predeploy", address: pin.address });
-    }));
+    });
     return { kind: "base-mainnet", genesisHash };
   }
   /** L1 and operator pricing from the head block's own attributes deposit, for the exact signed bytes. */

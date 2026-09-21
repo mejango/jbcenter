@@ -134,16 +134,25 @@ function signerIdentity(a: Record<ArtifactName, Artifact>, profile: PasskeyOwner
 export async function inspectPasskeyCreationSigner(input: {
   manifest: SmartAccountManifest; publicKey: { x: Hex; y: Hex }; snapshot: SmartSnapshot;
 }): Promise<{ address: Address; deployed: boolean }> {
-  const { a, profile, read } = await inspectDependencies(input.manifest, input.snapshot);
   if (!input.publicKey || !/^0x[0-9a-fA-F]{64}$/.test(input.publicKey.x) || !/^0x[0-9a-fA-F]{64}$/.test(input.publicKey.y))
     unsupported("A canonical enrolled P256 key is required.");
+  const profile = input.manifest.ownerProfile, snapshot = input.snapshot;
+  if (!profile || profile.version !== "center-passkey-v1") invalid("The experimental passkey owner profile requires its explicit version on Base.");
   const x = BigInt(input.publicKey.x), y = BigInt(input.publicKey.y), verifiers = BigInt(profile.p256Verifier.address);
-  const { expectedRuntime, predicted } = signerIdentity(a, profile, x, y, verifiers);
-  if (!same(String(await read(profile.signerFactory.address, "getSigner", [x, y, verifiers])), predicted))
-    unsupported("The signer factory does not return the reviewed CREATE2 address.");
-  const code = rpcHex(await input.snapshot.request("eth_getCode", [predicted]), "prospective signer code", 49_152);
+  // The predicted signer address comes from the reviewed artifacts alone, so every read is
+  // independent of the others: the dependency pins, the factory's own prediction, the prospective
+  // signer's code and (if it exists) its configuration go out in one round trip.
+  const { expectedRuntime, predicted } = signerIdentity(await artifacts(), profile, x, y, verifiers);
+  const call = async (to: Address, functionName: "getSigner" | "getConfiguration", args: readonly unknown[] = []) => decodeFunctionResult({ abi: ABI, functionName,
+    data: rpcHex(await snapshot.request("eth_call", [{ to, data: encodeFunctionData({ abi: ABI, functionName, args } as Parameters<typeof encodeFunctionData>[0]), gas: "0x7a120" }]), "passkey configuration") });
+  const [, fromFactory, code, config] = await Promise.all([
+    inspectDependencies(input.manifest, snapshot),
+    call(profile.signerFactory.address, "getSigner", [x, y, verifiers]).catch(() => unsupported("The passkey configuration could not be read at the canonical snapshot.")),
+    snapshot.request("eth_getCode", [predicted]).then(value => rpcHex(value, "prospective signer code", 49_152)),
+    call(predicted, "getConfiguration").catch(() => null), // An absent signer answers nothing; only a deployed one is checked below.
+  ]);
+  if (!same(String(fromFactory), predicted)) unsupported("The signer factory does not return the reviewed CREATE2 address.");
   if (code !== "0x") {
-    const config = await read(predicted, "getConfiguration");
     if (!same(code, expectedRuntime) || !Array.isArray(config) || config.length !== 3 ||
       config[0] !== x || config[1] !== y || config[2] !== verifiers)
       unsupported("The deployed signer does not match the enrolled key and exact immutable runtime.");

@@ -97,9 +97,10 @@ signed in from its creation-approval assertion (`PostgresWalletLoginStore.comple
 claim's clock, and completes a login row whose proof says `signup-approval` and names the
 deployment, once the account's authority is verified; a resumed signup (the hold names the
 approving continuation's revision, which a resume advances), a restarted process or anything
-older gets the ordinary login prompt, server-side. The admission's independent reads now go out
-together (identity, latest, observed head, settlement anchor; pins, signer, state; simulation and
-reservation; the recheck). Fewer than five passkey prompts
+older gets the ordinary login prompt, server-side. Round trips on the send path (measured with a 40 ms
+fixture delay): the unsent observation 6 → 3, the admission 16 → 7, the preflight's pinned reads in
+one group; the Base identity check and the creation-signer inspection are one round trip each.
+Same checks, same head pins, fewer waits. Fewer than five passkey prompts
 (create, check, approve, setup, login) needs protocol changes (fold possession into
 the creation approval; fold the setup grant into login).
 
