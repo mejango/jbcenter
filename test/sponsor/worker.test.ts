@@ -268,10 +268,12 @@ describe("sponsor worker", () => {
         error: "sponsor balance too low",
       },
     ]);
-    // A deferral spends nothing, the attempt included, so the next pass claims again.
+    // A deferral spends nothing, the attempt included, but the rows wait out the release backoff first.
     expect(
       (store.intents[0]!.deploys as unknown as { attempts: number }[]).map((d) => d.attempts),
     ).toEqual([0, 0]);
+    expect(await store.claimQueuedDeploys(30, 5)).toEqual([]);
+    for (const deploy of store.intents[0]!.deploys as unknown as { leaseUntil: number | null }[]) deploy.leaseUntil = Date.now() - 1;
     expect(await store.claimQueuedDeploys(30, 5)).toEqual([
       { intentId: intent.id, chainIds: [84532, 421614] },
     ]);

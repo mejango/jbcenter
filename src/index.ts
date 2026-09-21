@@ -133,7 +133,7 @@ if (sponsorSignerKey) {
     console.info(JSON.stringify({ level: "info", service: "sponsor", ...event }));
   };
   const lane = createRelayrLane({
-    chain: new SponsorshipChain(rest.rpc, DEFAULT_SPONSORSHIP_POLICY),
+    chain: () => new SponsorshipChain(rest.rpc, DEFAULT_SPONSORSHIP_POLICY),
     catalog: rest.catalog,
     provider: new RelayrProvider(),
     rpcUrls: sponsorRpcUrls,
