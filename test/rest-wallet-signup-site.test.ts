@@ -22,7 +22,7 @@ function setup(extra: Partial<WalletSignupSiteOptions> = {}) {
 }
 const headers = { origin, 'content-type': 'application/json', 'x-center-wallet-request': '1',
   cookie: `${walletSignupCookie}=${token}`, 'x-center-wallet-csrf': walletCsrfToken(token) };
-function post(path: string, body: unknown, input = headers) {
+function post(path: string, body: unknown, input: Record<string, string> = headers) {
   return new Request(origin + '/wallet/signup/' + path, { method: 'POST', headers: input, body: JSON.stringify(body) });
 }
 describe('signup HTTP authority boundary', () => {
