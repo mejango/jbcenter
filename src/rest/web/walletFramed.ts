@@ -2,7 +2,8 @@
  * told to the page framing it whenever it changes, a number only), and the app that frames it may
  * hand it its own colours, font and corner radius so the page reads as part of that app. Only the
  * framing page (the intent's app, admitted by frame-ancestors) is heard, and only plain values:
- * colours, a font-family list, a radius. Nothing else about the page is the app's to change. */
+ * colours, a font-family list, a radius, the inset the app's dialog keeps (so the page can set its
+ * content on that edge and its mark in the margin). Nothing else about the page is the app's to change. */
 export const framed = window.self !== window.top;
 let reportSize: (() => void) | null = null;
 if (framed) {
@@ -17,9 +18,10 @@ const themeTokens: Record<string, RegExp> = {
   background: /^#[0-9a-f]{3,8}$/i, foreground: /^#[0-9a-f]{3,8}$/i, muted: /^#[0-9a-f]{3,8}$/i, line: /^#[0-9a-f]{3,8}$/i,
   accent: /^#[0-9a-f]{3,8}$/i, accentForeground: /^#[0-9a-f]{3,8}$/i,
   font: /^[\w\s,'"-]{1,200}$/, radius: /^(?:\d{1,3}(?:\.\d+)?(?:px|rem|em)\s*){1,4}$/,
+  inset: /^\d{1,3}(?:\.\d+)?(?:px|rem|em)$/,
 };
 const themeVariables: Record<string, string> = { background: "--wallet-bg", foreground: "--wallet-fg", muted: "--wallet-muted", line: "--wallet-line",
-  accent: "--wallet-accent", accentForeground: "--wallet-accent-fg", font: "--wallet-font", radius: "--wallet-radius" };
+  accent: "--wallet-accent", accentForeground: "--wallet-accent-fg", font: "--wallet-font", radius: "--wallet-radius", inset: "--wallet-inset" };
 export function listenForTheme(framer: string) {
   window.addEventListener("message", event => {
     const data = event.data as { type?: unknown; theme?: unknown } | null;
