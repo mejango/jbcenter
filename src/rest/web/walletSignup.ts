@@ -125,7 +125,8 @@ function accept(result: { view: View | null; csrfToken?: string; flowToken?: str
   // Flashblocks: the receipt arrives before the block; the page says so, and waits for the block.
   if (view?.phase === 'deploying') view.preconfirmed ? messageLinked('Almost', ' there…' + (mode() === 'kit' && recoverySecret ? ' Meanwhile, save your backup password.' : ''))
     : messageLinked('Creating', steps.deploying.slice('Creating'.length) + (mode() === 'kit' && recoverySecret ? ' Meanwhile, save your backup password.' : ''));
-  else message(view ? steps[view.phase] + (view.phase === 'awaiting_activation' ? mode() === 'kit' ? recoverySecret ? ' Now, save your backup password.' : '' : ' Continue to log in.' : '') : '');
+  else message(view ? steps[view.phase] + (view.phase === 'awaiting_activation' ? mode() === 'kit' ? recoverySecret ? ' Now, save your backup password.' : '' : ' Continue to log in.' : '')
+    : 'Name your passkey and pick a way back in.');
   if (view?.phase === 'ready_to_sign_in' && kitSavedWallet === view.walletAddress) recoverySecret = null;
 }
 function render() {
