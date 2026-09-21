@@ -683,12 +683,12 @@ export function createSafe7579Inspector(
             "The account creation receipt is no longer canonical.",
             409,
           );
-        const receipt = record(
-          await rpc("eth_getTransactionReceipt", [creation.transactionHash]),
-        );
-        const tx = record(
-          await rpc("eth_getTransactionByHash", [creation.transactionHash]),
-        );
+        // The receipt and the transaction are independent reads of one hash: one round trip.
+        const [receiptRaw, txRaw] = await Promise.all([
+          rpc("eth_getTransactionReceipt", [creation.transactionHash]),
+          rpc("eth_getTransactionByHash", [creation.transactionHash]),
+        ]);
+        const receipt = record(receiptRaw), tx = record(txRaw);
         if (
           quantity(receipt.status) !== 1n ||
           !same(String(receipt.blockHash), h.hash) ||
@@ -906,10 +906,13 @@ export function createSafe7579Inspector(
         for (const txHash of [...candidateHashes.keys()].sort(
           (a, b) => indexes.get(a)! - indexes.get(b)!,
         )) {
-          const receipt = record(
-            await rpc("eth_getTransactionReceipt", [txHash]),
-          );
-          const tx = record(await rpc("eth_getTransactionByHash", [txHash]));
+          // The receipt and the transaction are independent reads of one hash: one round trip.
+          // The trace is asked for only once they match: an unrelated transaction is never traced.
+          const [receiptRaw, txRaw] = await Promise.all([
+            rpc("eth_getTransactionReceipt", [txHash]),
+            rpc("eth_getTransactionByHash", [txHash]),
+          ]);
+          const receipt = record(receiptRaw), tx = record(txRaw);
           if (
             !isWord(tx.hash) ||
             !same(tx.hash, txHash) ||
