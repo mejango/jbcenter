@@ -2,6 +2,8 @@ import type { Address, Hex } from "viem";
 import type {
   Deployment,
   Intent,
+  IntentDeploy,
+  IntentDeployStatus,
   IntentEnvelope,
   IntentMetadata,
   SearchPage,
@@ -27,6 +29,14 @@ export type NewDeployment = {
   transactionHash: Hex;
 };
 
+export type DeployPatch = {
+  status: IntentDeployStatus;
+  transactionHash?: Hex;
+  bundleUuid?: string;
+  error?: string;
+  spentWei?: bigint;
+};
+
 export interface Store {
   health(): Promise<void>;
   consumeRequest(
@@ -43,6 +53,19 @@ export interface Store {
   getIntent(id: string): Promise<Intent | null>;
   search(query: string, limit: number, offset: number): Promise<SearchPage>;
   recordDeployment(intentId: string, value: NewDeployment): Promise<Deployment>;
+  queueDeploys(
+    intentId: string,
+    chainIds: number[],
+    requester: string,
+    reservedWeiPerChain: bigint,
+  ): Promise<IntentDeploy[]>;
+  listDeploys(intentId: string): Promise<IntentDeploy[]>;
+  claimQueuedDeploys(
+    leaseSeconds: number,
+    limit: number,
+  ): Promise<{ intentId: string; chainIds: number[] }[]>;
+  updateDeploy(intentId: string, chainId: number, patch: DeployPatch): Promise<void>;
+  sponsoredWeiSince(since: Date): Promise<bigint>;
 }
 
 export class ConflictError extends Error {}

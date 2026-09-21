@@ -7,12 +7,20 @@ import { DeploymentVerificationError } from "../src/deploymentVerifier.js";
 import type { RpcGateway } from "../src/rpc.js";
 import {
   ConflictError,
+  type DeployPatch,
   type NewDeployment,
   type NewIntent,
   type StorageLimits,
   type Store,
 } from "../src/store.js";
-import type { Deployment, Intent, SearchPage } from "../src/types.js";
+import type { Deployment, Intent, IntentDeploy, SearchPage } from "../src/types.js";
+
+type StoredDeploy = IntentDeploy & {
+  reservedWei: bigint;
+  spentWei: bigint;
+  attempts: number;
+  leaseUntil: number | null;
+};
 
 class MemoryStore implements Store {
   async cleanupRateLimits() { return 0; }
@@ -38,6 +46,7 @@ class MemoryStore implements Store {
       status: "undeployed",
       createdAt: new Date().toISOString(),
       deployments: [],
+      deploys: [],
     };
     this.intents.push(intent);
     return { intent, created: true };
@@ -97,6 +106,90 @@ class MemoryStore implements Store {
     intent.deployments.push(deployment);
     intent.status = "deployed";
     return deployment;
+  }
+
+  async queueDeploys(
+    intentId: string,
+    chainIds: number[],
+    _requester: string,
+    reservedWeiPerChain: bigint,
+  ): Promise<IntentDeploy[]> {
+    const intent = this.intents.find(({ id }) => id === intentId)!;
+    for (const chainId of chainIds) {
+      if (intent.deploys.some((deploy) => deploy.chainId === chainId)) continue;
+      const now = new Date().toISOString();
+      const deploy: StoredDeploy = {
+        chainId,
+        status: "queued",
+        transactionHash: null,
+        bundleUuid: null,
+        error: null,
+        createdAt: now,
+        updatedAt: now,
+        reservedWei: reservedWeiPerChain,
+        spentWei: 0n,
+        attempts: 0,
+        leaseUntil: null,
+      };
+      intent.deploys.push(deploy);
+    }
+    return this.listDeploys(intentId);
+  }
+
+  async listDeploys(intentId: string): Promise<IntentDeploy[]> {
+    const intent = this.intents.find(({ id }) => id === intentId);
+    return intent ? [...intent.deploys].sort((a, b) => a.chainId - b.chainId) : [];
+  }
+
+  async claimQueuedDeploys(
+    leaseSeconds: number,
+    limit: number,
+  ): Promise<{ intentId: string; chainIds: number[] }[]> {
+    const now = Date.now();
+    const claimed: { intentId: string; chainIds: number[] }[] = [];
+    for (const intent of [...this.intents].sort((a, b) => a.id.localeCompare(b.id))) {
+      if (claimed.length >= limit) break;
+      const eligible = (intent.deploys as StoredDeploy[]).filter(
+        (deploy) =>
+          deploy.status === "queued" &&
+          (deploy.leaseUntil === null || deploy.leaseUntil < now) &&
+          deploy.attempts < 3,
+      );
+      if (eligible.length === 0) continue;
+      for (const deploy of eligible) {
+        deploy.leaseUntil = now + leaseSeconds * 1000;
+        deploy.attempts += 1;
+        deploy.updatedAt = new Date().toISOString();
+      }
+      claimed.push({
+        intentId: intent.id,
+        chainIds: eligible.map((deploy) => deploy.chainId).sort((a, b) => a - b),
+      });
+    }
+    return claimed;
+  }
+
+  async updateDeploy(intentId: string, chainId: number, patch: DeployPatch): Promise<void> {
+    const intent = this.intents.find(({ id }) => id === intentId);
+    const deploy = intent?.deploys.find((item) => item.chainId === chainId) as StoredDeploy | undefined;
+    if (!deploy) return;
+    deploy.status = patch.status;
+    if (patch.transactionHash !== undefined) deploy.transactionHash = patch.transactionHash;
+    if (patch.bundleUuid !== undefined) deploy.bundleUuid = patch.bundleUuid;
+    deploy.error = patch.error ?? null;
+    if (patch.spentWei !== undefined) deploy.spentWei = patch.spentWei;
+    if (patch.status === "confirmed" || patch.status === "failed") deploy.reservedWei = 0n;
+    deploy.updatedAt = new Date().toISOString();
+  }
+
+  async sponsoredWeiSince(since: Date): Promise<bigint> {
+    let total = 0n;
+    for (const intent of this.intents) {
+      for (const deploy of intent.deploys as StoredDeploy[]) {
+        if (new Date(deploy.createdAt) >= since) total += deploy.reservedWei + deploy.spentWei;
+      }
+    }
+    return total;
   }
 }
 

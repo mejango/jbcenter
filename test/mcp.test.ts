@@ -43,6 +43,11 @@ function storeMock() {
     createIntent: vi.fn<Store["createIntent"]>(),
     recordDeployment: vi.fn<Store["recordDeployment"]>(),
     cleanupRateLimits: vi.fn<Store["cleanupRateLimits"]>().mockResolvedValue(0),
+    queueDeploys: vi.fn<Store["queueDeploys"]>(),
+    listDeploys: vi.fn<Store["listDeploys"]>(),
+    claimQueuedDeploys: vi.fn<Store["claimQueuedDeploys"]>(),
+    updateDeploy: vi.fn<Store["updateDeploy"]>(),
+    sponsoredWeiSince: vi.fn<Store["sponsoredWeiSince"]>(),
   } satisfies Store & { counts: Map<string, number> };
 }
 
@@ -194,6 +199,7 @@ describe("Center database read bridge", () => {
       logoUri: null,
       owner: null,
       deployments: [],
+      deploys: [],
     };
     store.getIntent.mockResolvedValue(intent);
     const center = new CenterClient({

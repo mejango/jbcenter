@@ -1,13 +1,44 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { zeroAddress } from "viem";
+import { zeroAddress, type Hex } from "viem";
 import { migrate } from "../src/db/migrate.js";
 import { createPool, PostgresStore } from "../src/db/postgres.js";
+import type { NewIntent } from "../src/store.js";
 
 const connectionString = process.env.TEST_DATABASE_URL;
 const suite = connectionString ? describe : describe.skip;
 const schema = `jbcenter_test_${randomUUID().replaceAll("-", "")}`;
+const HASH: Hex = `0x${"aa".repeat(32)}`;
+
+function newIntent(overrides: { name?: string; chainIds?: number[] } = {}): NewIntent {
+  const chainIds = overrides.chainIds ?? [1];
+  const name = overrides.name ?? "fixture";
+  return {
+    contentHash: `0x${randomBytes(32).toString("hex")}`,
+    envelope: {
+      format: "juicebox.money/v1",
+      deploymentVersion: "6",
+      chainIds,
+      deploymentCalls: chainIds.map((chainId) => ({
+        chainId,
+        to: "0x3333333333333333333333333333333333333333",
+        data: "0x12345678",
+      })),
+      jb: { name, chains: chainIds },
+    },
+    publisher: zeroAddress,
+    signature: `0x${"22".repeat(65)}`,
+    submittedBy: "integration",
+    jbBytes: 100,
+    name,
+    description: null,
+    tagline: null,
+    tags: [],
+    logoUri: null,
+    owner: zeroAddress,
+  };
+}
 const adminPool = connectionString ? createPool(connectionString) : null;
 let pool: Pool | null = null;
 let store: PostgresStore | null = null;
@@ -119,5 +150,22 @@ suite("PostgreSQL store", () => {
         { maxIntents: 1, maxBytes: 1_000_000 },
       ),
     ).rejects.toThrow("quota");
+  });
+
+  it("deploy queue is idempotent, leases rows, and sums wei", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "one", chainIds: [84532, 421614] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    const rows = await store!.queueDeploys(intent.id, [84532, 421614], "browser:x", 1000n);
+    expect(rows.map((r) => r.status)).toEqual(["queued", "queued"]);
+    expect(await store!.queueDeploys(intent.id, [84532, 421614], "browser:x", 1000n)).toHaveLength(2);
+    expect(await store!.sponsoredWeiSince(new Date(Date.now() - 60_000))).toBe(2000n);
+    const claimed = await store!.claimQueuedDeploys(30, 10);
+    expect(claimed).toEqual([{ intentId: intent.id, chainIds: [84532, 421614] }]);
+    expect(await store!.claimQueuedDeploys(30, 10)).toEqual([]);
+    await store!.updateDeploy(intent.id, 84532, { status: "confirmed", transactionHash: HASH, spentWei: 700n });
+    expect(await store!.sponsoredWeiSince(new Date(Date.now() - 60_000))).toBe(1700n);
+    expect((await store!.getIntent(intent.id))?.deploys[0]).toMatchObject({ chainId: 84532, status: "confirmed" });
   });
 });

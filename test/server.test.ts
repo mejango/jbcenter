@@ -47,6 +47,21 @@ class ServerStore implements Store {
   async recordDeployment(_id: string, _value: NewDeployment): Promise<never> {
     throw new Error("This transport fixture does not record deployments");
   }
+  async queueDeploys(): Promise<never> {
+    throw new Error("This transport fixture does not queue deploys");
+  }
+  async listDeploys(): Promise<never> {
+    throw new Error("This transport fixture does not list deploys");
+  }
+  async claimQueuedDeploys(): Promise<never> {
+    throw new Error("This transport fixture does not claim deploys");
+  }
+  async updateDeploy(): Promise<never> {
+    throw new Error("This transport fixture does not update deploys");
+  }
+  async sponsoredWeiSince(): Promise<never> {
+    throw new Error("This transport fixture does not report sponsored wei");
+  }
 }
 
 function fixtureServer() {

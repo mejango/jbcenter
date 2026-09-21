@@ -45,6 +45,18 @@ export type Deployment = {
   createdAt: string;
 };
 
+export type IntentDeployStatus = "queued" | "sent" | "confirmed" | "failed";
+
+export type IntentDeploy = {
+  chainId: number;
+  status: IntentDeployStatus;
+  transactionHash: Hex | null;
+  bundleUuid: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Intent = IntentMetadata & {
   id: string;
   status: "undeployed" | "deployed";
@@ -54,6 +66,7 @@ export type Intent = IntentMetadata & {
   signature: Hex;
   createdAt: string;
   deployments: Deployment[];
+  deploys: IntentDeploy[];
 };
 
 export type SearchItem = IntentMetadata & {

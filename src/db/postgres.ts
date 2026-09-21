@@ -4,12 +4,21 @@ import type { Address, Hex } from "viem";
 import {
   ConflictError,
   StorageLimitError,
+  type DeployPatch,
   type NewDeployment,
   type NewIntent,
   type StorageLimits,
   type Store,
 } from "../store.js";
-import type { Deployment, DeploymentCall, Intent, SearchItem, SearchPage } from "../types.js";
+import type {
+  Deployment,
+  DeploymentCall,
+  Intent,
+  IntentDeploy,
+  IntentDeployStatus,
+  SearchItem,
+  SearchPage,
+} from "../types.js";
 
 type IntentRow = QueryResultRow & {
   id: string;
@@ -37,6 +46,16 @@ type DeploymentRow = QueryResultRow & {
   created_at: Date;
 };
 
+type IntentDeployRow = QueryResultRow & {
+  chain_id: string;
+  status: IntentDeployStatus;
+  bundle_uuid: string | null;
+  transaction_hash: Hex | null;
+  error: string | null;
+  created_at: Date;
+  updated_at: Date;
+};
+
 const deployment = (row: DeploymentRow): Deployment => ({
   chainId: Number(row.chain_id),
   projectId: row.project_id,
@@ -44,7 +63,17 @@ const deployment = (row: DeploymentRow): Deployment => ({
   createdAt: row.created_at.toISOString(),
 });
 
-function intent(row: IntentRow, deployments: Deployment[] = []): Intent {
+const toDeploy = (row: IntentDeployRow): IntentDeploy => ({
+  chainId: Number(row.chain_id),
+  status: row.status,
+  transactionHash: row.transaction_hash,
+  bundleUuid: row.bundle_uuid,
+  error: row.error,
+  createdAt: row.created_at.toISOString(),
+  updatedAt: row.updated_at.toISOString(),
+});
+
+function intent(row: IntentRow, deployments: Deployment[] = [], deploys: IntentDeploy[] = []): Intent {
   const chainIds = row.chain_ids.map(Number);
   return {
     id: row.id,
@@ -67,6 +96,7 @@ function intent(row: IntentRow, deployments: Deployment[] = []): Intent {
     owner: row.owner,
     createdAt: row.created_at.toISOString(),
     deployments,
+    deploys,
   };
 }
 
@@ -74,6 +104,11 @@ const selectIntent = `
   SELECT id, content_hash, format, deployment_version, chain_ids, deployment_calls, jb, publisher,
          signature, name, description, tagline, tags, logo_uri, owner, created_at
   FROM intents
+`;
+
+const selectDeploys = `
+  SELECT chain_id, status, bundle_uuid, transaction_hash, error, created_at, updated_at
+  FROM intent_deploys WHERE intent_id = $1 ORDER BY chain_id
 `;
 
 export function createPool(connectionString: string): Pool & { connectsSinceLast(): number } {
@@ -223,16 +258,17 @@ export class PostgresStore implements Store {
   }
 
   async getIntent(id: string): Promise<Intent | null> {
-    const [intentResult, deploymentResult] = await Promise.all([
+    const [intentResult, deploymentResult, deployResult] = await Promise.all([
       this.pool.query<IntentRow>(`${selectIntent} WHERE id = $1`, [id]),
       this.pool.query<DeploymentRow>(
         `SELECT chain_id, project_id::text, transaction_hash, created_at
          FROM deployments WHERE intent_id = $1 ORDER BY chain_id`,
         [id],
       ),
+      this.pool.query<IntentDeployRow>(selectDeploys, [id]),
     ]);
     return intentResult.rows[0]
-      ? intent(intentResult.rows[0], deploymentResult.rows.map(deployment))
+      ? intent(intentResult.rows[0], deploymentResult.rows.map(deployment), deployResult.rows.map(toDeploy))
       : null;
   }
 
@@ -318,5 +354,79 @@ export class PostgresStore implements Store {
       throw new ConflictError("A different deployment is already recorded for that chain");
     }
     return deployment(current);
+  }
+
+  async queueDeploys(
+    intentId: string,
+    chainIds: number[],
+    requester: string,
+    reservedWeiPerChain: bigint,
+  ): Promise<IntentDeploy[]> {
+    await this.pool.query(
+      `INSERT INTO intent_deploys (intent_id, chain_id, requester, reserved_wei)
+       SELECT $1, unnest($2::bigint[]), $3, $4::numeric
+       ON CONFLICT (intent_id, chain_id) DO NOTHING`,
+      [intentId, chainIds, requester, reservedWeiPerChain.toString()],
+    );
+    return this.listDeploys(intentId);
+  }
+
+  async listDeploys(intentId: string): Promise<IntentDeploy[]> {
+    const result = await this.pool.query<IntentDeployRow>(selectDeploys, [intentId]);
+    return result.rows.map(toDeploy);
+  }
+
+  async claimQueuedDeploys(
+    leaseSeconds: number,
+    limit: number,
+  ): Promise<{ intentId: string; chainIds: number[] }[]> {
+    const result = await this.pool.query<{ intent_id: string; chain_id: string }>(
+      `WITH picked AS (
+         SELECT intent_id FROM intent_deploys
+         WHERE status = 'queued' AND (lease_until IS NULL OR lease_until < now()) AND attempts < 3
+         GROUP BY intent_id ORDER BY intent_id LIMIT $2
+       )
+       UPDATE intent_deploys d SET lease_until = now() + make_interval(secs => $1), attempts = attempts + 1, updated_at = now()
+       FROM picked WHERE d.intent_id = picked.intent_id AND d.status = 'queued'
+       RETURNING d.intent_id, d.chain_id`,
+      [leaseSeconds, limit],
+    );
+    const byIntent = new Map<string, number[]>();
+    for (const row of result.rows) {
+      const chainIds = byIntent.get(row.intent_id) ?? [];
+      chainIds.push(Number(row.chain_id));
+      byIntent.set(row.intent_id, chainIds);
+    }
+    return [...byIntent.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([intentId, chainIds]) => ({ intentId, chainIds: chainIds.sort((a, b) => a - b) }));
+  }
+
+  async updateDeploy(intentId: string, chainId: number, patch: DeployPatch): Promise<void> {
+    await this.pool.query(
+      `UPDATE intent_deploys SET status = $3,
+         transaction_hash = coalesce($4, transaction_hash), bundle_uuid = coalesce($5, bundle_uuid),
+         error = $6, spent_wei = coalesce($7::numeric, spent_wei),
+         reserved_wei = CASE WHEN $3 IN ('confirmed', 'failed') THEN 0 ELSE reserved_wei END,
+         updated_at = now()
+       WHERE intent_id = $1 AND chain_id = $2`,
+      [
+        intentId,
+        chainId,
+        patch.status,
+        patch.transactionHash ?? null,
+        patch.bundleUuid ?? null,
+        patch.error ?? null,
+        patch.spentWei?.toString() ?? null,
+      ],
+    );
+  }
+
+  async sponsoredWeiSince(since: Date): Promise<bigint> {
+    const result = await this.pool.query<{ wei: string }>(
+      "SELECT coalesce(sum(reserved_wei + spent_wei), 0)::text AS wei FROM intent_deploys WHERE created_at >= $1",
+      [since],
+    );
+    return BigInt(result.rows[0]!.wei);
   }
 }

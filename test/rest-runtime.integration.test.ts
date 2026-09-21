@@ -166,6 +166,21 @@ async function fixture() {
     recordDeployment: async () => {
       throw new Error("Unexpected deployment write");
     },
+    queueDeploys: async () => {
+      throw new Error("Unexpected deploy queueing");
+    },
+    listDeploys: async () => {
+      throw new Error("Unexpected deploy listing");
+    },
+    claimQueuedDeploys: async () => {
+      throw new Error("Unexpected deploy claim");
+    },
+    updateDeploy: async () => {
+      throw new Error("Unexpected deploy update");
+    },
+    sponsoredWeiSince: async () => {
+      throw new Error("Unexpected sponsored wei query");
+    },
   };
   const contracts = await getContractCatalog();
   const rest = createRestApp({
