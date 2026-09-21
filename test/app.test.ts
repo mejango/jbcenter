@@ -22,6 +22,10 @@ type StoredDeploy = IntentDeploy & {
   leaseUntil: number | null;
 };
 
+function byChainId(deploys: IntentDeploy[]): IntentDeploy[] {
+  return [...deploys].sort((a, b) => a.chainId - b.chainId);
+}
+
 class MemoryStore implements Store {
   async cleanupRateLimits() { return 0; }
   intents: Intent[] = [];
@@ -53,7 +57,8 @@ class MemoryStore implements Store {
   }
 
   async getIntent(id: string) {
-    return this.intents.find((intent) => intent.id === id) ?? null;
+    const intent = this.intents.find((item) => item.id === id);
+    return intent ? { ...intent, deploys: byChainId(intent.deploys) } : null;
   }
 
   async search(query: string, limit: number, offset: number): Promise<SearchPage> {
@@ -138,7 +143,7 @@ class MemoryStore implements Store {
 
   async listDeploys(intentId: string): Promise<IntentDeploy[]> {
     const intent = this.intents.find(({ id }) => id === intentId);
-    return intent ? [...intent.deploys].sort((a, b) => a.chainId - b.chainId) : [];
+    return intent ? byChainId(intent.deploys) : [];
   }
 
   async claimQueuedDeploys(

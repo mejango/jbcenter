@@ -168,4 +168,40 @@ suite("PostgreSQL store", () => {
     expect(await store!.sponsoredWeiSince(new Date(Date.now() - 60_000))).toBe(1700n);
     expect((await store!.getIntent(intent.id))?.deploys[0]).toMatchObject({ chainId: 84532, status: "confirmed" });
   });
+
+  it("reclaims an expired lease, stops once attempts reach the cap, and leaves a sibling chain's live lease alone", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "two", chainIds: [11155111] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(intent.id, [11155111], "browser:y", 500n);
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      expect(await store!.claimQueuedDeploys(0, 10)).toEqual([
+        { intentId: intent.id, chainIds: [11155111] },
+      ]);
+      await pool!.query(
+        "UPDATE intent_deploys SET lease_until = now() - interval '1 second' WHERE intent_id = $1",
+        [intent.id],
+      );
+    }
+    expect(await store!.claimQueuedDeploys(0, 10)).toEqual([]);
+
+    const { intent: sibling } = await store!.createIntent(
+      newIntent({ name: "three", chainIds: [84532, 11155420] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(sibling.id, [84532, 11155420], "browser:z", 500n);
+    expect(await store!.claimQueuedDeploys(1000, 10)).toEqual([
+      { intentId: sibling.id, chainIds: [84532, 11155420] },
+    ]);
+    // Only chain 84532's lease expires; chain 11155420 keeps the live 1000s lease from above.
+    await pool!.query(
+      "UPDATE intent_deploys SET lease_until = now() - interval '1 second' WHERE intent_id = $1 AND chain_id = $2",
+      [sibling.id, 84532],
+    );
+    expect(await store!.claimQueuedDeploys(1000, 10)).toEqual([
+      { intentId: sibling.id, chainIds: [84532] },
+    ]);
+  });
 });

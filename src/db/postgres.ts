@@ -388,6 +388,7 @@ export class PostgresStore implements Store {
        )
        UPDATE intent_deploys d SET lease_until = now() + make_interval(secs => $1), attempts = attempts + 1, updated_at = now()
        FROM picked WHERE d.intent_id = picked.intent_id AND d.status = 'queued'
+         AND (d.lease_until IS NULL OR d.lease_until < now()) AND d.attempts < 3
        RETURNING d.intent_id, d.chain_id`,
       [leaseSeconds, limit],
     );
