@@ -607,7 +607,7 @@ export function createApp(
     const ip = await store.consumeRequest(`publish:ip:${callerIp(c)}`, options.publishPerIpPerHour ?? 60, 3600);
     const who = await store.consumeRequest(`publish:${publisher.toLowerCase()}`, options.publishPerPublisherPerDay ?? 20, 86_400);
     if (!ip.allowed || !who.allowed) {
-      c.header("Retry-After", "3600");
+      c.header("Retry-After", who.allowed ? "3600" : "86400");
       return c.json({ error: { code: "publish_limit", message: "Publish limit reached; try again later" } }, 429);
     }
     const result = await store.createIntent({

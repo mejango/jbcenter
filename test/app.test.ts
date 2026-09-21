@@ -660,5 +660,16 @@ describe("JB Center API", () => {
     const again = await publishWith(app, { ...envelope, jb: { ...envelope.jb, name: "second" } });
     expect(again.status).toBe(429);
     expect(((await again.json()) as { error: { code: string } }).error.code).toBe("publish_limit");
+    expect(again.headers.get("Retry-After")).toBe("86400");
+  });
+
+  it("publishes per-ip limit with correct Retry-After header", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { publishPerIpPerHour: 1, publishPerPublisherPerDay: 100 });
+    expect((await publish(app)).status).toBe(201);
+    const again = await publishWith(app, { ...envelope, jb: { ...envelope.jb, name: "second" } });
+    expect(again.status).toBe(429);
+    expect(((await again.json()) as { error: { code: string } }).error.code).toBe("publish_limit");
+    expect(again.headers.get("Retry-After")).toBe("3600");
   });
 });
