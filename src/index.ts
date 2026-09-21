@@ -166,6 +166,8 @@ const app = createApp(store, {
     rpcSiteLimitPerMinute,
     rpcPublicRequestLimitPerMinute: positiveInteger("RPC_PUBLIC_REQUEST_LIMIT_PER_MINUTE", 120),
     rpcPublicSiteLimitPerMinute: positiveInteger("RPC_PUBLIC_SITE_LIMIT_PER_MINUTE", 5_000),
+    publishPerPublisherPerDay: positiveInteger("PUBLISH_PER_PUBLISHER_PER_DAY", 20),
+    publishPerIpPerHour: positiveInteger("PUBLISH_PER_IP_PER_HOUR", 60),
     metricsToken,
     metrics,
     rpc,
