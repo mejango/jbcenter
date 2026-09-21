@@ -396,7 +396,8 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
   });
 
   it("recovers the permanent claim after approval expiry and ceremony receipt cleanup", async () => {
-    const value = await prepared(configuration(), 1000), claimed = await store.claim(value.input);
+    // The approval must still be live while its preparation runs; the wait below is what expires it.
+    const value = await prepared(configuration(), 4000), claimed = await store.claim(value.input);
     await pool.query("DELETE FROM rest_wallet_ceremonies WHERE id=$1", [value.approval.id]);
     await pool.query("SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.05)", [value.approval.expiresAt]);
     expect(await store.claim(value.input)).toEqual({ operation: claimed.operation, replayed: true });

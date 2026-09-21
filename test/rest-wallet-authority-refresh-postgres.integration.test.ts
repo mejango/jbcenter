@@ -267,7 +267,7 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
   });
 
   it("reclaims a crashed process only after database lease expiry and fences its stale completion", async () => {
-    const configuration = { ...options, leaseMs: 4000 }, store = queue(configuration), accountId = await eligibleAccount();
+    const configuration = { ...options, leaseMs: 1500 }, store = queue(configuration), accountId = await eligibleAccount();
     await store.request(accountId); const [a, b] = await Promise.all([worker(configuration), worker(configuration)]);
     const barrier = message(a.child, "barrier");
     const disconnected = a.request({ action: "claim", barrier: "after-claim" }).catch(() => null);
