@@ -4,6 +4,7 @@ import {
   RelayrProvider,
   bindIndependentQuoteStatus,
   RelayrResponseError,
+  parseFamilyQuote,
   parseIndependentQuoteBinding,
   parseIndependentStatus,
   parsePayment,
@@ -95,6 +96,16 @@ it('accepts testnet payments only for the operator same-family parser; ordinary 
   expect(() => parseIndependentQuoteBinding(response, independentEntries(), NOW)).toThrow();
   expect(() => parseIndependentQuoteBinding(response, [independentEntries()[0]!, testEntries[1]!], NOW)).toThrow();
   expect(() => parseIndependentQuoteBinding(response, [], NOW)).toThrow();
+});
+
+it('pays sponsored bundles from the one family every destination belongs to', () => {
+  const testEntries = entries().map(entry => ({ ...entry, chain: 84532 }));
+  const testResponse = quoteResponse({ payment_info: [payment({ chain: 84532 })] });
+  expect(parseFamilyQuote(quoteResponse(), entries(), NOW, MAXIMUM_VALUE).payments[0]!.chainId).toBe(8453);
+  expect(parseFamilyQuote(testResponse, testEntries, NOW, MAXIMUM_VALUE).payments[0]!.chainId).toBe(84532);
+  expect(() => parseFamilyQuote(testResponse, [entries()[0]!, testEntries[1]!], NOW, MAXIMUM_VALUE)).toThrow();
+  expect(() => parseFamilyQuote(quoteResponse(), [], NOW, MAXIMUM_VALUE)).toThrow();
+  expect(() => parseFamilyQuote(testResponse, testEntries, NOW, 1n)).toThrow(/maximum native funding/);
 });
 
 function quote(): RelayrQuote {

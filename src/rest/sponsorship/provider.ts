@@ -320,10 +320,20 @@ export function parseQuoteBinding(
 /** Operator-only: retain the clients' same-family payment policy without expanding app sponsorship. */
 export function parseIndependentQuoteBinding(value: unknown, entries: RelayrIndependentEntry[], now: number): RelayrQuote<RelayrIndependentEntry> {
   assertIndependentEntries(entries);
+  return quoteBinding(value, entries, now, paymentFamily(entries));
+}
+/** Center-sponsored deployments pay from the one family every destination belongs to. */
+export function parseFamilyQuote(value: unknown, entries: RelayrEntry[], now: number, maximumValue: bigint): RelayrQuote {
+  const quote = quoteBinding(value, entries, now, paymentFamily(entries));
+  for (const payment of quote.payments)
+    assertPaymentEligible(payment, now, maximumValue);
+  return quote;
+}
+function paymentFamily(entries: readonly (RelayrEntry | RelayrIndependentEntry)[]): readonly number[] {
   const chains = [RELAYR_MAINNET_CHAINS, RELAYR_TESTNET_CHAINS].find(family =>
     entries.length > 0 && entries.every(entry => family.some(chain => chain === entry.chain)));
   if (!chains) fail("RELAYR_INVALID_QUOTE", "Choose destinations from one supported network family.", 502);
-  return quoteBinding(value, entries, now, chains);
+  return chains;
 }
 function assertIndependentEntries(entries: readonly RelayrIndependentEntry[]): void {
   if (entries.some(entry => Object.hasOwn(entry, 'virtual_nonce')))
