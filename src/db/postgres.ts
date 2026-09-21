@@ -443,7 +443,7 @@ export class PostgresStore implements Store {
 
   async releaseClaim(intentId: string, chainIds: number[]): Promise<void> {
     await this.pool.query(
-      `UPDATE intent_deploys SET attempts = greatest(attempts - 1, 0), lease_until = NULL, updated_at = now()
+      `UPDATE intent_deploys SET attempts = greatest(attempts - 1, 0), lease_until = now() + interval '5 minutes', updated_at = now()
        WHERE intent_id = $1 AND chain_id = ANY($2::bigint[])`,
       [intentId, chainIds],
     );

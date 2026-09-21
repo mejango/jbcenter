@@ -33,13 +33,18 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 /** Ethereum and Sepolia base fees dwarf the sponsor fee cap; pay the bundle on a rollup whenever Relayr offers one. */
 const L1_CHAIN_IDS = new Set([1, 11155111]);
 
-export function choosePayment<T extends { chainId: number }>(options: readonly T[], rpcUrls: Map<number, string>): T | undefined {
+/** Configured payment options, rollups before L1s, in the order Relayr offered them. */
+export function rankPayments<T extends { chainId: number }>(options: readonly T[], rpcUrls: Map<number, string>): T[] {
   const configured = options.filter((option) => rpcUrls.has(option.chainId));
-  return configured.find((option) => !L1_CHAIN_IDS.has(option.chainId)) ?? configured[0];
+  return [
+    ...configured.filter((option) => !L1_CHAIN_IDS.has(option.chainId)),
+    ...configured.filter((option) => L1_CHAIN_IDS.has(option.chainId)),
+  ];
 }
 
 export function createRelayrLane(options: {
-  chain: SponsorshipChain;
+  /** One SponsorshipChain owns one RPC budget, so every deploy gets a fresh one. */
+  chain: () => SponsorshipChain;
   catalog: ContractCatalog;
   provider: RelayrProvider;
   rpcUrls: Map<number, string>;
@@ -51,7 +56,7 @@ export function createRelayrLane(options: {
   onEvent?: SponsorEvents;
 }): DeployLane {
   const {
-    chain, catalog, provider, rpcUrls, signer, policy, projectsAddress,
+    chain: makeChain, catalog, provider, rpcUrls, signer, policy, projectsAddress,
     now = Date.now, wait = sleep, onEvent = logSponsorEvent,
   } = options;
   const client = (chainId: number) => createPublicClient({ transport: http(rpcUrls.get(chainId)) });
@@ -124,6 +129,7 @@ export function createRelayrLane(options: {
 
   return {
     async deploy(intent, chainIds, report) {
+      const chain = makeChain();
       const track = tracker(chainIds, report);
       try {
         const deadline = Math.floor(now() / 1000) + REQUEST_TTL_SECONDS;
@@ -178,15 +184,23 @@ export function createRelayrLane(options: {
           now(),
           reservationWei(policy, chainIds.length),
         );
-        const payment = choosePayment(quote.payments, rpcUrls);
-        if (!payment) return track.failRest("relayr returned no payment option on a configured chain");
+        const candidates = rankPayments(quote.payments, rpcUrls);
+        if (candidates.length === 0) return track.failRest("relayr returned no payment option on a configured chain");
+        // The key may hold funds on only some of the offered chains; pay from the first rollup that covers it.
+        let chosen: { payment: (typeof candidates)[number]; fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }; maxFeePerGas: bigint } | undefined;
+        for (const candidate of candidates) {
+          const candidateClient = client(candidate.chainId);
+          const fees = await candidateClient.estimateFeesPerGas();
+          const cap = fees.maxFeePerGas > policy.maximumFeePerGas ? policy.maximumFeePerGas : fees.maxFeePerGas;
+          const balance = await candidateClient.getBalance({ address: signer.address });
+          if (balance >= BigInt(candidate.value) + PAYMENT_GAS * cap) {
+            chosen = { payment: candidate, fees, maxFeePerGas: cap };
+            break;
+          }
+        }
+        if (!chosen) return report.deferred("sponsor balance too low");
+        const { payment, fees, maxFeePerGas } = chosen;
         const paymentClient = client(payment.chainId);
-        const fees = await paymentClient.estimateFeesPerGas();
-        const maxFeePerGas =
-          fees.maxFeePerGas > policy.maximumFeePerGas ? policy.maximumFeePerGas : fees.maxFeePerGas;
-        const balance = await paymentClient.getBalance({ address: signer.address });
-        if (balance < BigInt(payment.value) + PAYMENT_GAS * maxFeePerGas)
-          return report.deferred("sponsor balance too low");
         // The bundle is durable before any ETH leaves the key, so a re-claim resumes it.
         await report.bundle(quote.bundleUuid);
         onEvent({
