@@ -187,6 +187,9 @@ suite("PostgreSQL store", () => {
         )
       ).rows.map((row) => row.attempts),
     ).toEqual([0, 0]);
+    // The release backs off five minutes before the rows are eligible again.
+    expect(await store!.claimQueuedDeploys(30, 10)).toEqual([]);
+    await pool!.query("UPDATE intent_deploys SET lease_until = now() - interval '1 second' WHERE intent_id = $1", [intent.id]);
     expect(await store!.claimQueuedDeploys(30, 10)).toEqual([
       { intentId: intent.id, chainIds: [84532, 421614] },
     ]);

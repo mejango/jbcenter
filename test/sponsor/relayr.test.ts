@@ -30,7 +30,7 @@ import {
   type SponsorEvent,
 } from "../../src/sponsor/chain.js";
 import { readSponsorPolicy, reservationWei } from "../../src/sponsor/policy.js";
-import { choosePayment, createRelayrLane } from "../../src/sponsor/relayr.js";
+import { createRelayrLane, rankPayments } from "../../src/sponsor/relayr.js";
 import type { Intent } from "../../src/types.js";
 
 const signer = privateKeyToAccount(`0x${"11".repeat(32)}`);
@@ -312,7 +312,7 @@ function block() {
 function installRpc(
   receipts: Map<string, unknown>,
   events: string[],
-  balance: bigint,
+  balance: bigint | ((chainId: number) => bigint),
   creationFee: bigint,
 ) {
   const prepayments: TransactionSerializedEIP1559[] = [];
@@ -341,7 +341,7 @@ function installRpc(
         case "eth_getTransactionCount":
           return "0x7";
         case "eth_getBalance":
-          return toHex(balance);
+          return toHex(typeof balance === "function" ? balance(Number(String(_url).split("/").pop())) : balance);
         case "eth_sendRawTransaction":
           events.push("prepayment");
           prepayments.push(params[0] as TransactionSerializedEIP1559);
@@ -368,7 +368,7 @@ function harness(options: {
   amount?: bigint;
   revertedChains?: number[];
   revertedPayment?: boolean;
-  balance?: bigint;
+  balance?: bigint | ((chainId: number) => bigint);
   creationFee?: bigint;
 }) {
   const amount = options.amount ?? PAYMENT_AMOUNT;
@@ -389,6 +389,7 @@ function harness(options: {
   const events: string[] = [];
   const prepayments = installRpc(receipts, events, options.balance ?? 10n ** 18n, options.creationFee ?? CREATION_FEE);
   const chain = fakeChain();
+  const chainFactory = vi.fn(() => chain.chain);
   const provider = fakeProvider({
     chainIds: options.chainIds,
     paymentChainId: options.paymentChainId,
@@ -414,7 +415,7 @@ function harness(options: {
   const laneEvents: SponsorEvent[] = [];
   const lane = createRelayrLane({
     onEvent: (event) => laneEvents.push(event),
-    chain: chain.chain,
+    chain: chainFactory,
     catalog,
     provider: provider.provider,
     rpcUrls: new Map(options.chainIds.map((chainId) => [chainId, rpcUrl(chainId)])),
@@ -427,7 +428,7 @@ function harness(options: {
       clock += ms;
     },
   });
-  return { amount, chain, events, hashes, lane, laneEvents, prepayments, provider, report, waits };
+  return { amount, chain, chainFactory, events, hashes, lane, laneEvents, prepayments, provider, report, waits };
 }
 
 afterEach(() => {
@@ -674,11 +675,36 @@ describe("payment chain choice", () => {
     expect(bundle).toMatchObject({ paymentChainId: 84532, offeredPaymentChainIds: [11155111, 84532] });
   });
 
-  test("choosePayment prefers any configured rollup and falls back to the L1 option", () => {
+  test("rankPayments lists configured rollups before the L1 option", () => {
     const rpcUrls = new Map([[11155111, "http://l1"], [84532, "http://base"], [11155420, "http://op"]]);
-    expect(choosePayment([{ chainId: 11155111 }, { chainId: 84532 }], rpcUrls)?.chainId).toBe(84532);
-    expect(choosePayment([{ chainId: 11155111 }], rpcUrls)?.chainId).toBe(11155111);
-    expect(choosePayment([{ chainId: 421614 }], rpcUrls)).toBeUndefined();
-    expect(choosePayment([{ chainId: 1 }, { chainId: 10 }], new Map([[1, "http://eth"], [10, "http://op"]]))?.chainId).toBe(10);
+    expect(rankPayments([{ chainId: 11155111 }, { chainId: 84532 }], rpcUrls).map((o) => o.chainId)).toEqual([84532, 11155111]);
+    expect(rankPayments([{ chainId: 11155111 }], rpcUrls).map((o) => o.chainId)).toEqual([11155111]);
+    expect(rankPayments([{ chainId: 421614 }], rpcUrls)).toEqual([]);
+    expect(rankPayments([{ chainId: 1 }, { chainId: 10 }], new Map([[1, "http://eth"], [10, "http://op"]])).map((o) => o.chainId)).toEqual([10, 1]);
+  });
+
+  test("skips an offered rollup where the key is empty and pays from the funded one", async () => {
+    const chainIds = [84532, 11155420];
+    const { lane, laneEvents, prepayments, report } = harness({
+      chainIds,
+      paymentChainId: 11155111,
+      paymentChainIds: [11155111, 421614, 84532],
+      hashAfter: 1,
+      projectIds: ["4", "5"],
+      balance: (chainId) => (chainId === 421614 ? 0n : 10n ** 18n),
+    });
+    await lane.deploy(intent(chainIds), chainIds, report);
+    expect(report.deferred).not.toHaveBeenCalled();
+    expect(prepayments).toHaveLength(1);
+    expect(parseTransaction(prepayments[0]!).chainId).toBe(84532);
+    expect(laneEvents.find((event) => event.event === "bundle")).toMatchObject({ paymentChainId: 84532 });
+  });
+
+  test("every deploy gets its own sponsorship chain", async () => {
+    const chainIds = [8453];
+    const { chainFactory, lane, report } = harness({ chainIds, paymentChainId: 8453, hashAfter: 1, projectIds: ["9"] });
+    await lane.deploy(intent(chainIds), chainIds, report);
+    await lane.deploy(intent(chainIds), chainIds, report);
+    expect(chainFactory).toHaveBeenCalledTimes(2);
   });
 });

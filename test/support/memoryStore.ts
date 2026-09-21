@@ -9,6 +9,9 @@ import {
 } from "../../src/store.js";
 import type { Deployment, Intent, IntentDeploy, SearchPage } from "../../src/types.js";
 
+/** A released claim waits before the next pass so a dry key does not spin the worker. */
+export const RELEASE_BACKOFF_MS = 5 * 60_000;
+
 type StoredDeploy = IntentDeploy & {
   reservedWei: bigint;
   spentWei: bigint;
@@ -203,7 +206,7 @@ export class MemoryStore implements Store {
     for (const deploy of (intent?.deploys ?? []) as StoredDeploy[]) {
       if (!chainIds.includes(deploy.chainId)) continue;
       deploy.attempts = Math.max(deploy.attempts - 1, 0);
-      deploy.leaseUntil = null;
+      deploy.leaseUntil = Date.now() + RELEASE_BACKOFF_MS;
       deploy.updatedAt = new Date().toISOString();
     }
   }
