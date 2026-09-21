@@ -36,6 +36,7 @@ async function signedIntent() {
     signature: await publisher.signMessage({ message: prepared.message }),
     createdAt: '2026-09-06T00:00:00Z',
     deployments: [],
+    deploys: [],
   };
 }
 
