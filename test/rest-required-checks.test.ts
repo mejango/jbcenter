@@ -83,7 +83,7 @@ describe("release check cannot silently omit required verification", () => {
       "rest-wallet-v6-payment-evm.test.ts",
       "rest-v6-payment-fixture.test.ts",
       "rest-wallet-policy.test.ts", "rest-signed-transaction.test.ts",
-      "rest-wallet-device-addition.test.ts", "rest-web-qr.test.ts", "rest-wallet-device-browser.test.ts"]) {
+      "rest-wallet-device-addition.test.ts", "rest-wallet-device-site.test.ts", "rest-web-qr.test.ts", "rest-wallet-device-browser.test.ts"]) {
       expect(requiredVitestSuites).toContain(`test/${file}`);
     }
   });

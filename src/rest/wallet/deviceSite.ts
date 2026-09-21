@@ -51,21 +51,21 @@ export function mountWalletDevices(app: Hono, options: WalletDeviceSiteOptions) 
     emit('device_begin');
     return json(c, { view: begun.view, link: `${origin}${base}/add#${begun.linkToken}` });
   });
-  app.get(`${base}/devices/:id`, async c => {
+  app.get(`${base}/devices/:id{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}}`, async c => {
     const session = await options.session(c, false);
     return json(c, { view: await devices.statusForSession(c.req.param('id'), session) });
   });
-  app.post(`${base}/devices/:id/review`, async c => {
+  app.post(`${base}/devices/:id{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}}/review`, async c => {
     const session = await options.session(c, true); await body(c, []);
     return json(c, await devices.prepareAddition(c.req.param('id'), session));
   });
-  app.post(`${base}/devices/:id/approve`, async c => {
+  app.post(`${base}/devices/:id{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}}/approve`, async c => {
     const session = await options.session(c, true), input = await body(c, ['review', 'assertion']);
     const view = await devices.approveAddition(c.req.param('id'), session, { review: input.review as WalletDeviceAddition, assertion: walletHttpAssertion(input.assertion) });
     emit('device_approve');
     return json(c, { view });
   });
-  app.post(`${base}/devices/:id/activate`, async c => {
+  app.post(`${base}/devices/:id{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}}/activate`, async c => {
     const session = await options.session(c, true); await body(c, []);
     const view = await devices.activateForSession(c.req.param('id'), session);
     emit('device_activate');

@@ -481,6 +481,8 @@ if (networksAdd && networksForm) {
   element("wallet-networks-cancel").addEventListener("click", () => { networksOpen = false; networksQuote = null; render(); });
 }
 // The last hex characters of the new device's signer show on both pages, so a swapped device is visible before approval.
+// The mark spins only while the service works (adding, finishing); waiting on a person does not spin.
+const deviceWorking = (phase: string) => phase === "adding" || phase === "awaiting_activation";
 const deviceTag = (signer: string | null) => typeof signer === "string" && /^0x[0-9a-fA-F]{40}$/.test(signer) ? signer.slice(-6).toUpperCase() : "";
 function deviceText(phase: string, signer: string | null = device?.view.deviceSigner ?? null) {
   return phase === "awaiting_registration" || phase === "awaiting_possession" ? "Waiting for the other device to create its passkey…"
@@ -517,14 +519,14 @@ async function deviceBegin() {
   device = { view, link };
   element("wallet-device-code").innerHTML = qrSvg(link, "Link for the other device");
   const anchor = element<HTMLAnchorElement>("wallet-device-link"); anchor.href = link; anchor.textContent = "Open the link on this device instead";
-  setStatus("checking", deviceText(view.phase));
+  setStatus(deviceWorking(view.phase) ? "checking" : "ready", deviceText(view.phase));
 }
 async function devicePoll() {
   if (!session || !device) return;
   const result = record(await request(`${base}/devices/${device.view.id}`)), view = record(result.view) as unknown as DeviceView;
   device = { ...device, view };
   if (view.phase === "awaiting_activation") { await run(deviceActivate); return; }
-  render(); setStatus(["ready", "expired", "addition_failed"].includes(view.phase) ? "ready" : "checking", deviceText(view.phase));
+  render(); setStatus(deviceWorking(view.phase) ? "checking" : "ready", deviceText(view.phase));
 }
 async function deviceApproveNow() {
   if (!device || !configuration) return;
@@ -541,7 +543,7 @@ async function deviceApproveNow() {
     userHandle: response.userHandle ? encode(response.userHandle) : null, authenticatorData: encode(response.authenticatorData),
     clientDataJSON: encode(response.clientDataJSON), signature: encode(response.signature) } }, csrf, 60_000));
   device = { ...device, view: record(result.view) as unknown as DeviceView };
-  setStatus("checking", deviceText(device.view.phase));
+  setStatus(deviceWorking(device.view.phase) ? "checking" : "ready", deviceText(device.view.phase));
 }
 async function deviceActivate() {
   if (!device) return;

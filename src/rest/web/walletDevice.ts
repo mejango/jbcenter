@@ -15,7 +15,8 @@ const steps: Record<WalletDeviceView['phase'], string> = {
 let view: WalletDeviceView | null = null, busy = false, native: AbortController | null = null, disposed = false;
 const linkToken = (() => { const value = location.hash.slice(1); return /^[A-Za-z0-9_-]{43}$/.test(value) ? value : null; })();
 const polling = () => view?.phase === 'awaiting_approval' || view?.phase === 'adding' || view?.phase === 'awaiting_activation';
-const waiting = () => (busy && !native) || polling();
+// The mark spins only while the service works; waiting for the other device's approval is not work in flight.
+const waiting = () => (busy && !native) || view?.phase === 'adding' || view?.phase === 'awaiting_activation';
 function message(value: string, error = false) { status.textContent = value; status.dataset.state = error ? 'error' : waiting() ? 'busy' : 'ready'; }
 function invalid(): never { throw new Error('The device link changed. Start again from your account.'); }
 const encode = (value: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(value))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');

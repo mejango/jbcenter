@@ -67,7 +67,7 @@ export function createWalletRecoveryRelay(options: {
   return {
     prepare: (id: string) => relay.prepare(id),
     approve: async (id: string, input: WalletRecoveryRotation, backupSignature: Hex, flowToken?: string) => legacy(await relay.approve(id, input, backupSignature, flowToken)),
-    status: async (id: string) => legacy(await relay.status(id)),
+    status: async (id: string, waitMs = 0) => legacy(await relay.status(id, waitMs)),
     tick: (signal?: AbortSignal) => relay.tick(signal),
   };
 }

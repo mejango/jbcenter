@@ -60,6 +60,7 @@ export const requiredVitestSuites = [
   "test/rest-wallet-recovery-dispatch-postgres.integration.test.ts",
   "test/rest-wallet-recovery-rotation.test.ts",
   "test/rest-wallet-device-addition.test.ts",
+  "test/rest-wallet-device-site.test.ts",
   "test/rest-web-qr.test.ts",
   "test/rest-wallet-device-browser.test.ts",
   "test/rest-wallet-recovery-review.test.ts",

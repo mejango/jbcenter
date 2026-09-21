@@ -120,7 +120,7 @@ export function createWalletOwnerRelay<Record, Review extends { safeNonce: strin
       const value = await action(); await client.query('COMMIT'); return value;
     } catch (error) { await client.query('ROLLBACK'); throw error; }
   }
-  async function locked<T>(run: (client: PoolClient, rpc: Scope) => Promise<T>, signal?: AbortSignal): Promise<T> {
+  async function locked<T>(run: (client: PoolClient, rpc: Scope) => Promise<T>, signal?: AbortSignal, waitMs = 5000): Promise<T> {
     signal?.throwIfAborted();
     const client = await pool.connect(), rpc = operationRpc(adapter.reads, walletObservationRpcBounds, signal, true);
     let locked = false;
@@ -128,13 +128,20 @@ export function createWalletOwnerRelay<Record, Review extends { safeNonce: strin
       // ponytail: one bounded sender lane per relay; a nonce pipeline needs its own reviewed design.
       // The lane is waited for, briefly: both pages poll the relay (each read holds it for under a
       // second), and an action that merely tried the lock answered "busy" whenever a poll was in.
-      try {
-        await client.query("SET lock_timeout='5000ms'");
-        await client.query("SELECT pg_advisory_lock(hashtextextended('rest_wallet_recovery_lanes'::regclass::oid::text||$1,0))", ['recovery-local:' + sender]);
-      } catch (error) {
-        if ((error as { code?: string }).code === '55P03') throw new RestError(409, 'WALLET_RECOVERY_RELAY_BUSY', 'The recovery sender is reconciling an existing operation.');
-        throw error;
-      } finally { await client.query('RESET lock_timeout').catch(() => undefined); }
+      const busy = () => new RestError(409, 'WALLET_RECOVERY_RELAY_BUSY', 'The recovery sender is reconciling an existing operation.');
+      if (!Number.isFinite(waitMs) || waitMs <= 0) {
+        // A read: take the lane only if it is free (a status answers from the record otherwise).
+        const result = await client.query<{ locked: boolean }>("SELECT pg_try_advisory_lock(hashtextextended('rest_wallet_recovery_lanes'::regclass::oid::text||$1,0)) AS locked", ['recovery-local:' + sender]);
+        if (!result.rows[0]!.locked) throw busy();
+      } else {
+        try {
+          await client.query(`SET lock_timeout='${Math.max(1, Math.min(30_000, Math.floor(waitMs)))}ms'`);
+          await client.query("SELECT pg_advisory_lock(hashtextextended('rest_wallet_recovery_lanes'::regclass::oid::text||$1,0))", ['recovery-local:' + sender]);
+        } catch (error) {
+          if ((error as { code?: string }).code === '55P03') throw busy();
+          throw error;
+        } finally { await client.query('RESET lock_timeout').catch(() => undefined); }
+      }
       locked = true; return await run(client, rpc);
     } finally {
       rpc.close(); if (locked) await client.query("SELECT pg_advisory_unlock(hashtextextended('rest_wallet_recovery_lanes'::regclass::oid::text||$1,0))", ['recovery-local:' + sender]); client.release();
@@ -418,8 +425,23 @@ export function createWalletOwnerRelay<Record, Review extends { safeNonce: strin
       });
     },
     // HTTP GET may reconcile receipts, but only an explicit POST/host worker progresses retained approval.
-    async status(id: string) {
-      return await stillWaiting(id) ?? locked((client, rpc) => reconcile(client, rpc, id));
+    /** A page's poll (`waitMs` 0) takes the lane only if it is free and otherwise answers from the
+     * record; an action that needs the reconciled state (activation) waits for the lane. */
+    async status(id: string, waitMs = 0) {
+      const waiting = await stillWaiting(id);
+      if (waiting) return waiting;
+      try { return await locked((client, rpc) => reconcile(client, rpc, id), undefined, waitMs); }
+      catch (error) {
+        // The lane is held (an action, or the other page's read): a read does not wait or fail
+        // for it, it answers from the record and a later read reconciles.
+        if (waitMs > 0 || !(error instanceof RestError) || error.code !== 'WALLET_RECOVERY_RELAY_BUSY') throw error;
+        const client = await pool.connect();
+        try {
+          const operation = await dispatch(client, id), txs = await transactions(client, id);
+          const fallback: LocalWalletOwnerStatus = { id, state: operation?.approval ? 'unknown' : 'review', transactions: { createSigner: txs[0]?.hash ?? null, ownerChange: txs[1]?.hash ?? null }, reason: null };
+          return fallback;
+        } finally { client.release(); }
+      }
     },
     async tick(signal?: AbortSignal): Promise<void> {
       signal?.throwIfAborted();

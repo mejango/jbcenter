@@ -121,7 +121,7 @@ export function createLocalWalletRecovery(options: LocalWalletRecoveryDependenci
     const { flow, record } = await context(flowToken), candidate = record.candidate;
     if (!candidate || !record.proof) state();
     if (!record.activation) {
-      if ((await rotation.status(record.intent.id)).state !== 'ready') state();
+      if ((await rotation.status(record.intent.id, 5000)).state !== 'ready') state();
       await smart.bindPasskeyAccount({ manifestId: record.intent.manifest.id, address: record.intent.accountId.slice(12) as Address,
         consent: { id: record.intent.id, digest: `0x${record.proof.verificationDigest}` },
         expected: { signerAddress: candidate.signerAddress, initializerHash: record.intent.initializerHash } });
