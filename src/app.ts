@@ -41,6 +41,7 @@ import {
   type PinningService,
 } from "./ipfs.js";
 import { ConflictError, StorageLimitError, type Store } from "./store.js";
+import { sponsorFamily, reservationWei, type SponsorRuntime } from "./sponsor/policy.js";
 import type { JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
 import { llmsIndex } from "./llms.js";
@@ -83,6 +84,7 @@ export type AppOptions = {
   rpcPublicSiteLimitPerMinute?: number;
   publishPerPublisherPerDay?: number;
   publishPerIpPerHour?: number;
+  sponsor?: SponsorRuntime;
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -676,6 +678,51 @@ export function createApp(
     await options.deploymentVerifier.verify(claim);
     const deployment = await store.recordDeployment(id, claim);
     return c.json(deployment, 201);
+  });
+
+  app.post("/v1/intents/:id/deploy", async (c) => {
+    const sponsor = options.sponsor;
+    if (!sponsor || sponsor.policy.paused) {
+      return c.json(
+        { error: { code: "unavailable", message: "Sponsored deploys are paused" } },
+        503,
+      );
+    }
+    const id = c.req.param("id");
+    if (!UUID.test(id)) throw new BadRequest("intent id is invalid");
+    const intent = await store.getIntent(id);
+    if (!intent) return c.json({ error: { code: "not_found", message: "Intent not found" } }, 404);
+    if (intent.deploys.length) return c.json({ deploys: intent.deploys }, 200);
+    if (intent.status !== "undeployed") throw new BadRequest(`intent is ${intent.status}`);
+    if (!sponsorFamily(intent.envelope.chainIds)) throw new BadRequest("intent chains are not sponsorable");
+    const requester = c.get("client");
+    const quota = await store.consumeRequest(
+      `deploy:${requester}`,
+      sponsor.policy.perRequesterPerDay,
+      86_400,
+    );
+    if (!quota.allowed) {
+      return c.json(
+        { error: { code: "sponsor_quota", message: "Daily sponsored deploy quota reached" } },
+        429,
+      );
+    }
+    const reserved = reservationWei(sponsor.policy, intent.envelope.chainIds.length);
+    const spent = await store.sponsoredWeiSince(new Date(Date.now() - 86_400_000));
+    if (spent + reserved > sponsor.policy.dailyBudgetWei) {
+      return c.json(
+        { error: { code: "sponsor_budget", message: "The daily sponsorship budget is spent" } },
+        429,
+      );
+    }
+    const deploys = await store.queueDeploys(
+      id,
+      intent.envelope.chainIds,
+      requester,
+      reserved / BigInt(intent.envelope.chainIds.length),
+    );
+    sponsor.kick();
+    return c.json({ deploys }, 202);
   });
 
   return app;

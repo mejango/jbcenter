@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { privateKeyToAccount } from "viem/accounts";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, originsForEnvironment } from "../src/app.js";
 import { JUICESCAN } from "../src/journeyGraph.js";
 import { DeploymentVerificationError } from "../src/deploymentVerifier.js";
+import { readSponsorPolicy, type SponsorPolicy } from "../src/sponsor/policy.js";
 import type { RpcGateway } from "../src/rpc.js";
 import {
   ConflictError,
@@ -22,8 +23,13 @@ type StoredDeploy = IntentDeploy & {
   leaseUntil: number | null;
 };
 
+function toIntentDeploy(deploy: StoredDeploy): IntentDeploy {
+  const { chainId, status, transactionHash, bundleUuid, error, createdAt, updatedAt } = deploy;
+  return { chainId, status, transactionHash, bundleUuid, error, createdAt, updatedAt };
+}
+
 function byChainId(deploys: IntentDeploy[]): IntentDeploy[] {
-  return [...deploys].sort((a, b) => a.chainId - b.chainId);
+  return (deploys as StoredDeploy[]).slice().sort((a, b) => a.chainId - b.chainId).map(toIntentDeploy);
 }
 
 class MemoryStore implements Store {
@@ -243,6 +249,24 @@ const envelope = {
     stages: [{}],
     owner: account.address,
   },
+};
+
+const testnetEnvelope = {
+  ...envelope,
+  chainIds: [84532, 421614],
+  deploymentCalls: [
+    {
+      chainId: 84532,
+      to: "0x3333333333333333333333333333333333333333",
+      data: "0x12345678",
+    },
+    {
+      chainId: 421614,
+      to: "0x3333333333333333333333333333333333333333",
+      data: "0x12345678",
+    },
+  ],
+  jb: { ...envelope.jb, chains: [84532, 421614] },
 };
 
 async function publishWith(
@@ -671,5 +695,149 @@ describe("JB Center API", () => {
     expect(again.status).toBe(429);
     expect(((await again.json()) as { error: { code: string } }).error.code).toBe("publish_limit");
     expect(again.headers.get("Retry-After")).toBe("3600");
+  });
+});
+
+describe("sponsored deploy requests", () => {
+  let sponsor: { policy: SponsorPolicy; kick: ReturnType<typeof vi.fn> };
+
+  beforeEach(() => {
+    sponsor = { policy: readSponsorPolicy({}), kick: vi.fn() };
+  });
+
+  it("queues every chain once and is idempotent", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor });
+    const intent = (await (await publishWith(app, testnetEnvelope)).json()) as Intent;
+    const first = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(first.status).toBe(202);
+    expect(
+      ((await first.json()) as { deploys: IntentDeploy[] }).deploys.map((d) => d.chainId),
+    ).toEqual([84532, 421614]);
+    expect(sponsor.kick).toHaveBeenCalledTimes(1);
+    const second = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(second.status).toBe(200);
+    expect(sponsor.kick).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses unsponsorable chains, spent budgets and a paused policy", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor });
+    const mainnet = (await (await publish(app)).json()) as Intent;
+    expect(
+      (await app.request(`/v1/intents/${mainnet.id}/deploy`, { method: "POST", headers: trusted }))
+        .status,
+    ).toBe(400);
+
+    const tight = createApp(store, {
+      sponsor: { ...sponsor, policy: { ...sponsor.policy, dailyBudgetWei: 1n } },
+    });
+    const testnet = (await (await publishWith(tight, testnetEnvelope)).json()) as Intent;
+    const budget = await tight.request(`/v1/intents/${testnet.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(budget.status).toBe(429);
+    expect(((await budget.json()) as { error: { code: string } }).error.code).toBe(
+      "sponsor_budget",
+    );
+
+    const paused = createApp(store, {
+      sponsor: { ...sponsor, policy: { ...sponsor.policy, paused: true } },
+    });
+    const pausedResponse = await paused.request(`/v1/intents/${testnet.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(pausedResponse.status).toBe(503);
+  });
+
+  it("is unavailable with no sponsor configured", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store);
+    const intent = (await (await publish(app)).json()) as Intent;
+    const response = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(response.status).toBe(503);
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+      "unavailable",
+    );
+  });
+
+  it("rejects an invalid intent id and reports a missing intent", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor });
+    const invalid = await app.request("/v1/intents/not-a-uuid/deploy", {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(invalid.status).toBe(400);
+    const missing = await app.request(`/v1/intents/${randomUUID()}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(missing.status).toBe(404);
+  });
+
+  it("refuses a deploy request once the intent is already deployed", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor, deploymentVerifier: verifier });
+    const intent = (await (await publish(app)).json()) as Intent;
+    await app.request(`/v1/intents/${intent.id}/deployments`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({
+        chainId: 1,
+        projectId: "42",
+        transactionHash: `0x${"12".repeat(32)}`,
+      }),
+    });
+    const response = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("enforces the per-requester daily quota", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor: { ...sponsor, policy: { ...sponsor.policy, perRequesterPerDay: 1 } } });
+    const first = (await (await publishWith(app, testnetEnvelope)).json()) as Intent;
+    expect(
+      (await app.request(`/v1/intents/${first.id}/deploy`, { method: "POST", headers: trusted }))
+        .status,
+    ).toBe(202);
+    const second = (await (
+      await publishWith(app, { ...testnetEnvelope, jb: { ...testnetEnvelope.jb, name: "second" } })
+    ).json()) as Intent;
+    const quota = await app.request(`/v1/intents/${second.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(quota.status).toBe(429);
+    expect(((await quota.json()) as { error: { code: string } }).error.code).toBe(
+      "sponsor_quota",
+    );
+  });
+
+  it("reserves the budget split evenly across chains", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor });
+    const intent = (await (await publishWith(app, testnetEnvelope)).json()) as Intent;
+    await app.request(`/v1/intents/${intent.id}/deploy`, { method: "POST", headers: trusted });
+    const stored = store.intents.find((item) => item.id === intent.id)!;
+    const reservedWei = (stored.deploys as unknown as { reservedWei: bigint }[]).map(
+      (deploy) => deploy.reservedWei,
+    );
+    const expectedTotal = 2n * (sponsor.policy.maximumGas * sponsor.policy.maximumFeePerGas + 100_000_000_000_000n);
+    expect(reservedWei).toEqual([expectedTotal / 2n, expectedTotal / 2n]);
   });
 });
