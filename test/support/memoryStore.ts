@@ -151,11 +151,21 @@ export class MemoryStore implements Store {
   ): Promise<{ intentId: string; chainIds: number[] }[]> {
     const now = Date.now();
     const claimed: { intentId: string; chainIds: number[] }[] = [];
+    for (const intent of this.intents) {
+      for (const deploy of intent.deploys as StoredDeploy[]) {
+        if (deploy.status !== "queued" || deploy.attempts < 3) continue;
+        if (deploy.leaseUntil !== null && deploy.leaseUntil >= now) continue;
+        deploy.status = "failed";
+        deploy.error = "attempts exhausted";
+        if (deploy.bundleUuid === null) deploy.reservedWei = 0n;
+        deploy.updatedAt = new Date().toISOString();
+      }
+    }
     for (const intent of [...this.intents].sort((a, b) => a.id.localeCompare(b.id))) {
       if (claimed.length >= limit) break;
       const eligible = (intent.deploys as StoredDeploy[]).filter(
         (deploy) =>
-          deploy.status === "queued" &&
+          (deploy.status === "queued" || deploy.status === "sent") &&
           (deploy.leaseUntil === null || deploy.leaseUntil < now) &&
           deploy.attempts < 3,
       );
@@ -180,9 +190,11 @@ export class MemoryStore implements Store {
     deploy.status = patch.status;
     if (patch.transactionHash !== undefined) deploy.transactionHash = patch.transactionHash;
     if (patch.bundleUuid !== undefined) deploy.bundleUuid = patch.bundleUuid;
-    deploy.error = patch.error ?? null;
+    deploy.error = patch.error?.slice(0, 300) ?? null;
     if (patch.spentWei !== undefined) deploy.spentWei = patch.spentWei;
-    if (patch.status === "confirmed" || patch.status === "failed") deploy.reservedWei = 0n;
+    // A failed row that carries a bundle keeps its reservation: money may have left.
+    if (patch.status === "confirmed" || (patch.status === "failed" && deploy.bundleUuid === null))
+      deploy.reservedWei = 0n;
     deploy.updatedAt = new Date().toISOString();
   }
 

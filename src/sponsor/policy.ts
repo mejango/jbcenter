@@ -1,6 +1,6 @@
 export const SPONSORED_MAINNETS = [10, 8453, 42161] as const;
 export const SPONSORED_TESTNETS = [11155111, 11155420, 84532, 421614] as const;
-const CREATION_FEE_CEILING = 100_000_000_000_000n; // 0.0001 ETH today; MAX_CREATION_FEE on chain is 0.001 ETH
+export const CREATION_FEE_CEILING = 100_000_000_000_000n; // 0.0001 ETH today; MAX_CREATION_FEE on chain is 0.001 ETH
 
 export type SponsorPolicy = {
   paused: boolean;
@@ -42,6 +42,7 @@ export function readSponsorPolicy(env: NodeJS.ProcessEnv): SponsorPolicy {
     dailyBudgetWei: BigInt(int("SPONSOR_DAILY_BUDGET_WEI", "50000000000000000")),
     maximumGas: BigInt(int("SPONSOR_MAX_GAS", "8000000")),
     maximumFeePerGas: BigInt(int("SPONSOR_MAX_FEE_PER_GAS", "1000000000")),
-    confirmations: Number(int("SPONSOR_CONFIRMATIONS", "2")),
+    // The deployment verifier requires two confirmations; a lower setting cannot be honoured.
+    confirmations: Math.max(2, Number(int("SPONSOR_CONFIRMATIONS", "2"))),
   };
 }

@@ -56,6 +56,9 @@ type IntentDeployRow = QueryResultRow & {
   updated_at: Date;
 };
 
+/** Deploy errors are public; a coded lane message never needs more room than this. */
+const DEPLOY_ERROR_LIMIT = 300;
+
 const deployment = (row: DeploymentRow): Deployment => ({
   chainId: Number(row.chain_id),
   projectId: row.project_id,
@@ -380,14 +383,23 @@ export class PostgresStore implements Store {
     leaseSeconds: number,
     limit: number,
   ): Promise<{ intentId: string; chainIds: number[] }[]> {
+    // A row whose attempts are spent is a dead end: retire it, and release its
+    // reservation only when no bundle was ever submitted for it.
+    await this.pool.query(
+      `UPDATE intent_deploys SET status = 'failed', error = 'attempts exhausted',
+         reserved_wei = CASE WHEN bundle_uuid IS NULL THEN 0 ELSE reserved_wei END,
+         updated_at = now()
+       WHERE status = 'queued' AND attempts >= 3 AND (lease_until IS NULL OR lease_until < now())`,
+    );
+    // A 'sent' row whose lease expired carries a bundle, so the worker resumes it.
     const result = await this.pool.query<{ intent_id: string; chain_id: string }>(
       `WITH picked AS (
          SELECT intent_id FROM intent_deploys
-         WHERE status = 'queued' AND (lease_until IS NULL OR lease_until < now()) AND attempts < 3
+         WHERE status IN ('queued', 'sent') AND (lease_until IS NULL OR lease_until < now()) AND attempts < 3
          GROUP BY intent_id ORDER BY intent_id LIMIT $2
        )
        UPDATE intent_deploys d SET lease_until = now() + make_interval(secs => $1), attempts = attempts + 1, updated_at = now()
-       FROM picked WHERE d.intent_id = picked.intent_id AND d.status = 'queued'
+       FROM picked WHERE d.intent_id = picked.intent_id AND d.status IN ('queued', 'sent')
          AND (d.lease_until IS NULL OR d.lease_until < now()) AND d.attempts < 3
        RETURNING d.intent_id, d.chain_id`,
       [leaseSeconds, limit],
@@ -404,11 +416,16 @@ export class PostgresStore implements Store {
   }
 
   async updateDeploy(intentId: string, chainId: number, patch: DeployPatch): Promise<void> {
+    // A failed row that carries a bundle keeps its reservation: the prepayment may
+    // already have left the key, and the budget must keep counting it.
     await this.pool.query(
       `UPDATE intent_deploys SET status = $3,
          transaction_hash = coalesce($4, transaction_hash), bundle_uuid = coalesce($5, bundle_uuid),
          error = $6, spent_wei = coalesce($7::numeric, spent_wei),
-         reserved_wei = CASE WHEN $3 IN ('confirmed', 'failed') THEN 0 ELSE reserved_wei END,
+         reserved_wei = CASE
+           WHEN $3 = 'confirmed' THEN 0
+           WHEN $3 = 'failed' AND bundle_uuid IS NULL AND $5::text IS NULL THEN 0
+           ELSE reserved_wei END,
          updated_at = now()
        WHERE intent_id = $1 AND chain_id = $2`,
       [
@@ -417,7 +434,7 @@ export class PostgresStore implements Store {
         patch.status,
         patch.transactionHash ?? null,
         patch.bundleUuid ?? null,
-        patch.error ?? null,
+        patch.error?.slice(0, DEPLOY_ERROR_LIMIT) ?? null,
         patch.spentWei?.toString() ?? null,
       ],
     );

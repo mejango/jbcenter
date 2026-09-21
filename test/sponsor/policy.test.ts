@@ -21,6 +21,10 @@ describe("sponsor policy", () => {
       confirmations: 2,
     });
     expect(readSponsorPolicy({ SPONSOR_PAUSED: "1" }).paused).toBe(true);
+    // The deployment verifier requires two confirmations, so a lower setting is raised.
+    expect(readSponsorPolicy({ SPONSOR_CONFIRMATIONS: "0" }).confirmations).toBe(2);
+    expect(readSponsorPolicy({ SPONSOR_CONFIRMATIONS: "1" }).confirmations).toBe(2);
+    expect(readSponsorPolicy({ SPONSOR_CONFIRMATIONS: "5" }).confirmations).toBe(5);
     expect(reservationWei(policy, 2)).toBe(2n * (8_000_000n * 1_000_000_000n + 100_000_000_000_000n));
   });
 });

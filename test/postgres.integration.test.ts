@@ -40,6 +40,19 @@ function newIntent(overrides: { name?: string; chainIds?: number[] } = {}): NewI
   };
 }
 const adminPool = connectionString ? createPool(connectionString) : null;
+const reservedWei = async (intentId: string, chainId: number): Promise<string> =>
+  (
+    await pool!.query<{ wei: string }>(
+      "SELECT reserved_wei::text AS wei FROM intent_deploys WHERE intent_id = $1 AND chain_id = $2",
+      [intentId, chainId],
+    )
+  ).rows[0]!.wei;
+const expire = async (intentId: string): Promise<void> => {
+  await pool!.query(
+    "UPDATE intent_deploys SET lease_until = now() - interval '1 second' WHERE intent_id = $1",
+    [intentId],
+  );
+};
 let pool: Pool | null = null;
 let store: PostgresStore | null = null;
 
@@ -169,6 +182,61 @@ suite("PostgreSQL store", () => {
     expect((await store!.getIntent(intent.id))?.deploys[0]).toMatchObject({ chainId: 84532, status: "confirmed" });
   });
 
+  it("resumes a sent row whose lease expired, and keeps a paid reservation on a dead end", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "four", chainIds: [11155420] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(intent.id, [11155420], "browser:y", 900n);
+    expect(await store!.claimQueuedDeploys(0, 10)).toEqual([
+      { intentId: intent.id, chainIds: [11155420] },
+    ]);
+    await store!.updateDeploy(intent.id, 11155420, {
+      status: "sent",
+      transactionHash: HASH,
+      bundleUuid: "bundle-1",
+    });
+    await expire(intent.id);
+    // A sent row that outlived its lease is claimed again so the worker resumes its bundle.
+    expect(await store!.claimQueuedDeploys(0, 10)).toEqual([
+      { intentId: intent.id, chainIds: [11155420] },
+    ]);
+
+    await store!.updateDeploy(intent.id, 11155420, { status: "queued", bundleUuid: "bundle-1" });
+    await pool!.query("UPDATE intent_deploys SET attempts = 3 WHERE intent_id = $1", [intent.id]);
+    await expire(intent.id);
+    expect(await store!.claimQueuedDeploys(0, 10)).toEqual([]);
+    expect((await store!.getIntent(intent.id))?.deploys[0]).toMatchObject({
+      status: "failed",
+      error: "attempts exhausted",
+    });
+    // The bundle was submitted, so the reservation keeps counting against the budget.
+    expect(await reservedWei(intent.id, 11155420)).toBe("900");
+  });
+
+  it("caps a stored error and keeps a paid reservation when a chain fails", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "five", chainIds: [421614] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(intent.id, [421614], "browser:y", 800n);
+    await store!.updateDeploy(intent.id, 421614, {
+      status: "failed",
+      bundleUuid: "bundle-2",
+      error: "z".repeat(900),
+    });
+    expect((await store!.getIntent(intent.id))?.deploys[0]?.error).toHaveLength(300);
+    expect(await reservedWei(intent.id, 421614)).toBe("800");
+
+    const { intent: unpaid } = await store!.createIntent(
+      newIntent({ name: "six", chainIds: [421614] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(unpaid.id, [421614], "browser:y", 800n);
+    await store!.updateDeploy(unpaid.id, 421614, { status: "failed", error: "chain not configured" });
+    expect(await reservedWei(unpaid.id, 421614)).toBe("0");
+  });
+
   it("reclaims an expired lease, stops once attempts reach the cap, and leaves a sibling chain's live lease alone", async () => {
     const { intent } = await store!.createIntent(
       newIntent({ name: "two", chainIds: [11155111] }),
@@ -186,6 +254,12 @@ suite("PostgreSQL store", () => {
       );
     }
     expect(await store!.claimQueuedDeploys(0, 10)).toEqual([]);
+    // A row that can no longer be retried is retired, and its reservation released.
+    expect((await store!.getIntent(intent.id))?.deploys[0]).toMatchObject({
+      status: "failed",
+      error: "attempts exhausted",
+    });
+    expect(await reservedWei(intent.id, 11155111)).toBe("0");
 
     const { intent: sibling } = await store!.createIntent(
       newIntent({ name: "three", chainIds: [84532, 11155420] }),

@@ -550,9 +550,12 @@ describe("sponsored deploy requests", () => {
       headers: trusted,
     });
     expect(budget.status).toBe(429);
+    expect(budget.headers.get("Retry-After")).toBe("86400");
     expect(((await budget.json()) as { error: { code: string } }).error.code).toBe(
       "sponsor_budget",
     );
+    // A budget refusal costs the requester nothing: the quota is consumed after that check.
+    expect([...store.requests.keys()].filter((key) => key.startsWith("deploy:"))).toEqual([]);
 
     const paused = createApp(store, {
       sponsor: { ...sponsor, policy: { ...sponsor.policy, paused: true } },
@@ -629,6 +632,7 @@ describe("sponsored deploy requests", () => {
       headers: trusted,
     });
     expect(quota.status).toBe(429);
+    expect(quota.headers.get("Retry-After")).toBe("86400");
     expect(((await quota.json()) as { error: { code: string } }).error.code).toBe(
       "sponsor_quota",
     );

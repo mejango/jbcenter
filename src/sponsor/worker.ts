@@ -1,7 +1,15 @@
 import type { DeploymentVerifier } from "../deploymentVerifier.js";
 import type { Store } from "../store.js";
-import type { DeployLane, LaneReport } from "./chain.js";
+import {
+  laneErrorMessage,
+  logSponsorEvent,
+  type DeployLane,
+  type LaneReport,
+  type SponsorEvents,
+} from "./chain.js";
 import type { SponsorPolicy, SponsorRuntime } from "./policy.js";
+
+const DRAIN_LIMIT_MS = 30_000;
 
 export function createSponsorWorker(options: {
   store: Store;
@@ -9,106 +17,143 @@ export function createSponsorWorker(options: {
   lane: DeployLane;
   policy: SponsorPolicy;
   leaseSeconds?: number;
-}): SponsorRuntime & { stop(): void; runOnce(): Promise<void> } {
-  const { store, verifier, lane, policy, leaseSeconds = 1800 } = options;
+  onEvent?: SponsorEvents;
+}): SponsorRuntime & { stop(): Promise<void>; runOnce(): Promise<void> } {
+  const { store, verifier, lane, policy, leaseSeconds = 1800, onEvent = logSponsorEvent } = options;
   let running = false;
   let stopped = false;
   let pending = false;
+  let active: Promise<void> | null = null;
+
+  async function runClaim(intentId: string, chainIds: number[]): Promise<void> {
+    const intent = await store.getIntent(intentId);
+    if (!intent) return;
+    // A second request, or a manually recorded deployment, retires the queued work.
+    if (intent.status !== "undeployed" || intent.deployments.length > 0) {
+      for (const chainId of chainIds) {
+        await store.updateDeploy(intentId, chainId, {
+          status: "failed",
+          error: "intent already has a deployment",
+        });
+        onEvent({ event: "failed", intentId, chainId, error: "intent already has a deployment" });
+      }
+      return;
+    }
+    const done = new Set<number>();
+    let deferred = false;
+    const fail = async (chainId: number, error: string) => {
+      await store.updateDeploy(intentId, chainId, { status: "failed", error });
+      onEvent({ event: "failed", intentId, chainId, error });
+      done.add(chainId);
+    };
+    const report: LaneReport = {
+      bundle: async (bundleUuid) => {
+        for (const chainId of chainIds) {
+          await store.updateDeploy(intentId, chainId, { status: "queued", bundleUuid });
+        }
+      },
+      paid: (chainId, spentWei) => store.updateDeploy(intentId, chainId, { status: "queued", spentWei }),
+      sent: (chainId, transactionHash, bundleUuid) =>
+        store.updateDeploy(intentId, chainId, { status: "sent", transactionHash, bundleUuid }),
+      confirmed: async (chainId, transactionHash, projectId) => {
+        try {
+          const call = intent.envelope.deploymentCalls.find((c) => c.chainId === chainId)!;
+          await verifier.verify({
+            chainId,
+            projectId,
+            transactionHash,
+            deploymentVersion: intent.envelope.deploymentVersion,
+            call,
+          });
+          await store.recordDeployment(intentId, { chainId, projectId, transactionHash });
+          await store.updateDeploy(intentId, chainId, { status: "confirmed", transactionHash });
+          done.add(chainId);
+        } catch (error) {
+          const message = laneErrorMessage(error);
+          await store.updateDeploy(intentId, chainId, {
+            status: "failed",
+            transactionHash,
+            error: message,
+          });
+          onEvent({ event: "failed", intentId, chainId, error: message });
+          done.add(chainId);
+        }
+      },
+      failed: fail,
+      deferred: async (error) => {
+        deferred = true;
+        onEvent({ event: "deferred", intentId, chainIds, error });
+      },
+    };
+    // A claimed row that already carries a bundle was paid for by an earlier
+    // attempt; resuming it is the only way not to fund the same work twice.
+    const bundleUuid = intent.deploys.find(
+      (deploy) => chainIds.includes(deploy.chainId) && deploy.bundleUuid,
+    )?.bundleUuid;
+    try {
+      if (bundleUuid) await lane.resume(intent, chainIds, bundleUuid, report);
+      else await lane.deploy(intent, chainIds, report);
+    } catch (error) {
+      const message = laneErrorMessage(error);
+      for (const chainId of chainIds) if (!done.has(chainId)) await fail(chainId, message);
+    }
+    if (deferred) return;
+    for (const chainId of chainIds) {
+      if (!done.has(chainId)) await fail(chainId, "not attempted: an earlier chain failed");
+    }
+  }
 
   async function runOnce(): Promise<void> {
     const claims = await store.claimQueuedDeploys(leaseSeconds, 5);
     for (const { intentId, chainIds } of claims) {
-      const intent = await store.getIntent(intentId);
-      if (!intent) continue;
-      const done = new Set<number>();
-      const report: LaneReport = {
-        bundle: async (bundleUuid) => {
-          for (const chainId of chainIds) {
-            await store.updateDeploy(intentId, chainId, { status: "queued", bundleUuid });
-          }
-        },
-        sent: (chainId, transactionHash, bundleUuid) =>
-          store.updateDeploy(intentId, chainId, { status: "sent", transactionHash, bundleUuid }),
-        confirmed: async (chainId, transactionHash, projectId, spentWei) => {
-          try {
-            const call = intent.envelope.deploymentCalls.find((c) => c.chainId === chainId)!;
-            await verifier.verify({
-              chainId,
-              projectId,
-              transactionHash,
-              deploymentVersion: intent.envelope.deploymentVersion,
-              call,
-            });
-            await store.recordDeployment(intentId, { chainId, projectId, transactionHash });
-            await store.updateDeploy(intentId, chainId, { status: "confirmed", transactionHash, spentWei });
-          } catch (error) {
-            await store.updateDeploy(intentId, chainId, {
-              status: "failed",
-              transactionHash,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-          done.add(chainId);
-        },
-        failed: async (chainId, error) => {
-          await store.updateDeploy(intentId, chainId, { status: "failed", error });
-          done.add(chainId);
-        },
-      };
-      // A claimed row that already carries a bundle was paid for by an earlier
-      // attempt; resuming it is the only way not to fund the same work twice.
-      const bundleUuid = intent.deploys.find(
-        (deploy) => chainIds.includes(deploy.chainId) && deploy.bundleUuid,
-      )?.bundleUuid;
+      // One unreadable intent must not cost the rest of the batch its turn; the
+      // lease expires and the rows are claimed again.
       try {
-        if (bundleUuid) await lane.resume(intent, chainIds, bundleUuid, report);
-        else await lane.deploy(intent, chainIds, report);
+        await runClaim(intentId, chainIds);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        for (const chainId of chainIds) {
-          if (!done.has(chainId)) await report.failed(chainId, message);
-        }
-      }
-      for (const chainId of chainIds) {
-        if (!done.has(chainId)) {
-          await store.updateDeploy(intentId, chainId, {
-            status: "failed",
-            error: "not attempted: an earlier chain failed",
-          });
-        }
+        console.error("sponsor claim failed", laneErrorMessage(error));
       }
     }
   }
 
   async function loop(): Promise<void> {
-    if (running || stopped) {
-      pending = running;
-      return;
-    }
     running = true;
     try {
       do {
         pending = false;
         await runOnce();
-      } while (pending);
+      } while (pending && !stopped);
     } finally {
       running = false;
     }
   }
 
-  const timer = setInterval(() => {
-    void loop();
-  }, 30_000);
+  function start(): void {
+    if (running || stopped) {
+      pending = running;
+      return;
+    }
+    active = loop().catch((error) => console.error("sponsor worker failed", laneErrorMessage(error)));
+  }
+
+  const timer = setInterval(start, 30_000);
   timer.unref();
 
   return {
     policy,
-    kick: () => {
-      void loop();
-    },
-    stop: () => {
+    kick: start,
+    stop: async () => {
       stopped = true;
       clearInterval(timer);
+      if (!active) return;
+      let drain: NodeJS.Timeout | undefined;
+      await Promise.race([
+        active,
+        new Promise<void>((resolve) => {
+          drain = setTimeout(resolve, DRAIN_LIMIT_MS);
+        }),
+      ]);
+      clearTimeout(drain);
     },
     runOnce,
   };

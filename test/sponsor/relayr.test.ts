@@ -23,7 +23,12 @@ import { RELAYR_PAYMENT_EVENT } from "../../src/rest/sponsorship/paymentContract
 import type { RelayrProvider } from "../../src/rest/sponsorship/provider.js";
 import type { PreparedForwardRequest, RelayrEntry } from "../../src/rest/sponsorship/types.js";
 import type { RestCall } from "../../src/rest/core.js";
-import { CREATE_TOPIC, PROJECTS_ABI, type LaneReport } from "../../src/sponsor/chain.js";
+import {
+  CREATE_TOPIC,
+  PROJECTS_ABI,
+  type LaneReport,
+  type SponsorEvent,
+} from "../../src/sponsor/chain.js";
 import { readSponsorPolicy, reservationWei } from "../../src/sponsor/policy.js";
 import { createRelayrLane } from "../../src/sponsor/relayr.js";
 import type { Intent } from "../../src/types.js";
@@ -305,7 +310,12 @@ function block() {
   };
 }
 
-function installRpc(receipts: Map<string, unknown>, events: string[]) {
+function installRpc(
+  receipts: Map<string, unknown>,
+  events: string[],
+  balance: bigint,
+  creationFee: bigint,
+) {
   const prepayments: TransactionSerializedEIP1559[] = [];
   const feeCall = encodeFunctionData({ abi: PROJECTS_ABI, functionName: "creationFee" });
   vi.stubGlobal("fetch", async (_url: unknown, init: { body: string }) => {
@@ -321,7 +331,7 @@ function installRpc(receipts: Map<string, unknown>, events: string[]) {
           if (call.to !== PROJECTS || call.data !== feeCall) {
             throw new Error(`unexpected eth_call to ${call.to}`);
           }
-          return toHex(CREATION_FEE, { size: 32 });
+          return toHex(creationFee, { size: 32 });
         }
         case "eth_blockNumber":
           return toHex(BLOCK);
@@ -331,6 +341,8 @@ function installRpc(receipts: Map<string, unknown>, events: string[]) {
           return toHex(1_000_000n);
         case "eth_getTransactionCount":
           return "0x7";
+        case "eth_getBalance":
+          return toHex(balance);
         case "eth_sendRawTransaction":
           events.push("prepayment");
           prepayments.push(params[0] as TransactionSerializedEIP1559);
@@ -356,6 +368,8 @@ function harness(options: {
   amount?: bigint;
   revertedChains?: number[];
   revertedPayment?: boolean;
+  balance?: bigint;
+  creationFee?: bigint;
 }) {
   const amount = options.amount ?? PAYMENT_AMOUNT;
   const hashes = new Map(options.chainIds.map((chainId) => [chainId, deployHash(chainId)]));
@@ -373,7 +387,7 @@ function harness(options: {
     ),
   );
   const events: string[] = [];
-  const prepayments = installRpc(receipts, events);
+  const prepayments = installRpc(receipts, events, options.balance ?? 10n ** 18n, options.creationFee ?? CREATION_FEE);
   const chain = fakeChain();
   const provider = fakeProvider({
     chainIds: options.chainIds,
@@ -386,13 +400,19 @@ function harness(options: {
     bundle: vi.fn(async () => {
       events.push("bundle");
     }),
+    paid: vi.fn(async () => {
+      events.push("paid");
+    }),
     sent: vi.fn(async () => {}),
     confirmed: vi.fn(async () => {}),
     failed: vi.fn(async () => {}),
+    deferred: vi.fn(async () => {}),
   } satisfies LaneReport;
   const waits: number[] = [];
   let clock = NOW;
+  const laneEvents: SponsorEvent[] = [];
   const lane = createRelayrLane({
+    onEvent: (event) => laneEvents.push(event),
     chain: chain.chain,
     catalog,
     provider: provider.provider,
@@ -406,7 +426,7 @@ function harness(options: {
       clock += ms;
     },
   });
-  return { amount, chain, events, hashes, lane, prepayments, provider, report, waits };
+  return { amount, chain, events, hashes, lane, laneEvents, prepayments, provider, report, waits };
 }
 
 afterEach(() => {
@@ -416,17 +436,18 @@ afterEach(() => {
 describe("relayr sponsorship lane", () => {
   test("signs forward requests with the sponsor key, prepays, polls and reports on mainnets", async () => {
     const chainIds = [8453, 10];
-    const { amount, chain, events, hashes, lane, prepayments, provider, report, waits } = harness({
-      chainIds,
-      paymentChainId: 8453,
-      hashAfter: 2,
-      projectIds: ["12", "3"],
-    });
+    const { amount, chain, events, hashes, lane, laneEvents, prepayments, provider, report, waits } =
+      harness({
+        chainIds,
+        paymentChainId: 8453,
+        hashAfter: 2,
+        projectIds: ["12", "3"],
+      });
 
     await lane.deploy(intent(chainIds), chainIds, report);
 
     expect(report.failed).not.toHaveBeenCalled();
-    expect(events).toEqual(["bundle", "prepayment"]);
+    expect(events).toEqual(["bundle", "prepayment", "paid"]);
     expect(report.bundle).toHaveBeenCalledWith(BUNDLE);
     expect(waits).toEqual([5_000]);
     expect(chain.prepare).toHaveBeenCalledTimes(2);
@@ -459,13 +480,23 @@ describe("relayr sponsorship lane", () => {
 
     expect(report.sent).toHaveBeenCalledWith(8453, hashes.get(8453), BUNDLE);
     expect(report.sent).toHaveBeenCalledWith(10, hashes.get(10), BUNDLE);
-    expect(report.confirmed).toHaveBeenCalledWith(
-      8453,
-      hashes.get(8453),
-      "12",
-      GAS_USED * GAS_PRICE + amount,
-    );
-    expect(report.confirmed).toHaveBeenCalledWith(10, hashes.get(10), "3", 0n);
+    expect(report.paid).toHaveBeenCalledWith(8453, GAS_USED * GAS_PRICE + amount);
+    expect(report.confirmed).toHaveBeenCalledWith(8453, hashes.get(8453), "12");
+    expect(report.confirmed).toHaveBeenCalledWith(10, hashes.get(10), "3");
+    expect(laneEvents).toEqual([
+      { event: "bundle", intentId: "intent-1", bundleUuid: BUNDLE, chainIds },
+      {
+        event: "payment",
+        intentId: "intent-1",
+        chainId: 8453,
+        transactionHash: PAYMENT_HASH,
+        wei: (GAS_USED * GAS_PRICE + amount).toString(),
+      },
+      { event: "sent", intentId: "intent-1", chainId: 8453, transactionHash: hashes.get(8453) },
+      { event: "sent", intentId: "intent-1", chainId: 10, transactionHash: hashes.get(10) },
+      { event: "confirmed", intentId: "intent-1", chainId: 8453, projectId: "12" },
+      { event: "confirmed", intentId: "intent-1", chainId: 10, projectId: "3" },
+    ]);
   });
 
   test("uses the testnet payment family for testnet deployments", async () => {
@@ -483,13 +514,9 @@ describe("relayr sponsorship lane", () => {
     expect(prepayments).toHaveLength(1);
     expect(parseTransaction(prepayments[0]!)).toMatchObject({ chainId: 84532, value: amount });
     expect(report.sent).toHaveBeenCalledWith(84532, hashes.get(84532), BUNDLE);
-    expect(report.confirmed).toHaveBeenCalledWith(
-      84532,
-      hashes.get(84532),
-      "8",
-      GAS_USED * GAS_PRICE + amount,
-    );
-    expect(report.confirmed).toHaveBeenCalledWith(11155420, hashes.get(11155420), "9", 0n);
+    expect(report.paid).toHaveBeenCalledWith(84532, GAS_USED * GAS_PRICE + amount);
+    expect(report.confirmed).toHaveBeenCalledWith(84532, hashes.get(84532), "8");
+    expect(report.confirmed).toHaveBeenCalledWith(11155420, hashes.get(11155420), "9");
   });
 
   test("fails only the chain whose relayed deployment reverted", async () => {
@@ -502,18 +529,16 @@ describe("relayr sponsorship lane", () => {
       revertedChains: [8453],
     });
 
+
     await lane.deploy(intent(chainIds), chainIds, report);
 
     expect(report.sent).toHaveBeenCalledTimes(2);
     expect(report.failed).toHaveBeenCalledTimes(1);
     expect(report.failed).toHaveBeenCalledWith(8453, "the relayed deployment reverted");
     expect(report.confirmed).toHaveBeenCalledTimes(1);
-    expect(report.confirmed).toHaveBeenCalledWith(
-      10,
-      hashes.get(10),
-      "3",
-      GAS_USED * GAS_PRICE + amount,
-    );
+    expect(report.confirmed).toHaveBeenCalledWith(10, hashes.get(10), "3");
+    // The prepayment is charged when it settles, not to whichever chain survives.
+    expect(report.paid).toHaveBeenCalledWith(8453, GAS_USED * GAS_PRICE + amount);
   });
 
   test("resume follows an already paid bundle without paying again", async () => {
@@ -530,9 +555,10 @@ describe("relayr sponsorship lane", () => {
     expect(provider.create).not.toHaveBeenCalled();
     expect(prepayments).toHaveLength(0);
     expect(report.failed).not.toHaveBeenCalled();
+    expect(report.paid).not.toHaveBeenCalled();
     expect(report.sent).toHaveBeenCalledWith(8453, hashes.get(8453), BUNDLE);
-    expect(report.confirmed).toHaveBeenCalledWith(8453, hashes.get(8453), "12", 0n);
-    expect(report.confirmed).toHaveBeenCalledWith(10, hashes.get(10), "3", 0n);
+    expect(report.confirmed).toHaveBeenCalledWith(8453, hashes.get(8453), "12");
+    expect(report.confirmed).toHaveBeenCalledWith(10, hashes.get(10), "3");
   });
 
   test("fails every unfinished chain when relayr never executes the bundle", async () => {
@@ -587,7 +613,44 @@ describe("relayr sponsorship lane", () => {
     expect(prepayments).toHaveLength(0);
     expect(report.sent).not.toHaveBeenCalled();
     expect(report.confirmed).not.toHaveBeenCalled();
-    expect(report.failed).toHaveBeenCalledWith(8453, expect.stringContaining("maximum native funding"));
-    expect(report.failed).toHaveBeenCalledWith(10, expect.stringContaining("maximum native funding"));
+    expect(report.failed).toHaveBeenCalledWith(8453, "RELAYR_FUNDING_LIMIT");
+    expect(report.failed).toHaveBeenCalledWith(10, "RELAYR_FUNDING_LIMIT");
+  });
+
+  test("leaves every chain queued when the sponsor cannot cover the prepayment", async () => {
+    const chainIds = [8453, 10];
+    const { lane, laneEvents, prepayments, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12", "3"],
+      balance: PAYMENT_AMOUNT,
+    });
+
+    await lane.deploy(intent(chainIds), chainIds, report);
+
+    expect(prepayments).toHaveLength(0);
+    expect(report.bundle).not.toHaveBeenCalled();
+    expect(report.failed).not.toHaveBeenCalled();
+    expect(report.deferred).toHaveBeenCalledWith("sponsor balance too low");
+    // Nothing was submitted, so the worker owns the one line that says why.
+    expect(laneEvents).toEqual([]);
+  });
+
+  test("fails every chain when the creation fee is above the sponsor ceiling", async () => {
+    const chainIds = [8453, 10];
+    const { lane, provider, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12", "3"],
+      creationFee: CREATION_FEE + 1n,
+    });
+
+    await lane.deploy(intent(chainIds), chainIds, report);
+
+    expect(provider.create).not.toHaveBeenCalled();
+    expect(report.failed).toHaveBeenCalledWith(8453, "creation fee above the sponsor ceiling");
+    expect(report.failed).toHaveBeenCalledWith(10, "creation fee above the sponsor ceiling");
   });
 });

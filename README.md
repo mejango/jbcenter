@@ -324,8 +324,10 @@ requested (see "Request a sponsored deploy" below), independent of `deployments`
 }
 ```
 
-`status` is `queued`, `sent`, `confirmed` or `failed`. `bundleUuid` identifies the Relayr bundle
-once one has been submitted; `transactionHash` and `error` fill in as each chain settles.
+`deploys` is always present, and is empty until a deploy is requested. `status` is `queued`,
+`sent`, `confirmed` or `failed`. `bundleUuid` identifies the Relayr bundle once one has been
+submitted; `transactionHash` and `error` fill in as each chain settles. `error` is always a coded,
+bounded message: upstream exception text never reaches this field.
 
 ## Record deployment
 
@@ -375,8 +377,15 @@ set, never a mix. A worker signs each call as a forwarded request, submits the b
 Relayr, and confirms it against the same canonical `JBProjects.Create` event and per-chain call
 match used for `POST /v1/intents/:id/deployments`; a confirmed chain both updates its `deploys` row
 and records the deployment. The route answers `503` with no sponsor configured or while paused,
-`404` for an unknown intent, `400` for an already-deployed or unsponsorable intent, and `429` once
-the requester's daily quota or the shared daily sponsorship budget is spent.
+`404` for an unknown intent, `400` for an already-deployed or unsponsorable intent, and `429` with
+`Retry-After: 86400` once the shared daily sponsorship budget or the requester's daily quota is
+spent. The budget is checked first, so a refused request does not consume the requester's quota.
+
+The sponsor charges the budget what it actually spent: when the Relayr prepayment settles, its
+gas and value are written as `spentWei` on the payment's first claimed chain, before any
+destination chain confirms. A chain that fails after a bundle was submitted keeps its reservation,
+because the money may already have left the key. Center must run a single replica while sponsoring:
+the deploy queue is leased, not locked across processes.
 
 ## Authentication boundaries
 
@@ -416,7 +425,7 @@ The remaining controls are environment variables:
 - `SPONSOR_DAILY_BUDGET_WEI` — total wei reserved for sponsored deploys per rolling day, across every requester; default `50000000000000000`.
 - `SPONSOR_MAX_GAS` — gas ceiling per forwarded deployment call; default `8000000`.
 - `SPONSOR_MAX_FEE_PER_GAS` — max fee per gas the sponsor signs when paying for the Relayr bundle; default `1000000000`.
-- `SPONSOR_CONFIRMATIONS` — confirmations awaited on each destination chain before a sponsored deploy is recorded; default `2`.
+- `SPONSOR_CONFIRMATIONS` — confirmations awaited on each destination chain before a sponsored deploy is recorded; default `2`, and a lower value is raised to `2`, which the deployment verifier requires.
 - `METRICS_TOKEN` — required 32-character bearer token for `GET /metrics`.
 - `FILEBASE_RPC_TOKEN` — bucket-scoped bearer token for Filebase's IPFS RPC API; never expose it to
   a browser.

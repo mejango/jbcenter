@@ -57,6 +57,8 @@ const PIN_PER_CALLER = 10;
 const PIN_PER_SITE = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const TX_HASH = /^0x[0-9a-f]{64}$/iu;
+/** Both sponsored-deploy refusals reset on a rolling day. */
+const RETRY_AFTER_SECONDS = "86400";
 
 class BadRequest extends Error {}
 class PayloadTooLarge extends Error {}
@@ -696,6 +698,16 @@ export function createApp(
     if (intent.status !== "undeployed") throw new BadRequest(`intent is ${intent.status}`);
     if (!sponsorFamily(intent.envelope.chainIds)) throw new BadRequest("intent chains are not sponsorable");
     const requester = c.get("client");
+    const reserved = reservationWei(sponsor.policy, intent.envelope.chainIds.length);
+    const spent = await store.sponsoredWeiSince(new Date(Date.now() - 86_400_000));
+    // The budget is checked before the quota so a budget refusal costs the requester nothing.
+    if (spent + reserved > sponsor.policy.dailyBudgetWei) {
+      return c.json(
+        { error: { code: "sponsor_budget", message: "The daily sponsorship budget is spent" } },
+        429,
+        { "Retry-After": RETRY_AFTER_SECONDS },
+      );
+    }
     const quota = await store.consumeRequest(
       `deploy:${requester}`,
       sponsor.policy.perRequesterPerDay,
@@ -705,14 +717,7 @@ export function createApp(
       return c.json(
         { error: { code: "sponsor_quota", message: "Daily sponsored deploy quota reached" } },
         429,
-      );
-    }
-    const reserved = reservationWei(sponsor.policy, intent.envelope.chainIds.length);
-    const spent = await store.sponsoredWeiSince(new Date(Date.now() - 86_400_000));
-    if (spent + reserved > sponsor.policy.dailyBudgetWei) {
-      return c.json(
-        { error: { code: "sponsor_budget", message: "The daily sponsorship budget is spent" } },
-        429,
+        { "Retry-After": RETRY_AFTER_SECONDS },
       );
     }
     const deploys = await store.queueDeploys(

@@ -21,6 +21,7 @@ import { SponsorshipChain } from "./rest/sponsorship/chain.js";
 import { DEFAULT_SPONSORSHIP_POLICY } from "./rest/sponsorship/constants.js";
 import { RelayrProvider } from "./rest/sponsorship/provider.js";
 import { createRelayrLane } from "./sponsor/relayr.js";
+import type { SponsorEvent } from "./sponsor/chain.js";
 import { readSponsorPolicy, type SponsorRuntime } from "./sponsor/policy.js";
 import { createSponsorWorker } from "./sponsor/worker.js";
 
@@ -121,12 +122,16 @@ const rest = await createRestRuntime({
   executionConfiguration: await readRestExecutionConfiguration(process.env),
 });
 const sponsorSignerKey = process.env.SPONSOR_SIGNER_KEY;
-let sponsor: (SponsorRuntime & { stop(): void }) | undefined;
+let sponsor: (SponsorRuntime & { stop(): Promise<void> }) | undefined;
 if (sponsorSignerKey) {
   if (!/^0x[0-9a-fA-F]{64}$/.test(sponsorSignerKey)) throw new Error("SPONSOR_SIGNER_KEY must be a 32-byte hex private key");
   const signer = privateKeyToAccount(sponsorSignerKey as Hex);
   const sponsorPolicy = readSponsorPolicy(process.env);
   const sponsorRpcUrls = new Map([...rpcUpstreams].map(([chainId, urls]) => [chainId, urls[0]!]));
+  const onSponsorEvent = (event: SponsorEvent) => {
+    metrics.observeSponsorEvent(event as { event: string; wei?: string });
+    console.info(JSON.stringify({ level: "info", service: "sponsor", ...event }));
+  };
   const lane = createRelayrLane({
     chain: new SponsorshipChain(rest.rpc, DEFAULT_SPONSORSHIP_POLICY),
     catalog: rest.catalog,
@@ -135,8 +140,15 @@ if (sponsorSignerKey) {
     signer,
     policy: sponsorPolicy,
     projectsAddress: PROJECTS,
+    onEvent: onSponsorEvent,
   });
-  sponsor = createSponsorWorker({ store, verifier: deploymentVerifier, lane, policy: sponsorPolicy });
+  sponsor = createSponsorWorker({
+    store,
+    verifier: deploymentVerifier,
+    lane,
+    policy: sponsorPolicy,
+    onEvent: onSponsorEvent,
+  });
 }
 const handler = createHttpHandler(mcp.config, () => createMcpServer(mcp.services), {
   healthPath: "/mcp/healthz",
@@ -173,7 +185,7 @@ const shutdown = async () => {
   if (shuttingDown) return;
   shuttingDown = true;
   await runtime.close();
-  sponsor?.stop();
+  await sponsor?.stop();
   await rest.stop();
   await pool.end();
 };
