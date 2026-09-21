@@ -140,9 +140,11 @@ callbacks. Publishing an intent and requesting a sponsored deploy are the two ex
 the Hono app an in-process `Request` marked internal, so both reuse Center's own signature
 verification, publish limits and sponsor policy instead of a second implementation. The marker
 travels in Hono's environment and never in a header, so no network caller can claim it and no
-browser Origin is impersonated. In process a publish is charged to `mcp:<publisher>` and a
-sponsored deploy to the shared `mcp` requester. Host and browser Origin checks remain active for
-every network caller; non-browser clients do not need to invent an Origin.
+browser Origin is impersonated. A publisher key is free to mint, so an in-process publish
+spends both a per-publisher hourly key and a shared `mcp` hourly bucket, and is stored under the
+single `mcp` identity whose lifetime intent and byte caps bound the whole MCP surface; a sponsored
+deploy spends the shared `mcp` requester. Host and browser Origin checks remain active for every
+network caller; non-browser clients do not need to invent an Origin.
 Search removes non-V6 intent listings while preserving the upstream cursor; a mixed-version source
 count is not reported as a V6 total. Direct intent reads also reject other deployment versions.
 

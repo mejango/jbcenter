@@ -634,14 +634,20 @@ export function createApp(
       signature: signed,
     });
     if (!valid) throw new BadRequest("signature does not match publisher and project intent");
-    // In process there is no caller address to charge. The signature just proved the publisher, so
-    // the hourly and lifetime budgets are per publisher instead of per source.
+    // The co-hosted MCP is one caller of the publish and deploy budgets, not a browser per visitor.
+    // In process there is no caller address to charge and a publisher key is free to mint, so an
+    // internal publish spends a shared hourly bucket as well as a per-publisher one: the shared
+    // bucket, and the shared storage identity below, bound the whole MCP surface.
     const internal = internalCall(c);
     if (internal) c.set("client", `${MCP_CLIENT}:${publisher.toLowerCase()}`);
-    const client = c.get("client");
-    const ip = await store.consumeRequest(`publish:ip:${internal ? client : callerIp(c)}`, options.publishPerIpPerHour ?? 60, 3600);
+    const hourly = internal
+      ? [`publish:${MCP_CLIENT}:${publisher.toLowerCase()}`, `publish:${MCP_CLIENT}`]
+      : [`publish:ip:${callerIp(c)}`];
+    const spent = await Promise.all(
+      hourly.map((key) => store.consumeRequest(key, options.publishPerIpPerHour ?? 60, 3600)),
+    );
     const who = await store.consumeRequest(`publish:${publisher.toLowerCase()}`, options.publishPerPublisherPerDay ?? 20, 86_400);
-    if (!ip.allowed || !who.allowed) {
+    if (spent.some((budget) => !budget.allowed) || !who.allowed) {
       c.header("Retry-After", who.allowed ? "3600" : "86400");
       return c.json({ error: { code: "publish_limit", message: "Publish limit reached; try again later" } }, 429);
     }
@@ -651,7 +657,9 @@ export function createApp(
       envelope,
       publisher,
       signature: signed,
-      submittedBy: client,
+      // One storage identity for every internal publish, so the lifetime intent and byte caps
+      // bound the MCP as a whole rather than one free-to-mint publisher key at a time.
+      submittedBy: internal ? MCP_CLIENT : c.get("client"),
       jbBytes: Buffer.byteLength(JSON.stringify(envelope)),
     }, {
       maxIntents: options.maxIntentsPerClient ?? 10_000,

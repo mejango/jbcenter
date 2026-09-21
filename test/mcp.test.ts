@@ -713,9 +713,14 @@ describe("Center intent writes through the real app", () => {
     jb: { v: 1, name: "In process", chains: [84532] },
   };
 
-  function bridged(store: MemoryStore, paused = false) {
-    const sponsor = { policy: { ...readSponsorPolicy({}), paused }, kick: vi.fn() };
-    const app = createApp(store, { sponsor });
+  function bridged(store: MemoryStore, options: { paused?: boolean; publishPerIpPerHour?: number } = {}) {
+    const sponsor = { policy: { ...readSponsorPolicy({}), paused: options.paused ?? false }, kick: vi.fn() };
+    const app = createApp(store, {
+      sponsor,
+      ...(options.publishPerIpPerHour === undefined
+        ? {}
+        : { publishPerIpPerHour: options.publishPerIpPerHour }),
+    });
     const { services } = createCenterMcp(store, {
       rpc: rpcMock(),
       centerFetch: (request) => app.fetch(request, { internal: "mcp" }),
@@ -724,8 +729,8 @@ describe("Center intent writes through the real app", () => {
     return { app, sponsor, center: services.center };
   }
 
-  async function signed() {
-    const account = privateKeyToAccount(`0x${"22".repeat(32)}`);
+  async function signed(key = "22") {
+    const account = privateKeyToAccount(`0x${key.repeat(32)}`);
     return {
       publisher: account.address,
       signature: await account.signMessage({
@@ -739,11 +744,12 @@ describe("Center intent writes through the real app", () => {
     const { center, sponsor } = bridged(store);
     const published = await center.publishIntent({ ...envelope, ...(await signed()) });
     expect(published.contentHash).toBe(contentHash(envelope));
-    // The verified publisher, not a source address, owns the hourly and lifetime budgets.
-    const identity = `mcp:${published.publisher.toLowerCase()}`;
+    // The publisher gets its own hourly key, but the storage identity stays shared.
     const stored = store.intents[0]! as Intent & { submittedBy?: string };
-    expect(stored.submittedBy).toBe(identity);
-    expect([...store.requests.keys()]).toContain(`publish:ip:${identity}`);
+    expect(stored.submittedBy).toBe("mcp");
+    expect([...store.requests.keys()]).toEqual(
+      expect.arrayContaining([`publish:mcp:${published.publisher.toLowerCase()}`, "publish:mcp"]),
+    );
     const queued = await center.requestDeploy(published.id);
     expect(queued.deploys.map((deploy) => deploy.chainId)).toEqual([84532]);
     expect(sponsor.kick).toHaveBeenCalledTimes(1);
@@ -751,7 +757,7 @@ describe("Center intent writes through the real app", () => {
 
   it("surfaces a paused sponsor as the fixed unavailable sentence", async () => {
     const store = new MemoryStore();
-    const { center } = bridged(store, true);
+    const { center } = bridged(store, { paused: true });
     const published = await center.publishIntent({ ...envelope, ...(await signed()) });
     await expect(center.requestDeploy(published.id)).rejects.toMatchObject({
       code: "SPONSOR_UNAVAILABLE",
@@ -777,5 +783,43 @@ describe("Center intent writes through the real app", () => {
       ).toBe(403);
     }
     expect((await store.search("", 10, 0, {})).totalCount).toBe(0);
+  });
+
+  it("holds every publisher behind one shared hourly bucket and one storage identity", async () => {
+    const store = new MemoryStore();
+    const { center } = bridged(store, { publishPerIpPerHour: 2 });
+    const first = await center.publishIntent({ ...envelope, ...(await signed("22")) });
+    const second = await center.publishIntent({ ...envelope, ...(await signed("33")) });
+    expect(first.publisher).not.toBe(second.publisher);
+    // A publisher key is free to mint, so a third publish from a third key still exhausts it.
+    const failure = await center
+      .publishIntent({ ...envelope, ...(await signed("44")) })
+      .catch((error) => error);
+    expect(failure.code).toBe("UPSTREAM_HTTP_ERROR");
+    expect(failure.details).toMatchObject({ status: 429, code: "publish_limit" });
+    expect(store.requests.get("publish:mcp")).toBe(3);
+    expect(
+      store.intents.map((intent) => (intent as Intent & { submittedBy?: string }).submittedBy),
+    ).toEqual(["mcp", "mcp"]);
+  });
+
+  it("keeps a network caller claiming the MCP's address out of the MCP's budgets", async () => {
+    const store = new MemoryStore();
+    const { app } = bridged(store);
+    const response = await app.request("/v1/intents", {
+      method: "POST",
+      headers: {
+        origin: "https://juicebox.money",
+        "content-type": "application/json",
+        "x-real-ip": "mcp",
+      },
+      body: JSON.stringify({ ...envelope, ...(await signed("55")) }),
+    });
+    expect(response.status).toBe(201);
+    const keys = [...store.requests.keys()];
+    expect(keys).toContain("publish:ip:mcp");
+    expect(keys).not.toContain("publish:mcp");
+    expect(keys.some((key) => key.startsWith("publish:mcp:"))).toBe(false);
+    expect((store.intents[0] as Intent & { submittedBy?: string }).submittedBy).not.toBe("mcp");
   });
 });
