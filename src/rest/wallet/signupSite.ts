@@ -216,6 +216,8 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
     };
     app.post(`${base}/signup/framed/state`, async c => {
       const { input } = await admitted(c, ['flowToken']);
+      // Before a signup begins the frame holds no continuation: the empty state, not a refusal.
+      if (input.flowToken === '') return c.json({ view: null });
       try { return json(c, { view: await signup.status(flowToken(input)) }); }
       catch (error) {
         if (!(error instanceof RestError) || error.code !== 'WALLET_SIGNUP_UNAUTHORIZED') throw error;

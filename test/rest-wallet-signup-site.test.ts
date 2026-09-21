@@ -184,6 +184,8 @@ describe('signup framed by an admitted app', () => {
   });
   it('runs every step by intent and flow token in the body, naming the app as the ceremonies\' top origin, with no cookie', async () => {
     const { app, signup, framed } = framedSetup();
+    const empty = await app.fetch(post('framed/state', { intentId, flowToken: '' }, plain));
+    expect(empty.status).toBe(200); expect(await empty.json()).toEqual({ view: null }); expect(signup.status).not.toHaveBeenCalled();
     const begun = await app.fetch(post('framed/begin', { intentId, recoveryOwner: '0x' + '22'.repeat(20), passkeyName: 'Juicebox test' }, plain));
     expect(begun.status).toBe(201); expect(begun.headers.get('set-cookie')).toBeNull();
     expect(await begun.json()).toEqual({ view, flowToken: token });
