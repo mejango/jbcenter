@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from 'pg';
-import { keccak256, parseTransaction, recoverTransactionAddress, toHex, type Address, type Hex } from 'viem';
+import { keccak256, padHex, parseTransaction, recoverTransactionAddress, stringToHex, toHex, type Address, type Hex } from 'viem';
+import { PostgresSafe7579CheckpointStore } from '../smartAccounts/checkpoints.js';
 import type { PrivateKeyAccount } from 'viem/accounts';
 import { RestError, type RestBlockEvidence, type RestRpc } from '../core.js';
 import type { ContractPin, SmartAccountManifest } from '../smartAccounts/types.js';
@@ -125,8 +126,15 @@ export function createWalletOwnerRelay<Record, Review extends { safeNonce: strin
     let locked = false;
     try {
       // ponytail: one bounded sender lane per relay; a nonce pipeline needs its own reviewed design.
-      const result = await client.query<{ locked: boolean }>("SELECT pg_try_advisory_lock(hashtextextended('rest_wallet_recovery_lanes'::regclass::oid::text||$1,0)) AS locked", ['recovery-local:' + sender]);
-      if (!result.rows[0]!.locked) throw new RestError(409, 'WALLET_RECOVERY_RELAY_BUSY', 'The recovery sender is reconciling an existing operation.');
+      // The lane is waited for, briefly: both pages poll the relay (each read holds it for under a
+      // second), and an action that merely tried the lock answered "busy" whenever a poll was in.
+      try {
+        await client.query("SET lock_timeout='5000ms'");
+        await client.query("SELECT pg_advisory_lock(hashtextextended('rest_wallet_recovery_lanes'::regclass::oid::text||$1,0))", ['recovery-local:' + sender]);
+      } catch (error) {
+        if ((error as { code?: string }).code === '55P03') throw new RestError(409, 'WALLET_RECOVERY_RELAY_BUSY', 'The recovery sender is reconciling an existing operation.');
+        throw error;
+      } finally { await client.query('RESET lock_timeout').catch(() => undefined); }
       locked = true; return await run(client, rpc);
     } finally {
       rpc.close(); if (locked) await client.query("SELECT pg_advisory_unlock(hashtextextended('rest_wallet_recovery_lanes'::regclass::oid::text||$1,0))", ['recovery-local:' + sender]); client.release();
@@ -176,11 +184,31 @@ export function createWalletOwnerRelay<Record, Review extends { safeNonce: strin
     if (observed === null || !same(head(observed), latest)) return fence(client, 'canonical-anchor-replaced');
     rpc.check();
   }
+  const creationTopic = keccak256(stringToHex('ProxyCreation(address,address)'));
   async function inspect(record: Record, rpc: Scope, latest: RestBlockEvidence, replacement: boolean, context?: WalletAuthorityContext) {
     const intent = source.candidate(record).intent;
     const scoped: RestRpc = { request(chain, method, params) { if (chain !== 8453) unavailable(); return rpc.request(method, params); } };
+    // Hosted providers cap eth_getLogs windows (Dwellir: 500 blocks, error -32005), so creation is
+    // proven from the receipt of the creation transaction the account's bound state names, history
+    // is paged at 500 blocks from the shared checkpoints, and no genesis-to-head scan is ever tried.
+    // The same hooks the authority chain and the API's account service carry.
+    // The bound state's creation transaction is a hint the inspector verifies against the canonical
+    // header; without it (a context that cannot be loaded mid-rotation) history starts at the checkpoint.
+    const bound = (context ?? await authority.loadContext(intent.accountId).catch(() => null))?.binding.state;
+    const provenance = bound && object(bound.modules?.details) && object(bound.modules.details.provenance) ? bound.modules.details.provenance : null;
+    const creationTransaction = provenance && typeof provenance.creationTransaction === 'string' && /^0x[0-9a-fA-F]{64}$/.test(provenance.creationTransaction) ? provenance.creationTransaction as Hex : null;
+    const creationLogs = async (chainId: number, factory: Address, account: Address, end: bigint): Promise<globalThis.Record<string, unknown>[]> => {
+      if (chainId !== 8453 || !creationTransaction) return [];
+      const receipt = await rpc.request('eth_getTransactionReceipt', [creationTransaction]);
+      if (!object(receipt) || !Array.isArray(receipt.logs) || receipt.logs.length > 512) return [];
+      return receipt.logs.filter((log: unknown): log is globalThis.Record<string, unknown> => object(log) && typeof log.address === 'string' &&
+        addressSame(log.address, factory) && Array.isArray(log.topics) && log.topics.length === 2 && log.topics[0] === creationTopic &&
+        String(log.topics[1]).toLowerCase() === padHex(account, { size: 32 }).toLowerCase() && typeof log.blockHash === 'string' &&
+        typeof log.blockNumber === 'string' && BigInt(log.blockNumber) <= end);
+    };
     const smart = createSmartAccountService({ rpc: scoped, manifests: [manifest], registry: new MemorySmartAccountRegistry(), audience: intent.origin,
-      moduleInspectors: [createSafe7579Inspector({ rpc: scoped, utility, inspectSessions: createInstalledSessionVerifier({ rpc: scoped }).inspectAllAt })] });
+      moduleInspectors: [createSafe7579Inspector({ rpc: scoped, utility, inspectSessions: createInstalledSessionVerifier({ rpc: scoped }).inspectAllAt,
+        creationLogs, maxLogRangeBlocks: 500, checkpointStore: new PostgresSafe7579CheckpointStore(pool) })] });
     const state = await smart.inspect({ manifestId: manifest.id, address: intent.accountId.slice(12) as Hex }, undefined, latest);
     const checked = assertPasskeyOnboardingState(state), details = state.modules!.details;
     if (checked.initializerHash !== intent.initializerHash || !same(state.evidence, latest)

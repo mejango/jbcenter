@@ -17,11 +17,12 @@ export function walletPage(signup = false, recovery = false, base = '/wallet'): 
 <section id="wallet-device" hidden aria-label="Add a device"><h2>Add a device</h2>
 <p id="wallet-device-hint">Open this link on the other device. It creates its own passkey for this account; you approve it here.</p>
 <div id="wallet-device-code" class="qr"></div><p><a id="wallet-device-link" target="_blank" rel="noopener"></a></p>
-<div class="actions"><button id="wallet-device-approve" type="button" hidden>Approve this device</button><button id="wallet-device-cancel" class="link" type="button">Close</button></div></section></section>
+<div class="actions"><button id="wallet-device-approve" type="button" hidden>Approve this device</button></div></section></section>
 <div class="actions"><button id="wallet-signin" type="button" hidden>Sign in</button>
 <button id="wallet-retry" type="button" hidden>Retry</button>
+<button id="wallet-device-cancel" class="link" type="button" hidden>Close</button>
 <button id="wallet-cancel" type="button" class="link" hidden>Cancel</button>
-<button id="wallet-logout" type="button" class="secondary" hidden>Sign out</button></div>
+<button id="wallet-logout" type="button" class="link" hidden>Sign out</button></div>
 <div id="wallet-links">${signup ? `<a id="wallet-create" href="${base}/create" hidden>Sign up</a>` : ''}
 ${recovery ? `<a id="wallet-recover" href="${base}/recover" hidden>Lost your account?</a>` : ''}</div>
 <p id="wallet-open-row"><a id="wallet-open" href="${base || '/'}" hidden>Open as a page</a></p>

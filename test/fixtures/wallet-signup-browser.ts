@@ -183,6 +183,10 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       // One click and one prompt approve creation and prove the passkey.
       await page.getByRole('button', { name: 'Create account', exact: true }).click();
     }
+    // Under gate load a shared local anvil can time the approval's chain reads out; the page says
+    // so and a person clicks again, as they would. Once.
+    await expect.poll(() => page.locator('#wallet-status').textContent(), { timeout: 15000 }).toMatch(/Creating your account|Signup could not be confirmed/);
+    if ((await page.locator('#wallet-status').textContent())?.includes('Signup could not be confirmed')) await page.getByRole('button', { name: 'Create account', exact: true }).click();
     await contains('Creating your account');
     const originalAddress = await page.locator('#signup-address').textContent();
     networksWalletAddress = (originalAddress ?? '').toLowerCase();

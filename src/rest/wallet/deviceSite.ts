@@ -31,10 +31,10 @@ export function mountWalletDevices(app: Hono, options: WalletDeviceSiteOptions) 
     for (const [name, value] of Object.entries(walletPageHeaders)) c.header(name, value);
     await next();
   });
-  async function body(c: Context, keys: string[]) {
+  async function body(c: Context, keys: string[], optional: string[] = []) {
     assertWalletHttpRequest(c.req.raw, origin, 'central');
     const value = await c.req.json().catch(() => invalid());
-    try { return walletAppFields(value, keys); } catch { return invalid(); }
+    try { return walletAppFields(value, keys, optional); } catch { return invalid(); }
   }
   const json = (c: Context, value: unknown) => c.body(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? String(item) : item), 200, { 'Content-Type': 'application/json' });
   const emit = (action: string) => { try { options.onEvent?.(action, 'ok'); } catch { /* observation only */ } };
@@ -78,11 +78,12 @@ export function mountWalletDevices(app: Hono, options: WalletDeviceSiteOptions) 
     return json(c, { view: await devices.statusForLink(token(input.linkToken)) });
   });
   app.post(`${base}/devices/link/register`, async c => {
-    const input = await body(c, ['linkToken', 'type', 'credentialId', 'rawId', 'clientDataJSON', 'attestationObject']);
-    if (input.type !== 'public-key') invalid();
+    const input = await body(c, ['linkToken', 'type', 'credentialId', 'rawId', 'clientDataJSON', 'attestationObject'], ['passkeyName']);
+    if (input.type !== 'public-key' || (input.passkeyName !== undefined && typeof input.passkeyName !== 'string')) invalid();
     walletHttpBytes(input.credentialId, 1, 1023);
     const view = await devices.register(token(input.linkToken), { type: 'public-key', credentialId: input.credentialId as string,
-      rawId: walletHttpBytes(input.rawId, 1, 1023), clientDataJSON: walletHttpBytes(input.clientDataJSON, 1, 2048), attestationObject: walletHttpBytes(input.attestationObject, 1, 2048) });
+      rawId: walletHttpBytes(input.rawId, 1, 1023), clientDataJSON: walletHttpBytes(input.clientDataJSON, 1, 2048), attestationObject: walletHttpBytes(input.attestationObject, 1, 2048) },
+      typeof input.passkeyName === 'string' ? { passkeyName: input.passkeyName } : {});
     emit('device_register');
     return json(c, { view });
   });

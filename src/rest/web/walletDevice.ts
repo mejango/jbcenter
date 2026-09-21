@@ -73,15 +73,18 @@ async function advance() {
   if (!view) return;
   if (view.phase === 'awaiting_registration' && view.registration) {
     message('Create the passkey in the prompt.'); native = new AbortController(); render();
+    // A name that tells passkeys apart later, like the signup's: the site, then when it was made here.
+    const now = new Date(), passkeyName = view.passkeyName
+      ?? `${location.hostname} ${now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} ${now.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`;
     const value = await navigator.credentials.create({ publicKey: { rp: { id: view.rpId, name: 'Juicebox' },
-      user: { id: decode(view.registration.userHandle), name: view.passkeyName ?? 'Juicebox account', displayName: view.passkeyName ?? 'Juicebox account' },
+      user: { id: decode(view.registration.userHandle), name: passkeyName, displayName: passkeyName },
       challenge: decode(view.registration.challenge), pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
       authenticatorSelection: { residentKey: 'required', requireResidentKey: true, userVerification: 'required' },
       attestation: 'none', timeout: 90000 }, signal: native.signal });
     if (!(value instanceof PublicKeyCredential) || !(value.response instanceof AuthenticatorAttestationResponse)) throw new Error('The passkey response is unavailable.');
     native = null;
     accept(await request('register', { type: 'public-key', credentialId: encode(value.rawId), rawId: encode(value.rawId),
-      clientDataJSON: encode(value.response.clientDataJSON), attestationObject: encode(value.response.attestationObject) }));
+      clientDataJSON: encode(value.response.clientDataJSON), attestationObject: encode(value.response.attestationObject), passkeyName }));
     if ((view as WalletDeviceView | null)?.phase === 'awaiting_possession') await advance();
   } else if (view.phase === 'awaiting_possession' && view.possession) {
     const document = view.possession.document as unknown as TypedDataDefinition;

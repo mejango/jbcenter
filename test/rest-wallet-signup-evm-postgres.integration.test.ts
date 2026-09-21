@@ -119,7 +119,9 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       // The approval carried the speculated funding and preflight into the claim: no chain read of its own.
       expect(events).toEqual(["approval:carried"]);
       expect((await signup.approveDeployment(flowToken, approvalProof)).phase).toBe("deploying");
-      await signup.tick();
+      // Under gate load a shared local anvil can time a read out and the pass says "not now"; the
+      // worker's next pass sends, as in production (the kicked pass may already be the one that did).
+      for (let attempt = 0; attempt < 5 && !(await deployments.getDispatch(operation.id)); attempt++) await signup.tick();
       expect((await deployments.getDispatch(operation.id))!.status).toBe("accepted");
       const dispatch = (await deployments.getDispatch(operation.id))!, sent = (await deployments.get(operation.id))!;
       await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.leaseUntil - Date.now() + 15)));

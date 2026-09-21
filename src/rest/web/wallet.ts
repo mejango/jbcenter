@@ -493,13 +493,18 @@ function renderDevice() {
   const open = !!session && !!device;
   deviceAdd.hidden = !session || open || busy;
   devicePanel.hidden = !open;
-  if (!open) { if (deviceTimer) { clearInterval(deviceTimer); deviceTimer = null; } return; }
+  if (!open) { element<HTMLButtonElement>("wallet-device-cancel").hidden = true; retry.classList.remove("link"); if (deviceTimer) { clearInterval(deviceTimer); deviceTimer = null; } return; }
   const phase = device!.view.phase;
-  element("wallet-device-hint").hidden = phase === "ready" || phase === "expired" || phase === "addition_failed";
+  // The link instructions belong with the link; once the other device has its passkey, the status
+  // line says what is happening and the only text left is the one the approval needs.
   element("wallet-device-code").hidden = phase !== "awaiting_registration" && phase !== "awaiting_possession";
+  element("wallet-device-hint").hidden = element("wallet-device-code").hidden;
   const link = element<HTMLAnchorElement>("wallet-device-link"); link.hidden = element("wallet-device-code").hidden;
   deviceApprove.hidden = phase !== "awaiting_approval" || busy; deviceApprove.disabled = busy;
-  element<HTMLButtonElement>("wallet-device-cancel").textContent = phase === "ready" || phase === "expired" || phase === "addition_failed" ? "Close" : "Cancel";
+  const deviceCancel = element<HTMLButtonElement>("wallet-device-cancel");
+  deviceCancel.hidden = false; deviceCancel.textContent = phase === "ready" || phase === "expired" || phase === "addition_failed" ? "Close" : "Cancel";
+  // One dark button on the page: while the approval is the action, Retry is a text button beside Cancel.
+  retry.classList.toggle("link", !deviceApprove.hidden);
   if (!deviceTimer && ["awaiting_registration", "awaiting_possession", "adding", "awaiting_activation"].includes(phase)) deviceTimer = setInterval(() => {
     if (busy || document.hidden || !navigator.onLine) return;
     devicePoll().catch(() => { /* The next poll reads again. */ });

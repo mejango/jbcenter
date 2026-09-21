@@ -64,7 +64,7 @@ export function createLocalWalletDevices(options: LocalWalletDeviceDependencies)
     async statusForSession(id: string, session: WalletCentralSession) { return view(await owned(id, session)); },
     async statusForLink(linkToken: string) { return view(await linked(linkToken)); },
     /** New device: its passkey, then its possession proof. */
-    async register(linkToken: string, input: WalletRegistrationResponse) { return view(await devices.register(linkToken, input)); },
+    async register(linkToken: string, input: WalletRegistrationResponse, options: { passkeyName?: string } = {}) { return view(await devices.register(linkToken, input, options)); },
     async prove(linkToken: string, input: WalletAssertion) { return view((await devices.prove(linkToken, input)).record); },
     /** Primary: the exact addition to sign, then the signed approval. */
     async prepareAddition(id: string, session: WalletCentralSession) {

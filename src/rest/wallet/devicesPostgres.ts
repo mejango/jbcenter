@@ -101,8 +101,8 @@ export class PostgresWalletDeviceStore {
     const row = (await this.pool.query<Row>('SELECT * FROM rest_wallet_devices WHERE token_hash=$1', [hashToken(linkToken)])).rows[0];
     return row ? recordOf(row) : null;
   }
-  async register(linkToken: string, input: WalletRegistrationResponse): Promise<WalletDeviceRecord> {
-    const response = copyWalletEnrollmentRegistration(input), before = await this.required(linkToken);
+  async register(linkToken: string, input: WalletRegistrationResponse, options: { passkeyName?: string } = {}): Promise<WalletDeviceRecord> {
+    const response = copyWalletEnrollmentRegistration(input), before = await this.required(linkToken), passkeyName = copyWalletPasskeyName(options.passkeyName);
     const candidate = prepareWalletDeviceCandidate(before.intent, response), expected = await this.current(before.intent);
     return this.transaction(async client => {
       await lockWalletCeremonyAdmission(client);
@@ -115,7 +115,8 @@ export class PostgresWalletDeviceStore {
       }
       await this.live(client, row.intent);
       await this.ceremonies.issueInTransaction(client, candidate.possession, null);
-      const updated = (await client.query<Row>('UPDATE rest_wallet_devices SET candidate=$2 WHERE id=$1 RETURNING *', [row.id, candidate])).rows[0]!;
+      // The link may carry no name; the device names its passkey as it creates it (the site, the time).
+      const updated = (await client.query<Row>('UPDATE rest_wallet_devices SET candidate=$2,passkey_name=COALESCE(passkey_name,$3) WHERE id=$1 RETURNING *', [row.id, candidate, passkeyName])).rows[0]!;
       await this.live(client, row.intent); return recordOf(updated);
     });
   }

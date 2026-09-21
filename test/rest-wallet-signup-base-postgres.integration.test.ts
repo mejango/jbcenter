@@ -116,7 +116,8 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
       expect(record.state).toBe("verified");
       const claimed = (await deployments.get(operation.id))!;
       expect(claimed.template!.transaction.nonce).toBe(String(index + 2));
-      try { await signup.tick(); } finally { fixture.faults.after = async () => undefined; }
+      try { for (let attempt = 0; attempt < 5 && !(await deployments.getDispatch(operation.id)); attempt++) await signup.tick(); }
+      finally { fixture.faults.after = async () => undefined; }
       expect(latestReads).toBeGreaterThan(1);
       const dispatch = (await deployments.getDispatch(operation.id))!;
       expect(dispatch.status).toBe("accepted");
@@ -216,6 +217,9 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
     expect(await fixture.rpc("eth_getTransactionCount", [fixture.sender, "latest"])).toBe("0x4");
     // Recovery to the same Safe through the hosted Base relay: lost accepted reply, restart before
     // activation, old credential rejected, lane settled with complete fees only after finality.
+    // Six hundred blocks later, on a provider that serves 500-block log windows: the relay proves the
+    // account's creation from its receipt and pages history from the checkpoints, never a genesis scan.
+    await fixture.rpc("anvil_mine", ["0x258", "0x0"]);
     await exerciseWalletRecoveryEvm({ pool, fixture, smart, authority, ...recoveryTarget!, audience: "https://juicebox.center", relay: "base" });
   }, 180_000);
 });
