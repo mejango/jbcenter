@@ -95,11 +95,16 @@ suite("durable hosted Base deployment accounting", () => {
     await initializedSettlementPool(pool, store, base, hosted);
     const context = await observed(await signedSettlementUser(pool, store)), now = await settlementDatabaseNow(pool);
     const admission: any = baseAdmission(context, now);
-    const lease = (value: unknown) => pool.query(`INSERT INTO rest_wallet_deployment_dispatches
-      (operation_id,transaction_hash,template_commitment,revision,attempts,status,lease_token,lease_until,admission,admission_digest,claimed_at,next_attempt_at)
-      VALUES($1,$2,$3,1,1,'in-flight',$4,$5,$6::jsonb,$7,$8,$9)`, [context.operation.id, context.operation.signed!.hash, context.operation.templateCommitment,
-      randomUUID(), now + 3000, JSON.stringify(value), enrollmentDigest(value), now, now + 4000]).then(async result => {
-        await pool.query("DELETE FROM rest_wallet_deployment_dispatches WHERE operation_id=$1", [context.operation.id]).catch(() => undefined); return result; });
+    // Each attempt claims its lease at the current database time: only the admission under
+    // test varies, never how long the surrounding cases took to run.
+    const lease = async (value: unknown) => {
+      const claimedAt = await settlementDatabaseNow(pool);
+      return pool.query(`INSERT INTO rest_wallet_deployment_dispatches
+        (operation_id,transaction_hash,template_commitment,revision,attempts,status,lease_token,lease_until,admission,admission_digest,claimed_at,next_attempt_at)
+        VALUES($1,$2,$3,1,1,'in-flight',$4,$5,$6::jsonb,$7,$8,$9)`, [context.operation.id, context.operation.signed!.hash, context.operation.templateCommitment,
+        randomUUID(), claimedAt + 3000, JSON.stringify(value), enrollmentDigest(value), claimedAt, claimedAt + 4000]).then(async result => {
+          await pool.query("DELETE FROM rest_wallet_deployment_dispatches WHERE operation_id=$1", [context.operation.id]).catch(() => undefined); return result; });
+    };
     const local = { ...admission, version: "center-wallet-deployment-local-admission-v2", feeScope: "local-execution-only", baseTotalAffordability: "unknown",
       environment: { ...admission.environment, kind: "unforked-anvil" } }; delete local.reservation;
     await expect(lease(local)).rejects.toMatchObject({ code: "23514" });

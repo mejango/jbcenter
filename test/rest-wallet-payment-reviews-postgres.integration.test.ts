@@ -469,11 +469,13 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
   });
 
   it("checks the real database deadline after an account lock wait", async () => {
-    const process = await worker(), value = await pendingReview({}, 5000), release = await holdAccount(value.login.accountId);
+    // The approving process waits on the held account row for the whole deadline, so the
+    // deliberate hold stays well inside the fixture's own lock and statement budgets.
+    const process = await worker(), value = await pendingReview({}, 3000), release = await holdAccount(value.login.accountId);
     const request = process.request({ action: "approve", id: value.view.draft.id, assertion: value.assertion });
     try { await waitingForLock(process.backendPid); await waitPast(value.view.draft.expiresAtMs); }
     finally { await release(); }
-    expect((await request).status).toBe(410); expect(await counts()).toMatchObject({ approved: 0, consumed: 0 });
+    expect(await request).toMatchObject({ status: 410 }); expect(await counts()).toMatchObject({ approved: 0, consumed: 0 });
   });
 
   it("rolls back approval and ceremony consumption when the operation expires after the approval write", async () => {

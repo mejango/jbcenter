@@ -37,10 +37,14 @@ function stored(draft: PlanDraft): Pick<StoredPlan, "draft"> {
   return { draft: { ...draft, evidence: draft.evidence.map(value => ({ ...value, source: "onchain" as const })) } };
 }
 
+// The pinned V6 source and artifacts are an explicit dependency, documented in
+// test/fixtures/v6-payment/README.md; the release check prepares them before running this suite.
+const v6Sources = Boolean(process.env.CENTER_V6_SOURCE_ROOT?.trim());
+
 // Genuine P256/FCL, Safe, EntryPoint and catalog-pinned V6 execution. Synthetic local genesis,
 // constructor-state transplants and an unchanged six-decimal OZ ERC20 fixture; no Circle USDC,
 // physical authenticator, Base deployment, live fee/provider, or full authority-admission claim.
-describe("actual local V6 payment through passkey Safe and pinned EntryPoint", () => {
+describe.skipIf(!v6Sources)("actual local V6 payment through passkey Safe and pinned EntryPoint", () => {
   let child: ChildProcess | undefined, endpoint: string, baseline: Hex, sender: Address, backup: Address, beneficiary: Address;
   let account: Address, signer: Address, projectId: string, requestId = 0;
   let v6: Awaited<ReturnType<typeof deployV6PaymentContracts>>, payments: ReturnType<typeof createServices>["payments"];

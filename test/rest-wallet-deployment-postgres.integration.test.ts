@@ -228,21 +228,23 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
     const config = configuration(); await store.configurePool(config);
     const short = async () => enrollments.begin(createWalletEnrollmentIntent({ manifest: enrollmentManifest,
       rpId: "wallet.juicebox.center", origin: "https://wallet.juicebox.center", recoveryOwner: enrollmentBackupAccount.address,
-      expiresAt: await databaseNow() + 1500 }));
+      expiresAt: await databaseNow() + 5000 }));
     const initial = await short();
     const credential = createRegistration({ challenge: fromBase64(initial.intent.registration.challenge),
       rpId: initial.intent.rpId, origin: initial.intent.origin, userHandle: initial.intent.userHandle });
     const pending = await enrollments.acceptRegistration(initial.intent.id, credential.response), issuedAt = await databaseNow();
-    await store.prepare({ poolId: config.id, approval: prepareWalletDeploymentApproval(pending, { issuedAt, expiresAt: issuedAt + 1000 }) });
+    await store.prepare({ poolId: config.id, approval: prepareWalletDeploymentApproval(pending, { issuedAt, expiresAt: issuedAt + 5000 }) });
     // An abandoned sibling without a review row is deleted; the reviewed one is kept for its review.
     const sibling = await short();
-    await new Promise(resolve => setTimeout(resolve, 1600));
+    // Cleanup observes the database clock, so wait on it until both intents are past their expiry.
+    await pool.query("SELECT pg_sleep(greatest(0, $1::bigint + 50 - floor(extract(epoch FROM clock_timestamp())*1000)) / 1000.0)",
+      [String(sibling.intent.expiresAt)]);
     expect(await enrollments.cleanup()).toBe(1);
     expect((await pool.query("SELECT id FROM rest_wallet_enrollments WHERE id = ANY($1)", [[pending.intent.id, sibling.intent.id]])).rows.map(row => row.id)).toEqual([pending.intent.id]);
     expect(await enrollments.begin(createWalletEnrollmentIntent({ manifest: enrollmentManifest,
       rpId: "wallet.juicebox.center", origin: "https://wallet.juicebox.center", recoveryOwner: enrollmentBackupAccount.address,
       expiresAt: await databaseNow() + 120000 }))).toBeTruthy();
-  }, 15_000);
+  }, 30_000);
 
   it("rejects a genuine assertion for another approval without consuming either ceremony", async () => {
     const value = await prepared(), issuedAt = await databaseNow();
@@ -394,7 +396,8 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
   });
 
   it("recovers the permanent claim after approval expiry and ceremony receipt cleanup", async () => {
-    const value = await prepared(configuration(), 1000), claimed = await store.claim(value.input);
+    // The approval must still be live while its preparation runs; the wait below is what expires it.
+    const value = await prepared(configuration(), 4000), claimed = await store.claim(value.input);
     await pool.query("DELETE FROM rest_wallet_ceremonies WHERE id=$1", [value.approval.id]);
     await pool.query("SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.05)", [value.approval.expiresAt]);
     expect(await store.claim(value.input)).toEqual({ operation: claimed.operation, replayed: true });

@@ -112,8 +112,11 @@ suite("durable pre-account signup continuation and purpose-bound recovery", () =
     expect(await new PostgresWalletEnrollmentStore(pool).get(record.intent.id)).toEqual(record);
   });
   it("does not renew expired unverified genesis or resume a superseded verified credential", async () => {
-    const expired = await registered({ enrollmentLifetimeMs: 200 });
-    await pool.query("SELECT pg_sleep(0.22)");
+    // Registration signs a genuine credential, so the window covers that work and the wait
+    // that outlives it comes from the database clock the enrollment store reads.
+    const expired = await registered({ enrollmentLifetimeMs: 3_000 });
+    await pool.query("SELECT pg_sleep(greatest(0, $1::bigint + 50 - floor(extract(epoch FROM clock_timestamp())*1000)) / 1000.0)",
+      [String(expired.pending.intent.expiresAt)]);
     let resume = await store.beginResume();
     await expect(store.completeResume({ resumeId: resume.challenge.id, resumeToken: resume.resumeToken,
       assertion: signGet({ ...expired.credential, rpId, origin, challenge: resume.challenge.challenge }) })).rejects.toMatchObject({ status: 410 });

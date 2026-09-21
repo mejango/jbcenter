@@ -161,7 +161,7 @@ suite("PostgreSQL exact-byte deployment dispatch fencing", () => {
     let context = await signedContext();
     for (let i = 1; i <= 8; i++) {
       // This case tests the durable attempt cap, not an unrealistically small success deadline.
-      const journal = await store.leaseDispatch(await claim(context, 200));
+      const journal = await store.leaseDispatch(await claim(context, 1500));
       expect(journal.attempts).toBe(i);
       await waitUntil(journal.nextAttemptAt + 5);
       context.operation = (await store.saveObservation({ operationId: context.operation.id, expectedRevision: context.operation.revision,
@@ -170,7 +170,7 @@ suite("PostgreSQL exact-byte deployment dispatch fencing", () => {
     expect((await process.request({ action: "lease-dispatch", input: await claim(context) })).status).toBe(409);
     expect((await store.getDispatch(context.operation.id))!.attempts).toBe(8);
     expect((await store.loadExecutionContext(context.operation.id)).pool.activeOperationId).toBe(context.operation.id);
-  }, 15000);
+  }, 45_000);
   it.each(["revision=0", "revision=revision+1", "attempts=0", "attempts=9", "status='accepted',settled_at=NULL,revision=revision+1",
     "transaction_hash='0x" + "ab".repeat(32) + "'", "admission=jsonb_set(admission,'{environment,genesisHash}','null'::jsonb)",
     "admission=jsonb_set(admission,'{baseTotalAffordability}','\"covered\"'::jsonb)", "lease_until=lease_until+1", "next_attempt_at=0"])
