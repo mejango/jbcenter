@@ -81,6 +81,8 @@ export type AppOptions = {
   /** Keyless RPC from any origin (IPFS-hosted sites like juicescan): per-IP and shared budgets. */
   rpcPublicRequestLimitPerMinute?: number;
   rpcPublicSiteLimitPerMinute?: number;
+  publishPerPublisherPerDay?: number;
+  publishPerIpPerHour?: number;
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -602,6 +604,12 @@ export function createApp(
       signature: signed,
     });
     if (!valid) throw new BadRequest("signature does not match publisher and project intent");
+    const ip = await store.consumeRequest(`publish:ip:${callerIp(c)}`, options.publishPerIpPerHour ?? 60, 3600);
+    const who = await store.consumeRequest(`publish:${publisher.toLowerCase()}`, options.publishPerPublisherPerDay ?? 20, 86_400);
+    if (!ip.allowed || !who.allowed) {
+      c.header("Retry-After", "3600");
+      return c.json({ error: { code: "publish_limit", message: "Publish limit reached; try again later" } }, 429);
+    }
     const result = await store.createIntent({
       ...extractMetadata(envelope.jb),
       contentHash: hash,

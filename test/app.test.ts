@@ -33,7 +33,7 @@ class MemoryStore implements Store {
 
   async health() {}
 
-  async consumeRequest(client: string, limit: number) {
+  async consumeRequest(client: string, limit: number, _windowSeconds?: number) {
     const count = (this.requests.get(client) ?? 0) + 1;
     this.requests.set(client, count);
     return { allowed: count <= limit, remaining: Math.max(0, limit - count) };
@@ -245,19 +245,26 @@ const envelope = {
   },
 };
 
-async function publish(app: ReturnType<typeof createApp>) {
+async function publishWith(
+  app: ReturnType<typeof createApp>,
+  envelopeLike: Record<string, unknown>,
+) {
   const preparedResponse = await app.request("/v1/intents/message", {
     method: "POST",
     headers: trusted,
-    body: JSON.stringify(envelope),
+    body: JSON.stringify(envelopeLike),
   });
   const prepared = (await preparedResponse.json()) as { message: string };
   const signature = await account.signMessage({ message: prepared.message });
   return app.request("/v1/intents", {
     method: "POST",
     headers: trusted,
-    body: JSON.stringify({ ...envelope, publisher: account.address, signature }),
+    body: JSON.stringify({ ...envelopeLike, publisher: account.address, signature }),
   });
+}
+
+async function publish(app: ReturnType<typeof createApp>) {
+  return publishWith(app, envelope);
 }
 
 describe("JB Center API", () => {
@@ -639,10 +646,19 @@ describe("JB Center API", () => {
 
   it("keeps concurrent duplicate publications idempotent", async () => {
     const store = new MemoryStore();
-    const app = createApp(store);
+    const app = createApp(store, { publishPerPublisherPerDay: 10_000 });
     const responses = await Promise.all(Array.from({ length: 25 }, () => publish(app)));
     expect(responses.filter(({ status }) => status === 201)).toHaveLength(1);
     expect(responses.filter(({ status }) => status === 200)).toHaveLength(24);
     expect(store.intents).toHaveLength(1);
+  });
+
+  it("publishing is capped per publisher per day and per ip per hour", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { publishPerPublisherPerDay: 1, publishPerIpPerHour: 5 });
+    expect((await publish(app)).status).toBe(201);
+    const again = await publishWith(app, { ...envelope, jb: { ...envelope.jb, name: "second" } });
+    expect(again.status).toBe(429);
+    expect(((await again.json()) as { error: { code: string } }).error.code).toBe("publish_limit");
   });
 });
