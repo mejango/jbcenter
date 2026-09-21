@@ -12,6 +12,8 @@ const projects = "0x1111111111111111111111111111111111111111" as const;
 const deployer = "0x3333333333333333333333333333333333333333" as const;
 const wrapper = "0x4444444444444444444444444444444444444444" as const;
 const FORWARDER = "0x5555555555555555555555555555555555555555" as const;
+const CANONICAL_FORWARDER = "0x3ba60b60933916a7c87d0860dcee62a0ce34e3e2" as const;
+const SIGNER_SUFFIX = "39b8f61fa47c5e3194baf6bb71dba799edda15fc";
 const hash = `0x${"22".repeat(32)}` as const;
 const call = { chainId: 1, to: deployer, data: "0x12345678" as const };
 const createEvent = [
@@ -49,6 +51,10 @@ function successReceipt(...logs: Log[]): Receipt {
 
 function callFrame(to: Address, input: Hex, extra: Record<string, unknown> = {}) {
   return { type: "CALL", to, input, ...extra };
+}
+
+function forwardedFrame(from: Address, to: Address, data: Hex, suffix = SIGNER_SUFFIX) {
+  return { type: "CALL", from, to, input: `${data}${suffix}` as Hex };
 }
 
 function fakeReader(
@@ -288,5 +294,43 @@ describe("deployment verifier fast path and testnet configuration", () => {
     expect([...configured.keys()].sort()).toEqual(
       [1, 10, 8453, 42161, 84532, 421614, 11155111, 11155420].sort(),
     );
+  });
+});
+
+describe("forwarded deployment calls", () => {
+  const chainId = 84532;
+  const chains = new Map([
+    [chainId, { rpcUrl: "https://rpc.example", projectsAddress: projects, confirmations: 2, deploymentVersion: "6" }],
+  ]);
+  const forwardedClaim = { chainId, projectId: "7", transactionHash: hash, deploymentVersion: "6", call: { ...call, chainId } };
+
+  it("accepts the committed calldata with the signer appended when the canonical forwarder made the call", async () => {
+    const reader = fakeReader({
+      receipt: successReceipt(createLog(7n)),
+      transaction: { to: CANONICAL_FORWARDER, input: "0xdeadbeef" },
+      trace: { type: "CALL", to: CANONICAL_FORWARDER, input: "0xdeadbeef", calls: [forwardedFrame(CANONICAL_FORWARDER, call.to, call.data)] },
+    });
+    const verifier = new RpcDeploymentVerifier(chains, new Map([[chainId, reader]]));
+    await expect(verifier.verify(forwardedClaim)).resolves.toBeUndefined();
+  });
+
+  it("rejects appended bytes from any other caller", async () => {
+    const reader = fakeReader({
+      receipt: successReceipt(createLog(7n)),
+      transaction: { to: FORWARDER, input: "0xdeadbeef" },
+      trace: { type: "CALL", to: FORWARDER, input: "0xdeadbeef", calls: [forwardedFrame(FORWARDER, call.to, call.data)] },
+    });
+    const verifier = new RpcDeploymentVerifier(chains, new Map([[chainId, reader]]));
+    await expect(verifier.verify(forwardedClaim)).rejects.toThrow("did not execute the committed deployment call");
+  });
+
+  it("rejects a forwarder call whose suffix is not exactly one address", async () => {
+    const reader = fakeReader({
+      receipt: successReceipt(createLog(7n)),
+      transaction: { to: CANONICAL_FORWARDER, input: "0xdeadbeef" },
+      trace: { type: "CALL", to: CANONICAL_FORWARDER, input: "0xdeadbeef", calls: [forwardedFrame(CANONICAL_FORWARDER, call.to, call.data, `${SIGNER_SUFFIX}00`)] },
+    });
+    const verifier = new RpcDeploymentVerifier(chains, new Map([[chainId, reader]]));
+    await expect(verifier.verify(forwardedClaim)).rejects.toThrow("did not execute the committed deployment call");
   });
 });
