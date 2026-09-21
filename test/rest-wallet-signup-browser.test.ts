@@ -71,7 +71,7 @@ describe("served Center signup page", () => {
     await expect.poll(() => page.locator("#signup-form").isHidden()).toBe(true);
     await expect.poll(() => page.locator("#wallet-status").textContent()).toContain("Logging in");
     expect(await page.locator("#signup-form").isHidden()).toBe(true);
-    expect(await page.locator("#signup-intro").isHidden()).toBe(true);
+    expect(await page.locator("#signup-resume").isHidden()).toBe(true);
     // On a phone every line of text shares one left edge and the status mark (a ::before
     // pseudo-element) hangs in the gutter, clear of the screen edge.
     await page.setViewportSize({ width: 390, height: 844 });

@@ -173,7 +173,7 @@ function render() {
   el<HTMLButtonElement>('recovery-show').disabled = engaged; el<HTMLButtonElement>('recovery-copy').disabled = engaged;
   // "log in" resumes with a passkey; a finished wallet lands at sign-in. Once the state is known (or its load failed),
   // it stays offered unless a signup with a passkey is under way, so a returning user is never without a way in.
-  el('signup-intro').hidden = !known || loggingIn || (!!view && view.phase !== 'expired' && view.phase !== 'awaiting_registration');
+  resume.hidden = !known || loggingIn || (!!view && view.phase !== 'expired' && view.phase !== 'awaiting_registration');
   // "Check signup" only matters for a lost reply; creation and login preparation are pushed.
   check.hidden = stranded || !pending; check.disabled = engaged;
   // One filled button per page: the check is the primary only when it stands alone.
