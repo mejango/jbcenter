@@ -10,7 +10,7 @@ export function createSponsorWorker(options: {
   policy: SponsorPolicy;
   leaseSeconds?: number;
 }): SponsorRuntime & { stop(): void; runOnce(): Promise<void> } {
-  const { store, verifier, lane, policy, leaseSeconds = 900 } = options;
+  const { store, verifier, lane, policy, leaseSeconds = 1800 } = options;
   let running = false;
   let stopped = false;
   let pending = false;
@@ -22,6 +22,11 @@ export function createSponsorWorker(options: {
       if (!intent) continue;
       const done = new Set<number>();
       const report: LaneReport = {
+        bundle: async (bundleUuid) => {
+          for (const chainId of chainIds) {
+            await store.updateDeploy(intentId, chainId, { status: "queued", bundleUuid });
+          }
+        },
         sent: (chainId, transactionHash, bundleUuid) =>
           store.updateDeploy(intentId, chainId, { status: "sent", transactionHash, bundleUuid }),
         confirmed: async (chainId, transactionHash, projectId, spentWei) => {
@@ -50,8 +55,14 @@ export function createSponsorWorker(options: {
           done.add(chainId);
         },
       };
+      // A claimed row that already carries a bundle was paid for by an earlier
+      // attempt; resuming it is the only way not to fund the same work twice.
+      const bundleUuid = intent.deploys.find(
+        (deploy) => chainIds.includes(deploy.chainId) && deploy.bundleUuid,
+      )?.bundleUuid;
       try {
-        await lane.deploy(intent, chainIds, report);
+        if (bundleUuid) await lane.resume(intent, chainIds, bundleUuid, report);
+        else await lane.deploy(intent, chainIds, report);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         for (const chainId of chainIds) {

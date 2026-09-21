@@ -44,6 +44,7 @@ describe("sponsor worker", () => {
     const { intent } = await store.createIntent(newIntent({ chainIds: [84532] }), limits);
     await store.queueDeploys(intent.id, [84532], "browser:x", 10n);
     const lane: DeployLane = {
+      resume: vi.fn(async () => {}),
       deploy: vi.fn(async (_i, _c, report) => {
         await report.sent(84532, HASH, BUNDLE);
         await report.confirmed(84532, HASH, "9", 5n);
@@ -70,6 +71,7 @@ describe("sponsor worker", () => {
     const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
     await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
     const lane: DeployLane = {
+      resume: vi.fn(async () => {}),
       deploy: vi.fn(async (_i, _c, report) => {
         await report.failed(84532, "boom");
       }),
@@ -94,6 +96,7 @@ describe("sponsor worker", () => {
     const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
     await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
     const lane: DeployLane = {
+      resume: vi.fn(async () => {}),
       deploy: vi.fn(async (_i, _c, report) => {
         await report.sent(84532, HASH, BUNDLE);
         throw new Error("bundle submission failed");
@@ -114,6 +117,7 @@ describe("sponsor worker", () => {
     const { intent } = await store.createIntent(newIntent({ chainIds: [84532] }), limits);
     await store.queueDeploys(intent.id, [84532], "browser:x", 10n);
     const lane: DeployLane = {
+      resume: vi.fn(async () => {}),
       deploy: vi.fn(async (_i, _c, report) => {
         await report.confirmed(84532, HASH, "9", 5n);
       }),
@@ -132,12 +136,59 @@ describe("sponsor worker", () => {
     expect(after?.deployments).toEqual([]);
   });
 
+  test("worker persists the bundle for every claimed chain as the lane reports it", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
+    await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
+    const lane: DeployLane = {
+      resume: vi.fn(async () => {}),
+      deploy: vi.fn(async (_i, _c, report) => {
+        await report.bundle(BUNDLE);
+      }),
+    };
+    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn() }, lane, policy });
+    await worker.runOnce();
+    worker.stop();
+    const after = await store.getIntent(intent.id);
+    expect(after?.deploys.map((d) => d.bundleUuid)).toEqual([BUNDLE, BUNDLE]);
+  });
+
+  test("worker resumes a re-claimed intent that already carries a bundle instead of deploying again", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
+    await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
+    for (const chainId of [84532, 421614]) {
+      await store.updateDeploy(intent.id, chainId, { status: "queued", bundleUuid: BUNDLE });
+    }
+    const lane: DeployLane = {
+      deploy: vi.fn(async () => {}),
+      resume: vi.fn(async (_i, chainIds, bundleUuid, report) => {
+        for (const chainId of chainIds) {
+          await report.sent(chainId, HASH, bundleUuid);
+          await report.confirmed(chainId, HASH, "9", 0n);
+        }
+      }),
+    };
+    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn(async () => {}) }, lane, policy });
+    await worker.runOnce();
+    worker.stop();
+    expect(lane.deploy).not.toHaveBeenCalled();
+    expect(lane.resume).toHaveBeenCalledWith(
+      expect.objectContaining({ id: intent.id }),
+      [84532, 421614],
+      BUNDLE,
+      expect.anything(),
+    );
+    const after = await store.getIntent(intent.id);
+    expect(after?.deploys.map((d) => d.status)).toEqual(["confirmed", "confirmed"]);
+  });
+
   test("worker exposes the policy and stop() clears the interval without pending work", async () => {
     const store = new MemoryStore();
     const worker = createSponsorWorker({
       store,
       verifier: { verify: vi.fn() },
-      lane: { deploy: vi.fn(async () => {}) },
+      lane: { deploy: vi.fn(async () => {}), resume: vi.fn(async () => {}) },
       policy,
     });
     expect(worker.policy).toBe(policy);

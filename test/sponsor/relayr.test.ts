@@ -161,12 +161,19 @@ function paymentCalldata(): Hex {
 }
 
 function fakeProvider(options: {
+  chainIds: number[];
   paymentChainId: number;
   hashAfter: number;
   hashes: Map<number, Hex>;
   amount: bigint;
 }) {
-  let submitted: RelayrEntry[] = [];
+  let submitted: RelayrEntry[] = options.chainIds.map((chain) => ({
+    chain,
+    target: FORWARDER,
+    data: "0x",
+    value: "0",
+    virtual_nonce: 0,
+  }));
   let polls = 0;
   const create = vi.fn(async (entries: RelayrEntry[]) => {
     submitted = entries;
@@ -240,7 +247,8 @@ function receipt(transactionHash: Hex, to: Address, logs: unknown[], status: "0x
   };
 }
 
-function paymentReceipt(amount: bigint) {
+function paymentReceipt(amount: bigint, reverted = false) {
+  if (reverted) return receipt(PAYMENT_HASH, RELAYR_PAYMENT_ADDRESS as Address, [], "0x0");
   const data =
     `0x${amount.toString(16).padStart(64, "0")}${PAYMENT_DEADLINE.toString(16).padStart(64, "0")}` as Hex;
   return receipt(
@@ -297,7 +305,7 @@ function block() {
   };
 }
 
-function installRpc(receipts: Map<string, unknown>) {
+function installRpc(receipts: Map<string, unknown>, events: string[]) {
   const prepayments: TransactionSerializedEIP1559[] = [];
   const feeCall = encodeFunctionData({ abi: PROJECTS_ABI, functionName: "creationFee" });
   vi.stubGlobal("fetch", async (_url: unknown, init: { body: string }) => {
@@ -324,6 +332,7 @@ function installRpc(receipts: Map<string, unknown>) {
         case "eth_getTransactionCount":
           return "0x7";
         case "eth_sendRawTransaction":
+          events.push("prepayment");
           prepayments.push(params[0] as TransactionSerializedEIP1559);
           return PAYMENT_HASH;
         case "eth_getTransactionReceipt":
@@ -346,10 +355,13 @@ function harness(options: {
   projectIds: string[];
   amount?: bigint;
   revertedChains?: number[];
+  revertedPayment?: boolean;
 }) {
   const amount = options.amount ?? PAYMENT_AMOUNT;
   const hashes = new Map(options.chainIds.map((chainId) => [chainId, deployHash(chainId)]));
-  const receipts = new Map<string, unknown>([[PAYMENT_HASH, paymentReceipt(amount)]]);
+  const receipts = new Map<string, unknown>([
+    [PAYMENT_HASH, paymentReceipt(amount, options.revertedPayment)],
+  ]);
   options.chainIds.forEach((chainId, index) =>
     receipts.set(
       hashes.get(chainId)!,
@@ -360,19 +372,26 @@ function harness(options: {
       ),
     ),
   );
-  const prepayments = installRpc(receipts);
+  const events: string[] = [];
+  const prepayments = installRpc(receipts, events);
   const chain = fakeChain();
   const provider = fakeProvider({
+    chainIds: options.chainIds,
     paymentChainId: options.paymentChainId,
     hashAfter: options.hashAfter,
     hashes,
     amount,
   });
   const report = {
+    bundle: vi.fn(async () => {
+      events.push("bundle");
+    }),
     sent: vi.fn(async () => {}),
     confirmed: vi.fn(async () => {}),
     failed: vi.fn(async () => {}),
   } satisfies LaneReport;
+  const waits: number[] = [];
+  let clock = NOW;
   const lane = createRelayrLane({
     chain: chain.chain,
     catalog,
@@ -381,9 +400,13 @@ function harness(options: {
     signer,
     policy,
     projectsAddress: PROJECTS,
-    now: () => NOW,
+    now: () => clock,
+    wait: async (ms) => {
+      waits.push(ms);
+      clock += ms;
+    },
   });
-  return { amount, chain, hashes, lane, prepayments, provider, report };
+  return { amount, chain, events, hashes, lane, prepayments, provider, report, waits };
 }
 
 afterEach(() => {
@@ -393,7 +416,7 @@ afterEach(() => {
 describe("relayr sponsorship lane", () => {
   test("signs forward requests with the sponsor key, prepays, polls and reports on mainnets", async () => {
     const chainIds = [8453, 10];
-    const { amount, chain, hashes, lane, prepayments, provider, report } = harness({
+    const { amount, chain, events, hashes, lane, prepayments, provider, report, waits } = harness({
       chainIds,
       paymentChainId: 8453,
       hashAfter: 2,
@@ -403,6 +426,9 @@ describe("relayr sponsorship lane", () => {
     await lane.deploy(intent(chainIds), chainIds, report);
 
     expect(report.failed).not.toHaveBeenCalled();
+    expect(events).toEqual(["bundle", "prepayment"]);
+    expect(report.bundle).toHaveBeenCalledWith(BUNDLE);
+    expect(waits).toEqual([5_000]);
     expect(chain.prepare).toHaveBeenCalledTimes(2);
     expect(chain.signed).toHaveBeenCalledTimes(2);
     expect(chain.prepare.mock.calls[0]![1]).toMatchObject({
@@ -424,6 +450,8 @@ describe("relayr sponsorship lane", () => {
       value: amount,
       gas: 150_000n,
       nonce: 7,
+      maxFeePerGas: policy.maximumFeePerGas,
+      maxPriorityFeePerGas: 1_000_000n,
     });
     await expect(recoverTransactionAddress({ serializedTransaction: prepayments[0]! })).resolves.toBe(
       signer.address,
@@ -464,9 +492,9 @@ describe("relayr sponsorship lane", () => {
     expect(report.confirmed).toHaveBeenCalledWith(11155420, hashes.get(11155420), "9", 0n);
   });
 
-  test("fails the chain whose relayed deployment reverted", async () => {
+  test("fails only the chain whose relayed deployment reverted", async () => {
     const chainIds = [8453, 10];
-    const { lane, report } = harness({
+    const { amount, hashes, lane, report } = harness({
       chainIds,
       paymentChainId: 8453,
       hashAfter: 1,
@@ -477,9 +505,71 @@ describe("relayr sponsorship lane", () => {
     await lane.deploy(intent(chainIds), chainIds, report);
 
     expect(report.sent).toHaveBeenCalledTimes(2);
-    expect(report.confirmed).not.toHaveBeenCalled();
     expect(report.failed).toHaveBeenCalledTimes(1);
     expect(report.failed).toHaveBeenCalledWith(8453, "the relayed deployment reverted");
+    expect(report.confirmed).toHaveBeenCalledTimes(1);
+    expect(report.confirmed).toHaveBeenCalledWith(
+      10,
+      hashes.get(10),
+      "3",
+      GAS_USED * GAS_PRICE + amount,
+    );
+  });
+
+  test("resume follows an already paid bundle without paying again", async () => {
+    const chainIds = [8453, 10];
+    const { hashes, lane, prepayments, provider, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12", "3"],
+    });
+
+    await lane.resume(intent(chainIds), chainIds, BUNDLE, report);
+
+    expect(provider.create).not.toHaveBeenCalled();
+    expect(prepayments).toHaveLength(0);
+    expect(report.failed).not.toHaveBeenCalled();
+    expect(report.sent).toHaveBeenCalledWith(8453, hashes.get(8453), BUNDLE);
+    expect(report.confirmed).toHaveBeenCalledWith(8453, hashes.get(8453), "12", 0n);
+    expect(report.confirmed).toHaveBeenCalledWith(10, hashes.get(10), "3", 0n);
+  });
+
+  test("fails every unfinished chain when relayr never executes the bundle", async () => {
+    const chainIds = [8453, 10];
+    const { lane, provider, report, waits } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: Number.POSITIVE_INFINITY,
+      projectIds: ["12", "3"],
+    });
+
+    await lane.resume(intent(chainIds), chainIds, BUNDLE, report);
+
+    expect(waits).toHaveLength(181);
+    expect(provider.status).toHaveBeenCalledTimes(181);
+    expect(report.sent).not.toHaveBeenCalled();
+    expect(report.confirmed).not.toHaveBeenCalled();
+    expect(report.failed).toHaveBeenCalledWith(8453, "relayr did not execute the bundle in time");
+    expect(report.failed).toHaveBeenCalledWith(10, "relayr did not execute the bundle in time");
+  });
+
+  test("fails every chain when the prepayment reverts", async () => {
+    const chainIds = [8453, 10];
+    const { lane, prepayments, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12", "3"],
+      revertedPayment: true,
+    });
+
+    await lane.deploy(intent(chainIds), chainIds, report);
+
+    expect(prepayments).toHaveLength(1);
+    expect(report.sent).not.toHaveBeenCalled();
+    expect(report.failed).toHaveBeenCalledWith(8453, "the prepayment reverted");
+    expect(report.failed).toHaveBeenCalledWith(10, "the prepayment reverted");
   });
 
   test("fails every chain and sends nothing when the quote exceeds the reservation", async () => {

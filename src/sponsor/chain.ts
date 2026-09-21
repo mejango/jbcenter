@@ -12,6 +12,8 @@ export type SponsorSigner = {
 };
 
 export type LaneReport = {
+  /** Durably record the submitted bundle before any value leaves the sponsor key. */
+  bundle(bundleUuid: string): Promise<void>;
   sent(chainId: number, transactionHash: Hex, bundleUuid: string): Promise<void>;
   confirmed(chainId: number, transactionHash: Hex, projectId: string, spentWei: bigint): Promise<void>;
   failed(chainId: number, error: string): Promise<void>;
@@ -19,4 +21,6 @@ export type LaneReport = {
 
 export type DeployLane = {
   deploy(intent: Intent, chainIds: number[], report: LaneReport): Promise<void>;
+  /** Follow a bundle a previous attempt already paid for, without paying again. */
+  resume(intent: Intent, chainIds: number[], bundleUuid: string, report: LaneReport): Promise<void>;
 };
