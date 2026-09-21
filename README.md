@@ -340,7 +340,7 @@ requested (see "Request a sponsored deploy" below), independent of `deployments`
 `deploys` is always present, and is empty until a deploy is requested. `status` is `queued`,
 `sent`, `confirmed` or `failed`. `bundleUuid` identifies the Relayr bundle once one has been
 submitted; `transactionHash` and `error` fill in as each chain settles. `error` is always a coded,
-bounded message: upstream exception text never reaches this field.
+authored message capped at 300 characters with secrets scrubbed before it is stored.
 
 ## Record deployment
 

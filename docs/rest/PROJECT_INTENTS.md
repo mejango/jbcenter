@@ -15,7 +15,7 @@ Say "project" in user-facing copy, with a "Deploys on first use" label. The word
 belongs in API documentation, not in product copy: it suggests something still negotiable,
 and a published intent cannot be edited, replaced or withdrawn.
 
-## 1. What an intent is
+## What an intent is
 
 | Property | Value |
 |---|---|
@@ -32,19 +32,21 @@ time-sensitive arguments later. Center never edits the calldata and never invent
 A signature on an intent authorizes Center to store and publish frozen calldata. It is not
 transaction approval and it moves no funds. Deployment is a separate, funded transaction.
 
-## 2. Who may call
+## Who may call
 
-`/v1` routes are gated by browser `Origin`. A request whose `Origin` header is not on
-Center's first-party list is refused with `403` and `{"error":{"code":"forbidden_origin"}}`.
-There is no bearer token for these routes and no public fallback.
+The intent routes (`/v1/intents*` and `/v1/search`) are gated by browser `Origin`. A request
+whose `Origin` header is not on Center's first-party list is refused with `403` and
+`{"error":{"code":"forbidden_origin"}}`. There is no bearer token for these routes and no
+public fallback. This is tighter than `/v1/rpc`, which admits any origin, including none, as a
+public caller under its own budget.
 
 Two ways in for a new integrator:
 
 1. **Ask for an origin.** Center's first-party list lives in `src/firstParty.ts` in the
-   `mejango/jbcenter` repository, with a production entry and a development entry per app.
-   Open a pull request adding your origin, or ask the maintainers. Production entries today
-   are `https://juicebox.money`, `https://revnet.money`, `https://eth.shop`,
-   `https://succulent.money`, `https://homerun.money` and `https://beep.biz`.
+   `mejango/jbcenter` repository: one production entry per app, and several localhost and dev
+   entries per app in the development list. Open a pull request adding your origin, or ask the
+   maintainers. Production entries today are `https://juicebox.money`, `https://revnet.money`,
+   `https://eth.shop`, `https://succulent.money`, `https://homerun.money` and `https://beep.biz`.
 2. **Use the MCP tools.** Connect any Streamable HTTP MCP client to
    `https://juicebox.center/mcp`. `jb_prepare_intent`, `jb_publish_intent`, `jb_get_intent`
    and `jb_deploy_intent` run server-side inside Center, so they need no origin, no REST
@@ -54,7 +56,7 @@ Two ways in for a new integrator:
 Server-to-server callers that are not the MCP still need an allow-listed origin, and must
 send it as a real `Origin` header.
 
-## 3. The envelope
+## The envelope
 
 ```json
 {
@@ -74,13 +76,25 @@ send it as a real `Origin` header.
 | `format` | string | `<host>/<label>`: exactly one slash. Host part matches `[a-z0-9.-]{1,80}`, label matches `[a-zA-Z0-9._-]{1,32}` — the label may not contain a slash. Identifies the publishing client |
 | `deploymentVersion` | string | `"6"`. 1 to 64 characters |
 | `chainIds` | number[] | 1 to 16 unique positive integers. Center sorts them ascending before hashing |
-| `deploymentCalls` | array | Exactly one `{chainId, to, data}` per member of `chainIds`. `to` is checksummed, `data` is lowercase hex of at least 4 bytes and at most 4 MiB. Center sorts by `chainId` before hashing |
+| `deploymentCalls` | array | Exactly one `{chainId, to, data}` per member of `chainIds`, between 4 bytes and 4 MiB each. `to` is checksummed; `data` is stored lowercased and matched case-insensitively when a self-paid deployment is verified. Center sorts by `chainId` before hashing |
 | `jb` | object | The publishing client's own document. Any JSON object, nesting at most 64 levels |
 
 Existing publishers use `juicebox.money/v1` and `revnet.money/v1`. An app that publishes more
 than one kind of deployment distinguishes them in the label, for example `homerun.money/fund.v1`
 or `beep.biz/terminal.v1`. A second slash is rejected with `400` and
 `format must look like juicebox.money/v1`.
+
+### Launch entry points
+
+Each `deploymentCall.to` is one of a small set of canonical V6 launch entry points. Look up
+their per-chain addresses at `GET /api/v1/catalog/contracts` or in [`./CONTRACTS.md`](./CONTRACTS.md);
+Center does not invent a call or a target.
+
+- `JBController.launchProjectFor`
+- `JB721TiersHookProjectDeployer.launchProjectFor`
+- `JBOmnichainDeployer.launchProjectFor`
+- `REVDeployer.deployFor`, with `revnetId` `0` for a first-time launch
+- `HomerunDeployer.launchFundFor`
 
 ### `jb` conventions
 
@@ -95,7 +109,7 @@ from `jb.data` when `jb.app` is `"revnet.money"`.
 | `tagline` or `projectTagline` | `tagline` | Trimmed to 200 characters |
 | `tags` | `tags` | At most 10 strings of at most 30 characters |
 | `logoUri`, `logo` or `links.logoUri` | `logoUri` | Use an `ipfs://` URI: the first-party webclients do not render HTTPS logos |
-| `owner` | `owner` | Must be an address string, stored checksummed. This is what `GET /v1/search?owner=` matches |
+| `owner` | `owner` | Indexed, stored checksummed, when it is an address string; otherwise not indexed. This is what `GET /v1/search?owner=` matches |
 | `chainIds` or `chains` | not indexed | When present it must equal the envelope's `chainIds`, or the publish is refused |
 
 Also set `app` (your client's short name) and, when your client has more than one product,
@@ -117,7 +131,7 @@ Content hash: 0x<64 hex characters>
 Never build that string yourself. Ask `POST /v1/intents/message` for it, so a change in Center's
 normalization can never leave you signing something Center will not store.
 
-## 4. One sender per intent
+## One sender per intent
 
 Sucker, ERC-20 and 721-hook salts hash `_msgSender()` on every chain. Every chain of one intent
 must be deployed by the same sender, or the deployments do not link into one omnichain project:
@@ -140,7 +154,7 @@ is read live from `JBProjects.creationFee()` at deploy time and attached to the 
 request, funded by the Relayr prepayment. A fee above Center's ceiling of `100000000000000` wei
 (0.0001 ETH) fails the lane instead of spending more than the reservation.
 
-## 5. Publish end to end
+## Publish end to end
 
 ### Step 1: ask for the message
 
@@ -211,16 +225,33 @@ re-sends the same content: publishing is idempotent per `(publisher, contentHash
 
 ### The same flow with the SDK
 
+`JBCenterClientOptions` has no `origin` option: a bare `createJBCenterClient()` only works from
+an allow-listed browser origin, where the browser sets `Origin` itself. A server-side caller
+supplies its own `fetch` that sets the header:
+
 ```ts
 import {
   createJBCenterClient,
   createJBCenterDeploymentCall,
+  publishSignedIntent,
 } from "@bananapus/nana-sdk-core/jbcenter";
 
-const client = createJBCenterClient();
+const client = createJBCenterClient({
+  fetch: (input, init) =>
+    fetch(input, {
+      ...init,
+      headers: { ...init?.headers, origin: "https://your-app.example" },
+    }),
+});
 
 const deploymentCalls = chainIds.map((chainId) =>
-  createJBCenterDeploymentCall({ chainId, ...launchRequest }),
+  createJBCenterDeploymentCall({
+    chainId,
+    address, // the launch entry point on this chain; see "Launch entry points" above
+    abi,
+    functionName,
+    args,
+  }),
 );
 const envelope = {
   format: "juicebox.money/v1",
@@ -230,13 +261,18 @@ const envelope = {
   jb: formValues,
 };
 
-const prepared = await client.prepareIntent(envelope);
-assertEqualEnvelope(prepared.envelope, envelope);        // guard check 1
-assertMessageQuotesHash(prepared.message, prepared.contentHash); // guard check 2
-
-const signature = await walletClient.signMessage({ account, message: prepared.message });
-const intent = await client.publishIntent({ ...envelope, publisher: account.address, signature });
+const intent = await publishSignedIntent(
+  client,
+  envelope,
+  (message) => walletClient.signMessage({ account, message }),
+  { publisher: account.address },
+);
 ```
+
+`publishSignedIntent` (SDK 2.8.0) is the guard from step 2 as one call: it prepares the intent,
+checks that Center's prepared `envelope` matches the one built here and that the prepared
+`message` quotes the prepared `contentHash`, and only then calls `sign` and publishes. Either
+check failing throws `JBCenterIntentMismatchError` instead of reaching a wallet.
 
 ### Publish limits and refusals
 
@@ -251,7 +287,11 @@ const intent = await client.publishIntent({ ...envelope, publisher: account.addr
 As of 2026-09-21, production runs `PUBLISH_PER_PUBLISHER_PER_DAY` at 500 and
 `PUBLISH_PER_IP_PER_HOUR` at 500.
 
-## 6. Read and list
+The SDK's `describeCenterRefusal(error)` turns a caught `JBCenterRequestError` into one
+authored sentence for `unavailable` and, as a generic fallback keyed off the HTTP status, any
+other `429`; codes it does not recognize return `null` so the caller keeps its own wording.
+
+## Read and list
 
 ### One intent
 
@@ -285,7 +325,7 @@ GET /v1/intents/:id
 write-once per chain. `deploys` holds sponsored-deploy rows and is always present, empty until a
 sponsored deploy is requested: `{chainId, status, transactionHash, bundleUuid, error, createdAt,
 updatedAt}` with `status` one of `queued`, `sent`, `confirmed`, `failed`. `error` is always a
-coded, bounded, authored message; upstream exception text never reaches it.
+coded, authored message capped at 300 characters with secrets scrubbed before it is stored.
 
 ### Search
 
@@ -351,16 +391,17 @@ metadata. No chain reads are needed or possible: there is nothing on chain yet.
 
 | Flavor | Typed fields |
 |---|---|
-| `project` | `owner`, `projectUri`, `rulesetConfigurations`, `terminalConfigurations` |
-| `project-721` | `owner`, `projectUri`, `rulesetConfigurations`, `terminalConfigurations` |
-| `omnichain` | `owner`, `projectUri`, `rulesetConfigurations`, `terminalConfigurations` |
-| `revnet` | `operator`, `stages`, `description` |
+| `project` | `owner`, `projectUri`, `rulesetConfigurations`, `terminalConfigurations`, `memo` |
+| `project-721` | `owner`, `projectUri`, `rulesetConfigurations`, `terminalConfigurations`, `memo`, `salt` |
+| `omnichain` | `owner`, `projectUri`, `rulesetConfigurations`, `terminalConfigurations`, `memo`, `has721` |
+| `revnet` | `operator`, `projectUri`, `stages`, `description`, `accountingContexts` |
+| `homerun-fund` | `owner`, `projectUri`, `tokenName`, `ticker`, `mustStartAtOrAfter`, `salt`, `peerSuckerDeployers` |
 | `unknown` | none — render generically, never guess a shape |
 
 Keep intents out of Trending and Top: those rankings are volume-based and an intent has no
 volume.
 
-## 7. Sponsored deploy
+## Sponsored deploy
 
 ```http
 POST /v1/intents/:id/deploy
@@ -378,7 +419,10 @@ No request body. Center executes the intent's own signed calls at its own expens
 | `429` | `sponsor_quota` | The requester's daily quota is spent. `Retry-After: 86400` |
 | `503` | `unavailable` | No sponsor is configured, or sponsorship is paused |
 
-The budget is checked before the quota, so a budget refusal costs the requester nothing.
+The budget is checked before the quota, so a budget refusal costs the requester nothing. The
+SDK's `describeCenterRefusal(error)` turns `sponsor_budget`, `sponsor_quota` and `unavailable`
+into one authored sentence each, plus a generic sentence for any other `429`; it returns `null`
+for a refusal it does not recognize, such as `bad_request` or `not_found`.
 
 ### Sponsored chains
 
@@ -400,30 +444,32 @@ is self-paid only.
 | Reservation per chain | `maxGas * maxFeePerGas + creationFeeCeiling` = 8000000 * 1000000000 + 100000000000000 = 8100000000000000 wei (0.0081 ETH) |
 | Confirmations before a chain counts as confirmed | 2 |
 
-As of 2026-09-21, production runs `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` at 100 and
-`SPONSOR_DAILY_BUDGET_WEI` at 50000000000000000 wei (0.05 ETH).
+As of 2026-09-21, production raises `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` to 100 deploys per
+requester per day; the shared daily budget runs at its default.
 
 A request reserves the full amount for every chain up front, and the reservation is released as
 each chain settles. The budget is charged what the sponsor actually spent once the Relayr
 prepayment settles. For browser callers the requester is the calling origin and IP; for the MCP
-tools it is one shared Center-side bucket, so the MCP's five daily sponsored deploys are shared
-across all MCP callers.
+tools it is one shared Center-side bucket, so the MCP's daily sponsored deploys draw down one
+shared `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` allowance across every MCP caller.
 
 ### Polling
 
-Poll `GET /v1/intents/:id` and read `deploys`. A row moves `queued` to `sent` to `confirmed`,
-or to `failed`. A confirmed chain also writes its `deployments` entry, so `deployments` and
-`deploys` converge. A `failed` row is terminal for that intent: Center will not retry it and a
-second `POST /v1/intents/:id/deploy` returns the same rows, including the failed one. Recovery is
-a new intent, or the self-paid path for a fresh intent — never a partial self-paid patch over the
-same one.
+Poll `GET /v1/intents/:id` and read `deploys`. This is a `/v1` route like any other, subject to
+the same 600-requests-per-minute per-caller limit (`429` `rate_limit`, `Retry-After: 60`), so
+poll on an interval, not in a tight loop. A row moves `queued` to `sent` to `confirmed`, or to
+`failed`. A confirmed chain also writes its `deployments` entry, so `deployments` and `deploys`
+converge. A `failed` row is terminal for that intent: Center will not retry it and a second
+`POST /v1/intents/:id/deploy` returns the same rows, including the failed one. Recovery is a new
+intent, or the self-paid path for a fresh intent — never a partial self-paid patch over the same
+one.
 
 The SDK wraps this as `ensureDeployed({ client, intent, onStep, pollMs, timeoutMs, signal })`,
-which requests the sponsored deploy, polls until every chain is `confirmed`, and returns
-`Record<chainId, projectId>`. It throws `EnsureDeployedError` carrying the `chainId` of the row
-that failed.
+which requests the sponsored deploy, polls on a 4-second default interval until every chain is
+`confirmed`, and returns `Record<chainId, projectId>`. It throws `EnsureDeployedError` carrying
+the `chainId` of the row that failed.
 
-## 8. Self-paid deploy and recording it
+## Self-paid deploy and recording it
 
 Send the intent's exact per-chain calls from one wallet, with `JBProjects.creationFee()` as the
 value, then tell Center about each result:
@@ -437,9 +483,12 @@ Content-Type: application/json
 
 Before writing, Center fetches the receipt and the call trace from its own RPC and requires all
 of the following: a successful transaction with the configured confirmation count; exactly one
-`JBProjects.Create(projectId, owner, caller)` event from the canonical `JBProjects`; and a
-successful direct or nested `CALL` whose target and calldata exactly match the signed per-chain
-commitment. Nested matching covers Safe and Relayr execution.
+`JBProjects.Create(projectId, owner, caller)` event from the canonical `JBProjects`, and it must
+be for the claimed `projectId` specifically, not merely present; and a successful direct or
+nested `CALL` whose target matches the signed per-chain commitment and whose calldata is either
+that commitment verbatim, or that commitment plus exactly one appended 20-byte address when the
+calling frame's caller is the canonical `ERC2771Forwarder` (the forwarder appends the signer's
+address to a forwarded call). Nested matching covers Safe and Relayr execution.
 
 | Status | Code | Meaning |
 |---|---|---|
@@ -454,7 +503,7 @@ Never mix senders. If a sponsored deploy was requested, do not also send the cal
 you sent some chains yourself, Center will refuse to sponsor the rest — and even if it did not,
 the salts would no longer match and the chains would never link.
 
-## 9. Worked examples
+## Worked examples
 
 ### Beep: a server key publishes, the merchant owns
 
@@ -483,7 +532,7 @@ suckers link.
 - Chains: sponsored rollups only. A FUND that includes Ethereum mainnet is self-paid
 - Deploy: one Deploy action on the project page, sponsored, no self-paid fallback
 
-## 10. Common mistakes
+## Common mistakes
 
 - **Stage 1 with `mustStartAtOrAfter: 0`.** Zero means "start now", and "now" is deploy time, not
   the time the signer saw. Every later stage boundary shifts with it. Set an absolute timestamp:
