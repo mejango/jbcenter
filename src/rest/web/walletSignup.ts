@@ -41,9 +41,15 @@ const downloadUrls = new Set<string>();
 type RecoveryChoice = 'kit' | 'wallet';
 const choice = (): RecoveryChoice => (el<HTMLFieldSetElement>('recovery-method').querySelector<HTMLInputElement>('input:checked')?.value ?? 'kit') as RecoveryChoice;
 const modeKey = (id: string) => 'center:signup:kit:' + id;
+// Storage may be refused to a cross-site frame (third-party storage blocked): the choice made on this
+// page is kept in memory as well, and storage only carries it across a reload.
+let chosen: RecoveryChoice | null = null;
+const remembered = (id: string) => { try { return localStorage.getItem(modeKey(id)); } catch { return null; } };
+const remember = (id: string, value: RecoveryChoice) => { chosen = value; try { localStorage.setItem(modeKey(id), value); } catch { /* not kept */ } };
 const mode = (): RecoveryChoice => {
   if (!view) return choice();
-  const stored = localStorage.getItem(modeKey(view.enrollmentId));
+  if (chosen) return chosen;
+  const stored = remembered(view.enrollmentId);
   return stored === '1' || stored === 'kit' ? 'kit' : 'wallet';
 };
 /** The backup words live in this browser (made-for-you password or chosen password) rather than in an external wallet. */
@@ -318,7 +324,7 @@ form.addEventListener('submit', event => { event.preventDefault(); void run(asyn
   if (selected === 'kit' && !recoverySecret) recoverySecret = createWalletRecoverySecret();
   const owner = selected === 'wallet' ? await recoveryOwner() : recoverySecret!.recoveryOwner;
   await send('begin', { recoveryOwner: owner, passkeyName });
-  localStorage.setItem(modeKey(view!.enrollmentId), selected);
+  remember(view!.enrollmentId, selected);
   // Go straight into the passkey prompt; a cancelled prompt leaves the explicit button as the fallback.
   if (view?.phase === 'awaiting_registration') await advance();
 }); });

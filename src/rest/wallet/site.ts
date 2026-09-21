@@ -138,7 +138,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
       // "refused to connect"; the form's Origin header names the app, and the page holds nothing private.
       const framer = c.req.header('Origin');
       if (c.req.header('Sec-Fetch-Dest') === 'iframe' && framer && frameable.has(framer)) framedBy(c, framer);
-      return c.html('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connection unavailable</title><link rel="stylesheet" href=`${base}/assets/wallet.css`></head><body><main><h1>Connection unavailable</h1><p>This connection expired or could not be verified. Return to the app and connect again.</p></main></body></html>', status as ContentfulStatusCode);
+      return c.html('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connection unavailable</title><link rel="stylesheet" href="' + base + '/assets/wallet.css"></head><body><main><h1>Connection unavailable</h1><p>This connection expired or could not be verified. Return to the app and connect again.</p></main></body></html>', status as ContentfulStatusCode);
     }
     // An expired app request names the app's public origin so the page can send the person back.
     const appOrigin = code === 'WALLET_HANDOFF_EXPIRED' && known ? (scalars(error)?.origin as unknown) : undefined;
@@ -416,7 +416,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   // on the row is the browser-launch claim, and one passkey assertion naming the app as its top
   // origin both signs in and approves the grant. No cookie takes part; the flow token rides in the
   // response instead, readable only by this page (the app is cross-origin to the frame), and the
-  // session it derives is never handed to the browser.
+  // session is minted from entropy the page never sees, so nothing it holds can act as the session.
   app.post(`${base}/authorize/:id/begin`, async c => {
     central(c); fields(await readWalletJson(c.req.raw), []);
     await framedIntent(c.req.param('id'));
@@ -444,13 +444,21 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     const body = fields(await readWalletJson(c.req.raw), ['intentId']);
     if (typeof body.intentId !== 'string') reject();
     const bearer = readWalletCookie(c.req.raw, walletLaunchCookie);
-    if (!bearer) reject(403, 'WALLET_HANDOFF_UNCLAIMED');
-    const claim = walletLaunchClaim(bearer);
-    if (claim.intentId !== body.intentId) reject(403, 'WALLET_HANDOFF_UNCLAIMED');
-    const intent = await handoff.getIntent(claim.intentId);
-    await verifyWalletHandoffLaunchSignature({ request: intent.request, intentId: intent.id }, claim.signature);
+    let launchSignature: Hex;
+    if (bearer) {
+      const claim = walletLaunchClaim(bearer);
+      if (claim.intentId !== body.intentId) reject(403, 'WALLET_HANDOFF_UNCLAIMED');
+      const intent = await handoff.getIntent(claim.intentId);
+      await verifyWalletHandoffLaunchSignature({ request: intent.request, intentId: intent.id }, claim.signature);
+      launchSignature = claim.signature;
+    } else {
+      // A framed launch opened as a page of its own ("Fullscreen") never set the cookie; the claim the
+      // frame left on the row stands for it. The code still lands only at the app's callback and is
+      // exchanged only with the request key that prepared the intent.
+      launchSignature = (await framedIntent(body.intentId)).launchSignature;
+    }
     const session = await viewFor(token); if (!session) reject(403, 'WALLET_HTTP_SESSION');
-    const issued = await handoff.issue(body.intentId, session.id, claim.signature);
+    const issued = await handoff.issue(body.intentId, session.id, launchSignature);
     c.header('Set-Cookie', walletCookie(walletLaunchCookie, null, 0), { append: true });
     if (issued.issuer !== origin) reject(503, 'WALLET_UNAVAILABLE');
     const callback = new URL(issued.callbackUri);

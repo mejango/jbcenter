@@ -8,7 +8,7 @@ import { PostgresWalletLoginStore } from "../src/rest/wallet/loginPostgres.js";
 import { PostgresWalletPolicyStore } from "../src/rest/wallet/policyPostgres.js";
 import { PostgresWalletAppGrantStore, assertWalletAppGrantActiveInTransaction } from "../src/rest/wallet/appGrantsPostgres.js";
 import { walletAppPrincipalId } from "../src/rest/wallet/appGrants.js";
-import { createWalletLoginDraft, type WalletLoginChallenge, type WalletLoginCompletion } from "../src/rest/wallet/login.js";
+import { createWalletLoginDraft, deriveWalletCentralSessionToken, type WalletLoginChallenge, type WalletLoginCompletion } from "../src/rest/wallet/login.js";
 import { signGet } from "./fixtures/wallet-enrollment-crypto.js";
 import { createWalletLoginSetup, completeWalletLoginFixture, walletLoginTestMigrations,
   walletLoginFixtureOrigin as audience, walletLoginFixtureRpId as rpId } from "./fixtures/wallet-login-setup.js";
@@ -138,6 +138,17 @@ suite("PostgreSQL discoverable wallet login with genuine P256 and synthetic cano
     expect(await storedCeremony(begun.login.id)).toMatchObject({ consumed_at: expect.any(String), result_id: first.session.id });
     const persisted = (await pool.query("SELECT to_jsonb(l)::text AS document FROM rest_wallet_logins l WHERE id=$1", [begun.login.id])).rows[0].document;
     expect(persisted).not.toContain(begun.flowToken); expect(persisted).not.toContain(first.sessionToken);
+  });
+
+  it("mints a framed login's session from entropy the page never holds, so the completion is single-use", async () => {
+    const app = "https://app.example", value = await initialized(), begun = await store.begin();
+    const input: WalletLoginCompletion = { loginId: begun.login.id, flowToken: begun.flowToken,
+      assertion: signGet({ ...value.credential, challenge: begun.login.challenge, rpId, origin: audience, topOrigin: app }) };
+    const first = await store.complete(input, { topOrigin: app });
+    expect(first.replayed).toBe(false);
+    expect(first.sessionToken).not.toBe(deriveWalletCentralSessionToken(begun.flowToken, begun.login.id));
+    expect(await store.readSession(first.sessionToken)).toEqual(first.session);
+    await expect(store.complete(input, { topOrigin: app })).rejects.toMatchObject({ status: 409 });
   });
 
   it("logs in with a device passkey, names it, and keeps the primary's session apart", async () => {

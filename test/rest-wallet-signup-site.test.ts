@@ -204,7 +204,7 @@ describe('signup framed by an admitted app', () => {
     const activated = await app.fetch(post('framed/activate', { intentId, flowToken: token }, plain));
     expect(activated.status).toBe(200); expect(activated.headers.get('set-cookie')).toBeNull();
     expect((await activated.json()).redirectUri).toContain(appOrigin + '/center/callback?code=');
-    expect(signup.session).toHaveBeenCalledWith(token); expect(framed.issue).toHaveBeenCalledWith(intentId, '22222222-2222-4222-8222-222222222222');
+    expect(signup.session).toHaveBeenCalledWith(token, { topOrigin: appOrigin }); expect(framed.issue).toHaveBeenCalledWith(intentId, '22222222-2222-4222-8222-222222222222');
     const session = await app.fetch(post('framed/session', { intentId, flowToken: token }, plain));
     expect(session.status).toBe(200); expect(session.headers.get('set-cookie')).toBeNull(); expect((await session.json()).redirectUri).toContain('code=');
     const resume = await app.fetch(post('framed/resume/begin', { intentId }, plain));

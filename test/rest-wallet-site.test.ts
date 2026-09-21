@@ -445,6 +445,16 @@ describe('sign-in framed by an admitted app',()=>{
     expect((await gated.app.fetch(request(`/wallet/authorize/${flow}/approve`,{loginId,flowToken:flow,assertion}))).status).toBe(403);
     expect(gated.options.login.complete).not.toHaveBeenCalled();expect(gated.options.handoff.issue).not.toHaveBeenCalled();
   });
+  it('lets a framed launch opened as a page issue its callback from the claim on the row',async()=>{
+    const {app,options,launchSignature}=await framedSetup();
+    const headers={cookie:`${walletSessionCookie}=${token}`,'x-center-wallet-csrf':walletCsrfToken(token)};
+    const issued=await app.fetch(request('/wallet/authorize/issue',{intentId:flow},headers));
+    expect(issued.status).toBe(200);expect(options.handoff.issue).toHaveBeenCalledWith(flow,'22222222-2222-4222-8222-222222222222',launchSignature);
+    expect(new URL((await issued.json()).redirectUri).origin).toBe(appOrigin);
+    // An intent never launched into a frame still needs the cookie.
+    const unclaimed=await app.fetch(request('/wallet/authorize/issue',{intentId:token},headers));
+    expect(unclaimed.status).toBe(403);expect((await unclaimed.json()).error.code).toBe('WALLET_HANDOFF_UNCLAIMED');
+  });
   it('never admits a framing top origin on the cookie sign-in',async()=>{
     const {app,options}=await framedSetup();
     const response=await app.fetch(request('/wallet/login/complete',{loginId,assertion},{cookie:`${walletFlowCookie}=${flow}`,'x-center-wallet-csrf':walletCsrfToken(flow)}));

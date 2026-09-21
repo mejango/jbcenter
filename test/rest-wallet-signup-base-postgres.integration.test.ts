@@ -174,6 +174,8 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
         expect(await sessionsBefore()).toBe(completed);
         flowToken = resumed.flowToken;
       }
+      // An approval held for the page's own flow is not a framed app's sign-in.
+      if (index !== 0) await expect(signup.session(flowToken, { topOrigin: "https://app.example" })).rejects.toMatchObject({ status: 409 });
       const signedIn = index === 0 ? null : await signup.session(flowToken);
       if (signedIn) {
       expect((signedIn.session as { accountId: string; credentialId: string }).accountId).toBe(record.receipt!.accountId);

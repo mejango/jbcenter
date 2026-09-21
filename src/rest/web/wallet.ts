@@ -35,7 +35,9 @@ let nextRetry: () => Promise<void> = load;
 // app the operator admits can frame this page at all (frame-ancestors), so the sign-in button asks
 // just that the frame be large enough and the button be scrolled into view; Intersection Observer
 // v2's occlusion verdict is not consulted here, because browsers report every element inside a
-// top-layer <dialog> — where the app's sign-in modal puts the frame — as not visible.
+// top-layer <dialog> — where the app's sign-in modal puts the frame — as not visible. The bar is
+// lower than the payment review's on purpose: an admitted app that overlaid this button would gain
+// only a grant to itself, behind the browser's own passkey prompt; a review moves funds.
 const openAsPage = document.getElementById("wallet-open") as HTMLAnchorElement | null;
 let signInVisible = !framed;
 if (framed) {

@@ -4,6 +4,7 @@ import type { Address, Hex } from 'viem';
 import { RestError } from '../core.js';
 import { walletAppFields } from './appGrants.js';
 import type { createLocalWalletSignup } from './signup.js';
+import type { WalletCeremonyOptions } from './webauthn.js';
 import { walletSignupPage, walletSignupCss } from '../web/walletSignupPage.js';
 import { assertWalletHttpHost, assertWalletHttpRequest, assertWalletCsrf, readWalletCookie, readWalletJson,
   walletCookie, walletCsrfToken, walletSessionCookie, walletSignupCookie, walletSignupResumeCookie, walletHttpBytes, walletHttpAssertion, walletPageHeaders,
@@ -248,23 +249,23 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
         ...(input.backupSignature === undefined ? {} : { backupSignature: input.backupSignature as Hex }) }, ceremony) });
     });
     // The new account's session anchors the code the app exchanges; the session itself is never handed to the browser.
-    const signedIn = async (intentId: string, token: string) => {
-      const session = (await signup.session(token)).session as { id: string };
+    const signedIn = async (intentId: string, token: string, ceremony: WalletCeremonyOptions) => {
+      const session = (await signup.session(token, ceremony)).session as { id: string };
       return framed.issue(intentId, session.id);
     };
     app.post(`${base}/signup/framed/activate`, async c => {
-      const { input, intent } = await admitted(c, ['flowToken']);
+      const { input, intent, ceremony } = await admitted(c, ['flowToken']);
       const token = flowToken(input), view = await signup.activate(token);
       let redirectUri: string | undefined;
       if (view.phase === 'ready_to_sign_in') {
-        try { redirectUri = await signedIn(intent.id, token); }
+        try { redirectUri = await signedIn(intent.id, token, ceremony); }
         catch (error) { if (!(error instanceof RestError) || error.status >= 500) throw error; /* a refused hold: the page's own attempt, then the sign-in */ }
       }
       return json(c, { view, ...(redirectUri ? { redirectUri } : {}) });
     });
     app.post(`${base}/signup/framed/session`, async c => {
-      const { input, intent } = await admitted(c, ['flowToken']);
-      return c.json({ redirectUri: await signedIn(intent.id, flowToken(input)) });
+      const { input, intent, ceremony } = await admitted(c, ['flowToken']);
+      return c.json({ redirectUri: await signedIn(intent.id, flowToken(input), ceremony) });
     });
     app.post(`${base}/signup/framed/resume/begin`, async c => {
       await admitted(c, []);

@@ -235,10 +235,12 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
    * the claim signs the account in once its authority is verified. The store re-verifies it against
    * the claimed deployment; anything held longer than 15 minutes, a resumed signup or a restarted
    * process gets the ordinary login prompt instead. */
-  async function session(flowToken: string) {
+  async function session(flowToken: string, ceremony: WalletCeremonyOptions = {}) {
     const { flow, enrollment } = await context(flowToken), held = approvals.get(enrollment.intent.id);
-    // A resumed continuation (rotated token, advanced revision) is not the one that approved.
-    if (!options.login || !held || Date.now() - held.at > 900_000 || held.flowRevision !== flow.revision) state();
+    // A resumed continuation (rotated token, advanced revision) is not the one that approved, and
+    // neither is a sign-in for another app than the one whose frame held the approval.
+    if (!options.login || !held || Date.now() - held.at > 900_000 || held.flowRevision !== flow.revision
+      || (held.ceremony.topOrigin ?? null) !== (ceremony.topOrigin ?? null)) state();
     const current = await status(flowToken);
     if (current.phase !== "ready_to_sign_in" || current.deploymentId !== held.deploymentId) state();
     const operation = await deployments.get(held.deploymentId);

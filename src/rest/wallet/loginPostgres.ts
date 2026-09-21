@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { passkeyBindingMethods } from "../smartAccounts/passkeyOnboarding.js";
 import { RestError } from "../core.js";
@@ -191,7 +192,9 @@ export class PostgresWalletLoginStore {
     const proof = await this.proof(input, options), identity = proof.context.prior?.identity;
     if (!identity) inactive();
     const identityDigest = walletAuthorityIdentityDigest(identity);
-    const sessionToken = deriveWalletCentralSessionToken(proof.input.flowToken, proof.draft.id);
+    // A framed login's session stays on the server, so its token comes from entropy the page never sees;
+    // the flow token the page holds must not be able to rebuild it. That also makes the completion single-use.
+    const sessionToken = deriveWalletCentralSessionToken(options.topOrigin ? randomBytes(32).toString("base64url") : proof.input.flowToken, proof.draft.id);
     const sessionTokenHash = walletCentralSessionTokenHash(sessionToken);
     return this.transaction(async client => {
       const locked = await lockedContext(client, proof.context.accountId, proof.context.enrollment.intent.id);
