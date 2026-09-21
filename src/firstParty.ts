@@ -28,6 +28,7 @@ const DEV_APPLICATIONS = applications([
   "http://localhost:3004",
   "http://localhost:3010",
   "http://localhost:3014",
+  "http://127.0.0.1:8787",
 ]);
 
 /** The shared trusted configuration. Empty callbacks admit no wallet handoff. */
