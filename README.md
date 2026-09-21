@@ -158,6 +158,10 @@ requests per minute, also subject to `RPC_SITE_LIMIT_PER_MINUTE`; and ten MCP pi
 also subject to the existing 200-per-site pin budget. These are service-wide budgets across
 replicas, in addition to MCP transport limits. See [MCP deployment](mcp/docs/DEPLOYMENT.md).
 
+The MCP exposes the intent flow as `jb_prepare_intent` (local commitment and signing message),
+`jb_publish_intent` (publish an envelope the caller already signed), `jb_get_intent` and
+`jb_deploy_intent` (request a sponsored deploy). The MCP holds no key and signs nothing.
+
 ## Pin and read IPFS content
 
 JB Center sends each upload to Filebase first to produce and retain a canonical CIDv0, then
@@ -240,6 +244,10 @@ uses the separately authenticated REST plan/submission API.
 
 ## Publish an intent
 
+The complete integrator recipe lives in [the project intents guide](docs/rest/PROJECT_INTENTS.md),
+served at [`/api/docs/project-intents`](https://juicebox.center/api/docs/project-intents). This
+section is the short version.
+
 First ask JB Center for the deterministic message to sign:
 
 ```sh
@@ -291,6 +299,11 @@ A published intent is firm: there is no edit, replace or withdraw. Publish a new
 GET /v1/intents/:id
 GET /v1/search?q=climate&limit=20&cursor=20
 ```
+
+`GET /v1/search` also accepts `owner` and `publisher`, each an address matched case-insensitively
+and combinable with `q`: `owner` matches the indexed `jb.owner` and answers "which projects does
+this account have", `publisher` matches the signing key and answers "which intents did my server
+publish".
 
 Search returns a merge-friendly page:
 
@@ -353,6 +366,9 @@ and chain. Recording the first deployment removes the intent from search while p
 `.jb`, signature, exact launch call, and deployment provenance at its direct URL.
 
 ## Request a sponsored deploy
+
+The [project intents guide](docs/rest/PROJECT_INTENTS.md) covers the chain families, quotas,
+reservations and refusal codes in full.
 
 A trusted webclient can ask JB Center to execute an undeployed intent's own signed calls, at
 Center's expense, instead of the publisher paying gas directly:
