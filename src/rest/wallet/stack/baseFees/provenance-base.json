@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "repository": "https://github.com/base/base",
+  "commit": "9469da27403d6836634639b4899a6e4a0964720f",
+  "license": {
+    "spdx": "MIT",
+    "file": "Base-LICENSE.txt",
+    "copyright": "Copyright (c) 2025 Base"
+  },
+  "sources": [
+    {
+      "file": "BaseL1Block.rs",
+      "upstreamPath": "crates/common/evm/src/l1block.rs",
+      "url": "https://github.com/base/base/blob/9469da27403d6836634639b4899a6e4a0964720f/crates/common/evm/src/l1block.rs",
+      "rawUrl": "https://raw.githubusercontent.com/base/base/9469da27403d6836634639b4899a6e4a0964720f/crates/common/evm/src/l1block.rs",
+      "sha256": "b82e298e1eb5d80070d483b95c4bf57464ca076307396c54367f4b6b9c643cb2"
+    },
+    {
+      "file": "BaseFastLz.rs",
+      "upstreamPath": "crates/common/flz/src/flz.rs",
+      "url": "https://github.com/base/base/blob/9469da27403d6836634639b4899a6e4a0964720f/crates/common/flz/src/flz.rs",
+      "rawUrl": "https://raw.githubusercontent.com/base/base/9469da27403d6836634639b4899a6e4a0964720f/crates/common/flz/src/flz.rs",
+      "sha256": "27825cea9f97f5df1157e3dfb8c2d3358b9bdc66d5bde6f86dd3dc56d7560bd5"
+    },
+    {
+      "file": "BaseL1FeeParams.rs",
+      "upstreamPath": "crates/common/l1-fees/src/params.rs",
+      "url": "https://github.com/base/base/blob/9469da27403d6836634639b4899a6e4a0964720f/crates/common/l1-fees/src/params.rs",
+      "rawUrl": "https://raw.githubusercontent.com/base/base/9469da27403d6836634639b4899a6e4a0964720f/crates/common/l1-fees/src/params.rs",
+      "sha256": "32c8211eea20edd001f6335c179ca8a6edec1a01c84cdf1c2f9b4c7ff7060cbc"
+    },
+    {
+      "file": "Base-LICENSE.txt",
+      "upstreamPath": "LICENSE",
+      "url": "https://github.com/base/base/blob/9469da27403d6836634639b4899a6e4a0964720f/LICENSE",
+      "rawUrl": "https://raw.githubusercontent.com/base/base/9469da27403d6836634639b4899a6e4a0964720f/LICENSE",
+      "sha256": "140d1113c02e578e7d706c960840e8ee791310d3312e1188b5dc94bf7a837ef9"
+    }
+  ],
+  "vectors": {
+    "file": "base-vectors.json",
+    "sha256": "08304275719c08b7763e88d498f44d6fc15036f5018d8643beb45dbd2af4617f",
+    "extraction": "Transaction bytes are copied verbatim from the pinned Rust test hex literals, prefixed with 0x. Fee parameters and expected values are converted to decimal strings. No signature padding or transaction reserialization is applied.",
+    "cases": [
+      {
+        "name": "fjord_sample_contract_call_202",
+        "upstreamTest": "test_calculate_tx_l1_cost_fjord",
+        "sourceUrl": "https://github.com/base/base/blob/9469da27403d6836634639b4899a6e4a0964720f/crates/common/evm/src/l1block.rs#L534-L571",
+        "parameterLines": [
+          538,
+          544
+        ],
+        "rawTransactionLine": 564,
+        "expectedFastLzLengthLines": [
+          559,
+          561
+        ],
+        "expectedL1FeeLine": 571,
+        "rawTransactionBytes": "345",
+        "transactionChainId": "10",
+        "notes": "Upstream arithmetic fixture with synthetic fee parameters; not production Base fee or runtime evidence."
+      },
+      {
+        "name": "fjord_legacy_compatibility_124665056",
+        "upstreamTest": "calculate_tx_l1_cost_fjord",
+        "sourceUrl": "https://github.com/base/base/blob/9469da27403d6836634639b4899a6e4a0964720f/crates/common/evm/src/l1block.rs#L588-L623",
+        "parameterLines": [
+          594,
+          600
+        ],
+        "rawTransactionLine": 605,
+        "expectedL1FeeLines": [
+          611,
+          612
+        ],
+        "expectedL1FeeHex": "0x05bf1ab43d",
+        "rawTransactionBytes": "1176",
+        "transactionChainId": "10",
+        "historicalBlockNumber": "124665056",
+        "historicalTransactionHash": "0x1059e8004daff32caa1f1b1ef97fe3a07a8cf40508f5b835b66d9420d87c4a4a",
+        "upstreamExpectedDataGas": "4471",
+        "notes": "Legacy Optimism Fjord compatibility fixture preserved by Base upstream; historical block/transaction annotations were not independently queried. FastLZ length is intentionally omitted because this upstream test does not assert it directly."
+      }
+    ]
+  },
+  "scope": "Local source/vector references only. No upstream Rust tests executed, chain RPCs queried, or deployed runtime/fork semantics certified by this acquisition."
+}

@@ -1,0 +1,221 @@
+{
+  "schemaVersion": 1,
+  "address": "0x3fb7a8bee59d8c5b2f1cf6ce93e5e694cb233b57",
+  "runtimeCodeHash": "0x82fdfe9fa24df2d8444d9b7b10151a89bb4625f88206d1b20aa0796f68577237",
+  "runtimeBytes": 2597,
+  "source": {
+    "repo": "https://github.com/rhinestonewtf/safe7579",
+    "commit": "f22a194148ff087f0c16125e530512e59794e188",
+    "inputUrl": "https://github.com/rhinestonewtf/safe7579/blob/f22a194148ff087f0c16125e530512e59794e188/artifacts/Safe7579/verify.json",
+    "inputSha256": "955d410efa0870df00bfddc9c2ea25bccf37451403da245af5e90a82ac45ffdb"
+  },
+  "compiler": {
+    "version": "0.8.30+commit.73712a01",
+    "binarySha256": "738dcdc6afddeb505ee4e4ef24f1c1fdba2b8c924e614cbbf5801a5b062dd683",
+    "optimizerRuns": 3000,
+    "evmVersion": "cancun",
+    "viaIR": false
+  },
+  "parentArtifactReproducedExactly": true,
+  "utilityCompiledFromSameInput": true,
+  "allChainsVerified": true,
+  "observations": [
+    {
+      "chainId": 1,
+      "publicRpcUrl": "https://ethereum-rpc.publicnode.com",
+      "blockNumber": 25923530,
+      "blockHash": "0x08c7daef405064713a368866a6308f10742d69d22dd48664eff51526ce8c9a88",
+      "address": "0x3fb7a8bee59d8c5b2f1cf6ce93e5e694cb233b57",
+      "expectedRuntimeCodeHash": "0x82fdfe9fa24df2d8444d9b7b10151a89bb4625f88206d1b20aa0796f68577237",
+      "expectedRuntimeBytes": 2597,
+      "request": [
+        {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "eth_chainId",
+          "params": []
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": 2,
+          "method": "eth_getBlockByNumber",
+          "params": [
+            "0x18b8fca",
+            false
+          ]
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": 3,
+          "method": "eth_getCode",
+          "params": [
+            "0x3fb7a8bee59d8c5b2f1cf6ce93e5e694cb233b57",
+            "0x18b8fca"
+          ]
+        }
+      ],
+      "observedAt": "2026-09-07T05:58:07.769Z",
+      "chainIdVerified": true,
+      "blockNumberVerified": true,
+      "blockHashVerified": true,
+      "runtimeCodeHash": "0x82fdfe9fa24df2d8444d9b7b10151a89bb4625f88206d1b20aa0796f68577237",
+      "runtimeBytes": 2597,
+      "verified": true,
+      "previousAttempts": [
+        {
+          "chainId": 1,
+          "error": "Error: {\"code\":-32602,\"message\":\"Archive requests require a personal token. Get one at: https://www.allnodes.com/publicnode\"}"
+        }
+      ],
+      "freshPinReason": "Historical state unavailable from the public RPC; code observed at a newly pinned block on the same endpoint."
+    },
+    {
+      "chainId": 10,
+      "blockNumber": 156579447,
+      "blockHash": "0xab737fcfb47a12b7f6cc76ce82ea43f89b8350bf5cf1046931173151f6f340fe",
+      "publicRpcUrl": "https://mainnet.optimism.io",
+      "runtimeCodeHash": "0x82fdfe9fa24df2d8444d9b7b10151a89bb4625f88206d1b20aa0796f68577237",
+      "runtimeBytes": 2597,
+      "exactMatch": true,
+      "verified": true
+    },
+    {
+      "chainId": 8453,
+      "blockNumber": 50984162,
+      "blockHash": "0x815e5df82f7fc315301812d724531c676b2cd12494fe48522ad18e05bbac6dfa",
+      "publicRpcUrl": "https://mainnet.base.org",
+      "runtimeCodeHash": "0x82fdfe9fa24df2d8444d9b7b10151a89bb4625f88206d1b20aa0796f68577237",
+      "runtimeBytes": 2597,
+      "exactMatch": true,
+      "verified": true
+    },
+    {
+      "chainId": 42161,
+      "publicRpcUrl": "https://arb1.arbitrum.io/rpc",
+      "blockNumber": 502584822,
+      "blockHash": "0x4b9438eded9c5f08967cf0cbdf9bdb792294edac97235bce93bd88e3abdd00b0",
+      "address": "0x3fb7a8bee59d8c5b2f1cf6ce93e5e694cb233b57",
+      "expectedRuntimeCodeHash": "0x82fdfe9fa24df2d8444d9b7b10151a89bb4625f88206d1b20aa0796f68577237",
+      "expectedRuntimeBytes": 2597,
+      "request": [
+        {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "eth_chainId",
+          "params": []
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": 2,
+          "method": "eth_getBlockByNumber",
+          "params": [
+            "0x1df4d5f6",
+            false
+          ]
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": 3,
+          "method": "eth_getCode",
+          "params": [
+            "0x3fb7a8bee59d8c5b2f1cf6ce93e5e694cb233b57",
+            "0x1df4d5f6"
+          ]
+        }
+      ],
+      "observedAt": "2026-09-07T05:58:07.786Z",
+      "chainIdVerified": true,
+      "blockNumberVerified": true,
+      "blockHashVerified": true,
+      "runtimeCodeHash": "0x82fdfe9fa24df2d8444d9b7b10151a89bb4625f88206d1b20aa0796f68577237",
+      "runtimeBytes": 2597,
+      "verified": true,
+      "previousAttempts": [
+        {
+          "chainId": 42161,
+          "error": "Error: {\"code\":-32000,\"message\":\"missing trie node 1ba87edebb1b0ab0a04e4cba7fc3694345115295f823aefe2109706d6e08adca (path ) state 0x1ba87edebb1b0ab0a04e4cba7fc3694345115295f823aefe2109706d6e08adca is "
+        }
+      ],
+      "freshPinReason": "Historical state unavailable from the public RPC; code observed at a newly pinned block on the same endpoint."
+    },
+    {
+      "chainId": 11155111,
+      "blockNumber": 11652036,
+      "blockHash": "0xb89c6621df87dd2ccf1c9eaa39abcac5f0ad94ce207163d8a4e6100421c987ca",
+      "publicRpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+      "runtimeCodeHash": "0x82fdfe9fa24df2d8444d9b7b10151a89bb4625f88206d1b20aa0796f68577237",
+      "runtimeBytes": 2597,
+      "exactMatch": true,
+      "verified": true
+    },
+    {
+      "chainId": 11155420,
+      "blockNumber": 48477566,
+      "blockHash": "0x68a1c7449262878d677749b63cc524183e55eb9759ded063482700d877d0af85",
+      "publicRpcUrl": "https://sepolia.optimism.io",
+      "runtimeCodeHash": "0x82fdfe9fa24df2d8444d9b7b10151a89bb4625f88206d1b20aa0796f68577237",
+      "runtimeBytes": 2597,
+      "exactMatch": true,
+      "verified": true
+    },
+    {
+      "chainId": 84532,
+      "blockNumber": 46494692,
+      "blockHash": "0xdbd170a4abf2de2c4dc02f9e611e0548e0f838d01fbe8dca1339e35923a8732b",
+      "publicRpcUrl": "https://sepolia.base.org",
+      "runtimeCodeHash": "0x82fdfe9fa24df2d8444d9b7b10151a89bb4625f88206d1b20aa0796f68577237",
+      "runtimeBytes": 2597,
+      "exactMatch": true,
+      "verified": true
+    },
+    {
+      "chainId": 421614,
+      "publicRpcUrl": "https://sepolia-rollup.arbitrum.io/rpc",
+      "blockNumber": 306284247,
+      "blockHash": "0xe0f04aa0e3e61f198bba813d2a1f9f74ddb33c66e987787047d35b1ecd0ace4e",
+      "address": "0x3fb7a8bee59d8c5b2f1cf6ce93e5e694cb233b57",
+      "expectedRuntimeCodeHash": "0x82fdfe9fa24df2d8444d9b7b10151a89bb4625f88206d1b20aa0796f68577237",
+      "expectedRuntimeBytes": 2597,
+      "request": [
+        {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "eth_chainId",
+          "params": []
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": 2,
+          "method": "eth_getBlockByNumber",
+          "params": [
+            "0x124186d7",
+            false
+          ]
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": 3,
+          "method": "eth_getCode",
+          "params": [
+            "0x3fb7a8bee59d8c5b2f1cf6ce93e5e694cb233b57",
+            "0x124186d7"
+          ]
+        }
+      ],
+      "observedAt": "2026-09-07T05:58:07.785Z",
+      "chainIdVerified": true,
+      "blockNumberVerified": true,
+      "blockHashVerified": true,
+      "runtimeCodeHash": "0x82fdfe9fa24df2d8444d9b7b10151a89bb4625f88206d1b20aa0796f68577237",
+      "runtimeBytes": 2597,
+      "verified": true,
+      "previousAttempts": [
+        {
+          "chainId": 421614,
+          "error": "Error: {\"code\":-32000,\"message\":\"metadata is not found, 306237242\"}"
+        }
+      ],
+      "freshPinReason": "Historical state unavailable from the public RPC; code observed at a newly pinned block on the same endpoint."
+    }
+  ]
+}

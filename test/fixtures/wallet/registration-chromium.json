@@ -1,0 +1,30 @@
+{
+  "tier": "virtual-authenticator",
+  "browserVersion": "152.0.7977.83",
+  "origin": "http://localhost:59179",
+  "rpId": "localhost",
+  "userHandle": "bRfm1A-Z82_YjMbSyjGbKI_AKM81q8Ht7rsdxG9jbAI",
+  "registrationChallenge": "ym9pwPYpYNRGikSiRYRK92nEQJ0FIqsbUZMdE3H6vHI",
+  "possessionChallenge": "MJ8O_u6zO791ZkuCUfXBKy_v_IEbN5QokRC6A5mJuPE",
+  "registration": {
+    "type": "public-key",
+    "credentialId": "PPsJ3CxcfMFJkxE_37v0QfvYbM6XfQLs_deaWIS_gs4",
+    "rawId": "PPsJ3CxcfMFJkxE_37v0QfvYbM6XfQLs_deaWIS_gs4",
+    "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoieW05cHdQWXBZTlJHaWtTaVJZUks5Mm5FUUowRklxc2JVWk1kRTNINnZISSIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6NTkxNzkiLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
+    "attestationObject": "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVikSZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2NFAAAAAQECAwQFBgcIAQIDBAUGBwgAIDz7CdwsXHzBSZMRP9-79EH72GzOl30C7P3XmliEv4LOpQECAyYgASFYIAo4ikrqnUrC3hlI-4_ciRJaHOyYaODmis2xq83xF3i0IlggLPhZDKC66oRbZ7CIL3geS01qp0Fjq3mIBkUaLh8582I",
+    "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAECjiKSuqdSsLeGUj7j9yJEloc7Jho4OaKzbGrzfEXeLQs-FkMoLrqhFtnsIgveB5LTWqnQWOreYgGRRouHznzYg"
+  },
+  "assertion": {
+    "credentialId": "PPsJ3CxcfMFJkxE_37v0QfvYbM6XfQLs_deaWIS_gs4",
+    "authenticatorData": "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MFAAAAAg",
+    "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiTUo4T191NnpPNzkxWmt1Q1VmWEJLeV92X0lFYk41UW9rUkM2QTVtSnVQRSIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6NTkxNzkiLCJjcm9zc09yaWdpbiI6ZmFsc2UsIm90aGVyX2tleXNfY2FuX2JlX2FkZGVkX2hlcmUiOiJkbyBub3QgY29tcGFyZSBjbGllbnREYXRhSlNPTiBhZ2FpbnN0IGEgdGVtcGxhdGUuIFNlZSBodHRwczovL2dvby5nbC95YWJQZXgifQ",
+    "signature": "MEUCIQDG_tIKOpP7MoR44DDSZOmJp58iHagdohoyfIOgQj6bbwIgR1WELJqMxjFeJvk7nEQQWJgrQYUFoRAKfhOemSy21uM",
+    "userHandle": "bRfm1A-Z82_YjMbSyjGbKI_AKM81q8Ht7rsdxG9jbAI"
+  },
+  "publicKey": {
+    "x": "0x0a388a4aea9d4ac2de1948fb8fdc89125a1cec9868e0e68acdb1abcdf11778b4",
+    "y": "0x2cf8590ca0baea845b67b0882f781e4b4d6aa74163ab798806451a2e1f39f362"
+  },
+  "contractSignatureBytes": 448,
+  "physicalDeviceObserved": false
+}

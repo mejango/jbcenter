@@ -1,0 +1,999 @@
+{
+  "schemaVersion": 1,
+  "repository": "https://github.com/Bananapus/deploy-all-v6",
+  "commit": "20883a7c7fcd58b6264f8375b6156a59ab9a2597",
+  "deployments": [
+    {
+      "name": "JBController",
+      "contractId": "@bananapus/core-v6:src/JBController.sol:JBController",
+      "chainId": 1,
+      "deployment": {
+        "alias": "JBController",
+        "address": "0x3Fcec3572e84b624477BcfF4E2CF1f7dEAb648F1",
+        "chainId": 1,
+        "abiHash": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d",
+        "codeId": "sha256:1c29724b01277e34eb97b11c511d504cf79cc6e8f317a26f6f073f1ce1ecf8c7",
+        "artifactPath": "deploy-all-v6/deployments/ethereum/JBController.json",
+        "artifactSha256": "8807d6e44a8fb2c4ce29d5a364882a62bfd4642da1c393645f9784fd8b039971",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "721a211ec29f32661ab33030429e1d90",
+        "constructorArguments": [
+          "0x5AfF29060E023e6FB87BE5596652B33c65Af535B",
+          "0xC93360158f187Fc8FC8f1062a1b31d06F185DbAB",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0xad45E4627f068d1e6b21E5301870d807543a8401",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x26f2228A4e8b0079Ed1c2a3D22f12ff7f83CdFBA",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0xB853758A70a6b4216c09f1d071eA2344AbA0a34f",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "05066cf47ad6dd0119054ffcd5d7fca64d8b15495aa6fcade57bad29b8dc09d5",
+        "receipt": {
+          "transactionHash": "0x9b5c290e96af7c021aee5891b46b6ead81d41aba78409f6620c43ec7670f30f5",
+          "blockNumber": "0x1828180",
+          "blockHash": "0xa69802bcb9e323894d68ce747baaa758f3fa10d65bcf2e4146bfa7852abfafa0"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "8807d6e44a8fb2c4ce29d5a364882a62bfd4642da1c393645f9784fd8b039971",
+      "abiIdentity": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d"
+    },
+    {
+      "name": "JBController",
+      "contractId": "@bananapus/core-v6:src/JBController.sol:JBController",
+      "chainId": 10,
+      "deployment": {
+        "alias": "JBController",
+        "address": "0x3Fcec3572e84b624477BcfF4E2CF1f7dEAb648F1",
+        "chainId": 10,
+        "abiHash": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d",
+        "codeId": "sha256:1c29724b01277e34eb97b11c511d504cf79cc6e8f317a26f6f073f1ce1ecf8c7",
+        "artifactPath": "deploy-all-v6/deployments/optimism/JBController.json",
+        "artifactSha256": "859bb9da2a9611e63153e3f7757746a3b0587866a1fbb07a9cb0afcf237a94ed",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "721a211ec29f32661ab33030429e1d90",
+        "constructorArguments": [
+          "0x5AfF29060E023e6FB87BE5596652B33c65Af535B",
+          "0xC93360158f187Fc8FC8f1062a1b31d06F185DbAB",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0xad45E4627f068d1e6b21E5301870d807543a8401",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x26f2228A4e8b0079Ed1c2a3D22f12ff7f83CdFBA",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0xB853758A70a6b4216c09f1d071eA2344AbA0a34f",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "05066cf47ad6dd0119054ffcd5d7fca64d8b15495aa6fcade57bad29b8dc09d5",
+        "receipt": {
+          "transactionHash": "0x026ef2b9551ac094c6a61b7d21c284d61937be29d0d73cdfbfabc0259c9e9ee0",
+          "blockNumber": "0x91e8271",
+          "blockHash": "0x250d4264ce333d23d60f68a5506295ab312602c388308a6b0e221e8c44fb9830"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "859bb9da2a9611e63153e3f7757746a3b0587866a1fbb07a9cb0afcf237a94ed",
+      "abiIdentity": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d"
+    },
+    {
+      "name": "JBController",
+      "contractId": "@bananapus/core-v6:src/JBController.sol:JBController",
+      "chainId": 8453,
+      "deployment": {
+        "alias": "JBController",
+        "address": "0x3Fcec3572e84b624477BcfF4E2CF1f7dEAb648F1",
+        "chainId": 8453,
+        "abiHash": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d",
+        "codeId": "sha256:1c29724b01277e34eb97b11c511d504cf79cc6e8f317a26f6f073f1ce1ecf8c7",
+        "artifactPath": "deploy-all-v6/deployments/base/JBController.json",
+        "artifactSha256": "b3b0fe8d7d9d757e58957f1271691fcab0576232bec5d62e8d2a2c724c9e48dd",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "721a211ec29f32661ab33030429e1d90",
+        "constructorArguments": [
+          "0x5AfF29060E023e6FB87BE5596652B33c65Af535B",
+          "0xC93360158f187Fc8FC8f1062a1b31d06F185DbAB",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0xad45E4627f068d1e6b21E5301870d807543a8401",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x26f2228A4e8b0079Ed1c2a3D22f12ff7f83CdFBA",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0xB853758A70a6b4216c09f1d071eA2344AbA0a34f",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "05066cf47ad6dd0119054ffcd5d7fca64d8b15495aa6fcade57bad29b8dc09d5",
+        "receipt": {
+          "transactionHash": "0x4bfa914576675cd0d3bb72a38f1c68f8860a8a0d38d6977861da8d2364416388",
+          "blockNumber": "0x2d340f3",
+          "blockHash": "0x9d43810585d4b0041eeeb7d51091d7578ae3c24195220a945faca5c6c10d9faf"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "b3b0fe8d7d9d757e58957f1271691fcab0576232bec5d62e8d2a2c724c9e48dd",
+      "abiIdentity": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d"
+    },
+    {
+      "name": "JBController",
+      "contractId": "@bananapus/core-v6:src/JBController.sol:JBController",
+      "chainId": 42161,
+      "deployment": {
+        "alias": "JBController",
+        "address": "0x3Fcec3572e84b624477BcfF4E2CF1f7dEAb648F1",
+        "chainId": 42161,
+        "abiHash": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d",
+        "codeId": "sha256:1c29724b01277e34eb97b11c511d504cf79cc6e8f317a26f6f073f1ce1ecf8c7",
+        "artifactPath": "deploy-all-v6/deployments/arbitrum/JBController.json",
+        "artifactSha256": "ecd1459d78ede77be08a4905ceb6e66d8454e421cec7346312fd42e5ce24bfa1",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "721a211ec29f32661ab33030429e1d90",
+        "constructorArguments": [
+          "0x5AfF29060E023e6FB87BE5596652B33c65Af535B",
+          "0xC93360158f187Fc8FC8f1062a1b31d06F185DbAB",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0xad45E4627f068d1e6b21E5301870d807543a8401",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x26f2228A4e8b0079Ed1c2a3D22f12ff7f83CdFBA",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0xB853758A70a6b4216c09f1d071eA2344AbA0a34f",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "05066cf47ad6dd0119054ffcd5d7fca64d8b15495aa6fcade57bad29b8dc09d5",
+        "receipt": {
+          "transactionHash": "0x4433026cf905fcb097046241bfc6fe4ef6ff7235989d6f8250ade60da135b526",
+          "blockNumber": "0x1c4350b3",
+          "blockHash": "0xeda25bdbe0cdcecb66cae19a52073e5a956d4ab5eb6f987158c1eccf3dd0a0b7"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "ecd1459d78ede77be08a4905ceb6e66d8454e421cec7346312fd42e5ce24bfa1",
+      "abiIdentity": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d"
+    },
+    {
+      "name": "JBController",
+      "contractId": "@bananapus/core-v6:src/JBController.sol:JBController",
+      "chainId": 84532,
+      "deployment": {
+        "alias": "JBController",
+        "address": "0x3Fcec3572e84b624477BcfF4E2CF1f7dEAb648F1",
+        "chainId": 84532,
+        "abiHash": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d",
+        "codeId": "sha256:1c29724b01277e34eb97b11c511d504cf79cc6e8f317a26f6f073f1ce1ecf8c7",
+        "artifactPath": "deploy-all-v6/deployments/base_sepolia/JBController.json",
+        "artifactSha256": "9c84b0248748cbb6773c1cbf25bb256d2a7c827e31e0a5513a09f652b757ebba",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "721a211ec29f32661ab33030429e1d90",
+        "constructorArguments": [
+          "0x5AfF29060E023e6FB87BE5596652B33c65Af535B",
+          "0xC93360158f187Fc8FC8f1062a1b31d06F185DbAB",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0xad45E4627f068d1e6b21E5301870d807543a8401",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x26f2228A4e8b0079Ed1c2a3D22f12ff7f83CdFBA",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0xB853758A70a6b4216c09f1d071eA2344AbA0a34f",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "05066cf47ad6dd0119054ffcd5d7fca64d8b15495aa6fcade57bad29b8dc09d5",
+        "receipt": {
+          "transactionHash": "0x7937678fe239d32b2e6fd63d8ff994cc14739adeae5953197dc6767622aa888c",
+          "blockNumber": "0x28ebf61",
+          "blockHash": "0x1fdbc8f49ef9d7e44fcf2c2878c093c1c9b3da3b876a33e4140570e2328fb6a9"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "9c84b0248748cbb6773c1cbf25bb256d2a7c827e31e0a5513a09f652b757ebba",
+      "abiIdentity": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d"
+    },
+    {
+      "name": "JBController",
+      "contractId": "@bananapus/core-v6:src/JBController.sol:JBController",
+      "chainId": 421614,
+      "deployment": {
+        "alias": "JBController",
+        "address": "0x3Fcec3572e84b624477BcfF4E2CF1f7dEAb648F1",
+        "chainId": 421614,
+        "abiHash": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d",
+        "codeId": "sha256:1c29724b01277e34eb97b11c511d504cf79cc6e8f317a26f6f073f1ce1ecf8c7",
+        "artifactPath": "deploy-all-v6/deployments/arbitrum_sepolia/JBController.json",
+        "artifactSha256": "4e2e5ffaac6e473dc23557d0445caf28f2dfe9f8f33553272138676db78794d7",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "721a211ec29f32661ab33030429e1d90",
+        "constructorArguments": [
+          "0x5AfF29060E023e6FB87BE5596652B33c65Af535B",
+          "0xC93360158f187Fc8FC8f1062a1b31d06F185DbAB",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0xad45E4627f068d1e6b21E5301870d807543a8401",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x26f2228A4e8b0079Ed1c2a3D22f12ff7f83CdFBA",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0xB853758A70a6b4216c09f1d071eA2344AbA0a34f",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "05066cf47ad6dd0119054ffcd5d7fca64d8b15495aa6fcade57bad29b8dc09d5",
+        "receipt": {
+          "transactionHash": "0x528c502662494b2924b13627bf9c363ecf188ea6c4ccdd9036712989c9aeca24",
+          "blockNumber": "0x108dc72e",
+          "blockHash": "0x9b140af3e4703b3049c347a86c059d99391ac94a1ca42d29318bd13d9bc95059"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "4e2e5ffaac6e473dc23557d0445caf28f2dfe9f8f33553272138676db78794d7",
+      "abiIdentity": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d"
+    },
+    {
+      "name": "JBController",
+      "contractId": "@bananapus/core-v6:src/JBController.sol:JBController",
+      "chainId": 11155111,
+      "deployment": {
+        "alias": "JBController",
+        "address": "0x3Fcec3572e84b624477BcfF4E2CF1f7dEAb648F1",
+        "chainId": 11155111,
+        "abiHash": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d",
+        "codeId": "sha256:1c29724b01277e34eb97b11c511d504cf79cc6e8f317a26f6f073f1ce1ecf8c7",
+        "artifactPath": "deploy-all-v6/deployments/sepolia/JBController.json",
+        "artifactSha256": "364288d58866ec7365013d8945f015a478087fdba938bc0d7b9b3463262b03fc",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "721a211ec29f32661ab33030429e1d90",
+        "constructorArguments": [
+          "0x5AfF29060E023e6FB87BE5596652B33c65Af535B",
+          "0xC93360158f187Fc8FC8f1062a1b31d06F185DbAB",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0xad45E4627f068d1e6b21E5301870d807543a8401",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x26f2228A4e8b0079Ed1c2a3D22f12ff7f83CdFBA",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0xB853758A70a6b4216c09f1d071eA2344AbA0a34f",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "05066cf47ad6dd0119054ffcd5d7fca64d8b15495aa6fcade57bad29b8dc09d5",
+        "receipt": {
+          "transactionHash": "0x048ca63d5548c1201ec6e3d62df3ae1fc8e11b09d8fb80f192e37ebc35487c7d",
+          "blockNumber": "0xa8ece8",
+          "blockHash": "0x37d0cf0503033712e66c1008f1558af4d44f191b82a2dde98e9ab0d8cdab682e"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "364288d58866ec7365013d8945f015a478087fdba938bc0d7b9b3463262b03fc",
+      "abiIdentity": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d"
+    },
+    {
+      "name": "JBController",
+      "contractId": "@bananapus/core-v6:src/JBController.sol:JBController",
+      "chainId": 11155420,
+      "deployment": {
+        "alias": "JBController",
+        "address": "0x3Fcec3572e84b624477BcfF4E2CF1f7dEAb648F1",
+        "chainId": 11155420,
+        "abiHash": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d",
+        "codeId": "sha256:1c29724b01277e34eb97b11c511d504cf79cc6e8f317a26f6f073f1ce1ecf8c7",
+        "artifactPath": "deploy-all-v6/deployments/optimism_sepolia/JBController.json",
+        "artifactSha256": "48edba8d83268a10ebc415110299722fbca68af7ba9017ef31025d86c259dc27",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "721a211ec29f32661ab33030429e1d90",
+        "constructorArguments": [
+          "0x5AfF29060E023e6FB87BE5596652B33c65Af535B",
+          "0xC93360158f187Fc8FC8f1062a1b31d06F185DbAB",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0xad45E4627f068d1e6b21E5301870d807543a8401",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x26f2228A4e8b0079Ed1c2a3D22f12ff7f83CdFBA",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0xB853758A70a6b4216c09f1d071eA2344AbA0a34f",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "05066cf47ad6dd0119054ffcd5d7fca64d8b15495aa6fcade57bad29b8dc09d5",
+        "receipt": {
+          "transactionHash": "0x77152f4de063f94c6464e37fef66638b4ffa73dd0b71ed4cb25c34ac08d91954",
+          "blockNumber": "0x2ad00d2",
+          "blockHash": "0xfadd9538a484f1acf24c9160faf1dac3640fc7fcafe6f0416fbd1b4f71abcad0"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "48edba8d83268a10ebc415110299722fbca68af7ba9017ef31025d86c259dc27",
+      "abiIdentity": "20e2f0347a340c1cd776ba09879a8b3b8f041f99ff7b4ccc06ce7300e7b32a6d"
+    },
+    {
+      "name": "JBMultiTerminal",
+      "contractId": "@bananapus/core-v6:src/JBMultiTerminal.sol:JBMultiTerminal",
+      "chainId": 1,
+      "deployment": {
+        "alias": "JBMultiTerminal",
+        "address": "0x130f5Dd2bD8805443Cf41755253D778a75a67f53",
+        "chainId": 1,
+        "abiHash": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558",
+        "codeId": "sha256:c883e017560b37efa688d7c1b6ee68e48c8178c40f590db58ab0ad6f55089ef0",
+        "artifactPath": "deploy-all-v6/deployments/ethereum/JBMultiTerminal.json",
+        "artifactSha256": "0ae2a1a1f33bb85fd3f61fc98cceee342308992de2b8626b028bea390338362e",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "cfbbbe1970014dd4b8a333a760a7fc99",
+        "constructorArguments": [
+          "0x657D0E588fca6f8C49394c9cA8A1CF6505b10314",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x7497ae014A60561925B51C0A3B4adE7460B9927C",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "912eb749d123c17805d108532dbc34c0a4790fc33d99a7073a02426fd86e8ffb",
+        "receipt": {
+          "transactionHash": "0x7fca18be1921b8fcdf8808d5ea0312984d80c1e8965879164cc15ef92706b917",
+          "blockNumber": "0x18280e6",
+          "blockHash": "0x4b3d32425a6560bee84b782bfb0d61ec34b2780030cba6af703c98a0b78aa27c"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "0ae2a1a1f33bb85fd3f61fc98cceee342308992de2b8626b028bea390338362e",
+      "abiIdentity": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558"
+    },
+    {
+      "name": "JBMultiTerminal",
+      "contractId": "@bananapus/core-v6:src/JBMultiTerminal.sol:JBMultiTerminal",
+      "chainId": 10,
+      "deployment": {
+        "alias": "JBMultiTerminal",
+        "address": "0x130f5Dd2bD8805443Cf41755253D778a75a67f53",
+        "chainId": 10,
+        "abiHash": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558",
+        "codeId": "sha256:c883e017560b37efa688d7c1b6ee68e48c8178c40f590db58ab0ad6f55089ef0",
+        "artifactPath": "deploy-all-v6/deployments/optimism/JBMultiTerminal.json",
+        "artifactSha256": "b8a21bba308c36d93036e358bdcf6280ef4f4d9aa251ea7a8c1b5df34f9a41c3",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "cfbbbe1970014dd4b8a333a760a7fc99",
+        "constructorArguments": [
+          "0x657D0E588fca6f8C49394c9cA8A1CF6505b10314",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x7497ae014A60561925B51C0A3B4adE7460B9927C",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "912eb749d123c17805d108532dbc34c0a4790fc33d99a7073a02426fd86e8ffb",
+        "receipt": {
+          "transactionHash": "0x246ac52ddee87c3b9f54b15fd05ef2ce4dcd6a70e0231f23b0bd6fa3a3c9cef3",
+          "blockNumber": "0x91e8147",
+          "blockHash": "0x7716bdcba132fbece9e64699b1f69edf47163d44c2783841ecf90c5aee67e28e"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "b8a21bba308c36d93036e358bdcf6280ef4f4d9aa251ea7a8c1b5df34f9a41c3",
+      "abiIdentity": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558"
+    },
+    {
+      "name": "JBMultiTerminal",
+      "contractId": "@bananapus/core-v6:src/JBMultiTerminal.sol:JBMultiTerminal",
+      "chainId": 8453,
+      "deployment": {
+        "alias": "JBMultiTerminal",
+        "address": "0x130f5Dd2bD8805443Cf41755253D778a75a67f53",
+        "chainId": 8453,
+        "abiHash": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558",
+        "codeId": "sha256:c883e017560b37efa688d7c1b6ee68e48c8178c40f590db58ab0ad6f55089ef0",
+        "artifactPath": "deploy-all-v6/deployments/base/JBMultiTerminal.json",
+        "artifactSha256": "1d2bc7bb002e18264b6e7ff321ed6ada8d93859b6cde885312aaeec8fecbb007",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "cfbbbe1970014dd4b8a333a760a7fc99",
+        "constructorArguments": [
+          "0x657D0E588fca6f8C49394c9cA8A1CF6505b10314",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x7497ae014A60561925B51C0A3B4adE7460B9927C",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "912eb749d123c17805d108532dbc34c0a4790fc33d99a7073a02426fd86e8ffb",
+        "receipt": {
+          "transactionHash": "0x942e7ac3b02b152e2915a6ba2cfcc7636fbc4e7766addeaeb80adb9d2b3684f8",
+          "blockNumber": "0x2d33fbc",
+          "blockHash": "0x1b91b535856807ea5136bd4386071a364cb65a302e99a6df471047f2c72cb6d3"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "1d2bc7bb002e18264b6e7ff321ed6ada8d93859b6cde885312aaeec8fecbb007",
+      "abiIdentity": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558"
+    },
+    {
+      "name": "JBMultiTerminal",
+      "contractId": "@bananapus/core-v6:src/JBMultiTerminal.sol:JBMultiTerminal",
+      "chainId": 42161,
+      "deployment": {
+        "alias": "JBMultiTerminal",
+        "address": "0x130f5Dd2bD8805443Cf41755253D778a75a67f53",
+        "chainId": 42161,
+        "abiHash": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558",
+        "codeId": "sha256:c883e017560b37efa688d7c1b6ee68e48c8178c40f590db58ab0ad6f55089ef0",
+        "artifactPath": "deploy-all-v6/deployments/arbitrum/JBMultiTerminal.json",
+        "artifactSha256": "bf3ca258f9a4f227eb567cd754827460f940b2ad0544f29f6e4979e66568323a",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "cfbbbe1970014dd4b8a333a760a7fc99",
+        "constructorArguments": [
+          "0x657D0E588fca6f8C49394c9cA8A1CF6505b10314",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x7497ae014A60561925B51C0A3B4adE7460B9927C",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "912eb749d123c17805d108532dbc34c0a4790fc33d99a7073a02426fd86e8ffb",
+        "receipt": {
+          "transactionHash": "0xd6e7e5be7a684211fc0506261e87ee0402a7d5ee76530f7191866678664ba1c0",
+          "blockNumber": "0x1c407dfc",
+          "blockHash": "0xb88c27555d2324f039f7dc1fe0b9b175912c1d8727014fe008feecd5c1ec891f"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "bf3ca258f9a4f227eb567cd754827460f940b2ad0544f29f6e4979e66568323a",
+      "abiIdentity": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558"
+    },
+    {
+      "name": "JBMultiTerminal",
+      "contractId": "@bananapus/core-v6:src/JBMultiTerminal.sol:JBMultiTerminal",
+      "chainId": 84532,
+      "deployment": {
+        "alias": "JBMultiTerminal",
+        "address": "0x130f5Dd2bD8805443Cf41755253D778a75a67f53",
+        "chainId": 84532,
+        "abiHash": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558",
+        "codeId": "sha256:c883e017560b37efa688d7c1b6ee68e48c8178c40f590db58ab0ad6f55089ef0",
+        "artifactPath": "deploy-all-v6/deployments/base_sepolia/JBMultiTerminal.json",
+        "artifactSha256": "1a707ea765404fa021d967dc2e4b1c94c72a901ac404815b153747a8df8b8f5e",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "cfbbbe1970014dd4b8a333a760a7fc99",
+        "constructorArguments": [
+          "0x657D0E588fca6f8C49394c9cA8A1CF6505b10314",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x7497ae014A60561925B51C0A3B4adE7460B9927C",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "912eb749d123c17805d108532dbc34c0a4790fc33d99a7073a02426fd86e8ffb",
+        "receipt": {
+          "transactionHash": "0x9c37432011094e78c72e31a795444aa7014d126399ad5839e011e84f836d4f02",
+          "blockNumber": "0x28ebe33",
+          "blockHash": "0x7ff498e6ca22888f6ca1e2bb4f598d164a326facfade618c30466c54b2858bd4"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "1a707ea765404fa021d967dc2e4b1c94c72a901ac404815b153747a8df8b8f5e",
+      "abiIdentity": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558"
+    },
+    {
+      "name": "JBMultiTerminal",
+      "contractId": "@bananapus/core-v6:src/JBMultiTerminal.sol:JBMultiTerminal",
+      "chainId": 421614,
+      "deployment": {
+        "alias": "JBMultiTerminal",
+        "address": "0x130f5Dd2bD8805443Cf41755253D778a75a67f53",
+        "chainId": 421614,
+        "abiHash": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558",
+        "codeId": "sha256:c883e017560b37efa688d7c1b6ee68e48c8178c40f590db58ab0ad6f55089ef0",
+        "artifactPath": "deploy-all-v6/deployments/arbitrum_sepolia/JBMultiTerminal.json",
+        "artifactSha256": "44f0755d70f30c1d283c6964f3d7174a21aa428663869ae203dceb47b292b6f2",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "cfbbbe1970014dd4b8a333a760a7fc99",
+        "constructorArguments": [
+          "0x657D0E588fca6f8C49394c9cA8A1CF6505b10314",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x7497ae014A60561925B51C0A3B4adE7460B9927C",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "912eb749d123c17805d108532dbc34c0a4790fc33d99a7073a02426fd86e8ffb",
+        "receipt": {
+          "transactionHash": "0x815dd5e0718476254ca512df63c66022a3e1d3cbd30fbaa8ef365d161cdd801b",
+          "blockNumber": "0x108dbdbb",
+          "blockHash": "0xa5776a84d4f7f4d76a3d020a6d91ed4a21764875fdaa1c1bd4def751a58b133d"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "44f0755d70f30c1d283c6964f3d7174a21aa428663869ae203dceb47b292b6f2",
+      "abiIdentity": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558"
+    },
+    {
+      "name": "JBMultiTerminal",
+      "contractId": "@bananapus/core-v6:src/JBMultiTerminal.sol:JBMultiTerminal",
+      "chainId": 11155111,
+      "deployment": {
+        "alias": "JBMultiTerminal",
+        "address": "0x130f5Dd2bD8805443Cf41755253D778a75a67f53",
+        "chainId": 11155111,
+        "abiHash": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558",
+        "codeId": "sha256:c883e017560b37efa688d7c1b6ee68e48c8178c40f590db58ab0ad6f55089ef0",
+        "artifactPath": "deploy-all-v6/deployments/sepolia/JBMultiTerminal.json",
+        "artifactSha256": "3de6595dbc56f6733b8deb672c2b25d41ba68366225c2df00d7142f91064f332",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "cfbbbe1970014dd4b8a333a760a7fc99",
+        "constructorArguments": [
+          "0x657D0E588fca6f8C49394c9cA8A1CF6505b10314",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x7497ae014A60561925B51C0A3B4adE7460B9927C",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "912eb749d123c17805d108532dbc34c0a4790fc33d99a7073a02426fd86e8ffb",
+        "receipt": {
+          "transactionHash": "0x406e16b2bc38fdc935db6dd1d7a23966df17c8a6eb96a1f88875fdd4f28d8a18",
+          "blockNumber": "0xa8ec5f",
+          "blockHash": "0x3b9b510be89309f16d306c0ba48280b4da6c2c86e37dded1afbddac9a7a076ab"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "3de6595dbc56f6733b8deb672c2b25d41ba68366225c2df00d7142f91064f332",
+      "abiIdentity": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558"
+    },
+    {
+      "name": "JBMultiTerminal",
+      "contractId": "@bananapus/core-v6:src/JBMultiTerminal.sol:JBMultiTerminal",
+      "chainId": 11155420,
+      "deployment": {
+        "alias": "JBMultiTerminal",
+        "address": "0x130f5Dd2bD8805443Cf41755253D778a75a67f53",
+        "chainId": 11155420,
+        "abiHash": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558",
+        "codeId": "sha256:c883e017560b37efa688d7c1b6ee68e48c8178c40f590db58ab0ad6f55089ef0",
+        "artifactPath": "deploy-all-v6/deployments/optimism_sepolia/JBMultiTerminal.json",
+        "artifactSha256": "94e51dfbeb70e287172795fe5644cc98df8db0fa2ad0e69a2c39c47bacc8a14c",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "cfbbbe1970014dd4b8a333a760a7fc99",
+        "constructorArguments": [
+          "0x657D0E588fca6f8C49394c9cA8A1CF6505b10314",
+          "0xf92AC1aB5A00033E35a3975739124F61928C36B0",
+          "0x6017d1FBa9DC279BFA0B03fD931C22E242AB3691",
+          "0x28B3D11FcB8D2Ad0A143C5B193cD9f2e4d43F4C3",
+          "0x7497ae014A60561925B51C0A3B4adE7460B9927C",
+          "0x1f80d8f057eE36b4C2656D107E4e4558B71bA7D9",
+          "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+          "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2"
+        ],
+        "compilerInputIdentitySha256": "912eb749d123c17805d108532dbc34c0a4790fc33d99a7073a02426fd86e8ffb",
+        "receipt": {
+          "transactionHash": "0x0099d172e92b0df008f28141ed75e340a809bb23765837cf359ce1ff25f87810",
+          "blockNumber": "0x2acffd1",
+          "blockHash": "0x7414158a3d30947df0d9be07e47285496b1e86aa8eb1e851200a2678bdd815da"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "94e51dfbeb70e287172795fe5644cc98df8db0fa2ad0e69a2c39c47bacc8a14c",
+      "abiIdentity": "31fc7d2fdbb1d6b690bbb5de4b9f5ba0bc22a261589afba0f782ee6fea0a3558"
+    },
+    {
+      "name": "JBHeldFees",
+      "contractId": "@bananapus/core-v6:src/libraries/JBHeldFees.sol:JBHeldFees",
+      "chainId": 1,
+      "deployment": {
+        "alias": "JBHeldFees",
+        "address": "0x62e77076b6e902e7AeC8b2925aCc9B46058e3d38",
+        "chainId": 1,
+        "abiHash": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119",
+        "codeId": "sha256:93804322bf62e031cf0e9adaffb4dc277c70ca92786f7e518c34e026a134723c",
+        "artifactPath": "deploy-all-v6/deployments/ethereum/JBHeldFees.json",
+        "artifactSha256": "61d862f7dd649cb5eb17a2fe8991aa9350749e113ffee771533d7b5b960fe0d0",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "18af40ac3eb122242e45f0f427d0ac26",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "ad395e21d6eba7a3f44edb9b5681a87a09e8d12d4e2b842090bcfc36c97c0517",
+        "receipt": {
+          "transactionHash": "0x19b4d4c56032171f29045539e3cb66dd2b3d3d10759c933d41b284a08b69a14d",
+          "blockNumber": "0x1827928",
+          "blockHash": "0x302ad3ae31228b93fef42b7728d5640020a974559bbfaf257ff7fe8910d092e5"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "61d862f7dd649cb5eb17a2fe8991aa9350749e113ffee771533d7b5b960fe0d0",
+      "abiIdentity": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119"
+    },
+    {
+      "name": "JBHeldFees",
+      "contractId": "@bananapus/core-v6:src/libraries/JBHeldFees.sol:JBHeldFees",
+      "chainId": 10,
+      "deployment": {
+        "alias": "JBHeldFees",
+        "address": "0x62e77076b6e902e7AeC8b2925aCc9B46058e3d38",
+        "chainId": 10,
+        "abiHash": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119",
+        "codeId": "sha256:93804322bf62e031cf0e9adaffb4dc277c70ca92786f7e518c34e026a134723c",
+        "artifactPath": "deploy-all-v6/deployments/optimism/JBHeldFees.json",
+        "artifactSha256": "dafd3e74bd69ec0762f786ebccb0f77dff1249aa2c2764432f96f92f33ef6e94",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "18af40ac3eb122242e45f0f427d0ac26",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "ad395e21d6eba7a3f44edb9b5681a87a09e8d12d4e2b842090bcfc36c97c0517",
+        "receipt": {
+          "transactionHash": "0x793b46a28c7dd1bd68fa0b21689da231b7cd9be4e9153aedb971b1ada5406840",
+          "blockNumber": "0x91e80bf",
+          "blockHash": "0x628db432aed6ee021c7d068682805431b8ca2dd42d566fb2e96d1ebd01eddbd2"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "dafd3e74bd69ec0762f786ebccb0f77dff1249aa2c2764432f96f92f33ef6e94",
+      "abiIdentity": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119"
+    },
+    {
+      "name": "JBHeldFees",
+      "contractId": "@bananapus/core-v6:src/libraries/JBHeldFees.sol:JBHeldFees",
+      "chainId": 8453,
+      "deployment": {
+        "alias": "JBHeldFees",
+        "address": "0x62e77076b6e902e7AeC8b2925aCc9B46058e3d38",
+        "chainId": 8453,
+        "abiHash": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119",
+        "codeId": "sha256:93804322bf62e031cf0e9adaffb4dc277c70ca92786f7e518c34e026a134723c",
+        "artifactPath": "deploy-all-v6/deployments/base/JBHeldFees.json",
+        "artifactSha256": "3d1ed35c4d9a831115fa4dbf7bd6a0b1682823a4707dbaf652892f111cecf095",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "18af40ac3eb122242e45f0f427d0ac26",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "ad395e21d6eba7a3f44edb9b5681a87a09e8d12d4e2b842090bcfc36c97c0517",
+        "receipt": {
+          "transactionHash": "0x6b63dd06ff000edbb2d83bd60fb799af9b14e238838cc2afadbf76f453d214de",
+          "blockNumber": "0x2d33f2b",
+          "blockHash": "0xe8550d597121a0d72013bb2ba5da2180188ce86f32f9d85626c88cb0e2bd449f"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "3d1ed35c4d9a831115fa4dbf7bd6a0b1682823a4707dbaf652892f111cecf095",
+      "abiIdentity": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119"
+    },
+    {
+      "name": "JBHeldFees",
+      "contractId": "@bananapus/core-v6:src/libraries/JBHeldFees.sol:JBHeldFees",
+      "chainId": 42161,
+      "deployment": {
+        "alias": "JBHeldFees",
+        "address": "0x62e77076b6e902e7AeC8b2925aCc9B46058e3d38",
+        "chainId": 42161,
+        "abiHash": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119",
+        "codeId": "sha256:93804322bf62e031cf0e9adaffb4dc277c70ca92786f7e518c34e026a134723c",
+        "artifactPath": "deploy-all-v6/deployments/arbitrum/JBHeldFees.json",
+        "artifactSha256": "0a96543de731645a19aa817708fa20909ec0e9b475090eea5802fbc2144728d1",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "18af40ac3eb122242e45f0f427d0ac26",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "ad395e21d6eba7a3f44edb9b5681a87a09e8d12d4e2b842090bcfc36c97c0517",
+        "receipt": {
+          "transactionHash": "0xa7725a45582957383583fb2b02bd539fa2322d22a1d2501809811ce049629ca7",
+          "blockNumber": "0x1c407980",
+          "blockHash": "0x8930aa8b4d852f2177892474a7681ba137fd676ae06f87897e4f45084ea0a108"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "0a96543de731645a19aa817708fa20909ec0e9b475090eea5802fbc2144728d1",
+      "abiIdentity": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119"
+    },
+    {
+      "name": "JBHeldFees",
+      "contractId": "@bananapus/core-v6:src/libraries/JBHeldFees.sol:JBHeldFees",
+      "chainId": 84532,
+      "deployment": {
+        "alias": "JBHeldFees",
+        "address": "0x62e77076b6e902e7AeC8b2925aCc9B46058e3d38",
+        "chainId": 84532,
+        "abiHash": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119",
+        "codeId": "sha256:93804322bf62e031cf0e9adaffb4dc277c70ca92786f7e518c34e026a134723c",
+        "artifactPath": "deploy-all-v6/deployments/base_sepolia/JBHeldFees.json",
+        "artifactSha256": "d385db1c8c1520fa48ee2dc4a26cfb816c26f8b80ebe606cc465220437ce6f64",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "18af40ac3eb122242e45f0f427d0ac26",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "ad395e21d6eba7a3f44edb9b5681a87a09e8d12d4e2b842090bcfc36c97c0517",
+        "receipt": {
+          "transactionHash": "0x1bc522b119a2985ebaeadf217a5210e643b4c90a76368eb812f67d540e1ec803",
+          "blockNumber": "0x28ebda8",
+          "blockHash": "0xb818c7117772a68452f216e7aa3560076a1c5ac17b46075e57f2ffbf45ea74b8"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "d385db1c8c1520fa48ee2dc4a26cfb816c26f8b80ebe606cc465220437ce6f64",
+      "abiIdentity": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119"
+    },
+    {
+      "name": "JBHeldFees",
+      "contractId": "@bananapus/core-v6:src/libraries/JBHeldFees.sol:JBHeldFees",
+      "chainId": 421614,
+      "deployment": {
+        "alias": "JBHeldFees",
+        "address": "0x62e77076b6e902e7AeC8b2925aCc9B46058e3d38",
+        "chainId": 421614,
+        "abiHash": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119",
+        "codeId": "sha256:93804322bf62e031cf0e9adaffb4dc277c70ca92786f7e518c34e026a134723c",
+        "artifactPath": "deploy-all-v6/deployments/arbitrum_sepolia/JBHeldFees.json",
+        "artifactSha256": "5a5ff082ae95bfb4de8ba13dcf95b76f57a1047fdddbf10b23967098cf6fda07",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "18af40ac3eb122242e45f0f427d0ac26",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "ad395e21d6eba7a3f44edb9b5681a87a09e8d12d4e2b842090bcfc36c97c0517",
+        "receipt": {
+          "transactionHash": "0x7390a992409b7820b8f51ab5c08692119b4296dc47dde20264957ff86c7ef208",
+          "blockNumber": "0x108db96f",
+          "blockHash": "0x75b8937d4562a5ccd7c82d3bf4d6fe944c47a9ec4e61b140c2ef9696acc4d7ee"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "5a5ff082ae95bfb4de8ba13dcf95b76f57a1047fdddbf10b23967098cf6fda07",
+      "abiIdentity": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119"
+    },
+    {
+      "name": "JBHeldFees",
+      "contractId": "@bananapus/core-v6:src/libraries/JBHeldFees.sol:JBHeldFees",
+      "chainId": 11155111,
+      "deployment": {
+        "alias": "JBHeldFees",
+        "address": "0x62e77076b6e902e7AeC8b2925aCc9B46058e3d38",
+        "chainId": 11155111,
+        "abiHash": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119",
+        "codeId": "sha256:93804322bf62e031cf0e9adaffb4dc277c70ca92786f7e518c34e026a134723c",
+        "artifactPath": "deploy-all-v6/deployments/sepolia/JBHeldFees.json",
+        "artifactSha256": "f168ed67deae79ac34138b71626ce5526a202c43c2bfe1e44d42871ad6eab987",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "18af40ac3eb122242e45f0f427d0ac26",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "ad395e21d6eba7a3f44edb9b5681a87a09e8d12d4e2b842090bcfc36c97c0517",
+        "receipt": {
+          "transactionHash": "0x1ee55e64b90e2b1eab88297f31f01d0cba63f9f650adcc41478bad02531342ac",
+          "blockNumber": "0xa8ec2a",
+          "blockHash": "0x9c6a0f492b125cbfe68ca9de75781e8658af4433690c8b0a8f5f891e0320cea8"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "f168ed67deae79ac34138b71626ce5526a202c43c2bfe1e44d42871ad6eab987",
+      "abiIdentity": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119"
+    },
+    {
+      "name": "JBHeldFees",
+      "contractId": "@bananapus/core-v6:src/libraries/JBHeldFees.sol:JBHeldFees",
+      "chainId": 11155420,
+      "deployment": {
+        "alias": "JBHeldFees",
+        "address": "0x62e77076b6e902e7AeC8b2925aCc9B46058e3d38",
+        "chainId": 11155420,
+        "abiHash": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119",
+        "codeId": "sha256:93804322bf62e031cf0e9adaffb4dc277c70ca92786f7e518c34e026a134723c",
+        "artifactPath": "deploy-all-v6/deployments/optimism_sepolia/JBHeldFees.json",
+        "artifactSha256": "4f705c549acd70dd7187dd6bdb331dbd62f0c3e97aa90e57556d9b632af363f8",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "18af40ac3eb122242e45f0f427d0ac26",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "ad395e21d6eba7a3f44edb9b5681a87a09e8d12d4e2b842090bcfc36c97c0517",
+        "receipt": {
+          "transactionHash": "0xae9bf195a44a040ddef8d4ccb8c282e2763fe0de74bf84ed0bf6e345f3275cc6",
+          "blockNumber": "0x2acff43",
+          "blockHash": "0xf256d6fb94ea85f079d3bbe1a609228fd4b00fab053622601b74f98f448b75a3"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "4f705c549acd70dd7187dd6bdb331dbd62f0c3e97aa90e57556d9b632af363f8",
+      "abiIdentity": "b03219f6474c983bc672813eae4f7bdaf55c36e4034a618cfb2b59ff7698b119"
+    },
+    {
+      "name": "JBPayoutSplitGroupLib",
+      "contractId": "@bananapus/core-v6:src/libraries/JBPayoutSplitGroupLib.sol:JBPayoutSplitGroupLib",
+      "chainId": 1,
+      "deployment": {
+        "alias": "JBPayoutSplitGroupLib",
+        "address": "0x8A7409d34ae5C2c497a85aA1f4bA9793bE8B33d2",
+        "chainId": 1,
+        "abiHash": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b",
+        "codeId": "sha256:904e653f1cce77f35697c0a83e6a1dbb7189a68b17b5793030301fe30051fdfa",
+        "artifactPath": "deploy-all-v6/deployments/ethereum/JBPayoutSplitGroupLib.json",
+        "artifactSha256": "73befa050966db583766356cbe3c7dc17898d115dc04c66d183899083f1c007a",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "244f4b87f59244d3d7a02f122ca22615",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "a37dbb4efcc88a6ea8998629e0bf3136734924b332dead9e3d1dfc5970032c9d",
+        "receipt": {
+          "transactionHash": "0x828ba5ac04e4ad3118e13264abab6e89ea334c11b892422e96870d7665520628",
+          "blockNumber": "0x182792a",
+          "blockHash": "0xce74a1d1adee205275b20830b3ec8d80699940a68d22c9ce58956edc5f319130"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "73befa050966db583766356cbe3c7dc17898d115dc04c66d183899083f1c007a",
+      "abiIdentity": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b"
+    },
+    {
+      "name": "JBPayoutSplitGroupLib",
+      "contractId": "@bananapus/core-v6:src/libraries/JBPayoutSplitGroupLib.sol:JBPayoutSplitGroupLib",
+      "chainId": 10,
+      "deployment": {
+        "alias": "JBPayoutSplitGroupLib",
+        "address": "0x8A7409d34ae5C2c497a85aA1f4bA9793bE8B33d2",
+        "chainId": 10,
+        "abiHash": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b",
+        "codeId": "sha256:904e653f1cce77f35697c0a83e6a1dbb7189a68b17b5793030301fe30051fdfa",
+        "artifactPath": "deploy-all-v6/deployments/optimism/JBPayoutSplitGroupLib.json",
+        "artifactSha256": "0d2325d83c45c7872a56ada14b309aa1f089093b3ad62cc7ed419ddef59f0b46",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "244f4b87f59244d3d7a02f122ca22615",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "a37dbb4efcc88a6ea8998629e0bf3136734924b332dead9e3d1dfc5970032c9d",
+        "receipt": {
+          "transactionHash": "0xc8bb31b031470044d7387a4ad93f68af65ff067fcbfaac482d27f39ce7377079",
+          "blockNumber": "0x91e80c4",
+          "blockHash": "0xe31b13193283f8ee728bad566c7f26a666108c7e7b4b710805060ec8810e424c"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "0d2325d83c45c7872a56ada14b309aa1f089093b3ad62cc7ed419ddef59f0b46",
+      "abiIdentity": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b"
+    },
+    {
+      "name": "JBPayoutSplitGroupLib",
+      "contractId": "@bananapus/core-v6:src/libraries/JBPayoutSplitGroupLib.sol:JBPayoutSplitGroupLib",
+      "chainId": 8453,
+      "deployment": {
+        "alias": "JBPayoutSplitGroupLib",
+        "address": "0x8A7409d34ae5C2c497a85aA1f4bA9793bE8B33d2",
+        "chainId": 8453,
+        "abiHash": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b",
+        "codeId": "sha256:904e653f1cce77f35697c0a83e6a1dbb7189a68b17b5793030301fe30051fdfa",
+        "artifactPath": "deploy-all-v6/deployments/base/JBPayoutSplitGroupLib.json",
+        "artifactSha256": "5d2f5541ee750c8eac3f0b1bfb689a47d14a46c8a3dd9b4fa1f750ab6b6f0065",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "244f4b87f59244d3d7a02f122ca22615",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "a37dbb4efcc88a6ea8998629e0bf3136734924b332dead9e3d1dfc5970032c9d",
+        "receipt": {
+          "transactionHash": "0x9903f090f5b9f338d8f544564fb996aef6587499ca0131bca11701256e999d72",
+          "blockNumber": "0x2d33f31",
+          "blockHash": "0x61295dd96bcb972a186de4c4238ba0da33060d43a5037e2d49f7eefc5611b3cc"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "5d2f5541ee750c8eac3f0b1bfb689a47d14a46c8a3dd9b4fa1f750ab6b6f0065",
+      "abiIdentity": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b"
+    },
+    {
+      "name": "JBPayoutSplitGroupLib",
+      "contractId": "@bananapus/core-v6:src/libraries/JBPayoutSplitGroupLib.sol:JBPayoutSplitGroupLib",
+      "chainId": 42161,
+      "deployment": {
+        "alias": "JBPayoutSplitGroupLib",
+        "address": "0x8A7409d34ae5C2c497a85aA1f4bA9793bE8B33d2",
+        "chainId": 42161,
+        "abiHash": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b",
+        "codeId": "sha256:904e653f1cce77f35697c0a83e6a1dbb7189a68b17b5793030301fe30051fdfa",
+        "artifactPath": "deploy-all-v6/deployments/arbitrum/JBPayoutSplitGroupLib.json",
+        "artifactSha256": "986629b2fee2a7927d25c99f960a6a3d5651fdc627ed5214d30ca2804d7f63b5",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "244f4b87f59244d3d7a02f122ca22615",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "a37dbb4efcc88a6ea8998629e0bf3136734924b332dead9e3d1dfc5970032c9d",
+        "receipt": {
+          "transactionHash": "0x3ccf154a0a41c93920542cd738dec68a7c1e4533f5029cdc892d0105c5ab12bd",
+          "blockNumber": "0x1c4079ac",
+          "blockHash": "0x506b5a1dd56d7d8411903104050c7c34fc666ea535a8b0ba2c580c5a60fd0130"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "986629b2fee2a7927d25c99f960a6a3d5651fdc627ed5214d30ca2804d7f63b5",
+      "abiIdentity": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b"
+    },
+    {
+      "name": "JBPayoutSplitGroupLib",
+      "contractId": "@bananapus/core-v6:src/libraries/JBPayoutSplitGroupLib.sol:JBPayoutSplitGroupLib",
+      "chainId": 84532,
+      "deployment": {
+        "alias": "JBPayoutSplitGroupLib",
+        "address": "0x8A7409d34ae5C2c497a85aA1f4bA9793bE8B33d2",
+        "chainId": 84532,
+        "abiHash": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b",
+        "codeId": "sha256:904e653f1cce77f35697c0a83e6a1dbb7189a68b17b5793030301fe30051fdfa",
+        "artifactPath": "deploy-all-v6/deployments/base_sepolia/JBPayoutSplitGroupLib.json",
+        "artifactSha256": "913ba72e7f652a944f089d246eacf66ccc2e812aefc87f1e017bccd25d2b686e",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "244f4b87f59244d3d7a02f122ca22615",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "a37dbb4efcc88a6ea8998629e0bf3136734924b332dead9e3d1dfc5970032c9d",
+        "receipt": {
+          "transactionHash": "0x7b2cdbe2af376e5c0f5d8b51159ca06208cfd5f00bd8af8df70e865487edc1a8",
+          "blockNumber": "0x28ebdae",
+          "blockHash": "0x344a295d33eeb0adcec3539c095141a08277d7bd125f4021328c7b3bd6942b47"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "913ba72e7f652a944f089d246eacf66ccc2e812aefc87f1e017bccd25d2b686e",
+      "abiIdentity": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b"
+    },
+    {
+      "name": "JBPayoutSplitGroupLib",
+      "contractId": "@bananapus/core-v6:src/libraries/JBPayoutSplitGroupLib.sol:JBPayoutSplitGroupLib",
+      "chainId": 421614,
+      "deployment": {
+        "alias": "JBPayoutSplitGroupLib",
+        "address": "0x8A7409d34ae5C2c497a85aA1f4bA9793bE8B33d2",
+        "chainId": 421614,
+        "abiHash": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b",
+        "codeId": "sha256:904e653f1cce77f35697c0a83e6a1dbb7189a68b17b5793030301fe30051fdfa",
+        "artifactPath": "deploy-all-v6/deployments/arbitrum_sepolia/JBPayoutSplitGroupLib.json",
+        "artifactSha256": "e66ff24fafc15d11a471f14a2253648b1ab59c3ee4dbce4090cf8dad147cfb51",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "244f4b87f59244d3d7a02f122ca22615",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "a37dbb4efcc88a6ea8998629e0bf3136734924b332dead9e3d1dfc5970032c9d",
+        "receipt": {
+          "transactionHash": "0x4481185a2ecc841969079763fb60f0e2914d591de32d08b6998123168800e8c1",
+          "blockNumber": "0x108db999",
+          "blockHash": "0xeccc35068bdc2d017ce1ab0d02763eae414aa4c3135665d3c8ee17ccc4ff9190"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "e66ff24fafc15d11a471f14a2253648b1ab59c3ee4dbce4090cf8dad147cfb51",
+      "abiIdentity": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b"
+    },
+    {
+      "name": "JBPayoutSplitGroupLib",
+      "contractId": "@bananapus/core-v6:src/libraries/JBPayoutSplitGroupLib.sol:JBPayoutSplitGroupLib",
+      "chainId": 11155111,
+      "deployment": {
+        "alias": "JBPayoutSplitGroupLib",
+        "address": "0x8A7409d34ae5C2c497a85aA1f4bA9793bE8B33d2",
+        "chainId": 11155111,
+        "abiHash": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b",
+        "codeId": "sha256:904e653f1cce77f35697c0a83e6a1dbb7189a68b17b5793030301fe30051fdfa",
+        "artifactPath": "deploy-all-v6/deployments/sepolia/JBPayoutSplitGroupLib.json",
+        "artifactSha256": "4a9c566a116d238a498b6ea453a04ea2f8f1460116e997b2b21f3914f2992230",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "244f4b87f59244d3d7a02f122ca22615",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "a37dbb4efcc88a6ea8998629e0bf3136734924b332dead9e3d1dfc5970032c9d",
+        "receipt": {
+          "transactionHash": "0x76eb0f5fadda7f6f62adae1dae5b21521f7756a5b4008b96e12b6a9f483b6339",
+          "blockNumber": "0xa8ec2c",
+          "blockHash": "0x21494671396578c85a80f5b73cd8b21ce6aa461d12f16ae50c8b3fef1c4acd4b"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "4a9c566a116d238a498b6ea453a04ea2f8f1460116e997b2b21f3914f2992230",
+      "abiIdentity": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b"
+    },
+    {
+      "name": "JBPayoutSplitGroupLib",
+      "contractId": "@bananapus/core-v6:src/libraries/JBPayoutSplitGroupLib.sol:JBPayoutSplitGroupLib",
+      "chainId": 11155420,
+      "deployment": {
+        "alias": "JBPayoutSplitGroupLib",
+        "address": "0x8A7409d34ae5C2c497a85aA1f4bA9793bE8B33d2",
+        "chainId": 11155420,
+        "abiHash": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b",
+        "codeId": "sha256:904e653f1cce77f35697c0a83e6a1dbb7189a68b17b5793030301fe30051fdfa",
+        "artifactPath": "deploy-all-v6/deployments/optimism_sepolia/JBPayoutSplitGroupLib.json",
+        "artifactSha256": "7f104f02270f7af43075137066a8befd3b13db60520a98cd40f40cc6b1949756",
+        "sourceRef": "npm:@bananapus/core-v6@1.0.2",
+        "solcInputHash": "244f4b87f59244d3d7a02f122ca22615",
+        "constructorArguments": [],
+        "compilerInputIdentitySha256": "a37dbb4efcc88a6ea8998629e0bf3136734924b332dead9e3d1dfc5970032c9d",
+        "receipt": {
+          "transactionHash": "0x55d4da3360bfd4b1d6cb401281921494d491c91f448e6fb4f6a93151143d2492",
+          "blockNumber": "0x2acff48",
+          "blockHash": "0x61660bb9d9211a9c449702e4808eb411c738464ae3407eecf07d2a79f4459ec8"
+        },
+        "instanceKind": "unclassified"
+      },
+      "artifactSha256": "7f104f02270f7af43075137066a8befd3b13db60520a98cd40f40cc6b1949756",
+      "abiIdentity": "3c311d6add07b60172df9c5157035382dc8ca180673ffaf9faf3e3220e4d7a2b"
+    }
+  ]
+}

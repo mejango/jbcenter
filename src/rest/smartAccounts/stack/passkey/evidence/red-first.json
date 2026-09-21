@@ -1,0 +1,67 @@
+{
+  "stage": "First actual cryptographic run before correcting authenticator fixture serialization",
+  "command": "forge test --root src/rest/smartAccounts/stack/passkey --match-contract PasskeyStackTest --json",
+  "failure": "Foundry toBase64URL returns padded challenge, upstream WebAuthn reconstructs unpadded challenge; signatures fail actual FCL verification. Corrected fixture preserves exactly43 encoded challenge characters. No upstream crypto changes.",
+  "testResults": {
+    "testChangedPaymentAndValidityRejected()": {
+      "status": "Success",
+      "reason": null
+    },
+    "testCrossChainAndCrossSafeReplayRejected()": {
+      "status": "Success",
+      "reason": null
+    },
+    "testDuplicateOwnersCannotBeInitialized()": {
+      "status": "Success",
+      "reason": null
+    },
+    "testExpiredOperationRejected()": {
+      "status": "Success",
+      "reason": null
+    },
+    "testFactoryPredictionAndRepeatCreationMatchImmutableCredential()": {
+      "status": "Success",
+      "reason": null
+    },
+    "testIndependentBackupCanWithdrawWithEntryPointAndAdapterUnavailable()": {
+      "status": "Success",
+      "reason": null
+    },
+    "testIndependentBackupRotatesPasskeyWithoutMovingSafeIdentity()": {
+      "status": "Failure",
+      "reason": "replacement cannot authenticate"
+    },
+    "testLoginSignatureCannotAuthorizeUserOperation()": {
+      "status": "Success",
+      "reason": null
+    },
+    "testMalformedOwnerDynamicOffsetRejected()": {
+      "status": "Success",
+      "reason": null
+    },
+    "testOversizedAssertionTrailingDataRejected()": {
+      "status": "Success",
+      "reason": null
+    },
+    "testSafeMessageAuthenticatesStableSafePrincipal()": {
+      "status": "Failure",
+      "reason": "SafeMessage owner authentication failed"
+    },
+    "testSignerSupportsBothRealERC1271Selectors()": {
+      "status": "Failure",
+      "reason": "modern selector invalid"
+    },
+    "testUserOperationExecutesThroughActualEntryPointAndSafe()": {
+      "status": "Failure",
+      "reason": "EntryPoint rejected passkey operation"
+    },
+    "testUserOperationSignatureCannotAuthenticateLogin()": {
+      "status": "Success",
+      "reason": null
+    },
+    "testWrongCredentialAndMissingUVRejected()": {
+      "status": "Success",
+      "reason": null
+    }
+  }
+}

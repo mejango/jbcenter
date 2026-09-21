@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "profileId": "pimlico-singleton-v7-current-verifying",
+  "executionEnabled": false,
+  "component": {
+    "path": "artifacts/CenterSessionGuardV2.json",
+    "fileSha256": "0f5cda89dbfdf72de87205de98f655cd7f792e2214e7fe49e74259bca1b91a2e",
+    "address": null,
+    "runtimeCodeHash": "0xb8787af1b7dad3b5fac11ec656824adbe575610ee467661be4acde928e3d7c04",
+    "source": {
+      "repository": "juicebox-center",
+      "path": "src/rest/smartAccounts/stack/current-pimlico/contracts/CenterSessionGuardV2.sol",
+      "sha256": "c8af7efe042c7bdc6a31d75f780a78a7f3d52563222c1da40acbda72a75f5069",
+      "compilerOutputSha256": "70506f6056d015a9048b647bfb448cd01ae5c4e134e43bce33d1a8dff32ef40a"
+    },
+    "role": "required-current-sponsor-policy",
+    "deploymentStatus": "undeployed",
+    "chainIds": []
+  },
+  "storageProof": {
+    "path": "evidence/guard-storage.json",
+    "fileSha256": "084a2dcc4e42115bfffe7f91619a7ff57a900323781d084beee9366fa4001264"
+  },
+  "paymasterBinding": {
+    "address": "0x777777777777AeC03fd955926DbF81597e66834C",
+    "runtimeCodeHash": "0x337b6e1b6c2167c0528c5240c028ead407c673595b2820029b69741b76d98fbc"
+  },
+  "gasOnlyProfile": {
+    "paymasterAndDataBytes": 130,
+    "paymasterDataBytes": 78,
+    "flagsOffset": 52,
+    "acceptedFlags": [
+      0,
+      1
+    ],
+    "modeRightShift": 1,
+    "modeValue": 0,
+    "validUntilOffset": 53,
+    "validAfterOffset": 59,
+    "signatureOffset": 65,
+    "signatureBytes": 65,
+    "validationContext": "empty",
+    "tokenCharge": "none"
+  }
+}

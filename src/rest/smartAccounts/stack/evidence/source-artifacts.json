@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "policies": [
+    {
+      "name": "TimeFramePolicy",
+      "path": "contracts/external/policies/TimeFramePolicy.sol",
+      "sha256": "526127a407f19ce4b7bae2dd95ec93bbd6507918d301adc2c8b012fe499899d6",
+      "keccak256": "0x9c807f133e8493f68ea32d683de245e5c0c12550b7023ae41190be3ce8f8930b",
+      "verificationInputSha256": "3ae697fb76203b90e7987e0d31db73afb616432797f2c7120dd5ef8eccb8784b",
+      "verificationInputUrl": "https://github.com/rhinestonewtf/smartsessions/blob/75279a6c80ad50ea623d06954e9d71ab753e8a52/artifacts/TimeFramePolicy/verify.json",
+      "compiler": "0.8.28+commit.7893614a",
+      "artifactMetadataSourceKeccakMatches": true
+    },
+    {
+      "name": "UniActionPolicy",
+      "path": "contracts/external/policies/UniActionPolicy.sol",
+      "sha256": "bdb7043e014e2a9352fe16f2a7bbf863415c56766ea365ee283c2b15ca894f35",
+      "keccak256": "0x7a0b8e99adcd784d29d02323f04fee8b51fb28dee27fc503b621e519f879c122",
+      "verificationInputSha256": "bce58e32aa636218daa41a93c986caf3a41c902505a16a958097fe12e8ca81d8",
+      "verificationInputUrl": "https://github.com/rhinestonewtf/smartsessions/blob/75279a6c80ad50ea623d06954e9d71ab753e8a52/artifacts/UniActionPolicy/verify.json",
+      "compiler": "0.8.28+commit.7893614a",
+      "artifactMetadataSourceKeccakMatches": true
+    },
+    {
+      "name": "ValueLimitPolicy",
+      "path": "contracts/external/policies/ValueLimitPolicy.sol",
+      "sha256": "7e9130987a1cbc2e00c8310dcc3223a3c2a6373a9472c0427101a03c1848c4eb",
+      "keccak256": "0x94734aae2a6eb7b195b991aa0423db771474d79009038098b2f22be084fe8a75",
+      "verificationInputSha256": "bc7723b4e43735c3b4ea5ea523241d04a934d03dc6838a8665f8f1792ea06fac",
+      "verificationInputUrl": "https://github.com/rhinestonewtf/smartsessions/blob/75279a6c80ad50ea623d06954e9d71ab753e8a52/artifacts/ValueLimitPolicy/verify.json",
+      "compiler": "0.8.28+commit.7893614a",
+      "artifactMetadataSourceKeccakMatches": true
+    }
+  ],
+  "safe": {
+    "version": "1.4.1",
+    "sourceCommit": "bf943f80fec5ac647159d26161446ac5d716a294",
+    "packageTarballSha256": "8803f7cf26e2c58300b8136342faa7b8bce59436e300f52115fa25b095e0bf79",
+    "packageIntegrityVerified": true,
+    "officialDeploymentManifestCommit": "1c3aad8cf686157272d7e5de05dae8cf5594e0bc",
+    "deploymentManifestsExplicitlyListAllRequestedChains": true,
+    "proxySourceMatchesPinnedCommit": true
+  },
+  "safe7579": {
+    "sourceCommit": "f22a194148ff087f0c16125e530512e59794e188",
+    "officialArtifactReproducedExactly": true,
+    "adapterImmutables": {
+      "7146": [
+        "0x0000000000000000000000003fb7a8bee59d8c5b2f1cf6ce93e5e694cb233b57"
+      ]
+    },
+    "launchpadImmutables": {
+      "3284": [
+        "0x00000000000000000000000075798463024bda64d83c94a64bc7d7eab41300ef"
+      ],
+      "3286": [
+        "0x0000000000000000000000000000000071727de22e5e9d8baf0edac6f37da032"
+      ],
+      "3289": [
+        "0x0000000000000000000000000000000000000000000000000000000000000000"
+      ]
+    }
+  }
+}

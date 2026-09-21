@@ -4,6 +4,12 @@ export type JbcenterEnv = {
   Variables: {
     client: string;
     requestId: string;
+    /** The public error code of a failed response, for the request log. */
+    errorCode?: string;
+    /** A bounded, data-free error message for the request log line. */
+    errorDetail?: string;
+    /** Time spent authenticating the signed request, for the request log line. */
+    authMs?: number;
   };
 };
 
@@ -39,6 +45,18 @@ export type Deployment = {
   createdAt: string;
 };
 
+export type IntentDeployStatus = "queued" | "sent" | "confirmed" | "failed";
+
+export type IntentDeploy = {
+  chainId: number;
+  status: IntentDeployStatus;
+  transactionHash: Hex | null;
+  bundleUuid: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Intent = IntentMetadata & {
   id: string;
   status: "undeployed" | "deployed";
@@ -48,6 +66,7 @@ export type Intent = IntentMetadata & {
   signature: Hex;
   createdAt: string;
   deployments: Deployment[];
+  deploys: IntentDeploy[];
 };
 
 export type SearchItem = IntentMetadata & {

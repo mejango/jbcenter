@@ -1,0 +1,294 @@
+{
+  "schemaVersion": 1,
+  "contractName": "SafeWebAuthnSignerSingleton",
+  "deploymentStatus": "undeployed",
+  "source": {
+    "repository": "https://github.com/safe-fndn/safe-modules",
+    "commit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+    "path": "modules/passkey/contracts/SafeWebAuthnSignerSingleton.sol",
+    "sha256": "293a54a8c50af59b4b35f5c08f07233f81a1da92596ab563f1458365b83802f4"
+  },
+  "compiler": {
+    "version": "0.8.26+commit.8a97fa7a",
+    "evmVersion": "paris",
+    "optimizer": {
+      "enabled": true,
+      "runs": 10000000
+    },
+    "viaIR": true,
+    "metadata": {
+      "bytecodeHash": "ipfs",
+      "appendCBOR": true
+    }
+  },
+  "compilerInputSha256": "e8f00487decbdce768bb681d4f84b16d6be689ed04f433afafcaefa2048a30eb",
+  "abi": [
+    {
+      "inputs": [],
+      "name": "getConfiguration",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "x",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "y",
+          "type": "uint256"
+        },
+        {
+          "internalType": "P256.Verifiers",
+          "name": "verifiers",
+          "type": "uint176"
+        }
+      ],
+      "stateMutability": "pure",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "message",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bytes",
+          "name": "signature",
+          "type": "bytes"
+        }
+      ],
+      "name": "isValidSignature",
+      "outputs": [
+        {
+          "internalType": "bytes4",
+          "name": "magicValue",
+          "type": "bytes4"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes",
+          "name": "data",
+          "type": "bytes"
+        },
+        {
+          "internalType": "bytes",
+          "name": "signature",
+          "type": "bytes"
+        }
+      ],
+      "name": "isValidSignature",
+      "outputs": [
+        {
+          "internalType": "bytes4",
+          "name": "magicValue",
+          "type": "bytes4"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x608080604052346015576108c6908161001b8239f35b600080fdfe6080604052600436101561001257600080fd5b60003560e01c80631626ba7e1461027b57806320c13b0b146100f757636bd50cef1461003d57600080fd5b346100f25760007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100f25760408051367fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffaa81013582527fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffca81013560208301527fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffea013560501c91810191909152606090f35b600080fd5b346100f25760407ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100f25760043567ffffffffffffffff81116100f257366023820112156100f25780600401359067ffffffffffffffff821161024c57604051917fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe0603f81601f8401160116830183811067ffffffffffffffff82111761024c57604052808352602083019136602483830101116100f257816000926024602093018537840101526024359067ffffffffffffffff82116100f2576101e76101f3923690600401610331565b9160009451902061035f565b610225575b6020907fffffffff0000000000000000000000000000000000000000000000000000000060405191168152f35b507f20c13b0b000000000000000000000000000000000000000000000000000000006101f8565b7f4e487b7100000000000000000000000000000000000000000000000000000000600052604160045260246000fd5b346100f25760407ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100f25760243567ffffffffffffffff81116100f2576102cd6102d9913690600401610331565b6000929160043561035f565b61030a576020907fffffffff0000000000000000000000000000000000000000000000000000000060405191168152f35b507f1626ba7e000000000000000000000000000000000000000000000000000000006101f8565b9181601f840112156100f25782359167ffffffffffffffff83116100f257602083818601950101116100f257565b90367fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffaa810135907fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffca810135907fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffea013560501c92600092919250602081019560c17fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe0601f893585013501167fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe0601f853586013501160101119586610446575b50505050505090565b6104669192939495965060009661045d84806107ed565b939092856107ed565b916040519280840192607d605285015261222c60518601526d2c226368616c6c656e6765223a226024860152757b2274797065223a22776562617574686e2e67657422601686015281605201855260718501377f4142434445464748494a4b4c4d4e4f505152535455565758595a616263646566601f527f6768696a6b6c6d6e6f707172737475767778797a303132333435363738392d5f603f52604483019060fa5b600081136106a3575060916105519360209593603c7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe09460021b16519053011660405261083e565b9160405193808501917fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe0605f840116604052838201865283860137015261059882806107ed565b60201015610674577f040000000000000000000000000000000000000000000000000000000000000060208192013516146105de575b505050505038808080808061043d565b6105ec91929394955061083e565b60009460608301359260400135919073ffffffffffffffffffffffffffffffffffffffff81169060a01c61ffff168061065c575b50861580610653575b61063e575b50505050505038808080806105ce565b6106489650610857565b38808080808061062e565b50801515610629565b61066d919750858585858a94610857565b9538610620565b7f4e487b7100000000000000000000000000000000000000000000000000000000600052603260045260246000fd5b9160077fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffd691603f84861c16518153603f847ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa87011c16516001820153603f847ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff487011c16516002820153603f847fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffee87011c16516003820153603f847fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe887011c16516004820153603f847fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe287011c16516005820153603f847fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdc87011c16516006820153019201610509565b9035907fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe1813603018212156100f2570180359067ffffffffffffffff82116100f2576020019181360383136100f257565b6000602091828151910160025afa156100f25760005190565b90919460009460a094602097604051958652888601526040850152606084015260808301528380525afa60016000511460203d1416169056fea2646970667358221220c26f279bc4afe7a1da57e1eaa67b0f76fabc3a8c957e699a35ce9753bb25021d64736f6c634300081a0033",
+  "deployedBytecode": "0x6080604052600436101561001257600080fd5b60003560e01c80631626ba7e1461027b57806320c13b0b146100f757636bd50cef1461003d57600080fd5b346100f25760007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100f25760408051367fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffaa81013582527fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffca81013560208301527fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffea013560501c91810191909152606090f35b600080fd5b346100f25760407ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100f25760043567ffffffffffffffff81116100f257366023820112156100f25780600401359067ffffffffffffffff821161024c57604051917fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe0603f81601f8401160116830183811067ffffffffffffffff82111761024c57604052808352602083019136602483830101116100f257816000926024602093018537840101526024359067ffffffffffffffff82116100f2576101e76101f3923690600401610331565b9160009451902061035f565b610225575b6020907fffffffff0000000000000000000000000000000000000000000000000000000060405191168152f35b507f20c13b0b000000000000000000000000000000000000000000000000000000006101f8565b7f4e487b7100000000000000000000000000000000000000000000000000000000600052604160045260246000fd5b346100f25760407ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100f25760243567ffffffffffffffff81116100f2576102cd6102d9913690600401610331565b6000929160043561035f565b61030a576020907fffffffff0000000000000000000000000000000000000000000000000000000060405191168152f35b507f1626ba7e000000000000000000000000000000000000000000000000000000006101f8565b9181601f840112156100f25782359167ffffffffffffffff83116100f257602083818601950101116100f257565b90367fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffaa810135907fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffca810135907fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffea013560501c92600092919250602081019560c17fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe0601f893585013501167fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe0601f853586013501160101119586610446575b50505050505090565b6104669192939495965060009661045d84806107ed565b939092856107ed565b916040519280840192607d605285015261222c60518601526d2c226368616c6c656e6765223a226024860152757b2274797065223a22776562617574686e2e67657422601686015281605201855260718501377f4142434445464748494a4b4c4d4e4f505152535455565758595a616263646566601f527f6768696a6b6c6d6e6f707172737475767778797a303132333435363738392d5f603f52604483019060fa5b600081136106a3575060916105519360209593603c7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe09460021b16519053011660405261083e565b9160405193808501917fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe0605f840116604052838201865283860137015261059882806107ed565b60201015610674577f040000000000000000000000000000000000000000000000000000000000000060208192013516146105de575b505050505038808080808061043d565b6105ec91929394955061083e565b60009460608301359260400135919073ffffffffffffffffffffffffffffffffffffffff81169060a01c61ffff168061065c575b50861580610653575b61063e575b50505050505038808080806105ce565b6106489650610857565b38808080808061062e565b50801515610629565b61066d919750858585858a94610857565b9538610620565b7f4e487b7100000000000000000000000000000000000000000000000000000000600052603260045260246000fd5b9160077fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffd691603f84861c16518153603f847ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa87011c16516001820153603f847ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff487011c16516002820153603f847fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffee87011c16516003820153603f847fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe887011c16516004820153603f847fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe287011c16516005820153603f847fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdc87011c16516006820153019201610509565b9035907fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe1813603018212156100f2570180359067ffffffffffffffff82116100f2576020019181360383136100f257565b6000602091828151910160025afa156100f25760005190565b90919460009460a094602097604051958652888601526040850152606084015260808301528380525afa60016000511460203d1416169056fea2646970667358221220c26f279bc4afe7a1da57e1eaa67b0f76fabc3a8c957e699a35ce9753bb25021d64736f6c634300081a0033",
+  "immutableReferences": {},
+  "metadata": {
+    "compiler": {
+      "version": "0.8.26+commit.8a97fa7a"
+    },
+    "language": "Solidity",
+    "output": {
+      "abi": [
+        {
+          "inputs": [],
+          "name": "getConfiguration",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "x",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "y",
+              "type": "uint256"
+            },
+            {
+              "internalType": "P256.Verifiers",
+              "name": "verifiers",
+              "type": "uint176"
+            }
+          ],
+          "stateMutability": "pure",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "bytes32",
+              "name": "message",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bytes",
+              "name": "signature",
+              "type": "bytes"
+            }
+          ],
+          "name": "isValidSignature",
+          "outputs": [
+            {
+              "internalType": "bytes4",
+              "name": "magicValue",
+              "type": "bytes4"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "bytes",
+              "name": "data",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "signature",
+              "type": "bytes"
+            }
+          ],
+          "name": "isValidSignature",
+          "outputs": [
+            {
+              "internalType": "bytes4",
+              "name": "magicValue",
+              "type": "bytes4"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        }
+      ],
+      "devdoc": {
+        "custom:security-contact": "bounty@safe.global",
+        "details": "A singleton contract that implements WebAuthn signature verification. This singleton contract must be used with the specialized proxy {SafeWebAuthnSignerProxy}, as it encodes the credential configuration (public key coordinates and P-256 verifier to use) in calldata, which is required by this implementation.",
+        "kind": "dev",
+        "methods": {
+          "getConfiguration()": {
+            "returns": {
+              "verifiers": "The P-256 verifiers.",
+              "x": "The x coordinate of the P-256 public key.",
+              "y": "The y coordinate of the P-256 public key."
+            }
+          },
+          "isValidSignature(bytes,bytes)": {
+            "details": "Validates the signature for the given data.",
+            "params": {
+              "data": "The signed data bytes.",
+              "signature": "The signature to be validated."
+            },
+            "returns": {
+              "magicValue": "The magic value indicating the validity of the signature."
+            }
+          },
+          "isValidSignature(bytes32,bytes)": {
+            "details": "Validates the signature for a given data hash.",
+            "params": {
+              "message": "The signed message.",
+              "signature": "The signature to be validated."
+            },
+            "returns": {
+              "magicValue": "The magic value indicating the validity of the signature."
+            }
+          }
+        },
+        "title": "Safe WebAuthn Signer Singleton",
+        "version": 1
+      },
+      "userdoc": {
+        "kind": "user",
+        "methods": {
+          "getConfiguration()": {
+            "notice": "Returns the x coordinate, y coordinate, and P-256 verifiers used for ECDSA signature validation. The values are expected to appended to calldata by the caller. See the {SafeWebAuthnSignerProxy} contract implementation."
+          }
+        },
+        "version": 1
+      }
+    },
+    "settings": {
+      "compilationTarget": {
+        "contracts/SafeWebAuthnSignerSingleton.sol": "SafeWebAuthnSignerSingleton"
+      },
+      "evmVersion": "paris",
+      "libraries": {},
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "optimizer": {
+        "enabled": true,
+        "runs": 10000000
+      },
+      "remappings": [],
+      "viaIR": true
+    },
+    "sources": {
+      "contracts/SafeWebAuthnSignerSingleton.sol": {
+        "keccak256": "0xd36058287ce54b730d22d436cb5bf1a55127e7cb5caeefecf1779f316f7a2ef2",
+        "license": "LGPL-3.0-only",
+        "urls": [
+          "bzz-raw://300aec5c5ac0edcddbd9e8e09139ccf428c07868b4c1daab763f9e40b51e6483",
+          "dweb:/ipfs/QmXMgV6gdfYHM2LLDDMdR1UrG3uEWZYGH7vxFdbTt1JPAG"
+        ]
+      },
+      "contracts/base/SignatureValidator.sol": {
+        "keccak256": "0x95eb629a16c51470ed01a57f98cdd315d352f53f27cbf174ee1d4aa2803fd6ca",
+        "license": "LGPL-3.0-only",
+        "urls": [
+          "bzz-raw://9f62f5967b26d3b7f46c0e1eb79b385aaeb92d8a4afb90a85a554b7a7b4580fb",
+          "dweb:/ipfs/QmYzJzkTRrEdvHPbE88dacJcKPbrH5DkCFNMSHABxTMZA9"
+        ]
+      },
+      "contracts/interfaces/IP256Verifier.sol": {
+        "keccak256": "0x570fcadf7b6c1fba1dd426a442862aab2685e756b20d39555abe09822d0644cc",
+        "license": "LGPL-3.0-only",
+        "urls": [
+          "bzz-raw://a8f14a0788034543facfc50e94f92a2ac911cf029d57352c787d9ecbcc8313ef",
+          "dweb:/ipfs/QmQoutRcoQ7j9mmVHVxjMESVLLPzwsYvqcWkcSD58cwB2F"
+        ]
+      },
+      "contracts/libraries/ERC1271.sol": {
+        "keccak256": "0xed5ec307e91c568841a1b5e8e6af74365209521d934e8c1bb0529e1d6d7056ac",
+        "license": "LGPL-3.0-only",
+        "urls": [
+          "bzz-raw://8137005a318f3b0a097f1c02916647634ea6110217a745163518c523c343efde",
+          "dweb:/ipfs/QmNoeKpyqXFfLC95y56km84RT9i63yyGTPqiYYQAQHx5Hp"
+        ]
+      },
+      "contracts/libraries/P256.sol": {
+        "keccak256": "0x8bd55e6e14db10526d40f74b5955dfda30cf105cb097807a1a47dab26e06acb6",
+        "license": "LGPL-3.0-only",
+        "urls": [
+          "bzz-raw://350cab103413118a681e415bcfc219aa42ef88df67de633f5a3dbcb59cf5fe05",
+          "dweb:/ipfs/QmSrZ8mUHQ98EWdCZoyN4LuPVHSTdXJ6aRd2uHqq9knwyx"
+        ]
+      },
+      "contracts/libraries/WebAuthn.sol": {
+        "keccak256": "0x77e5a4f240be46c0264cd7a1c043ed58e34cced024e9afd9904c3067e814c8f6",
+        "license": "LGPL-3.0-only",
+        "urls": [
+          "bzz-raw://54b8a1e15049faa7af567aac2b1549e4243b392704d37d793c81776c333c7f50",
+          "dweb:/ipfs/QmQJWEM2e4oeyqfiatbctWzbb7z17DmvQEZBgHEtMMFTS2"
+        ]
+      }
+    },
+    "version": 1
+  }
+}

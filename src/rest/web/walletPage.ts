@@ -1,0 +1,44 @@
+/** Dedicated credential surface. All behavior and styles are served as same-origin assets. */
+export function walletPage(signup = false, recovery = false, base = '/wallet'): string {
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="wallet-base" content="${base}"><link rel="icon" type="image/svg+xml" href="${base}/assets/favicon.svg"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer"><title>Your account | Juicebox</title>
+<link rel="stylesheet" href="${base}/assets/wallet.css"><script type="module" src="${base}/assets/wallet.js"></script></head>
+<body><main><a class="brand" href="${base || '/'}">JUICEBOX CENTER</a>
+<h1>Your account</h1>
+<p id="wallet-destination" hidden></p>
+<p id="wallet-status" role="status" aria-live="polite" aria-atomic="true" data-state="loading">Checking your wallet…</p>
+<section id="wallet-account" aria-label="Connected account" hidden><dl><dt>Account address</dt><dd id="wallet-address"></dd><dt id="wallet-passkey-label">Passkey</dt><dd id="wallet-passkey"></dd><dt>Networks</dt><dd><span id="wallet-networks">Base</span> <button id="wallet-networks-add" class="link" type="button" hidden>Add more</button></dd></dl>
+<form id="wallet-networks-form" hidden><fieldset id="wallet-networks-family"><legend>Add your account to</legend>
+<label class="choice"><input type="radio" name="family" value="mainnet" checked>Mainnets</label><label class="choice"><input type="radio" name="family" value="testnet">Testnets</label></fieldset>
+<fieldset id="wallet-networks-choices"></fieldset>
+<div class="actions"><button id="wallet-networks-deploy" type="submit">Deploy</button><button id="wallet-networks-cancel" class="link" type="button">Cancel</button></div></form>
+<p id="wallet-devices-row"><button id="wallet-device-add" class="link" type="button">Add a device</button></p>
+<section id="wallet-device" hidden aria-label="Add a device"><h2>Add a device</h2>
+<p id="wallet-device-hint">Open this link on the other device. It creates its own passkey for this account; you approve it here.</p>
+<div id="wallet-device-code" class="qr"></div><p><a id="wallet-device-link" target="_blank" rel="noopener"></a></p>
+<div class="actions"><button id="wallet-device-approve" type="button" hidden>Approve this device</button></div></section></section>
+<div class="actions"><button id="wallet-signin" type="button" hidden>Sign in</button>
+<button id="wallet-retry" type="button" hidden>Retry</button>
+<button id="wallet-device-cancel" class="link" type="button" hidden>Close</button>
+<button id="wallet-cancel" type="button" class="link" hidden>Cancel</button>
+<button id="wallet-logout" type="button" class="link" hidden>Sign out</button></div>
+<div id="wallet-links">${signup ? `<a id="wallet-create" href="${base}/create" hidden>Sign up</a>` : ''}
+${recovery ? `<a id="wallet-recover" href="${base}/recover" hidden>Lost your account?</a>` : ''}</div>
+<p id="wallet-open-row"><a id="wallet-open" href="${base || '/'}" hidden>Open as a page</a></p>
+<noscript><p>Enable JavaScript to sign in with your passkey.</p></noscript>
+</main></body></html>`;
+}
+
+export function walletCss(): string {
+  return `:root{--wallet-font:ui-monospace,SFMono-Regular,Consolas,monospace;--wallet-bg:#f5f4ee;--wallet-fg:#172019;--wallet-muted:#4b5a4e;--wallet-line:#172019;--wallet-accent:#172019;--wallet-accent-fg:#fff;--wallet-radius:0;--wallet-inset:calc(1.6rem - 1px + 1.75rem);color-scheme:light;font-family:var(--wallet-font);color:var(--wallet-fg);background:var(--wallet-bg)}
+*{box-sizing:border-box}body{margin:0}main{width:min(100%,38rem);margin:clamp(1rem,10vh,6rem) auto;padding:1.5rem}
+html.framed body{visibility:hidden}html.framed.themed body{visibility:visible}html.framed main{position:relative;margin:0 auto;padding:1.25rem var(--wallet-inset) 2.75rem}html.framed .brand{display:none}html.framed h1{margin-top:.5rem}html.framed #wallet-status{margin:1rem 0}html.framed #wallet-status::before{left:calc(-1 * var(--wallet-inset));width:var(--wallet-inset)}html.framed #wallet-links{margin-top:1rem}
+[hidden]{display:none!important}.brand{color:inherit;font-size:.8rem;letter-spacing:.06em}h1{font-size:clamp(1.6rem,6vw,2.2rem);line-height:1.15;margin:2.5rem 0 1rem}
+p{line-height:1.6;overflow-wrap:anywhere}#wallet-status{color:var(--wallet-fg);font-weight:700;min-height:3rem;margin:1.75rem 0;font-size:.95rem;position:relative}#wallet-status::before{content:"⚡\\FE0E";position:absolute;left:-1.05em;top:0;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:1.4em;line-height:1.143em;text-align:center;-webkit-text-stroke:.045em currentColor}#wallet-status[data-state=error]::before,#wallet-status[data-state=retry]::before{content:"!"}#wallet-status:empty::before{content:none}
+#wallet-status[data-state=error],#wallet-status[data-state=retry]{color:#9c3028}#wallet-status a{color:inherit}fieldset{border:0;padding:0;margin:0 0 1.25rem}legend{color:var(--wallet-muted);font-size:.9rem;margin-bottom:.5rem}label.choice{display:flex;gap:.6rem;align-items:center;margin:.4rem 0}#wallet-networks-family{display:flex;gap:1.5rem;flex-wrap:wrap}#wallet-networks-family legend{width:100%}#wallet-networks{line-height:1.6}button.link{all:unset;cursor:pointer;text-decoration:underline;color:var(--wallet-muted);margin-left:.75rem;font-size:.9rem}.actions button.link{margin:0;padding:0;width:auto}button.link:hover:not(:disabled){color:var(--wallet-fg);background:none}#wallet-networks-form{margin:1.5rem 0 2rem}#wallet-networks-form .actions{margin-top:1.5rem}@keyframes spin{to{transform:rotate(360deg)}}#wallet-status[data-state=busy]::before,#wallet-status[data-state=loading]::before,#wallet-status[data-state=checking]::before,#wallet-status[data-state=returning]::before{content:"⚡\\FE0E";display:inline-block;animation:spin 1s steps(8) infinite}dl{margin:0 0 1.5rem}dt{font-size:.8rem;color:var(--wallet-muted)}dd{margin:.5rem 0 1.2rem;overflow-wrap:anywhere}
+.actions{display:flex;flex-wrap:wrap;gap:1rem;align-items:baseline}button{min-height:3rem;padding:.75rem 1rem;font:inherit;border:1px solid var(--wallet-accent);border-radius:var(--wallet-radius);background:var(--wallet-accent);color:var(--wallet-accent-fg);cursor:pointer;max-width:100%}
+button.secondary{background:transparent;color:inherit}button:disabled{cursor:wait}button.link:disabled,button.secondary:disabled{opacity:.55}button:disabled:not(.link):not(.secondary){opacity:.55}@media(prefers-reduced-motion:reduce){button:disabled:not(.link):not(.secondary){animation:none}}button:hover:not(:disabled){background:color-mix(in srgb,var(--wallet-accent) 82%,var(--wallet-bg));color:var(--wallet-accent-fg)}button.secondary:hover:not(:disabled){background:color-mix(in srgb,var(--wallet-fg) 8%,var(--wallet-bg));color:inherit}
+:focus-visible{outline:3px solid #5275d1;outline-offset:4px}.note{font-size:.8rem;color:var(--wallet-muted);margin-top:2rem}#wallet-links{display:flex;flex-wrap:wrap;gap:.75rem 1.5rem;margin-top:1.75rem}html.framed :is(#wallet-open,#signup-fullscreen){position:absolute;top:2.35rem;right:var(--wallet-inset);width:1rem;height:1rem;font-size:0;line-height:0;text-decoration:none;color:var(--wallet-muted)}html.framed :is(#wallet-open,#signup-fullscreen):hover{color:var(--wallet-fg)}html.framed :is(#wallet-open,#signup-fullscreen)::before,html.framed :is(#wallet-open,#signup-fullscreen)::after{content:"";position:absolute;width:.45rem;height:.45rem;border:0 solid currentColor}html.framed :is(#wallet-open,#signup-fullscreen)::before{top:0;right:0;border-top-width:2px;border-right-width:2px}html.framed :is(#wallet-open,#signup-fullscreen)::after{bottom:0;left:0;border-bottom-width:2px;border-left-width:2px}#wallet-links a,#wallet-open{color:var(--wallet-muted);font-size:.9rem;text-underline-offset:.15em}#wallet-links a:hover,#wallet-open:hover{color:var(--wallet-fg)}#wallet-open-row{margin:0}
+.qr{width:min(100%,16rem);margin:1rem 0}.qr svg{width:100%;height:auto;display:block}#wallet-devices-row button.link{margin-left:0}#wallet-device{margin-bottom:1.5rem}#wallet-device h2{font-size:1.1rem;margin:1.5rem 0 .5rem}@media(max-width:40rem){main{padding-left:2.9rem;padding-right:2.9rem}#wallet-status::before{left:-1.25em}}@media(max-width:400px){main{padding:1.1rem 2.7rem}.actions{flex-direction:column;align-items:stretch}.actions button{width:100%}.actions button.link{width:auto;align-self:flex-start}}`;
+}

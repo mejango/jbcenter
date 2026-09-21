@@ -1,0 +1,56 @@
+# Shared client acceptance
+
+Run this separately from `npm run check`: it requires built Beep assets and an
+already-running local Homerun Next preview. Missing configuration fails the run;
+the ordinary release gate keeps all its required suites.
+
+The test uses the actual clients and their installed Center SDKs, genuine HTTP
+handlers, PostgreSQL, Beep's SQLite store, a virtual passkey authenticator, and a
+fresh unforked Anvil wallet deployment. A browser-only route bridges the configured
+Center HTTPS names to a local HTTP listener. No request is sent to the production
+Center issuer or API. The test starts no production signer and uses only public
+fixture keys and synthetic Anvil balances.
+
+Prepare both client checkouts with their supported Node versions and dependencies.
+Build Beep with `npm run build`. Start Homerun on a loopback HTTP origin using a
+separate `NEXT_DIST_DIR` build with these public settings:
+
+```sh
+NEXT_PUBLIC_CENTER_WALLET_ENABLED=true
+NEXT_PUBLIC_CENTER_WALLET_ISSUER=https://wallet.juicebox.center
+NEXT_PUBLIC_CENTER_WALLET_AUDIENCE=https://juicebox.center
+NEXT_PUBLIC_CENTER_WALLET_MANIFEST_ID=center-passkey-local-pilot
+NEXT_PUBLIC_CENTER_WALLET_MANIFEST_REVISION=0x1111111111111111111111111111111111111111111111111111111111111111
+NEXT_PUBLIC_CENTER_WALLET_MAXIMUM_NETWORK_FEE_WEI=100000000000000
+```
+
+These manifest values enable the local **connection** preview. They are not
+production payment pins. Keep production client configuration unchanged.
+
+From Center, with Node 22.16+ and `anvil` on PATH:
+
+```sh
+TEST_DATABASE_URL=postgresql://... \
+BEEP_PILOT_ROOT=/absolute/path/to/beep \
+HOMERUN_PILOT_ORIGIN=http://localhost:54065 \
+npm run wallet:client-pilot
+```
+
+Use a disposable PostgreSQL 16 database with schema creation permission. Each run
+creates and drops its own schema and in-memory Beep database, and stops its own
+Anvil, browser and HTTP listeners. It leaves the pre-existing Homerun preview alone.
+Next may append temporary build-directory types to its tsconfig; preserve unrelated
+work when removing those generated entries afterward.
+
+The test verifies one Center session and the same deployed wallet across both
+clients, distinct app signing keys, cookie-free handoff exchanges, callback secret
+scrubbing, exact recovery of a committed exchange after its reply is lost, reload,
+real signed account reads, and revocation of both clients after central logout.
+Screenshots and a sanitized report are written to
+`.generated/wallet-observations/shared-clients/`.
+
+Beep payments remain disabled. Its preview reaches a local chain without the
+Juicebox project contracts, so a quote error is expected and is not payment evidence.
+Homerun's Founder Haus project data is its existing demo. This test does not qualify
+project quotes, payment execution, physical devices, production TLS/proxy behavior,
+Base fee/settlement providers, deployment funding or production recovery relay.

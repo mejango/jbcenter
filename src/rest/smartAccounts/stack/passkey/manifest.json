@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "profile": "experimental-unreleased",
+  "deploymentStatus": "undeployed",
+  "repository": "https://github.com/safe-fndn/safe-modules",
+  "tag": "passkey/v0.2.1-1",
+  "commit": "dfd3b05966e727dbb7a2fdeef52e4b230f63304e",
+  "auditRecord": "https://github.com/safe-fndn/safe-modules/blob/dfd3b05966e727dbb7a2fdeef52e4b230f63304e/modules/passkey/docs/v0.2.1/audit.md",
+  "fclCommit": "76f3f135b7b27d2aa519f265b56bfc49a2573ab5",
+  "sourceSha256": {
+    "modules/passkey/contracts/SafeWebAuthnSignerFactory.sol": "e474f21631a50f14d4d8e1babf38bca457a445965a302743d164d042f6351f1f",
+    "modules/passkey/contracts/SafeWebAuthnSignerProxy.sol": "315a714a806c2acd8873440a25968d4417586691423da3e77d42b5a229421cdc",
+    "modules/passkey/contracts/SafeWebAuthnSignerSingleton.sol": "293a54a8c50af59b4b35f5c08f07233f81a1da92596ab563f1458365b83802f4",
+    "modules/passkey/contracts/base/SignatureValidator.sol": "f4063fcf0db41caa7cabcb94197e8496d3cdbc30cf9c29ade6a609fffb7e1934",
+    "modules/passkey/contracts/libraries/ERC1271.sol": "2ea1ef29ffef0c803a58592d96bdbad80b3f8e310c53c708401726f22afd6d00",
+    "modules/passkey/contracts/libraries/P256.sol": "64a636c49d2bc054d9bd72c5c1da471bec6d9b5b41d9e88caf7f68588776dd67",
+    "modules/passkey/contracts/libraries/WebAuthn.sol": "f70f06ed0ed66522bb2e8257713142b9c4a21187909bf567d1ca7b9f859f2fea",
+    "modules/passkey/contracts/interfaces/ISafeSignerFactory.sol": "bda82182cad1645dacecee5bca619a7775959b4871740843f9be517fe468a04e",
+    "modules/passkey/contracts/interfaces/IP256Verifier.sol": "d07c126c0695c64a4e864e4b270753b21ce61a4e7efe5736a6f4d4648f0e33ba",
+    "modules/passkey/contracts/verifiers/FCLP256Verifier.sol": "83329167b68447ccf1f1a0b011a7e78b6eb87dc6ca4f253f1978d41c8218b0f8",
+    "modules/passkey/contracts/vendor/FCL/FCL_ecdsa.sol": "0117cfa38f9f45e23f31071f7b10e760f01a1f88666f3cf60a24fb6236fe8d68",
+    "modules/passkey/contracts/vendor/FCL/FCL_elliptic.sol": "9a59d987f90a4c72403cb3be27be8cc1efacae08144e1f7b691c71ee51eb0874",
+    "modules/passkey/contracts/vendor/FCL/VERSION.md": "773fdf3dd005e507a4d9c32b668899c7478c03aa44248b3061c4a016c015daae",
+    "LICENSE": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768",
+    "GPL-3.0.txt": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+  },
+  "compiler": {
+    "version": "0.8.26+commit.8a97fa7a",
+    "evmVersion": "paris",
+    "optimizer": {
+      "enabled": true,
+      "runs": 10000000
+    },
+    "viaIR": true,
+    "metadata": {
+      "bytecodeHash": "ipfs",
+      "appendCBOR": true
+    }
+  },
+  "compilerBinaries": {
+    "darwin-x64": {
+      "path": "solc-macosx-amd64-v0.8.26+commit.8a97fa7a",
+      "sha256": "0x0ff016aef2396b12d1fc65429d8ea6cf53c2ee4b041bb8925644615ee1c30ab9",
+      "keccak256": "0x1fe5674db955096ce35421344384d35b124e58d716f0e9518e8efe0a50604bc1",
+      "longVersion": "0.8.26+commit.8a97fa7a"
+    },
+    "linux-x64": {
+      "path": "solc-linux-amd64-v0.8.26+commit.8a97fa7a",
+      "sha256": "0xd5f23436f443edb85d8e76906d12f0a86ce0490e7663a9e608efeb7a93f149ef",
+      "keccak256": "0x9d138fc8bb5c20b4aaaa3a868d16eb897584ce8536a5c3a466d718e47ccbafb7",
+      "longVersion": "0.8.26+commit.8a97fa7a"
+    }
+  },
+  "compilerBinarySources": [
+    "https://raw.githubusercontent.com/ethereum/solc-bin/gh-pages/macosx-amd64/list.json",
+    "https://raw.githubusercontent.com/ethereum/solc-bin/gh-pages/linux-amd64/list.json"
+  ],
+  "fclCompilerOverride": {
+    "viaIR": false
+  },
+  "scope": "Per-credential immutable signer with actual Solidity FCL fallback; local compatibility only, no production address or chain P256 precompile claim.",
+  "upstreamCompilerSettings": {
+    "url": "https://github.com/safe-fndn/safe-modules/blob/dfd3b05966e727dbb7a2fdeef52e4b230f63304e/modules/passkey/hardhat.config.ts",
+    "sha256": "80fea5e2ad5f152383cf5764e2a4723c2d0551f4ccaedb98366b845171b49e5e"
+  },
+  "existingStackManifestSha256": "1924517cd7b1dfec32dc73ae62b7bf8919da1a1c44b1deeae0d5307d223235ff",
+  "existingStackArtifactsSha256": {
+    "EntryPoint": "6d02c52c1b0046b3121a35c387953b574dbe449a84e2b0d2798b08432a09666d",
+    "SenderCreator": "1365910c8f2a22b4d2c51447c087d94dc264cf867dfe8aca1e2aa4d723d80bec",
+    "Safe7579": "e224349ba4c4020ef30d9c5c5c3b897634479daaf2d67deec476392e91d8c271",
+    "Safe7579Launchpad": "5805be93f630c584f8c741010ca5c3cc461e1559235fab876c29c1715cff59ce",
+    "Safe7579DCUtil": "3844a9e83a803ff3ebffe83c5b4f4a6b620a297f58be48dbdb340aca7696d5bf",
+    "SafeL2": "854b18bbc87cd12ec90ff59171a720c4072fc1ac2de03ab3f739bfaebcce0fa9",
+    "SafeProxyFactory": "977f2648cba212934d999fe9026876f1bcd43ce5d1d7ca61b673ad39a4e35739",
+    "SmartSession": "b964873cdb09e1b8dad37e0dcf644622974f5e2e56851c55b5a0df89aa5798a7"
+  },
+  "auditSourceComparisonSha256": "964679297a5a0c607bc55c1f5fbdc9aed99327dad7e87b546c3097237b35dc3f",
+  "licenseSources": {
+    "LICENSE": "https://github.com/safe-fndn/safe-modules/blob/dfd3b05966e727dbb7a2fdeef52e4b230f63304e/LICENSE",
+    "GPL-3.0.txt": "https://www.gnu.org/licenses/gpl-3.0.txt"
+  }
+}

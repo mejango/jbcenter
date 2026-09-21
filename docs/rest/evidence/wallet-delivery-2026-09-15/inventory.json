@@ -1,0 +1,50 @@
+{
+  "scope": "SHA256 inventory of public handoff evidence; inventory excludes itself.",
+  "files": [
+    {
+      "file": "README.md",
+      "bytes": 5081,
+      "sha256": "c3f90d6a80b4066a723e1edff024c2b226438df1f606e3310d55b43be427567c"
+    },
+    {
+      "file": "base-live-fees.json",
+      "bytes": 2994,
+      "sha256": "1c161c725cc293b5753f17bd0b9cc1d7eee0a4488388800a2d9eae2aa044123b"
+    },
+    {
+      "file": "base-runtime-observations.json",
+      "bytes": 56987,
+      "sha256": "8026b6e774013fb506727f3c3b59866e1d7de2075d00edff337f4f790028e24a"
+    },
+    {
+      "file": "base-runtime-rebuild.json",
+      "bytes": 5031,
+      "sha256": "b1232271b83dfb3b6fbe00e6777264188fe625101e55ecdafd297ecd3cf2b476"
+    },
+    {
+      "file": "compiler-provenance.json",
+      "bytes": 776,
+      "sha256": "377d0e12bc26e88fd01a25dc72034b9d13453caa47e912cfd3d6d564dceb01c7"
+    },
+    {
+      "file": "fable-base-observer-closure.md",
+      "bytes": 3819,
+      "sha256": "2c03d4ab37b5a0324ed4d778287bf400a8587b08e6deedccb0ad051ece3777bf"
+    },
+    {
+      "file": "fable-base-receipt-fees.md",
+      "bytes": 4737,
+      "sha256": "f08217cfef68e9f74f985e609344a98fca156675b3a2ee600bb6d5acf196bf8d"
+    },
+    {
+      "file": "release.json",
+      "bytes": 33719,
+      "sha256": "76bd4d8cf0acda97fba2f0f5f91b1ad41b07a90437e6debb06fbcc9068401f39"
+    },
+    {
+      "file": "source-provenance.json",
+      "bytes": 1824,
+      "sha256": "4de465c34118da4c66c59d2409bcc973d8520c0dfa01b12385bf3eca3f9a4b2e"
+    }
+  ]
+}

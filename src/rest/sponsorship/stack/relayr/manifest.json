@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "sourceKind": "independent-reconstruction",
+  "upstreamSourceVerified": false,
+  "sourceSha256": "8e12d59775321952c734c8fb85934c31bbc2bec03bad2c758b7d74183b769314",
+  "paymentAddress": "0x1c05f7841379d4393574c0ffa17908ec40ffd97d",
+  "runtimeHash": "0x6006b5acadb4cd60aa5c00cb844c34563e182dff83d4f4ff4fde226f7df16fa6",
+  "runtime": "0x608060405260043610156010575f80fd5b5f3560e01c63103903a7146022575f80fd5b604036600319011260ef576004356fffffffffffffffffffffffffffffffff19811680910360ef5760243564ffffffffff811680910360ef5780421160ce575f341560c6575b5f8080809373755ff2f75a0a586ecfa2b9a3c959cb662458a1053491f11560bb5760407fb96b060a9c075a83da0cf1f9405deeb5df21df681a762de16c3d5eaf99531cd8918151903482526020820152a2005b6040513d5f823e3d90fd5b506108fc6068565b90630f01bd8760e21b5f5260045260245264ffffffffff421660445260645ffd5b5f80fdfea26469706673582212206ea0d2ba1e0cb26cc9293b24f1a7aecc1de7e328ca83d6b3bf5382ac44c7390064736f6c634300081a0033",
+  "executableBytes": 244,
+  "compiler": {
+    "version": "0.8.26+commit.8a97fa7a",
+    "evmVersion": "cancun",
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "viaIR": true
+  },
+  "compilerBinaries": {
+    "darwin-x64": {
+      "path": "solc-macosx-amd64-v0.8.26+commit.8a97fa7a",
+      "sha256": "0x0ff016aef2396b12d1fc65429d8ea6cf53c2ee4b041bb8925644615ee1c30ab9",
+      "keccak256": "0x1fe5674db955096ce35421344384d35b124e58d716f0e9518e8efe0a50604bc1",
+      "longVersion": "0.8.26+commit.8a97fa7a"
+    },
+    "linux-x64": {
+      "path": "solc-linux-amd64-v0.8.26+commit.8a97fa7a",
+      "sha256": "0xd5f23436f443edb85d8e76906d12f0a86ce0490e7663a9e608efeb7a93f149ef",
+      "keccak256": "0x9d138fc8bb5c20b4aaaa3a868d16eb897584ce8536a5c3a466d718e47ccbafb7",
+      "longVersion": "0.8.26+commit.8a97fa7a"
+    }
+  },
+  "references": {
+    "legacyContract": {
+      "url": "https://github.com/xBA5ED/relayr-contracts-v1/blob/ccaae5922e69946039812031f8f3cb331d657da4/src/RelayrV1.sol",
+      "matchesRuntime": false
+    },
+    "sdk": {
+      "url": "https://github.com/xBA5ED/relayr-ts/tree/cbc4fadf6acabc69c1ed2daa6d91854377df145d"
+    }
+  },
+  "note": "Every executable byte matches; only the 53-byte Solidity metadata trailer differs. This is not verified original upstream source."
+}

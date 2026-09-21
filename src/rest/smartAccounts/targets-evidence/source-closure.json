@@ -1,0 +1,839 @@
+{
+  "schemaVersion": 1,
+  "sources": {
+    "node_modules/@bananapus/core-v6/src/JBController.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/JBController.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x8a8c8079269dd558a2e2372ad96bc9949c95e3fb7fcd744f60f34b68087d82e0",
+      "sha256": "47f61541033adfa32e5e37e729e17a27f1139be72685b6b75d59f48bdd35ad44",
+      "byteLength": 70180
+    },
+    "node_modules/@bananapus/core-v6/src/abstract/JBPermissioned.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/abstract/JBPermissioned.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x16a1fa9f031564f9f3253d5e21327b228651269263bfbde10eb04862c65ed577",
+      "sha256": "1df51bf6fa86cd318ec0a589276ef1b7bebec4d6ba382fb6a182e156b1c2aca0",
+      "byteLength": 4880
+    },
+    "node_modules/@bananapus/core-v6/src/enums/JBApprovalStatus.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/enums/JBApprovalStatus.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x58f3eed8b6ecea6b640f4eb78a5a416ce8737f9155e350ef4077db422b3fca8f",
+      "sha256": "d6cc7a1c9c8d64f19fbf341f026dac800712da96babe89a15983ce28ff32fc18",
+      "byteLength": 645
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBCashOutHook.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBCashOutHook.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x2a6d327092775fdbeaf922b8364403102cae437f765f662fe142bf97e87c2ef1",
+      "sha256": "3d047b6c8574efcda237f26f81f4c21398950bdda2fbd4b600209cb0c4f6d5b2",
+      "byteLength": 796
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBController.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBController.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x7032c26dd11cec1ed279bd96a63c0b4f77126835e9fec744e259495827f9ad92",
+      "sha256": "aef673d97b93cd610d98f73590ff31096ad93414c96d1133808b02aa6bfdfd8f",
+      "byteLength": 19409
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBDirectory.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBDirectory.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xb8f3ba0a544360b32c9f0a704168ee93c2960accfc010735c8cbea54941e63d5",
+      "sha256": "d951661c8a85fc1d11e1ca33200ca811a4af7031115a3212739afc56a641f5e6",
+      "byteLength": 5254
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBDirectoryAccessControl.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBDirectoryAccessControl.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x963e641f7b02187389fa813ab177b8d0f20a7a543f6ce2306e8d5f9db95d56e3",
+      "sha256": "41ba502bfdf5228fca322b897d691a27fc993450d1fd259fcf9d591597db9039",
+      "byteLength": 795
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBFundAccessLimits.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBFundAccessLimits.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x0cb50a855cccbbe7c74a1ebc454112b7b63f502badd019895dd936365ac73340",
+      "sha256": "a7c4303a5a043c28534c90dce8fa27f214d619e19e8ce75f03621fdbd82e614f",
+      "byteLength": 4218
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBMigratable.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBMigratable.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x9629eed070beccef081b5d4fc6e11ed5c36713adf3a4b3835dbff33a685ec07f",
+      "sha256": "f0313016e04c7fe82347efcb352c7adfac25e747675636344160bf31bcc3c7b9",
+      "byteLength": 1456
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBPayHook.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBPayHook.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x08599d439d898566b311bc4bedf7f0050ce25c86e246c43f673f3ab4d2457f21",
+      "sha256": "f7a5c64c2877ac6556c901e752ea99605a373bc1effe4eb56fae5665342c009b",
+      "byteLength": 755
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBPayerTracker.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBPayerTracker.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x3001bd8830eb6a679ad8da45228285c01781fa1b5aa69d2ce7c83b754319ebb1",
+      "sha256": "b5489241dc8467e1dcb0280ec99b9b33b1260333733fa4474e49eaf5d59cae17",
+      "byteLength": 891
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBPermissioned.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBPermissioned.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xa43d05c9cc31cd768072e60d4f097d60dfe199469bfc96aa8df29346a15ee4dc",
+      "sha256": "a4bcfa379be45d016ac2a4aef89342e60f6e291142a04937c7fcecbb74c3398e",
+      "byteLength": 352
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBPermissions.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBPermissions.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xb32e13d512a7deb9ba1e47bbc0992817a63caa9e1f2913d6c55b637a57084037",
+      "sha256": "641b5fc8d2a4031417f1cc7758282e3fdfe5f4d22b0a5e2bbed89629d5458283",
+      "byteLength": 3921
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBPriceFeed.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBPriceFeed.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x3a948500b5397c90e926f3bdef9423e7f095f906b23cd1503009802c80bedb41",
+      "sha256": "7aa463fd73a5ce2044a53b7caa79a79b7e03f7e4a34adc6856e7dc75ec4f5f3f",
+      "byteLength": 485
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBPrices.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBPrices.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xed5e532f6ee86029a1a4a1ba8b593296f772909a5f9d95da6cc6c595a838446f",
+      "sha256": "fed12dff60a873f43b84aebf3ea84b850b042031fda08bf7fa5c0a305c308e72",
+      "byteLength": 5513
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBProjectUriRegistry.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBProjectUriRegistry.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x4342aaa8b9566e17691f69fc71e050350dd89b63f5040f092f115610d7a6c0eb",
+      "sha256": "c007ef967cb34c338ca71b3b8395a772548c11b017e3a5511b6f9e473418c9e4",
+      "byteLength": 644
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBProjects.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBProjects.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x72c6cbda5a93593e3cc49ef6c4e0848a4b6daa88c188c4192776af86c49911dc",
+      "sha256": "775b527a37a7f0e2f4f4f6082858b0cca45a7b2c8a858dd3698636051c529912",
+      "byteLength": 2800
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBRulesetApprovalHook.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBRulesetApprovalHook.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x11dd67effb025396bec1bb97d35a9ba162340e9a824c048e8286802a12acaa45",
+      "sha256": "23b98fe7a11dc0aa7c3f6dc5bb8663843ed47f8656c2568ff7afa4e00162710f",
+      "byteLength": 1127
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBRulesetDataHook.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBRulesetDataHook.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xf9aad7d3c7de29e020af4fea893bbaa6a1c0e9a8ae5860331c9f4d68d1a5a99f",
+      "sha256": "d44a7f2b41ced035d7e302742cbaa8d5049ad0c8f51fba2bcbed05c8ace3ad33",
+      "byteLength": 3564
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBRulesets.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBRulesets.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x8fd69e04aa2b5962a917394c0a4baa6653f7cea93629a1915c1f9c2e870143e5",
+      "sha256": "ce51735e79d5b51680f08f8b522baad3fcd059c2b0d99b1dedaca4a243f8720b",
+      "byteLength": 8609
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBSplitHook.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBSplitHook.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x8155763689f6f51b5c6712ac6f23728b248a8924e69e63f8aa14d01c78ea17f1",
+      "sha256": "c7d3310044e10074793c0270fbc82780190443288be46d78ac1a03be4a82f7f5",
+      "byteLength": 855
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBSplits.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBSplits.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x9d27fe4d9aa6dcbb24a24ee1fc16e51b51fab1c4ab1eace93981e73f3c4ce636",
+      "sha256": "7458cdf9a0e8969436d0ba9f49f1337804e759ee268e34fc63c3f5d434013952",
+      "byteLength": 1878
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBTerminal.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBTerminal.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xa3621c12f7c2e33ee38b5de626a5939190d8a12b1e5318a7cd8d398595480cec",
+      "sha256": "2abdf446a7d3f3fb0ced99761b453747ed27532fc13486ae17df14661fc9999a",
+      "byteLength": 8779
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBToken.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBToken.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xadb3a7c3c149b60b6b51fdfb2acc814956d8aa9bb94e745c0e907c171b0983f2",
+      "sha256": "d7e75eaa6b3fe52208d53edcdebee7aa4bd2cbfb33b09c46d36abbb199ac82c7",
+      "byteLength": 1955
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBTokenUriResolver.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBTokenUriResolver.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xcbdb1448260ebea5937411516957ef199099e34ff997e7f2a617c2898f921994",
+      "sha256": "83a8b93c3232882799335d2efb5a170e275b6609ed7b871548829fa46c8051e8",
+      "byteLength": 393
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBTokens.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBTokens.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xf7b458ce7e75e1c4daf2052873846b7c99abb098c0d5fbb2ee5d18e132e4a76c",
+      "sha256": "ccf5e151a5d3d0deb28ffc0ef66e5b36b5a0fe42ea9d5fd7f434373bb4345ff1",
+      "byteLength": 8359
+    },
+    "node_modules/@bananapus/core-v6/src/libraries/JBConstants.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/libraries/JBConstants.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x5d4b095f3b94c52f89b9cf8a8104de0242497e61f1b32ddc82e78a9ba71a6d0f",
+      "sha256": "1bad0f13dfc325dc72fa16643c1665a07dc67e3d64a096a35d28de5e9d14c530",
+      "byteLength": 2145
+    },
+    "node_modules/@bananapus/core-v6/src/libraries/JBPayerTrackerLib.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/libraries/JBPayerTrackerLib.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x5a13bae1bbbf4f7d538dfe203e653b870041e53e3fe45a3d14b7f46530fae118",
+      "sha256": "3e5704a7ea01f89c72b6f3f034bfcf008d2e54d95e4423a6ad5fcc77bee08d9c",
+      "byteLength": 1859
+    },
+    "node_modules/@bananapus/core-v6/src/libraries/JBRulesetMetadataResolver.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/libraries/JBRulesetMetadataResolver.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xbd3b117f9457dbe55bd29a2daf368a682c0ab25cbedc0139f309809a4ab646c5",
+      "sha256": "b92c09c2ad45d99e88d2847167845d29aa1302da013728783c5a95ba9cfe30a8",
+      "byteLength": 8158
+    },
+    "node_modules/@bananapus/core-v6/src/libraries/JBSplitGroupIds.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/libraries/JBSplitGroupIds.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x11bf07e3f5cfef20b86ac5e242bb174a878cfcb95fde839b663011acc5ad388a",
+      "sha256": "4a6c7400fb8202e2119f3a5dd145d1bb338d384bede692ccf67edb3e222a098d",
+      "byteLength": 437
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBAccountingContext.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBAccountingContext.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xf53e975ce2632558a95d0a57679dbb8afff984d06daaa530cd4c442e467c3403",
+      "sha256": "cb71c859470a01df178329fd622c143768915989142239546ef98c217c461487",
+      "byteLength": 785
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBAfterCashOutRecordedContext.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBAfterCashOutRecordedContext.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x8cd6d13c98bd825d7e61cb3b2f5cbf56e77f9a2f85eaa0e27d82f1fb8d5af4f7",
+      "sha256": "ef2b24b2c17186cd3ade0afda2bbdccab5654e9168acfea50a46a5bdf4e35a05",
+      "byteLength": 1545
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBAfterPayRecordedContext.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBAfterPayRecordedContext.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xcf1761f48e4cbd6eeeb64bb19e434eff50a7f666b2116657f88f63d19620c6de",
+      "sha256": "e620f235eb5943629f6f18f767424af7e986a42321f4869bfe0328c6eaf83ff5",
+      "byteLength": 1446
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBBeforeCashOutRecordedContext.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBBeforeCashOutRecordedContext.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xd3af6ce6d8ef731aa746e08de846f0422b34a568a3d1000fb8f85a32ba5701b0",
+      "sha256": "76e6b41e5002afd8f3121605c8e692a2b56fcc4f6b0a7505c5c2f162769248a1",
+      "byteLength": 1905
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBBeforePayRecordedContext.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBBeforePayRecordedContext.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xa5e4dd0ffa54c8e56f3bb6a437b2e13ef8728ee15aee3d7cb1d0dc96317e75dd",
+      "sha256": "7a9c5747183b3675b5bd9f8d118d4988ccc7f258483bb0f98e4f6613c3876d6b",
+      "byteLength": 1303
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBCashOutHookSpecification.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBCashOutHookSpecification.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x1579c160a19e68eb06158f56120acf06b8aa4bbbc9836c80fabbb3d2e57ccf3d",
+      "sha256": "172daab998c3c49b2c741dd7c811d39e2c6017f5d715e7adc74887d0739ce78f",
+      "byteLength": 638
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBCurrencyAmount.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBCurrencyAmount.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x7f321bbcbd13abfbc8f0d08a5adaaf8ef312db5bb899012fcffb6170fbb962a9",
+      "sha256": "640c5782ba6a72080e4d7bb2275b5915c3ea6ab2135a82e0160af06535561d64",
+      "byteLength": 358
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBFundAccessLimitGroup.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBFundAccessLimitGroup.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x7e62015441edc056c3959fb0e5d0b59a1b209a91ce4beab9d3f6c25e02daf0c0",
+      "sha256": "a616af4915694160de73428a2d151d1e1355b7f30898d7524ec992d84a32a7a6",
+      "byteLength": 1392
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBPayHookSpecification.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBPayHookSpecification.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x28f565b626774c36a990ac999f268fbaf9d7f7861e862fab1fb8301f2534e8d1",
+      "sha256": "fb84cc11fa1ab2b5bc4bc4d15c6c4797ceff48796ff92aa2f6417b3d9015f3ef",
+      "byteLength": 609
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBPermissionsData.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBPermissionsData.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x9cb75b1171657be08950f9fc9f6c2bcb2496f618de4ab932141d424dec29d9df",
+      "sha256": "c9638359f9d88f7050135b5739fad7ba311de33b63c8e79d2428ea7ba8a5c396",
+      "byteLength": 566
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBRuleset.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBRuleset.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xd03f45345597fca43effe3bc593572c989f4294d909505e331cbd2640a801d23",
+      "sha256": "b4e9f6b719cad901241eb6014b5d118dbc51f307308d0435ba60569970adf5bd",
+      "byteLength": 2145
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBRulesetConfig.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBRulesetConfig.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x812ca14f18e228fde272c0caf56a59b71302bfb4f9c514ac6fb0989ab8e1c48e",
+      "sha256": "4bbbdb8562442b85175ad2b3f30ff3dc74958bd109d9b018d2b0a871cf9bf372",
+      "byteLength": 1863
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBRulesetMetadata.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBRulesetMetadata.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xbb9bda3b7ebb6796fa091ee6ce3182ad2a03dc35b89df0fb1107fae7c26ae0b4",
+      "sha256": "006960e83ea57928780f3a87c0fefa9066709de9ae3c53f228b7584606454853",
+      "byteLength": 3199
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBRulesetWithMetadata.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBRulesetWithMetadata.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x1bcfadf20488f6df65227f8d4d0fbf9b7539456a2389567f7fe3900d23289bc3",
+      "sha256": "214e10e5591b09d54888674b1968c84922dbad01efb6f1c174f17b0a6c059d9b",
+      "byteLength": 340
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBSplit.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBSplit.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xf50ba85591d86076ff127e97af2c4b7d1a1be3e20e25d784b64591697d71ab52",
+      "sha256": "0ee3155ddb48410c9e8168f9868b6615d3c713bd918747ab7b7a6f981502eb3c",
+      "byteLength": 2643
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBSplitGroup.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBSplitGroup.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x8dc98fa9e730bee8bcc0a8acf1bc4db1c9b0edf307d969c9c9caa4d6b8d856d9",
+      "sha256": "ec97e8d22922e79a73e3f19f1b6d90e2f5607a31e06be20c9c1fb13c8946579a",
+      "byteLength": 375
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBSplitHookContext.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBSplitHookContext.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xa2246f4960ec2b24db3fbfce5d59782cdb9a8fb3c3f832a2c39ddc92859ff170",
+      "sha256": "708b7fbdaa01e014e7e330e15e130abe41e02e16e1ad8828353cdfb4602f70cf",
+      "byteLength": 755
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBTerminalConfig.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBTerminalConfig.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x9e31505080d3754b6d7db96095b0545930ef6dbc035b91fcc32fdc76a0e7c2a5",
+      "sha256": "edf9a16e641e81be0852b6b577f428ce6ac70d4bf6c12d80fd24e47c977d97dc",
+      "byteLength": 444
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBTokenAmount.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBTokenAmount.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xc61593d33d5ec30e695d382948a1b944d01e29a8f2bfd29f75ecebcdbc7816de",
+      "sha256": "bfd9e2becf4bac41fcce3e4fae2b1eda1572805fcd28fd25bbdc8471edb0abbf",
+      "byteLength": 578
+    },
+    "node_modules/@bananapus/permission-ids-v6/src/JBPermissionIds.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-permission-ids-v6",
+      "commit": "e75d962ebcade48c0e19d849fe27a7e200b3ed74",
+      "gitPath": "src/JBPermissionIds.sol",
+      "package": "@bananapus/permission-ids-v6",
+      "version": "1.0.0",
+      "keccak256": "0x5105c29834e0dce4e395e262f23089a1077404f5317c591c89f3621cdfda9628",
+      "sha256": "865c9bdce072d0ccde0bb8c12fea1fc19f44399b74b16596b5b0bbc4d11ab58f",
+      "byteLength": 10711
+    },
+    "node_modules/@openzeppelin/contracts/interfaces/IERC1363.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@openzeppelin/contracts",
+      "keccak256": "0xd5ea07362ab630a6a3dee4285a74cf2377044ca2e4be472755ad64d7c5d4b69d",
+      "sha256": "9c3a75a925a6dac9e88b03cddc58d42fe3131b0aaaad84408521f3f7af2f991b",
+      "byteLength": 4454
+    },
+    "node_modules/@openzeppelin/contracts/interfaces/IERC165.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@openzeppelin/contracts",
+      "keccak256": "0x0afcb7e740d1537b252cb2676f600465ce6938398569f09ba1b9ca240dde2dfc",
+      "sha256": "dfb3f56fa928a7c6cae41a7ce2c86b9210fa18d33fa26389099d66a0fa790368",
+      "byteLength": 193
+    },
+    "node_modules/@openzeppelin/contracts/interfaces/IERC20.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@openzeppelin/contracts",
+      "keccak256": "0x1a6221315ce0307746c2c4827c125d821ee796c74a676787762f4778671d4f44",
+      "sha256": "0158e2d3e0e28bedd99eec13dcf1a8aa3a70a5b7e4bb2ad709609c95fcc740d1",
+      "byteLength": 182
+    },
+    "node_modules/@openzeppelin/contracts/metatx/ERC2771Context.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@openzeppelin/contracts",
+      "keccak256": "0x9695d220b99dcf62910533bdf5d40d4cf6a4e04d5b106b6803a80586486dc7f7",
+      "sha256": "6f0bf2dfc6aead1ea285c982b1f526e5837b47295950f430c9373508ccfd0698",
+      "byteLength": 3621
+    },
+    "node_modules/@openzeppelin/contracts/token/ERC20/IERC20.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@openzeppelin/contracts",
+      "keccak256": "0x74ed01eb66b923d0d0cfe3be84604ac04b76482a55f9dd655e1ef4d367f95bc2",
+      "sha256": "01b6f5c4fa45fd38822b286ecef6daf983d27306dd6362496fa71b3e4600b72c",
+      "byteLength": 2781
+    },
+    "node_modules/@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@openzeppelin/contracts",
+      "keccak256": "0x304d732678032a9781ae85c8f204c8fba3d3a5e31c02616964e75cfdc5049098",
+      "sha256": "c2394cb2a327f234711da34884947f4aa0f6dd2791d1d6303a0c7acfaf81bca3",
+      "byteLength": 13314
+    },
+    "node_modules/@openzeppelin/contracts/token/ERC721/IERC721.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@openzeppelin/contracts",
+      "keccak256": "0xf78f05f3b8c9f75570e85300d7b4600d7f6f6a198449273f31d44c1641adb46f",
+      "sha256": "ff0eb9902bf0ac099205615fac90eacf34fae637571b05aab3ea35dea53d5f17",
+      "byteLength": 4929
+    },
+    "node_modules/@openzeppelin/contracts/utils/Context.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@openzeppelin/contracts",
+      "keccak256": "0x493033a8d1b176a037b2cc6a04dad01a5c157722049bbecf632ca876224dd4b2",
+      "sha256": "847fda5460fee70f56f4200f59b82ae622bb03c79c77e67af010e31b7e2cc5b6",
+      "byteLength": 963
+    },
+    "node_modules/@openzeppelin/contracts/utils/introspection/IERC165.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@openzeppelin/contracts",
+      "keccak256": "0x8891738ffe910f0cf2da09566928589bf5d63f4524dd734fd9cedbac3274dd5c",
+      "sha256": "9055c2994b37dea1a41b7b7926dcb510f05dbe2540b0aafc5fbee9558fffd0ca",
+      "byteLength": 871
+    },
+    "node_modules/@prb/math/src/Common.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@prb/math",
+      "keccak256": "0x1949276271967e9954a65f27c1c32e1dd73cbd1f3d2af88f2fdd694ba4b7da60",
+      "sha256": "81145b028890197fb260a7ce21c9654e2847eca7a58553948c5b70700adef554",
+      "byteLength": 25815
+    },
+    "node_modules/@bananapus/core-v6/src/JBMultiTerminal.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/JBMultiTerminal.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x0e413b9add6f3fdd20ccd056f8f18642aee51d9c0b3bb04ec26f20dd4ba311d8",
+      "sha256": "26031478ef847285122b2baa361766e07408f4f1b7044e6a79d8cd0c6797d3ae",
+      "byteLength": 111931
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBCashOutTerminal.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBCashOutTerminal.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x4923d51fd680cc280a9e90eec8e0597334ae2beb8c04d71289e319d7f82aa70b",
+      "sha256": "8c2662eb040968f035ce6261d7e534be06dc2080b0d4d133c817f008f68c9d9d",
+      "byteLength": 4590
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBFeeTerminal.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBFeeTerminal.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0xaaa9a98ad8967e1ab71b560f1cc07fc53d4900a8d595d53f5fb090d8e004562f",
+      "sha256": "73badbb790b2a7d153b7417894baef081af6b3e14b38acb8da5d78383dc79302",
+      "byteLength": 3897
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBFeelessAddresses.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBFeelessAddresses.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x13cad5a8ef2daeb7634d93df6c9f6d1681b5344f4cdc89b03bbbd0953802fd8a",
+      "sha256": "18a9fed6d5a3d3fa90b26228622c0e3cc13aaccdaf89d9a3ce09f5f38970e954",
+      "byteLength": 3167
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBFeelessHook.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBFeelessHook.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x39b8d6e9798a90f555ea9ca44ade52f2fec5964df8994494bd5f4cfd42853602",
+      "sha256": "6fad4a7fb097220c61d2e0b251461b2ef2f59390cd9c124659df61cb04d5bc65",
+      "byteLength": 1940
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBMultiTerminal.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBMultiTerminal.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x8e258ab09d0b1c429236d98a78610b829a9604e88f7c20fc1041535922c8b207",
+      "sha256": "3e0e368fb66b77152f09d03fa520966ec38fe410a87a0f990db1811b4949564b",
+      "byteLength": 2521
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBPayoutTerminal.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBPayoutTerminal.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x67353962158e3349be384d3ceec89db2b7525c5f5c7f6c8cb8f98aeb09142e95",
+      "sha256": "18fd65538b50afaa155bf26b5cbfd4849a2b116c544b259cbff371b6106803ba",
+      "byteLength": 5943
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBPermitTerminal.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBPermitTerminal.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x5540c746854add8cdc1911f9903a77c9fc97098d8d205075b8baf07485be5cd2",
+      "sha256": "7b172255378df560e6226f2b20c344f787f671aa33b691972a8eb2ba66954c42",
+      "byteLength": 789
+    },
+    "node_modules/@bananapus/core-v6/src/interfaces/IJBTerminalStore.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/interfaces/IJBTerminalStore.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x0ab2fd1b5249ff9dcbb51585df7df8c09af309a984fb0a2378426c7fd1800f43",
+      "sha256": "424ed3c8ff9feeb222e656e9ace67ba9e453f8a5e5dc8682939dabdf18396375",
+      "byteLength": 14055
+    },
+    "node_modules/@bananapus/core-v6/src/libraries/JBFees.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/libraries/JBFees.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x8f09351a739b9b99258bf6034190fd8bc9e48adc4ece31615dbeaa0f830859aa",
+      "sha256": "b28eec91ab2b7aaa05a956a633d2423b544a51922bb483ccefa48de6ca2f3ad3",
+      "byteLength": 3255
+    },
+    "node_modules/@bananapus/core-v6/src/libraries/JBHeldFees.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/libraries/JBHeldFees.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x5820432dbebcdc2e4343a2c4ada2b4f545048baa8225c12895f10072082899ba",
+      "sha256": "8206023fa779fd5822d9163954cb0987dd8a9e091a523a0aa839f5c197ee7e3f",
+      "byteLength": 9775
+    },
+    "node_modules/@bananapus/core-v6/src/libraries/JBMetadataResolver.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/libraries/JBMetadataResolver.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x8f671604390274457e0d13806f9ca9aab44c784f4492612771bada213ed261bd",
+      "sha256": "26901f9e02430485ae92e44abf0d8bbf3919ae2c2c25089dd44f56992ce5b271",
+      "byteLength": 16052
+    },
+    "node_modules/@bananapus/core-v6/src/libraries/JBPayoutSplitGroupLib.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/libraries/JBPayoutSplitGroupLib.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x4bbf3c970e4efc0edaa0e71ea4f9e17acea4492834efa0540dbed7177adc2b88",
+      "sha256": "793188915975f2386bc578c659bc375bb1cbefd168cc4f3f7773c52fe52742b6",
+      "byteLength": 14111
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBFee.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBFee.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x354a99f21d8fa1e306886b0163c8b2daed66d32a2b2bcf6eb1dcefecfc7ef471",
+      "sha256": "b951f86319724414f4f64fe1fc1b49ead8a96fa857f813326e7d4e54ec2aa31d",
+      "byteLength": 702
+    },
+    "node_modules/@bananapus/core-v6/src/structs/JBSingleAllowance.sol": {
+      "kind": "pinned-git",
+      "repository": "https://github.com/Bananapus/nana-core-v6",
+      "commit": "386a9dc71c73a1e614da9cf2a98e207788034a4b",
+      "gitPath": "src/structs/JBSingleAllowance.sol",
+      "package": "@bananapus/core-v6",
+      "version": "1.0.2",
+      "keccak256": "0x8782e1148524829a4f154442744c25963d0faba623c8a9583eaa8bc2290a040d",
+      "sha256": "32ff43c6eec3ad79a813c5753f07506c2c2927c35e8caa19f5be9b4b23f3ae69",
+      "byteLength": 697
+    },
+    "node_modules/@openzeppelin/contracts/utils/Address.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@openzeppelin/contracts",
+      "keccak256": "0x0fa9e0d3a859900b5a46f70a03c73adf259603d5e05027a37fe0b45529d85346",
+      "sha256": "73e54e15285455f0e01e136c3663732641537614723ae5dbd820eb3cb036b1fd",
+      "byteLength": 6803
+    },
+    "node_modules/@openzeppelin/contracts/utils/Errors.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@openzeppelin/contracts",
+      "keccak256": "0x6afa713bfd42cf0f7656efa91201007ac465e42049d7de1d50753a373648c123",
+      "sha256": "0704b9d6c032cca8512a3bc3f30f49f86f1f03102d2896a3d23e794b82efea66",
+      "byteLength": 896
+    },
+    "node_modules/@openzeppelin/contracts/utils/LowLevelCall.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@openzeppelin/contracts",
+      "keccak256": "0x6ba3db1346fc75a832aa6cd075e12f6f1fa172fa2122a020f324c319fe5be75e",
+      "sha256": "e128cbe9c6c406d5a42c26e4079c0a95b369ce552f2d0c3dfd2fcb836c5708f2",
+      "byteLength": 5547
+    },
+    "node_modules/@uniswap/permit2/src/interfaces/IAllowanceTransfer.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@uniswap/permit2",
+      "keccak256": "0x37f0ac203b6ef605c9533e1a739477e8e9dcea90710b40e645a367f8a21ace29",
+      "sha256": "a31c712c5cc8d171818a4225c09011f9ba86b2d5edf6045ac812bab93b6bbb87",
+      "byteLength": 7703
+    },
+    "node_modules/@uniswap/permit2/src/interfaces/IEIP712.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@uniswap/permit2",
+      "keccak256": "0xfdccf2b9639070803cd0e4198427fb0df3cc452ca59bd3b8a0d957a9a4254138",
+      "sha256": "e386407da496dbe874c10a81801c55744fb2922a51389a51c79001422e81e0cd",
+      "byteLength": 144
+    },
+    "node_modules/@uniswap/permit2/src/interfaces/IPermit2.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@uniswap/permit2",
+      "keccak256": "0xaa631cc9f53e699301d94233007110a345e6779011def484e8dd97b8fe0af771",
+      "sha256": "51a2a4da1246abda880b17c72f7c45ab3a8dc4bcaac5ff7ba78221b6603cd7ce",
+      "byteLength": 548
+    },
+    "node_modules/@uniswap/permit2/src/interfaces/ISignatureTransfer.sol": {
+      "kind": "dependency-bytes-matching-pinned-deployment-metadata",
+      "package": "@uniswap/permit2",
+      "keccak256": "0xe6df9966f8841dc3958ee86169c89de97e7f614c81c28b9dc947b12d732df64e",
+      "sha256": "8e7f355d7751cf96e81069c17fb97a3ec973c9391fbbb58ad3fb6e75be5cb19b",
+      "byteLength": 6875
+    }
+  }
+}

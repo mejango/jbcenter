@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-07T06:25:29.658Z",
+  "environment": "local Foundry EVM, no network or real funds",
+  "command": "forge test --root src/rest/smartAccounts/stack -vv",
+  "result": {
+    "passed": 18,
+    "failed": 0,
+    "skipped": 0,
+    "directGuardTests": 12,
+    "fullStackTests": 6,
+    "fuzzRunsPerProperty": 256,
+    "fuzzProperties": 2
+  },
+  "manifestSha256": "1924517cd7b1dfec32dc73ae62b7bf8919da1a1c44b1deeae0d5307d223235ff",
+  "testSources": [
+    {
+      "path": "test/CenterSessionGuard.t.sol",
+      "sha256": "86c45484ff6d35550903d66335ea5841d42796a4b6a730f14deb4b14fbb3f259"
+    },
+    {
+      "path": "test/FullStack.t.sol",
+      "sha256": "c913bd6e33893c146e4ddcbe0ed82a03566680d06769161e9ad088d65bcc5ae7"
+    }
+  ],
+  "guardRuntimeCodeHash": "0x996eea0614de4cd5549d17464e0352745411666d42650b20b7a9252dfd1c328c",
+  "actualRuntimeComponents": [
+    "EntryPoint",
+    "SenderCreator",
+    "SafeProxyFactory",
+    "SafeProxy",
+    "SafeL2",
+    "Safe7579",
+    "Safe7579Launchpad",
+    "Safe7579DCUtil",
+    "SmartSession",
+    "OwnableValidator",
+    "TimeFramePolicy",
+    "UniActionPolicy",
+    "ValueLimitPolicy",
+    "CenterSessionGuard",
+    "PimlicoSingletonPaymasterV7"
+  ],
+  "assertions": [
+    "Bot-signed UserOperation and separately signed verifying-mode sponsorship execute through EntryPoint.handleOps.",
+    "Safe is the V6 pay ABI fixture payer; account value decreases by payment only and its EntryPoint deposit remains zero.",
+    "Pimlico sponsor deposit pays gas; UserOperationEvent binds operation hash, Safe, paymaster, success and gas.",
+    "Direct submissions cannot exceed payment budget, call count, fee bounds, expiry or sponsorship restrictions.",
+    "Wrong session signer and revoked session fail; owner revocation also advances enable-signature nonce.",
+    "Bot cannot replace fresh Safe owner signature; owner signature replay fails.",
+    "Failed inner execution emits success=false and consumes validation counters/sponsor gas.",
+    "Depleted sponsor deposit fails without account prefunding."
+  ],
+  "limitations": [
+    "The V6 terminal is an explicit ABI/caller/value fixture, not deployed protocol code.",
+    "Pimlico constructor uses local fixture owner and signer keys; no hosted API credential, quote availability or production signer configuration is tested.",
+    "This is not a deployment, external audit or ERC-7562 bundler trace compliance certification."
+  ]
+}

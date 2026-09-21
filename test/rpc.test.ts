@@ -3,12 +3,18 @@ import {
   createRpcGateway,
   dwellirRpcUpstreams,
   parseRpcRequest,
+  RPC_RESPONSE_LIMIT,
   RPC_TIMEOUT_MS,
   RpcBadRequest,
   RpcUnavailable,
 } from "../src/rpc.js";
 
-const chainIdRequest = { jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] } as const;
+const chainIdRequest = {
+  jsonrpc: "2.0",
+  id: 1,
+  method: "eth_chainId",
+  params: [],
+} as const;
 
 describe("RPC configuration", () => {
   it("builds every reviewed Dwellir URL from one key", () => {
@@ -47,6 +53,8 @@ describe("read-only JSON-RPC policy", () => {
     [{ ...chainIdRequest, method: "eth_sendRawTransaction" }, /not allowed/u],
     [{ ...chainIdRequest, method: "wallet_signTransaction" }, /not allowed/u],
     [{ ...chainIdRequest, method: "debug_traceCall" }, /not allowed/u],
+    [{ ...chainIdRequest, method: "debug_traceBlockByNumber" }, /not allowed/u],
+    [{ ...chainIdRequest, method: "debug_traceTransaction" }, /not allowed/u],
     [{ ...chainIdRequest, id: null }, /version or id/u],
     [{ ...chainIdRequest, params: {} }, /params/u],
   ])("rejects unsafe or malformed request %#", (request, message) => {
@@ -71,13 +79,23 @@ describe("read-only JSON-RPC policy", () => {
       /must not exceed/u,
     );
     expect(() =>
-      parseRpcRequest({ jsonrpc: "2.0", id: 1, method: "eth_simulateV1", params: [] }),
+      parseRpcRequest({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_simulateV1",
+        params: [],
+      }),
     ).toThrow(/blockStateCalls/u);
   });
 
   it("requires bounded log queries", () => {
     expect(() =>
-      parseRpcRequest({ jsonrpc: "2.0", id: 1, method: "eth_getLogs", params: [{}] }),
+      parseRpcRequest({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_getLogs",
+        params: [{}],
+      }),
     ).toThrow(/bounded block range/u);
     expect(() =>
       parseRpcRequest({
@@ -99,6 +117,38 @@ describe("read-only JSON-RPC policy", () => {
 });
 
 describe("RPC upstream boundary", () => {
+  it.each([
+    { timeoutMs: 0 },
+    { timeoutMs: 30_001 },
+    { timeoutMs: NaN },
+    { timeoutMs: 1.5 },
+    { responseLimitBytes: 0 },
+    { responseLimitBytes: 20 * 1024 * 1024 + 1 },
+    { responseLimitBytes: Infinity },
+    { responseLimitBytes: 1.5 },
+  ])("rejects invalid trusted gateway limits %#", (limits) => {
+    expect(() => createRpcGateway(new Map(), fetch, limits)).toThrow("bounded");
+  });
+  it("applies custom byte bounds to chunked responses and cancels a body that exceeds them", async () => {
+    let cancelled = false;
+    const fetcher: typeof fetch = async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(65));
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+      );
+    const gateway = createRpcGateway(new Map([[1, ["https://archive.example"]]]), fetcher, {
+      timeoutMs: 15_000,
+      responseLimitBytes: 64,
+    });
+    await expect(gateway.request(1, chainIdRequest)).rejects.toBeInstanceOf(RpcUnavailable);
+    expect(cancelled).toBe(true);
+  });
   it("fails over without exposing upstream details", async () => {
     const fetcher = vi
       .fn<typeof fetch>()
@@ -122,28 +172,46 @@ describe("RPC upstream boundary", () => {
   });
 
   it("fails over when the primary does not implement the method, and returns any other error", async () => {
-    const simulate = { jsonrpc: "2.0", id: 7, method: "eth_simulateV1", params: [] } as const;
+    const simulate = {
+      jsonrpc: "2.0",
+      id: 7,
+      method: "eth_simulateV1",
+      params: [],
+    } as const;
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
         Response.json({
           jsonrpc: "2.0",
           id: 7,
-          error: { code: -32601, message: "the method eth_simulateV1 does not exist" },
+          error: {
+            code: -32601,
+            message: "the method eth_simulateV1 does not exist",
+          },
         }),
       )
       .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", id: 7, result: [] }))
       .mockResolvedValueOnce(
-        Response.json({ jsonrpc: "2.0", id: 7, error: { code: 3, message: "execution reverted" } }),
+        Response.json({
+          jsonrpc: "2.0",
+          id: 7,
+          error: { code: 3, message: "execution reverted" },
+        }),
       );
     const gateway = createRpcGateway(
       new Map([[1, ["https://primary.example/secret", "https://fallback.example/key"]]]),
       fetcher,
     );
 
-    await expect(gateway.request(1, simulate)).resolves.toEqual({ jsonrpc: "2.0", id: 7, result: [] });
+    await expect(gateway.request(1, simulate)).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: 7,
+      result: [],
+    });
     expect(fetcher).toHaveBeenCalledTimes(2);
-    await expect(gateway.request(1, simulate)).resolves.toMatchObject({ error: { code: 3 } });
+    await expect(gateway.request(1, simulate)).resolves.toMatchObject({
+      error: { code: 3 },
+    });
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
@@ -152,10 +220,11 @@ describe("RPC upstream boundary", () => {
     try {
       const fetcher = vi
         .fn<typeof fetch>()
-        .mockImplementationOnce((_url, init) =>
-          new Promise<Response>((_resolve, reject) => {
-            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
-          }),
+        .mockImplementationOnce(
+          (_url, init) =>
+            new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+            }),
         )
         .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", id: 1, result: "0x1" }));
       const gateway = createRpcGateway(
@@ -165,18 +234,178 @@ describe("RPC upstream boundary", () => {
 
       const request = gateway.request(1, chainIdRequest);
       await vi.advanceTimersByTimeAsync(RPC_TIMEOUT_MS);
-      await expect(request).resolves.toEqual({ jsonrpc: "2.0", id: 1, result: "0x1" });
+      await expect(request).resolves.toEqual({
+        jsonrpc: "2.0",
+        id: 1,
+        result: "0x1",
+      });
       expect(fetcher).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }
   });
 
+  it("rejects an already aborted caller without contacting an upstream", async () => {
+    const controller = new AbortController();
+    const reason = new DOMException("Caller disconnected", "AbortError");
+    controller.abort(reason);
+    const fetcher = vi.fn<typeof fetch>();
+    const gateway = createRpcGateway(
+      new Map([[1, ["https://primary.example", "https://fallback.example"]]]),
+      fetcher,
+    );
+
+    await expect(gateway.request(1, chainIdRequest, controller.signal)).rejects.toBe(reason);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("aborts the active provider without falling back when the caller disconnects", async () => {
+    const controller = new AbortController();
+    const reason = new DOMException("Caller disconnected", "AbortError");
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(
+        (_url, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+          }),
+      )
+      .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", id: 1, result: "0x1" }));
+    const gateway = createRpcGateway(
+      new Map([[1, ["https://primary.example", "https://fallback.example"]]]),
+      fetcher,
+    );
+
+    const request = gateway.request(1, chainIdRequest, controller.signal);
+    const rejection = expect(request).rejects.toBe(reason);
+    controller.abort(reason);
+    await rejection;
+    expect(fetcher.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(fetcher.mock.calls[0]?.[1]?.signal?.reason).toBe(reason);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels a stalled response reader on caller abort without waiting or falling back", async () => {
+    const controller = new AbortController();
+    const reason = new DOMException("Caller disconnected", "AbortError");
+    let reading!: () => void;
+    const startedReading = new Promise<void>((resolve) => {
+      reading = resolve;
+    });
+    const cancel = vi.fn(() => new Promise<void>(() => undefined));
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull: () => {
+          reading();
+        },
+        cancel,
+      },
+      { highWaterMark: 0 },
+    );
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(stream))
+      .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", id: 1, result: "0x1" }));
+    const gateway = createRpcGateway(
+      new Map([[1, ["https://primary.example", "https://fallback.example"]]]),
+      fetcher,
+    );
+
+    const request = gateway.request(1, chainIdRequest, controller.signal);
+    const rejection = expect(request).rejects.toBe(reason);
+    await startedReading;
+    controller.abort(reason);
+    await rejection;
+    expect(cancel).toHaveBeenCalledExactlyOnceWith(reason);
+    expect(stream.locked).toBe(false);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels a stalled response reader and fails over when the provider times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const cancel = vi.fn();
+      const stream = new ReadableStream<Uint8Array>({ cancel }, { highWaterMark: 0 });
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response(stream))
+        .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", id: 1, result: "0x1" }));
+      const gateway = createRpcGateway(
+        new Map([[1, ["https://primary.example", "https://fallback.example"]]]),
+        fetcher,
+      );
+
+      const request = gateway.request(1, chainIdRequest);
+      await vi.advanceTimersByTimeAsync(RPC_TIMEOUT_MS);
+      await expect(request).resolves.toEqual({
+        jsonrpc: "2.0",
+        id: 1,
+        result: "0x1",
+      });
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(stream.locked).toBe(false);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops reading chunked oversized responses as soon as the byte limit is exceeded", async () => {
+    const chunkSize = 1024 * 1024;
+    const pull = vi.fn((controller: ReadableStreamDefaultController<Uint8Array>) => {
+      controller.enqueue(new Uint8Array(chunkSize));
+    });
+    // An upstream cancellation hook may stall; it cannot prevent bounded failure.
+    const cancel = vi.fn(() => new Promise<void>(() => undefined));
+    const stream = new ReadableStream<Uint8Array>({ pull, cancel }, { highWaterMark: 0 });
+    const gateway = createRpcGateway(
+      new Map([[1, ["https://rpc.example"]]]),
+      vi.fn<typeof fetch>().mockResolvedValue(new Response(stream)),
+    );
+
+    await expect(gateway.request(1, chainIdRequest)).rejects.toBeInstanceOf(RpcUnavailable);
+    expect(pull).toHaveBeenCalledTimes(Math.floor(RPC_RESPONSE_LIMIT / chunkSize) + 1);
+    expect(cancel).toHaveBeenCalledExactlyOnceWith(expect.any(RpcUnavailable));
+    expect(stream.locked).toBe(false);
+  });
+
+  it("accepts a chunked JSON response exactly at the response byte limit", async () => {
+    const prefix = '{"jsonrpc":"2.0","id":1,"result":"';
+    const suffix = '"}';
+    const payloadSize = RPC_RESPONSE_LIMIT - prefix.length - suffix.length;
+    const chunks = [prefix, "a".repeat(payloadSize), suffix];
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          const chunk = chunks.shift();
+          if (chunk === undefined) controller.close();
+          else controller.enqueue(encoder.encode(chunk));
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const gateway = createRpcGateway(
+      new Map([[1, ["https://rpc.example"]]]),
+      vi.fn<typeof fetch>().mockResolvedValue(new Response(stream)),
+    );
+
+    const result = await gateway.request(1, {
+      ...chainIdRequest,
+      method: "eth_call",
+    });
+    expect(result).toMatchObject({ jsonrpc: "2.0", id: 1 });
+    expect((result as { result: string }).result).toHaveLength(payloadSize);
+    expect(stream.locked).toBe(false);
+  });
+
   it("rejects a mismatched chain, malformed envelope, and oversized response", async () => {
     const cases = [
       Response.json({ jsonrpc: "2.0", id: 1, result: "0xa" }),
       Response.json({ jsonrpc: "2.0", id: 2, result: "0x1" }),
-      new Response("{}", { headers: { "content-length": String(6 * 1024 * 1024) } }),
+      new Response("{}", {
+        headers: { "content-length": String(6 * 1024 * 1024) },
+      }),
     ];
     for (const response of cases) {
       const gateway = createRpcGateway(
@@ -208,6 +437,25 @@ describe("RPC upstream boundary", () => {
       jsonrpc: "2.0",
       id: 1,
       error: { code: -32000, message: "RPC request failed", data: "0x1234" },
+    });
+  });
+
+  it("keeps reverts recognizable as reverts without echoing the upstream message", async () => {
+    const gateway = createRpcGateway(
+      new Map([[1, ["https://rpc.example/credential"]]]),
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          jsonrpc: "2.0",
+          id: 1,
+          error: { code: 3, message: "execution reverted: https://rpc.example/credential", data: "0x1234" },
+        }),
+      ),
+    );
+
+    await expect(gateway.request(1, { ...chainIdRequest, method: "eth_call" })).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      error: { code: 3, message: "execution reverted", data: "0x1234" },
     });
   });
 

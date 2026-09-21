@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "profile": "bootstrap-experiment-not-admitted",
+  "source": {
+    "repository": "https://github.com/safe-global/safe-contracts",
+    "commit": "bf943f80fec5ac647159d26161446ac5d716a294",
+    "path": "contracts/libraries/MultiSend.sol",
+    "sha256": "4faca0e0ddc6276f81661a077f7ef1bc34f05f9568855f4a59fb40835dbbadf5"
+  },
+  "compiler": {
+    "version": "0.7.6+commit.7338295f",
+    "evmVersion": "istanbul",
+    "optimizer": {
+      "enabled": false,
+      "runs": 200
+    },
+    "metadata": {
+      "useLiteralContent": true
+    }
+  },
+  "compilerBinaries": {
+    "darwin-x64": {
+      "path": "solc-macosx-amd64-v0.7.6+commit.7338295f",
+      "sha256": "0xa6a8f9f9388c5fcd9222474e00270242c832e936b0f5257c20374d27ee5bd1ab",
+      "keccak256": "0xcbc087311397f47993e7332637a999ac98a5661754ce33e4b265edcaaffdcd85",
+      "longVersion": "0.7.6+commit.7338295f"
+    },
+    "linux-x64": {
+      "path": "solc-linux-amd64-v0.7.6+commit.7338295f",
+      "sha256": "0xbd69ea85427bf2f4da74cb426ad951dd78db9dfdd01d791208eccc2d4958a6bb",
+      "keccak256": "0x995f7d67d87a936dca9922389e6bdbfd2febb3aabe52beed5a43f73fb45a5146",
+      "longVersion": "0.7.6+commit.7338295f"
+    }
+  },
+  "deploymentCatalog": {
+    "repository": "https://github.com/safe-global/safe-deployments",
+    "commit": "7b1fb6d615ab2d2999550ec9166554b180e813e5",
+    "path": "src/assets/v1.4.1/multi_send.json",
+    "sha256": "5f85d500230e8d5c590683ae930129d65862bd58d7c1ba93f2059c8ce4c289e6",
+    "canonicalAddress": "0x38869bf66a61cF6bDB996A6aE40D5853Fd43B526",
+    "canonicalRuntimeCodeHash": "0x0e4f7fc66550a322d1e7688e181b75e217e662a4f3f4d6a29b22bc61217c4b77",
+    "liveChainObservation": false
+  },
+  "compilerInputSha256": "ae4c5a0ada6fbd307f0ad29ed795fc4023a2eaa7ab09426a973b79611b42c9ea",
+  "artifactSha256": "cdfa2bbcba64c698db975a0c332457f3ec1a0653f147ff6b5d2ee8771084961b",
+  "scope": "Atomic onchain feasibility only. Canonical bundler rules and the legacy Center initializer/inspector path do not admit this new profile.",
+  "existingArtifactSha256": {
+    "artifacts/EntryPoint.json": "6d02c52c1b0046b3121a35c387953b574dbe449a84e2b0d2798b08432a09666d",
+    "artifacts/SenderCreator.json": "1365910c8f2a22b4d2c51447c087d94dc264cf867dfe8aca1e2aa4d723d80bec",
+    "artifacts/Safe7579.json": "e224349ba4c4020ef30d9c5c5c3b897634479daaf2d67deec476392e91d8c271",
+    "artifacts/SmartSession.json": "b964873cdb09e1b8dad37e0dcf644622974f5e2e56851c55b5a0df89aa5798a7",
+    "artifacts/Safe7579Launchpad.json": "5805be93f630c584f8c741010ca5c3cc461e1559235fab876c29c1715cff59ce",
+    "artifacts/Safe7579DCUtil.json": "3844a9e83a803ff3ebffe83c5b4f4a6b620a297f58be48dbdb340aca7696d5bf",
+    "artifacts/SafeL2.json": "854b18bbc87cd12ec90ff59171a720c4072fc1ac2de03ab3f739bfaebcce0fa9",
+    "artifacts/SafeProxyFactory.json": "977f2648cba212934d999fe9026876f1bcd43ce5d1d7ca61b673ad39a4e35739",
+    "passkey/artifacts/FCLP256Verifier.json": "cbd421df28af9002b4562e2cd136d47e802ee14a310b41e63f01617459a21adc",
+    "passkey/artifacts/SafeWebAuthnSignerFactory.json": "ac9585e28b510a8f705fee07ddf2f6d5568f6a083059a3cc3eb60ce0d55ea3c2"
+  },
+  "license": {
+    "path": "LICENSE",
+    "spdx": "LGPL-3.0-only",
+    "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+  }
+}
