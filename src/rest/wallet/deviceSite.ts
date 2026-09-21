@@ -1,7 +1,7 @@
 import type { Context, Hono } from 'hono';
 import { RestError } from '../core.js';
 import { walletAppFields } from './appGrants.js';
-import { assertWalletHttpHost, assertWalletHttpRequest, walletHttpAssertion, walletHttpBytes, walletPageHeaders } from './http.js';
+import { assertWalletHttpHost, assertWalletHttpRequest, walletCookie, walletHttpAssertion, walletHttpBytes, walletPageHeaders, walletSessionCookie } from './http.js';
 import type { WalletCentralSession } from './login.js';
 import type { createLocalWalletDevices } from './deviceService.js';
 import type { WalletDeviceAddition } from './deviceAddition.js';
@@ -9,7 +9,7 @@ import { walletDevicePage, walletDeviceCss } from '../web/walletDevicePage.js';
 
 export interface WalletDeviceSiteOptions {
   origin: string; basePath?: string; browserScript: string;
-  devices: Pick<ReturnType<typeof createLocalWalletDevices>, 'begin' | 'statusForSession' | 'statusForLink' | 'register' | 'prove'
+  devices: Pick<ReturnType<typeof createLocalWalletDevices>, 'begin' | 'statusForSession' | 'statusForLink' | 'register' | 'prove' | 'sessionForLink'
     | 'prepareAddition' | 'approveAddition' | 'activateForSession' | 'activateForLink'>;
   /** The primary's page: a mutating call carries the session cookie and CSRF; a read carries the cookie. */
   session(c: Context, mutate: boolean): Promise<WalletCentralSession>;
@@ -89,14 +89,24 @@ export function mountWalletDevices(app: Hono, options: WalletDeviceSiteOptions) 
   });
   app.post(`${base}/devices/link/prove`, async c => {
     const input = await body(c, ['linkToken', 'assertion']);
-    const view = await devices.prove(token(input.linkToken), walletHttpAssertion(input.assertion));
+    const proved = await devices.prove(token(input.linkToken), walletHttpAssertion(input.assertion));
     emit('device_prove');
-    return json(c, { view });
+    return json(c, proved);
   });
   app.post(`${base}/devices/link/activate`, async c => {
     const input = await body(c, ['linkToken']);
     const view = await devices.activateForLink(token(input.linkToken));
     emit('device_activate');
     return json(c, { view });
+  });
+  // The added device's session, from its possession proof (see `devices.sessionForLink`): the
+  // session cookie is set as a login sets it. The page sends this one request with credentials.
+  app.post(`${base}/devices/link/session`, async c => {
+    const input = await body(c, ['linkToken', 'claim']);
+    const result = await devices.sessionForLink(token(input.linkToken), token(input.claim)), session = result.session as { expiresAtMs: number };
+    c.header('Set-Cookie', walletCookie(walletSessionCookie, result.sessionToken,
+      Math.max(1, Math.min(3600, Math.floor((session.expiresAtMs - Date.now()) / 1000)))), { append: true });
+    emit('device_session');
+    return c.json({ signedIn: true });
   });
 }

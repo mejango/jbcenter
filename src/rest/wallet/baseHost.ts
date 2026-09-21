@@ -103,7 +103,7 @@ export function createBaseWalletDeviceHost(context: BaseWalletHostContext, optio
   const reader = createBaseWalletDeploymentReader({ url: options.url, ...(options.genesisHash ? { genesisHash: options.genesisHash } : {}) });
   const chain = authorityChain(context, reader.reads, options);
   const origin = context.wallet.origin, rpId = new URL(origin).hostname;
-  return createLocalWalletDevices({ audience: context.audience, smart: context.smart, authority: new PostgresWalletAuthorityStore(context.pool),
+  return createLocalWalletDevices({ audience: context.audience, smart: context.smart, authority: new PostgresWalletAuthorityStore(context.pool), login: context.wallet.login,
     devices: new PostgresWalletDeviceStore(context.pool, { origin, rpId }, { audience: context.audience, observe: value => chain.observe(value) }),
     ...(options.onDeviceEvent ? { onEvent: options.onDeviceEvent } : {}),
     addition: createBaseWalletDeviceRelay({ pool: context.pool, url: options.url, ...(options.genesisHash ? { genesisHash: options.genesisHash } : {}),

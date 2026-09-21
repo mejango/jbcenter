@@ -1,4 +1,5 @@
 import { getAddress, hashTypedData, type Address, type Hex } from 'viem';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { RestError } from '../core.js';
 import { validateAudience } from '../auth/signatures.js';
 import { stable } from '../smartAccounts/service.js';
@@ -11,6 +12,7 @@ import type { createSmartAccountService } from '../smartAccounts/service.js';
 import type { PostgresWalletAuthorityStore } from './authorityPostgres.js';
 import type { WalletRegistrationResponse } from './registration.js';
 import type { WalletAssertion } from './webauthn.js';
+import { copyWalletSignupAssertion } from './signupPostgres.js';
 import type { WalletCentralSession } from './login.js';
 
 export type WalletDevicePhase = 'awaiting_registration' | 'awaiting_possession' | 'awaiting_approval' | 'adding' | 'addition_failed' | 'awaiting_activation' | 'ready' | 'expired';
@@ -24,6 +26,8 @@ export interface WalletDeviceView {
 export interface LocalWalletDeviceDependencies {
   audience: string; devices: PostgresWalletDeviceStore; addition: ReturnType<typeof createWalletDeviceRelay>;
   smart: ReturnType<typeof createSmartAccountService>; authority: PostgresWalletAuthorityStore;
+  /** With it, the added device is signed in from its possession proof once the addition is done (see `sessionForLink`). */
+  login?: { completeFromDevice(input: { record: WalletDeviceRecord; assertion: WalletAssertion }): Promise<{ session: unknown; sessionToken: string }> };
   onEvent?: (event: { stage: 'addition' | 'activation'; outcome: string; deviceId: string }) => void;
 }
 function state(): never { throw new RestError(409, 'WALLET_DEVICE_STATE', 'Check the device addition and complete its current step.'); }
@@ -55,6 +59,7 @@ export function createLocalWalletDevices(options: LocalWalletDeviceDependencies)
   }
   const owned = async (id: string, session: WalletCentralSession) => (await devices.get(id, session.accountId)) ?? unauthorized();
   const linked = async (linkToken: string) => (await devices.getByToken(linkToken)) ?? unauthorized();
+  const proofs = new Map<string, { assertion: WalletAssertion; at: number; claim: string }>();
   return {
     /** Primary: start, and hand the page the one-time link for the other device. */
     async begin(session: WalletCentralSession, input: { passkeyName?: string } = {}) {
@@ -65,7 +70,31 @@ export function createLocalWalletDevices(options: LocalWalletDeviceDependencies)
     async statusForLink(linkToken: string) { return view(await linked(linkToken)); },
     /** New device: its passkey, then its possession proof. */
     async register(linkToken: string, input: WalletRegistrationResponse, options: { passkeyName?: string } = {}) { return view(await devices.register(linkToken, input, options)); },
-    async prove(linkToken: string, input: WalletAssertion) { return view((await devices.prove(linkToken, input)).record); },
+    async prove(linkToken: string, input: WalletAssertion) {
+      const proved = await devices.prove(linkToken, input);
+      if (proved.replayed) return { view: await view(proved.record), sessionClaim: null };
+      // The possession assertion is held for the device's session (in memory, this process, ≤ 15 min,
+      // once) behind a claim handed only to the page that proved: the link itself is a shown bearer
+      // (a QR on the primary's screen) and must not become a session on its own.
+      for (const [id, held] of proofs) if (Date.now() - held.at > 900_000) proofs.delete(id);
+      if (proofs.size >= 256) proofs.delete(proofs.keys().next().value!);
+      const sessionClaim = randomBytes(32).toString('base64url');
+      proofs.set(proved.record.intent.id, { assertion: copyWalletSignupAssertion(input), at: Date.now(), claim: sessionClaim });
+      return { view: await view(proved.record), sessionClaim };
+    },
+    /** The added device's session from the possession proof this process verified: once the primary
+     * approved and the addition is active, the device is signed in without another prompt. The store
+     * re-verifies the assertion against the recorded proof; a restarted process, or anything older
+     * than 15 minutes, gets the ordinary sign-in instead. */
+    async sessionForLink(linkToken: string, claim: string) {
+      const record = await linked(linkToken), held = proofs.get(record.intent.id);
+      if (!options.login || !held || Date.now() - held.at > 900_000 || !record.activation) state();
+      if (typeof claim !== 'string' || claim.length !== held.claim.length || !timingSafeEqual(Buffer.from(claim), Buffer.from(held.claim))) unauthorized();
+      proofs.delete(record.intent.id);
+      const result = await options.login.completeFromDevice({ record, assertion: held.assertion });
+      event({ stage: 'activation', outcome: 'session', deviceId: record.intent.id });
+      return result;
+    },
     /** Primary: the exact addition to sign, then the signed approval. */
     async prepareAddition(id: string, session: WalletCentralSession) {
       const record = await owned(id, session);
@@ -91,7 +120,7 @@ export function createLocalWalletDevices(options: LocalWalletDeviceDependencies)
       const candidate = record.candidate;
       if (!candidate || !record.proof) state();
       if (record.activation) return view(record);
-      const observed = await addition.status(record.intent.id);
+      const observed = await addition.status(record.intent.id, 5000);
       if (observed.state !== 'ready') state();
       const bindingDigest = `0x${enrollmentDigest({ device: record.intent.id, proof: record.proof.verificationDigest, transaction: observed.transactions.ownerChange })}` as Hex;
       await smart.bindPasskeyAccount({ manifestId: record.intent.manifest.id, address: record.intent.accountId.slice(12) as Address,

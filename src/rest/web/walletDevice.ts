@@ -11,7 +11,7 @@ const steps: Record<WalletDeviceView['phase'], string> = {
   awaiting_registration: 'Create a passkey on this device.', awaiting_possession: 'Confirm the new passkey.',
   awaiting_approval: 'Approve this device from the device you started on. It shows this device as TAG.', adding: 'Adding this device to your account…',
   addition_failed: 'Adding the device did not complete. Start again from your account.', awaiting_activation: 'Finishing…',
-  ready: 'This device is added. Sign in with its passkey.', expired: 'This link expired. Start again from your account.' };
+  ready: 'This device is added.', expired: 'This link expired. Start again from your account.' };
 let view: WalletDeviceView | null = null, busy = false, native: AbortController | null = null, disposed = false;
 const linkToken = (() => { const value = location.hash.slice(1); return /^[A-Za-z0-9_-]{43}$/.test(value) ? value : null; })();
 const polling = () => view?.phase === 'awaiting_approval' || view?.phase === 'adding' || view?.phase === 'awaiting_activation';
@@ -91,14 +91,33 @@ async function advance() {
     const document = view.possession.document as unknown as TypedDataDefinition;
     if (hashTypedData(document) !== view.possession.challenge) invalid();
     message('Confirm the new passkey in the prompt.');
-    accept(await request('prove', { assertion: await assertion(view.possession.challenge, view.rpId) }));
+    const proved = await request('prove', { assertion: await assertion(view.possession.challenge, view.rpId) });
+    accept(proved); if (typeof proved.sessionClaim === 'string') sessionClaim = proved.sessionClaim;
   } else if (view.phase === 'awaiting_activation') {
     accept(await request('activate', {}));
+    if ((view as WalletDeviceView | null)?.phase === 'ready') await session();
   }
+}
+// The passkey this device just proved signs it in once it is added: no second prompt. Only when that
+// is not on offer (a restarted server, an old link) does "Sign in on this device" remain.
+let sessionTried = false, sessionClaim: string | null = null;
+async function session() {
+  if (sessionTried || !linkToken || !sessionClaim) return;
+  sessionTried = true; message('Signing in on this device…');
+  try {
+    const response = await fetch(`${base}/devices/link/session`, { method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+      headers: { 'content-type': 'application/json', 'x-center-wallet-request': '1' }, body: JSON.stringify({ linkToken, claim: sessionClaim }) });
+    if (!response.ok) throw new Error('not on offer');
+    location.replace(base || '/');
+  } catch { message(steps.ready + ' Sign in with its passkey.'); render(); }
 }
 async function poll() {
   if (disposed || busy || !polling()) return;
-  try { accept(await request('state', {})); if (view?.phase === 'awaiting_activation') await run(advance); }
+  try {
+    accept(await request('state', {}));
+    if (view?.phase === 'awaiting_activation') await run(advance);
+    else if (view?.phase === 'ready') await run(session);
+  }
   catch { /* keep polling */ } finally { render(); }
 }
 next.addEventListener('click', () => void run(advance));

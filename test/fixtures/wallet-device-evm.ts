@@ -34,10 +34,10 @@ export async function exerciseWalletDeviceEvm(options: {
       reads: local.reads, identity: local.identity, send: local.send,
       quote: async () => ({ gas: 3_000_000n, maxFeePerGas: 20_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n }),
       fees: async (_rpc, _raw, receipt) => ({ executionWei: String(receipt.gasUsed * receipt.effectiveGasPrice) }), releaseAfterFinality: false } });
-  const service = createLocalWalletDevices({ audience: options.audience, devices: store, addition, smart: options.smart, authority: new PostgresWalletAuthorityStore(pool) });
+  const login = new PostgresWalletLoginStore(pool, { rpId, origin });
+  const service = createLocalWalletDevices({ audience: options.audience, devices: store, addition, smart: options.smart, authority: new PostgresWalletAuthorityStore(pool), login });
   // The runtime starts the worker right after creation; it must be startable and stoppable at once.
   service.start(); service.start(); await service.stop();
-  const login = new PostgresWalletLoginStore(pool, { rpId, origin });
   const session = (await login.readSession(options.originalSessionToken))!;
   expect(session.accountId).toBe(accountId);
 
@@ -48,7 +48,8 @@ export async function exerciseWalletDeviceEvm(options: {
     challenge: `0x${Buffer.from(begun.view.registration!.challenge, 'base64url').toString('hex')}` });
   const registered = await service.register(begun.linkToken, device.response);
   expect(registered.phase).toBe('awaiting_possession');
-  const proved = await service.prove(begun.linkToken, signGet({ ...device, rpId, origin, challenge: registered.possession!.challenge }));
+  const { view: proved, sessionClaim } = await service.prove(begun.linkToken, signGet({ ...device, rpId, origin, challenge: registered.possession!.challenge }));
+  expect(sessionClaim).toMatch(/^[A-Za-z0-9_-]{43}$/);
   expect(proved.phase).toBe('awaiting_approval');
   expect((await service.statusForSession(begun.view.id, session)).phase).toBe('awaiting_approval');
 
@@ -85,6 +86,17 @@ export async function exerciseWalletDeviceEvm(options: {
 
   // The primary's old session ended with the binding it pinned; both passkeys log in now.
   expect(await login.readSession(options.originalSessionToken)).toBeNull();
+  // The added device is signed in from the possession proof it gave: no second prompt, once; the
+  // second device (never approved) has nothing to sign in with.
+  // The link alone (a shown bearer) is not enough: the claim the proving page received is.
+  await expect(service.sessionForLink(begun.linkToken, 'B'.repeat(43))).rejects.toMatchObject({ status: 403 });
+  const fromProof = await service.sessionForLink(begun.linkToken, sessionClaim!);
+  expect(fromProof.session).toMatchObject({ accountId, credentialId: device.credentialId });
+  expect((await login.readSession(fromProof.sessionToken))?.credentialId).toBe(device.credentialId);
+  await expect(service.sessionForLink(begun.linkToken, sessionClaim!)).rejects.toMatchObject({ status: 409 });
+  await expect(service.sessionForLink(second.linkToken, sessionClaim!)).rejects.toMatchObject({ status: 409 });
+  expect((await pool.query("SELECT proof FROM rest_wallet_logins WHERE proof->>'deviceId'=$1", [begun.view.id])).rows[0].proof)
+    .toMatchObject({ kind: 'device-possession', deviceId: begun.view.id, credentialId: device.credentialId });
   const deviceLogin = await login.begin(), signedIn = await login.complete({ loginId: deviceLogin.login.id, flowToken: deviceLogin.flowToken,
     assertion: signGet({ ...device, rpId, origin, challenge: deviceLogin.login.challenge }) });
   expect(signedIn.session).toMatchObject({ accountId, credentialId: device.credentialId });

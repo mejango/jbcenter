@@ -11,6 +11,8 @@ import { hashTypedData } from "viem";
 import { verifyWalletDeploymentProof, walletDeploymentDocument } from "./deployment.js";
 import type { WalletEnrollment } from "./enrollment.js";
 import { copyWalletSignupAssertion } from "./signupPostgres.js";
+import { verifyWalletDevicePossession, walletDeviceDocument } from "./deviceAddition.js";
+import type { WalletDeviceRecord } from "./devicesPostgres.js";
 import type { WalletDeploymentOperation } from "./deploymentPostgres.js";
 import { verifyWalletAssertion, type WalletAssertion } from "./webauthn.js";
 import { copyWalletLoginCompletion, createWalletLoginDraft, deriveWalletCentralSessionToken, validateWalletCentralSession,
@@ -252,6 +254,31 @@ export class PostgresWalletLoginStore {
     const context = await this.authority.loadContext(accountId), identity = context.prior?.identity;
     if (!identity || context.enrollment.intent.id !== enrollment.intent.id || context.credential.credentialId !== candidate.credentialId ||
         context.credential.supersededAtMs !== null || context.credential.recovery) unauthorized();
+    return this.completeFromProof(context, { kind: "signup-approval", verificationDigest: proofDigest, deploymentId: operation.id, credentialId: verified.credentialId,
+      userHandle: verified.userHandle!, signCount: verified.signCount, backupEligible: verified.backupEligible, backedUp: verified.backedUp }, "deploymentId");
+  }
+  /** A newly added device's session, from the possession assertion its addition already verified:
+   * the device's one signature proves its passkey and, once the primary's approval has landed and
+   * the device is a current credential of the account, signs it in. Same bounds as the signup's. */
+  async completeFromDevice(input: { record: WalletDeviceRecord; assertion: WalletAssertion }): Promise<{ session: WalletCentralSession; sessionToken: string }> {
+    const { record } = input, assertion = copyWalletSignupAssertion(input.assertion), candidate = record.candidate, proof = record.proof;
+    if (!candidate || !proof || !record.activation) unauthorized();
+    // The proof, re-derived: same document, same credential, the proof's own clock.
+    const verified = verifyWalletDevicePossession(candidate, assertion, proof.verifiedAtMs);
+    if (verified.verificationDigest !== proof.verificationDigest) unauthorized();
+    const parsed = verifyWalletAssertion(assertion, { purpose: "device", challenge: hashTypedData(walletDeviceDocument(candidate)),
+      rpId: record.intent.rpId, origin: record.intent.origin, requireUserHandle: true,
+      credential: { id: candidate.credential.credentialId, userHandle: record.intent.userHandle, publicKey: candidate.credential.publicKey, backupEligible: candidate.credential.backupEligible } });
+    const context = await this.authority.loadContext(record.intent.accountId), identity = context.prior?.identity;
+    const device = walletSessionCredential(context, candidate.credential.credentialId);
+    if (!identity || !device || device === context.credential || device.supersededAtMs !== null || context.enrollment.intent.id !== record.intent.enrollmentId) unauthorized();
+    return this.completeFromProof(context, { kind: "device-possession", verificationDigest: proof.verificationDigest, deviceId: record.intent.id, credentialId: parsed.credentialId,
+      userHandle: parsed.userHandle!, signCount: parsed.signCount, backupEligible: parsed.backupEligible, backedUp: parsed.backedUp }, "deviceId");
+  }
+  private async completeFromProof(context: WalletAuthorityContext, proof: { kind: string; verificationDigest: string; credentialId: string; userHandle: string;
+    signCount: number; backupEligible: boolean; backedUp: boolean } & Record<string, string | number | boolean>, onceBy: "deploymentId" | "deviceId"):
+    Promise<{ session: WalletCentralSession; sessionToken: string }> {
+    const accountId = context.accountId, enrollment = context.enrollment, identity = context.prior!.identity!;
     const identityDigest = walletAuthorityIdentityDigest(identity);
     return this.transaction(async client => {
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended('wallet-logins:' || 'rest_wallet_logins'::regclass::oid::text, 0))");
@@ -261,8 +288,8 @@ export class PostgresWalletLoginStore {
       const now = await walletCeremonyDatabaseNow(client);
       settled(locked, now);
       if (stable(locked.authority!.snapshot!.identity) !== stable(identity)) inactive();
-      // One session per creation approval.
-      const prior = await client.query("SELECT 1 FROM rest_wallet_logins WHERE proof->>'deploymentId'=$1", [operation.id]);
+      // One session per creation approval / device addition.
+      const prior = await client.query(`SELECT 1 FROM rest_wallet_logins WHERE proof->>'${onceBy}'=$1`, [String(proof[onceBy])]);
       if (prior.rowCount) conflict();
       const count = Number((await client.query("SELECT count(*)::text AS count FROM rest_wallet_logins WHERE account_id=$1", [accountId])).rows[0].count);
       if (count >= this.options.maxAccountSessions) limit();
@@ -271,8 +298,6 @@ export class PostgresWalletLoginStore {
       await client.query(`INSERT INTO rest_wallet_logins(id,session_id,ceremony_id,rp_id,flow_token_hash,issued_at_ms,expires_at_ms,retain_until_ms,draft)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`, [draft.id, draft.sessionId, draft.ceremony.id, draft.rpId, draft.flowTokenHash,
         draft.issuedAtMs, draft.expiresAtMs, draft.retainUntilMs, JSON.stringify(draft)]);
-      const proof = { kind: "signup-approval", verificationDigest: proofDigest, deploymentId: operation.id, credentialId: verified.credentialId,
-        userHandle: verified.userHandle!, signCount: verified.signCount, backupEligible: verified.backupEligible, backedUp: verified.backedUp };
       await this.ceremonies.consumeInTransaction(client, { ...draft.ceremony, proofDigest: proof.verificationDigest, resultId: draft.sessionId });
       const sessionToken = deriveWalletCentralSessionToken(flowToken, draft.id), sessionTokenHash = walletCentralSessionTokenHash(sessionToken);
       const createdAtMs = await walletCeremonyDatabaseNow(client);
