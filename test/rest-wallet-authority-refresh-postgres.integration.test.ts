@@ -370,7 +370,9 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
   });
 
   it("removes idle jobs while retaining unexpired leases and their capacity until expiry", async () => {
-    const configuration = { ...options, maxTracked: 1, interestMs: 150, leaseMs: 4000 };
+    // The second account's interest has to survive the reads that observe it, and the first
+    // account's is ended by the wait below rather than by how long the reads take.
+    const configuration = { ...options, maxTracked: 1, interestMs: 2_000, leaseMs: 4000 };
     const store = queue(configuration), first = await eligibleAccount(), second = await eligibleAccount();
     await store.request(first); const lease = await store.claim(); expect(lease).not.toBeNull();
     await untilDatabaseTime(Number((await job(first)).interested_until_ms));
