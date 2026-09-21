@@ -147,16 +147,16 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
       // Base has moved on since the worker's verification: activation carries it to the new head
       // (the gap's logs and the re-read fields agree) rather than tracing the account again.
       await fixture.rpc("anvil_mine", ["0x2", "0x0"]);
-      let before = fixture.requests.length;
-      expect((await signup.activate(flowToken)).phase).toBe("preparing_sign_in");
-      expect(fixture.requests.length - before).toBeLessThan(24);
+      // Activation binds, then carries the same verification into the account's first authority
+      // observation in the same call: the login is ready when activation returns.
+      const before = fixture.requests.length;
+      expect((await signup.activate(flowToken)).phase).toBe("ready_to_sign_in");
+      expect(fixture.requests.length - before).toBeLessThan(32);
       expect(fixture.requests.slice(before).filter(request => request.method === "debug_traceTransaction")).toEqual([]);
       expect(fixture.requests.slice(before).some(request => request.method === "eth_getLogs")).toBe(true);
-      before = fixture.requests.length;
-      const refreshed = await authority.refreshAuthority(record.receipt!.accountId);
-      expect(refreshed.snapshot.readiness).toBe("verified");
-      expect(fixture.requests.length - before).toBeLessThan(8);
-      expect(refreshed.snapshot.acceptedAnchor).toEqual(remembered.evidence);
+      const refreshed = await authority.currentAuthority(record.receipt!.accountId);
+      expect(refreshed?.readiness).toBe("verified");
+      expect(refreshed?.acceptedAnchor).toEqual(remembered.evidence);
       expect((await signup.status(flowToken)).phase).toBe("ready_to_sign_in");
       // The creation approval's signature signs the new account in: no login prompt. Once only;
       // the ordinary login still works beside it. A continuation resumed with the passkey (a

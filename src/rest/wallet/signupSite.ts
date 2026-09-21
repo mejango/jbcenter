@@ -148,18 +148,29 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
     return json(c, { view: await signup.approveDeployment(token, { approvalId: input.approvalId as string, assertion: walletHttpAssertion(input.assertion),
       ...(input.backupSignature === undefined ? {} : { backupSignature: input.backupSignature as Hex }) }) });
   });
-  app.post(`${base}/signup/activate`, async c => {
-    await body(c, []);
-    return json(c, { view: await signup.activate(cookie(c, walletSignupCookie)) });
-  });
   // The fresh signup's session, from its creation approval (see `signup.session`): the session
   // cookie is set as a login sets it and the signup continuation is done with.
-  app.post(`${base}/signup/session`, async c => {
-    await body(c, []);
-    const result = await signup.session(cookie(c, walletSignupCookie)), session = result.session as { expiresAtMs: number };
+  const signIn = async (c: Context, token: string) => {
+    const result = await signup.session(token), session = result.session as { expiresAtMs: number };
     c.header('Set-Cookie', walletCookie(walletSessionCookie, result.sessionToken,
       Math.max(1, Math.min(3600, Math.floor((session.expiresAtMs - Date.now()) / 1000)))), { append: true });
     c.header('Set-Cookie', walletCookie(walletSignupCookie, null, 0), { append: true });
+  };
+  app.post(`${base}/signup/activate`, async c => {
+    await body(c, []); const token = cookie(c, walletSignupCookie);
+    const view = await signup.activate(token);
+    // Activation carries through to the session in the same request when the approval's
+    // signature is on offer; otherwise the page asks for it, or shows the login.
+    let signedIn = false;
+    if (view.phase === 'ready_to_sign_in') {
+      try { await signIn(c, token); signedIn = true; }
+      catch (error) { if (!(error instanceof RestError) || error.status >= 500) throw error; /* a refused hold: the page's own attempt, then the login */ }
+    }
+    return json(c, { view, signedIn });
+  });
+  app.post(`${base}/signup/session`, async c => {
+    await body(c, []);
+    await signIn(c, cookie(c, walletSignupCookie));
     return c.json({ signedIn: true });
   });
   app.post(`${base}/signup/resume/begin`, async c => {

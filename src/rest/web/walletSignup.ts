@@ -105,7 +105,8 @@ function accept(result: { view: View | null; csrfToken?: string }) {
   view = result.view; known = true;
   if (result.csrfToken) { if (decode(result.csrfToken).length !== 32) throw new Error('Invalid signup context.'); csrf = result.csrfToken; }
   // Flashblocks: the receipt arrives before the block; the page says so, and waits for the block.
-  if (view?.phase === 'deploying') view.preconfirmed ? messageLinked('Almost', ' there…') : messageLinked('Creating', steps.deploying.slice('Creating'.length));
+  if (view?.phase === 'deploying') view.preconfirmed ? messageLinked('Almost', ' there…' + (mode() === 'kit' && recoverySecret ? ' Meanwhile, save your backup password.' : ''))
+    : messageLinked('Creating', steps.deploying.slice('Creating'.length) + (mode() === 'kit' && recoverySecret ? ' Meanwhile, save your backup password.' : ''));
   else message(view ? steps[view.phase] + (view.phase === 'awaiting_activation' ? mode() === 'kit' ? recoverySecret ? ' Now, save your backup password.' : '' : ' Continue to log in.' : '') : '');
   if (view?.phase === 'ready_to_sign_in' && kitSavedWallet === view.walletAddress) recoverySecret = null;
 }
@@ -116,7 +117,9 @@ function render() {
   name.disabled = engaged;
   // The kit is presented once the wallet exists. Earlier phases still need the words in memory
   // to sign the enrollment; a reload before then strands the signup, so say so and offer a fresh start.
-  const kitPhase = !!view && ['awaiting_activation', 'preparing_sign_in', 'ready_to_sign_in'].includes(view.phase);
+  // The backup password is shown as soon as the account's address is fixed, while Base is still
+  // creating it: the wait is the time to save it. Continue lights up when the account is ready.
+  const kitPhase = !!view && ['deploying', 'awaiting_activation', 'preparing_sign_in', 'ready_to_sign_in'].includes(view.phase);
   const stranded = kitMode() && !recoverySecret && !!view && ['awaiting_registration', 'awaiting_possession'].includes(view.phase);
   // A stranded attempt that never created a passkey lost nothing worth mentioning: show the clean form.
   if (stranded) message(view!.phase === 'awaiting_possession' ? 'Your last signup cannot continue without its backup password. Sign up again with a new passkey.' : '');
@@ -146,8 +149,8 @@ function render() {
   el('signup-address').textContent = view?.walletAddress ?? 'Not created yet';
   const label = view?.phase === 'awaiting_registration' ? 'Create passkey'
     : view?.phase === 'awaiting_possession' || view?.phase === 'awaiting_deployment_approval' ? 'Create account'
-    : view?.phase === 'awaiting_activation' ? 'Continue' : view?.phase === 'ready_to_sign_in' ? 'Log in' : view?.phase === 'expired' ? 'Sign up' : null;
-  next.hidden = !label || !!pending || stranded; next.textContent = label; next.disabled = engaged;
+    : view?.phase === 'awaiting_activation' ? 'Continue' : view?.phase === 'deploying' && mode() === 'kit' ? 'Continue' : view?.phase === 'ready_to_sign_in' ? 'Log in' : view?.phase === 'expired' ? 'Sign up' : null;
+  next.hidden = !label || !!pending || stranded; next.textContent = label; next.disabled = engaged || view?.phase === 'deploying';
   el<HTMLButtonElement>('recovery-show').disabled = engaged; el<HTMLButtonElement>('recovery-copy').disabled = engaged;
   // "log in" resumes with a passkey; a finished wallet lands at sign-in. Once the state is known (or its load failed),
   // it stays offered unless a signup with a passkey is under way, so a returning user is never without a way in.
@@ -164,6 +167,9 @@ function render() {
 async function send(path: string, body: unknown, proof = csrf) {
   pending = { path, body, csrf: proof };
   const result = await request(path, body, proof); accept(result); pending = null;
+  // A replayed activation (its first reply lost) may have signed the account in: the session
+  // cookie is set, so this page is done.
+  if (result?.signedIn) { sessionTried = true; message('Logging in…'); location.replace((base || '/') + location.search); }
 }
 async function observe() {
   if (pending) { const saved = pending; await send(saved.path, saved.body, saved.csrf); }
@@ -260,10 +266,10 @@ async function advance() {
     // The passkey already consented to this account when it created the wallet; Center binds the
     // account from that proof. No prompt: reading and preparing need no grant, payments still do.
     messageLinked('Finishing', ' your account…');
+    // Activation carries through to the session in one request when the approval's signature is on
+    // offer. Otherwise: wait briefly for the login to be ready, ask for the session, or log in.
     await send('activate', {});
-    // The same click carries through to the login: the authority is verified within a second or
-    // two of activation now, so wait briefly for it and open the login prompt from this gesture.
-    // If it takes longer, or the browser wants a fresh click for the prompt, the Log in button waits.
+    if (sessionTried) return;
     for (let i = 0; i < 12 && current()?.phase === 'preparing_sign_in'; i++) { await new Promise(resolve => setTimeout(resolve, 500)); await observe(); }
     if (current()?.phase === 'ready_to_sign_in' && !(await session())) await login();
   } else if (view.phase === 'ready_to_sign_in') {

@@ -173,8 +173,8 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       }
       // Activation binds the account from the enrollment consent, with no prompt and no browser
       // grant; login then waits for the worker's verified authority observation.
-      expect((await signup.activate(flowToken)).phase).toBe("preparing_sign_in");
-      expect((await signup.activate(flowToken)).phase).toBe("preparing_sign_in");
+      expect((await signup.activate(flowToken)).phase).toBe("ready_to_sign_in");
+      expect((await signup.activate(flowToken)).phase).toBe("ready_to_sign_in");
       expect((await authority.refreshAuthority(accountId)).snapshot.readiness).toBe("verified");
       expect((await signup.status(flowToken)).phase).toBe("ready_to_sign_in");
       const configured = (await new PostgresSmartAccountRegistry(pool).list(accountId)).find(binding => binding.wallet.address.toLowerCase() === record.creation!.address.toLowerCase())!;

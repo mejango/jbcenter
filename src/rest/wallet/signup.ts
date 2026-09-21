@@ -255,6 +255,10 @@ export function createLocalWalletSignup(options: LocalWalletSignupDependencies) 
       consent: { id: enrollment.receipt.enrollmentId, digest: `0x${enrollment.receipt.verificationDigest}` },
       expected: { signerAddress: enrollment.creation!.bootstrap.signerAddress, initializerHash: enrollment.creation!.initializerHash } });
     event({ stage: "setup", outcome: "committed" }); notify(enrollment.intent.id);
+    // The account's first authority observation is carried from the verification just bound (a
+    // few reads); done here, the login is ready in this same request rather than after the refresh
+    // queue's next turn. A failure here changes nothing: the queue observes it as before.
+    try { await options.authority.refreshAuthority(enrollment.receipt.accountId); } catch { /* the queue's turn */ }
     return status(flowToken);
   }
 

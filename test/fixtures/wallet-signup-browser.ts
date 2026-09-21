@@ -257,17 +257,13 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: new URL('signup-mobile.png', out).pathname, fullPage: true });
     await page.setViewportSize({ width: 1000, height: 850 });
-    refreshHold = new Promise<void>(resolve => { releaseRefresh = resolve; });
+    // Activation binds the account, carries its first authority observation and (on the page that
+    // approved) signs it in, all in the one Continue click.
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     if (kitMode) {
       await contains('Check the original signup');
       await page.getByRole('button', { name: 'Check signup' }).click();
     }
-    // Setup is committed, but login needs the verified authority; the page says so and polls.
-    await contains('Finishing your login');
-    expect(await page.locator('#wallet-status').getAttribute('data-state')).toBe('busy');
-    expect(await page.getByRole('button', { name: 'Log in', exact: true }).isVisible()).toBe(false);
-    releaseRefresh(); refreshHold = Promise.resolve();
     // The Continue click carries through to the login once the authority is verified; a browser
     // that wants a fresh click for the prompt (or a slower refresh) leaves the Log in button instead.
     for (let i = 0; i < 40 && !(await page.locator('#wallet-status').textContent())?.includes('You are signed in'); i++) {
@@ -280,7 +276,6 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     const signupSessions = await options.pool.query("SELECT count(*)::text AS c FROM rest_wallet_logins WHERE proof->>'kind'='signup-approval' AND account_id=$1",
       [`eip155:8453:${(originalAddress ?? '').toLowerCase()}`]);
     expect(Number(signupSessions.rows[0].c)).toBe(resumed ? 0 : 1);
-    expect(observed.some(o => o.path === '/signup/session' && o.status === 200)).toBe(!resumed);
     expect(observed.some(o => o.path === '/login/complete' && o.status === 200)).toBe(resumed);
     expect((await context.cookies()).some(item => item.name === walletSignupCookie)).toBe(false);
     if (kitMode) expect(await page.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('center:signup:browser:')))).toEqual([]);
