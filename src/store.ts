@@ -65,6 +65,8 @@ export interface Store {
     limit: number,
   ): Promise<{ intentId: string; chainIds: number[] }[]>;
   updateDeploy(intentId: string, chainId: number, patch: DeployPatch): Promise<void>;
+  /** Give a claim back unspent: the lease ends and the attempt is not counted. */
+  releaseClaim(intentId: string, chainIds: number[]): Promise<void>;
   sponsoredWeiSince(since: Date): Promise<bigint>;
 }
 

@@ -194,9 +194,10 @@ export function createRelayrLane(options: {
             fees.maxPriorityFeePerGas > maxFeePerGas ? maxFeePerGas : fees.maxPriorityFeePerGas,
           nonce: await paymentClient.getTransactionCount({ address: signer.address, blockTag: "pending" }),
         });
+        // The budget charge must not be undone by a payment-chain reorg.
         const paymentReceipt = await paymentClient.waitForTransactionReceipt({
           hash: await paymentClient.sendRawTransaction({ serializedTransaction: raw }),
-          confirmations: 1,
+          confirmations: policy.confirmations,
           timeout: RECEIPT_TIMEOUT_MS,
         });
         if (paymentReceipt.status !== "success") return track.failRest("the prepayment reverted");

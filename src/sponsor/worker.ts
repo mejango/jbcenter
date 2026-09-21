@@ -25,12 +25,17 @@ export function createSponsorWorker(options: {
   let pending = false;
   let active: Promise<void> | null = null;
 
-  async function runClaim(intentId: string, chainIds: number[]): Promise<void> {
+  async function runClaim(intentId: string, claimed: number[]): Promise<void> {
     const intent = await store.getIntent(intentId);
     if (!intent) return;
-    // A second request, or a manually recorded deployment, retires the queued work.
-    if (intent.status !== "undeployed" || intent.deployments.length > 0) {
-      for (const chainId of chainIds) {
+    // A claimed row that already carries a bundle was paid for by an earlier
+    // attempt; resuming it is the only way not to fund the same work twice.
+    const bundleUuid = intent.deploys.find(
+      (deploy) => claimed.includes(deploy.chainId) && deploy.bundleUuid,
+    )?.bundleUuid;
+    // Nothing was paid, so a deployment recorded meanwhile retires the whole claim.
+    if (!bundleUuid && intent.deployments.length > 0) {
+      for (const chainId of claimed) {
         await store.updateDeploy(intentId, chainId, {
           status: "failed",
           error: "intent already has a deployment",
@@ -39,6 +44,17 @@ export function createSponsorWorker(options: {
       }
       return;
     }
+    // One chain of a bundle recording itself must not retire the chains still in flight.
+    const recorded = new Set(intent.deployments.map((deployment) => deployment.chainId));
+    for (const chainId of claimed.filter((chainId) => recorded.has(chainId))) {
+      await store.updateDeploy(intentId, chainId, {
+        status: "failed",
+        error: "chain already deployed",
+      });
+      onEvent({ event: "failed", intentId, chainId, error: "chain already deployed" });
+    }
+    const chainIds = claimed.filter((chainId) => !recorded.has(chainId));
+    if (chainIds.length === 0) return;
     const done = new Set<number>();
     let deferred = false;
     const fail = async (chainId: number, error: string) => {
@@ -85,11 +101,6 @@ export function createSponsorWorker(options: {
         onEvent({ event: "deferred", intentId, chainIds, error });
       },
     };
-    // A claimed row that already carries a bundle was paid for by an earlier
-    // attempt; resuming it is the only way not to fund the same work twice.
-    const bundleUuid = intent.deploys.find(
-      (deploy) => chainIds.includes(deploy.chainId) && deploy.bundleUuid,
-    )?.bundleUuid;
     try {
       if (bundleUuid) await lane.resume(intent, chainIds, bundleUuid, report);
       else await lane.deploy(intent, chainIds, report);
@@ -97,7 +108,8 @@ export function createSponsorWorker(options: {
       const message = laneErrorMessage(error);
       for (const chainId of chainIds) if (!done.has(chainId)) await fail(chainId, message);
     }
-    if (deferred) return;
+    // A deferral spent nothing, so it must not spend one of the three attempts either.
+    if (deferred) return store.releaseClaim(intentId, chainIds);
     for (const chainId of chainIds) {
       if (!done.has(chainId)) await fail(chainId, "not attempted: an earlier chain failed");
     }

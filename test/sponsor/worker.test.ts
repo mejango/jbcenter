@@ -268,6 +268,57 @@ describe("sponsor worker", () => {
         error: "sponsor balance too low",
       },
     ]);
+    // A deferral spends nothing, the attempt included, so the next pass claims again.
+    expect(
+      (store.intents[0]!.deploys as unknown as { attempts: number }[]).map((d) => d.attempts),
+    ).toEqual([0, 0]);
+    expect(await store.claimQueuedDeploys(30, 5)).toEqual([
+      { intentId: intent.id, chainIds: [84532, 421614] },
+    ]);
+  });
+
+  test("a bundle in flight resumes the chains that are not recorded yet", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
+    await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
+    for (const chainId of [84532, 421614]) {
+      await store.updateDeploy(intent.id, chainId, { status: "sent", transactionHash: HASH, bundleUuid: BUNDLE });
+    }
+    // The first chain of the bundle was recorded before the process died.
+    await store.recordDeployment(intent.id, { chainId: 84532, projectId: "7", transactionHash: HASH });
+    const lane: DeployLane = {
+      deploy: vi.fn(async () => {}),
+      resume: vi.fn(async (_i, chainIds, bundleUuid, report) => {
+        for (const chainId of chainIds) {
+          await report.sent(chainId, HASH, bundleUuid);
+          await report.confirmed(chainId, HASH, "9");
+        }
+      }),
+    };
+    const worker = createSponsorWorker({
+      store,
+      verifier: { verify: vi.fn(async () => {}) },
+      lane,
+      policy,
+    });
+    await worker.runOnce();
+    await worker.stop();
+    expect(lane.deploy).not.toHaveBeenCalled();
+    expect(lane.resume).toHaveBeenCalledWith(
+      expect.objectContaining({ id: intent.id }),
+      [421614],
+      BUNDLE,
+      expect.anything(),
+    );
+    const after = await store.getIntent(intent.id);
+    expect(after?.deploys.map((d) => [d.chainId, d.status, d.error])).toEqual([
+      [84532, "failed", "chain already deployed"],
+      [421614, "confirmed", null],
+    ]);
+    expect(after?.deployments.map((d) => [d.chainId, d.projectId])).toEqual([
+      [84532, "7"],
+      [421614, "9"],
+    ]);
   });
 
   test("an intent that already has a deployment retires its claimed rows without spending", async () => {

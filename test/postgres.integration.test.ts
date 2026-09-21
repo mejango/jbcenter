@@ -177,6 +177,19 @@ suite("PostgreSQL store", () => {
     const claimed = await store!.claimQueuedDeploys(30, 10);
     expect(claimed).toEqual([{ intentId: intent.id, chainIds: [84532, 421614] }]);
     expect(await store!.claimQueuedDeploys(30, 10)).toEqual([]);
+    // A released claim costs neither the lease nor the attempt.
+    await store!.releaseClaim(intent.id, [84532, 421614]);
+    expect(
+      (
+        await pool!.query<{ attempts: number }>(
+          "SELECT attempts FROM intent_deploys WHERE intent_id = $1 ORDER BY chain_id",
+          [intent.id],
+        )
+      ).rows.map((row) => row.attempts),
+    ).toEqual([0, 0]);
+    expect(await store!.claimQueuedDeploys(30, 10)).toEqual([
+      { intentId: intent.id, chainIds: [84532, 421614] },
+    ]);
     await store!.updateDeploy(intent.id, 84532, { status: "confirmed", transactionHash: HASH, spentWei: 700n });
     expect(await store!.sponsoredWeiSince(new Date(Date.now() - 60_000))).toBe(1700n);
     expect((await store!.getIntent(intent.id))?.deploys[0]).toMatchObject({ chainId: 84532, status: "confirmed" });
@@ -202,7 +215,7 @@ suite("PostgreSQL store", () => {
       { intentId: intent.id, chainIds: [11155420] },
     ]);
 
-    await store!.updateDeploy(intent.id, 11155420, { status: "queued", bundleUuid: "bundle-1" });
+    // The same sweep retires a sent row that ran out of attempts.
     await pool!.query("UPDATE intent_deploys SET attempts = 3 WHERE intent_id = $1", [intent.id]);
     await expire(intent.id);
     expect(await store!.claimQueuedDeploys(0, 10)).toEqual([]);

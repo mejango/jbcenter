@@ -47,6 +47,7 @@ function storeMock() {
     listDeploys: vi.fn<Store["listDeploys"]>(),
     claimQueuedDeploys: vi.fn<Store["claimQueuedDeploys"]>(),
     updateDeploy: vi.fn<Store["updateDeploy"]>(),
+    releaseClaim: vi.fn<Store["releaseClaim"]>(),
     sponsoredWeiSince: vi.fn<Store["sponsoredWeiSince"]>(),
   } satisfies Store & { counts: Map<string, number> };
 }

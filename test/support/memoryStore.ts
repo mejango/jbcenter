@@ -153,7 +153,7 @@ export class MemoryStore implements Store {
     const claimed: { intentId: string; chainIds: number[] }[] = [];
     for (const intent of this.intents) {
       for (const deploy of intent.deploys as StoredDeploy[]) {
-        if (deploy.status !== "queued" || deploy.attempts < 3) continue;
+        if ((deploy.status !== "queued" && deploy.status !== "sent") || deploy.attempts < 3) continue;
         if (deploy.leaseUntil !== null && deploy.leaseUntil >= now) continue;
         deploy.status = "failed";
         deploy.error = "attempts exhausted";
@@ -196,6 +196,16 @@ export class MemoryStore implements Store {
     if (patch.status === "confirmed" || (patch.status === "failed" && deploy.bundleUuid === null))
       deploy.reservedWei = 0n;
     deploy.updatedAt = new Date().toISOString();
+  }
+
+  async releaseClaim(intentId: string, chainIds: number[]): Promise<void> {
+    const intent = this.intents.find(({ id }) => id === intentId);
+    for (const deploy of (intent?.deploys ?? []) as StoredDeploy[]) {
+      if (!chainIds.includes(deploy.chainId)) continue;
+      deploy.attempts = Math.max(deploy.attempts - 1, 0);
+      deploy.leaseUntil = null;
+      deploy.updatedAt = new Date().toISOString();
+    }
   }
 
   async sponsoredWeiSince(since: Date): Promise<bigint> {

@@ -178,6 +178,9 @@ async function fixture() {
     updateDeploy: async () => {
       throw new Error("Unexpected deploy update");
     },
+    releaseClaim: async () => {
+      throw new Error("Unexpected deploy claim release");
+    },
     sponsoredWeiSince: async () => {
       throw new Error("Unexpected sponsored wei query");
     },

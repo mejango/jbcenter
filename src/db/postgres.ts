@@ -389,7 +389,8 @@ export class PostgresStore implements Store {
       `UPDATE intent_deploys SET status = 'failed', error = 'attempts exhausted',
          reserved_wei = CASE WHEN bundle_uuid IS NULL THEN 0 ELSE reserved_wei END,
          updated_at = now()
-       WHERE status = 'queued' AND attempts >= 3 AND (lease_until IS NULL OR lease_until < now())`,
+       WHERE status IN ('queued', 'sent') AND attempts >= 3
+         AND (lease_until IS NULL OR lease_until < now())`,
     );
     // A 'sent' row whose lease expired carries a bundle, so the worker resumes it.
     const result = await this.pool.query<{ intent_id: string; chain_id: string }>(
@@ -437,6 +438,14 @@ export class PostgresStore implements Store {
         patch.error?.slice(0, DEPLOY_ERROR_LIMIT) ?? null,
         patch.spentWei?.toString() ?? null,
       ],
+    );
+  }
+
+  async releaseClaim(intentId: string, chainIds: number[]): Promise<void> {
+    await this.pool.query(
+      `UPDATE intent_deploys SET attempts = greatest(attempts - 1, 0), lease_until = NULL, updated_at = now()
+       WHERE intent_id = $1 AND chain_id = ANY($2::bigint[])`,
+      [intentId, chainIds],
     );
   }
 

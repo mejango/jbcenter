@@ -56,6 +56,9 @@ class PinStore implements Store {
   async updateDeploy(): Promise<never> {
     throw new Error("not used");
   }
+  async releaseClaim(): Promise<never> {
+    throw new Error("not used");
+  }
   async sponsoredWeiSince(): Promise<never> {
     throw new Error("not used");
   }

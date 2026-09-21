@@ -59,6 +59,9 @@ class ServerStore implements Store {
   async updateDeploy(): Promise<never> {
     throw new Error("This transport fixture does not update deploys");
   }
+  async releaseClaim(): Promise<never> {
+    throw new Error("This transport fixture does not release deploy claims");
+  }
   async sponsoredWeiSince(): Promise<never> {
     throw new Error("This transport fixture does not report sponsored wei");
   }
