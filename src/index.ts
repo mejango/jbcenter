@@ -2,7 +2,7 @@ import { createHttpHandler, createMcpServer } from "@juicebox/mcp/host";
 import type { Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { keepUpstreamConnections } from "./keepAlive.js";
-import { createApp } from "./app.js";
+import { createApp, MCP_CLIENT } from "./app.js";
 import { migrate } from "./db/migrate.js";
 import { createPool, PostgresStore } from "./db/postgres.js";
 import { canonicalDeploymentChains, PROJECTS, RpcDeploymentVerifier } from "./deploymentVerifier.js";
@@ -68,7 +68,7 @@ const pinning = filebaseRpcToken && pinataJwt
 const mcp = createCenterMcp(store, {
   rpc,
   rpcSiteLimitPerMinute,
-  centerFetch: (request) => app.fetch(request),
+  centerFetch: (request) => app.fetch(request, { internal: MCP_CLIENT }),
   ...(pinning ? { pinning } : {}),
 });
 const metrics = new Metrics();

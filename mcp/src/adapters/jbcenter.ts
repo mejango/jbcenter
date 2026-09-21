@@ -11,7 +11,7 @@ import type {
 import { getAddress, keccak256, toBytes, verifyMessage, type Address, type Hex } from 'viem';
 import { z } from 'zod';
 import { DomainError } from '../domain/errors.js';
-import { fetchJson } from './http.js';
+import { fetchJson, upstreamErrorCode } from './http.js';
 
 export const CENTER_SOURCE_REFERENCES = [
   'Bananapus/juice-sdk-v4:packages/core/src/jbcenter.ts',
@@ -176,6 +176,7 @@ export const CENTER_DEPLOY_REFUSALS = {
     'The shared daily sponsorship budget is spent. Retry in a day, or deploy the intent from a funded wallet.',
   SPONSOR_UNAVAILABLE:
     'Sponsored deploys are unavailable right now. Retry later, or deploy the intent from a funded wallet.',
+  RATE_LIMITED: 'JB Center is rate limiting this caller. Retry in a minute.',
 } as const;
 
 function upstreamDetails(error: unknown): { status?: number; code?: string } {
@@ -186,11 +187,17 @@ function upstreamDetails(error: unknown): { status?: number; code?: string } {
 }
 
 /** Center's coded refusals become fixed sentences; no upstream text ever reaches a caller. */
-function deployRefusal(error: unknown): unknown {
+function deployRefusal(error: unknown): DomainError {
   const { status, code } = upstreamDetails(error);
   const day = { retryable: true, details: { retryAfterSeconds: 86_400 } };
   if (code === 'sponsor_budget')
     return new DomainError('SPONSOR_BUDGET', CENTER_DEPLOY_REFUSALS.SPONSOR_BUDGET, day);
+  // The shared request budget is a minute-long window; the sponsorship budgets reset on a day.
+  if (code === 'rate_limit')
+    return new DomainError('RATE_LIMITED', CENTER_DEPLOY_REFUSALS.RATE_LIMITED, {
+      retryable: true,
+      details: { retryAfterSeconds: 60 },
+    });
   if (code === 'sponsor_quota' || status === 429)
     return new DomainError('SPONSOR_QUOTA', CENTER_DEPLOY_REFUSALS.SPONSOR_QUOTA, day);
   if (status === 503)
@@ -201,7 +208,12 @@ function deployRefusal(error: unknown): unknown {
     return new DomainError('NOT_SPONSORABLE', CENTER_DEPLOY_REFUSALS.NOT_SPONSORABLE);
   if (status === 404)
     return new DomainError('NOT_FOUND', 'The requested JB Center intent was not found.');
-  return error;
+  if (error instanceof DomainError) return error;
+  return new DomainError(
+    'UPSTREAM_ERROR',
+    'JB Center could not complete the write. Verify operator integration access and retry.',
+    { retryable: true },
+  );
 }
 
 function input<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
@@ -349,6 +361,11 @@ export class CenterClient {
     }
   }
 
+  /**
+   * Operator headers travel with the request as they do on a read. The co-hosted bridge has none
+   * and deliberately forwards none: in process the app identifies the caller from Hono's internal
+   * marker and the verified publisher, not from a header this client could set.
+   */
   private async write(path: string, body: unknown): Promise<unknown> {
     try {
       return await this.request(`${this.baseUrl}/${path}`, {

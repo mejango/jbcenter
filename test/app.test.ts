@@ -98,13 +98,21 @@ async function publish(app: ReturnType<typeof createApp>) {
 }
 
 describe("JB Center API", () => {
-  it("admits Center's own origin on /v1 so the embedded MCP can publish", async () => {
+  it("admits the co-hosted MCP on its in-process marker, and keeps Center's own origin out", async () => {
     const app = createApp(new MemoryStore());
-    const response = await app.request("/v1/search", {
-      headers: { origin: "https://juicebox.center" },
-    });
-    expect(response.status).toBe(200);
-    expect(response.headers.get("access-control-allow-origin")).toBe("https://juicebox.center");
+    const marked = await app.request("/v1/search", {}, { internal: "mcp" });
+    expect(marked.status).toBe(200);
+    // Hono only ever receives bindings from the in-process caller, so no request can claim this.
+    for (const headers of [
+      { origin: "https://juicebox.center" },
+      { origin: "https://dev.juicebox.center" },
+      { internal: "mcp" },
+      { "x-internal": "mcp" },
+    ]) {
+      const refused = await app.request("/v1/search", { headers });
+      expect(refused.status).toBe(403);
+      expect(refused.headers.get("access-control-allow-origin")).toBeNull();
+    }
   });
 
   it("serves the public directory without a database or browser-origin dependency", async () => {

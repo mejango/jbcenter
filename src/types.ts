@@ -1,6 +1,12 @@
 import type { Address, Hex } from "viem";
 
 export type JbcenterEnv = {
+  /**
+   * Hono bindings. Only the co-hosted MCP's in-process `app.fetch(request, { internal: "mcp" })`
+   * sets `internal`: the Node adapter supplies its own bindings for every network request, so no
+   * header, query value or body can claim the marker.
+   */
+  Bindings: { internal?: "mcp" };
   Variables: {
     client: string;
     requestId: string;

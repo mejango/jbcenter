@@ -3,8 +3,13 @@ export { createServices, type Services, type ServiceDependencies } from './app.j
 export { loadConfig, CHAIN_IDS, type Config } from './config.js';
 export { createMcpServer } from './mcp/server.js';
 export { createHttpHandler, type HttpHandler, type HttpOptions } from './transport/http.js';
-export { CenterClient } from './adapters/jbcenter.js';
-export { fetchJson, type FetchJsonOptions } from './adapters/http.js';
+export {
+  CenterClient,
+  CENTER_DEPLOY_REFUSALS,
+  type CenterDeployPage,
+  type CenterDeployRow,
+} from './adapters/jbcenter.js';
+export { fetchJson, upstreamErrorCode, type FetchJsonOptions } from './adapters/http.js';
 export { consumeRequest, withRequestBudget } from './domain/context.js';
 export { DomainError, publicError } from './domain/errors.js';
 export { jsonSafe, canonicalJson, assertUnambiguousJson } from './domain/json.js';

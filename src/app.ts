@@ -46,13 +46,12 @@ import type { JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
 import { llmsIndex } from "./llms.js";
 import { JUICESCAN } from "./journeyGraph.js";
-import { centerOriginForEnvironment, originsForEnvironment } from "./firstParty.js";
-export { centerOriginForEnvironment, originsForEnvironment } from "./firstParty.js";
+import { originsForEnvironment } from "./firstParty.js";
+export { originsForEnvironment } from "./firstParty.js";
 
 const MAX_BODY_BYTES = 16_800_000;
 
-export const CENTER_ORIGIN = centerOriginForEnvironment();
-export const ALLOWED_ORIGINS = [...originsForEnvironment(), CENTER_ORIGIN];
+export const ALLOWED_ORIGINS = originsForEnvironment();
 const PIN_WINDOW_SECONDS = 10 * 60;
 const PIN_PER_CALLER = 10;
 const PIN_PER_SITE = 200;
@@ -144,6 +143,17 @@ function optionalAddress(value: string | undefined, name: string): Address | und
   } catch {
     throw new BadRequest(`${name} must be an Ethereum address`);
   }
+}
+
+/** The co-hosted MCP's in-process caller identity, and the shared requester its deploys spend. */
+export const MCP_CLIENT = "mcp";
+/**
+ * True only for the co-hosted MCP's in-process call. Hono hands the second `app.fetch` argument
+ * through as `c.env`; the Node adapter supplies its own bindings, so a network request cannot
+ * carry this marker however it shapes its headers.
+ */
+function internalCall(c: Context<JbcenterEnv>): boolean {
+  return c.env?.internal === MCP_CLIENT;
 }
 
 const pinPath = (path: string) => path.startsWith("/v1/pins/");
@@ -419,6 +429,12 @@ export function createApp(
   app.on(["GET", "HEAD"], "/ipfs/*", (c) => ipfsGateway(c.req.raw));
 
   app.use("/v1/*", async (c, next) => {
+    if (internalCall(c)) {
+      // A publish refines this to the verified publisher; a sponsored deploy spends the shared bucket.
+      c.set("client", MCP_CLIENT);
+      await next();
+      return;
+    }
     const origin = c.req.header("origin");
     const trustedOrigin = origin && allowedOrigins.some((allowed) => allowed === origin);
     if (!trustedOrigin) {
@@ -618,7 +634,12 @@ export function createApp(
       signature: signed,
     });
     if (!valid) throw new BadRequest("signature does not match publisher and project intent");
-    const ip = await store.consumeRequest(`publish:ip:${callerIp(c)}`, options.publishPerIpPerHour ?? 60, 3600);
+    // In process there is no caller address to charge. The signature just proved the publisher, so
+    // the hourly and lifetime budgets are per publisher instead of per source.
+    const internal = internalCall(c);
+    if (internal) c.set("client", `${MCP_CLIENT}:${publisher.toLowerCase()}`);
+    const client = c.get("client");
+    const ip = await store.consumeRequest(`publish:ip:${internal ? client : callerIp(c)}`, options.publishPerIpPerHour ?? 60, 3600);
     const who = await store.consumeRequest(`publish:${publisher.toLowerCase()}`, options.publishPerPublisherPerDay ?? 20, 86_400);
     if (!ip.allowed || !who.allowed) {
       c.header("Retry-After", who.allowed ? "3600" : "86400");
@@ -630,7 +651,7 @@ export function createApp(
       envelope,
       publisher,
       signature: signed,
-      submittedBy: c.get("client"),
+      submittedBy: client,
       jbBytes: Buffer.byteLength(JSON.stringify(envelope)),
     }, {
       maxIntents: options.maxIntentsPerClient ?? 10_000,

@@ -136,8 +136,13 @@ Point a Streamable HTTP MCP client at:
 
 The server routes `/mcp` directly to the MCP transport before Center's browser API middleware.
 MCP uses Center's store, read-only RPC gateway, and pinning service through bounded internal
-callbacks. It does not send HTTP requests back to itself or impersonate an approved browser Origin.
-Its Host and browser Origin checks remain active; non-browser clients do not need to invent an Origin.
+callbacks. Publishing an intent and requesting a sponsored deploy are the two exceptions: MCP hands
+the Hono app an in-process `Request` marked internal, so both reuse Center's own signature
+verification, publish limits and sponsor policy instead of a second implementation. The marker
+travels in Hono's environment and never in a header, so no network caller can claim it and no
+browser Origin is impersonated. In process a publish is charged to `mcp:<publisher>` and a
+sponsored deploy to the shared `mcp` requester. Host and browser Origin checks remain active for
+every network caller; non-browser clients do not need to invent an Origin.
 Search removes non-V6 intent listings while preserving the upstream cursor; a mixed-version source
 count is not reported as a V6 total. Direct intent reads also reject other deployment versions.
 

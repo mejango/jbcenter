@@ -39,14 +39,3 @@ export function firstPartyForEnvironment(environment = process.env.RAILWAY_ENVIR
 export function originsForEnvironment(environment = process.env.RAILWAY_ENVIRONMENT_NAME): readonly string[] {
   return firstPartyForEnvironment(environment).map(application => application.origin);
 }
-
-/**
- * Center's own public origin. It is a trusted caller of the /v1 gate so the co-hosted MCP can
- * reach the intent write routes through the same middleware, and it is deliberately not a
- * first-party wallet application: it grants no wallet handoff and carries no callbacks.
- */
-export function centerOriginForEnvironment(
-  environment = process.env.RAILWAY_ENVIRONMENT_NAME,
-): string {
-  return environment === "dev" ? "https://dev.juicebox.center" : "https://juicebox.center";
-}

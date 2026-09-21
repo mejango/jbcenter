@@ -1,4 +1,4 @@
-import { CenterClient } from "@juicebox/mcp/host";
+import { CENTER_DEPLOY_REFUSALS, CenterClient } from "@juicebox/mcp/host";
 import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -10,7 +10,10 @@ import {
   createCenterRpcFetcher,
   MCP_BACKEND_LIMITS,
 } from "../src/mcp.js";
+import { createApp } from "../src/app.js";
 import { contentHash, signingMessage } from "../src/intent.js";
+import { readSponsorPolicy } from "../src/sponsor/policy.js";
+import { MemoryStore } from "./support/memoryStore.js";
 import { createRpcGateway, type RpcGateway } from "../src/rpc.js";
 import type { PinningService } from "../src/ipfs.js";
 import type { Store } from "../src/store.js";
@@ -557,7 +560,7 @@ describe("Center intent write bridge", () => {
     jb: { v: 1, name: "Bridged", chains: [84532] },
   };
 
-  it("publishes and requests a deploy through the app with Center's own origin", async () => {
+  it("publishes and requests a deploy through the app on the in-process marker", async () => {
     const account = privateKeyToAccount(`0x${"11".repeat(32)}`);
     const signature = await account.signMessage({
       message: signingMessage(contentHash(envelope)),
@@ -604,9 +607,10 @@ describe("Center intent write bridge", () => {
     expect(published.id).toBe(INTENT_ID);
     const deploys = await services.center.requestDeploy(INTENT_ID);
     expect(deploys.deploys[0]?.status).toBe("queued");
+    // No browser Origin is fabricated; the app admits the call on its in-process marker instead.
     expect(seen).toEqual([
-      { origin: ORIGIN, method: "POST", path: "/v1/intents" },
-      { origin: ORIGIN, method: "POST", path: `/v1/intents/${INTENT_ID}/deploy` },
+      { origin: null, method: "POST", path: "/v1/intents" },
+      { origin: null, method: "POST", path: `/v1/intents/${INTENT_ID}/deploy` },
     ]);
   });
 
@@ -625,32 +629,153 @@ describe("Center intent write bridge", () => {
     expect(centerFetch).not.toHaveBeenCalled();
   });
 
-  it("maps Center's sponsored-deploy refusals to fixed codes", async () => {
+  it("maps Center's sponsored-deploy refusals to fixed sentences", async () => {
     for (const [status, code, expected] of [
       [429, "sponsor_quota", "SPONSOR_QUOTA"],
       [429, "sponsor_budget", "SPONSOR_BUDGET"],
+      [429, "rate_limit", "RATE_LIMITED"],
       [503, "unavailable", "SPONSOR_UNAVAILABLE"],
       [400, "bad_request", "NOT_SPONSORABLE"],
+      [404, "not_found", "NOT_FOUND"],
     ] as const) {
       const { services } = createCenterMcp(storeMock(), {
         rpc: rpcMock(),
-        centerFetch: async () => Response.json({ error: { code, message: "refused" } }, { status }),
+        centerFetch: async () =>
+          Response.json(
+            { error: { code, message: "upstream prose at https://secret.example/key" } },
+            { status },
+          ),
         env: { NODE_ENV: "production", MCP_PLAN_SECRET: "mcp-secret-for-tests-with-32-bytes" },
       });
-      await expect(services.center.requestDeploy(INTENT_ID)).rejects.toMatchObject({
-        code: expected,
-      });
+      const failure = await services.center.requestDeploy(INTENT_ID).catch((error) => error);
+      expect(failure.code).toBe(expected);
+      if (expected !== "NOT_FOUND")
+        expect(failure.message).toBe(
+          CENTER_DEPLOY_REFUSALS[expected as keyof typeof CENTER_DEPLOY_REFUSALS],
+        );
+      expect(failure.message).not.toContain("upstream prose");
+      expect(failure.message).not.toContain("secret.example");
     }
+  });
+
+  it("carries a publish far larger than a quarter megabyte through the bridge", async () => {
+    const large: IntentEnvelope = {
+      ...envelope,
+      jb: { ...envelope.jb, notes: "x".repeat(600 * 1024) },
+    };
+    const account = privateKeyToAccount(`0x${"11".repeat(32)}`);
+    const hash = contentHash(large);
+    const signature = await account.signMessage({ message: signingMessage(hash) });
+    const { services } = createCenterMcp(storeMock(), {
+      rpc: rpcMock(),
+      centerFetch: async () =>
+        Response.json(
+          {
+            ...INTENT_FIXTURE,
+            contentHash: hash,
+            envelope: large,
+            publisher: account.address,
+            signature,
+          },
+          { status: 201 },
+        ),
+      env: { NODE_ENV: "production", MCP_PLAN_SECRET: "mcp-secret-for-tests-with-32-bytes" },
+    });
+    const published = await services.center.publishIntent({
+      ...large,
+      publisher: account.address,
+      signature,
+    });
+    expect(published.contentHash).toBe(hash);
+    expect(JSON.stringify(published).length).toBeGreaterThan(600 * 1024);
   });
 
   it("rejects any write route other than the two intent writes", async () => {
     const centerFetch = vi.fn(async () => Response.json({}, { status: 200 }));
-    const fetcher = createCenterFetcher(storeMock(), ORIGIN, { centerFetch, origin: ORIGIN });
+    const fetcher = createCenterFetcher(storeMock(), ORIGIN, { centerFetch });
     for (const path of ["v1/pins/json", "v1/intents/not-a-uuid/deploy", `v1/intents/${INTENT_ID}`]) {
       await expect(fetcher(`${ORIGIN}/${path}`, { method: "POST", body: {} })).rejects.toBeInstanceOf(
         Error,
       );
     }
     expect(centerFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("Center intent writes through the real app", () => {
+  const envelope: IntentEnvelope = {
+    format: "juicebox.money/v1",
+    deploymentVersion: "6",
+    chainIds: [84532],
+    deploymentCalls: [
+      { chainId: 84532, to: "0x3333333333333333333333333333333333333333", data: "0x12345678" },
+    ],
+    jb: { v: 1, name: "In process", chains: [84532] },
+  };
+
+  function bridged(store: MemoryStore, paused = false) {
+    const sponsor = { policy: { ...readSponsorPolicy({}), paused }, kick: vi.fn() };
+    const app = createApp(store, { sponsor });
+    const { services } = createCenterMcp(store, {
+      rpc: rpcMock(),
+      centerFetch: (request) => app.fetch(request, { internal: "mcp" }),
+      env: { NODE_ENV: "production", MCP_PLAN_SECRET: "mcp-secret-for-tests-with-32-bytes" },
+    });
+    return { app, sponsor, center: services.center };
+  }
+
+  async function signed() {
+    const account = privateKeyToAccount(`0x${"22".repeat(32)}`);
+    return {
+      publisher: account.address,
+      signature: await account.signMessage({
+        message: signingMessage(contentHash(envelope)),
+      }),
+    };
+  }
+
+  it("publishes and queues a sponsored deploy against the real routes", async () => {
+    const store = new MemoryStore();
+    const { center, sponsor } = bridged(store);
+    const published = await center.publishIntent({ ...envelope, ...(await signed()) });
+    expect(published.contentHash).toBe(contentHash(envelope));
+    // The verified publisher, not a source address, owns the hourly and lifetime budgets.
+    const identity = `mcp:${published.publisher.toLowerCase()}`;
+    const stored = store.intents[0]! as Intent & { submittedBy?: string };
+    expect(stored.submittedBy).toBe(identity);
+    expect([...store.requests.keys()]).toContain(`publish:ip:${identity}`);
+    const queued = await center.requestDeploy(published.id);
+    expect(queued.deploys.map((deploy) => deploy.chainId)).toEqual([84532]);
+    expect(sponsor.kick).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a paused sponsor as the fixed unavailable sentence", async () => {
+    const store = new MemoryStore();
+    const { center } = bridged(store, true);
+    const published = await center.publishIntent({ ...envelope, ...(await signed()) });
+    await expect(center.requestDeploy(published.id)).rejects.toMatchObject({
+      code: "SPONSOR_UNAVAILABLE",
+      message: CENTER_DEPLOY_REFUSALS.SPONSOR_UNAVAILABLE,
+    });
+  });
+
+  it("admits only the in-process marker, never a header a network caller could send", async () => {
+    const store = new MemoryStore();
+    const { app } = bridged(store);
+    const body = JSON.stringify({ ...envelope, ...(await signed()) });
+    expect((await app.request("/v1/search", {}, { internal: "mcp" })).status).toBe(200);
+    for (const headers of [
+      { internal: "mcp" },
+      { "x-internal": "mcp" },
+      { "x-real-ip": "mcp" },
+      { origin: ORIGIN },
+      { origin: "https://juicebox.center", "content-type": "application/json" },
+    ]) {
+      expect((await app.request("/v1/search", { headers })).status).toBe(403);
+      expect(
+        (await app.request("/v1/intents", { method: "POST", headers, body })).status,
+      ).toBe(403);
+    }
+    expect((await store.search("", 10, 0, {})).totalCount).toBe(0);
   });
 });
