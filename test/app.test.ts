@@ -98,6 +98,15 @@ async function publish(app: ReturnType<typeof createApp>) {
 }
 
 describe("JB Center API", () => {
+  it("admits Center's own origin on /v1 so the embedded MCP can publish", async () => {
+    const app = createApp(new MemoryStore());
+    const response = await app.request("/v1/search", {
+      headers: { origin: "https://juicebox.center" },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe("https://juicebox.center");
+  });
+
   it("serves the public directory without a database or browser-origin dependency", async () => {
     const store = new Proxy({} as Store, {
       get() { throw new Error("The directory must not access storage"); },

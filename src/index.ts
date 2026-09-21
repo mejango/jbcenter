@@ -65,7 +65,12 @@ const rpc = createRpcGateway(rpcUpstreams);
 const pinning = filebaseRpcToken && pinataJwt
   ? new RedundantIpfsPinning(new FilebaseRpcStorage(filebaseRpcToken), pinataJwt)
   : undefined;
-const mcp = createCenterMcp(store, { rpc, rpcSiteLimitPerMinute, ...(pinning ? { pinning } : {}) });
+const mcp = createCenterMcp(store, {
+  rpc,
+  rpcSiteLimitPerMinute,
+  centerFetch: (request) => app.fetch(request),
+  ...(pinning ? { pinning } : {}),
+});
 const metrics = new Metrics();
 const paraEnvironment = process.env.PARA_ENVIRONMENT ?? "BETA";
 if (paraEnvironment !== "BETA" && paraEnvironment !== "PROD") throw new Error("PARA_ENVIRONMENT must be BETA or PROD");

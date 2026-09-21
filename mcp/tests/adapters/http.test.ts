@@ -83,4 +83,21 @@ describe('bounded upstream HTTP', () => {
     });
     expect(fetcher).not.toHaveBeenCalled();
   });
+  it('carries a bounded upstream error code on the failure details', async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({ error: { code: 'sponsor_quota', message: 'refused' } }, { status: 429 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(
+      fetchJson('https://juicebox.center/v1/intents/x/deploy', { body: {} }),
+    ).rejects.toMatchObject({
+      code: 'UPSTREAM_HTTP_ERROR',
+      details: { status: 429, code: 'sponsor_quota' },
+    });
+
+    fetchMock.mockResolvedValueOnce(new Response('<html>nope</html>', { status: 503 }));
+    await expect(
+      fetchJson('https://juicebox.center/v1/intents/x/deploy', { body: {} }),
+    ).rejects.toMatchObject({ details: { status: 503 } });
+  });
 });

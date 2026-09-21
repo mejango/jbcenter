@@ -43,13 +43,22 @@ export async function fetchJson(
       signal,
     });
     if (!response.ok) {
-      await response.body?.cancel();
+      const body = await response.text().catch(() => '');
+      await response.body?.cancel().catch(() => undefined);
+      let code: string | undefined;
+      try {
+        const parsed = JSON.parse(body.slice(0, 4096)) as { error?: { code?: unknown } };
+        if (typeof parsed.error?.code === 'string' && /^[a-z_]{1,64}$/u.test(parsed.error.code))
+          code = parsed.error.code;
+      } catch {
+        code = undefined;
+      }
       throw new DomainError(
         'UPSTREAM_HTTP_ERROR',
         `The upstream returned HTTP ${response.status}.`,
         {
           retryable: response.status === 429 || response.status >= 500,
-          details: { status: response.status },
+          details: { status: response.status, ...(code === undefined ? {} : { code }) },
         },
       );
     }

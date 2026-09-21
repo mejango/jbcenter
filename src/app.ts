@@ -46,12 +46,13 @@ import type { JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
 import { llmsIndex } from "./llms.js";
 import { JUICESCAN } from "./journeyGraph.js";
-import { originsForEnvironment } from "./firstParty.js";
-export { originsForEnvironment } from "./firstParty.js";
+import { centerOriginForEnvironment, originsForEnvironment } from "./firstParty.js";
+export { centerOriginForEnvironment, originsForEnvironment } from "./firstParty.js";
 
 const MAX_BODY_BYTES = 16_800_000;
 
-export const ALLOWED_ORIGINS = originsForEnvironment();
+export const CENTER_ORIGIN = centerOriginForEnvironment();
+export const ALLOWED_ORIGINS = [...originsForEnvironment(), CENTER_ORIGIN];
 const PIN_WINDOW_SECONDS = 10 * 60;
 const PIN_PER_CALLER = 10;
 const PIN_PER_SITE = 200;

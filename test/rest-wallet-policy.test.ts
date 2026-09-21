@@ -27,6 +27,8 @@ describe("one first-party configuration", () => {
       "http://127.0.0.1:8787",
     ]);
     expect(originsForEnvironment("preview")).toEqual(originsForEnvironment("production"));
+    expect(originsForEnvironment("production")).not.toContain("https://juicebox.center");
+    expect(originsForEnvironment("dev")).not.toContain("https://dev.juicebox.center");
   });
   it("retains the existing environment default and enables no return handlers", () => {
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "dev");

@@ -27,6 +27,9 @@ const UUID =
 const METADATA_LIMIT = 64 * 1024;
 const LOGO_LIMIT = 1024 * 1024;
 const READ_RESPONSE_LIMIT = 2 * 1024 * 1024;
+const WRITE_RESPONSE_LIMIT = 256 * 1024;
+/** The co-hosted MCP is one caller of the publish and deploy budgets, not a browser per visitor. */
+const MCP_CALLER_IP = "mcp";
 
 export const MCP_BACKEND_LIMITS = {
   readsPerMinute: 600,
@@ -35,6 +38,7 @@ export const MCP_BACKEND_LIMITS = {
   pinsPerWindow: 10,
   pinsSitePerWindow: 200,
   pinWindowSeconds: 600,
+  writesPerMinute: 60,
 } as const;
 
 function invalidRequest(): never {
@@ -258,6 +262,94 @@ export function createCenterReadFetcher(store: Store, centerUrl: string) {
   };
 }
 
+export type CenterFetch = (request: Request) => Response | Promise<Response>;
+
+function writePath(pathname: string, prefix: string): boolean {
+  if (pathname === `${prefix}/v1/intents`) return true;
+  const intents = `${prefix}/v1/intents/`;
+  const suffix = "/deploy";
+  if (!pathname.startsWith(intents) || !pathname.endsWith(suffix)) return false;
+  return UUID.test(pathname.slice(intents.length, pathname.length - suffix.length));
+}
+
+function refusal(status: number, payload: unknown): DomainError {
+  const code = (payload as { error?: { code?: unknown } } | null)?.error?.code;
+  return new DomainError(
+    "UPSTREAM_HTTP_ERROR",
+    `The internal Center route returned HTTP ${status}.`,
+    {
+      retryable: status === 429 || status >= 500,
+      details: {
+        status,
+        ...(typeof code === "string" && /^[a-z_]{1,64}$/u.test(code) ? { code } : {}),
+      },
+    },
+  );
+}
+
+/**
+ * Reads run against the store; the two intent writes run through the Hono app itself, so
+ * signature verification, publish limits and sponsor policy have exactly one implementation.
+ */
+export function createCenterFetcher(
+  store: Store,
+  centerUrl: string,
+  options: { centerFetch?: CenterFetch; origin?: string } = {},
+) {
+  const base = baseUrl(centerUrl);
+  const prefix = base.pathname.replace(/\/$/u, "");
+  const read = createCenterReadFetcher(store, centerUrl);
+  return async (url: string | URL, fetchOptions: FetchJsonOptions = {}): Promise<unknown> => {
+    const method = fetchOptions.method ?? (fetchOptions.body === undefined ? "GET" : "POST");
+    if (method === "GET") return read(url, fetchOptions);
+    const target = targetUrl(url, base);
+    const { centerFetch, origin } = options;
+    if (method !== "POST" || !centerFetch || !origin || target.search) invalidRequest();
+    if (!writePath(target.pathname, prefix)) invalidRequest();
+    const signal = signalFor(fetchOptions);
+    try {
+      await quota(store, "center:mcp:writes", MCP_BACKEND_LIMITS.writesPerMinute, 60, signal);
+      const response = await cancellable(signal, () =>
+        Promise.resolve(
+          centerFetch(
+            new Request(target, {
+              method: "POST",
+              headers: {
+                origin,
+                accept: "application/json",
+                "content-type": "application/json",
+                "x-real-ip": MCP_CALLER_IP,
+              },
+              body: JSON.stringify(fetchOptions.body ?? {}),
+            }),
+          ),
+        ),
+      );
+      const text = await response.text();
+      if (Buffer.byteLength(text) > WRITE_RESPONSE_LIMIT)
+        throw new DomainError(
+          "UPSTREAM_RESPONSE_TOO_LARGE",
+          "The backend response exceeded its size limit. Narrow the query.",
+        );
+      let payload: unknown = null;
+      try {
+        payload = JSON.parse(text) as unknown;
+      } catch {
+        payload = null;
+      }
+      if (!response.ok) throw refusal(response.status, payload);
+      // A caller may ask for less than the write ceiling, never for more than it.
+      return boundedResult(
+        payload,
+        Math.min(fetchOptions.maxBytes ?? WRITE_RESPONSE_LIMIT, WRITE_RESPONSE_LIMIT),
+        WRITE_RESPONSE_LIMIT,
+      );
+    } catch (error) {
+      safeFailure(error, signal);
+    }
+  };
+}
+
 /** Retain the shared read-only gateway's provider failover, sanitization and streaming cap. */
 export function createCenterRpcFetcher(
   store: Store,
@@ -438,6 +530,8 @@ export function createCenterMcp(
     pinning?: PinningService;
     env?: NodeJS.ProcessEnv;
     rpcSiteLimitPerMinute?: number;
+    /** The Hono app's own fetch. Without it the MCP has reads only. */
+    centerFetch?: CenterFetch;
   },
 ): { config: Config; services: Services } {
   const env = options.env ?? process.env;
@@ -466,7 +560,10 @@ export function createCenterMcp(
   });
   const center = new CenterClient({
     baseUrl: config.centerUrl,
-    fetchJson: createCenterReadFetcher(store, config.centerUrl),
+    fetchJson: createCenterFetcher(store, config.centerUrl, {
+      ...(options.centerFetch ? { centerFetch: options.centerFetch } : {}),
+      origin: publicOrigin,
+    }),
   });
   const services = createServices(config, {
     rpcFetchJson: createCenterRpcFetcher(

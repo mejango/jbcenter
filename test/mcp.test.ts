@@ -2,6 +2,7 @@ import { CenterClient } from "@juicebox/mcp/host";
 import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it, vi } from "vitest";
 import {
+  createCenterFetcher,
   createCenterMcp,
   createCenterPinJson,
   createCenterPinLogo,
@@ -25,6 +26,38 @@ const REQUEST = {
   params: [],
 } as const;
 const RPC_URLS = { 1: `${ORIGIN}/v1/rpc/1` };
+
+const INTENT_FIXTURE = {
+  id: INTENT_ID,
+  status: "undeployed",
+  contentHash: contentHash({
+    format: "juicebox.money/v1",
+    deploymentVersion: "6",
+    chainIds: [84532],
+    deploymentCalls: [
+      { chainId: 84532, to: "0x3333333333333333333333333333333333333333", data: "0x12345678" },
+    ],
+    jb: { v: 1, name: "Bridged", chains: [84532] },
+  } as IntentEnvelope),
+  envelope: {
+    format: "juicebox.money/v1",
+    deploymentVersion: "6",
+    chainIds: [84532],
+    deploymentCalls: [
+      { chainId: 84532, to: "0x3333333333333333333333333333333333333333", data: "0x12345678" },
+    ],
+    jb: { v: 1, name: "Bridged", chains: [84532] },
+  },
+  name: "Bridged",
+  description: null,
+  tagline: null,
+  tags: [],
+  logoUri: null,
+  owner: null,
+  createdAt: "2026-09-21T00:00:00.000Z",
+  deployments: [],
+  deploys: [],
+} as const;
 
 function storeMock() {
   const counts = new Map<string, number>();
@@ -510,5 +543,114 @@ describe("reviewed JSON pinning bridge", () => {
     controller.abort();
     await expect(work).rejects.toMatchObject({ code: "UPSTREAM_TIMEOUT" });
     expect(pinning.pin.mock.calls[0]?.[2]?.aborted).toBe(true);
+  });
+});
+
+describe("Center intent write bridge", () => {
+  const envelope: IntentEnvelope = {
+    format: "juicebox.money/v1",
+    deploymentVersion: "6",
+    chainIds: [84532],
+    deploymentCalls: [
+      { chainId: 84532, to: "0x3333333333333333333333333333333333333333", data: "0x12345678" },
+    ],
+    jb: { v: 1, name: "Bridged", chains: [84532] },
+  };
+
+  it("publishes and requests a deploy through the app with Center's own origin", async () => {
+    const account = privateKeyToAccount(`0x${"11".repeat(32)}`);
+    const signature = await account.signMessage({
+      message: signingMessage(contentHash(envelope)),
+    });
+    const seen: { origin: string | null; method: string; path: string }[] = [];
+    const store = storeMock();
+    const centerFetch = vi.fn(async (request: Request) => {
+      const url = new URL(request.url);
+      seen.push({
+        origin: request.headers.get("origin"),
+        method: request.method,
+        path: url.pathname,
+      });
+      if (url.pathname === "/v1/intents")
+        return Response.json({ ...INTENT_FIXTURE, publisher: account.address, signature }, { status: 201 });
+      return Response.json(
+        {
+          deploys: [
+            {
+              chainId: 84532,
+              status: "queued",
+              transactionHash: null,
+              bundleUuid: null,
+              error: null,
+              createdAt: "2026-09-21T00:00:00.000Z",
+              updatedAt: "2026-09-21T00:00:00.000Z",
+            },
+          ],
+        },
+        { status: 202 },
+      );
+    });
+    const { services } = createCenterMcp(store, {
+      rpc: rpcMock(),
+      centerFetch,
+      env: { NODE_ENV: "production", MCP_PLAN_SECRET: "mcp-secret-for-tests-with-32-bytes" },
+    });
+
+    const published = await services.center.publishIntent({
+      ...envelope,
+      publisher: account.address,
+      signature,
+    });
+    expect(published.id).toBe(INTENT_ID);
+    const deploys = await services.center.requestDeploy(INTENT_ID);
+    expect(deploys.deploys[0]?.status).toBe("queued");
+    expect(seen).toEqual([
+      { origin: ORIGIN, method: "POST", path: "/v1/intents" },
+      { origin: ORIGIN, method: "POST", path: `/v1/intents/${INTENT_ID}/deploy` },
+    ]);
+  });
+
+  it("refuses to publish a signature that does not match the envelope", async () => {
+    const account = privateKeyToAccount(`0x${"11".repeat(32)}`);
+    const signature = await account.signMessage({ message: "a different message" });
+    const centerFetch = vi.fn(async () => Response.json({}, { status: 201 }));
+    const { services } = createCenterMcp(storeMock(), {
+      rpc: rpcMock(),
+      centerFetch,
+      env: { NODE_ENV: "production", MCP_PLAN_SECRET: "mcp-secret-for-tests-with-32-bytes" },
+    });
+    await expect(
+      services.center.publishIntent({ ...envelope, publisher: account.address, signature }),
+    ).rejects.toMatchObject({ code: "INVALID_SIGNATURE" });
+    expect(centerFetch).not.toHaveBeenCalled();
+  });
+
+  it("maps Center's sponsored-deploy refusals to fixed codes", async () => {
+    for (const [status, code, expected] of [
+      [429, "sponsor_quota", "SPONSOR_QUOTA"],
+      [429, "sponsor_budget", "SPONSOR_BUDGET"],
+      [503, "unavailable", "SPONSOR_UNAVAILABLE"],
+      [400, "bad_request", "NOT_SPONSORABLE"],
+    ] as const) {
+      const { services } = createCenterMcp(storeMock(), {
+        rpc: rpcMock(),
+        centerFetch: async () => Response.json({ error: { code, message: "refused" } }, { status }),
+        env: { NODE_ENV: "production", MCP_PLAN_SECRET: "mcp-secret-for-tests-with-32-bytes" },
+      });
+      await expect(services.center.requestDeploy(INTENT_ID)).rejects.toMatchObject({
+        code: expected,
+      });
+    }
+  });
+
+  it("rejects any write route other than the two intent writes", async () => {
+    const centerFetch = vi.fn(async () => Response.json({}, { status: 200 }));
+    const fetcher = createCenterFetcher(storeMock(), ORIGIN, { centerFetch, origin: ORIGIN });
+    for (const path of ["v1/pins/json", "v1/intents/not-a-uuid/deploy", `v1/intents/${INTENT_ID}`]) {
+      await expect(fetcher(`${ORIGIN}/${path}`, { method: "POST", body: {} })).rejects.toBeInstanceOf(
+        Error,
+      );
+    }
+    expect(centerFetch).not.toHaveBeenCalled();
   });
 });
