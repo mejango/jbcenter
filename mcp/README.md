@@ -13,7 +13,7 @@ The deployment endpoint is **https://juicebox.center/mcp**. This package lives i
 - Exact project metadata review and explicitly approved public JSON pinning through the integrated Center backend, returning a CID and URI for a separate V6 launch.
 - Local stdio and stateless Streamable HTTP transports, bounded requests, cancellation, Docker packaging and CI.
 
-The **57 tools across ten capability families** compose into [26 user journeys](docs/USER_JOURNEYS.md) for contributors, creators, operators, revnet participants, omnichain users, and developers, including tool sequences and what establishes completion.
+The **59 tools across ten capability families** compose into [26 user journeys](docs/USER_JOURNEYS.md) for contributors, creators, operators, revnet participants, omnichain users, and developers, including tool sequences and what establishes completion.
 
 Start with `jb_list_capabilities` in an MCP client. It groups the tools and reports their coverage limits. The generated [tool catalog](docs/TOOLS.md), [architecture](docs/ARCHITECTURE.md), [source provenance](docs/SOURCES.md), and [webclient guide](docs/WEBCLIENTS.md) describe the implementation in more detail.
 

@@ -98,6 +98,7 @@ suite("PostgreSQL store", () => {
       owner: zeroAddress,
     }, { maxIntents: 100, maxBytes: 1_000_000 });
     expect(created.created).toBe(true);
+    expect(created.usage).toEqual({ intents: 1, bytes: 100 });
     expect((await store!.getIntent(created.intent.id))?.envelope).toEqual(created.intent.envelope);
     expect((await store!.search("climate", 20, 0, {})).items).toHaveLength(1);
 
@@ -195,6 +196,9 @@ suite("PostgreSQL store", () => {
     expect(rows.map((r) => r.status)).toEqual(["queued", "queued"]);
     expect(await store!.queueDeploys(intent.id, [84532, 421614], "browser:x", 1000n)).toHaveLength(2);
     expect(await store!.sponsoredWeiSince(new Date(Date.now() - 60_000))).toBe(2000n);
+    // The same sum, narrowed to one requester: the MCP's own slice is measured this way.
+    expect(await store!.sponsoredWeiSince(new Date(Date.now() - 60_000), "browser:x")).toBe(2000n);
+    expect(await store!.sponsoredWeiSince(new Date(Date.now() - 60_000), "mcp")).toBe(0n);
     const claimed = await store!.claimQueuedDeploys(30, 10);
     expect(claimed).toEqual([{ intentId: intent.id, chainIds: [84532, 421614] }]);
     expect(await store!.claimQueuedDeploys(30, 10)).toEqual([]);

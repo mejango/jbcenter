@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import {
   ConflictError,
+  StorageLimitError,
   type DeployPatch,
   type NewDeployment,
   type NewIntent,
   type SearchFilters,
   type StorageLimits,
+  type StorageUsage,
   type Store,
 } from "../../src/store.js";
 import type { Deployment, Intent, IntentDeploy, SearchPage } from "../../src/types.js";
@@ -14,11 +16,15 @@ import type { Deployment, Intent, IntentDeploy, SearchPage } from "../../src/typ
 export const RELEASE_BACKOFF_MS = 5 * 60_000;
 
 type StoredDeploy = IntentDeploy & {
+  requester: string;
   reservedWei: bigint;
   spentWei: bigint;
   attempts: number;
   leaseUntil: number | null;
 };
+
+/** The store keeps the submitting identity and byte size the lifetime caps are measured against. */
+type StoredIntent = Intent & { submittedBy: string; jbBytes: number };
 
 function toIntentDeploy(deploy: StoredDeploy): IntentDeploy {
   const { chainId, status, transactionHash, bundleUuid, error, createdAt, updatedAt } = deploy;
@@ -42,11 +48,20 @@ export class MemoryStore implements Store {
     return { allowed: count <= limit, remaining: Math.max(0, limit - count) };
   }
 
-  async createIntent(value: NewIntent, _limits: StorageLimits) {
+  async createIntent(value: NewIntent, limits: StorageLimits) {
     const existing = this.intents.find(
       (intent) => intent.publisher === value.publisher && intent.contentHash === value.contentHash,
     );
     if (existing) return { intent: existing, created: false };
+    const stored = (this.intents as StoredIntent[]).filter(
+      (intent) => intent.submittedBy === value.submittedBy,
+    );
+    const usage: StorageUsage = {
+      intents: stored.length + 1,
+      bytes: stored.reduce((total, intent) => total + intent.jbBytes, 0) + value.jbBytes,
+    };
+    if (usage.intents > limits.maxIntents) throw new StorageLimitError("Client intent quota exceeded");
+    if (usage.bytes > limits.maxBytes) throw new StorageLimitError("Client storage quota exceeded");
     const intent: Intent = {
       ...value,
       id: randomUUID(),
@@ -56,7 +71,7 @@ export class MemoryStore implements Store {
       deploys: [],
     };
     this.intents.push(intent);
-    return { intent, created: true };
+    return { intent, created: true, usage };
   }
 
   async getIntent(id: string) {
@@ -128,7 +143,7 @@ export class MemoryStore implements Store {
   async queueDeploys(
     intentId: string,
     chainIds: number[],
-    _requester: string,
+    requester: string,
     reservedWeiPerChain: bigint,
   ): Promise<IntentDeploy[]> {
     const intent = this.intents.find(({ id }) => id === intentId)!;
@@ -143,6 +158,7 @@ export class MemoryStore implements Store {
         error: null,
         createdAt: now,
         updatedAt: now,
+        requester,
         reservedWei: reservedWeiPerChain,
         spentWei: 0n,
         attempts: 0,
@@ -221,10 +237,11 @@ export class MemoryStore implements Store {
     }
   }
 
-  async sponsoredWeiSince(since: Date): Promise<bigint> {
+  async sponsoredWeiSince(since: Date, requester?: string): Promise<bigint> {
     let total = 0n;
     for (const intent of this.intents) {
       for (const deploy of intent.deploys as StoredDeploy[]) {
+        if (requester !== undefined && deploy.requester !== requester) continue;
         if (new Date(deploy.createdAt) >= since) total += deploy.reservedWei + deploy.spentWei;
       }
     }

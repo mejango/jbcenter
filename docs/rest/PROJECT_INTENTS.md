@@ -192,8 +192,17 @@ never saw.
 1. The returned `envelope` equals the envelope you built. Compare canonically: sort object keys,
    lowercase every hex string, and compare the serialized result. Do not compare with `===` on
    objects and do not trust field order.
-2. The returned `message` contains the returned `contentHash`, and that hash is the keccak256 of
-   the canonical JSON of the envelope you built.
+2. The returned `message` equals, character for character, the message for the envelope you built:
+
+   ```
+   Juice Central project intent
+   Version: 1
+   Content hash: <hash>
+   ```
+
+   where `<hash>` is the keccak256 of the canonical JSON of that envelope. Never build this string
+   yourself to sign; build it only to compare, and sign the `message` Center returned once the two
+   match.
 
 If either check fails, refuse to sign and surface the mismatch. Do not retry silently.
 
@@ -269,10 +278,14 @@ const intent = await publishSignedIntent(
 );
 ```
 
-`publishSignedIntent` (SDK 2.8.0) is the guard from step 2 as one call: it prepares the intent,
-checks that Center's prepared `envelope` matches the one built here and that the prepared
-`message` quotes the prepared `contentHash`, and only then calls `sign` and publishes. Either
-check failing throws `JBCenterIntentMismatchError` instead of reaching a wallet.
+`publishSignedIntent` is the guard from step 2 as one call: it prepares the intent, checks that
+Center's prepared `envelope` matches the one built here and that the prepared `message` equals,
+character for character, the whole signing message it builds for that envelope's own content
+hash, and only then calls `sign` and publishes. Either check failing throws
+`JBCenterIntentMismatchError` instead of reaching a wallet.
+
+`publishSignedIntent`, `describeCenterRefusal`, the `homerun-fund` decode flavor and the `owner`
+and `publisher` search filters need `@bananapus/nana-sdk-core` 2.8.0 or newer.
 
 ### Publish limits and refusals
 
@@ -287,9 +300,12 @@ check failing throws `JBCenterIntentMismatchError` instead of reaching a wallet.
 As of 2026-09-21, production runs `PUBLISH_PER_PUBLISHER_PER_DAY` at 500 and
 `PUBLISH_PER_IP_PER_HOUR` at 500.
 
-The SDK's `describeCenterRefusal(error)` turns a caught `JBCenterRequestError` into one
-authored sentence for `unavailable` and, as a generic fallback keyed off the HTTP status, any
-other `429`; codes it does not recognize return `null` so the caller keeps its own wording.
+An MCP caller spends the hourly limit twice: once under its own publisher key, and once in a
+bucket every MCP publisher shares. A publisher key is free to mint, so the shared bucket is what
+bounds the assistant as a whole. Its stored intents and bytes count against the assistant's own
+lifetime caps — `MCP_MAX_INTENTS`, default 100000, and `MCP_MAX_STORAGE_BYTES`, default 10 GiB —
+rather than against a browser client's, and its sponsored deploys draw on the assistant's own
+daily slice of the sponsorship budget, below.
 
 ## Read and list
 
@@ -415,7 +431,7 @@ No request body. Center executes the intent's own signed calls at its own expens
 | `200` | `{"deploys":[...]}` | Rows already exist. The same rows come back; the request is idempotent per intent, not per call |
 | `400` | `bad_request` | The id is not a UUID, the intent is already `deployed`, or its chains are not sponsorable |
 | `404` | `not_found` | No such intent |
-| `429` | `sponsor_budget` | The shared daily sponsorship budget is spent. `Retry-After: 86400` |
+| `429` | `sponsor_budget` | The daily sponsorship budget is spent: the shared one, or an MCP caller's own slice of it. `Retry-After: 86400` |
 | `429` | `sponsor_quota` | The requester's daily quota is spent. `Retry-After: 86400` |
 | `503` | `unavailable` | No sponsor is configured, or sponsorship is paused |
 
@@ -441,17 +457,24 @@ is self-paid only.
 |---|---|
 | Deploys per requester per day (`SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY`) | 5 |
 | Shared daily budget (`SPONSOR_DAILY_BUDGET_WEI`) | 50000000000000000 wei (0.05 ETH) |
+| The MCP's slice of that day (`SPONSOR_MCP_DAILY_BUDGET_WEI`) | a fifth of the shared daily budget |
 | Reservation per chain | `maxGas * maxFeePerGas + creationFeeCeiling` = 8000000 * 1000000000 + 100000000000000 = 8100000000000000 wei (0.0081 ETH) |
 | Confirmations before a chain counts as confirmed | 2 |
 
 As of 2026-09-21, production raises `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` to 100 deploys per
 requester per day; the shared daily budget runs at its default.
 
-A request reserves the full amount for every chain up front, and the reservation is released as
-each chain settles. The budget is charged what the sponsor actually spent once the Relayr
-prepayment settles. For browser callers the requester is the calling origin and IP; for the MCP
-tools it is one shared Center-side bucket, so the MCP's daily sponsored deploys draw down one
-shared `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` allowance across every MCP caller.
+A request reserves the full amount for every chain up front. A reservation is released when the
+chain confirms, and when a chain fails without a bundle having been paid for it; a failed row that
+did pay a bundle keeps its reservation for the rest of the 24-hour window, because that money may
+have left. The budget is charged what the sponsor actually spent once the Relayr prepayment
+settles.
+
+For browser callers the requester is the calling origin and IP; for the MCP tools it is one shared
+Center-side bucket, so the MCP's daily sponsored deploys draw down one shared
+`SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` allowance across every MCP caller. Those deploys are also
+checked against `SPONSOR_MCP_DAILY_BUDGET_WEI` before the shared budget, so a busy assistant
+refuses at its own slice rather than spending the day out from under first-party apps.
 
 ### Polling
 

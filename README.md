@@ -111,14 +111,14 @@ npm run dev
 
 Pinning and intent API requests require an origin hardcoded for the active Railway environment.
 Production accepts `https://juicebox.money`, `https://revnet.money`, `https://eth.shop`,
-`https://succulent.money`, and `https://homerun.money`. `dev` accepts the first four sites'
-`dev.` subdomains, `http://localhost:3001` through `http://localhost:3004`, and Homerun's
-`http://localhost:3010` and `http://localhost:3014`. The homepage, `/ipfs/*` read gateway, and `/v1/rpc/:chainId`
+`https://succulent.money`, `https://homerun.money`, and `https://beep.biz`. `dev` accepts the
+first four sites' `dev.` subdomains, `http://localhost:3001` through `http://localhost:3004`, and
+Homerun's `http://localhost:3010` and `http://localhost:3014`. The homepage, `/ipfs/*` read gateway, and `/v1/rpc/:chainId`
 RPC are public; RPC accepts any or no Origin. `GET /healthz` is public for infrastructure checks.
 
 ## Connect an assistant through MCP
 
-The `mcp/` package provides **57 V6-only tools across ten capability families**: project and
+The `mcp/` package provides **59 V6-only tools across ten capability families**: project and
 account intelligence, payments and cash-outs, launches and ruleset changes, buyback hooks, router
 terminals, 721 shops, revnets and loans, omnichain operations, source and webclient development,
 and reviewed project metadata publication. Read the [26 user journeys](mcp/docs/USER_JOURNEYS.md)
@@ -432,6 +432,10 @@ The remaining controls are environment variables:
 - `RPC_PUBLIC_SITE_LIMIT_PER_MINUTE` — shared keyless RPC budget across untrusted origins; default `5000`.
 - `MAX_INTENTS_PER_CLIENT` — lifetime intent count per client; default `10000`.
 - `MAX_STORAGE_BYTES_PER_CLIENT` — lifetime stored envelope bytes per client; default 1 GiB.
+- `MCP_MAX_INTENTS` — lifetime intent count for the co-hosted MCP's single storage identity; default `100000`.
+- `MCP_MAX_STORAGE_BYTES` — lifetime stored envelope bytes for that identity; default 10 GiB. Both
+  replace the per-client pair for an in-process publish, and Center logs `storage_near_limit` once
+  either identity passes four fifths of its cap.
 - `WALLET_ORIGIN` — hosted passkey wallet origin (for example `https://my.juicebox.center`); mounts the wallet site with the reviewed Base manifest.
 - `WALLET_NETWORKS_PAYER_KEY` — optional private key funding Relayr bundles that deploy an account on more chains (Base ETH for Optimism and Arbitrum, Base Sepolia ETH for the testnets). A separate key: the creation and recovery keys track their own nonces.
 - `WALLET_LEGACY_ORIGINS` — optional comma-separated former wallet origins; requests on those hosts redirect (301) to the same path on `WALLET_ORIGIN`.
@@ -451,6 +455,8 @@ The remaining controls are environment variables:
   platform whose server publishes on behalf of its users — one signing key, one outbound IP — needs
   both of these and `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` raised past their per-caller defaults.
 - `SPONSOR_DAILY_BUDGET_WEI` — total wei reserved for sponsored deploys per rolling day, across every requester; default `50000000000000000`.
+- `SPONSOR_MCP_DAILY_BUDGET_WEI` — the slice of that day the co-hosted MCP may spend, checked
+  before the shared budget; default a fifth of `SPONSOR_DAILY_BUDGET_WEI`.
 - `SPONSOR_MAX_GAS` — gas ceiling per forwarded deployment call; default `8000000`.
 - `SPONSOR_MAX_FEE_PER_GAS` — max fee per gas the sponsor signs when paying for the Relayr bundle; default `1000000000`.
 - `SPONSOR_CONFIRMATIONS` — confirmations awaited on each destination chain before a sponsored deploy is recorded; default `2`, and a lower value is raised to `2`, which the deployment verifier requires.

@@ -283,7 +283,8 @@ describe('transport-independent protocol operations', () => {
     );
     await expect(operations.execute('publish_intent', publishInput)).rejects.toMatchObject({
       code: 'PUBLISH_LIMIT',
-      message: "Center's publish limit for this publisher or address is reached. Try again later.",
+      message:
+        "Center's publish limit is reached for this publisher or for the shared assistant budget. Try again later.",
     });
     publishIntent.mockRejectedValueOnce(
       new DomainError('UPSTREAM_HTTP_ERROR', 'The upstream returned HTTP 500.', {

@@ -12712,7 +12712,7 @@
           },
           "chainIds": {
             "minItems": 1,
-            "maxItems": 8,
+            "maxItems": 16,
             "type": "array",
             "items": {
               "anyOf": [
@@ -12753,7 +12753,7 @@
           },
           "deploymentCalls": {
             "minItems": 1,
-            "maxItems": 8,
+            "maxItems": 16,
             "type": "array",
             "items": {
               "type": "object",
@@ -13010,7 +13010,7 @@
           },
           "chainIds": {
             "minItems": 1,
-            "maxItems": 8,
+            "maxItems": 16,
             "type": "array",
             "items": {
               "anyOf": [
@@ -13051,7 +13051,7 @@
           },
           "deploymentCalls": {
             "minItems": 1,
-            "maxItems": 8,
+            "maxItems": 16,
             "type": "array",
             "items": {
               "type": "object",

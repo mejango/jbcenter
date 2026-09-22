@@ -125,7 +125,7 @@ function publishRefusal(error: unknown): unknown {
   if (status === 429 && code === 'publish_limit')
     return new DomainError(
       'PUBLISH_LIMIT',
-      "Center's publish limit for this publisher or address is reached. Try again later.",
+      "Center's publish limit is reached for this publisher or for the shared assistant budget. Try again later.",
       { retryable: true },
     );
   return error;
@@ -135,11 +135,11 @@ function publishRefusal(error: unknown): unknown {
 const centerIntentEnvelopeShape = {
   format: z.string().max(113),
   deploymentVersion: z.literal('6'),
-  chainIds: z.array(chainIdSchema).min(1).max(8),
+  chainIds: z.array(chainIdSchema).min(1).max(16),
   deploymentCalls: z
     .array(z.object({ chainId: chainIdSchema, to: addressSchema, data: hexSchema }).strict())
     .min(1)
-    .max(8),
+    .max(16),
   jb: jsonObjectSchema,
 };
 

@@ -167,6 +167,8 @@ const app = createApp(store, {
     requestLimitPerMinute: positiveInteger("RATE_LIMIT_PER_MINUTE", 600),
     maxIntentsPerClient: positiveInteger("MAX_INTENTS_PER_CLIENT", 10_000),
     maxStorageBytesPerClient: positiveInteger("MAX_STORAGE_BYTES_PER_CLIENT", 1_073_741_824),
+    mcpMaxIntents: positiveInteger("MCP_MAX_INTENTS", 100_000),
+    mcpMaxStorageBytes: positiveInteger("MCP_MAX_STORAGE_BYTES", 10_737_418_240),
     rpcRequestLimitPerMinute: positiveInteger("RPC_REQUEST_LIMIT_PER_MINUTE", 600),
     rpcSiteLimitPerMinute,
     rpcPublicRequestLimitPerMinute: positiveInteger("RPC_PUBLIC_REQUEST_LIMIT_PER_MINUTE", 120),

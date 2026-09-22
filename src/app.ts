@@ -40,7 +40,13 @@ import {
   type PinResult,
   type PinningService,
 } from "./ipfs.js";
-import { ConflictError, StorageLimitError, type Store } from "./store.js";
+import {
+  ConflictError,
+  StorageLimitError,
+  type StorageLimits,
+  type StorageUsage,
+  type Store,
+} from "./store.js";
 import { sponsorFamily, reservationWei, type SponsorRuntime } from "./sponsor/policy.js";
 import type { JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
@@ -72,6 +78,9 @@ export type AppOptions = {
   requestLimitPerMinute?: number;
   maxIntentsPerClient?: number;
   maxStorageBytesPerClient?: number;
+  /** The co-hosted MCP stores under one identity, so it carries its own lifetime caps. */
+  mcpMaxIntents?: number;
+  mcpMaxStorageBytes?: number;
   metricsToken?: string;
   metrics?: Metrics;
   pinning?: PinningService;
@@ -143,6 +152,21 @@ function optionalAddress(value: string | undefined, name: string): Address | und
   } catch {
     throw new BadRequest(`${name} must be an Ethereum address`);
   }
+}
+
+/** Four fifths of either lifetime cap is the operator's cue to raise it before publishes refuse. */
+function reportStorageUsage(client: string, usage: StorageUsage, limits: StorageLimits): void {
+  if (usage.intents * 5 < limits.maxIntents * 4 && usage.bytes * 5 < limits.maxBytes * 4) return;
+  console.warn(JSON.stringify({
+    level: "warn",
+    service: "center",
+    message: "storage_near_limit",
+    client,
+    intents: usage.intents,
+    maxIntents: limits.maxIntents,
+    bytes: usage.bytes,
+    maxBytes: limits.maxBytes,
+  }));
 }
 
 /** The co-hosted MCP's in-process caller identity, and the shared requester its deploys spend. */
@@ -651,20 +675,29 @@ export function createApp(
       c.header("Retry-After", who.allowed ? "3600" : "86400");
       return c.json({ error: { code: "publish_limit", message: "Publish limit reached; try again later" } }, 429);
     }
+    // One storage identity for every internal publish, so the lifetime intent and byte caps
+    // bound the MCP as a whole rather than one free-to-mint publisher key at a time. That whole
+    // is wider than one browser client, so it is measured against its own pair of caps.
+    const submittedBy = internal ? MCP_CLIENT : c.get("client");
+    const limits: StorageLimits = internal
+      ? {
+          maxIntents: options.mcpMaxIntents ?? 100_000,
+          maxBytes: options.mcpMaxStorageBytes ?? 10_737_418_240,
+        }
+      : {
+          maxIntents: options.maxIntentsPerClient ?? 10_000,
+          maxBytes: options.maxStorageBytesPerClient ?? 1_073_741_824,
+        };
     const result = await store.createIntent({
       ...extractMetadata(envelope.jb),
       contentHash: hash,
       envelope,
       publisher,
       signature: signed,
-      // One storage identity for every internal publish, so the lifetime intent and byte caps
-      // bound the MCP as a whole rather than one free-to-mint publisher key at a time.
-      submittedBy: internal ? MCP_CLIENT : c.get("client"),
+      submittedBy,
       jbBytes: Buffer.byteLength(JSON.stringify(envelope)),
-    }, {
-      maxIntents: options.maxIntentsPerClient ?? 10_000,
-      maxBytes: options.maxStorageBytesPerClient ?? 1_073_741_824,
-    });
+    }, limits);
+    if (result.usage) reportStorageUsage(submittedBy, result.usage, limits);
     return c.json(result.intent, result.created ? 201 : 200);
   });
 
@@ -745,14 +778,20 @@ export function createApp(
     if (!sponsorFamily(intent.envelope.chainIds)) throw new BadRequest("intent chains are not sponsorable");
     const requester = c.get("client");
     const reserved = reservationWei(sponsor.policy, intent.envelope.chainIds.length);
-    const spent = await store.sponsoredWeiSince(new Date(Date.now() - 86_400_000));
+    const since = new Date(Date.now() - 86_400_000);
+    const budgetSpent = { error: { code: "sponsor_budget", message: "The daily sponsorship budget is spent" } };
+    // The co-hosted MCP is one requester with no caller to charge, so it draws on its own slice of
+    // the day's budget first: a busy assistant cannot spend what first-party apps are waiting for.
+    if (requester === MCP_CLIENT) {
+      const mcpSpent = await store.sponsoredWeiSince(since, MCP_CLIENT);
+      if (mcpSpent + reserved > sponsor.policy.mcpDailyBudgetWei) {
+        return c.json(budgetSpent, 429, { "Retry-After": RETRY_AFTER_SECONDS });
+      }
+    }
+    const spent = await store.sponsoredWeiSince(since);
     // The budget is checked before the quota so a budget refusal costs the requester nothing.
     if (spent + reserved > sponsor.policy.dailyBudgetWei) {
-      return c.json(
-        { error: { code: "sponsor_budget", message: "The daily sponsorship budget is spent" } },
-        429,
-        { "Retry-After": RETRY_AFTER_SECONDS },
-      );
+      return c.json(budgetSpent, 429, { "Retry-After": RETRY_AFTER_SECONDS });
     }
     const quota = await store.consumeRequest(
       `deploy:${requester}`,

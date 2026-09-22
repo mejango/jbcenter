@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, originsForEnvironment } from "../src/app.js";
 import { JUICESCAN } from "../src/journeyGraph.js";
 import { DeploymentVerificationError } from "../src/deploymentVerifier.js";
-import { readSponsorPolicy, type SponsorPolicy } from "../src/sponsor/policy.js";
+import { readSponsorPolicy, reservationWei, type SponsorPolicy } from "../src/sponsor/policy.js";
 import type { RpcGateway } from "../src/rpc.js";
 import type { Store } from "../src/store.js";
 import type { Intent, IntentDeploy, SearchPage } from "../src/types.js";
@@ -95,6 +95,33 @@ async function publishWith(
 
 async function publish(app: ReturnType<typeof createApp>) {
   return publishWith(app, envelope);
+}
+
+/** The co-hosted MCP's publish: the same routes, reached on the in-process marker. */
+async function publishInternally(
+  app: ReturnType<typeof createApp>,
+  envelopeLike: Record<string, unknown>,
+) {
+  const preparedResponse = await app.request(
+    "/v1/intents/message",
+    { method: "POST", headers: trusted, body: JSON.stringify(envelopeLike) },
+    { internal: "mcp" },
+  );
+  const prepared = (await preparedResponse.json()) as { message: string };
+  const signature = await account.signMessage({ message: prepared.message });
+  return app.request(
+    "/v1/intents",
+    {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({ ...envelopeLike, publisher: account.address, signature }),
+    },
+    { internal: "mcp" },
+  );
+}
+
+async function errorCode(response: Response): Promise<string> {
+  return ((await response.json()) as { error: { code: string } }).error.code;
 }
 
 describe("JB Center API", () => {
@@ -546,6 +573,37 @@ describe("JB Center API", () => {
     expect(((await again.json()) as { error: { code: string } }).error.code).toBe("publish_limit");
     expect(again.headers.get("Retry-After")).toBe("3600");
   });
+
+  it("measures MCP publishes against the assistant's own storage caps", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, {
+      maxIntentsPerClient: 1,
+      mcpMaxIntents: 3,
+      publishPerPublisherPerDay: 100,
+      publishPerIpPerHour: 100,
+    });
+    const named = (name: string) => ({ ...envelope, jb: { ...envelope.jb, name } });
+    const warnings: string[] = [];
+    const warn = vi.spyOn(console, "warn").mockImplementation((line: string) => {
+      warnings.push(line);
+    });
+    for (const name of ["first", "second", "third"]) {
+      expect((await publishInternally(app, named(name))).status).toBe(201);
+    }
+    // Four fifths of a cap is worth an operator's attention before the next publish refuses.
+    expect(warnings.map((line) => JSON.parse(line) as Record<string, unknown>)).toContainEqual(
+      expect.objectContaining({ message: "storage_near_limit", client: "mcp", intents: 3 }),
+    );
+    const refused = await publishInternally(app, named("fourth"));
+    expect(refused.status).toBe(429);
+    expect(await errorCode(refused)).toBe("storage_limit");
+    // A browser client keeps its own, far smaller pair of caps.
+    expect((await publishWith(app, named("browser first"))).status).toBe(201);
+    const browserRefused = await publishWith(app, named("browser second"));
+    expect(browserRefused.status).toBe(429);
+    expect(await errorCode(browserRefused)).toBe("storage_limit");
+    warn.mockRestore();
+  });
 });
 
 describe("sponsored deploy requests", () => {
@@ -609,6 +667,37 @@ describe("sponsored deploy requests", () => {
       headers: trusted,
     });
     expect(pausedResponse.status).toBe(503);
+  });
+
+  it("holds MCP deploys to the assistant's slice while browser deploys keep the shared day", async () => {
+    const store = new MemoryStore();
+    const oneChain = {
+      ...testnetEnvelope,
+      chainIds: [84532],
+      deploymentCalls: [testnetEnvelope.deploymentCalls[0]!],
+      jb: { ...testnetEnvelope.jb, chains: [84532] },
+    };
+    const app = createApp(store, {
+      publishPerPublisherPerDay: 100,
+      sponsor: {
+        ...sponsor,
+        policy: { ...sponsor.policy, mcpDailyBudgetWei: reservationWei(sponsor.policy, 1) },
+      },
+    });
+    const named = (name: string) => ({ ...oneChain, jb: { ...oneChain.jb, name } });
+    const first = (await (await publishInternally(app, named("mcp first"))).json()) as Intent;
+    const second = (await (await publishInternally(app, named("mcp second"))).json()) as Intent;
+    const browser = (await (await publishWith(app, named("browser"))).json()) as Intent;
+    const deploy = (id: string, env?: { internal: string }) =>
+      app.request(`/v1/intents/${id}/deploy`, { method: "POST", headers: trusted }, env);
+
+    expect((await deploy(first.id, { internal: "mcp" })).status).toBe(202);
+    const refused = await deploy(second.id, { internal: "mcp" });
+    expect(refused.status).toBe(429);
+    expect(await errorCode(refused)).toBe("sponsor_budget");
+    expect(refused.headers.get("Retry-After")).toBe("86400");
+    // The shared day is untouched: only the assistant's own slice is spent.
+    expect((await deploy(browser.id)).status).toBe(202);
   });
 
   it("is unavailable with no sponsor configured", async () => {

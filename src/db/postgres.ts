@@ -9,6 +9,7 @@ import {
   type NewIntent,
   type SearchFilters,
   type StorageLimits,
+  type StorageUsage,
   type Store,
 } from "../store.js";
 import type {
@@ -181,7 +182,7 @@ export class PostgresStore implements Store {
   async createIntent(
     value: NewIntent,
     limits: StorageLimits,
-  ): Promise<{ intent: Intent; created: boolean }> {
+  ): Promise<{ intent: Intent; created: boolean; usage?: StorageUsage }> {
     const id = randomUUID();
     const client = await this.pool.connect();
     try {
@@ -252,7 +253,14 @@ export class PostgresStore implements Store {
         ],
       );
       await client.query("COMMIT");
-      return { intent: intent(result.rows[0]!), created: true };
+      return {
+        intent: intent(result.rows[0]!),
+        created: true,
+        usage: {
+          intents: Number(usage.rows[0]!.count) + 1,
+          bytes: Number(usage.rows[0]!.bytes) + value.jbBytes,
+        },
+      };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -466,10 +474,11 @@ export class PostgresStore implements Store {
     );
   }
 
-  async sponsoredWeiSince(since: Date): Promise<bigint> {
+  async sponsoredWeiSince(since: Date, requester?: string): Promise<bigint> {
     const result = await this.pool.query<{ wei: string }>(
-      "SELECT coalesce(sum(reserved_wei + spent_wei), 0)::text AS wei FROM intent_deploys WHERE created_at >= $1",
-      [since],
+      `SELECT coalesce(sum(reserved_wei + spent_wei), 0)::text AS wei FROM intent_deploys
+       WHERE created_at >= $1 AND ($2::text IS NULL OR requester = $2)`,
+      [since, requester ?? null],
     );
     return BigInt(result.rows[0]!.wei);
   }
