@@ -12,6 +12,7 @@ import {
 } from "./deploymentVerifier.js";
 import {
   address,
+  callsForChain,
   contentHash,
   normalizeEnvelope,
   signingMessage,
@@ -742,7 +743,8 @@ export function createApp(
     if (!intent.envelope.chainIds.includes(chainId)) {
       throw new BadRequest("chainId is not part of this intent");
     }
-    const call = intent.envelope.deploymentCalls.find((item) => item.chainId === chainId);
+    // A self-paid claim proves the launch transaction; earlier calls only create Safes.
+    const call = callsForChain(intent.envelope.deploymentCalls, chainId).launch;
     if (!call) {
       throw new DeploymentVerificationError("Intent has no deployment call for this chain");
     }
@@ -777,7 +779,7 @@ export function createApp(
     if (intent.status !== "undeployed") throw new BadRequest(`intent is ${intent.status}`);
     if (!sponsorFamily(intent.envelope.chainIds)) throw new BadRequest("intent chains are not sponsorable");
     const requester = c.get("client");
-    const reserved = reservationWei(sponsor.policy, intent.envelope.chainIds.length);
+    const reserved = reservationWei(sponsor.policy, intent.envelope.deploymentCalls.length);
     const since = new Date(Date.now() - 86_400_000);
     const budgetSpent = { error: { code: "sponsor_budget", message: "The daily sponsorship budget is spent" } };
     // The co-hosted MCP is one requester with no caller to charge, so it draws on its own slice of

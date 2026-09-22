@@ -1,7 +1,7 @@
 # Project intents
 
-A project intent is a signed, frozen Juicebox V6 project launch: one contract call
-per chain plus the publishing client's own form document, stored by Center. Publishing
+A project intent is a signed, frozen Juicebox V6 project launch: the contract calls for
+each chain plus the publishing client's own form document, stored by Center. Publishing
 costs one wallet signature and no transaction. The project exists from the moment it is
 published: it has an id, a page, and a row in search. It becomes an on-chain project when
 someone deploys it, either at Center's expense on the sponsored rollups or by paying for
@@ -19,7 +19,7 @@ and a published intent cannot be edited, replaced or withdrawn.
 
 | Property | Value |
 |---|---|
-| Content | `format`, `deploymentVersion`, `chainIds`, one `deploymentCall` per chain, and a `jb` document |
+| Content | `format`, `deploymentVersion`, `chainIds`, 1 to 4 `deploymentCalls` per chain, and a `jb` document |
 | Identity | A UUID assigned by Center, plus a `contentHash` over the canonical envelope |
 | Authenticity | A publisher signature over a message that quotes the content hash |
 | Mutability | None. There is no edit, replace or withdraw route. Publish a new intent instead |
@@ -76,7 +76,7 @@ send it as a real `Origin` header.
 | `format` | string | `<host>/<label>`: exactly one slash. Host part matches `[a-z0-9.-]{1,80}`, label matches `[a-zA-Z0-9._-]{1,32}` — the label may not contain a slash. Identifies the publishing client |
 | `deploymentVersion` | string | `"6"`. 1 to 64 characters |
 | `chainIds` | number[] | 1 to 16 unique positive integers. Center sorts them ascending before hashing |
-| `deploymentCalls` | array | Exactly one `{chainId, to, data}` per member of `chainIds`, between 4 bytes and 4 MiB each. `to` is checksummed; `data` is stored lowercased and matched case-insensitively when a self-paid deployment is verified. Center sorts by `chainId` before hashing |
+| `deploymentCalls` | array | 1 to 4 calls, each `{chainId, to, data}`, for each member of `chainIds`, between 4 bytes and 4 MiB each. The last call for a chain is its launch call; see "Setup calls". `to` is checksummed; `data` is stored lowercased and matched case-insensitively when a self-paid deployment is verified. Center sorts by `chainId` before hashing and keeps each chain's calls in the order they were signed |
 | `jb` | object | The publishing client's own document. Any JSON object, nesting at most 64 levels |
 
 Existing publishers use `juicebox.money/v1` and `revnet.money/v1`. An app that publishes more
@@ -95,6 +95,119 @@ Center does not invent a call or a target.
 - `JBOmnichainDeployer.launchProjectFor`
 - `REVDeployer.deployFor`, with `revnetId` `0` for a first-time launch
 - `HomerunDeployer.launchFundFor`
+
+## Setup calls
+
+A chain may carry more than one call. **The last call for a chain is the launch call;
+every call before it is a setup call.** One call per chain is a launch call, so every
+intent published before this rule existed is unchanged.
+
+A setup call creates a Safe. Center pays for it, so it is the only thing a setup call may
+do:
+
+| Part | Required value |
+|---|---|
+| `to` | `0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67`, the Safe 1.4.1 proxy factory. Its runtime code is checked on the chain before the sponsor pays |
+| `data` | `createProxyWithNonce(singleton, initializer, saltNonce)`, encoded exactly |
+| `singleton` | `0x41675C099F32341bf84BFc5382aF534df5C7461a` |
+| `initializer` | `setup(owners, threshold, address(0), 0x, 0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99, address(0), 0, address(0))` |
+| `owners` | 1 to 20 unique nonzero addresses |
+| `threshold` | 1 to `owners.length` |
+
+Anything else is refused with `400` and a message naming the call index, for example
+`deploymentCalls[0].to must be the canonical Safe proxy factory`. A chain accepts at most
+four calls, so at most three Safes. Two byte-identical setup calls on one chain are refused
+with `deploymentCalls[1] repeats a setup call on its chain`, because the second one would
+create nothing and the sponsor would pay for its revert.
+
+A Safe 1.4.1 address depends only on the factory, the singleton, the initializer and the
+salt nonce. It never depends on the sender or the time. So the Safe creation and the
+launch are independent: the project can be transferred to the Safe address before the
+Safe exists, and the Safe accepts the project whenever it is created. A Safe that already
+exists at the predicted address costs nothing: Center drops that call from the bundle. A
+Safe creation that reverts does not fail the chain; the project is owned by the predicted
+address either way and anyone can create the Safe later.
+
+The sponsored deploy sends one bundle for all chains. Each chain's row is `sent` on its
+launch transaction hash and `confirmed` when that transaction succeeds and carries the
+`JBProjects.Create` event. `transactionHash` on the row and on the recorded deployment is
+always the launch transaction.
+
+### `jb.safes`
+
+Center stores `jb` as it is given. The convention for rendering a Safe is:
+
+```json
+"safes": [
+  {
+    "role": "owner",
+    "address": "0x...",
+    "owners": ["0x...", "0x..."],
+    "threshold": 2,
+    "saltNonce": "0x..."
+  }
+]
+```
+
+### A Homerun fund that creates its own 2-of-2 owner Safe
+
+```ts
+import {
+  buildSafeDeploymentCalls,
+  predictSafeAddress,
+  SAFE_PROXY_CREATION_CODE,
+} from "@bananapus/nana-sdk-core/safe";
+
+const policy = {
+  owners: [alice, bob],
+  threshold: 2,
+  saltNonce,
+  proxyCreationCode: SAFE_PROXY_CREATION_CODE,
+};
+// A plan carries the address it predicts; the SDK re-derives it and refuses a mismatch.
+const owner = { ...policy, address: predictSafeAddress(policy) };
+
+const deploymentCalls = chainIds.flatMap((chainId) => [
+  ...buildSafeDeploymentCalls([owner]).map((call) => ({
+    chainId,
+    to: call.target,
+    data: call.callData,
+  })),
+  {
+    chainId,
+    to: homerunDeployer[chainId],
+    data: encodeFunctionData({
+      abi: homerunAbi,
+      functionName: "launchFundFor",
+      args: [owner.address, /* the rest of the fund */],
+    }),
+  },
+]);
+
+const envelope = {
+  format: "homerun.money/fund.v1",
+  deploymentVersion: "6",
+  chainIds,
+  deploymentCalls,
+  jb: {
+    ...formValues,
+    owner: owner.address,
+    safes: [
+      {
+        role: "owner",
+        address: owner.address,
+        owners: owner.owners,
+        threshold: owner.threshold,
+        saltNonce: owner.saltNonce,
+      },
+    ],
+  },
+};
+```
+
+`jb.owner` is the Safe address, so the intent appears under `GET /v1/search?owner=`. A page
+that lists "my projects" also filters by `publisher`, because the publishing wallet is an
+owner of the Safe, not the project's owner.
 
 ### `jb` conventions
 

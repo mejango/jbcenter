@@ -91,7 +91,7 @@ const envelopeSchema = z.object({
       }),
     )
     .min(1)
-    .max(16),
+    .max(64),
   jb: jsonRecordSchema,
 });
 const metadata = {
@@ -269,9 +269,15 @@ export function normalizeCenterIntent<TJb extends JBCenterJsonObject>(
       return { chainId: call.chainId, to, data: call.data.toLowerCase() as Hex };
     })
     .sort((a, b) => a.chainId - b.chainId);
+  // The last call for a chain launches the project; Center validates what the earlier
+  // ones may do. A stable sort keeps each chain's calls in the order they were signed.
+  const perChain = new Map<number, number>();
+  for (const call of deploymentCalls)
+    perChain.set(call.chainId, (perChain.get(call.chainId) ?? 0) + 1);
   if (
-    deploymentCalls.length !== chainIds.length ||
-    deploymentCalls.some((call, index) => call.chainId !== chainIds[index])
+    perChain.size !== chainIds.length ||
+    chainIds.some((chainId) => !perChain.has(chainId)) ||
+    [...perChain.values()].some((count) => count > 4)
   )
     invalidInput();
   const jb = jsonObject(parsed.jb);

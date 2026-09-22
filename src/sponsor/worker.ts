@@ -1,4 +1,5 @@
 import type { DeploymentVerifier } from "../deploymentVerifier.js";
+import { callsForChain } from "../intent.js";
 import type { Store } from "../store.js";
 import {
   laneErrorDetail,
@@ -79,7 +80,7 @@ export function createSponsorWorker(options: {
         store.updateDeploy(intentId, chainId, { status: "sent", transactionHash, bundleUuid }),
       confirmed: async (chainId, transactionHash, projectId) => {
         try {
-          const call = intent.envelope.deploymentCalls.find((c) => c.chainId === chainId)!;
+          const call = callsForChain(intent.envelope.deploymentCalls, chainId).launch!;
           await verifier.verify({
             chainId,
             projectId,

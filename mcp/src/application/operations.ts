@@ -139,7 +139,7 @@ const centerIntentEnvelopeShape = {
   deploymentCalls: z
     .array(z.object({ chainId: chainIdSchema, to: addressSchema, data: hexSchema }).strict())
     .min(1)
-    .max(16),
+    .max(64),
   jb: jsonObjectSchema,
 };
 
