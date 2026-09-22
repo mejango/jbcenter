@@ -417,6 +417,19 @@ export class PostgresStore implements Store {
        WHERE status IN ('queued', 'sent') AND attempts >= 3
          AND (lease_until IS NULL OR lease_until < now())`,
     );
+    // A day of waiting is the end of the line for a retried row. A bundle or a recorded
+    // error is the evidence that the lane reached it at all, so a row that waited out a
+    // worker outage is left to be claimed. An unresolved bundle keeps its reservation for
+    // an operator to reconcile; a row that never reached one gives its reservation back.
+    await this.pool.query(
+      `UPDATE intent_deploys SET status = 'failed',
+         error = CASE WHEN bundle_uuid IS NULL THEN 'retries exhausted' ELSE 'bundle unresolved' END,
+         reserved_wei = CASE WHEN bundle_uuid IS NULL THEN 0 ELSE reserved_wei END,
+         updated_at = now()
+       WHERE status IN ('queued', 'sent') AND created_at < now() - interval '24 hours'
+         AND (bundle_uuid IS NOT NULL OR error IS NOT NULL)
+         AND (lease_until IS NULL OR lease_until < now())`,
+    );
     // A 'sent' row whose lease expired carries a bundle, so the worker resumes it.
     const result = await this.pool.query<{ intent_id: string; chain_id: string }>(
       `WITH picked AS (
@@ -445,7 +458,7 @@ export class PostgresStore implements Store {
     // A failed row that carries a bundle keeps its reservation: the prepayment may
     // already have left the key, and the budget must keep counting it.
     await this.pool.query(
-      `UPDATE intent_deploys SET status = $3,
+      `UPDATE intent_deploys SET status = coalesce($3, status),
          transaction_hash = coalesce($4, transaction_hash), bundle_uuid = coalesce($5, bundle_uuid),
          error = $6, spent_wei = coalesce($7::numeric, spent_wei),
          reserved_wei = CASE
@@ -457,7 +470,7 @@ export class PostgresStore implements Store {
       [
         intentId,
         chainId,
-        patch.status,
+        patch.status ?? null,
         patch.transactionHash ?? null,
         patch.bundleUuid ?? null,
         patch.error?.slice(0, DEPLOY_ERROR_LIMIT) ?? null,

@@ -6,6 +6,14 @@ import { RELAYR_LIMITS } from "./constants.js";
 export function fail(code: string, message: string, status = 422): never {
   throw new RestError(status, code, message);
 }
+/** Upstream text carries request URLs with the RPC key and signed payload bytes, so
+ * only authored words, codes and short values survive into a row, event or log line. */
+const SECRETS = [/https?:\/\/\S+/g, /0x[0-9a-fA-F]{20,}/g];
+export function scrub(text: string, limit: number): string {
+  let scrubbed = text;
+  for (const secret of SECRETS) scrubbed = scrubbed.replace(secret, " ");
+  return scrubbed.replace(/\s+/g, " ").trim().slice(0, limit);
+}
 export const same = (a: string, b: string): boolean =>
   a.toLowerCase() === b.toLowerCase();
 export function object(value: unknown): value is Record<string, unknown> {
