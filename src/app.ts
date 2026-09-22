@@ -56,7 +56,7 @@ import {
   sponsorFamily,
   type SponsorRuntime,
 } from "./sponsor/policy.js";
-import type { JbcenterEnv } from "./types.js";
+import type { Intent, JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
 import { llmsIndex } from "./llms.js";
 import { JUICESCAN } from "./journeyGraph.js";
@@ -144,6 +144,20 @@ function positiveInteger(value: unknown, name: string): number {
   }
   return Number(parsed);
 }
+
+/** Every chain of one intent is deployed by one sender. Center signs each chain it deploys
+ * or relays as a forward request from its sponsor, so a deployment that was not forwarded
+ * came from a wallet, and no chain of that intent can be signed by the sponsor any more. */
+function walletDeployed(intent: Intent): boolean {
+  return intent.deployments.some((deployment) => !deployment.forwarded);
+}
+
+const MIXED_SENDER = {
+  error: {
+    code: "mixed_sender",
+    message: "A wallet already deployed a chain of this intent; deploy the rest from it",
+  },
+} as const;
 
 function optionalChainIds(value: unknown, within: number[]): number[] | undefined {
   if (value === undefined) return undefined;
@@ -795,8 +809,13 @@ export function createApp(
       deploymentVersion: intent.envelope.deploymentVersion,
       call,
     };
-    await options.deploymentVerifier.verify(claim);
-    const deployment = await store.recordDeployment(id, claim);
+    const { forwarded } = await options.deploymentVerifier.verify(claim);
+    const deployment = await store.recordDeployment(id, {
+      chainId,
+      projectId: claim.projectId,
+      transactionHash: claim.transactionHash,
+      forwarded,
+    });
     return c.json(deployment, 201);
   });
 
@@ -816,6 +835,7 @@ export function createApp(
     if (intent.deployments.some((deployment) => deployment.chainId === chainId)) {
       throw new BadRequest("chainId already has a deployment");
     }
+    if (walletDeployed(intent)) return c.json(MIXED_SENDER, 409);
     // Center deploys a sponsored chain itself. Handing out a second signed request for one
     // would put a visitor and the sponsor lane on the same forwarder nonce.
     if (isSponsoredChain(chainId)) {
@@ -871,6 +891,7 @@ export function createApp(
     if (!UUID.test(id)) throw new BadRequest("intent id is invalid");
     const intent = await store.getIntent(id);
     if (!intent) return c.json({ error: { code: "not_found", message: "Intent not found" } }, 404);
+    if (walletDeployed(intent)) return c.json(MIXED_SENDER, 409);
     const requested = optionalChainIds((await optionalJson(c)).chainIds, intent.envelope.chainIds);
     const deployed = new Set(intent.deployments.map((deployment) => deployment.chainId));
     if (requested?.some((chainId) => deployed.has(chainId))) {

@@ -100,7 +100,7 @@ describe("RPC deployment verification", () => {
         deploymentVersion: "6",
         call,
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ forwarded: false });
   });
 
   it("rejects reverted, unconfirmed, and mismatched project claims", async () => {
@@ -162,7 +162,7 @@ describe("RPC deployment verification", () => {
         deploymentVersion: "6",
         call,
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ forwarded: false });
   });
 
   it("rejects mismatched, reverted, and malformed committed calls", async () => {
@@ -262,7 +262,7 @@ describe("deployment verifier fast path and testnet configuration", () => {
     const verifier = new RpcDeploymentVerifier(chains, new Map([[84532, reader]]));
     await expect(
       verifier.verify({ ...claim, chainId: 84532, call: { ...call, chainId: 84532 } }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ forwarded: false });
   });
 
   it("a relayed transaction falls back to the trace", async () => {
@@ -274,7 +274,7 @@ describe("deployment verifier fast path and testnet configuration", () => {
     const verifier = new RpcDeploymentVerifier(chains, new Map([[8453, reader]]));
     await expect(
       verifier.verify({ ...claim, chainId: 8453, call: { ...call, chainId: 8453 } }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ forwarded: false });
     expect(reader.traceTransaction).toHaveBeenCalled();
   });
 
@@ -311,7 +311,7 @@ describe("forwarded deployment calls", () => {
       trace: { type: "CALL", to: CANONICAL_FORWARDER, input: "0xdeadbeef", calls: [forwardedFrame(CANONICAL_FORWARDER, call.to, call.data)] },
     });
     const verifier = new RpcDeploymentVerifier(chains, new Map([[chainId, reader]]));
-    await expect(verifier.verify(forwardedClaim)).resolves.toBeUndefined();
+    await expect(verifier.verify(forwardedClaim)).resolves.toEqual({ forwarded: true });
   });
 
   it("rejects appended bytes from any other caller", async () => {

@@ -33,6 +33,7 @@ export type NewDeployment = {
   chainId: number;
   projectId: string;
   transactionHash: Hex;
+  forwarded: boolean;
 };
 
 export type DeployPatch = {

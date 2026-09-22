@@ -55,8 +55,13 @@ export type ReceiptReader = {
 
 export class DeploymentVerificationError extends Error {}
 
+/** How the committed call reached the chain. A forwarded call was made by the canonical
+ * ERC-2771 forwarder, so its `_msgSender()` is the signer of the forward request, not the
+ * wallet that paid for the transaction. */
+export type VerifiedDeployment = { forwarded: boolean };
+
 export interface DeploymentVerifier {
-  verify(claim: DeploymentClaim): Promise<void>;
+  verify(claim: DeploymentClaim): Promise<VerifiedDeployment>;
 }
 
 type TraceCall = {
@@ -120,19 +125,19 @@ function traceCall(value: unknown, depth: number, frames: { count: number }): Tr
  * signer's 20-byte address, so a call made by the canonical forwarder matches when its input is
  * the committed calldata followed by exactly one address.
  */
-function executesCommittedData(call: TraceCall, data: Hex): boolean {
+function executesCommittedData(call: TraceCall, data: Hex): VerifiedDeployment | null {
   const input = call.input.toLowerCase();
   const committed = data.toLowerCase();
-  if (input === committed) return true;
-  return (
-    call.from !== null &&
+  if (input === committed) return { forwarded: false };
+  return call.from !== null &&
     isAddressEqual(call.from, FORWARDER) &&
     input.length === committed.length + FORWARDED_SENDER_HEX_LENGTH &&
     input.startsWith(committed)
-  );
+    ? { forwarded: true }
+    : null;
 }
 
-function containsCommittedCall(trace: unknown, expected: DeploymentCall): boolean {
+function committedCall(trace: unknown, expected: DeploymentCall): VerifiedDeployment | null {
   const root = traceCall(trace, 0, { count: 0 });
   const stack: { call: TraceCall; ancestorFailed: boolean }[] = [
     { call: root, ancestorFailed: false },
@@ -140,12 +145,13 @@ function containsCommittedCall(trace: unknown, expected: DeploymentCall): boolea
   while (stack.length) {
     const { call, ancestorFailed } = stack.pop()!;
     const failed = ancestorFailed || Boolean(call.error);
-    if (!failed && call.type.toUpperCase() === "CALL" && isAddressEqual(call.to, expected.to) && executesCommittedData(call, expected.data)) {
-      return true;
+    if (!failed && call.type.toUpperCase() === "CALL" && isAddressEqual(call.to, expected.to)) {
+      const executed = executesCommittedData(call, expected.data);
+      if (executed) return executed;
     }
     stack.push(...call.calls.map((child) => ({ call: child, ancestorFailed: failed })));
   }
-  return false;
+  return null;
 }
 
 export const PROJECTS = "0x6017d1fba9dc279bfa0b03fd931c22e242ab3691" as Address;
@@ -209,7 +215,7 @@ export class RpcDeploymentVerifier implements DeploymentVerifier {
     }
   }
 
-  async verify(claim: DeploymentClaim): Promise<void> {
+  async verify(claim: DeploymentClaim): Promise<VerifiedDeployment> {
     const config = this.chains.get(claim.chainId);
     const reader = this.readers.get(claim.chainId);
     if (!config || !reader) {
@@ -274,19 +280,21 @@ export class RpcDeploymentVerifier implements DeploymentVerifier {
     const direct =
       transaction.to?.toLowerCase() === claim.call.to.toLowerCase() &&
       transaction.input.toLowerCase() === claim.call.data.toLowerCase();
-    if (!direct) {
-      let trace: unknown;
-      try {
-        trace = await reader.traceTransaction(claim.transactionHash);
-      } catch (error) {
-        if (error instanceof DeploymentVerificationError) throw error;
-        throw new DeploymentVerificationError("Transaction trace is not available from RPC");
-      }
-      if (!containsCommittedCall(trace, claim.call)) {
-        throw new DeploymentVerificationError(
-          "The transaction did not execute the committed deployment call",
-        );
-      }
+    // The payer sent the committed calldata itself, so the deploying sender is their wallet.
+    if (direct) return { forwarded: false };
+    let trace: unknown;
+    try {
+      trace = await reader.traceTransaction(claim.transactionHash);
+    } catch (error) {
+      if (error instanceof DeploymentVerificationError) throw error;
+      throw new DeploymentVerificationError("Transaction trace is not available from RPC");
     }
+    const executed = committedCall(trace, claim.call);
+    if (!executed) {
+      throw new DeploymentVerificationError(
+        "The transaction did not execute the committed deployment call",
+      );
+    }
+    return executed;
   }
 }

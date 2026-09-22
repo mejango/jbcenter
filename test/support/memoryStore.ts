@@ -136,7 +136,13 @@ export class MemoryStore implements Store {
       }
       return existing;
     }
-    const deployment: Deployment = { ...value, createdAt: new Date().toISOString() };
+    const deployment: Deployment = {
+      chainId: value.chainId,
+      projectId: value.projectId,
+      transactionHash: value.transactionHash,
+      forwarded: value.forwarded,
+      createdAt: new Date().toISOString(),
+    };
     intent.deployments.push(deployment);
     intent.status = "deployed";
     return deployment;

@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { zeroAddress, type Hex } from "viem";
@@ -106,9 +107,13 @@ suite("PostgreSQL store", () => {
       chainId: 1,
       projectId: "42",
       transactionHash: `0x${"33".repeat(32)}`,
+      forwarded: false,
     });
     expect((await store!.search("climate", 20, 0, {})).items).toHaveLength(0);
-    expect((await store!.getIntent(created.intent.id))?.deployments[0]?.projectId).toBe("42");
+    expect((await store!.getIntent(created.intent.id))?.deployments[0]).toMatchObject({
+      projectId: "42",
+      forwarded: false,
+    });
 
     const duplicates = await Promise.all(
       Array.from({ length: 20 }, () =>
@@ -394,6 +399,58 @@ suite("PostgreSQL store", () => {
     expect(await store!.claimQueuedDeploys(1000, 10)).toEqual([
       { intentId: sibling.id, chainIds: [84532] },
     ]);
+  });
+
+  it("records which sender deployed a chain and backfills the lane's own rows", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "forwarded sender", chainIds: [84532, 421614] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
+    const laneHash: Hex = `0x${"a1".repeat(32)}`;
+    await store!.updateDeploy(intent.id, 84532, { status: "confirmed", transactionHash: laneHash });
+    await store!.recordDeployment(intent.id, {
+      chainId: 84532,
+      projectId: "51",
+      transactionHash: laneHash,
+      forwarded: true,
+    });
+    await store!.recordDeployment(intent.id, {
+      chainId: 421614,
+      projectId: "52",
+      transactionHash: `0x${"b2".repeat(32)}`,
+      forwarded: false,
+    });
+    const senders = async (): Promise<[number, boolean][]> =>
+      ((await store!.getIntent(intent.id))?.deployments ?? []).map((row) => [
+        row.chainId,
+        row.forwarded,
+      ]);
+    expect(await senders()).toEqual([
+      [84532, true],
+      [421614, false],
+    ]);
+
+    // A row written before the column existed reads false, and the migration's backfill
+    // raises only the chains whose deploy row confirmed the same transaction.
+    await pool!.query("UPDATE deployments SET forwarded = false WHERE intent_id = $1", [intent.id]);
+    await pool!.query(
+      await readFile(
+        new URL("../src/db/migrations/059_deployment_forwarded_sender.sql", import.meta.url),
+        "utf8",
+      ),
+    );
+    expect(await senders()).toEqual([
+      [84532, true],
+      [421614, false],
+    ]);
+
+    const legacy = await pool!.query<{ forwarded: boolean }>(
+      `INSERT INTO deployments (intent_id, chain_id, project_id, transaction_hash)
+       VALUES ($1, 11155111, 53, $2) RETURNING forwarded`,
+      [intent.id, `0x${"c3".repeat(32)}`],
+    );
+    expect(legacy.rows[0]!.forwarded).toBe(false);
   });
 
   it("adds a chain to an intent that already has a queued row", async () => {

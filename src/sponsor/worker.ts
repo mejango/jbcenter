@@ -37,6 +37,15 @@ export function createSponsorWorker(options: {
     let bundleUuid = intent.deploys.find(
       (deploy) => claimed.includes(deploy.chainId) && deploy.bundleUuid,
     )?.bundleUuid;
+    // Nothing was paid, so a chain a wallet deployed meanwhile retires the whole claim: the
+    // sponsor's salts no longer match that chain's, and the projects would never pair.
+    if (!bundleUuid && intent.deployments.some((deployment) => !deployment.forwarded)) {
+      for (const chainId of claimed) {
+        await store.updateDeploy(intentId, chainId, { status: "failed", error: "mixed sender" });
+        onEvent({ event: "failed", intentId, chainId, error: "mixed sender" });
+      }
+      return;
+    }
     // A chain deployed by anyone else is done, whatever the rest of the intent is doing.
     const recorded = new Set(intent.deployments.map((deployment) => deployment.chainId));
     for (const chainId of claimed.filter((chainId) => recorded.has(chainId))) {
@@ -77,7 +86,13 @@ export function createSponsorWorker(options: {
             deploymentVersion: intent.envelope.deploymentVersion,
             call,
           });
-          await store.recordDeployment(intentId, { chainId, projectId, transactionHash });
+          // The lane wraps every launch in a forward request signed by the sponsor.
+          await store.recordDeployment(intentId, {
+            chainId,
+            projectId,
+            transactionHash,
+            forwarded: true,
+          });
           await store.updateDeploy(intentId, chainId, { status: "confirmed", transactionHash });
           done.add(chainId);
         } catch (error) {

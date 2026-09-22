@@ -48,6 +48,9 @@ export type Deployment = {
   chainId: number;
   projectId: string;
   transactionHash: Hex;
+  /** True when the committed call was made by the canonical forwarder, so the deploying
+   * sender is Center's sponsor. False when a wallet sent the committed call itself. */
+  forwarded: boolean;
   createdAt: string;
 };
 
