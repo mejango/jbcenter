@@ -421,13 +421,21 @@ export function parseStatus(
 ): { step: number; providerState: string; hash?: Hex }[] {
   return statusBinding(value, quote);
 }
+/** Operator-only independent deployments, which carry no nonce. */
+export function bindIndependentQuoteStatus(value: unknown, provisional: RelayrQuote<RelayrIndependentEntry>): RelayrQuote<RelayrIndependentEntry> {
+  assertIndependentEntries(provisional.entries.map(item => item.entry));
+  return bindQuoteStatus(value, provisional);
+}
+/** Center-sponsored bundles, whose entries are numbered by virtual nonce. */
+export function bindFamilyQuoteStatus(value: unknown, provisional: RelayrQuote<RelayrEntry>): RelayrQuote<RelayrEntry> {
+  return bindQuoteStatus(value, provisional);
+}
 /** POST UUID order is not request order. Establish the bijection from the GET echo,
  * authenticating the returned UUID set and every requested field before committing it. */
-export function bindIndependentQuoteStatus(value: unknown, provisional: RelayrQuote<RelayrIndependentEntry>): RelayrQuote<RelayrIndependentEntry> {
-  return withStatusDetail(value, () => boundIndependentQuoteStatus(value, provisional));
+function bindQuoteStatus<Entry extends RelayrEntry | RelayrIndependentEntry>(value: unknown, provisional: RelayrQuote<Entry>): RelayrQuote<Entry> {
+  return withStatusDetail(value, () => boundQuoteStatus(value, provisional));
 }
-function boundIndependentQuoteStatus(value: unknown, provisional: RelayrQuote<RelayrIndependentEntry>): RelayrQuote<RelayrIndependentEntry> {
-  assertIndependentEntries(provisional.entries.map(item => item.entry));
+function boundQuoteStatus<Entry extends RelayrEntry | RelayrIndependentEntry>(value: unknown, provisional: RelayrQuote<Entry>): RelayrQuote<Entry> {
   if (!object(value) || value.bundle_uuid !== provisional.bundleUuid || !Array.isArray(value.transactions)
     || value.transactions.length !== provisional.entries.length)
     fail('RELAYR_INVALID_STATUS', 'The stored bundle does not echo every requested call.', 502);
@@ -435,9 +443,7 @@ function boundIndependentQuoteStatus(value: unknown, provisional: RelayrQuote<Re
   const ids = new Set(provisional.entries.map(item => item.txUuid)), used = new Set<string>();
   const entries = provisional.entries.map(({ entry }) => {
     const matches = transactions.filter((item: unknown) => object(item) && object(item.request)
-      && item.request.chain === entry.chain && typeof item.request.target === 'string' && same(item.request.target, entry.target)
-      && typeof item.request.data === 'string' && same(item.request.data, entry.data)
-      && sameProviderValue(item.request.value, entry.value) && item.request.virtual_nonce == null);
+      && requestIsEntry(item.request, entry));
     const item: unknown = matches[0];
     if (matches.length !== 1 || !object(item) || !uuid(item.tx_uuid) || !ids.has(item.tx_uuid) || used.has(item.tx_uuid))
       fail('RELAYR_INVALID_STATUS', 'Provider identifiers do not uniquely bind the exact requested calls.', 502);
@@ -447,8 +453,19 @@ function boundIndependentQuoteStatus(value: unknown, provisional: RelayrQuote<Re
   const { commitment: _previous, ...metadata } = provisional;
   const bound = { ...metadata, entries };
   const quote = { ...bound, commitment: digest(bound) };
-  parseIndependentStatus(value, quote);
+  statusBinding(value, quote);
   return quote;
+}
+/** The exact requested call, field for field; an entry sent unordered carries no nonce,
+ * which the provider may echo as null. */
+function requestIsEntry(request: Record<string, unknown>, entry: RelayrEntry | RelayrIndependentEntry): boolean {
+  return request.chain === entry.chain
+    && typeof request.target === 'string' && same(request.target, entry.target)
+    && typeof request.data === 'string' && same(request.data, entry.data)
+    && sameProviderValue(request.value, entry.value)
+    && (entry.virtual_nonce === undefined
+      ? request.virtual_nonce == null
+      : request.virtual_nonce === entry.virtual_nonce);
 }
 /** Disabled mode has no nonce; Relayr may represent an absent optional field as null. */
 export function parseIndependentStatus(value: unknown, quote: RelayrQuote<RelayrIndependentEntry>) {
