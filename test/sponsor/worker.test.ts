@@ -628,6 +628,57 @@ describe("sponsor worker", () => {
     expect((store.intents[0]!.deploys[0] as unknown as { reservedWei: bigint }).reservedWei).toBe(0n);
   });
 
+  test("an unfunded prepayment leaves the code on the rows, and a day of it retires them", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
+    await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
+    const lane: DeployLane = {
+      resume: vi.fn(async () => {}),
+      deploy: vi.fn(async () => {
+        throw new LaneError("sponsor holds less than the prepayment on chain 8453 by 500 wei", "SPONSOR_UNFUNDED");
+      }),
+    };
+    const events: SponsorEvent[] = [];
+    const worker = createSponsorWorker({
+      store,
+      verifier: { verify: vi.fn() },
+      lane,
+      policy,
+      onEvent: (event) => events.push(event),
+    });
+    await worker.runOnce();
+    await worker.stop();
+    expect((await store.getIntent(intent.id))?.deploys.map((d) => [d.status, d.error])).toEqual([
+      ["queued", "SPONSOR_UNFUNDED"],
+      ["queued", "SPONSOR_UNFUNDED"],
+    ]);
+    expect(events).toEqual([
+      {
+        event: "deferred",
+        intentId: intent.id,
+        chainIds: [84532, 421614],
+        error: "sponsor holds less than the prepayment on chain 8453 by 500 wei",
+      },
+    ]);
+
+    // The code is the evidence the lane reached the rows, so the day-old sweep ends the wait.
+    for (const deploy of store.intents[0]!.deploys as unknown as {
+      createdAt: string;
+      leaseUntil: number | null;
+    }[]) {
+      deploy.createdAt = new Date(Date.now() - 25 * 60 * 60_000).toISOString();
+      deploy.leaseUntil = null;
+    }
+    expect(await store.claimQueuedDeploys(30, 5)).toEqual([]);
+    expect((await store.getIntent(intent.id))?.deploys.map((d) => [d.status, d.error])).toEqual([
+      ["failed", "retries exhausted"],
+      ["failed", "retries exhausted"],
+    ]);
+    expect(
+      (store.intents[0]!.deploys as unknown as { reservedWei: bigint }[]).map((d) => d.reservedWei),
+    ).toEqual([0n, 0n]);
+  });
+
   test("a row queued for a day that was never attempted is still claimed", async () => {
     const store = new MemoryStore();
     const { intent } = await store.createIntent(newIntent({ chainIds: [84532] }), limits);

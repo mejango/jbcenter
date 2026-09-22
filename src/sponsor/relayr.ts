@@ -194,19 +194,30 @@ export function createRelayrLane(options: {
       );
       const candidates = rankPayments(quote.payments, rpcUrls);
       if (candidates.length === 0) return track.failRest("relayr returned no payment option on a configured chain");
-      // The key may hold funds on only some of the offered chains; pay from the first rollup that covers it.
+      // The key may hold funds on only some of the offered chains; pay from the first rollup that
+      // covers it, and name the best-ranked chain's shortfall when none of them does.
       let chosen: { payment: (typeof candidates)[number]; fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }; maxFeePerGas: bigint } | undefined;
+      let shortfall: { chainId: number; wei: bigint } | undefined;
       for (const candidate of candidates) {
         const candidateClient = client(candidate.chainId);
         const fees = await candidateClient.estimateFeesPerGas();
         const cap = fees.maxFeePerGas > policy.maximumFeePerGas ? policy.maximumFeePerGas : fees.maxFeePerGas;
         const balance = await candidateClient.getBalance({ address: signer.address });
-        if (balance >= BigInt(candidate.value) + PAYMENT_GAS * cap) {
+        const needed = BigInt(candidate.value) + PAYMENT_GAS * cap;
+        if (balance >= needed) {
           chosen = { payment: candidate, fees, maxFeePerGas: cap };
           break;
         }
+        shortfall ??= { chainId: candidate.chainId, wei: needed - balance };
       }
-      if (!chosen) return report.deferred("sponsor balance too low");
+      if (!chosen) {
+        // The ranked candidates are non-empty above, so an unchosen payment left a shortfall.
+        const short = shortfall!;
+        throw new LaneError(
+          `sponsor holds less than the prepayment on chain ${short.chainId} by ${short.wei} wei`,
+          "SPONSOR_UNFUNDED",
+        );
+      }
       const { payment, fees, maxFeePerGas } = chosen;
       const paymentClient = client(payment.chainId);
       // The bundle is durable before any ETH leaves the key, so a re-claim resumes it.

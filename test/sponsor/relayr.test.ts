@@ -672,13 +672,16 @@ describe("relayr sponsorship lane", () => {
       balance: PAYMENT_AMOUNT,
     });
 
-    await lane.deploy(intent(chainIds), chainIds, report);
+    // Nothing was submitted, so the rows wait with the code and the worker says why.
+    await expect(lane.deploy(intent(chainIds), chainIds, report)).rejects.toMatchObject({
+      code: "SPONSOR_UNFUNDED",
+      message: expect.stringMatching(/^sponsor holds less than the prepayment on chain 8453 by \d+ wei$/),
+    });
 
     expect(prepayments).toHaveLength(0);
     expect(report.bundle).not.toHaveBeenCalled();
     expect(report.failed).not.toHaveBeenCalled();
-    expect(report.deferred).toHaveBeenCalledWith("sponsor balance too low");
-    // Nothing was submitted, so the worker owns the one line that says why.
+    expect(report.deferred).not.toHaveBeenCalled();
     expect(laneEvents).toEqual([]);
   });
 
