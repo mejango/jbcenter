@@ -1082,6 +1082,97 @@ describe("relayr sponsorship lane", () => {
     expect(report.failed).toHaveBeenCalledWith(8453, "creation fee above the sponsor ceiling");
     expect(report.failed).toHaveBeenCalledWith(10, "creation fee above the sponsor ceiling");
   });
+
+  test("signs a forward request for a chain nobody pays Center to deploy", async () => {
+    const { chain, lane, laneEvents, provider, report } = harness({
+      chainIds: [1],
+      paymentChainId: 1,
+      hashAfter: 1,
+      projectIds: ["12"],
+    });
+
+    const request = await lane.relay(intent([1]), 1);
+
+    expect(request).toEqual({
+      chainId: 1,
+      to: FORWARDER,
+      data: "0x47153f8212345670",
+      value: CREATION_FEE.toString(),
+      gas: "404761",
+      deadline: NOW / 1000 + 1800,
+      setup: [],
+    });
+    expect(chain.prepare).toHaveBeenCalledTimes(1);
+    expect(chain.prepare.mock.calls[0]![1]).toMatchObject({
+      chainId: 1,
+      to: TARGET,
+      value: CREATION_FEE.toString(),
+      label: "intent-relay",
+      dependsOn: [],
+    });
+    expect(chain.prepare.mock.calls[0]![2]).toBe(signer.address);
+    expect(chain.prepare.mock.calls[0]![3]).toBe(0);
+    expect(chain.signed).toHaveBeenCalledTimes(1);
+    expect(chain.signed.mock.calls[0]![2]).toBeUndefined();
+    // Nothing is bundled, paid for or reported: the visitor sends the transaction.
+    expect(provider.create).not.toHaveBeenCalled();
+    expect(report.bundle).not.toHaveBeenCalled();
+    expect(report.sent).not.toHaveBeenCalled();
+    expect(laneEvents).toEqual([
+      { event: "relay", intentId: "intent-1", chainId: 1, deadline: NOW / 1000 + 1800 },
+    ]);
+  });
+
+  test("returns the Safe creations of a relayed chain as plain calls, without the ones that exist", async () => {
+    const { lane } = harness({
+      chainIds: [1],
+      paymentChainId: 1,
+      hashAfter: 1,
+      projectIds: ["12"],
+      setupPerChain: 1,
+    });
+
+    await expect(lane.relay(intent([1], 1), 1)).resolves.toMatchObject({
+      to: FORWARDER,
+      setup: [{ to: SAFE_FACTORY, data: safeCall(1n), value: "0" }],
+    });
+
+    const existing = harness({
+      chainIds: [1],
+      paymentChainId: 1,
+      hashAfter: 1,
+      projectIds: ["12"],
+      setupPerChain: 1,
+      // Every address answers with the factory runtime, so the predicted Safe already exists.
+      code: () => SAFE_FACTORY_RUNTIME,
+    });
+    await expect(existing.lane.relay(intent([1], 1), 1)).resolves.toMatchObject({ setup: [] });
+  });
+
+  test("refuses to prepare a relay the sponsor cannot simulate", async () => {
+    const unfunded = harness({
+      chainIds: [1],
+      paymentChainId: 1,
+      hashAfter: 1,
+      projectIds: ["12"],
+      balance: () => CREATION_FEE - 1n,
+    });
+    await expect(unfunded.lane.relay(intent([1]), 1)).rejects.toMatchObject({
+      code: "SPONSOR_UNFUNDED",
+      message: "sponsor holds less than the creation fee on chain 1 by 1 wei",
+    });
+    expect(unfunded.chain.prepare).not.toHaveBeenCalled();
+
+    const unconfigured = harness({
+      chainIds: [1],
+      paymentChainId: 1,
+      hashAfter: 1,
+      projectIds: ["12"],
+    });
+    await expect(unconfigured.lane.relay(intent([1, 10]), 10)).rejects.toMatchObject({
+      code: "CHAIN_UNCONFIGURED",
+    });
+  });
 });
 
 describe("payment chain choice", () => {

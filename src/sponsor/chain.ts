@@ -15,7 +15,7 @@ import { RestError } from "../rest/core.js";
 import { RelayrResponseError } from "../rest/sponsorship/provider.js";
 import { scrub } from "../rest/sponsorship/validation.js";
 import { ConflictError } from "../store.js";
-import type { Intent } from "../types.js";
+import type { Intent, RelayRequest } from "../types.js";
 
 export { CREATE_TOPIC } from "../deploymentVerifier.js";
 
@@ -139,6 +139,7 @@ export type SponsorEvent =
   | { event: "setup_skipped"; intentId: string; chainId: number; index: number; safe: Address }
   | { event: "setup_reverted"; intentId: string; chainId: number; index: number; transactionHash: Hex }
   | { event: "setup_unobserved"; intentId: string; chainId: number; index: number; transactionHash: Hex }
+  | { event: "relay"; intentId: string; chainId: number; deadline: number }
   | { event: "failed"; intentId: string; chainId: number; error: string }
   | { event: "deferred"; intentId: string; chainIds: number[]; error: string }
   | { event: "status_invalid"; intentId: string; bundleUuid?: string; detail: string };
@@ -172,4 +173,9 @@ export type DeployLane = {
   deploy(intent: Intent, chainIds: number[], report: LaneReport): Promise<void>;
   /** Follow a bundle a previous attempt already paid for, without paying again. */
   resume(intent: Intent, chainIds: number[], bundleUuid: string, report: LaneReport): Promise<void>;
+};
+
+/** Preparing a chain for a sender who is not Center: the sponsor signs, the payer sends. */
+export type RelayLane = {
+  relay(intent: Intent, chainId: number): Promise<RelayRequest>;
 };

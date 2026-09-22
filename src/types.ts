@@ -63,6 +63,19 @@ export type IntentDeploy = {
   updatedAt: string;
 };
 
+/** One chain's launch, signed by Center's sponsor and sent by whoever pays for it. `to` is
+ * the canonical forwarder, `value` and `gas` are decimal wei and gas units, and `setup`
+ * holds the chain's Safe creations, which the payer sends first from any address. */
+export type RelayRequest = {
+  chainId: number;
+  to: Address;
+  data: Hex;
+  value: string;
+  gas: string;
+  deadline: number;
+  setup: { to: Address; data: Hex; value: "0" }[];
+};
+
 export type Intent = IntentMetadata & {
   id: string;
   status: "undeployed" | "deployed";
