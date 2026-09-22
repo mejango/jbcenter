@@ -1,4 +1,5 @@
 import type {
+  JBCenterDeployment,
   JBCenterIntent,
   JBCenterIntentInput,
   JBCenterJson,
@@ -133,6 +134,12 @@ const deployRowSchema = z.object({
 const deployPageSchema = z.object({ deploys: z.array(deployRowSchema).max(16) });
 export type CenterDeployRow = z.infer<typeof deployRowSchema>;
 export type CenterDeployPage = z.infer<typeof deployPageSchema>;
+/** Center names the sender that made each deployment: `forwarded` rides alongside the SDK's
+ * deployment shape, and a deployment that is not forwarded ends Center's part in the intent. */
+export type CenterIntent = Omit<JBCenterIntent, 'deployments'> & {
+  deployments: (JBCenterDeployment & { forwarded: boolean })[];
+};
+
 const intentSchema = z.object({
   ...metadata,
   id: uuidSchema,
@@ -406,7 +413,7 @@ export class CenterClient {
     return parsed.data as JBCenterSearchPage;
   }
 
-  async getIntent(id: string): Promise<JBCenterIntent> {
+  async getIntent(id: string): Promise<CenterIntent> {
     input(uuidSchema, id);
     const parsed = intentSchema.safeParse(await this.read(`v1/intents/${encodeURIComponent(id)}`));
     if (!parsed.success || parsed.data.id.toLowerCase() !== id.toLowerCase()) invalidResponse();
@@ -439,7 +446,7 @@ export class CenterClient {
       invalidResponse();
     if ((parsed.data.status === 'undeployed') !== (parsed.data.deployments.length === 0))
       invalidResponse();
-    return { ...parsed.data, envelope } as JBCenterIntent;
+    return { ...parsed.data, envelope } as CenterIntent;
   }
 
   /**
@@ -500,9 +507,7 @@ export class CenterClient {
   async requestDeploy(id: string, chainIds?: number[]): Promise<CenterDeployPage> {
     input(uuidSchema, id);
     const selected =
-      chainIds === undefined
-        ? undefined
-        : input(z.array(chainIdSchema).min(1).max(16), chainIds);
+      chainIds === undefined ? undefined : input(z.array(chainIdSchema).min(1).max(16), chainIds);
     let payload: unknown;
     try {
       payload = await this.write(

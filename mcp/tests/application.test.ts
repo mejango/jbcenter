@@ -2,8 +2,9 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NATIVE_TOKEN } from '@bananapus/nana-sdk-core';
 import { buildPayTx } from '@bananapus/nana-sdk-core/v6';
-import type { JBCenterIntent, JBCenterSearchPage } from '@bananapus/nana-sdk-core/jbcenter';
+import type { JBCenterSearchPage } from '@bananapus/nana-sdk-core/jbcenter';
 import { encodeFunctionData, type Hex, type PublicClient } from 'viem';
+import type { CenterIntent } from '../src/adapters/jbcenter.js';
 import { createServices, type Services } from '../src/app.js';
 import { createProtocolOperations } from '../src/application/operations.js';
 import { loadConfig } from '../src/config.js';
@@ -115,7 +116,7 @@ function searchIntent(version: string): JBCenterSearchPage['items'][number] {
   };
 }
 
-function intent(version: string): JBCenterIntent {
+function intent(version: string): CenterIntent {
   const {
     intentId,
     source: _source,
