@@ -255,6 +255,46 @@ suite("PostgreSQL store", () => {
     expect(await reservedWei(intent.id, 11155420)).toBe("900");
   });
 
+  it("retires a bundle left unresolved for a day and keeps its reservation", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "seven", chainIds: [11155420] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(intent.id, [11155420], "browser:y", 700n);
+    await store!.updateDeploy(intent.id, 11155420, {
+      status: "sent",
+      transactionHash: HASH,
+      bundleUuid: "bundle-3",
+    });
+    await pool!.query(
+      "UPDATE intent_deploys SET created_at = now() - interval '25 hours' WHERE intent_id = $1",
+      [intent.id],
+    );
+    expect(await store!.claimQueuedDeploys(0, 10)).toEqual([]);
+    expect((await store!.getIntent(intent.id))?.deploys[0]).toMatchObject({
+      status: "failed",
+      error: "bundle unresolved",
+    });
+    // An operator reconciles the row; the prepayment keeps counting against the budget.
+    expect(await reservedWei(intent.id, 11155420)).toBe("700");
+  });
+
+  it("keeps claiming a row without a bundle however long it has waited", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "eight", chainIds: [421614] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(intent.id, [421614], "browser:y", 600n);
+    await pool!.query(
+      "UPDATE intent_deploys SET created_at = now() - interval '25 hours' WHERE intent_id = $1",
+      [intent.id],
+    );
+    // The long lease keeps the row out of the later passes in this suite.
+    expect(await store!.claimQueuedDeploys(1000, 10)).toEqual([
+      { intentId: intent.id, chainIds: [421614] },
+    ]);
+  });
+
   it("caps a stored error and keeps a paid reservation when a chain fails", async () => {
     const { intent } = await store!.createIntent(
       newIntent({ name: "five", chainIds: [421614] }),

@@ -3,6 +3,8 @@ import { MemoryStore } from "../support/memoryStore.js";
 import { createSponsorWorker } from "../../src/sponsor/worker.js";
 import type { DeployLane, SponsorEvent } from "../../src/sponsor/chain.js";
 import { DeploymentVerificationError } from "../../src/deploymentVerifier.js";
+import { RestError } from "../../src/rest/core.js";
+import { LaneError } from "../../src/sponsor/chain.js";
 import { readSponsorPolicy } from "../../src/sponsor/policy.js";
 import type { NewIntent, StorageLimits } from "../../src/store.js";
 
@@ -411,5 +413,184 @@ describe("sponsor worker", () => {
     expect(worker.policy).toBe(policy);
     await worker.runOnce();
     await worker.stop();
+  });
+  test("a retryable failure before any bundle leaves every row queued with the reason", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
+    await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
+    const lane: DeployLane = {
+      resume: vi.fn(async () => {}),
+      deploy: vi.fn(async () => {
+        throw new RestError(502, "SPONSORSHIP_RPC_UNAVAILABLE", "The configured RPC could not simulate.");
+      }),
+    };
+    const events: SponsorEvent[] = [];
+    const worker = createSponsorWorker({
+      store,
+      verifier: { verify: vi.fn() },
+      lane,
+      policy,
+      onEvent: (event) => events.push(event),
+    });
+    await worker.runOnce();
+    await worker.stop();
+    const after = await store.getIntent(intent.id);
+    expect(after?.deploys.map((d) => [d.status, d.error])).toEqual([
+      ["queued", "SPONSORSHIP_RPC_UNAVAILABLE"],
+      ["queued", "SPONSORSHIP_RPC_UNAVAILABLE"],
+    ]);
+    expect(events).toEqual([
+      {
+        event: "deferred",
+        intentId: intent.id,
+        chainIds: [84532, 421614],
+        error: "SPONSORSHIP_RPC_UNAVAILABLE",
+      },
+    ]);
+    expect(
+      (store.intents[0]!.deploys as unknown as { attempts: number }[]).map((d) => d.attempts),
+    ).toEqual([0, 0]);
+    expect(await store.claimQueuedDeploys(30, 5)).toEqual([]);
+  });
+
+  test("an unfunded sponsor defers, and the event names the chain and the shortfall", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532] }), limits);
+    await store.queueDeploys(intent.id, [84532], "browser:x", 10n);
+    const lane: DeployLane = {
+      resume: vi.fn(async () => {}),
+      deploy: vi.fn(async () => {
+        throw new LaneError(
+          "sponsor holds less than the creation fee on chain 84532 by 500 wei",
+          "SPONSOR_UNFUNDED",
+        );
+      }),
+    };
+    const events: SponsorEvent[] = [];
+    const worker = createSponsorWorker({
+      store,
+      verifier: { verify: vi.fn() },
+      lane,
+      policy,
+      onEvent: (event) => events.push(event),
+    });
+    await worker.runOnce();
+    await worker.stop();
+    expect((await store.getIntent(intent.id))?.deploys[0]).toMatchObject({
+      status: "queued",
+      error: "SPONSOR_UNFUNDED",
+    });
+    expect(events).toEqual([
+      {
+        event: "deferred",
+        intentId: intent.id,
+        chainIds: [84532],
+        error: "sponsor holds less than the creation fee on chain 84532 by 500 wei",
+      },
+    ]);
+  });
+
+  test("a status parse failure after the bundle keeps the rows and resumes the bundle", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
+    await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
+    const lane: DeployLane = {
+      resume: vi.fn(async (_i, chainIds, bundleUuid, report) => {
+        for (const chainId of chainIds) {
+          await report.sent(chainId, HASH, bundleUuid);
+          await report.confirmed(chainId, HASH, "9");
+        }
+      }),
+      deploy: vi.fn(async (_i, _c, report) => {
+        await report.bundle(BUNDLE);
+        await report.paid(84532, 700n);
+        throw new RestError(
+          502,
+          "RELAYR_INVALID_STATUS",
+          "Provider status changed the stored transaction binding.",
+          'Provider status changed the stored transaction binding. {"bundle_uuid":"b"}',
+        );
+      }),
+    };
+    const events: SponsorEvent[] = [];
+    const worker = createSponsorWorker({
+      store,
+      verifier: { verify: vi.fn(async () => {}) },
+      lane,
+      policy,
+      onEvent: (event) => events.push(event),
+    });
+    await worker.runOnce();
+    const waiting = await store.getIntent(intent.id);
+    expect(waiting?.deploys.map((d) => [d.status, d.bundleUuid, d.error])).toEqual([
+      ["queued", BUNDLE, "RELAYR_INVALID_STATUS"],
+      ["queued", BUNDLE, "RELAYR_INVALID_STATUS"],
+    ]);
+    expect(events).toEqual([
+      {
+        event: "status_invalid",
+        intentId: intent.id,
+        bundleUuid: BUNDLE,
+        detail: 'Provider status changed the stored transaction binding. {"bundle_uuid":"b"}',
+      },
+      {
+        event: "deferred",
+        intentId: intent.id,
+        chainIds: [84532, 421614],
+        error: "RELAYR_INVALID_STATUS",
+      },
+    ]);
+
+    for (const deploy of store.intents[0]!.deploys as unknown as { leaseUntil: number | null }[])
+      deploy.leaseUntil = Date.now() - 1;
+    await worker.runOnce();
+    await worker.stop();
+    expect(lane.resume).toHaveBeenCalledWith(
+      expect.objectContaining({ id: intent.id }),
+      [84532, 421614],
+      BUNDLE,
+      expect.anything(),
+    );
+    const after = await store.getIntent(intent.id);
+    expect(after?.deploys.map((d) => [d.status, d.error])).toEqual([
+      ["confirmed", null],
+      ["confirmed", null],
+    ]);
+  });
+
+  test("a definitive failure after the bundle still retires every claimed row", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532] }), limits);
+    await store.queueDeploys(intent.id, [84532], "browser:x", 10n);
+    const lane: DeployLane = {
+      resume: vi.fn(async () => {}),
+      deploy: vi.fn(async (_i, _c, report) => {
+        await report.bundle(BUNDLE);
+        throw new DeploymentVerificationError("the Create event is missing");
+      }),
+    };
+    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn() }, lane, policy });
+    await worker.runOnce();
+    await worker.stop();
+    expect((await store.getIntent(intent.id))?.deploys[0]).toMatchObject({
+      status: "failed",
+      error: "the Create event is missing",
+    });
+  });
+
+  test("a bundle unresolved for a day is retired by the next claim, reservation kept", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532] }), limits);
+    await store.queueDeploys(intent.id, [84532], "browser:x", 10n);
+    await store.updateDeploy(intent.id, 84532, { status: "sent", transactionHash: HASH, bundleUuid: BUNDLE });
+    const deploy = store.intents[0]!.deploys[0] as unknown as { createdAt: string };
+    deploy.createdAt = new Date(Date.now() - 25 * 60 * 60_000).toISOString();
+    expect(await store.claimQueuedDeploys(30, 5)).toEqual([]);
+    expect((await store.getIntent(intent.id))?.deploys[0]).toMatchObject({
+      status: "failed",
+      error: "bundle unresolved",
+    });
+    // The prepayment may have left the key, so the reservation keeps counting.
+    expect((store.intents[0]!.deploys[0] as unknown as { reservedWei: bigint }).reservedWei).toBe(10n);
   });
 });

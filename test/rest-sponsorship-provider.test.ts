@@ -22,6 +22,7 @@ import type {
   RelayrEntry,
   RelayrQuote,
 } from "../src/rest/sponsorship/types.js";
+import type { RestError } from "../src/rest/core.js";
 
 const NOW = Date.parse("2026-09-07T00:00:00Z");
 const DEADLINE = BigInt(NOW / 1000 + 300);
@@ -446,6 +447,58 @@ describe("Relayr status is bound to stored exact entries", () => {
         expect.objectContaining({ code: "RELAYR_INVALID_STATUS" }),
       );
     }
+  });
+
+  it("reads a transaction the service has not started yet as pending", () => {
+    const response = statusResponse();
+    for (const absent of [true, false]) {
+      const first: Record<string, unknown> = { ...response.transactions[0] };
+      if (absent) delete first.status;
+      else first.status = null;
+      expect(parseStatus({ ...response, transactions: [first, response.transactions[1]] }, quote())).toEqual([
+        { step: 0, providerState: "Pending" },
+        { step: 1, providerState: "Pending" },
+      ]);
+    }
+  });
+
+  it("reads a status without data as pending and still rejects a status that is not an object", () => {
+    const response = statusResponse();
+    const record = (status: unknown) => ({
+      ...response,
+      transactions: [{ ...response.transactions[0], status }, response.transactions[1]],
+    });
+    expect(parseStatus(record({ state: "Broadcast", data: null }), quote())[0]).toEqual({
+      step: 0,
+      providerState: "Broadcast",
+    });
+    for (const status of ["Pending", 7, []]) {
+      expect(() => parseStatus(record(status), quote())).toThrowError(
+        expect.objectContaining({ code: "RELAYR_INVALID_STATUS" }),
+      );
+    }
+  });
+
+  it("carries the failing check and a scrubbed, bounded snippet of the rejected body", () => {
+    const response = statusResponse();
+    Object.assign(response.transactions[0]!.request, {
+      chain: 1,
+      data: `0x${"ab".repeat(600)}`,
+      note: `fetched from https://relayr.test/SUPER_SECRET ${"z".repeat(5000)}`,
+    });
+    let thrown: unknown;
+    try {
+      parseStatus(response, quote());
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({ code: "RELAYR_INVALID_STATUS", status: 502 });
+    const detail = (thrown as RestError).details as string;
+    expect(detail.startsWith("Provider status changed the stored transaction binding.")).toBe(true);
+    expect(detail).toContain('"chain":1');
+    expect(detail).not.toContain("abab");
+    expect(detail).not.toContain("SUPER_SECRET");
+    expect(detail).toHaveLength(2048);
   });
 
   it("rejects invalid or conflicting destination hashes and unbounded state labels", () => {

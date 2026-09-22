@@ -36,7 +36,8 @@ export type NewDeployment = {
 };
 
 export type DeployPatch = {
-  status: IntentDeployStatus;
+  /** Omitted when the patch only records why a row is waiting. */
+  status?: IntentDeployStatus;
   transactionHash?: Hex;
   bundleUuid?: string;
   error?: string;

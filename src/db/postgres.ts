@@ -417,6 +417,14 @@ export class PostgresStore implements Store {
        WHERE status IN ('queued', 'sent') AND attempts >= 3
          AND (lease_until IS NULL OR lease_until < now())`,
     );
+    // A bundle that never resolved is retired after a day, reservation kept: the
+    // prepayment may have left the key, and an operator records the deployment.
+    await this.pool.query(
+      `UPDATE intent_deploys SET status = 'failed', error = 'bundle unresolved', updated_at = now()
+       WHERE status IN ('queued', 'sent') AND bundle_uuid IS NOT NULL
+         AND created_at < now() - interval '24 hours'
+         AND (lease_until IS NULL OR lease_until < now())`,
+    );
     // A 'sent' row whose lease expired carries a bundle, so the worker resumes it.
     const result = await this.pool.query<{ intent_id: string; chain_id: string }>(
       `WITH picked AS (
@@ -445,7 +453,7 @@ export class PostgresStore implements Store {
     // A failed row that carries a bundle keeps its reservation: the prepayment may
     // already have left the key, and the budget must keep counting it.
     await this.pool.query(
-      `UPDATE intent_deploys SET status = $3,
+      `UPDATE intent_deploys SET status = coalesce($3, status),
          transaction_hash = coalesce($4, transaction_hash), bundle_uuid = coalesce($5, bundle_uuid),
          error = $6, spent_wei = coalesce($7::numeric, spent_wei),
          reserved_wei = CASE
@@ -457,7 +465,7 @@ export class PostgresStore implements Store {
       [
         intentId,
         chainId,
-        patch.status,
+        patch.status ?? null,
         patch.transactionHash ?? null,
         patch.bundleUuid ?? null,
         patch.error?.slice(0, DEPLOY_ERROR_LIMIT) ?? null,

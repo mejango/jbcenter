@@ -1,5 +1,7 @@
 import {
   BaseError,
+  ContractFunctionRevertedError,
+  ExecutionRevertedError,
   HttpRequestError,
   parseAbi,
   RpcRequestError,
@@ -11,6 +13,7 @@ import {
 import { DeploymentVerificationError } from "../deploymentVerifier.js";
 import { RestError } from "../rest/core.js";
 import { RelayrResponseError } from "../rest/sponsorship/provider.js";
+import { scrub } from "../rest/sponsorship/validation.js";
 import { ConflictError } from "../store.js";
 import type { Intent } from "../types.js";
 
@@ -19,10 +22,14 @@ export { CREATE_TOPIC } from "../deploymentVerifier.js";
 export const PROJECTS_ABI = parseAbi(["function creationFee() view returns (uint256)"]);
 
 const ERROR_LIMIT = 300;
-const SECRETS = [/https?:\/\/\S+/g, /0x[0-9a-fA-F]{20,}/g];
 
-/** A lane failure whose text is authored here, safe to show a caller. */
-export class LaneError extends Error {}
+/** A lane failure whose text is authored here, safe to show a caller. A coded one
+ * publishes its code on the row and keeps its sentence for the operator log. */
+export class LaneError extends Error {
+  constructor(message: string, readonly code?: string) {
+    super(message);
+  }
+}
 
 /**
  * Lane failures are published by `GET /v1/intents/:id`, and upstream exceptions carry
@@ -30,22 +37,72 @@ export class LaneError extends Error {}
  * codes and fixed phrases survive.
  */
 export function laneErrorMessage(error: unknown): string {
-  let message = describeError(error);
-  for (const secret of SECRETS) message = message.replace(secret, " ");
-  return message.replace(/\s+/g, " ").trim().slice(0, ERROR_LIMIT) || "lane error";
+  return scrub(describeError(error), ERROR_LIMIT) || "lane error";
+}
+
+/** The same failure as the operator reads it: a coded lane error keeps its sentence. */
+export function laneEventMessage(error: unknown): string {
+  if (error instanceof LaneError && error.code) return scrub(error.message, ERROR_LIMIT) || error.code;
+  return laneErrorMessage(error);
+}
+
+/** The bounded, scrubbed body a coded provider failure carried, for the operator log. */
+export function laneErrorDetail(error: unknown): string | undefined {
+  return error instanceof RestError && typeof error.details === "string" ? error.details : undefined;
+}
+
+export type LaneOutcome = "retry" | "terminal";
+
+/** Codes worth another claim when the sponsor has spent nothing yet. */
+const RETRY_UNPAID = new Set(["SPONSORSHIP_RPC_UNAVAILABLE", "RELAYR_TIMEOUT", "SPONSOR_UNFUNDED"]);
+/** Codes worth another claim once a bundle has been paid for. */
+const RETRY_PAID = new Set(["RELAYR_INVALID_STATUS", "RELAYR_TIMEOUT"]);
+
+/**
+ * Whether a lane failure retires the claimed rows or leaves them waiting. Nothing paid
+ * and nothing definitive said means try again; a paid bundle waits for its own outcome
+ * rather than being abandoned, and only a settled answer retires it.
+ */
+export function laneOutcome(error: unknown, context: { paid: boolean }): LaneOutcome {
+  if (error instanceof DeploymentVerificationError || error instanceof ConflictError)
+    return "terminal";
+  if (reverted(error)) return "terminal";
+  const retryable = context.paid ? RETRY_PAID : RETRY_UNPAID;
+  if (error instanceof LaneError)
+    return error.code !== undefined && retryable.has(error.code) ? "retry" : "terminal";
+  if (error instanceof RelayrResponseError) return error.status >= 500 ? "retry" : "terminal";
+  if (error instanceof RestError) return retryable.has(error.code) ? "retry" : "terminal";
+  if (rpcFailure(error)) return "retry";
+  return context.paid ? "retry" : "terminal";
+}
+
+/** A call the node executed and rejected: sending it again cannot change the answer. */
+function reverted(error: unknown): boolean {
+  return (
+    error instanceof BaseError &&
+    error.walk(
+      (cause) =>
+        cause instanceof ContractFunctionRevertedError || cause instanceof ExecutionRevertedError,
+    ) !== null
+  );
+}
+
+function rpcFailure(error: unknown): boolean {
+  return (
+    error instanceof BaseError &&
+    error.walk((cause) => cause instanceof HttpRequestError || cause instanceof RpcRequestError) !==
+      null
+  );
 }
 
 function describeError(error: unknown): string {
-  if (error instanceof LaneError || error instanceof DeploymentVerificationError) return error.message;
+  if (error instanceof LaneError) return error.code ?? error.message;
+  if (error instanceof DeploymentVerificationError) return error.message;
   if (error instanceof ConflictError) return "another sender already deployed this chain";
   if (error instanceof RelayrResponseError) return "relayr request failed";
   if (error instanceof RestError) return error.code;
-  if (error instanceof BaseError) {
-    const rpc = error.walk(
-      (cause) => cause instanceof HttpRequestError || cause instanceof RpcRequestError,
-    );
-    return rpc ? "rpc request failed" : `${error.name}: ${error.shortMessage ?? "lane error"}`;
-  }
+  if (error instanceof BaseError)
+    return rpcFailure(error) ? "rpc request failed" : `${error.name}: ${error.shortMessage ?? "lane error"}`;
   if (error instanceof Error) return `${error.name}: lane error`;
   return "lane error";
 }
@@ -56,7 +113,8 @@ export type SponsorEvent =
   | { event: "sent"; intentId: string; chainId: number; transactionHash: Hex }
   | { event: "confirmed"; intentId: string; chainId: number; projectId: string }
   | { event: "failed"; intentId: string; chainId: number; error: string }
-  | { event: "deferred"; intentId: string; chainIds: number[]; error: string };
+  | { event: "deferred"; intentId: string; chainIds: number[]; error: string }
+  | { event: "status_invalid"; intentId: string; bundleUuid: string; detail: string };
 
 export type SponsorEvents = (event: SponsorEvent) => void;
 

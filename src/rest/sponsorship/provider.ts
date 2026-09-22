@@ -19,6 +19,7 @@ import {
   object,
   quantity,
   same,
+  scrub,
   uuid,
 } from "./validation.js";
 
@@ -447,7 +448,26 @@ export function parseIndependentStatus(value: unknown, quote: RelayrQuote<Relayr
   assertIndependentEntries(quote.entries.map(item => item.entry));
   return statusBinding(value, quote, true);
 }
+const DETAIL_LIMIT = 2048;
+/** A rejected status is the one body an operator must see to know which check fired;
+ * it reaches the log scrubbed of URLs and payload bytes, never a client response. */
 function statusBinding(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIndependentEntry>, independent: boolean):
+  { step: number; providerState: string; hash?: Hex }[] {
+  try {
+    return boundStatus(value, quote, independent);
+  } catch (error) {
+    if (!(error instanceof RestError) || error.code !== "RELAYR_INVALID_STATUS") throw error;
+    let body: string;
+    try {
+      body = JSON.stringify(value) ?? String(value);
+    } catch {
+      body = "the status body could not be serialized";
+    }
+    throw new RestError(error.status, error.code, error.message,
+      scrub(`${error.message} ${body}`, DETAIL_LIMIT));
+  }
+}
+function boundStatus(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIndependentEntry>, independent: boolean):
   { step: number; providerState: string; hash?: Hex }[] {
   if (
     !object(value) ||
@@ -467,7 +487,7 @@ function statusBinding(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIn
       !uuid(item.tx_uuid) ||
       observed.has(item.tx_uuid) ||
       !object(item.request) ||
-      !object(item.status)
+      (item.status != null && !object(item.status))
     )
       fail(
         "RELAYR_INVALID_STATUS",
@@ -475,6 +495,9 @@ function statusBinding(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIn
         502,
       );
     observed.add(item.tx_uuid);
+    // A transaction the service has not started yet carries no status record: it is
+    // pending, with no hash, and only the request binding is authenticated.
+    const status = object(item.status) ? item.status : null;
     const index = quote.entries.findIndex(
       (entry) => entry.txUuid === item.tx_uuid,
     );
@@ -488,15 +511,14 @@ function statusBinding(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIn
       !same(item.request.data, expected.data) ||
       !sameProviderValue(item.request.value, expected.value) ||
       (independent ? item.request.virtual_nonce != null : item.request.virtual_nonce !== expected.virtual_nonce) ||
-      typeof item.status.state !== "string" ||
-      item.status.state.length > 64
+      (status !== null && (typeof status.state !== "string" || status.state.length > 64))
     )
       fail(
         "RELAYR_INVALID_STATUS",
         "Provider status changed the stored transaction binding.",
         502,
       );
-    const details = object(item.status.data) ? item.status.data : {};
+    const details = status !== null && object(status.data) ? status.data : {};
     const nested = object(details.transaction)
       ? details.transaction.hash
       : undefined;
@@ -519,7 +541,7 @@ function statusBinding(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIn
       );
     return {
       step: index,
-      providerState: item.status.state,
+      providerState: status === null ? "Pending" : (status.state as string),
       ...(txHash === undefined ? {} : { hash: txHash as Hex }),
     };
   });
