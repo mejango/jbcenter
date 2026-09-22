@@ -724,4 +724,31 @@ describe("sponsor worker", () => {
     // The prepayment may have left the key, so the reservation keeps counting.
     expect((store.intents[0]!.deploys[0] as unknown as { reservedWei: bigint }).reservedWei).toBe(10n);
   });
+
+  test("worker verifies the launch call, not the setup call before it", async () => {
+    const store = new MemoryStore();
+    const value = newIntent({ chainIds: [84532] });
+    value.envelope.deploymentCalls = [
+      { chainId: 84532, to: "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67", data: "0xaaaaaaaa" },
+      { chainId: 84532, to: "0x3333333333333333333333333333333333333333", data: "0x12345678" },
+    ];
+    const { intent } = await store.createIntent(value, limits);
+    await store.queueDeploys(intent.id, [84532], "browser:x", 10n);
+    const lane: DeployLane = {
+      resume: vi.fn(async () => {}),
+      deploy: vi.fn(async (_i, _c, report) => {
+        await report.sent(84532, HASH, BUNDLE);
+        await report.confirmed(84532, HASH, "9");
+      }),
+    };
+    const verifier = { verify: vi.fn(async () => {}) };
+    const worker = createSponsorWorker({ store, verifier, lane, policy });
+    await worker.runOnce();
+    await worker.stop();
+    expect(verifier.verify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        call: { chainId: 84532, to: "0x3333333333333333333333333333333333333333", data: "0x12345678" },
+      }),
+    );
+  });
 });

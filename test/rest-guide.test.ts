@@ -54,4 +54,15 @@ describe("readable developer guides", () => {
     expect(raw.headers.get("content-type")).toContain("text/markdown");
     expect(await raw.text()).toBe(markdown);
   });
+
+  it("documents the setup-call rule with the canonical Safe addresses", async () => {
+    const markdown = await readFile(new URL("../docs/rest/PROJECT_INTENTS.md", import.meta.url), "utf8");
+    expect(markdown).toContain("## Setup calls");
+    expect(markdown).toContain("0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67");
+    expect(markdown).toContain("0x41675C099F32341bf84BFc5382aF534df5C7461a");
+    expect(markdown).toContain("0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99");
+    expect(markdown).toContain("jb.safes");
+    expect(markdown).toContain("1 to 4 calls");
+    expect(markdown).not.toMatch(/exactly one .*call per/i);
+  });
 });

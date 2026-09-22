@@ -43,7 +43,7 @@ export class RelayrProvider {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 45_000)
       fail("INVALID_SPONSORSHIP_POLICY", "Invalid provider timeout.", 500);
   }
-  async create(entries: RelayrEntry[], signal?: AbortSignal): Promise<unknown> {
+  async create(entries: (RelayrEntry | RelayrIndependentEntry)[], signal?: AbortSignal): Promise<unknown> {
     return this.createWithMode(entries, "MultiChain", signal);
   }
   /** Operator-only independent contract deployments have no forwarding nonce dependencies. */
@@ -51,7 +51,7 @@ export class RelayrProvider {
     assertIndependentEntries(entries);
     return this.createWithMode(entries, "Disabled", signal);
   }
-  private async createWithMode(entries: RelayrEntry[] | RelayrIndependentEntry[], mode: "MultiChain" | "Disabled", signal?: AbortSignal): Promise<unknown> {
+  private async createWithMode(entries: (RelayrEntry | RelayrIndependentEntry)[], mode: "MultiChain" | "Disabled", signal?: AbortSignal): Promise<unknown> {
     return this.json(
       "/v1/bundle/prepaid",
       {
@@ -324,10 +324,14 @@ export function parseIndependentQuoteBinding(value: unknown, entries: RelayrInde
   return quoteBinding(value, entries, now, paymentFamily(entries));
 }
 /** Center-sponsored deployments pay from the one family every destination belongs to. */
-export function parseFamilyQuote(value: unknown, entries: RelayrEntry[], now: number, maximumValue: bigint): RelayrQuote {
+export function parseFamilyQuote<Entry extends RelayrEntry | RelayrIndependentEntry>(
+  value: unknown,
+  entries: Entry[],
+  now: number,
+  maximumValue: bigint,
+): RelayrQuote<Entry> {
   const quote = quoteBinding(value, entries, now, paymentFamily(entries));
-  for (const payment of quote.payments)
-    assertPaymentEligible(payment, now, maximumValue);
+  for (const payment of quote.payments) assertPaymentEligible(payment, now, maximumValue);
   return quote;
 }
 function paymentFamily(entries: readonly (RelayrEntry | RelayrIndependentEntry)[]): readonly number[] {
@@ -413,9 +417,9 @@ export function assertPaymentEligible(
 }
 export function parseStatus(
   value: unknown,
-  quote: RelayrQuote,
+  quote: RelayrQuote<RelayrEntry | RelayrIndependentEntry>,
 ): { step: number; providerState: string; hash?: Hex }[] {
-  return statusBinding(value, quote, false);
+  return statusBinding(value, quote);
 }
 /** POST UUID order is not request order. Establish the bijection from the GET echo,
  * authenticating the returned UUID set and every requested field before committing it. */
@@ -449,7 +453,7 @@ function boundIndependentQuoteStatus(value: unknown, provisional: RelayrQuote<Re
 /** Disabled mode has no nonce; Relayr may represent an absent optional field as null. */
 export function parseIndependentStatus(value: unknown, quote: RelayrQuote<RelayrIndependentEntry>) {
   assertIndependentEntries(quote.entries.map(item => item.entry));
-  return statusBinding(value, quote, true);
+  return statusBinding(value, quote);
 }
 const DETAIL_LIMIT = 2048;
 /** A rejected status is the one body an operator must see to know which check fired;
@@ -470,11 +474,11 @@ function withStatusDetail<T>(value: unknown, bind: () => T): T {
       scrub(`${error.message} ${body}`, DETAIL_LIMIT));
   }
 }
-function statusBinding(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIndependentEntry>, independent: boolean):
+function statusBinding(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIndependentEntry>):
   { step: number; providerState: string; hash?: Hex }[] {
-  return withStatusDetail(value, () => boundStatus(value, quote, independent));
+  return withStatusDetail(value, () => boundStatus(value, quote));
 }
-function boundStatus(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIndependentEntry>, independent: boolean):
+function boundStatus(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIndependentEntry>):
   { step: number; providerState: string; hash?: Hex }[] {
   if (
     !object(value) ||
@@ -514,7 +518,10 @@ function boundStatus(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrInde
       : typeof item.request.target !== "string" || !same(item.request.target, expected.target) ? "target"
       : typeof item.request.data !== "string" || !same(item.request.data, expected.data) ? "data"
       : !sameProviderValue(item.request.value, expected.value) ? "value"
-      : (independent ? item.request.virtual_nonce != null : item.request.virtual_nonce !== expected.virtual_nonce) ? "virtual_nonce"
+      // An entry with no nonce was sent unordered; the provider may echo that as null.
+      : (expected.virtual_nonce === undefined
+          ? item.request.virtual_nonce != null
+          : item.request.virtual_nonce !== expected.virtual_nonce) ? "virtual_nonce"
       : status !== null && (typeof status.state !== "string" || status.state.length > 64) ? "status.state"
       : null;
     if (changed !== null)

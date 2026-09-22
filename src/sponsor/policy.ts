@@ -28,8 +28,9 @@ export function sponsorFamily(chainIds: number[]): "mainnet" | "testnet" | null 
   return null;
 }
 
-export function reservationWei(policy: SponsorPolicy, chainCount: number): bigint {
-  return BigInt(chainCount) * (policy.maximumGas * policy.maximumFeePerGas + CREATION_FEE_CEILING);
+/** One committed call: the gas the sponsor will sign for plus the creation fee ceiling. */
+export function reservationWei(policy: SponsorPolicy, callCount: number): bigint {
+  return BigInt(callCount) * (policy.maximumGas * policy.maximumFeePerGas + CREATION_FEE_CEILING);
 }
 
 export function readSponsorPolicy(env: NodeJS.ProcessEnv): SponsorPolicy {

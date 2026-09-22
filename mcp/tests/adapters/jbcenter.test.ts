@@ -6,6 +6,7 @@ import {
   CENTER_INTENT_SEMANTICS,
   canonicalCenterJson,
   centerIntentMessage,
+  normalizeCenterIntent,
 } from '../../src/adapters/jbcenter.js';
 import { keccak256, toBytes } from 'viem';
 import type { fetchJson } from '../../src/adapters/http.js';
@@ -109,6 +110,42 @@ describe('Center intent commitment and read boundary', () => {
     await expect(new CenterClient().prepareIntent(makeIntent())).rejects.toMatchObject({
       code: 'INVALID_INPUT',
     });
+  });
+
+  it("keeps a chain's setup calls in order and refuses a fifth call", () => {
+    const FACTORY = '0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67' as const;
+    const TERMINAL = '0x3333333333333333333333333333333333333333' as const;
+    const calls = [
+      { chainId: 8453, to: FACTORY, data: '0xaaaaaaaa' as const },
+      { chainId: 1, to: TERMINAL, data: '0x12345678' as const },
+      { chainId: 8453, to: FACTORY, data: '0xbbbbbbbb' as const },
+      { chainId: 8453, to: TERMINAL, data: '0x12345678' as const },
+    ];
+    const normalized = normalizeCenterIntent({
+      ...intent(),
+      chainIds: [8453, 1],
+      deploymentCalls: calls,
+    });
+    expect(normalized.deploymentCalls.map((call) => [call.chainId, call.data])).toEqual([
+      [1, '0x12345678'],
+      [8453, '0xaaaaaaaa'],
+      [8453, '0xbbbbbbbb'],
+      [8453, '0x12345678'],
+    ]);
+    expect(() =>
+      normalizeCenterIntent({
+        ...intent(),
+        chainIds: [8453],
+        jb: { name: 'Juice', chains: [8453] },
+        deploymentCalls: [
+          { chainId: 8453, to: FACTORY, data: '0xaaaaaaaa' as const },
+          { chainId: 8453, to: FACTORY, data: '0xbbbbbbbb' as const },
+          { chainId: 8453, to: FACTORY, data: '0xcccccccc' as const },
+          { chainId: 8453, to: FACTORY, data: '0xdddddddd' as const },
+          { chainId: 8453, to: TERMINAL, data: '0x12345678' as const },
+        ],
+      }),
+    ).toThrow();
   });
 
   it('rejects oversized, cyclic, and non-JSON payloads before committing', async () => {

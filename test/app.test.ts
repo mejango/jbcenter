@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { encodeFunctionData, zeroAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, originsForEnvironment } from "../src/app.js";
 import { JUICESCAN } from "../src/journeyGraph.js";
 import { DeploymentVerificationError } from "../src/deploymentVerifier.js";
+import { SAFE_ABI, SAFE_FACTORY, SAFE_FALLBACK, SAFE_SINGLETON } from "../src/safe.js";
 import { readSponsorPolicy, reservationWei, type SponsorPolicy } from "../src/sponsor/policy.js";
 import type { RpcGateway } from "../src/rpc.js";
 import type { Store } from "../src/store.js";
@@ -190,6 +192,7 @@ describe("JB Center API", () => {
     const discovery = await (await app.request("/llms.txt")).text();
     expect(discovery).toContain("https://juicebox.center/api/docs/project-intents");
     expect(discovery).toContain("Create a project without a transaction");
+    expect(discovery).toContain("create its Safes and then launch");
     for (const chain of ["eth", "op", "base", "arb", "sep", "opsep", "basesep", "arbsep"]) {
       const result = await app.request(`/inspect/${chain}/42`);
       expect(result.status).toBe(302);
@@ -321,6 +324,66 @@ describe("JB Center API", () => {
     const deployed = (await fetched.json()) as Intent;
     expect(deployed.status).toBe("deployed");
     expect(deployed.deployments[0]?.projectId).toBe("42");
+  });
+
+  it("publishes an intent whose chain creates a Safe before it launches", async () => {
+    const app = createApp(new MemoryStore());
+    const target = "0x3333333333333333333333333333333333333333";
+    const setup = {
+      chainId: 84532,
+      to: SAFE_FACTORY,
+      data: encodeFunctionData({
+        abi: SAFE_ABI,
+        functionName: "createProxyWithNonce",
+        args: [
+          SAFE_SINGLETON,
+          encodeFunctionData({
+            abi: SAFE_ABI,
+            functionName: "setup",
+            args: [
+              ["0x1111111111111111111111111111111111111111"],
+              1n,
+              zeroAddress,
+              "0x",
+              SAFE_FALLBACK,
+              zeroAddress,
+              0n,
+              zeroAddress,
+            ],
+          }),
+          1n,
+        ],
+      }),
+    };
+    const launch = { chainId: 84532, to: target, data: "0x12345678" };
+    const withSetup = {
+      ...envelope,
+      chainIds: [84532],
+      deploymentCalls: [setup, launch],
+      jb: { ...envelope.jb, chains: [84532] },
+    };
+    const published = await publishWith(app, withSetup);
+    expect(published.status).toBe(201);
+    const body = (await published.json()) as Intent;
+    expect(body.envelope.deploymentCalls.map((call) => call.to)).toEqual([SAFE_FACTORY, target]);
+
+    // The envelope is normalized before the signature is checked, so the refusal
+    // reaches a publish that carries any signature at all.
+    const refused = await app.request("/v1/intents", {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({
+        ...withSetup,
+        deploymentCalls: [{ ...setup, to: target }, launch],
+        publisher: account.address,
+        signature: `0x${"11".repeat(65)}`,
+      }),
+    });
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { error: unknown }).error).toMatchObject({
+      code: "bad_request",
+      message: expect.stringContaining("deploymentCalls[0].to"),
+    });
   });
 
   it("filters search by owner and publisher, case-insensitively", async () => {
