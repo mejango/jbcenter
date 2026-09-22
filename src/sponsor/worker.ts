@@ -37,18 +37,7 @@ export function createSponsorWorker(options: {
     let bundleUuid = intent.deploys.find(
       (deploy) => claimed.includes(deploy.chainId) && deploy.bundleUuid,
     )?.bundleUuid;
-    // Nothing was paid, so a deployment recorded meanwhile retires the whole claim.
-    if (!bundleUuid && intent.deployments.length > 0) {
-      for (const chainId of claimed) {
-        await store.updateDeploy(intentId, chainId, {
-          status: "failed",
-          error: "intent already has a deployment",
-        });
-        onEvent({ event: "failed", intentId, chainId, error: "intent already has a deployment" });
-      }
-      return;
-    }
-    // One chain of a bundle recording itself must not retire the chains still in flight.
+    // A chain deployed by anyone else is done, whatever the rest of the intent is doing.
     const recorded = new Set(intent.deployments.map((deployment) => deployment.chainId));
     for (const chainId of claimed.filter((chainId) => recorded.has(chainId))) {
       await store.updateDeploy(intentId, chainId, {

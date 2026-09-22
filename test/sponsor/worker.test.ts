@@ -325,7 +325,36 @@ describe("sponsor worker", () => {
     ]);
   });
 
-  test("an intent that already has a deployment retires its claimed rows without spending", async () => {
+  test("a chain's own deployment retires that row and leaves the others claimable", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
+    await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
+    await store.recordDeployment(intent.id, { chainId: 84532, projectId: "9", transactionHash: HASH });
+    const lane: DeployLane = {
+      resume: vi.fn(async () => {}),
+      deploy: vi.fn(async (_i, chainIds, report) => {
+        expect(chainIds).toEqual([421614]);
+        await report.sent(421614, HASH, BUNDLE);
+        await report.confirmed(421614, HASH, "11");
+      }),
+    };
+    const worker = createSponsorWorker({
+      store,
+      verifier: { verify: vi.fn(async () => {}) },
+      lane,
+      policy,
+    });
+    await worker.runOnce();
+    await worker.stop();
+    expect(lane.deploy).toHaveBeenCalledTimes(1);
+    const after = await store.getIntent(intent.id);
+    expect(after?.deploys.map((row) => [row.chainId, row.status, row.error])).toEqual([
+      [84532, "failed", "chain already deployed"],
+      [421614, "confirmed", null],
+    ]);
+  });
+
+  test("a deployment on the only claimed chain spends nothing", async () => {
     const store = new MemoryStore();
     const { intent } = await store.createIntent(newIntent({ chainIds: [84532] }), limits);
     await store.queueDeploys(intent.id, [84532], "browser:x", 10n);
@@ -336,10 +365,9 @@ describe("sponsor worker", () => {
     await worker.stop();
     expect(lane.deploy).not.toHaveBeenCalled();
     expect(lane.resume).not.toHaveBeenCalled();
-    const after = await store.getIntent(intent.id);
-    expect(after?.deploys[0]).toMatchObject({
+    expect((await store.getIntent(intent.id))?.deploys[0]).toMatchObject({
       status: "failed",
-      error: "intent already has a deployment",
+      error: "chain already deployed",
     });
   });
 
