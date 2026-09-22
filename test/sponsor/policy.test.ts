@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { readSponsorPolicy, reservationWei, sponsorFamily } from "../../src/sponsor/policy.js";
+import {
+  isSponsoredChain,
+  readSponsorPolicy,
+  reservationWei,
+  sponsoredChains,
+  sponsorFamily,
+} from "../../src/sponsor/policy.js";
 
 describe("sponsor policy", () => {
   test("family by chain set", () => {
@@ -8,6 +14,16 @@ describe("sponsor policy", () => {
     expect(sponsorFamily([1, 8453])).toBeNull();
     expect(sponsorFamily([8453, 84532])).toBeNull();
     expect(sponsorFamily([])).toBeNull();
+  });
+
+  test("sponsorship read one chain at a time", () => {
+    expect(sponsoredChains([1, 8453, 10])).toEqual([8453, 10]);
+    expect(sponsoredChains([1])).toEqual([]);
+    expect(sponsoredChains([84532, 421614])).toEqual([84532, 421614]);
+    expect(isSponsoredChain(8453)).toBe(true);
+    expect(isSponsoredChain(11155111)).toBe(true);
+    expect(isSponsoredChain(1)).toBe(false);
+    expect(isSponsoredChain(137)).toBe(false);
   });
 
   test("policy from env with defaults", () => {

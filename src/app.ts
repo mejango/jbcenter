@@ -48,7 +48,14 @@ import {
   type StorageUsage,
   type Store,
 } from "./store.js";
-import { sponsorFamily, reservationWei, type SponsorRuntime } from "./sponsor/policy.js";
+import { LaneError } from "./sponsor/chain.js";
+import {
+  isSponsoredChain,
+  reservationWei,
+  sponsoredChains,
+  sponsorFamily,
+  type SponsorRuntime,
+} from "./sponsor/policy.js";
 import type { JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
 import { llmsIndex } from "./llms.js";
@@ -66,6 +73,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const TX_HASH = /^0x[0-9a-f]{64}$/iu;
 /** Both sponsored-deploy refusals reset on a rolling day. */
 const RETRY_AFTER_SECONDS = "86400";
+/** A relay costs Center one RPC pass, so it has its own hourly allowance. */
+const RELAY_PER_REQUESTER_PER_HOUR = 30;
+const RETRY_AFTER_HOUR = "3600";
 
 class BadRequest extends Error {}
 class PayloadTooLarge extends Error {}
@@ -761,6 +771,65 @@ export function createApp(
     await options.deploymentVerifier.verify(claim);
     const deployment = await store.recordDeployment(id, claim);
     return c.json(deployment, 201);
+  });
+
+  app.post("/v1/intents/:id/relay", async (c) => {
+    const sponsor = options.sponsor;
+    if (!sponsor?.relay || sponsor.policy.paused) {
+      return c.json({ error: { code: "unavailable", message: "Relay requests are paused" } }, 503);
+    }
+    const id = c.req.param("id");
+    if (!UUID.test(id)) throw new BadRequest("intent id is invalid");
+    const intent = await store.getIntent(id);
+    if (!intent) return c.json({ error: { code: "not_found", message: "Intent not found" } }, 404);
+    const chainId = positiveInteger((await json(c)).chainId, "chainId");
+    if (!intent.envelope.chainIds.includes(chainId)) {
+      throw new BadRequest("chainId is not part of this intent");
+    }
+    if (intent.deployments.some((deployment) => deployment.chainId === chainId)) {
+      throw new BadRequest("chainId already has a deployment");
+    }
+    // Center deploys a sponsored chain itself. Handing out a second signed request for one
+    // would put a visitor and the sponsor lane on the same forwarder nonce.
+    if (isSponsoredChain(chainId)) {
+      return c.json(
+        {
+          error: {
+            code: "sponsored_chain",
+            message: "Center deploys this chain; request a deploy",
+          },
+        },
+        400,
+      );
+    }
+    const allowance = await store.consumeRequest(
+      `relay:${c.get("client")}`,
+      RELAY_PER_REQUESTER_PER_HOUR,
+      3600,
+    );
+    if (!allowance.allowed) {
+      return c.json(
+        { error: { code: "relay_limit", message: "Relay request limit reached; try again later" } },
+        429,
+        { "Retry-After": RETRY_AFTER_HOUR },
+      );
+    }
+    try {
+      return c.json(await sponsor.relay(intent, chainId), 200);
+    } catch (error) {
+      // Node and forwarder failures carry request URLs and signed bytes; only the code travels.
+      console.warn(JSON.stringify({
+        level: "warn",
+        service: "center",
+        message: "relay_unavailable",
+        chainId,
+        error: error instanceof LaneError ? (error.code ?? "lane error") : "relay error",
+      }));
+      return c.json(
+        { error: { code: "relay_unavailable", message: "Center could not prepare this chain" } },
+        503,
+      );
+    }
   });
 
   app.post("/v1/intents/:id/deploy", async (c) => {

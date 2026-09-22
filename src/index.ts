@@ -147,13 +147,14 @@ if (sponsorSignerKey) {
     projectsAddress: PROJECTS,
     onEvent: onSponsorEvent,
   });
-  sponsor = createSponsorWorker({
+  const worker = createSponsorWorker({
     store,
     verifier: deploymentVerifier,
     lane,
     policy: sponsorPolicy,
     onEvent: onSponsorEvent,
   });
+  sponsor = { ...worker, relay: (intent, chainId) => lane.relay(intent, chainId) };
 }
 const handler = createHttpHandler(mcp.config, () => createMcpServer(mcp.services), {
   healthPath: "/mcp/healthz",
