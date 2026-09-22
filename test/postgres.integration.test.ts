@@ -468,4 +468,79 @@ suite("PostgreSQL store", () => {
     expect(await reservedWei(intent.id, 84532)).toBe("1000");
     expect(await reservedWei(intent.id, 421614)).toBe("2000");
   });
+
+  it("re-queues a failed chain as a fresh attempt, and only when asked to", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "requeue", chainIds: [11155111] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(intent.id, [11155111], "browser:first", 500n);
+    await store!.claimQueuedDeploys(30, 10);
+    await store!.updateDeploy(intent.id, 11155111, {
+      status: "failed",
+      error: "RELAYR_FUNDING_LIMIT",
+    });
+    await pool!.query(
+      "UPDATE intent_deploys SET created_at = now() - interval '3 days' WHERE intent_id = $1",
+      [intent.id],
+    );
+
+    // A plain queue leaves the failure standing; an unpaid failure holds no reservation.
+    await store!.queueDeploys(intent.id, [11155111], "browser:again", 800n);
+    expect((await store!.listDeploys(intent.id))[0]).toMatchObject({ status: "failed" });
+    expect(await reservedWei(intent.id, 11155111)).toBe("0");
+
+    const rows = await store!.queueDeploys(intent.id, [11155111], "browser:again", 800n, true);
+    expect(rows[0]).toMatchObject({
+      chainId: 11155111,
+      status: "queued",
+      error: null,
+      bundleUuid: null,
+      transactionHash: null,
+    });
+    const row = (
+      await pool!.query<{
+        attempts: number;
+        lease_until: Date | null;
+        requester: string;
+        fresh: boolean;
+      }>(
+        `SELECT attempts, lease_until, requester, created_at > now() - interval '1 minute' AS fresh
+         FROM intent_deploys WHERE intent_id = $1`,
+        [intent.id],
+      )
+    ).rows[0]!;
+    expect(row).toMatchObject({
+      attempts: 0,
+      lease_until: null,
+      requester: "browser:again",
+      fresh: true,
+    });
+    // The new reservation counts against the day, and the worker can claim the row again.
+    expect(await reservedWei(intent.id, 11155111)).toBe("800");
+    expect(await store!.sponsoredWeiSince(new Date(Date.now() - 86_400_000), "browser:again"))
+      .toBe(800n);
+    expect(await store!.claimQueuedDeploys(30, 10)).toContainEqual({
+      intentId: intent.id,
+      chainIds: [11155111],
+    });
+  });
+
+  it("leaves a failed row that still carries a paid bundle as it is", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "requeue paid", chainIds: [11155111] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(intent.id, [11155111], "browser:first", 500n);
+    await store!.claimQueuedDeploys(30, 10);
+    await store!.updateDeploy(intent.id, 11155111, {
+      status: "failed",
+      bundleUuid: "bundle-9",
+      error: "bundle unresolved",
+    });
+
+    const rows = await store!.queueDeploys(intent.id, [11155111], "browser:again", 800n, true);
+    expect(rows[0]).toMatchObject({ status: "failed", bundleUuid: "bundle-9", error: "bundle unresolved" });
+    expect(await reservedWei(intent.id, 11155111)).toBe("500");
+  });
 });

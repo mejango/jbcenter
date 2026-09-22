@@ -72,11 +72,14 @@ export interface Store {
     filters: SearchFilters,
   ): Promise<SearchPage>;
   recordDeployment(intentId: string, value: NewDeployment): Promise<Deployment>;
+  /** With `retryFailed`, a failed row among `chainIds` is reset to a fresh attempt; without it,
+   * every row that already exists is left as it is. */
   queueDeploys(
     intentId: string,
     chainIds: number[],
     requester: string,
     reservedWeiPerChain: bigint,
+    retryFailed?: boolean,
   ): Promise<IntentDeploy[]>;
   listDeploys(intentId: string): Promise<IntentDeploy[]>;
   claimQueuedDeploys(

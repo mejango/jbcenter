@@ -908,8 +908,14 @@ export function createApp(
     if (!selected.length) throw new BadRequest("intent has no sponsored chain left to deploy");
     if (!sponsorFamily(selected)) throw new BadRequest("intent chains are not sponsorable");
     const queued = intent.deploys.filter((deploy) => selected.includes(deploy.chainId));
+    // A named chain that failed is asked for again, so its row counts as absent and the retry is
+    // reserved, budgeted and rated like a first request. An unnamed one keeps its failure.
+    const retryable = (chainId: number) =>
+      requested !== undefined &&
+      intent.deploys.some((deploy) => deploy.chainId === chainId && deploy.status === "failed");
     const fresh = selected.filter(
-      (chainId) => !intent.deploys.some((deploy) => deploy.chainId === chainId),
+      (chainId) =>
+        !intent.deploys.some((deploy) => deploy.chainId === chainId) || retryable(chainId),
     );
     if (!fresh.length) return c.json({ deploys: queued }, 200);
     const requester = c.get("client");
@@ -944,7 +950,13 @@ export function createApp(
         { "Retry-After": RETRY_AFTER_SECONDS },
       );
     }
-    const deploys = await store.queueDeploys(id, fresh, requester, reserved / BigInt(fresh.length));
+    const deploys = await store.queueDeploys(
+      id,
+      fresh,
+      requester,
+      reserved / BigInt(fresh.length),
+      requested !== undefined,
+    );
     sponsor.kick();
     return c.json({ deploys: deploys.filter((deploy) => selected.includes(deploy.chainId)) }, 202);
   });
