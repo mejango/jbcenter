@@ -563,8 +563,9 @@ Content-Type: application/json
 Center executes the intent's own signed calls at its own expense. The body is optional. With no
 body, or with no `chainIds`, Center queues every chain of the intent that it sponsors and that
 has no deployment yet. With `chainIds`, every id must be in the intent, must be one Center
-sponsors, and must have no deployment; an id whose row failed is queued again as a fresh attempt,
-reserved and rated like a first request, and an id with any other row comes back as it is. A
+sponsors, and must have no deployment; an id whose row failed with no paid bundle is queued again as a fresh
+attempt, reserved and rated like a first request; a failed row that still carries a bundle, which
+Relayr may yet execute, and an id with any other row come back as they are. A
 request that names no chain leaves a failed row as it is. The chains queued by one request must
 all be from one family.
 

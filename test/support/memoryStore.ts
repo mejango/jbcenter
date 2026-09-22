@@ -160,7 +160,8 @@ export class MemoryStore implements Store {
       const existing = (intent.deploys as StoredDeploy[]).find(
         (deploy) => deploy.chainId === chainId,
       );
-      if (existing && !(retryFailed && existing.status === "failed")) continue;
+      // A failed row that still carries a bundle may yet execute; only an unpaid failure is retried.
+      if (existing && !(retryFailed && existing.status === "failed" && existing.bundleUuid === null)) continue;
       const now = new Date().toISOString();
       const attempt = {
         status: "queued" as const,

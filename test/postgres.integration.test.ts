@@ -478,8 +478,6 @@ suite("PostgreSQL store", () => {
     await store!.claimQueuedDeploys(30, 10);
     await store!.updateDeploy(intent.id, 11155111, {
       status: "failed",
-      bundleUuid: "bundle-9",
-      transactionHash: HASH,
       error: "RELAYR_FUNDING_LIMIT",
     });
     await pool!.query(
@@ -487,10 +485,10 @@ suite("PostgreSQL store", () => {
       [intent.id],
     );
 
-    // A plain queue leaves the failure standing.
+    // A plain queue leaves the failure standing; an unpaid failure holds no reservation.
     await store!.queueDeploys(intent.id, [11155111], "browser:again", 800n);
     expect((await store!.listDeploys(intent.id))[0]).toMatchObject({ status: "failed" });
-    expect(await reservedWei(intent.id, 11155111)).toBe("500");
+    expect(await reservedWei(intent.id, 11155111)).toBe("0");
 
     const rows = await store!.queueDeploys(intent.id, [11155111], "browser:again", 800n, true);
     expect(rows[0]).toMatchObject({
@@ -526,5 +524,23 @@ suite("PostgreSQL store", () => {
       intentId: intent.id,
       chainIds: [11155111],
     });
+  });
+
+  it("leaves a failed row that still carries a paid bundle as it is", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "requeue paid", chainIds: [11155111] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(intent.id, [11155111], "browser:first", 500n);
+    await store!.claimQueuedDeploys(30, 10);
+    await store!.updateDeploy(intent.id, 11155111, {
+      status: "failed",
+      bundleUuid: "bundle-9",
+      error: "bundle unresolved",
+    });
+
+    const rows = await store!.queueDeploys(intent.id, [11155111], "browser:again", 800n, true);
+    expect(rows[0]).toMatchObject({ status: "failed", bundleUuid: "bundle-9", error: "bundle unresolved" });
+    expect(await reservedWei(intent.id, 11155111)).toBe("500");
   });
 });

@@ -403,7 +403,7 @@ export class PostgresStore implements Store {
          requester = excluded.requester, reserved_wei = excluded.reserved_wei,
          status = 'queued', attempts = 0, error = NULL, bundle_uuid = NULL,
          transaction_hash = NULL, lease_until = NULL, created_at = now(), updated_at = now()
-       WHERE $5::boolean AND intent_deploys.status = 'failed'`,
+       WHERE $5::boolean AND intent_deploys.status = 'failed' AND intent_deploys.bundle_uuid IS NULL`,
       [intentId, chainIds, requester, reservedWeiPerChain.toString(), retryFailed],
     );
     return this.listDeploys(intentId);

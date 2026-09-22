@@ -404,7 +404,7 @@ Content-Type: application/json
 
 An optional `{"chainIds":[...]}` body limits the request to those chains; with no body, every
 sponsored chain of the intent that has no deployment is queued. A named chain whose row failed is
-queued again as a fresh attempt, reserved and rated like a first request; a request that names no
+queued again as a fresh attempt when it carries no paid bundle, reserved and rated like a first request; a request that names no
 chain leaves a failed row as it is. The response is `202` when a chain was queued and `200` when
 every requested chain already has a row, and it carries only the rows the request touched or found.
 The queued chains must be entirely mainnets or entirely testnets from the supported set, never a

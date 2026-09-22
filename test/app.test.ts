@@ -863,8 +863,6 @@ describe("sponsored deploy requests", () => {
     await store.updateDeploy(intent.id, 84532, {
       status: "failed",
       error: "RELAYR_FUNDING_LIMIT",
-      bundleUuid: "bundle-1",
-      transactionHash: `0x${"bb".repeat(32)}`,
     });
 
     // A request that names no chain queues the rest of the intent and leaves the failure standing.
