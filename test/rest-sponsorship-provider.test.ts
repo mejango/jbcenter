@@ -513,7 +513,7 @@ describe("Relayr status is bound to stored exact entries", () => {
     }
     expect(thrown).toMatchObject({ code: "RELAYR_INVALID_STATUS", status: 502 });
     const detail = (thrown as RestError).details as string;
-    expect(detail.startsWith("Provider status changed the stored transaction binding.")).toBe(true);
+    expect(detail.startsWith("Provider status changed the stored transaction binding (chain).")).toBe(true);
     expect(detail).toContain('"chain":1');
     expect(detail).not.toContain("abab");
     expect(detail).not.toContain("SUPER_SECRET");

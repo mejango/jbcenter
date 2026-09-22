@@ -509,20 +509,18 @@ function boundStatus(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrInde
       (entry) => entry.txUuid === item.tx_uuid,
     );
     const expected = quote.entries[index]?.entry;
-    if (
-      !expected ||
-      item.request.chain !== expected.chain ||
-      typeof item.request.target !== "string" ||
-      !same(item.request.target, expected.target) ||
-      typeof item.request.data !== "string" ||
-      !same(item.request.data, expected.data) ||
-      !sameProviderValue(item.request.value, expected.value) ||
-      (independent ? item.request.virtual_nonce != null : item.request.virtual_nonce !== expected.virtual_nonce) ||
-      (status !== null && (typeof status.state !== "string" || status.state.length > 64))
-    )
+    const changed = !expected ? "tx_uuid"
+      : item.request.chain !== expected.chain ? "chain"
+      : typeof item.request.target !== "string" || !same(item.request.target, expected.target) ? "target"
+      : typeof item.request.data !== "string" || !same(item.request.data, expected.data) ? "data"
+      : !sameProviderValue(item.request.value, expected.value) ? "value"
+      : (independent ? item.request.virtual_nonce != null : item.request.virtual_nonce !== expected.virtual_nonce) ? "virtual_nonce"
+      : status !== null && (typeof status.state !== "string" || status.state.length > 64) ? "status.state"
+      : null;
+    if (changed !== null)
       fail(
         "RELAYR_INVALID_STATUS",
-        "Provider status changed the stored transaction binding.",
+        `Provider status changed the stored transaction binding (${changed}).`,
         502,
       );
     const details = status !== null && object(status.data) ? status.data : {};
