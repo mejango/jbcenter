@@ -287,7 +287,10 @@ export function createRelayrLane(options: {
  * defensively and the deployment verifier stays the authority on what each did. */
 function resumedHashes(status: unknown, bundleUuid: string): Map<number, Hex> {
   if (!object(status) || status.bundle_uuid !== bundleUuid || !Array.isArray(status.transactions))
-    throw new LaneError("the execution service status does not match the stored bundle");
+    throw new LaneError(
+      "the execution service status does not match the stored bundle",
+      "RELAYR_INVALID_STATUS",
+    );
   const hashes = new Map<number, Hex>();
   for (const item of status.transactions) {
     if (!object(item) || !object(item.request) || !object(item.status)) continue;

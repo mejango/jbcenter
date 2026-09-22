@@ -186,7 +186,8 @@ export class MemoryStore implements Store {
       for (const deploy of intent.deploys as StoredDeploy[]) {
         if (deploy.status !== "queued" && deploy.status !== "sent") continue;
         if (deploy.leaseUntil !== null && deploy.leaseUntil >= now) continue;
-        const waited = Date.parse(deploy.createdAt) < now - WAITING_LIMIT_MS;
+        const attempted = deploy.bundleUuid !== null || deploy.error !== null;
+        const waited = attempted && Date.parse(deploy.createdAt) < now - WAITING_LIMIT_MS;
         if (deploy.attempts < 3 && !waited) continue;
         deploy.status = "failed";
         deploy.error =

@@ -628,6 +628,16 @@ describe("sponsor worker", () => {
     expect((store.intents[0]!.deploys[0] as unknown as { reservedWei: bigint }).reservedWei).toBe(0n);
   });
 
+  test("a row queued for a day that was never attempted is still claimed", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532] }), limits);
+    await store.queueDeploys(intent.id, [84532], "browser:x", 10n);
+    const deploy = store.intents[0]!.deploys[0] as unknown as { createdAt: string };
+    deploy.createdAt = new Date(Date.now() - 25 * 60 * 60_000).toISOString();
+    expect(await store.claimQueuedDeploys(30, 5)).toEqual([{ intentId: intent.id, chainIds: [84532] }]);
+    expect((await store.getIntent(intent.id))?.deploys[0]).toMatchObject({ status: "queued" });
+  });
+
   test("a definitive failure after the bundle still retires every claimed row", async () => {
     const store = new MemoryStore();
     const { intent } = await store.createIntent(newIntent({ chainIds: [84532] }), limits);

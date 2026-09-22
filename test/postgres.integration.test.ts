@@ -298,6 +298,23 @@ suite("PostgreSQL store", () => {
     expect(await reservedWei(intent.id, 421614)).toBe("0");
   });
 
+  it("still claims a row queued for a day that was never attempted", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "nine", chainIds: [421614] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(intent.id, [421614], "browser:y", 600n);
+    await pool!.query(
+      "UPDATE intent_deploys SET created_at = now() - interval '25 hours' WHERE intent_id = $1",
+      [intent.id],
+    );
+    expect(await store!.claimQueuedDeploys(60, 50)).toContainEqual({
+      intentId: intent.id,
+      chainIds: [421614],
+    });
+    expect((await store!.getIntent(intent.id))?.deploys[0]).toMatchObject({ status: "queued" });
+  });
+
   it("caps a stored error and keeps a paid reservation when a chain fails", async () => {
     const { intent } = await store!.createIntent(
       newIntent({ name: "five", chainIds: [421614] }),

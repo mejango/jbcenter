@@ -53,27 +53,36 @@ export function laneErrorDetail(error: unknown): string | undefined {
 
 export type LaneOutcome = "retry" | "terminal";
 
-/** Codes worth another claim when the sponsor has spent nothing yet. */
-const RETRY_UNPAID = new Set(["SPONSORSHIP_RPC_UNAVAILABLE", "RELAYR_TIMEOUT", "SPONSOR_UNFUNDED"]);
-/** Codes worth another claim once a bundle has been paid for. */
-const RETRY_PAID = new Set(["RELAYR_INVALID_STATUS", "RELAYR_TIMEOUT"]);
+/**
+ * Codes worth another claim when the sponsor has spent nothing yet. The three transport
+ * and parse codes are the bare ones the provider raises when no response exists to wrap.
+ */
+const RETRY_UNPAID = new Set([
+  "SPONSORSHIP_RPC_UNAVAILABLE",
+  "RELAYR_TIMEOUT",
+  "SPONSOR_UNFUNDED",
+  "RELAYR_UNAVAILABLE",
+  "RELAYR_INVALID_RESPONSE",
+  "RELAYR_RESPONSE_LIMIT",
+]);
 
 /**
- * Whether a lane failure retires the claimed rows or leaves them waiting. Nothing paid
- * and nothing definitive said means try again; a paid bundle waits for its own outcome
- * rather than being abandoned, and only a settled answer retires it.
+ * Whether a lane failure retires the claimed rows or leaves them waiting. A paid bundle
+ * is retired only by a definitive answer: anything the execution service, a node or a
+ * parser could not say for certain leaves it waiting. Nothing paid retires on a
+ * definitive answer too, and on anything outside the codes worth another claim.
  */
 export function laneOutcome(error: unknown, context: { paid: boolean }): LaneOutcome {
   if (error instanceof DeploymentVerificationError || error instanceof ConflictError)
     return "terminal";
   if (reverted(error)) return "terminal";
-  const retryable = context.paid ? RETRY_PAID : RETRY_UNPAID;
+  if (context.paid) return "retry";
   if (error instanceof LaneError)
-    return error.code !== undefined && retryable.has(error.code) ? "retry" : "terminal";
+    return error.code !== undefined && RETRY_UNPAID.has(error.code) ? "retry" : "terminal";
   if (error instanceof RelayrResponseError) return error.status >= 500 ? "retry" : "terminal";
-  if (error instanceof RestError) return retryable.has(error.code) ? "retry" : "terminal";
+  if (error instanceof RestError) return RETRY_UNPAID.has(error.code) ? "retry" : "terminal";
   if (rpcFailure(error)) return "retry";
-  return context.paid ? "retry" : "terminal";
+  return "terminal";
 }
 
 /** A call the node executed and rejected: sending it again cannot change the answer. */
@@ -114,7 +123,7 @@ export type SponsorEvent =
   | { event: "confirmed"; intentId: string; chainId: number; projectId: string }
   | { event: "failed"; intentId: string; chainId: number; error: string }
   | { event: "deferred"; intentId: string; chainIds: number[]; error: string }
-  | { event: "status_invalid"; intentId: string; bundleUuid: string; detail: string };
+  | { event: "status_invalid"; intentId: string; bundleUuid?: string; detail: string };
 
 export type SponsorEvents = (event: SponsorEvent) => void;
 

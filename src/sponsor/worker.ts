@@ -120,7 +120,8 @@ export function createSponsorWorker(options: {
           if (!done.has(chainId)) await store.updateDeploy(intentId, chainId, { error: message });
         }
         const detail = laneErrorDetail(error);
-        if (detail && bundleUuid) onEvent({ event: "status_invalid", intentId, bundleUuid, detail });
+        if (detail)
+          onEvent({ event: "status_invalid", intentId, ...(bundleUuid ? { bundleUuid } : {}), detail });
         await report.deferred(laneEventMessage(error));
       }
     }

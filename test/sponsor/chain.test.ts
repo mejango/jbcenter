@@ -88,6 +88,10 @@ describe("lane outcomes", () => {
     for (const error of [
       new RestError(502, "SPONSORSHIP_RPC_UNAVAILABLE", "The configured RPC could not simulate."),
       new RestError(504, "RELAYR_TIMEOUT", "The execution service did not answer."),
+      // The provider raises these bare when no response object exists to wrap.
+      new RestError(502, "RELAYR_UNAVAILABLE", "The execution service could not be reached."),
+      new RestError(502, "RELAYR_INVALID_RESPONSE", "The execution service answered with non-JSON."),
+      new RestError(502, "RELAYR_RESPONSE_LIMIT", "The execution service answered past the limit."),
       new RelayrResponseError(new RestError(502, "RELAYR_UNAVAILABLE", "no answer"), {
         status: 502,
         body: "",
@@ -104,7 +108,6 @@ describe("lane outcomes", () => {
     for (const error of [
       new DeploymentVerificationError("the Create event is missing"),
       new ConflictError("A different deployment"),
-      new LaneError("the status does not match the stored bundle"),
       new RestError(502, "RELAYR_FUNDING_LIMIT", "over budget"),
       new RelayrResponseError(new RestError(499, "RELAYR_CANCELLED", "interrupted"), {
         status: 499,
@@ -123,10 +126,26 @@ describe("lane outcomes", () => {
     for (const error of [
       new RestError(502, "RELAYR_INVALID_STATUS", "Provider status changed the stored transaction binding."),
       new RestError(504, "RELAYR_TIMEOUT", "The execution service did not answer."),
+      new RestError(502, "RELAYR_UNAVAILABLE", "The execution service could not be reached."),
+      new RestError(502, "RELAYR_INVALID_RESPONSE", "The execution service answered with non-JSON."),
+      new RestError(502, "RELAYR_RESPONSE_LIMIT", "The execution service answered past the limit."),
+      new RelayrResponseError(new RestError(499, "RELAYR_CANCELLED", "interrupted"), {
+        status: 499,
+        body: "",
+        complete: false,
+        truncated: false,
+      }),
+      new LaneError("the execution service status does not match the stored bundle", "RELAYR_INVALID_STATUS"),
       rpcFailure,
       new Error("connect ECONNREFUSED"),
     ])
       expect(laneOutcome(error, { paid: true })).toBe("retry");
+  });
+
+  test("a prepayment whose event could not be read waits rather than abandoning the bundle", () => {
+    const error = new RestError(409, "RELAYR_PAYMENT_EVENT_INVALID", "The prepayment logs did not bind.");
+    expect(laneOutcome(error, { paid: true })).toBe("retry");
+    expect(laneOutcome(error, { paid: false })).toBe("terminal");
   });
 
   test("a paid bundle is still retired by a definitive on-chain answer", () => {

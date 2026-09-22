@@ -485,9 +485,10 @@ poll on an interval, not in a tight loop. A row moves `queued` to `sent` to `con
 `failed`. A confirmed chain also writes its `deployments` entry, so `deployments` and `deploys`
 converge. A `queued` or `sent` row may carry an `error` while Center keeps retrying it:
 `SPONSOR_UNFUNDED` (the sponsor key cannot cover that chain's creation fee yet),
-`SPONSORSHIP_RPC_UNAVAILABLE` (a chain could not be read or simulated) and
+`SPONSORSHIP_RPC_UNAVAILABLE` (a chain could not be read or simulated),
 `RELAYR_INVALID_STATUS` (the execution service answered with a status Center would not bind)
-are all waiting states, not outcomes. Keep polling while `status` is not `failed`.
+and `RELAYR_TIMEOUT` (the execution service has not executed the bundle yet) are all waiting
+states, not outcomes. Keep polling while `status` is not `failed`.
 
 `failed` is set only on a definitive outcome — a reverted or unverifiable deployment, a refused
 quote, an exhausted set of attempts — or after 24 hours of waiting: `bundle unresolved` for a row
