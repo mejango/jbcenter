@@ -91,7 +91,9 @@ export function createRelayrLane(options: {
     const hashes = new Map<number, Hex>();
     const started = now();
     while (hashes.size < chainIds.length) {
-      if (now() - started > POLL_LIMIT_MS) return track.failRest(NOT_EXECUTED);
+      // The bundle is paid for by the time it is polled, so an unexecuted one waits
+      // for a later claim; the store retires it once it has waited a day.
+      if (now() - started > POLL_LIMIT_MS) throw new LaneError(NOT_EXECUTED, "RELAYR_TIMEOUT");
       for (const [chainId, hash] of hashesFrom(await provider.status(bundleUuid))) {
         if (!chainIds.includes(chainId) || hashes.has(chainId)) continue;
         hashes.set(chainId, hash);

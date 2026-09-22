@@ -14,8 +14,8 @@ import type { Deployment, Intent, IntentDeploy, SearchPage } from "../../src/typ
 
 /** A released claim waits before the next pass so a dry key does not spin the worker. */
 export const RELEASE_BACKOFF_MS = 5 * 60_000;
-/** A bundle that has not resolved within a day is retired for an operator to reconcile. */
-const BUNDLE_LIMIT_MS = 24 * 60 * 60_000;
+/** A day of waiting is the end of the line for a retried row. */
+const WAITING_LIMIT_MS = 24 * 60 * 60_000;
 
 type StoredDeploy = IntentDeploy & {
   requester: string;
@@ -186,11 +186,15 @@ export class MemoryStore implements Store {
       for (const deploy of intent.deploys as StoredDeploy[]) {
         if (deploy.status !== "queued" && deploy.status !== "sent") continue;
         if (deploy.leaseUntil !== null && deploy.leaseUntil >= now) continue;
-        const unresolved =
-          deploy.bundleUuid !== null && Date.parse(deploy.createdAt) < now - BUNDLE_LIMIT_MS;
-        if (deploy.attempts < 3 && !unresolved) continue;
+        const waited = Date.parse(deploy.createdAt) < now - WAITING_LIMIT_MS;
+        if (deploy.attempts < 3 && !waited) continue;
         deploy.status = "failed";
-        deploy.error = deploy.attempts < 3 ? "bundle unresolved" : "attempts exhausted";
+        deploy.error =
+          deploy.attempts >= 3
+            ? "attempts exhausted"
+            : deploy.bundleUuid === null
+              ? "retries exhausted"
+              : "bundle unresolved";
         // The prepayment may have left the key, so a bundled row keeps its reservation.
         if (deploy.bundleUuid === null) deploy.reservedWei = 0n;
         deploy.updatedAt = new Date().toISOString();

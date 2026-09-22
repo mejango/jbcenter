@@ -479,6 +479,25 @@ describe("Relayr status is bound to stored exact entries", () => {
     }
   });
 
+  it("carries the same bounded detail when an independent bundle echo does not bind", () => {
+    const quote = parseIndependentQuoteBinding(quoteResponse(), independentEntries(), NOW);
+    const status = statusResponse();
+    for (const item of status.transactions) {
+      delete (item.request as Partial<RelayrEntry>).virtual_nonce;
+      Object.assign(item.request, { target: "0x2222222222222222222222222222222222222222" });
+    }
+    let thrown: unknown;
+    try {
+      bindIndependentQuoteStatus(status, quote);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({ code: "RELAYR_INVALID_STATUS" });
+    const detail = (thrown as RestError).details as string;
+    expect(detail.startsWith("Provider identifiers do not uniquely bind")).toBe(true);
+    expect(detail).toContain('"bundle_uuid"');
+  });
+
   it("carries the failing check and a scrubbed, bounded snippet of the rejected body", () => {
     const response = statusResponse();
     Object.assign(response.transactions[0]!.request, {

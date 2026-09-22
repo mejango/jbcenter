@@ -279,20 +279,23 @@ suite("PostgreSQL store", () => {
     expect(await reservedWei(intent.id, 11155420)).toBe("700");
   });
 
-  it("keeps claiming a row without a bundle however long it has waited", async () => {
+  it("retires a row that waited a day without a bundle and releases its reservation", async () => {
     const { intent } = await store!.createIntent(
       newIntent({ name: "eight", chainIds: [421614] }),
       { maxIntents: 100, maxBytes: 1_000_000 },
     );
     await store!.queueDeploys(intent.id, [421614], "browser:y", 600n);
+    await store!.updateDeploy(intent.id, 421614, { error: "SPONSOR_UNFUNDED" });
     await pool!.query(
       "UPDATE intent_deploys SET created_at = now() - interval '25 hours' WHERE intent_id = $1",
       [intent.id],
     );
-    // The long lease keeps the row out of the later passes in this suite.
-    expect(await store!.claimQueuedDeploys(1000, 10)).toEqual([
-      { intentId: intent.id, chainIds: [421614] },
-    ]);
+    expect(await store!.claimQueuedDeploys(0, 10)).toEqual([]);
+    expect((await store!.getIntent(intent.id))?.deploys[0]).toMatchObject({
+      status: "failed",
+      error: "retries exhausted",
+    });
+    expect(await reservedWei(intent.id, 421614)).toBe("0");
   });
 
   it("caps a stored error and keeps a paid reservation when a chain fails", async () => {

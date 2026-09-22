@@ -420,6 +420,9 @@ export function parseStatus(
 /** POST UUID order is not request order. Establish the bijection from the GET echo,
  * authenticating the returned UUID set and every requested field before committing it. */
 export function bindIndependentQuoteStatus(value: unknown, provisional: RelayrQuote<RelayrIndependentEntry>): RelayrQuote<RelayrIndependentEntry> {
+  return withStatusDetail(value, () => boundIndependentQuoteStatus(value, provisional));
+}
+function boundIndependentQuoteStatus(value: unknown, provisional: RelayrQuote<RelayrIndependentEntry>): RelayrQuote<RelayrIndependentEntry> {
   assertIndependentEntries(provisional.entries.map(item => item.entry));
   if (!object(value) || value.bundle_uuid !== provisional.bundleUuid || !Array.isArray(value.transactions)
     || value.transactions.length !== provisional.entries.length)
@@ -451,12 +454,12 @@ export function parseIndependentStatus(value: unknown, quote: RelayrQuote<Relayr
 const DETAIL_LIMIT = 2048;
 /** A rejected status is the one body an operator must see to know which check fired;
  * it reaches the log scrubbed of URLs and payload bytes, never a client response. */
-function statusBinding(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIndependentEntry>, independent: boolean):
-  { step: number; providerState: string; hash?: Hex }[] {
+function withStatusDetail<T>(value: unknown, bind: () => T): T {
   try {
-    return boundStatus(value, quote, independent);
+    return bind();
   } catch (error) {
     if (!(error instanceof RestError) || error.code !== "RELAYR_INVALID_STATUS") throw error;
+    if (typeof error.details === "string") throw error;
     let body: string;
     try {
       body = JSON.stringify(value) ?? String(value);
@@ -466,6 +469,10 @@ function statusBinding(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIn
     throw new RestError(error.status, error.code, error.message,
       scrub(`${error.message} ${body}`, DETAIL_LIMIT));
   }
+}
+function statusBinding(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIndependentEntry>, independent: boolean):
+  { step: number; providerState: string; hash?: Hex }[] {
+  return withStatusDetail(value, () => boundStatus(value, quote, independent));
 }
 function boundStatus(value: unknown, quote: RelayrQuote<RelayrEntry | RelayrIndependentEntry>, independent: boolean):
   { step: number; providerState: string; hash?: Hex }[] {

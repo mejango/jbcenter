@@ -563,7 +563,7 @@ describe("relayr sponsorship lane", () => {
     expect(report.confirmed).toHaveBeenCalledWith(10, hashes.get(10), "3");
   });
 
-  test("fails every unfinished chain when relayr never executes the bundle", async () => {
+  test("raises a timeout, retiring nothing, when relayr has not executed the bundle yet", async () => {
     const chainIds = [8453, 10];
     const { lane, provider, report, waits } = harness({
       chainIds,
@@ -572,14 +572,17 @@ describe("relayr sponsorship lane", () => {
       projectIds: ["12", "3"],
     });
 
-    await lane.resume(intent(chainIds), chainIds, BUNDLE, report);
+    // The bundle was paid for, so the poll limit ends this pass, not the bundle.
+    await expect(lane.resume(intent(chainIds), chainIds, BUNDLE, report)).rejects.toMatchObject({
+      code: "RELAYR_TIMEOUT",
+      message: "relayr did not execute the bundle in time",
+    });
 
     expect(waits).toHaveLength(181);
     expect(provider.status).toHaveBeenCalledTimes(181);
     expect(report.sent).not.toHaveBeenCalled();
     expect(report.confirmed).not.toHaveBeenCalled();
-    expect(report.failed).toHaveBeenCalledWith(8453, "relayr did not execute the bundle in time");
-    expect(report.failed).toHaveBeenCalledWith(10, "relayr did not execute the bundle in time");
+    expect(report.failed).not.toHaveBeenCalled();
   });
 
   test("fails every chain when the prepayment reverts", async () => {

@@ -490,9 +490,10 @@ converge. A `queued` or `sent` row may carry an `error` while Center keeps retry
 are all waiting states, not outcomes. Keep polling while `status` is not `failed`.
 
 `failed` is set only on a definitive outcome — a reverted or unverifiable deployment, a refused
-quote, an exhausted set of attempts — or after 24 hours on a row whose bundle never resolved,
-which reads `bundle unresolved`. An operator reconciles such a row by recording its deployment
-through `POST /v1/intents/:id/deployments` once the execution service shows the hash. A `failed`
+quote, an exhausted set of attempts — or after 24 hours of waiting: `bundle unresolved` for a row
+whose bundle the execution service never resolved, `retries exhausted` for one that never got that
+far. An operator reconciles an unresolved bundle by recording its deployment through
+`POST /v1/intents/:id/deployments` once the execution service shows the hash. A `failed`
 row is terminal for that intent: Center will not retry it and a second
 `POST /v1/intents/:id/deploy` returns the same rows, including the failed one. Recovery is a new
 intent, or the self-paid path for a fresh intent — never a partial self-paid patch over the same

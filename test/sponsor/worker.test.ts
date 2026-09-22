@@ -558,6 +558,76 @@ describe("sponsor worker", () => {
     ]);
   });
 
+  test("a bundle relayr has not executed yet keeps its rows, and the next claim resumes it", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
+    await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
+    const lane: DeployLane = {
+      resume: vi.fn(async (_i, chainIds, bundleUuid, report) => {
+        for (const chainId of chainIds) {
+          await report.sent(chainId, HASH, bundleUuid);
+          await report.confirmed(chainId, HASH, "9");
+        }
+      }),
+      deploy: vi.fn(async (_i, _c, report) => {
+        await report.bundle(BUNDLE);
+        await report.paid(84532, 700n);
+        throw new LaneError("relayr did not execute the bundle in time", "RELAYR_TIMEOUT");
+      }),
+    };
+    const events: SponsorEvent[] = [];
+    const worker = createSponsorWorker({
+      store,
+      verifier: { verify: vi.fn(async () => {}) },
+      lane,
+      policy,
+      onEvent: (event) => events.push(event),
+    });
+    await worker.runOnce();
+    expect((await store.getIntent(intent.id))?.deploys.map((d) => [d.status, d.bundleUuid, d.error])).toEqual([
+      ["queued", BUNDLE, "RELAYR_TIMEOUT"],
+      ["queued", BUNDLE, "RELAYR_TIMEOUT"],
+    ]);
+    expect(events).toEqual([
+      {
+        event: "deferred",
+        intentId: intent.id,
+        chainIds: [84532, 421614],
+        error: "relayr did not execute the bundle in time",
+      },
+    ]);
+
+    for (const deploy of store.intents[0]!.deploys as unknown as { leaseUntil: number | null }[])
+      deploy.leaseUntil = Date.now() - 1;
+    await worker.runOnce();
+    await worker.stop();
+    expect(lane.resume).toHaveBeenCalledWith(
+      expect.objectContaining({ id: intent.id }),
+      [84532, 421614],
+      BUNDLE,
+      expect.anything(),
+    );
+    expect((await store.getIntent(intent.id))?.deploys.map((d) => d.status)).toEqual([
+      "confirmed",
+      "confirmed",
+    ]);
+  });
+
+  test("a row that waited a day without a bundle is retired and its reservation released", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532] }), limits);
+    await store.queueDeploys(intent.id, [84532], "browser:x", 10n);
+    await store.updateDeploy(intent.id, 84532, { error: "SPONSOR_UNFUNDED" });
+    const deploy = store.intents[0]!.deploys[0] as unknown as { createdAt: string };
+    deploy.createdAt = new Date(Date.now() - 25 * 60 * 60_000).toISOString();
+    expect(await store.claimQueuedDeploys(30, 5)).toEqual([]);
+    expect((await store.getIntent(intent.id))?.deploys[0]).toMatchObject({
+      status: "failed",
+      error: "retries exhausted",
+    });
+    expect((store.intents[0]!.deploys[0] as unknown as { reservedWei: bigint }).reservedWei).toBe(0n);
+  });
+
   test("a definitive failure after the bundle still retires every claimed row", async () => {
     const store = new MemoryStore();
     const { intent } = await store.createIntent(newIntent({ chainIds: [84532] }), limits);
