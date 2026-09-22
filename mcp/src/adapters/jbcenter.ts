@@ -159,8 +159,9 @@ const intentSchema = z.object({
           .max(78),
         transactionHash: hashSchema,
         /** True when the launch came through Center's forwarder with Center's sponsor as the
-         * sender, so Center can still sponsor or relay the intent's remaining chains. */
-        forwarded: z.boolean(),
+         * appended sender, so Center can still sponsor or relay the intent's remaining chains.
+         * A Center that does not name the sender reads as false, which refuses sponsorship. */
+        forwarded: z.boolean().default(false),
         createdAt: z.string().max(64),
       }),
     )

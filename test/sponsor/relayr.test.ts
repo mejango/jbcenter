@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
+  decodeFunctionData,
   encodeAbiParameters,
   encodeFunctionData,
   pad,
@@ -16,6 +17,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { getContractCatalog } from "../../src/rest/contracts/catalog.js";
 import type { SponsorshipChain } from "../../src/rest/sponsorship/chain.js";
 import {
+  FORWARDER_ABI,
   FORWARD_REQUEST_TYPES,
   RELAYR_NATIVE_TOKEN,
   RELAYR_PAYMENT_ADDRESS,
@@ -178,10 +180,24 @@ function fakeChain() {
       if (recovered.toLowerCase() !== signer.address.toLowerCase()) {
         throw new Error("the forward request was not signed by the sponsor key");
       }
+      const { nonce: _nonce, ...execution } = request.message;
       return {
         chain: request.chainId,
         target: request.forwarder,
-        data: `0x47153f82${request.message.data.slice(2)}`,
+        // The forwarder call the sender broadcasts, as the production chain encodes it.
+        data: encodeFunctionData({
+          abi: FORWARDER_ABI,
+          functionName: "execute",
+          args: [
+            {
+              ...execution,
+              value: BigInt(execution.value),
+              gas: BigInt(execution.gas),
+              deadline: Number(execution.deadline),
+              signature,
+            },
+          ],
+        }),
         value: request.message.value,
         virtual_nonce: preceding.length,
       };
@@ -1093,10 +1109,9 @@ describe("relayr sponsorship lane", () => {
 
     const request = await lane.relay(intent([1]), 1);
 
-    expect(request).toEqual({
+    expect(request).toMatchObject({
       chainId: 1,
       to: FORWARDER,
-      data: "0x47153f8212345670",
       value: CREATION_FEE.toString(),
       gas: "404761",
       deadline: NOW / 1000 + 1800,
@@ -1121,6 +1136,48 @@ describe("relayr sponsorship lane", () => {
     expect(laneEvents).toEqual([
       { event: "relay", intentId: "intent-1", chainId: 1, deadline: NOW / 1000 + 1800 },
     ]);
+  });
+
+  test("signs the prepared request and hands back the forwarder call that executes it", async () => {
+    const { chain, lane } = harness({
+      chainIds: [1],
+      paymentChainId: 1,
+      hashAfter: 1,
+      projectIds: ["12"],
+    });
+    const signTypedData = vi.spyOn(signer, "signTypedData");
+
+    const request = await lane.relay(intent([1]), 1);
+
+    const prepared: PreparedForwardRequest = await chain.prepare.mock.results[0]!.value;
+    expect(signTypedData).toHaveBeenCalledTimes(1);
+    expect(signTypedData.mock.calls[0]![0]).toEqual({
+      domain: prepared.domain,
+      types: FORWARD_REQUEST_TYPES,
+      primaryType: "ForwardRequest",
+      message: {
+        from: prepared.message.from,
+        to: prepared.message.to,
+        value: BigInt(prepared.message.value),
+        gas: BigInt(prepared.message.gas),
+        nonce: BigInt(prepared.message.nonce),
+        deadline: Number(prepared.message.deadline),
+        data: prepared.message.data,
+      },
+    });
+    const signature = await signTypedData.mock.results[0]!.value;
+    const executed = decodeFunctionData({ abi: FORWARDER_ABI, data: request.data as Hex });
+    expect(executed.functionName).toBe("execute");
+    expect(executed.args[0]).toEqual({
+      from: prepared.message.from,
+      to: prepared.message.to,
+      value: BigInt(prepared.message.value),
+      gas: BigInt(prepared.message.gas),
+      deadline: Number(prepared.message.deadline),
+      data: prepared.message.data,
+      signature,
+    });
+    signTypedData.mockRestore();
   });
 
   test("returns the Safe creations of a relayed chain as plain calls, without the ones that exist", async () => {

@@ -432,14 +432,15 @@ suite("PostgreSQL store", () => {
     ]);
 
     // A row written before the column existed reads false, and the migration's backfill
-    // raises only the chains whose deploy row confirmed the same transaction.
+    // raises only the chains whose deploy row confirmed the same transaction. The statement runs
+    // scoped to this intent, so a suite sharing the database keeps its own rows.
     await pool!.query("UPDATE deployments SET forwarded = false WHERE intent_id = $1", [intent.id]);
-    await pool!.query(
-      await readFile(
-        new URL("../src/db/migrations/059_deployment_forwarded_sender.sql", import.meta.url),
-        "utf8",
-      ),
+    const migration = await readFile(
+      new URL("../src/db/migrations/059_deployment_forwarded_sender.sql", import.meta.url),
+      "utf8",
     );
+    const backfill = migration.slice(migration.indexOf("UPDATE deployments")).trim().replace(/;$/u, "");
+    await pool!.query(`${backfill} AND d.intent_id = $1`, [intent.id]);
     expect(await senders()).toEqual([
       [84532, true],
       [421614, false],

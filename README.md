@@ -416,22 +416,6 @@ and records the deployment. The route answers `503` with no sponsor configured o
 `Retry-After: 86400` once the shared daily sponsorship budget or the requester's daily quota is
 spent. The budget is checked first, so a refused request does not consume the requester's quota.
 
-## Relay a chain the payer sends
-
-```http
-POST /v1/intents/:id/relay
-
-{ "chainId": 1 }
-```
-
-JB Center signs that chain's launch as an ERC-2771 forward request and returns
-`{ chainId, to, data, value, gas, deadline, setup }`. Nothing is stored and nothing is paid: the
-payer sends one transaction to the forwarder with `value` as its value, then records it through
-`POST /v1/intents/:id/deployments`. The deploying sender is still Center's sponsor, so the chain
-pairs with every chain Center deploys itself. A sponsored chain is refused with `sponsored_chain`,
-and the route allows 30 requests per requester per hour. See
-[the guide](docs/rest/PROJECT_INTENTS.md#relay-a-chain-the-payer-sends).
-
 The sponsor charges the budget what it actually spent: when the Relayr prepayment settles, its
 gas and value are written as `spentWei` on the payment's first claimed chain, before any
 destination chain confirms. A chain that fails after a bundle was submitted keeps its reservation,
@@ -444,6 +428,23 @@ are fixed.
 
 Center must run a single replica while sponsoring: the deploy queue is leased, not locked across
 processes.
+
+## Relay a chain the payer sends
+
+```http
+POST /v1/intents/:id/relay
+Content-Type: application/json
+
+{ "chainId": 1 }
+```
+
+JB Center signs that chain's launch as an ERC-2771 forward request and returns
+`{ chainId, to, data, value, gas, deadline, setup }`. Nothing is stored and nothing is paid: the
+payer sends one transaction to the forwarder with `value` as its value, then records it through
+`POST /v1/intents/:id/deployments`. The deploying sender is still Center's sponsor, so the chain
+pairs with every chain Center deploys itself. A sponsored chain is refused with `sponsored_chain`,
+and the route allows 30 requests per requester per hour. See
+[the guide](docs/rest/PROJECT_INTENTS.md#relay-a-chain-the-payer-sends).
 
 ## Authentication boundaries
 
