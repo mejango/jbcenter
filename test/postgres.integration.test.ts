@@ -166,6 +166,22 @@ suite("PostgreSQL store", () => {
     ).rejects.toThrow("quota");
   });
 
+  it("stores every call of a chain in its signed order", async () => {
+    const value = newIntent({ name: "setup calls", chainIds: [84532] });
+    value.envelope.deploymentCalls = [
+      { chainId: 84532, to: "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67", data: "0xaaaaaaaa" },
+      { chainId: 84532, to: "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67", data: "0xbbbbbbbb" },
+      { chainId: 84532, to: "0x3333333333333333333333333333333333333333", data: "0x12345678" },
+    ];
+    const { intent } = await store!.createIntent(value, { maxIntents: 100, maxBytes: 1_000_000 });
+    const stored = await store!.getIntent(intent.id);
+    expect(stored?.envelope.deploymentCalls.map((call) => call.data)).toEqual([
+      "0xaaaaaaaa",
+      "0xbbbbbbbb",
+      "0x12345678",
+    ]);
+  });
+
   it("filters search by owner and publisher without regard to address casing", async () => {
     const owner = "0x5555555555555555555555555555555555555555";
     const publisher = "0x6666666666666666666666666666666666666666";

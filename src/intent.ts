@@ -1,4 +1,5 @@
 import { getAddress, keccak256, size, toBytes, type Address, type Hex } from "viem";
+import { decodeSafeSetupCall, MAX_CALLS_PER_CHAIN, SAFE_FACTORY } from "./safe.js";
 import type { DeploymentCall, IntentEnvelope, Json } from "./types.js";
 
 const MAX_DEPTH = 64;
@@ -39,9 +40,16 @@ function draftChainIds(jb: Record<string, Json>): number[] | null {
     .sort((a, b) => a - b);
 }
 
+const CALL_COUNT =
+  "deploymentCalls must contain 1 to 4 calls for each chainId, the last one launching";
+
 function deploymentCalls(value: unknown, chainIds: number[]): DeploymentCall[] {
-  if (!Array.isArray(value) || value.length !== chainIds.length) {
-    throw new Error("deploymentCalls must contain exactly one call for each chainId");
+  if (
+    !Array.isArray(value) ||
+    value.length < chainIds.length ||
+    value.length > chainIds.length * MAX_CALLS_PER_CHAIN
+  ) {
+    throw new Error(CALL_COUNT);
   }
   const calls = value.map((item, index) => {
     const raw = object(item, `deploymentCalls[${index}]`);
@@ -58,11 +66,41 @@ function deploymentCalls(value: unknown, chainIds: number[]): DeploymentCall[] {
     }
     return { chainId, to, data: raw.data.toLowerCase() as Hex };
   });
-  const callChainIds = calls.map(({ chainId }) => chainId).sort((a, b) => a - b);
-  if (JSON.stringify(callChainIds) !== JSON.stringify(chainIds)) {
-    throw new Error("deploymentCalls must contain exactly one call for each chainId");
+  const groups = new Map<number, { call: DeploymentCall; index: number }[]>();
+  calls.forEach((call, index) => {
+    const group = groups.get(call.chainId) ?? [];
+    group.push({ call, index });
+    groups.set(call.chainId, group);
+  });
+  if (groups.size !== chainIds.length || chainIds.some((chainId) => !groups.has(chainId))) {
+    throw new Error(CALL_COUNT);
   }
+  for (const group of groups.values()) {
+    if (group.length > MAX_CALLS_PER_CHAIN) throw new Error(CALL_COUNT);
+    // The last call for a chain launches the project; each earlier one creates a Safe,
+    // so the sponsor never pays for arbitrary work.
+    for (const { call, index } of group.slice(0, -1)) {
+      if (call.to !== SAFE_FACTORY) {
+        throw new Error(`deploymentCalls[${index}].to must be the canonical Safe proxy factory`);
+      }
+      if (!decodeSafeSetupCall(call)) {
+        throw new Error(
+          `deploymentCalls[${index}].data must create a plain Safe with 1 to 20 unique owners`,
+        );
+      }
+    }
+  }
+  // A stable sort orders the chains and leaves each chain's calls in their signed order.
   return calls.sort((a, b) => a.chainId - b.chainId);
+}
+
+/** The last call for a chain launches the project; every earlier call sets it up. */
+export function callsForChain(
+  calls: readonly DeploymentCall[],
+  chainId: number,
+): { setup: DeploymentCall[]; launch: DeploymentCall | undefined } {
+  const group = calls.filter((call) => call.chainId === chainId);
+  return { setup: group.slice(0, -1), launch: group[group.length - 1] };
 }
 
 export function normalizeEnvelope(value: unknown): IntentEnvelope {
