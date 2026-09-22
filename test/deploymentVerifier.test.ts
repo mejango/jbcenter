@@ -14,6 +14,8 @@ const wrapper = "0x4444444444444444444444444444444444444444" as const;
 const FORWARDER = "0x5555555555555555555555555555555555555555" as const;
 const CANONICAL_FORWARDER = "0x3ba60b60933916a7c87d0860dcee62a0ce34e3e2" as const;
 const SIGNER_SUFFIX = "39b8f61fa47c5e3194baf6bb71dba799edda15fc";
+const SPONSOR = `0x${SIGNER_SUFFIX}` as const;
+const OTHER_SENDER_SUFFIX = "c0ffee0000000000000000000000000000000001";
 const hash = `0x${"22".repeat(32)}` as const;
 const call = { chainId: 1, to: deployer, data: "0x12345678" as const };
 const createEvent = [
@@ -87,7 +89,7 @@ function verifier(receiptReader = fakeReader()) {
       },
     ],
   ]);
-  return new RpcDeploymentVerifier(chains, new Map([[1, receiptReader]]));
+  return new RpcDeploymentVerifier(chains, SPONSOR, new Map([[1, receiptReader]]));
 }
 
 describe("RPC deployment verification", () => {
@@ -139,6 +141,7 @@ describe("RPC deployment verification", () => {
             },
           ],
         ]),
+        SPONSOR,
         new Map([[1, unconfirmed]]),
       ).verify({
         chainId: 1,
@@ -259,7 +262,7 @@ describe("deployment verifier fast path and testnet configuration", () => {
     reader.traceTransaction = vi.fn(async () => {
       throw new Error("trace must not run");
     });
-    const verifier = new RpcDeploymentVerifier(chains, new Map([[84532, reader]]));
+    const verifier = new RpcDeploymentVerifier(chains, SPONSOR, new Map([[84532, reader]]));
     await expect(
       verifier.verify({ ...claim, chainId: 84532, call: { ...call, chainId: 84532 } }),
     ).resolves.toEqual({ forwarded: false });
@@ -271,7 +274,7 @@ describe("deployment verifier fast path and testnet configuration", () => {
       transaction: { to: FORWARDER, input: "0xdeadbeef" },
       trace: callFrame(call.to, call.data),
     });
-    const verifier = new RpcDeploymentVerifier(chains, new Map([[8453, reader]]));
+    const verifier = new RpcDeploymentVerifier(chains, SPONSOR, new Map([[8453, reader]]));
     await expect(
       verifier.verify({ ...claim, chainId: 8453, call: { ...call, chainId: 8453 } }),
     ).resolves.toEqual({ forwarded: false });
@@ -283,7 +286,7 @@ describe("deployment verifier fast path and testnet configuration", () => {
     reader.getTransaction = vi.fn(async () => {
       throw new Error("rpc down");
     });
-    const verifier = new RpcDeploymentVerifier(chains, new Map([[84532, reader]]));
+    const verifier = new RpcDeploymentVerifier(chains, SPONSOR, new Map([[84532, reader]]));
     await expect(
       verifier.verify({ ...claim, chainId: 84532, call: { ...call, chainId: 84532 } }),
     ).rejects.toThrow(DeploymentVerificationError);
@@ -310,7 +313,7 @@ describe("forwarded deployment calls", () => {
       transaction: { to: CANONICAL_FORWARDER, input: "0xdeadbeef" },
       trace: { type: "CALL", to: CANONICAL_FORWARDER, input: "0xdeadbeef", calls: [forwardedFrame(CANONICAL_FORWARDER, call.to, call.data)] },
     });
-    const verifier = new RpcDeploymentVerifier(chains, new Map([[chainId, reader]]));
+    const verifier = new RpcDeploymentVerifier(chains, SPONSOR, new Map([[chainId, reader]]));
     await expect(verifier.verify(forwardedClaim)).resolves.toEqual({ forwarded: true });
   });
 
@@ -320,8 +323,28 @@ describe("forwarded deployment calls", () => {
       transaction: { to: FORWARDER, input: "0xdeadbeef" },
       trace: { type: "CALL", to: FORWARDER, input: "0xdeadbeef", calls: [forwardedFrame(FORWARDER, call.to, call.data)] },
     });
-    const verifier = new RpcDeploymentVerifier(chains, new Map([[chainId, reader]]));
+    const verifier = new RpcDeploymentVerifier(chains, SPONSOR, new Map([[chainId, reader]]));
     await expect(verifier.verify(forwardedClaim)).rejects.toThrow("did not execute the committed deployment call");
+  });
+
+  it("reads a forwarded call from another sender as a deployment Center did not make", async () => {
+    const reader = fakeReader({
+      receipt: successReceipt(createLog(7n)),
+      transaction: { to: CANONICAL_FORWARDER, input: "0xdeadbeef" },
+      trace: { type: "CALL", to: CANONICAL_FORWARDER, input: "0xdeadbeef", calls: [forwardedFrame(CANONICAL_FORWARDER, call.to, call.data, OTHER_SENDER_SUFFIX)] },
+    });
+    const verifier = new RpcDeploymentVerifier(chains, SPONSOR, new Map([[chainId, reader]]));
+    await expect(verifier.verify(forwardedClaim)).resolves.toEqual({ forwarded: false });
+  });
+
+  it("reads every call as unforwarded with no sponsor configured", async () => {
+    const reader = fakeReader({
+      receipt: successReceipt(createLog(7n)),
+      transaction: { to: CANONICAL_FORWARDER, input: "0xdeadbeef" },
+      trace: { type: "CALL", to: CANONICAL_FORWARDER, input: "0xdeadbeef", calls: [forwardedFrame(CANONICAL_FORWARDER, call.to, call.data)] },
+    });
+    const verifier = new RpcDeploymentVerifier(chains, undefined, new Map([[chainId, reader]]));
+    await expect(verifier.verify(forwardedClaim)).resolves.toEqual({ forwarded: false });
   });
 
   it("rejects a forwarder call whose suffix is not exactly one address", async () => {
@@ -330,7 +353,7 @@ describe("forwarded deployment calls", () => {
       transaction: { to: CANONICAL_FORWARDER, input: "0xdeadbeef" },
       trace: { type: "CALL", to: CANONICAL_FORWARDER, input: "0xdeadbeef", calls: [forwardedFrame(CANONICAL_FORWARDER, call.to, call.data, `${SIGNER_SUFFIX}00`)] },
     });
-    const verifier = new RpcDeploymentVerifier(chains, new Map([[chainId, reader]]));
+    const verifier = new RpcDeploymentVerifier(chains, SPONSOR, new Map([[chainId, reader]]));
     await expect(verifier.verify(forwardedClaim)).rejects.toThrow("did not execute the committed deployment call");
   });
 });

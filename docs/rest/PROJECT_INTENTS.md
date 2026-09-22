@@ -264,7 +264,8 @@ There are exactly two valid senders for a whole intent, never mixed:
 
 Center enforces the boundary one chain at a time, and remembers which sender made each chain. A
 recorded deployment carries `forwarded`: true when the committed call came from the canonical
-`ERC2771Forwarder`, false when a wallet sent the committed call itself. A chain that already has
+`ERC2771Forwarder` with Center's sponsor as the appended sender, false when any other sender made
+it, including a wallet that sent the committed call itself. A chain that already has
 a deployment is refused by both routes, and one deployment that is not forwarded closes both
 routes for the whole intent with `409` `mixed_sender` and retires its queued rows. So deploy a
 chain Center does not sponsor with a relay request, never from your own wallet: sent from any
@@ -467,7 +468,7 @@ GET /v1/intents/:id
 | `chainId` | The chain the project was created on |
 | `projectId` | The project id the canonical `JBProjects.Create` event carried |
 | `transactionHash` | The transaction Center verified |
-| `forwarded` | True when the launch was sent through Center's forwarder with Center's sponsor as the sender, which is what lets Center sponsor or relay the remaining chains; false for a deployment the wallet sent itself |
+| `forwarded` | True when the launch was sent through Center's forwarder with Center's sponsor as the appended sender, which is what lets Center sponsor or relay the remaining chains; false for a deployment any other sender made |
 | `createdAt` | When Center recorded it |
 
 `deploys` holds sponsored-deploy rows and is always present, empty until a
@@ -735,7 +736,7 @@ address to a forwarded call). Nested matching covers Safe and Relayr execution.
 
 | Status | Code | Meaning |
 |---|---|---|
-| `201` | — | Recorded. The body carries `forwarded`: true for a call the canonical forwarder made, false for one a wallet sent itself |
+| `201` | — | Recorded. The body carries `forwarded`: true for a call the canonical forwarder made with Center's sponsor as the appended sender, false for one any other sender made |
 | `400` | `bad_request` | Bad id, bad hash, bad `projectId`, or a `chainId` outside the intent |
 | `404` | `not_found` | No such intent |
 | `409` | `conflict` | A different deployment is already recorded for that chain |

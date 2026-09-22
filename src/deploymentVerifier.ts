@@ -56,8 +56,9 @@ export type ReceiptReader = {
 export class DeploymentVerificationError extends Error {}
 
 /** How the committed call reached the chain. A forwarded call was made by the canonical
- * ERC-2771 forwarder, so its `_msgSender()` is the signer of the forward request, not the
- * wallet that paid for the transaction. */
+ * ERC-2771 forwarder with Center's sponsor as the appended sender, so its `_msgSender()` is
+ * the sponsor, not the wallet that paid for the transaction. A forwarded call carrying any
+ * other sender is a valid deployment made by somebody else. */
 export type VerifiedDeployment = { forwarded: boolean };
 
 export interface DeploymentVerifier {
@@ -123,21 +124,33 @@ function traceCall(value: unknown, depth: number, frames: { count: number }): Tr
 /**
  * A direct call carries the committed calldata verbatim. The ERC-2771 forwarder appends the
  * signer's 20-byte address, so a call made by the canonical forwarder matches when its input is
- * the committed calldata followed by exactly one address.
+ * the committed calldata followed by exactly one address. That address is the deploying sender:
+ * only Center's sponsor makes the deployment one Center can pair with.
  */
-function executesCommittedData(call: TraceCall, data: Hex): VerifiedDeployment | null {
+function executesCommittedData(
+  call: TraceCall,
+  data: Hex,
+  sponsor: Address | undefined,
+): VerifiedDeployment | null {
   const input = call.input.toLowerCase();
   const committed = data.toLowerCase();
   if (input === committed) return { forwarded: false };
-  return call.from !== null &&
-    isAddressEqual(call.from, FORWARDER) &&
-    input.length === committed.length + FORWARDED_SENDER_HEX_LENGTH &&
-    input.startsWith(committed)
-    ? { forwarded: true }
-    : null;
+  if (
+    call.from === null ||
+    !isAddressEqual(call.from, FORWARDER) ||
+    input.length !== committed.length + FORWARDED_SENDER_HEX_LENGTH ||
+    !input.startsWith(committed)
+  )
+    return null;
+  const sender = `0x${input.slice(committed.length)}` as Address;
+  return { forwarded: sponsor !== undefined && isAddressEqual(sender, sponsor) };
 }
 
-function committedCall(trace: unknown, expected: DeploymentCall): VerifiedDeployment | null {
+function committedCall(
+  trace: unknown,
+  expected: DeploymentCall,
+  sponsor: Address | undefined,
+): VerifiedDeployment | null {
   const root = traceCall(trace, 0, { count: 0 });
   const stack: { call: TraceCall; ancestorFailed: boolean }[] = [
     { call: root, ancestorFailed: false },
@@ -146,7 +159,7 @@ function committedCall(trace: unknown, expected: DeploymentCall): VerifiedDeploy
     const { call, ancestorFailed } = stack.pop()!;
     const failed = ancestorFailed || Boolean(call.error);
     if (!failed && call.type.toUpperCase() === "CALL" && isAddressEqual(call.to, expected.to)) {
-      const executed = executesCommittedData(call, expected.data);
+      const executed = executesCommittedData(call, expected.data, sponsor);
       if (executed) return executed;
     }
     stack.push(...call.calls.map((child) => ({ call: child, ancestorFailed: failed })));
@@ -178,8 +191,10 @@ export function canonicalDeploymentChains(upstreams: RpcUpstreams): Map<number, 
 export class RpcDeploymentVerifier implements DeploymentVerifier {
   private readonly readers: Map<number, ReceiptReader>;
 
+  /** Without a sponsor address no deployment reads as forwarded, which refuses sponsorship. */
   constructor(
     private readonly chains: Map<number, ChainRpcConfig>,
+    private readonly sponsor?: Address,
     readers?: Map<number, ReceiptReader>,
   ) {
     this.readers = readers ?? new Map<number, ReceiptReader>();
@@ -289,7 +304,7 @@ export class RpcDeploymentVerifier implements DeploymentVerifier {
       if (error instanceof DeploymentVerificationError) throw error;
       throw new DeploymentVerificationError("Transaction trace is not available from RPC");
     }
-    const executed = committedCall(trace, claim.call);
+    const executed = committedCall(trace, claim.call, this.sponsor);
     if (!executed) {
       throw new DeploymentVerificationError(
         "The transaction did not execute the committed deployment call",
