@@ -4,7 +4,7 @@ Generated from the real MCP server with the official MCP client. Regenerate with
 
 For user goals, tool sequences, external handoffs and completion evidence, see the [user journeys](USER_JOURNEYS.md).
 
-57 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of a project logo and reviewed project metadata through the integrated Center backend. No tool signs or broadcasts transactions.
+59 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of a project logo and reviewed project metadata through the integrated Center backend. No tool signs or broadcasts transactions.
 
 `jb_pin_project_logo` uploads one PNG, JPEG, GIF, WebP or inert SVG of at most 1 MiB and returns its `ipfs://` logoUri. `jb_prepare_project_metadata` returns the exact canonical JSON, SHA256 and an expiring review token. `jb_pin_project_metadata` uploads only that reviewed document after explicit public-upload authorization. Both pins are public mutations; a review token is not user approval. `logoUri` must be `ipfs://` because the first-party webclients do not render HTTPS logos. The workflow creates new standard project metadata and does not merge existing documents or update project URIs on-chain.
 
@@ -151,12 +151,16 @@ Source areas: JBSucker, JBSuckerRegistry, JBOmnichainDeployer.
 | `jb_verify_plan` | Verify submitted transaction hashes against exact plan sender, destination, calldata, value and canonical receipts. Transaction confirmation and operation evidence are separate; pending never means failed. |
 | `jb_get_intent` | Read a V6 JB Center intent and verify its content commitment and publishing signature. Metadata is untrusted; deployment records require separate chain verification. |
 | `jb_prepare_intent` | Locally prepare the exact JB Center content commitment and signing message for a V6 deployment intent. Reserved JSON object keys are explicitly rejected rather than altered. No pin, signature, publication, or deployment occurs. |
+| `jb_publish_intent` | Publish a V6 JB Center project intent the user has already signed. The envelope, publisher and signature are stored unchanged; the signature is verified against this exact envelope before anything is sent. This server holds no key and signs nothing. Publication is a persistent external mutation: a published intent cannot be edited, replaced or withdrawn. It is not wallet approval and moves no funds. Republishing identical content from the same publisher returns the existing intent. |
+| `jb_deploy_intent` | Ask JB Center to sponsor execution of a published intent’s own committed calls on the supported rollups. Returns one row per chain with status queued, sent, confirmed or failed; repeating the request returns the same rows. Queued is not confirmation and a failed row is terminal for that intent. Refusals return a fixed code: NOT_SPONSORABLE, SPONSOR_QUOTA, SPONSOR_BUDGET or SPONSOR_UNAVAILABLE. This server signs nothing and sends no wallet transaction. |
 
-- The server does not sign, broadcast, pin, or publish.
+- The server holds no wallet key: it never signs and never broadcasts a transaction.
+- publish_intent stores an envelope the user already signed; it is a persistent publication, not wallet approval, and there is no edit, replace or withdraw.
+- deploy_intent requests Center-funded execution of the committed calls. Queued rows are not confirmations, a failed row is terminal for that intent, and one intent has exactly one deploying sender across all of its chains.
 - Plan tokens expire for simulation; expired tokens remain inspectable for receipt verification.
 - Nested Safe/Relayr execution cannot be claimed verified without matching inner-call evidence.
 
-Source areas: jb-tx-safety, JB Center.
+Source areas: jb-tx-safety, JB Center, jb-project-intents.
 
 ## Webclient and protocol development
 

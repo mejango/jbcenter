@@ -4,7 +4,8 @@ import { Marked, type Tokens } from "marked";
 const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 const navigation = [
   ["quickstart", "Get started"], ["client", "Client workflows"], ["authentication", "Authentication"],
-  ["transactions", "Transactions"], ["sponsorship", "Prepaid execution"], ["smart-accounts", "Smart wallets"],
+  ["transactions", "Transactions"], ["project-intents", "Project intents"],
+  ["sponsorship", "Prepaid execution"], ["smart-accounts", "Smart wallets"],
   ["client#run-payments-without-another-owner-prompt", "Unattended payments"],
   ["contracts", "Contract calls"], ["indexer", "Indexed data"], ["api", "Full reference"],
 ];

@@ -1,7 +1,13 @@
 import type { JBCenterIntentInput, JBCenterJsonObject } from '@bananapus/nana-sdk-core/jbcenter';
 import { privateKeyToAccount } from 'viem/accounts';
 import { describe, expect, it, vi } from 'vitest';
-import { CenterClient, CENTER_INTENT_SEMANTICS } from '../../src/adapters/jbcenter.js';
+import {
+  CenterClient,
+  CENTER_INTENT_SEMANTICS,
+  canonicalCenterJson,
+  centerIntentMessage,
+} from '../../src/adapters/jbcenter.js';
+import { keccak256, toBytes } from 'viem';
 import type { fetchJson } from '../../src/adapters/http.js';
 
 const ID = 'b0a555ff-4444-4111-aaaa-333333333333';
@@ -220,5 +226,60 @@ describe('Center intent commitment and read boundary', () => {
       retryable: true,
     });
     await expect(center.search()).rejects.not.toThrow('secret integration token');
+  });
+});
+
+const ENVELOPE = {
+  format: 'juicebox.money/v1',
+  deploymentVersion: '6',
+  chainIds: [84532],
+  deploymentCalls: [
+    { chainId: 84532, to: '0x3333333333333333333333333333333333333333', data: '0x12345678' },
+  ],
+  jb: { v: 1, name: 'Unit', chains: [84532] },
+} as const;
+
+describe('CenterClient writes', () => {
+  it('sends the normalized envelope and rejects a mismatched signature without a request', async () => {
+    const account = privateKeyToAccount(`0x${'11'.repeat(32)}`);
+    const hash = keccak256(toBytes(canonicalCenterJson(ENVELOPE as never)));
+    const signature = await account.signMessage({ message: centerIntentMessage(hash) });
+    const request = vi.fn<typeof fetchJson>().mockResolvedValue({
+      id: 'a7396c7e-b13f-4ca8-9f06-96f36ab22c3a',
+      status: 'undeployed',
+      contentHash: hash,
+      envelope: ENVELOPE,
+      publisher: account.address,
+      signature,
+      name: 'Unit',
+      description: null,
+      tagline: null,
+      tags: [],
+      logoUri: null,
+      owner: null,
+      createdAt: '2026-09-21T00:00:00.000Z',
+      deployments: [],
+      deploys: [],
+    });
+    const client = new CenterClient({ baseUrl: 'https://juicebox.center', fetchJson: request });
+
+    const intent = await client.publishIntent({
+      ...ENVELOPE,
+      publisher: account.address,
+      signature,
+    } as never);
+    expect(intent.contentHash).toBe(hash);
+    const [url, options] = request.mock.calls[0]!;
+    expect(String(url)).toBe('https://juicebox.center/v1/intents');
+    expect(options?.method).toBe('POST');
+
+    await expect(
+      client.publishIntent({
+        ...ENVELOPE,
+        publisher: '0x4444444444444444444444444444444444444444',
+        signature,
+      } as never),
+    ).rejects.toMatchObject({ code: 'INVALID_SIGNATURE' });
+    expect(request).toHaveBeenCalledTimes(1);
   });
 });

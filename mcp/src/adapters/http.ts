@@ -10,6 +10,60 @@ export interface FetchJsonOptions {
   maxBytes?: number;
 }
 
+const ERROR_BODY_LIMIT = 8 * 1024;
+const ERROR_CODE = /^[a-z_]{1,64}$/u;
+
+/**
+ * The bounded machine-readable refusal code an upstream carried, or nothing. Only a short code
+ * matching a fixed shape is admitted, so upstream prose, URLs and credentials never travel with
+ * the failure.
+ */
+export function upstreamErrorCode(body: string): string | undefined {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body.slice(0, 4096));
+  } catch {
+    return undefined;
+  }
+  const code = (payload as { error?: { code?: unknown } } | null)?.error?.code;
+  return typeof code === 'string' && ERROR_CODE.test(code) ? code : undefined;
+}
+
+/**
+ * The bounded `{status, code}` an `UPSTREAM_HTTP_ERROR` DomainError already carries, computed by
+ * `upstreamErrorCode` when the failure was first observed. Callers read this instead of narrowing
+ * `error.details` themselves, so the one extraction is shared rather than repeated per caller.
+ */
+export function upstreamErrorDetails(error: unknown): { status?: number; code?: string } {
+  if (!(error instanceof DomainError) || error.code !== 'UPSTREAM_HTTP_ERROR') return {};
+  const details = error.details;
+  return details && typeof details === 'object'
+    ? (details as { status?: number; code?: string })
+    : {};
+}
+
+/** Read at most a bounded prefix of a failure body, then stop the stream. */
+async function boundedText(response: Response, limit: number): Promise<string> {
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (size < limit) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      chunks.push(chunk.value);
+      size += chunk.value.byteLength;
+    }
+  } catch {
+    return '';
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks).toString('utf8').slice(0, limit);
+}
+
 /** Only adapters supply URLs. Redirects and unbounded upstream bodies are never followed. */
 export async function fetchJson(
   url: string | URL,
@@ -43,13 +97,13 @@ export async function fetchJson(
       signal,
     });
     if (!response.ok) {
-      await response.body?.cancel();
+      const code = upstreamErrorCode(await boundedText(response, ERROR_BODY_LIMIT));
       throw new DomainError(
         'UPSTREAM_HTTP_ERROR',
         `The upstream returned HTTP ${response.status}.`,
         {
           retryable: response.status === 429 || response.status >= 500,
-          details: { status: response.status },
+          details: { status: response.status, ...(code === undefined ? {} : { code }) },
         },
       );
     }

@@ -5,7 +5,7 @@ import type { PlanDraft } from '../domain/types.js';
 import { normalizePlanDraft } from '../services/plans.js';
 import { preparePlan } from './preparation.js';
 
-export type OperationKind = 'read' | 'prepare' | 'reference' | 'metadata-write';
+export type OperationKind = 'read' | 'prepare' | 'reference' | 'metadata-write' | 'center-write';
 export type OperationSource =
   | 'onchain'
   | 'indexer'
@@ -64,6 +64,8 @@ const PLANS = new Set(['inspect_plan', 'simulate_plan', 'verify_plan']);
 
 function classification(id: string): { kind: OperationKind; sources: OperationSource[] } {
   if (id === 'pin_project_metadata') return { kind: 'metadata-write', sources: ['publication'] };
+  if (id === 'publish_intent' || id === 'deploy_intent')
+    return { kind: 'center-write', sources: ['center'] };
   if (REFERENCES.has(id)) return { kind: 'reference', sources: ['reference'] };
   if (id === 'prepare_project_metadata') return { kind: 'prepare', sources: ['model'] };
   if (id === 'get_intent' || id === 'prepare_intent')

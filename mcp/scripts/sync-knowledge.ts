@@ -40,7 +40,6 @@ for (const repository of [
   add(repository, 'contracts', ['README.md', 'ARCHITECTURE.md', 'RISKS.md', 'ADMINISTRATION.md']);
 }
 add('deploy-all-v6', 'contracts', ['DEPLOY.md']);
-add('juicebox-skills', 'skills', ['RISKS.md']);
 for (const repository of ['juicescan', 'juicebox-money', 'revnet-money']) {
   add(repository, 'sdk', ['RISKS.md']);
 }

@@ -159,10 +159,20 @@ const areas = [
   {
     id: 'plans',
     title: 'Reviewed transaction plans and verification',
-    tools: ['inspect_plan', 'simulate_plan', 'verify_plan', 'get_intent', 'prepare_intent'],
-    references: ['jb-tx-safety', 'JB Center'],
+    tools: [
+      'inspect_plan',
+      'simulate_plan',
+      'verify_plan',
+      'get_intent',
+      'prepare_intent',
+      'publish_intent',
+      'deploy_intent',
+    ],
+    references: ['jb-tx-safety', 'JB Center', 'jb-project-intents'],
     limits: [
-      'The server does not sign, broadcast, pin, or publish.',
+      'The server holds no wallet key: it never signs and never broadcasts a transaction.',
+      'publish_intent stores an envelope the user already signed; it is a persistent publication, not wallet approval, and there is no edit, replace or withdraw.',
+      'deploy_intent requests Center-funded execution of the committed calls. Queued rows are not confirmations, a failed row is terminal for that intent, and one intent has exactly one deploying sender across all of its chains.',
       'Plan tokens expire for simulation; expired tokens remain inspectable for receipt verification.',
       'Nested Safe/Relayr execution cannot be claimed verified without matching inner-call evidence.',
     ],
@@ -197,7 +207,7 @@ export function capabilityCatalog(tools: CapabilityEntry[], publicOrigin: string
     amountEncoding:
       'All asset amounts and uint256 identifiers are base-10 integer strings with explicit currency and decimal context.',
     execution:
-      'V6 reads, pure models, unsigned authenticated transaction plans and receipt verification. Explicitly authorized logo and metadata publication is available through jb_pin_project_logo and jb_pin_project_metadata when a publisher is configured. Blockchain signing/execution remain in the external wallet.',
+      'V6 reads, pure models, unsigned authenticated transaction plans and receipt verification. Explicitly authorized logo and metadata publication is available through jb_pin_project_logo and jb_pin_project_metadata when a publisher is configured. Already-signed project intents can be published and their sponsored deploy requested through jb_publish_intent and jb_deploy_intent. Blockchain signing/execution remain in the external wallet.',
     families: areas.map((area) => ({
       ...area,
       tools: area.tools

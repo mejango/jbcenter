@@ -4,18 +4,20 @@ import type {
   JBCenterJson,
   JBCenterJsonObject,
   JBCenterPreparedIntent,
+  JBCenterPublishIntentInput,
   JBCenterSearchPage,
   JBCenterSearchParams,
 } from '@bananapus/nana-sdk-core/jbcenter';
 import { getAddress, keccak256, toBytes, verifyMessage, type Address, type Hex } from 'viem';
 import { z } from 'zod';
 import { DomainError } from '../domain/errors.js';
-import { fetchJson } from './http.js';
+import { fetchJson, upstreamErrorCode, upstreamErrorDetails } from './http.js';
 
 export const CENTER_SOURCE_REFERENCES = [
   'Bananapus/juice-sdk-v4:packages/core/src/jbcenter.ts',
   'extensions/jbcenter/src/intent.ts:normalizeEnvelope, canonicalJson, contentHash, signingMessage',
   'extensions/jbcenter/src/app.ts:/v1/intents/message, /v1/intents/:id, /v1/search',
+  'extensions/jbcenter/src/app.ts:/v1/intents, /v1/intents/:id/deploy',
 ] as const;
 
 export const CENTER_INTENT_SEMANTICS = {
@@ -29,6 +31,10 @@ export const CENTER_INTENT_SEMANTICS = {
     'Center deployment records are server observations. Verify contract state and transaction receipts before treating them as authoritative.',
   access:
     'Current Center search and intent reads require a legitimately configured allowlisted Origin. No Origin is supplied by default. Read-only RPC has separate public access rules.',
+  publication:
+    'Publishing stores an envelope the user already signed. It is not wallet approval, spends no funds, and cannot be edited, replaced or withdrawn afterwards.',
+  sponsoredDeploy:
+    'A sponsored deploy request queues Center-funded execution of the committed calls. Queued rows are not confirmations; a failed row is terminal for that intent.',
 } as const;
 
 export type CenterConfig = {
@@ -115,6 +121,18 @@ const searchPageSchema = z
     nextCursor: cursorSchema.nullable(),
   })
   .refine((value) => value.totalCount >= value.items.length);
+const deployRowSchema = z.object({
+  chainId: chainIdSchema,
+  status: z.enum(['queued', 'sent', 'confirmed', 'failed']),
+  transactionHash: hashSchema.nullable(),
+  bundleUuid: z.string().max(200).nullable(),
+  error: z.string().max(8192).nullable(),
+  createdAt: z.string().max(64),
+  updatedAt: z.string().max(64),
+});
+const deployPageSchema = z.object({ deploys: z.array(deployRowSchema).max(16) });
+export type CenterDeployRow = z.infer<typeof deployRowSchema>;
+export type CenterDeployPage = z.infer<typeof deployPageSchema>;
 const intentSchema = z.object({
   ...metadata,
   id: uuidSchema,
@@ -137,19 +155,7 @@ const intentSchema = z.object({
       }),
     )
     .max(16),
-  deploys: z
-    .array(
-      z.object({
-        chainId: chainIdSchema,
-        status: z.enum(['queued', 'sent', 'confirmed', 'failed']),
-        transactionHash: hashSchema.nullable(),
-        bundleUuid: z.string().max(200).nullable(),
-        error: z.string().max(8192).nullable(),
-        createdAt: z.string().max(64),
-        updatedAt: z.string().max(64),
-      }),
-    )
-    .max(16),
+  deploys: z.array(deployRowSchema).max(16),
 });
 
 function invalidInput(): never {
@@ -161,6 +167,48 @@ function invalidResponse(): never {
     'JB Center returned an invalid or unverifiable intent response.',
   );
 }
+export const CENTER_DEPLOY_REFUSALS = {
+  NOT_SPONSORABLE:
+    'JB Center does not sponsor this intent. Every chain must be one of the supported rollups, all in one family, and the intent must have no recorded deployment. Deploy it from a funded wallet instead.',
+  SPONSOR_QUOTA:
+    'The daily sponsored deploy quota is spent. Retry in a day, or deploy the intent from a funded wallet.',
+  SPONSOR_BUDGET:
+    'The shared daily sponsorship budget is spent. Retry in a day, or deploy the intent from a funded wallet.',
+  SPONSOR_UNAVAILABLE:
+    'Sponsored deploys are unavailable right now. Retry later, or deploy the intent from a funded wallet.',
+  RATE_LIMITED: 'JB Center is rate limiting this caller. Retry in a minute.',
+} as const;
+
+/** Center's coded refusals become fixed sentences; no upstream text ever reaches a caller. */
+function deployRefusal(error: unknown): DomainError {
+  const { status, code } = upstreamErrorDetails(error);
+  const day = { retryable: true, details: { retryAfterSeconds: 86_400 } };
+  if (code === 'sponsor_budget')
+    return new DomainError('SPONSOR_BUDGET', CENTER_DEPLOY_REFUSALS.SPONSOR_BUDGET, day);
+  // The shared request budget is a minute-long window; the sponsorship budgets reset on a day.
+  if (code === 'rate_limit')
+    return new DomainError('RATE_LIMITED', CENTER_DEPLOY_REFUSALS.RATE_LIMITED, {
+      retryable: true,
+      details: { retryAfterSeconds: 60 },
+    });
+  if (code === 'sponsor_quota' || status === 429)
+    return new DomainError('SPONSOR_QUOTA', CENTER_DEPLOY_REFUSALS.SPONSOR_QUOTA, day);
+  if (status === 503)
+    return new DomainError('SPONSOR_UNAVAILABLE', CENTER_DEPLOY_REFUSALS.SPONSOR_UNAVAILABLE, {
+      retryable: true,
+    });
+  if (status === 400)
+    return new DomainError('NOT_SPONSORABLE', CENTER_DEPLOY_REFUSALS.NOT_SPONSORABLE);
+  if (status === 404)
+    return new DomainError('NOT_FOUND', 'The requested JB Center intent was not found.');
+  if (error instanceof DomainError) return error;
+  return new DomainError(
+    'UPSTREAM_ERROR',
+    'JB Center could not complete the write. Verify operator integration access and retry.',
+    { retryable: true },
+  );
+}
+
 function input<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
   const parsed = schema.safeParse(value);
   if (!parsed.success) invalidInput();
@@ -306,6 +354,34 @@ export class CenterClient {
     }
   }
 
+  /**
+   * Operator headers travel with the request as they do on a read. The co-hosted bridge has none
+   * and deliberately forwards none: in process the app identifies the caller from Hono's internal
+   * marker and the verified publisher, not from a header this client could set.
+   */
+  private async write(path: string, body: unknown): Promise<unknown> {
+    try {
+      return await this.request(`${this.baseUrl}/${path}`, {
+        method: 'POST',
+        headers: {
+          ...this.config.headers,
+          accept: 'application/json',
+          'content-type': 'application/json',
+        },
+        body,
+        timeoutMs: this.config.timeoutMs ?? 15_000,
+        maxBytes: this.config.maxBytes ?? 2 * 1024 * 1024,
+      });
+    } catch (error) {
+      if (error instanceof DomainError) throw error;
+      throw new DomainError(
+        'UPSTREAM_ERROR',
+        'JB Center could not complete the write. Verify operator integration access and retry.',
+        { retryable: true },
+      );
+    }
+  }
+
   async search(params: JBCenterSearchParams = {}): Promise<JBCenterSearchPage> {
     const query = input(z.string().max(200), params.query ?? '').trim();
     const limit = input(chainIdSchema.max(100), params.limit ?? 20);
@@ -350,6 +426,73 @@ export class CenterClient {
     if ((parsed.data.status === 'undeployed') !== (parsed.data.deployments.length === 0))
       invalidResponse();
     return { ...parsed.data, envelope } as JBCenterIntent;
+  }
+
+  /**
+   * Stores an envelope the caller already signed. This client never signs: the signature is
+   * verified locally against the exact normalized envelope before anything is sent.
+   */
+  async publishIntent<TJb extends JBCenterJsonObject>(
+    value: JBCenterPublishIntentInput<TJb>,
+  ): Promise<JBCenterIntent<TJb>> {
+    const { publisher, signature, ...rest } = value;
+    const envelope = normalizeCenterIntent(rest as JBCenterIntentInput<TJb>);
+    let account: Address;
+    try {
+      account = getAddress(input(addressSchema, publisher));
+    } catch {
+      invalidInput();
+    }
+    const signed = input(signatureSchema, signature) as Hex;
+    const contentHash = keccak256(toBytes(canonicalCenterJson(envelope)));
+    let valid = false;
+    try {
+      valid = await verifyMessage({
+        address: account,
+        message: centerIntentMessage(contentHash),
+        signature: signed,
+      });
+    } catch {
+      valid = false;
+    }
+    if (!valid)
+      throw new DomainError(
+        'INVALID_SIGNATURE',
+        'The signature does not match this publisher and this exact envelope. Sign the message returned by the intent preparation tool, from an externally owned account.',
+      );
+    const parsed = intentSchema.safeParse(
+      await this.write('v1/intents', { ...envelope, publisher: account, signature: signed }),
+    );
+    if (!parsed.success) invalidResponse();
+    if (
+      parsed.data.contentHash.toLowerCase() !== contentHash.toLowerCase() ||
+      parsed.data.publisher.toLowerCase() !== account.toLowerCase() ||
+      parsed.data.signature.toLowerCase() !== signed.toLowerCase()
+    )
+      invalidResponse();
+    let stored: JBCenterIntentInput;
+    try {
+      stored = normalizeCenterIntent(parsed.data.envelope as JBCenterIntentInput);
+    } catch {
+      invalidResponse();
+    }
+    if (keccak256(toBytes(canonicalCenterJson(stored))).toLowerCase() !== contentHash.toLowerCase())
+      invalidResponse();
+    return { ...parsed.data, envelope } as JBCenterIntent<TJb>;
+  }
+
+  /** Asks Center to execute the intent's own signed calls at Center's expense. Signs nothing. */
+  async requestDeploy(id: string): Promise<CenterDeployPage> {
+    input(uuidSchema, id);
+    let payload: unknown;
+    try {
+      payload = await this.write(`v1/intents/${encodeURIComponent(id)}/deploy`, {});
+    } catch (error) {
+      throw deployRefusal(error);
+    }
+    const parsed = deployPageSchema.safeParse(payload);
+    if (!parsed.success) invalidResponse();
+    return parsed.data;
   }
 
   /** Pure preparation of the SDK-typed Center message. No POST, signature, publication, or deployment. */
