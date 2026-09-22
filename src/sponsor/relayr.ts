@@ -4,7 +4,7 @@ import { callsForChain } from "../intent.js";
 import type { SponsorshipChain } from "../rest/sponsorship/chain.js";
 import { FORWARD_REQUEST_TYPES } from "../rest/sponsorship/constants.js";
 import { verifyRelayrPaymentEvent } from "../rest/sponsorship/paymentContract.js";
-import { parseFamilyQuote, parseStatus, type RelayrProvider } from "../rest/sponsorship/provider.js";
+import { bindFamilyQuoteStatus, parseFamilyQuote, parseStatus, type RelayrProvider } from "../rest/sponsorship/provider.js";
 import type { RelayrEntry } from "../rest/sponsorship/types.js";
 import {
   decodeSafeSetupCall,
@@ -301,12 +301,16 @@ export function createRelayrLane(options: {
         roles.push({ chainId, role: "launch", index: setup.length });
       }
 
-      const quote = parseFamilyQuote(
+      const provisional = parseFamilyQuote(
         await provider.create(entries),
         entries,
         now(),
         reservationWei(policy, entries.length),
       );
+      // The create response lists identifiers without saying which call each one names, and
+      // that list is not in submitted order. The bundle's own echo carries every requested
+      // field, so each identifier is bound to the one entry it matches before any ETH moves.
+      const quote = bindFamilyQuoteStatus(await provider.status(provisional.bundleUuid), provisional);
       const candidates = rankPayments(quote.payments, rpcUrls);
       if (candidates.length === 0) return track.failRest("relayr returned no payment option on a configured chain");
       // The key may hold funds on only some of the offered chains; pay from the first rollup that
