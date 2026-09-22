@@ -91,7 +91,7 @@ describe('real MCP application protocol', () => {
         'signature',
       ].sort(),
     );
-    expect(Object.keys(deploy?.inputSchema.properties ?? {})).toEqual(['id']);
+    expect(Object.keys(deploy?.inputSchema.properties ?? {}).sort()).toEqual(['chainIds', 'id']);
   });
   it('resolves identifiers with explicit V6 and no network', async () => {
     const result = await client.callTool({

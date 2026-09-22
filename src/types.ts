@@ -48,6 +48,9 @@ export type Deployment = {
   chainId: number;
   projectId: string;
   transactionHash: Hex;
+  /** True when the committed call was made by the canonical forwarder, so the deploying
+   * sender is Center's sponsor. False when a wallet sent the committed call itself. */
+  forwarded: boolean;
   createdAt: string;
 };
 
@@ -61,6 +64,19 @@ export type IntentDeploy = {
   error: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+/** One chain's launch, signed by Center's sponsor and sent by whoever pays for it. `to` is
+ * the canonical forwarder, `value` and `gas` are decimal wei and gas units, and `setup`
+ * holds the chain's Safe creations, which the payer sends first from any address. */
+export type RelayRequest = {
+  chainId: number;
+  to: Address;
+  data: Hex;
+  value: string;
+  gas: string;
+  deadline: number;
+  setup: { to: Address; data: Hex; value: "0" }[];
 };
 
 export type Intent = IntentMetadata & {

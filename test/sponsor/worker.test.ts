@@ -52,7 +52,7 @@ describe("sponsor worker", () => {
         await report.confirmed(84532, HASH, "9");
       }),
     };
-    const verifier = { verify: vi.fn(async () => {}) };
+    const verifier = { verify: vi.fn(async () => ({ forwarded: true })) };
     const worker = createSponsorWorker({ store, verifier, lane, policy });
     await worker.runOnce();
     await worker.stop();
@@ -80,7 +80,7 @@ describe("sponsor worker", () => {
     };
     const worker = createSponsorWorker({
       store,
-      verifier: { verify: vi.fn() },
+      verifier: { verify: vi.fn(async () => ({ forwarded: true })) },
       lane,
       policy,
     });
@@ -104,7 +104,7 @@ describe("sponsor worker", () => {
         throw new Error("bundle submission failed");
       }),
     };
-    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn() }, lane, policy });
+    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn(async () => ({ forwarded: true })) }, lane, policy });
     await worker.runOnce();
     await worker.stop();
     const after = await store.getIntent(intent.id);
@@ -148,7 +148,7 @@ describe("sponsor worker", () => {
         await report.bundle(BUNDLE);
       }),
     };
-    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn() }, lane, policy });
+    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn(async () => ({ forwarded: true })) }, lane, policy });
     await worker.runOnce();
     await worker.stop();
     const after = await store.getIntent(intent.id);
@@ -171,7 +171,7 @@ describe("sponsor worker", () => {
         }
       }),
     };
-    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn(async () => {}) }, lane, policy });
+    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn(async () => ({ forwarded: true })) }, lane, policy });
     await worker.runOnce();
     await worker.stop();
     expect(lane.deploy).not.toHaveBeenCalled();
@@ -199,7 +199,7 @@ describe("sponsor worker", () => {
         }
       }),
     };
-    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn() }, lane, policy });
+    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn(async () => ({ forwarded: true })) }, lane, policy });
     await worker.runOnce();
     await worker.stop();
     const after = await store.getIntent(intent.id);
@@ -227,7 +227,7 @@ describe("sponsor worker", () => {
     };
     const worker = createSponsorWorker({
       store,
-      verifier: { verify: vi.fn(async () => {}) },
+      verifier: { verify: vi.fn(async () => ({ forwarded: true })) },
       lane,
       policy,
     });
@@ -250,7 +250,7 @@ describe("sponsor worker", () => {
     const events: SponsorEvent[] = [];
     const worker = createSponsorWorker({
       store,
-      verifier: { verify: vi.fn() },
+      verifier: { verify: vi.fn(async () => ({ forwarded: true })) },
       lane,
       policy,
       onEvent: (event) => events.push(event),
@@ -289,7 +289,12 @@ describe("sponsor worker", () => {
       await store.updateDeploy(intent.id, chainId, { status: "sent", transactionHash: HASH, bundleUuid: BUNDLE });
     }
     // The first chain of the bundle was recorded before the process died.
-    await store.recordDeployment(intent.id, { chainId: 84532, projectId: "7", transactionHash: HASH });
+    await store.recordDeployment(intent.id, {
+      chainId: 84532,
+      projectId: "7",
+      transactionHash: HASH,
+      forwarded: true,
+    });
     const lane: DeployLane = {
       deploy: vi.fn(async () => {}),
       resume: vi.fn(async (_i, chainIds, bundleUuid, report) => {
@@ -301,7 +306,7 @@ describe("sponsor worker", () => {
     };
     const worker = createSponsorWorker({
       store,
-      verifier: { verify: vi.fn(async () => {}) },
+      verifier: { verify: vi.fn(async () => ({ forwarded: true })) },
       lane,
       policy,
     });
@@ -325,21 +330,97 @@ describe("sponsor worker", () => {
     ]);
   });
 
-  test("an intent that already has a deployment retires its claimed rows without spending", async () => {
+  test("a chain's own deployment retires that row and leaves the others claimable", async () => {
     const store = new MemoryStore();
-    const { intent } = await store.createIntent(newIntent({ chainIds: [84532] }), limits);
-    await store.queueDeploys(intent.id, [84532], "browser:x", 10n);
-    await store.recordDeployment(intent.id, { chainId: 84532, projectId: "9", transactionHash: HASH });
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
+    await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
+    await store.recordDeployment(intent.id, {
+      chainId: 84532,
+      projectId: "9",
+      transactionHash: HASH,
+      forwarded: true,
+    });
+    const lane: DeployLane = {
+      resume: vi.fn(async () => {}),
+      deploy: vi.fn(async (_i, chainIds, report) => {
+        expect(chainIds).toEqual([421614]);
+        await report.sent(421614, HASH, BUNDLE);
+        await report.confirmed(421614, HASH, "11");
+      }),
+    };
+    const worker = createSponsorWorker({
+      store,
+      verifier: { verify: vi.fn(async () => ({ forwarded: true })) },
+      lane,
+      policy,
+    });
+    await worker.runOnce();
+    await worker.stop();
+    expect(lane.deploy).toHaveBeenCalledTimes(1);
+    const after = await store.getIntent(intent.id);
+    expect(after?.deploys.map((row) => [row.chainId, row.status, row.error])).toEqual([
+      [84532, "failed", "chain already deployed"],
+      [421614, "confirmed", null],
+    ]);
+    // The lane signs every launch as a forward request, so what it records is forwarded.
+    expect(after?.deployments.map((row) => [row.chainId, row.forwarded])).toEqual([
+      [84532, true],
+      [421614, true],
+    ]);
+  });
+
+  test("a wallet-sent deployment retires the whole claim without spending", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
+    await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
+    await store.recordDeployment(intent.id, {
+      chainId: 84532,
+      projectId: "9",
+      transactionHash: HASH,
+      forwarded: false,
+    });
     const lane: DeployLane = { deploy: vi.fn(async () => {}), resume: vi.fn(async () => {}) };
-    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn() }, lane, policy });
+    const events: SponsorEvent[] = [];
+    const worker = createSponsorWorker({
+      store,
+      verifier: { verify: vi.fn(async () => ({ forwarded: true })) },
+      lane,
+      policy,
+      onEvent: (event) => events.push(event),
+    });
     await worker.runOnce();
     await worker.stop();
     expect(lane.deploy).not.toHaveBeenCalled();
     expect(lane.resume).not.toHaveBeenCalled();
-    const after = await store.getIntent(intent.id);
-    expect(after?.deploys[0]).toMatchObject({
+    expect((await store.getIntent(intent.id))?.deploys.map((row) => [row.status, row.error])).toEqual([
+      ["failed", "mixed sender"],
+      ["failed", "mixed sender"],
+    ]);
+    expect(events).toEqual([
+      { event: "failed", intentId: intent.id, chainId: 84532, error: "mixed sender" },
+      { event: "failed", intentId: intent.id, chainId: 421614, error: "mixed sender" },
+    ]);
+  });
+
+  test("a deployment on the only claimed chain spends nothing", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532] }), limits);
+    await store.queueDeploys(intent.id, [84532], "browser:x", 10n);
+    await store.recordDeployment(intent.id, {
+      chainId: 84532,
+      projectId: "9",
+      transactionHash: HASH,
+      forwarded: true,
+    });
+    const lane: DeployLane = { deploy: vi.fn(async () => {}), resume: vi.fn(async () => {}) };
+    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn(async () => ({ forwarded: true })) }, lane, policy });
+    await worker.runOnce();
+    await worker.stop();
+    expect(lane.deploy).not.toHaveBeenCalled();
+    expect(lane.resume).not.toHaveBeenCalled();
+    expect((await store.getIntent(intent.id))?.deploys[0]).toMatchObject({
       status: "failed",
-      error: "intent already has a deployment",
+      error: "chain already deployed",
     });
   });
 
@@ -367,7 +448,7 @@ describe("sponsor worker", () => {
         for (const chainId of chainIds) await report.failed(chainId, "boom");
       }),
     };
-    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn() }, lane, policy });
+    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn(async () => ({ forwarded: true })) }, lane, policy });
     await worker.runOnce();
     await worker.stop();
     expect(lane.deploy).toHaveBeenCalledTimes(1);
@@ -388,7 +469,7 @@ describe("sponsor worker", () => {
         for (const chainId of chainIds) await report.failed(chainId, "boom");
       }),
     };
-    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn() }, lane, policy });
+    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn(async () => ({ forwarded: true })) }, lane, policy });
     worker.kick();
     let drained = false;
     const stopping = worker.stop().then(() => {
@@ -406,7 +487,7 @@ describe("sponsor worker", () => {
     const store = new MemoryStore();
     const worker = createSponsorWorker({
       store,
-      verifier: { verify: vi.fn() },
+      verifier: { verify: vi.fn(async () => ({ forwarded: true })) },
       lane: { deploy: vi.fn(async () => {}), resume: vi.fn(async () => {}) },
       policy,
     });
@@ -427,7 +508,7 @@ describe("sponsor worker", () => {
     const events: SponsorEvent[] = [];
     const worker = createSponsorWorker({
       store,
-      verifier: { verify: vi.fn() },
+      verifier: { verify: vi.fn(async () => ({ forwarded: true })) },
       lane,
       policy,
       onEvent: (event) => events.push(event),
@@ -469,7 +550,7 @@ describe("sponsor worker", () => {
     const events: SponsorEvent[] = [];
     const worker = createSponsorWorker({
       store,
-      verifier: { verify: vi.fn() },
+      verifier: { verify: vi.fn(async () => ({ forwarded: true })) },
       lane,
       policy,
       onEvent: (event) => events.push(event),
@@ -515,7 +596,7 @@ describe("sponsor worker", () => {
     const events: SponsorEvent[] = [];
     const worker = createSponsorWorker({
       store,
-      verifier: { verify: vi.fn(async () => {}) },
+      verifier: { verify: vi.fn(async () => ({ forwarded: true })) },
       lane,
       policy,
       onEvent: (event) => events.push(event),
@@ -578,7 +659,7 @@ describe("sponsor worker", () => {
     const events: SponsorEvent[] = [];
     const worker = createSponsorWorker({
       store,
-      verifier: { verify: vi.fn(async () => {}) },
+      verifier: { verify: vi.fn(async () => ({ forwarded: true })) },
       lane,
       policy,
       onEvent: (event) => events.push(event),
@@ -641,7 +722,7 @@ describe("sponsor worker", () => {
     const events: SponsorEvent[] = [];
     const worker = createSponsorWorker({
       store,
-      verifier: { verify: vi.fn() },
+      verifier: { verify: vi.fn(async () => ({ forwarded: true })) },
       lane,
       policy,
       onEvent: (event) => events.push(event),
@@ -700,7 +781,7 @@ describe("sponsor worker", () => {
         throw new DeploymentVerificationError("the Create event is missing");
       }),
     };
-    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn() }, lane, policy });
+    const worker = createSponsorWorker({ store, verifier: { verify: vi.fn(async () => ({ forwarded: true })) }, lane, policy });
     await worker.runOnce();
     await worker.stop();
     expect((await store.getIntent(intent.id))?.deploys[0]).toMatchObject({
@@ -741,7 +822,7 @@ describe("sponsor worker", () => {
         await report.confirmed(84532, HASH, "9");
       }),
     };
-    const verifier = { verify: vi.fn(async () => {}) };
+    const verifier = { verify: vi.fn(async () => ({ forwarded: true })) };
     const worker = createSponsorWorker({ store, verifier, lane, policy });
     await worker.runOnce();
     await worker.stop();

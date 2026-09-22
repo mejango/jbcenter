@@ -45,6 +45,7 @@ type DeploymentRow = QueryResultRow & {
   chain_id: string;
   project_id: string;
   transaction_hash: Hex;
+  forwarded: boolean;
   created_at: Date;
 };
 
@@ -65,6 +66,7 @@ const deployment = (row: DeploymentRow): Deployment => ({
   chainId: Number(row.chain_id),
   projectId: row.project_id,
   transactionHash: row.transaction_hash,
+  forwarded: row.forwarded,
   createdAt: row.created_at.toISOString(),
 });
 
@@ -197,7 +199,7 @@ export class PostgresStore implements Store {
       );
       if (existing.rows[0]) {
         const deploymentResult = await client.query<DeploymentRow>(
-          `SELECT chain_id, project_id::text, transaction_hash, created_at
+          `SELECT chain_id, project_id::text, transaction_hash, forwarded, created_at
            FROM deployments WHERE intent_id = $1 ORDER BY chain_id`,
           [existing.rows[0].id],
         );
@@ -273,7 +275,7 @@ export class PostgresStore implements Store {
     const [intentResult, deploymentResult, deployResult] = await Promise.all([
       this.pool.query<IntentRow>(`${selectIntent} WHERE id = $1`, [id]),
       this.pool.query<DeploymentRow>(
-        `SELECT chain_id, project_id::text, transaction_hash, created_at
+        `SELECT chain_id, project_id::text, transaction_hash, forwarded, created_at
          FROM deployments WHERE intent_id = $1 ORDER BY chain_id`,
         [id],
       ),
@@ -359,11 +361,11 @@ export class PostgresStore implements Store {
     let inserted;
     try {
       inserted = await this.pool.query<DeploymentRow>(
-        `INSERT INTO deployments (intent_id, chain_id, project_id, transaction_hash)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO deployments (intent_id, chain_id, project_id, transaction_hash, forwarded)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (intent_id, chain_id) DO NOTHING
-         RETURNING chain_id, project_id::text, transaction_hash, created_at`,
-        [intentId, value.chainId, value.projectId, value.transactionHash],
+         RETURNING chain_id, project_id::text, transaction_hash, forwarded, created_at`,
+        [intentId, value.chainId, value.projectId, value.transactionHash, value.forwarded],
       );
     } catch (error) {
       if ((error as { code?: string }).code === "23505") {
@@ -373,7 +375,7 @@ export class PostgresStore implements Store {
     }
     if (inserted.rows[0]) return deployment(inserted.rows[0]);
     const existing = await this.pool.query<DeploymentRow>(
-      `SELECT chain_id, project_id::text, transaction_hash, created_at
+      `SELECT chain_id, project_id::text, transaction_hash, forwarded, created_at
        FROM deployments WHERE intent_id = $1 AND chain_id = $2`,
       [intentId, value.chainId],
     );
