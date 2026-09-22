@@ -838,6 +838,79 @@ describe("sponsored deploy requests", () => {
     ]);
   });
 
+  it("re-queues a named chain that failed and leaves an unnamed one as it is", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor });
+    const intent = (await (await publishWith(app, testnetEnvelope)).json()) as Intent;
+    const deploy = (target: ReturnType<typeof createApp>, chainIds?: number[]) =>
+      target.request(`/v1/intents/${intent.id}/deploy`, {
+        method: "POST",
+        headers: trusted,
+        ...(chainIds ? { body: JSON.stringify({ chainIds }) } : {}),
+      });
+    const rowOf = (chainId: number) =>
+      (
+        store.intents.find((item) => item.id === intent.id)!.deploys as unknown as {
+          chainId: number;
+          attempts: number;
+          leaseUntil: number | null;
+          reservedWei: bigint;
+        }[]
+      ).find((row) => row.chainId === chainId)!;
+
+    expect((await deploy(app, [84532])).status).toBe(202);
+    await store.claimQueuedDeploys(30, 10);
+    await store.updateDeploy(intent.id, 84532, {
+      status: "failed",
+      error: "RELAYR_FUNDING_LIMIT",
+      bundleUuid: "bundle-1",
+      transactionHash: `0x${"bb".repeat(32)}`,
+    });
+
+    // A request that names no chain queues the rest of the intent and leaves the failure standing.
+    const whole = await deploy(app);
+    expect(whole.status).toBe(202);
+    expect(
+      ((await whole.json()) as { deploys: IntentDeploy[] }).deploys.map((row) => [
+        row.chainId,
+        row.status,
+      ]),
+    ).toEqual([
+      [84532, "failed"],
+      [421614, "queued"],
+    ]);
+
+    // The retry is budgeted like a first request, so a spent day refuses it and changes nothing.
+    const tight = createApp(store, {
+      sponsor: { ...sponsor, policy: { ...sponsor.policy, dailyBudgetWei: 1n } },
+    });
+    const refused = await deploy(tight, [84532]);
+    expect(refused.status).toBe(429);
+    expect(await errorCode(refused)).toBe("sponsor_budget");
+    expect(rowOf(84532).attempts).toBe(1);
+
+    const retry = await deploy(app, [84532]);
+    expect(retry.status).toBe(202);
+    expect(((await retry.json()) as { deploys: IntentDeploy[] }).deploys).toEqual([
+      expect.objectContaining({
+        chainId: 84532,
+        status: "queued",
+        error: null,
+        bundleUuid: null,
+        transactionHash: null,
+      }),
+    ]);
+    expect(rowOf(84532)).toMatchObject({
+      attempts: 0,
+      leaseUntil: null,
+      reservedWei: reservationWei(sponsor.policy, 1),
+    });
+    // Three requests reached the quota: the budget refusal in between drew nothing.
+    expect(
+      [...store.requests.entries()].find(([key]) => key.startsWith("deploy:"))?.[1],
+    ).toBe(3);
+  });
+
   it("sponsors the sponsored chains of an intent that also names Ethereum", async () => {
     const store = new MemoryStore();
     const app = createApp(store, { sponsor });

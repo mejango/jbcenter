@@ -391,12 +391,20 @@ export class PostgresStore implements Store {
     chainIds: number[],
     requester: string,
     reservedWeiPerChain: bigint,
+    retryFailed = false,
   ): Promise<IntentDeploy[]> {
+    // A retry starts the row over: a new reservation, no attempts, no claim, and a created_at
+    // the day of waiting is measured from. What the lane already spent stays on the row, so the
+    // budget keeps counting money that left the key.
     await this.pool.query(
       `INSERT INTO intent_deploys (intent_id, chain_id, requester, reserved_wei)
        SELECT $1, unnest($2::bigint[]), $3, $4::numeric
-       ON CONFLICT (intent_id, chain_id) DO NOTHING`,
-      [intentId, chainIds, requester, reservedWeiPerChain.toString()],
+       ON CONFLICT (intent_id, chain_id) DO UPDATE SET
+         requester = excluded.requester, reserved_wei = excluded.reserved_wei,
+         status = 'queued', attempts = 0, error = NULL, bundle_uuid = NULL,
+         transaction_hash = NULL, lease_until = NULL, created_at = now(), updated_at = now()
+       WHERE $5::boolean AND intent_deploys.status = 'failed'`,
+      [intentId, chainIds, requester, reservedWeiPerChain.toString(), retryFailed],
     );
     return this.listDeploys(intentId);
   }

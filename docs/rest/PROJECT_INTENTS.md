@@ -563,8 +563,10 @@ Content-Type: application/json
 Center executes the intent's own signed calls at its own expense. The body is optional. With no
 body, or with no `chainIds`, Center queues every chain of the intent that it sponsors and that
 has no deployment yet. With `chainIds`, every id must be in the intent, must be one Center
-sponsors, and must have no deployment; an id that already has a row comes back as it is. The
-chains queued by one request must all be from one family.
+sponsors, and must have no deployment; an id whose row failed is queued again as a fresh attempt,
+reserved and rated like a first request, and an id with any other row comes back as it is. A
+request that names no chain leaves a failed row as it is. The chains queued by one request must
+all be from one family.
 
 An intent whose `chainIds` also name a chain Center does not sponsor, such as Ethereum, is queued
 for its sponsored chains. The rest is deployed with a relay request.

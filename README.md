@@ -403,18 +403,20 @@ Content-Type: application/json
 ```
 
 An optional `{"chainIds":[...]}` body limits the request to those chains; with no body, every
-sponsored chain of the intent that has no deployment is queued. The response is `202` when a chain
-was queued and `200` when every requested chain already has a row, and it carries only the rows the
-request touched or found. The queued chains must be entirely mainnets or entirely testnets from the
-supported set, never a mix; a chain outside both sets, such as Ethereum, is left for its own payer.
-A worker signs each call as a forwarded request, submits the bundle through
-Relayr, and confirms it against the same canonical `JBProjects.Create` event and per-chain call
-match used for `POST /v1/intents/:id/deployments`; a confirmed chain both updates its `deploys` row
-and records the deployment. The route answers `503` with no sponsor configured or while paused,
-`404` for an unknown intent, `400` for a chain that is not sponsorable or already deployed, `409`
-`mixed_sender` once a wallet has deployed a chain of the intent itself, and `429` with
-`Retry-After: 86400` once the shared daily sponsorship budget or the requester's daily quota is
-spent. The budget is checked first, so a refused request does not consume the requester's quota.
+sponsored chain of the intent that has no deployment is queued. A named chain whose row failed is
+queued again as a fresh attempt, reserved and rated like a first request; a request that names no
+chain leaves a failed row as it is. The response is `202` when a chain was queued and `200` when
+every requested chain already has a row, and it carries only the rows the request touched or found.
+The queued chains must be entirely mainnets or entirely testnets from the supported set, never a
+mix; a chain outside both sets, such as Ethereum, is left for its own payer. A worker signs each
+call as a forwarded request, submits the bundle through Relayr, and confirms it against the same
+canonical `JBProjects.Create` event and per-chain call match used for
+`POST /v1/intents/:id/deployments`; a confirmed chain both updates its `deploys` row and records
+the deployment. The route answers `503` with no sponsor configured or while paused, `404` for an
+unknown intent, `400` for a chain that is not sponsorable or already deployed, `409` `mixed_sender` once a
+wallet has deployed a chain of the intent itself, and `429` with `Retry-After: 86400` once the
+shared daily sponsorship budget or the requester's daily quota is spent. The budget is checked
+first, so a refused request does not consume the requester's quota.
 
 The sponsor charges the budget what it actually spent: when the Relayr prepayment settles, its
 gas and value are written as `spentWei` on the payment's first claimed chain, before any
