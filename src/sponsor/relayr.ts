@@ -1,5 +1,6 @@
 import { createPublicClient, http, type Address, type Hex } from "viem";
 import type { ContractCatalog } from "../rest/contracts/catalog.js";
+import { callsForChain } from "../intent.js";
 import type { SponsorshipChain } from "../rest/sponsorship/chain.js";
 import { FORWARD_REQUEST_TYPES } from "../rest/sponsorship/constants.js";
 import { verifyRelayrPaymentEvent } from "../rest/sponsorship/paymentContract.js";
@@ -135,8 +136,8 @@ export function createRelayrLane(options: {
       const deadline = Math.floor(now() / 1000) + REQUEST_TTL_SECONDS;
       const entries: RelayrEntry[] = [];
       for (const [index, chainId] of chainIds.entries()) {
-        const call = intent.envelope.deploymentCalls.find((item) => item.chainId === chainId);
-        if (!call || !rpcUrls.has(chainId)) return track.failRest(`chain ${chainId} is not configured`);
+        const { launch } = callsForChain(intent.envelope.deploymentCalls, chainId);
+        if (!launch || !rpcUrls.has(chainId)) return track.failRest(`chain ${chainId} is not configured`);
         const fee = await client(chainId).readContract({
           address: projectsAddress,
           abi: PROJECTS_ABI,
@@ -156,8 +157,8 @@ export function createRelayrLane(options: {
           catalog,
           {
             chainId,
-            to: call.to,
-            data: call.data,
+            to: launch.to,
+            data: launch.data,
             value: fee.toString(),
             label: "intent-deploy",
             dependsOn: [],
