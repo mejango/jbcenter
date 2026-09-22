@@ -295,7 +295,9 @@ JB Center accepts any JSON object as `jb`, caps signed envelopes at 16.8 MB, and
 Juicebox Money and Revnet Money metadata fields. `chainIds` must match `chains` or `data.chainIds`
 when the `.jb` declares them. `deploymentCalls` holds 1 to 4 ABI-encoded calls per chain. The last call for a chain
 launches the project; each earlier call creates a Safe on the canonical Safe 1.4.1 proxy
-factory, so an intent can create the multisig that owns it. See
+factory, so an intent can create the multisig that owns it. A sponsored deploy numbers a
+chain's bundle entries so its Safe creations are sent before its launch, though nothing
+depends on that order. See
 [the guide](docs/rest/PROJECT_INTENTS.md#setup-calls). The call target and complete calldata are part of the signed content, making the frozen
 deployment directly executable and independently verifiable without re-deriving time-sensitive
 arguments.
