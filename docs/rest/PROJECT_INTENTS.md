@@ -131,7 +131,9 @@ address either way and anyone can create the Safe later.
 The sponsored deploy sends one bundle for all chains. Center numbers a chain's entries in
 that bundle, so the execution service sends the chain's Safe creations before its launch.
 Nothing depends on that order; the numbering is what the service requires to send them.
-Each chain's row is `sent` on its
+The service answers with one identifier per call, in an order of its own, so Center reads the
+bundle back and binds each identifier to the one submitted call whose chain, contract, calldata,
+value and number all match it. Each chain's row is `sent` on its
 launch transaction hash and `confirmed` when that transaction succeeds and carries the
 `JBProjects.Create` event. `transactionHash` on the row and on the recorded deployment is
 always the launch transaction.

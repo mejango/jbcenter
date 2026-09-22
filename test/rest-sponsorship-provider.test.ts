@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { encodeAbiParameters, type Address, type Hex } from "viem";
 import {
   RelayrProvider,
+  bindFamilyQuoteStatus,
   bindIndependentQuoteStatus,
   RelayrResponseError,
   parseFamilyQuote,
@@ -189,6 +190,40 @@ describe("Relayr quote commitments and payment validation", () => {
     expect(() => bindIndependentQuoteStatus(repeatedCall, original)).toThrow();
     expect(() => bindIndependentQuoteStatus({ ...status, bundle_uuid: TX_IDS[0] }, original)).toThrow();
     expect(() => bindIndependentQuoteStatus({ ...status, transactions: status.transactions.slice(1) }, original)).toThrow();
+  });
+
+  it('binds unordered provider IDs for a sponsored bundle using its exact nonce-bearing calls', () => {
+    const provisional = parseFamilyQuote(quoteResponse({ tx_uuids: [...TX_IDS].reverse() }), entries(), NOW, MAXIMUM_VALUE);
+    const status = statusResponse();
+    status.transactions.reverse();
+    const bound = bindFamilyQuoteStatus(status, provisional);
+    expect(bound.entries).toEqual(entries().map((entry, index) => ({ entry, txUuid: TX_IDS[index] })));
+    expect(bound.commitment).not.toBe(provisional.commitment);
+    expect(bound.commitment).toBe(quote().commitment);
+    expect(parseStatus(status, bound).map(item => item.step)).toEqual([1, 0]);
+    for (const field of ['chain', 'target', 'data', 'value', 'virtual_nonce'] as const) {
+      const changed = structuredClone(status);
+      Object.assign(changed.transactions[0]!.request, {
+        [field]: field === 'chain' ? 1 : field === 'virtual_nonce' ? 7 : field === 'value' ? '13' : '0x00',
+      });
+      expect(() => bindFamilyQuoteStatus(changed, provisional)).toThrowError(
+        expect.objectContaining({ code: 'RELAYR_INVALID_STATUS', status: 502 }),
+      );
+    }
+  });
+
+  it('refuses a sponsored bundle whose echoed calls do not name one entry each', () => {
+    const repeated = [entries()[0]!, { ...entries()[0]! }];
+    const provisional = parseFamilyQuote(quoteResponse(), repeated, NOW, MAXIMUM_VALUE);
+    const status = statusResponse();
+    status.transactions[1]!.request = { ...repeated[0]! };
+    expect(() => bindFamilyQuoteStatus(status, provisional)).toThrowError(
+      expect.objectContaining({ code: 'RELAYR_INVALID_STATUS', status: 502 }),
+    );
+    const unmatched = statusResponse();
+    unmatched.transactions[0]!.request.chain = 1;
+    expect(() => bindFamilyQuoteStatus(unmatched, parseFamilyQuote(quoteResponse(), entries(), NOW, MAXIMUM_VALUE)))
+      .toThrowError(expect.objectContaining({ code: 'RELAYR_INVALID_STATUS', status: 502 }));
   });
 
   it('accepts exact hexadecimal status values while preserving strict ordered nonces and value equality', () => {

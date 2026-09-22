@@ -209,6 +209,7 @@ function fakeProvider(options: {
   submittedForResume?: boolean;
   extraLaunch?: number;
   reversedStatus?: boolean;
+  reversedQuoteIds?: boolean;
 }) {
   const forwarded = (chain: number, virtualNonce = 0): RelayrEntry => ({
     chain,
@@ -234,9 +235,11 @@ function fakeProvider(options: {
   let polls = 0;
   const create = vi.fn(async (entries: RelayrEntry[]) => {
     submitted = entries;
+    // The identifiers come back as a set; their order is not the submitted order.
+    const ids = TX_UUIDS.slice(0, entries.length);
     return {
       bundle_uuid: BUNDLE,
-      tx_uuids: TX_UUIDS.slice(0, entries.length),
+      tx_uuids: options.reversedQuoteIds ? [...ids].reverse() : ids,
       payment_info: (options.paymentChainIds ?? [options.paymentChainId]).map((chain) => ({
         chain,
         target: RELAYR_PAYMENT_ADDRESS,
@@ -471,6 +474,7 @@ function harness(options: {
   /** Hold every Safe creation receipt until this many of them are asked for at once. */
   setupReceiptsAtOnce?: number;
   reversedStatus?: boolean;
+  reversedQuoteIds?: boolean;
 }) {
   const amount = options.amount ?? PAYMENT_AMOUNT;
   const setupPerChain = options.setupPerChain ?? 0;
@@ -530,6 +534,7 @@ function harness(options: {
     ...(options.submittedForResume ? { submittedForResume: true } : {}),
     ...(options.extraLaunch === undefined ? {} : { extraLaunch: options.extraLaunch }),
     ...(options.reversedStatus ? { reversedStatus: true } : {}),
+    ...(options.reversedQuoteIds ? { reversedQuoteIds: true } : {}),
   });
   const report = {
     bundle: vi.fn(async () => {
@@ -577,8 +582,9 @@ describe("relayr sponsorship lane", () => {
     const { amount, chain, events, hashes, lane, laneEvents, prepayments, provider, report, waits } =
       harness({
         chainIds,
+        // The lane polls once to bind the bundle's identifiers, then twice to settle it.
+        hashAfter: 3,
         paymentChainId: 8453,
-        hashAfter: 2,
         projectIds: ["12", "3"],
       });
 
@@ -599,7 +605,7 @@ describe("relayr sponsorship lane", () => {
     });
     expect(chain.prepare.mock.calls[0]![2]).toBe(signer.address);
     expect(provider.create.mock.calls[0]![0].map((entry) => entry.chain)).toEqual(chainIds);
-    expect(provider.polls()).toBe(2);
+    expect(provider.polls()).toBe(3);
 
     expect(prepayments).toHaveLength(1);
     const prepayment = parseTransaction(prepayments[0]!);
@@ -695,6 +701,26 @@ describe("relayr sponsorship lane", () => {
     expect(report.failed).not.toHaveBeenCalled();
     expect(report.paid).not.toHaveBeenCalled();
     expect(report.sent).toHaveBeenCalledWith(8453, hashes.get(8453), BUNDLE);
+    expect(report.confirmed).toHaveBeenCalledWith(8453, hashes.get(8453), "12");
+    expect(report.confirmed).toHaveBeenCalledWith(10, hashes.get(10), "3");
+  });
+
+  test("binds identifiers the service returns out of submitted order to the calls they name", async () => {
+    const chainIds = [8453, 10];
+    const { hashes, lane, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12", "3"],
+      setupPerChain: 1,
+      reversedQuoteIds: true,
+    });
+
+    await lane.deploy(intent(chainIds, 1), chainIds, report);
+
+    expect(report.failed).not.toHaveBeenCalled();
+    expect(report.sent).toHaveBeenCalledWith(8453, hashes.get(8453), BUNDLE);
+    expect(report.sent).toHaveBeenCalledWith(10, hashes.get(10), BUNDLE);
     expect(report.confirmed).toHaveBeenCalledWith(8453, hashes.get(8453), "12");
     expect(report.confirmed).toHaveBeenCalledWith(10, hashes.get(10), "3");
   });
