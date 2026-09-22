@@ -1,7 +1,10 @@
 import type { DeploymentVerifier } from "../deploymentVerifier.js";
 import type { Store } from "../store.js";
 import {
+  laneErrorDetail,
   laneErrorMessage,
+  laneEventMessage,
+  laneOutcome,
   logSponsorEvent,
   type DeployLane,
   type LaneReport,
@@ -30,7 +33,7 @@ export function createSponsorWorker(options: {
     if (!intent) return;
     // A claimed row that already carries a bundle was paid for by an earlier
     // attempt; resuming it is the only way not to fund the same work twice.
-    const bundleUuid = intent.deploys.find(
+    let bundleUuid = intent.deploys.find(
       (deploy) => claimed.includes(deploy.chainId) && deploy.bundleUuid,
     )?.bundleUuid;
     // Nothing was paid, so a deployment recorded meanwhile retires the whole claim.
@@ -63,9 +66,12 @@ export function createSponsorWorker(options: {
       done.add(chainId);
     };
     const report: LaneReport = {
-      bundle: async (bundleUuid) => {
+      bundle: async (submitted) => {
+        // From here the prepayment may leave the key, so the rows are never retired
+        // on a transient failure: they wait for the bundle's own outcome.
+        bundleUuid = submitted;
         for (const chainId of chainIds) {
-          await store.updateDeploy(intentId, chainId, { status: "queued", bundleUuid });
+          await store.updateDeploy(intentId, chainId, { status: "queued", bundleUuid: submitted });
         }
       },
       paid: (chainId, spentWei) => store.updateDeploy(intentId, chainId, { status: "queued", spentWei }),
@@ -106,7 +112,18 @@ export function createSponsorWorker(options: {
       else await lane.deploy(intent, chainIds, report);
     } catch (error) {
       const message = laneErrorMessage(error);
-      for (const chainId of chainIds) if (!done.has(chainId)) await fail(chainId, message);
+      if (laneOutcome(error, { paid: Boolean(bundleUuid) }) === "terminal") {
+        for (const chainId of chainIds) if (!done.has(chainId)) await fail(chainId, message);
+      } else {
+        // The row keeps its status and its bundle, and says why it is waiting.
+        for (const chainId of chainIds) {
+          if (!done.has(chainId)) await store.updateDeploy(intentId, chainId, { error: message });
+        }
+        const detail = laneErrorDetail(error);
+        if (detail)
+          onEvent({ event: "status_invalid", intentId, ...(bundleUuid ? { bundleUuid } : {}), detail });
+        await report.deferred(laneEventMessage(error));
+      }
     }
     // A deferral spent nothing, so it must not spend one of the three attempts either.
     if (deferred) return store.releaseClaim(intentId, chainIds);

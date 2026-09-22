@@ -563,7 +563,7 @@ describe("relayr sponsorship lane", () => {
     expect(report.confirmed).toHaveBeenCalledWith(10, hashes.get(10), "3");
   });
 
-  test("fails every unfinished chain when relayr never executes the bundle", async () => {
+  test("raises a timeout, retiring nothing, when relayr has not executed the bundle yet", async () => {
     const chainIds = [8453, 10];
     const { lane, provider, report, waits } = harness({
       chainIds,
@@ -572,14 +572,17 @@ describe("relayr sponsorship lane", () => {
       projectIds: ["12", "3"],
     });
 
-    await lane.resume(intent(chainIds), chainIds, BUNDLE, report);
+    // The bundle was paid for, so the poll limit ends this pass, not the bundle.
+    await expect(lane.resume(intent(chainIds), chainIds, BUNDLE, report)).rejects.toMatchObject({
+      code: "RELAYR_TIMEOUT",
+      message: "relayr did not execute the bundle in time",
+    });
 
     expect(waits).toHaveLength(181);
     expect(provider.status).toHaveBeenCalledTimes(181);
     expect(report.sent).not.toHaveBeenCalled();
     expect(report.confirmed).not.toHaveBeenCalled();
-    expect(report.failed).toHaveBeenCalledWith(8453, "relayr did not execute the bundle in time");
-    expect(report.failed).toHaveBeenCalledWith(10, "relayr did not execute the bundle in time");
+    expect(report.failed).not.toHaveBeenCalled();
   });
 
   test("fails every chain when the prepayment reverts", async () => {
@@ -600,7 +603,7 @@ describe("relayr sponsorship lane", () => {
     expect(report.failed).toHaveBeenCalledWith(10, "the prepayment reverted");
   });
 
-  test("fails every chain and sends nothing when the quote exceeds the reservation", async () => {
+  test("raises the quote refusal to the worker and sends nothing", async () => {
     const chainIds = [8453, 10];
     const { lane, prepayments, report } = harness({
       chainIds,
@@ -610,13 +613,53 @@ describe("relayr sponsorship lane", () => {
       amount: reservationWei(policy, chainIds.length) + 1n,
     });
 
-    await lane.deploy(intent(chainIds), chainIds, report);
+    // The worker classifies the failure and owns what happens to the rows.
+    await expect(lane.deploy(intent(chainIds), chainIds, report)).rejects.toMatchObject({
+      code: "RELAYR_FUNDING_LIMIT",
+    });
 
     expect(prepayments).toHaveLength(0);
     expect(report.sent).not.toHaveBeenCalled();
     expect(report.confirmed).not.toHaveBeenCalled();
-    expect(report.failed).toHaveBeenCalledWith(8453, "RELAYR_FUNDING_LIMIT");
-    expect(report.failed).toHaveBeenCalledWith(10, "RELAYR_FUNDING_LIMIT");
+    expect(report.failed).not.toHaveBeenCalled();
+  });
+
+  test("refuses to simulate a chain where the sponsor cannot cover the creation fee", async () => {
+    const chainIds = [8453, 10];
+    const { chain, lane, provider, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12", "3"],
+      balance: (chainId) => (chainId === 10 ? CREATION_FEE - 1n : 10n ** 18n),
+    });
+
+    await expect(lane.deploy(intent(chainIds), chainIds, report)).rejects.toMatchObject({
+      code: "SPONSOR_UNFUNDED",
+      message: "sponsor holds less than the creation fee on chain 10 by 1 wei",
+    });
+
+    // The funded chain was prepared; the simulation the empty chain would reject never ran.
+    expect(chain.prepare).toHaveBeenCalledTimes(1);
+    expect(provider.create).not.toHaveBeenCalled();
+    expect(report.failed).not.toHaveBeenCalled();
+    expect(report.deferred).not.toHaveBeenCalled();
+  });
+
+  test("prepares every chain whose balance covers the creation fee exactly", async () => {
+    const chainIds = [8453, 10];
+    const { chain, lane, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12", "3"],
+      balance: (chainId) => (chainId === 10 ? CREATION_FEE : 10n ** 18n),
+    });
+
+    await lane.deploy(intent(chainIds), chainIds, report);
+
+    expect(chain.prepare).toHaveBeenCalledTimes(2);
+    expect(report.failed).not.toHaveBeenCalled();
   });
 
   test("leaves every chain queued when the sponsor cannot cover the prepayment", async () => {
@@ -629,13 +672,16 @@ describe("relayr sponsorship lane", () => {
       balance: PAYMENT_AMOUNT,
     });
 
-    await lane.deploy(intent(chainIds), chainIds, report);
+    // Nothing was submitted, so the rows wait with the code and the worker says why.
+    await expect(lane.deploy(intent(chainIds), chainIds, report)).rejects.toMatchObject({
+      code: "SPONSOR_UNFUNDED",
+      message: expect.stringMatching(/^sponsor holds less than the prepayment on chain 8453 by \d+ wei$/),
+    });
 
     expect(prepayments).toHaveLength(0);
     expect(report.bundle).not.toHaveBeenCalled();
     expect(report.failed).not.toHaveBeenCalled();
-    expect(report.deferred).toHaveBeenCalledWith("sponsor balance too low");
-    // Nothing was submitted, so the worker owns the one line that says why.
+    expect(report.deferred).not.toHaveBeenCalled();
     expect(laneEvents).toEqual([]);
   });
 

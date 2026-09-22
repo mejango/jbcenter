@@ -14,6 +14,8 @@ import type { Deployment, Intent, IntentDeploy, SearchPage } from "../../src/typ
 
 /** A released claim waits before the next pass so a dry key does not spin the worker. */
 export const RELEASE_BACKOFF_MS = 5 * 60_000;
+/** A day of waiting is the end of the line for a retried row. */
+const WAITING_LIMIT_MS = 24 * 60 * 60_000;
 
 type StoredDeploy = IntentDeploy & {
   requester: string;
@@ -182,10 +184,19 @@ export class MemoryStore implements Store {
     const claimed: { intentId: string; chainIds: number[] }[] = [];
     for (const intent of this.intents) {
       for (const deploy of intent.deploys as StoredDeploy[]) {
-        if ((deploy.status !== "queued" && deploy.status !== "sent") || deploy.attempts < 3) continue;
+        if (deploy.status !== "queued" && deploy.status !== "sent") continue;
         if (deploy.leaseUntil !== null && deploy.leaseUntil >= now) continue;
+        const attempted = deploy.bundleUuid !== null || deploy.error !== null;
+        const waited = attempted && Date.parse(deploy.createdAt) < now - WAITING_LIMIT_MS;
+        if (deploy.attempts < 3 && !waited) continue;
         deploy.status = "failed";
-        deploy.error = "attempts exhausted";
+        deploy.error =
+          deploy.attempts >= 3
+            ? "attempts exhausted"
+            : deploy.bundleUuid === null
+              ? "retries exhausted"
+              : "bundle unresolved";
+        // The prepayment may have left the key, so a bundled row keeps its reservation.
         if (deploy.bundleUuid === null) deploy.reservedWei = 0n;
         deploy.updatedAt = new Date().toISOString();
       }
@@ -216,7 +227,7 @@ export class MemoryStore implements Store {
     const intent = this.intents.find(({ id }) => id === intentId);
     const deploy = intent?.deploys.find((item) => item.chainId === chainId) as StoredDeploy | undefined;
     if (!deploy) return;
-    deploy.status = patch.status;
+    if (patch.status !== undefined) deploy.status = patch.status;
     if (patch.transactionHash !== undefined) deploy.transactionHash = patch.transactionHash;
     if (patch.bundleUuid !== undefined) deploy.bundleUuid = patch.bundleUuid;
     deploy.error = patch.error?.slice(0, 300) ?? null;
