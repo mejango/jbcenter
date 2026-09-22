@@ -41,8 +41,6 @@ import { createRelayrLane, rankPayments } from "../../src/sponsor/relayr.js";
 import type { Intent } from "../../src/types.js";
 import { SAFE_FACTORY_RUNTIME } from "../fixtures/safe-factory.js";
 
-type LaneEntry = RelayrEntry | Omit<RelayrEntry, "virtual_nonce">;
-
 const signer = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const PROJECTS = "0x2222222222222222222222222222222222222222" as Address;
 const FORWARDER = "0x3333333333333333333333333333333333333333" as Address;
@@ -205,35 +203,36 @@ function fakeProvider(options: {
   paymentChainId: number;
   paymentChainIds?: number[];
   hashAfter: number;
-  entryHash: (entry: LaneEntry, index: number) => Hex;
+  entryHash: (entry: RelayrEntry, index: number) => Hex;
   amount: bigint;
   setupPerChain: number;
   submittedForResume?: boolean;
   extraLaunch?: number;
   reversedStatus?: boolean;
 }) {
-  const forwarded = (chain: number): LaneEntry => ({
+  const forwarded = (chain: number, virtualNonce = 0): RelayrEntry => ({
     chain,
     target: FORWARDER,
     data: "0x",
     value: "0",
-    virtual_nonce: 0,
+    virtual_nonce: virtualNonce,
   });
   // A paid bundle echoes what was submitted: each chain's Safe creations, then its launch.
-  let submitted: LaneEntry[] = options.submittedForResume
+  let submitted: RelayrEntry[] = options.submittedForResume
     ? options.chainIds.flatMap((chain) => [
         ...Array.from({ length: options.setupPerChain }, (_, position) => ({
           chain,
           target: SAFE_FACTORY,
           data: safeCall(BigInt(position + 1)),
           value: "0",
+          virtual_nonce: position,
         })),
-        forwarded(chain),
-        ...(options.extraLaunch === chain ? [forwarded(chain)] : []),
+        forwarded(chain, options.setupPerChain),
+        ...(options.extraLaunch === chain ? [forwarded(chain, options.setupPerChain + 1)] : []),
       ])
-    : options.chainIds.map(forwarded);
+    : options.chainIds.map((chain) => forwarded(chain));
   let polls = 0;
-  const create = vi.fn(async (entries: LaneEntry[]) => {
+  const create = vi.fn(async (entries: RelayrEntry[]) => {
     submitted = entries;
     return {
       bundle_uuid: BUNDLE,
@@ -504,7 +503,7 @@ function harness(options: {
     }
   }
   const holdSetupReceipt = receiptGate(setupHashes, options.setupReceiptsAtOnce);
-  const entryHash = (entry: LaneEntry, index: number) =>
+  const entryHash = (entry: RelayrEntry, index: number) =>
     entry.target === SAFE_FACTORY ? setupHash(entry.chain, index) : deployHash(entry.chain);
   const events: string[] = [];
   const code =
@@ -842,9 +841,16 @@ describe("relayr sponsorship lane", () => {
       target: SAFE_FACTORY,
       data: safeCall(1n),
       value: "0",
+      virtual_nonce: 0,
     });
-    expect(Object.hasOwn(entries[0]!, "virtual_nonce")).toBe(false);
-    expect(entries[1]).toMatchObject({ target: FORWARDER, virtual_nonce: 0 });
+    // Every entry is numbered, so each chain's creation is sent before its launch.
+    expect(entries.map((entry) => entry.virtual_nonce)).toEqual([0, 1, 0, 1]);
+    // The forward request is untouched: the launch is signed with no preceding entries,
+    // and only the bundle position it carries is set.
+    expect(chain.signed.mock.calls.map((call) => call.length)).toEqual([2, 2]);
+    const launch = await chain.signed.mock.results[0]!.value;
+    expect(launch).toMatchObject({ target: FORWARDER, virtual_nonce: 0 });
+    expect(entries[1]).toEqual({ ...launch, virtual_nonce: 1 });
     // The creation is simulated from the sponsor, and only the launch is forwarded.
     expect(simulated).toEqual([
       { from: signer.address, data: safeCall(1n) },

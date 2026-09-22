@@ -126,6 +126,32 @@ describe("lane outcomes", () => {
       expect(laneOutcome(error, { paid: false })).toBe("terminal");
   });
 
+  test("a rejected Relayr request is judged by Relayr's own status, not the mapped one", () => {
+    const rejected = new RelayrResponseError(
+      new RestError(502, "RELAYR_UNAVAILABLE", "The execution service rejected the request."),
+      {
+        status: 406,
+        body: '{"InvalidNonce":{"mode":"MultiChain","error":"Virtual nonce is required."}}',
+        complete: true,
+        truncated: false,
+      },
+    );
+    expect(laneOutcome(rejected, { paid: false })).toBe("terminal");
+    expect(laneOutcome(rejected, { paid: true })).toBe("retry");
+    expect(laneErrorMessage(rejected)).toBe("relayr request failed");
+    expect(laneEventMessage(rejected)).toBe("relayr request failed, relayr status 406");
+  });
+
+  test("an execution service that could not answer waits for the next claim", () => {
+    for (const status of [0, 500, 503]) {
+      const error = new RelayrResponseError(
+        new RestError(502, "RELAYR_UNAVAILABLE", "The execution service could not answer."),
+        { status, body: "", complete: false, truncated: false },
+      );
+      expect(laneOutcome(error, { paid: false })).toBe("retry");
+    }
+  });
+
   test("a paid bundle waits through a parse, timeout or transport failure", () => {
     for (const error of [
       new RestError(502, "RELAYR_INVALID_STATUS", "Provider status changed the stored transaction binding."),
