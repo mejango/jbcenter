@@ -153,14 +153,18 @@ export class MemoryStore implements Store {
     chainIds: number[],
     requester: string,
     reservedWeiPerChain: bigint,
+    retryFailed = false,
   ): Promise<IntentDeploy[]> {
     const intent = this.intents.find(({ id }) => id === intentId)!;
     for (const chainId of chainIds) {
-      if (intent.deploys.some((deploy) => deploy.chainId === chainId)) continue;
+      const existing = (intent.deploys as StoredDeploy[]).find(
+        (deploy) => deploy.chainId === chainId,
+      );
+      // A failed row that still carries a bundle may yet execute; only an unpaid failure is retried.
+      if (existing && !(retryFailed && existing.status === "failed" && existing.bundleUuid === null)) continue;
       const now = new Date().toISOString();
-      const deploy: StoredDeploy = {
-        chainId,
-        status: "queued",
+      const attempt = {
+        status: "queued" as const,
         transactionHash: null,
         bundleUuid: null,
         error: null,
@@ -168,11 +172,15 @@ export class MemoryStore implements Store {
         updatedAt: now,
         requester,
         reservedWei: reservedWeiPerChain,
-        spentWei: 0n,
         attempts: 0,
         leaseUntil: null,
       };
-      intent.deploys.push(deploy);
+      // A retry keeps what the lane already spent; everything else starts over.
+      if (existing) Object.assign(existing, attempt);
+      else {
+        const deploy: StoredDeploy = { chainId, spentWei: 0n, ...attempt };
+        intent.deploys.push(deploy);
+      }
     }
     return this.listDeploys(intentId);
   }
