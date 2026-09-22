@@ -257,13 +257,18 @@ they land as unrelated same-named projects on separate chains, and nothing can r
 
 There are exactly two valid senders for a whole intent, never mixed:
 
-- Center's sponsor key deploys every chain (the sponsored path).
-- One wallet deploys every chain (the self-paid path).
+- Center's sponsor key deploys every chain. It signs each chain's launch as an ERC-2771 forward
+  request, so `_msgSender()` on the destination is the sponsor whether Center pays
+  (`POST /v1/intents/:id/deploy`) or the visitor pays (`POST /v1/intents/:id/relay`).
+- One wallet deploys every chain itself, paying each one and recording it.
 
-Center enforces the boundary from its side: `POST /v1/intents/:id/deploy` is refused for an
-intent that already has a recorded deployment, so sponsorship can never be layered on top of a
-partial self-paid deployment. The mirror rule is yours to keep: once a sponsored deploy is
-requested, do not deploy the remaining chains yourself.
+Center enforces the boundary one chain at a time, and remembers which sender made each chain. A
+recorded deployment carries `forwarded`: true when the committed call came from the canonical
+`ERC2771Forwarder`, false when a wallet sent the committed call itself. A chain that already has
+a deployment is refused by both routes, and one deployment that is not forwarded closes both
+routes for the whole intent with `409` `mixed_sender` and retires its queued rows. So deploy a
+chain Center does not sponsor with a relay request, never from your own wallet: sent from any
+other address it produces different token and sucker salts.
 
 On the sponsored path Center's sponsor key signs an ERC-2771 forward request per chain against
 the canonical `ERC2771Forwarder` from the V6 manifest, after checking that the call's target
@@ -455,8 +460,17 @@ GET /v1/intents/:id
 }
 ```
 
-`deployments` holds recorded on-chain results: `{chainId, projectId, transactionHash, createdAt}`,
-write-once per chain. `deploys` holds sponsored-deploy rows and is always present, empty until a
+`deployments` holds recorded on-chain results, write-once per chain:
+
+| Field | Meaning |
+|---|---|
+| `chainId` | The chain the project was created on |
+| `projectId` | The project id the canonical `JBProjects.Create` event carried |
+| `transactionHash` | The transaction Center verified |
+| `forwarded` | True when the launch was sent through Center's forwarder with Center's sponsor as the sender, which is what lets Center sponsor or relay the remaining chains; false for a deployment the wallet sent itself |
+| `createdAt` | When Center recorded it |
+
+`deploys` holds sponsored-deploy rows and is always present, empty until a
 sponsored deploy is requested: `{chainId, status, transactionHash, bundleUuid, error, createdAt,
 updatedAt}` with `status` one of `queued`, `sent`, `confirmed`, `failed`. `error` is always a
 coded, authored message capped at 300 characters with secrets scrubbed before it is stored, and
@@ -540,16 +554,27 @@ volume.
 
 ```http
 POST /v1/intents/:id/deploy
+Content-Type: application/json
+
+{ "chainIds": [8453] }
 ```
 
-No request body. Center executes the intent's own signed calls at its own expense.
+Center executes the intent's own signed calls at its own expense. The body is optional. With no
+body, or with no `chainIds`, Center queues every chain of the intent that it sponsors and that
+has no deployment yet. With `chainIds`, every id must be in the intent, must be one Center
+sponsors, and must have no deployment; an id that already has a row comes back as it is. The
+chains queued by one request must all be from one family.
+
+An intent whose `chainIds` also name a chain Center does not sponsor, such as Ethereum, is queued
+for its sponsored chains. The rest is deployed with a relay request.
 
 | Status | Body | Meaning |
 |---|---|---|
-| `202` | `{"deploys":[...]}` | Queued for the first time, one row per chain, all `queued` |
-| `200` | `{"deploys":[...]}` | Rows already exist. The same rows come back; the request is idempotent per intent, not per call |
-| `400` | `bad_request` | The id is not a UUID, the intent is already `deployed`, or its chains are not sponsorable |
+| `202` | `{"deploys":[...]}` | At least one chain was queued. One row per requested chain |
+| `200` | `{"deploys":[...]}` | Every requested chain already has a row. The same rows come back |
+| `400` | `bad_request` | The id is not a UUID, a named chain is not in the intent, is not sponsored or is already deployed, nothing sponsored is left to deploy, or the selected chains span both families |
 | `404` | `not_found` | No such intent |
+| `409` | `mixed_sender` | A wallet already deployed a chain of this intent. Deploy the rest from that wallet |
 | `429` | `sponsor_budget` | The daily sponsorship budget is spent: the shared one, or an MCP caller's own slice of it. `Retry-After: 86400` |
 | `429` | `sponsor_quota` | The requester's daily quota is spent. `Retry-After: 86400` |
 | `503` | `unavailable` | No sponsor is configured, or sponsorship is paused |
@@ -566,9 +591,9 @@ for a refusal it does not recognize, such as `bad_request` or `not_found`.
 | Mainnet | `10` Optimism, `8453` Base, `42161` Arbitrum |
 | Testnet | `11155111` Sepolia, `11155420` Optimism Sepolia, `84532` Base Sepolia, `421614` Arbitrum Sepolia |
 
-Every chain of an intent must come from one family. A mix of families, or any chain outside both
-lists, is not sponsorable. Ethereum mainnet (`1`) is never sponsored: an intent that includes it
-is self-paid only.
+The chains queued by one request must come from one family. Ethereum mainnet (`1`) is never
+sponsored: an intent that includes it is queued for its sponsored chains, and Ethereum is
+deployed with a relay request or from the wallet that deploys every chain.
 
 ### Cost and quotas
 
@@ -623,6 +648,70 @@ which requests the sponsored deploy, polls on a 4-second default interval until 
 `confirmed`, and returns `Record<chainId, projectId>`. It throws `EnsureDeployedError` carrying
 the `chainId` of the row that failed.
 
+## Relay a chain the payer sends
+
+```http
+POST /v1/intents/:id/relay
+Content-Type: application/json
+
+{ "chainId": 1 }
+```
+
+Center signs that chain's launch and hands the signed request back. Nothing is stored, nothing is
+queued and no ETH leaves Center. The payer sends one transaction to the forwarder and the project
+is created with Center's sponsor as its sender, so the chain pairs with every chain Center deploys
+itself.
+
+```json
+{
+  "chainId": 1,
+  "to": "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2",
+  "data": "0x47153f82...",
+  "value": "100000000000000",
+  "gas": "404761",
+  "deadline": 1700001800,
+  "setup": []
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `to` | The canonical `ERC2771Forwarder` on that chain |
+| `data` | `execute(request)` carrying the signed forward request |
+| `value` | `JBProjects.creationFee()` in wei, as a decimal string. The transaction must send exactly this |
+| `gas` | The gas the outer transaction needs: the signed inner gas, the 1/64 the EVM keeps back, and the forwarder's overhead |
+| `deadline` | Unix seconds. The signature is valid for 30 minutes |
+| `setup` | The chain's Safe creations as `{to, data, value}`, in order, minus any Safe that already exists. Send these first, from any address |
+
+A Safe 1.4.1 address depends on the factory, the initializer and the salt, never on the sender, so
+the payer creates the Safes and Center's signed launch still finds them at the same addresses. The
+launch itself must stay a forwarded request; sent from any other address it produces different
+token and sucker salts.
+
+| Status | Code | Meaning |
+|---|---|---|
+| `200` | — | The signed request |
+| `400` | `bad_request` | The id is not a UUID, `chainId` is missing or not in the intent, or that chain already has a deployment |
+| `400` | `sponsored_chain` | Center deploys that chain itself. Use `POST /v1/intents/:id/deploy` |
+| `404` | `not_found` | No such intent |
+| `409` | `mixed_sender` | A wallet already deployed a chain of this intent. Deploy the rest from that wallet |
+| `429` | `relay_limit` | 30 relay requests per requester per hour. `Retry-After: 3600` |
+| `503` | `unavailable` | No sponsor is configured, or sponsorship is paused |
+| `503` | `relay_unavailable` | Center could not read, simulate or sign for that chain |
+
+Sponsored chains are refused so that a visitor and the sponsor lane never hold
+the same forwarder nonce at once. Two visitors can: both get the nonce the forwarder holds now,
+the first transaction to land consumes it and the second reverts. Fetch the request again and
+send it. A request is valid only until its `deadline`.
+
+Center's sponsor key must hold at least `JBProjects.creationFee()` on a relayed chain, because
+both simulations send that value from the sponsor. The fee is never spent there; on Ethereum it is
+`100000000000000` wei (0.0001 ETH).
+
+When the transaction confirms, record it with `POST /v1/intents/:id/deployments` as for any chain
+the payer sends. The verifier accepts the forwarded call: the trace carries the committed calldata
+plus the appended sender, and the recorded deployment reads `forwarded: true`.
+
 ## Self-paid deploy and recording it
 
 Send the intent's exact per-chain calls from one wallet, with `JBProjects.creationFee()` as the
@@ -646,16 +735,17 @@ address to a forwarded call). Nested matching covers Safe and Relayr execution.
 
 | Status | Code | Meaning |
 |---|---|---|
-| `201` | — | Recorded |
+| `201` | — | Recorded. The body carries `forwarded`: true for a call the canonical forwarder made, false for one a wallet sent itself |
 | `400` | `bad_request` | Bad id, bad hash, bad `projectId`, or a `chainId` outside the intent |
 | `404` | `not_found` | No such intent |
 | `409` | `conflict` | A different deployment is already recorded for that chain |
 | `422` | `deployment_unverified` | The trace or the event did not match the signed commitment |
 | `503` | `unavailable` | Deployment verification is not configured |
 
-Never mix senders. If a sponsored deploy was requested, do not also send the calls yourself. If
-you sent some chains yourself, Center will refuse to sponsor the rest — and even if it did not,
-the salts would no longer match and the chains would never link.
+Never mix senders. Recording a chain your own wallet sent closes the deploy and relay routes for
+the whole intent with `409` `mixed_sender`, and the chains still queued are retired. Deploy the
+rest from the same wallet. A chain Center does not sponsor is relayed, not sent from your wallet,
+whenever Center deploys any other chain of the intent.
 
 ## Worked examples
 
@@ -693,7 +783,8 @@ suckers link.
   the moment the intent is made, or an explicitly chosen future time. Stage timestamps are
   honored exactly as signed; a late deploy does not move them.
 - **Deploying some chains yourself and asking Center to sponsor the rest.** The salts stop
-  matching and the chains never link into one omnichain project. There is no repair.
+  matching and the chains never link into one omnichain project. There is no repair. Ethereum is
+  not an exception: relay it, so its sender is the sponsor like every other chain.
 - **Hand-building the signing message.** Always take it from `POST /v1/intents/message`, and
   always run the two guard checks before signing.
 - **Signing without comparing the prepared envelope to the local one.** The signature is over

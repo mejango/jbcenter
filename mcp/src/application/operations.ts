@@ -620,9 +620,14 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     operationWithSchema(
       'deploy_intent',
-      'Ask JB Center to sponsor execution of a published intent’s own committed calls on the supported rollups. Returns one row per chain with status queued, sent, confirmed or failed; repeating the request returns the same rows. Queued is not confirmation and a failed row is terminal for that intent. Refusals return a fixed code: NOT_SPONSORABLE, SPONSOR_QUOTA, SPONSOR_BUDGET or SPONSOR_UNAVAILABLE. This server signs nothing and sends no wallet transaction.',
-      z.object({ id: z.string().uuid() }).strict(),
-      async ({ id }) => s.center.requestDeploy(id),
+      'Ask JB Center to sponsor execution of a published intent’s own committed calls on the supported rollups, for every sponsored chain or for the chains named in chainIds. Returns one row per requested chain with status queued, sent, confirmed or failed; repeating the request returns the same rows. Queued is not confirmation and a failed row is terminal for that chain. A chain Center does not sponsor, such as Ethereum, is deployed by its own payer and is never queued here. Refusals return a fixed code: NOT_SPONSORABLE, SPONSOR_QUOTA, SPONSOR_BUDGET or SPONSOR_UNAVAILABLE. This server signs nothing and sends no wallet transaction.',
+      z
+        .object({
+          id: z.string().uuid(),
+          chainIds: z.array(chainIdSchema).min(1).max(16).optional(),
+        })
+        .strict(),
+      async ({ id, chainIds }) => s.center.requestDeploy(id, chainIds),
       { externalMutation: true, idempotent: true },
     ),
     defineOperation(
