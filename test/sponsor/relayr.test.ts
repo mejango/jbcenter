@@ -7,6 +7,7 @@ import {
   recoverTransactionAddress,
   recoverTypedDataAddress,
   toHex,
+  zeroAddress,
   type Address,
   type Hex,
   type TransactionSerializedEIP1559,
@@ -29,19 +30,28 @@ import {
   type LaneReport,
   type SponsorEvent,
 } from "../../src/sponsor/chain.js";
+import {
+  SAFE_ABI,
+  SAFE_FACTORY,
+  SAFE_FALLBACK,
+  SAFE_SINGLETON,
+} from "../../src/safe.js";
 import { readSponsorPolicy, reservationWei } from "../../src/sponsor/policy.js";
 import { createRelayrLane, rankPayments } from "../../src/sponsor/relayr.js";
 import type { Intent } from "../../src/types.js";
+import { SAFE_FACTORY_RUNTIME } from "../fixtures/safe-factory.js";
 
 const signer = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const PROJECTS = "0x2222222222222222222222222222222222222222" as Address;
 const FORWARDER = "0x3333333333333333333333333333333333333333" as Address;
 const TARGET = "0x4444444444444444444444444444444444444444" as Address;
 const BUNDLE = "a0a555ff-4444-4111-aaaa-333333333333";
-const TX_UUIDS = [
-  "b0a555ff-4444-4111-aaaa-333333333333",
-  "c0a555ff-4444-4111-aaaa-333333333333",
-];
+const TX_UUIDS = ["b0", "c0", "d0", "e0", "f0", "a1", "b1", "c1"].map(
+  (prefix) => `${prefix}a555ff-4444-4111-aaaa-333333333333`,
+);
+const OWNER = "0x1111111111111111111111111111111111111111" as Address;
+const PROXY_CREATION_CODE = "0x6080604052348015600f57600080fd5b50" as Hex;
+const SETUP_GAS = 260_000n;
 const NOW = 1_700_000_000_000;
 const PAYMENT_DEADLINE = BigInt(NOW / 1000 + 3600);
 const PAYMENT_AMOUNT = 1_000_000_000_000_000n;
@@ -58,7 +68,23 @@ const rpcUrl = (chainId: number) => `https://rpc.test/${chainId}`;
 const deployHash = (chainId: number) =>
   `0x${chainId.toString(16).padStart(8, "0")}${"77".repeat(28)}` as Hex;
 
-function intent(chainIds: number[]): Intent {
+function safeCall(saltNonce: bigint): Hex {
+  return encodeFunctionData({
+    abi: SAFE_ABI,
+    functionName: "createProxyWithNonce",
+    args: [
+      SAFE_SINGLETON,
+      encodeFunctionData({
+        abi: SAFE_ABI,
+        functionName: "setup",
+        args: [[OWNER], 1n, zeroAddress, "0x", SAFE_FALLBACK, zeroAddress, 0n, zeroAddress],
+      }),
+      saltNonce,
+    ],
+  });
+}
+
+function intent(chainIds: number[], setupPerChain = 0): Intent {
   return {
     id: "intent-1",
     status: "undeployed",
@@ -78,11 +104,14 @@ function intent(chainIds: number[]): Intent {
       format: "juicebox.money/v1",
       deploymentVersion: "6",
       chainIds,
-      deploymentCalls: chainIds.map((chainId, index) => ({
-        chainId,
-        to: TARGET,
-        data: `0x1234567${index}` as Hex,
-      })),
+      deploymentCalls: chainIds.flatMap((chainId, index) => [
+        ...Array.from({ length: setupPerChain }, (_, position) => ({
+          chainId,
+          to: SAFE_FACTORY,
+          data: safeCall(BigInt(position + 1)),
+        })),
+        { chainId, to: TARGET, data: `0x1234567${index}` as Hex },
+      ]),
       jb: { name: "Public goods garden" },
     },
   };
@@ -314,9 +343,13 @@ function installRpc(
   events: string[],
   balance: bigint | ((chainId: number) => bigint),
   creationFee: bigint,
+  code: (address: Address) => Hex,
+  setupGas: bigint,
 ) {
   const prepayments: TransactionSerializedEIP1559[] = [];
+  const simulated: { from: Address; data: Hex }[] = [];
   const feeCall = encodeFunctionData({ abi: PROJECTS_ABI, functionName: "creationFee" });
+  const creationCodeCall = encodeFunctionData({ abi: SAFE_ABI, functionName: "proxyCreationCode" });
   vi.stubGlobal("fetch", async (_url: unknown, init: { body: string }) => {
     const { id, method, params } = JSON.parse(init.body) as {
       id: number;
@@ -326,12 +359,23 @@ function installRpc(
     const result = ((): unknown => {
       switch (method) {
         case "eth_call": {
-          const call = params[0] as { to: Address; data: Hex };
+          const call = params[0] as { to: Address; data: Hex; from?: Address };
+          if (call.to === SAFE_FACTORY) {
+            if (call.data === creationCodeCall) {
+              return encodeAbiParameters([{ type: "bytes" }], [PROXY_CREATION_CODE]);
+            }
+            simulated.push({ from: call.from!, data: call.data });
+            return pad(OWNER, { size: 32 });
+          }
           if (call.to !== PROJECTS || call.data !== feeCall) {
             throw new Error(`unexpected eth_call to ${call.to}`);
           }
           return toHex(creationFee, { size: 32 });
         }
+        case "eth_getCode":
+          return code(params[0] as Address);
+        case "eth_estimateGas":
+          return toHex(setupGas);
         case "eth_blockNumber":
           return toHex(BLOCK);
         case "eth_getBlockByNumber":
@@ -356,7 +400,7 @@ function installRpc(
       headers: { "Content-Type": "application/json" },
     });
   });
-  return prepayments;
+  return { prepayments, simulated };
 }
 
 function harness(options: {
@@ -370,6 +414,9 @@ function harness(options: {
   revertedPayment?: boolean;
   balance?: bigint | ((chainId: number) => bigint);
   creationFee?: bigint;
+  setupPerChain?: number;
+  setupGas?: bigint;
+  code?: (address: Address) => Hex;
 }) {
   const amount = options.amount ?? PAYMENT_AMOUNT;
   const hashes = new Map(options.chainIds.map((chainId) => [chainId, deployHash(chainId)]));
@@ -387,7 +434,16 @@ function harness(options: {
     ),
   );
   const events: string[] = [];
-  const prepayments = installRpc(receipts, events, options.balance ?? 10n ** 18n, options.creationFee ?? CREATION_FEE);
+  const code =
+    options.code ?? ((address: Address) => (address === SAFE_FACTORY ? SAFE_FACTORY_RUNTIME : "0x"));
+  const { prepayments, simulated } = installRpc(
+    receipts,
+    events,
+    options.balance ?? 10n ** 18n,
+    options.creationFee ?? CREATION_FEE,
+    code,
+    options.setupGas ?? SETUP_GAS,
+  );
   const chain = fakeChain();
   const chainFactory = vi.fn(() => chain.chain);
   const provider = fakeProvider({
@@ -428,7 +484,10 @@ function harness(options: {
       clock += ms;
     },
   });
-  return { amount, chain, chainFactory, events, hashes, lane, laneEvents, prepayments, provider, report, waits };
+  return {
+    amount, chain, chainFactory, events, hashes, lane, laneEvents, prepayments, provider, report,
+    simulated, waits,
+  };
 }
 
 afterEach(() => {
@@ -683,6 +742,72 @@ describe("relayr sponsorship lane", () => {
     expect(report.failed).not.toHaveBeenCalled();
     expect(report.deferred).not.toHaveBeenCalled();
     expect(laneEvents).toEqual([]);
+  });
+
+  test("puts each chain's Safe creation in the bundle before its launch", async () => {
+    const chainIds = [8453, 10];
+    const { chain, lane, provider, report, simulated } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12", "3"],
+      setupPerChain: 1,
+    });
+
+    await lane.deploy(intent(chainIds, 1), chainIds, report);
+
+    const entries = provider.create.mock.calls[0]![0];
+    expect(entries).toHaveLength(4);
+    expect(entries.map((entry) => entry.chain)).toEqual([8453, 8453, 10, 10]);
+    expect(entries[0]).toEqual({
+      chain: 8453,
+      target: SAFE_FACTORY,
+      data: safeCall(1n),
+      value: "0",
+    });
+    expect(Object.hasOwn(entries[0]!, "virtual_nonce")).toBe(false);
+    expect(entries[1]).toMatchObject({ target: FORWARDER, virtual_nonce: 0 });
+    // The creation is simulated from the sponsor, and only the launch is forwarded.
+    expect(simulated).toEqual([
+      { from: signer.address, data: safeCall(1n) },
+      { from: signer.address, data: safeCall(1n) },
+    ]);
+    expect(chain.prepare).toHaveBeenCalledTimes(2);
+    expect(report.failed).not.toHaveBeenCalled();
+  });
+
+  test("fails every chain when a Safe creation needs more gas than the sponsor cap", async () => {
+    const chainIds = [8453];
+    const { lane, provider, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12"],
+      setupPerChain: 1,
+      setupGas: policy.maximumGas + 1n,
+    });
+
+    await lane.deploy(intent(chainIds, 1), chainIds, report);
+
+    expect(provider.create).not.toHaveBeenCalled();
+    expect(report.failed).toHaveBeenCalledWith(8453, "setup gas above the sponsor cap");
+  });
+
+  test("refuses to pay a factory whose runtime is not canonical", async () => {
+    const chainIds = [8453];
+    const { lane, provider, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12"],
+      setupPerChain: 1,
+      code: () => "0x6001",
+    });
+
+    await expect(lane.deploy(intent(chainIds, 1), chainIds, report)).rejects.toMatchObject({
+      code: "SAFE_FACTORY_UNAVAILABLE",
+    });
+    expect(provider.create).not.toHaveBeenCalled();
   });
 
   test("fails every chain when the creation fee is above the sponsor ceiling", async () => {

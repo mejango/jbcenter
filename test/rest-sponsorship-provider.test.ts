@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { encodeAbiParameters, type Hex } from "viem";
+import { encodeAbiParameters, type Address, type Hex } from "viem";
 import {
   RelayrProvider,
   bindIndependentQuoteStatus,
@@ -546,6 +546,31 @@ describe("Relayr status is bound to stored exact entries", () => {
         expect.objectContaining({ code: "RELAYR_INVALID_STATUS" }),
       );
     }
+  });
+
+  it("binds a bundle that mixes a forwarded call with an independent one", () => {
+    const mixed = [entries()[0]!, { chain: 8453, target: TARGET as Address, data: "0xfeedface" as Hex, value: "0" }];
+    const quote = parseFamilyQuote(quoteResponse(), mixed, NOW, MAXIMUM_VALUE);
+    const status = {
+      bundle_uuid: BUNDLE,
+      transactions: [
+        { tx_uuid: TX_IDS[0], request: { ...mixed[0] }, status: { state: "Included", data: { hash: HASH } } },
+        {
+          tx_uuid: TX_IDS[1],
+          request: { ...mixed[1], virtual_nonce: null },
+          status: { state: "Included", data: { hash: HASH } },
+        },
+      ],
+    };
+    expect(parseStatus(status, quote)).toEqual([
+      { step: 0, providerState: "Included", hash: HASH },
+      { step: 1, providerState: "Included", hash: HASH },
+    ]);
+    const changed = JSON.parse(JSON.stringify(status));
+    changed.transactions[1]!.request.virtual_nonce = 0;
+    expect(() => parseStatus(changed, quote)).toThrowError(
+      expect.objectContaining({ code: "RELAYR_INVALID_STATUS" }),
+    );
   });
 });
 

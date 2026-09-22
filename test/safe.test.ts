@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { encodeFunctionData, zeroAddress, type Address, type Hex } from "viem";
+import { encodeFunctionData, keccak256, zeroAddress, type Address, type Hex } from "viem";
 import {
   decodeSafeSetupCall,
   predictSafeAddress,
   SAFE_ABI,
   SAFE_FACTORY,
+  SAFE_FACTORY_CODE_HASH,
   SAFE_FALLBACK,
   SAFE_SINGLETON,
 } from "../src/safe.js";
+import { SAFE_FACTORY_RUNTIME } from "./fixtures/safe-factory.js";
 
 const OWNERS: Address[] = [
   "0x1111111111111111111111111111111111111111",
@@ -37,6 +39,10 @@ function creation(data: Hex = initializer(), saltNonce = 7n, singleton: Address 
 }
 
 describe("safe setup calls", () => {
+  it("pins the runtime of the factory the sponsor pays", () => {
+    expect(keccak256(SAFE_FACTORY_RUNTIME)).toBe(SAFE_FACTORY_CODE_HASH);
+  });
+
   it("decodes a plain Safe creation and keeps its owners, threshold and salt", () => {
     const decoded = decodeSafeSetupCall(creation());
     expect(decoded).toEqual({

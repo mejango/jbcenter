@@ -1,11 +1,17 @@
-import { createPublicClient, http, type Address, type Hex } from "viem";
+import { createPublicClient, http, keccak256, type Address, type Hex } from "viem";
 import type { ContractCatalog } from "../rest/contracts/catalog.js";
 import { callsForChain } from "../intent.js";
 import type { SponsorshipChain } from "../rest/sponsorship/chain.js";
 import { FORWARD_REQUEST_TYPES } from "../rest/sponsorship/constants.js";
 import { verifyRelayrPaymentEvent } from "../rest/sponsorship/paymentContract.js";
 import { parseFamilyQuote, parseStatus, type RelayrProvider } from "../rest/sponsorship/provider.js";
-import type { RelayrEntry } from "../rest/sponsorship/types.js";
+import type { RelayrEntry, RelayrIndependentEntry } from "../rest/sponsorship/types.js";
+import {
+  decodeSafeSetupCall,
+  SAFE_ABI,
+  SAFE_FACTORY,
+  SAFE_FACTORY_CODE_HASH,
+} from "../safe.js";
 import { hash as isHash, object } from "../rest/sponsorship/validation.js";
 import {
   CREATE_TOPIC,
@@ -27,6 +33,10 @@ const PAYMENT_GAS = 150_000n;
 const NOT_EXECUTED = "relayr did not execute the bundle in time";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+type LaneEntry = RelayrEntry | RelayrIndependentEntry;
+/** Which committed call of a chain an entry carries, and where it sits in that chain. */
+type EntryRole = { chainId: number; role: "setup" | "launch"; index: number };
 
 /** Center signs every forward request with its own sponsor key, so the sponsor
  * EOA is the `_msgSender()` the forwarder appends on each destination chain. */
@@ -76,6 +86,29 @@ export function createRelayrLane(options: {
         settled.add(chainId);
         await report.confirmed(chainId, transactionHash, projectId);
       },
+    };
+  }
+
+  /** The factory's creation code decides every predicted Safe address on a chain, so it is
+   * read once per deploy and only after the factory's own runtime is the canonical one. */
+  function creationCodeReader() {
+    const codes = new Map<number, Hex>();
+    return async (chainId: number): Promise<Hex> => {
+      const cached = codes.get(chainId);
+      if (cached) return cached;
+      const runtime = await client(chainId).getCode({ address: SAFE_FACTORY });
+      if (!runtime || keccak256(runtime) !== SAFE_FACTORY_CODE_HASH)
+        throw new LaneError(
+          `the Safe proxy factory runtime on chain ${chainId} is not the canonical one`,
+          "SAFE_FACTORY_UNAVAILABLE",
+        );
+      const code = await client(chainId).readContract({
+        address: SAFE_FACTORY,
+        abi: SAFE_ABI,
+        functionName: "proxyCreationCode",
+      });
+      codes.set(chainId, code);
+      return code;
     };
   }
 
@@ -134,10 +167,27 @@ export function createRelayrLane(options: {
       const chain = makeChain();
       const track = tracker(chainIds, report);
       const deadline = Math.floor(now() / 1000) + REQUEST_TTL_SECONDS;
-      const entries: RelayrEntry[] = [];
-      for (const [index, chainId] of chainIds.entries()) {
-        const { launch } = callsForChain(intent.envelope.deploymentCalls, chainId);
+      const entries: LaneEntry[] = [];
+      const roles: EntryRole[] = [];
+      const proxyCreationCode = creationCodeReader();
+      for (const chainId of chainIds) {
+        const { setup, launch } = callsForChain(intent.envelope.deploymentCalls, chainId);
         if (!launch || !rpcUrls.has(chainId)) return track.failRest(`chain ${chainId} is not configured`);
+        for (const [position, call] of setup.entries()) {
+          const plan = decodeSafeSetupCall(call);
+          if (!plan) return track.failRest("setup call is not a Safe creation");
+          await proxyCreationCode(chainId);
+          // The creation is sender-agnostic, so the sponsor's own simulation settles it.
+          await client(chainId).call({ account: signer.address, to: SAFE_FACTORY, data: call.data });
+          const gas = await client(chainId).estimateGas({
+            account: signer.address,
+            to: SAFE_FACTORY,
+            data: call.data,
+          });
+          if (gas > policy.maximumGas) return track.failRest("setup gas above the sponsor cap");
+          entries.push({ chain: chainId, target: SAFE_FACTORY, data: call.data, value: "0" });
+          roles.push({ chainId, role: "setup", index: position });
+        }
         const fee = await client(chainId).readContract({
           address: projectsAddress,
           abi: PROJECTS_ABI,
@@ -165,7 +215,7 @@ export function createRelayrLane(options: {
             decoded: null,
           },
           signer.address,
-          index,
+          entries.length,
           deadline,
         );
         if (BigInt(prepared.message.gas) > policy.maximumGas)
@@ -185,13 +235,14 @@ export function createRelayrLane(options: {
           },
         });
         entries.push(await chain.signed(prepared, signature));
+        roles.push({ chainId, role: "launch", index: setup.length });
       }
 
       const quote = parseFamilyQuote(
         await provider.create(entries),
         entries,
         now(),
-        reservationWei(policy, chainIds.length),
+        reservationWei(policy, entries.length),
       );
       const candidates = rankPayments(quote.payments, rpcUrls);
       if (candidates.length === 0) return track.failRest("relayr returned no payment option on a configured chain");
