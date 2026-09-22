@@ -8,6 +8,7 @@ import { parseFamilyQuote, parseStatus, type RelayrProvider } from "../rest/spon
 import type { RelayrEntry, RelayrIndependentEntry } from "../rest/sponsorship/types.js";
 import {
   decodeSafeSetupCall,
+  predictSafeAddress,
   SAFE_ABI,
   SAFE_FACTORY,
   SAFE_FACTORY_CODE_HASH,
@@ -173,7 +174,35 @@ export function createRelayrLane(options: {
     await observeSetups(intentId, setups);
   }
 
-  async function observeSetups(_intentId: string, _setups: EntryHash[]): Promise<void> {}
+  /** A Safe creation only has to be observed. The project is owned by the predicted
+   * address whether or not the proxy exists yet, and anyone can create it later. */
+  async function observeSetups(intentId: string, setups: EntryHash[]): Promise<void> {
+    for (const item of setups) {
+      try {
+        const receipt = await client(item.chainId).waitForTransactionReceipt({
+          hash: item.hash,
+          confirmations: policy.confirmations,
+          timeout: RECEIPT_TIMEOUT_MS,
+        });
+        if (receipt.status !== "success")
+          onEvent({
+            event: "setup_reverted",
+            intentId,
+            chainId: item.chainId,
+            index: item.index,
+            transactionHash: item.hash,
+          });
+      } catch {
+        onEvent({
+          event: "setup_unobserved",
+          intentId,
+          chainId: item.chainId,
+          index: item.index,
+          transactionHash: item.hash,
+        });
+      }
+    }
+  }
 
   return {
     async deploy(intent, chainIds, report) {
@@ -189,7 +218,14 @@ export function createRelayrLane(options: {
         for (const [position, call] of setup.entries()) {
           const plan = decodeSafeSetupCall(call);
           if (!plan) return track.failRest("setup call is not a Safe creation");
-          await proxyCreationCode(chainId);
+          const creationCode = await proxyCreationCode(chainId);
+          const safe = predictSafeAddress(plan, creationCode);
+          const existing = await client(chainId).getCode({ address: safe });
+          if (existing && existing !== "0x") {
+            // The merchant or an earlier attempt already created it; the launch stands.
+            onEvent({ event: "setup_skipped", intentId: intent.id, chainId, index: position, safe });
+            continue;
+          }
           // The creation is sender-agnostic, so the sponsor's own simulation settles it.
           await client(chainId).call({ account: signer.address, to: SAFE_FACTORY, data: call.data });
           const gas = await client(chainId).estimateGas({

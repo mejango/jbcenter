@@ -54,6 +54,8 @@ const TX_UUIDS = ["b0", "c0", "d0", "e0", "f0", "a1", "b1", "c1"].map(
 const OWNER = "0x1111111111111111111111111111111111111111" as Address;
 const PROXY_CREATION_CODE = "0x6080604052348015600f57600080fd5b50" as Hex;
 const SETUP_GAS = 260_000n;
+/** A receipt the node refuses to answer for, so the lane never observes it. */
+const UNREADABLE = Symbol("unreadable receipt");
 const NOW = 1_700_000_000_000;
 const PAYMENT_DEADLINE = BigInt(NOW / 1000 + 3600);
 const PAYMENT_AMOUNT = 1_000_000_000_000_000n;
@@ -413,8 +415,11 @@ function installRpc(
           events.push("prepayment");
           prepayments.push(params[0] as TransactionSerializedEIP1559);
           return PAYMENT_HASH;
-        case "eth_getTransactionReceipt":
-          return receipts.get(String(params[0]).toLowerCase()) ?? null;
+        case "eth_getTransactionReceipt": {
+          const stored = receipts.get(String(params[0]).toLowerCase());
+          if (stored === UNREADABLE) throw new Error("the receipt could not be read");
+          return stored ?? null;
+        }
         default:
           throw new Error(`unexpected RPC method ${method}`);
       }
@@ -463,12 +468,15 @@ function harness(options: {
     ),
   );
   // A Safe creation lands in its own transaction, which carries no Create event.
-  if (!options.missingSetupReceipts) {
-    for (const chainId of options.chainIds) {
-      for (let index = 0; index < TX_UUIDS.length; index += 1) {
-        const hash = setupHash(chainId, index);
-        receipts.set(hash, receipt(hash, SAFE_FACTORY, [], options.revertedSetups ? "0x0" : "0x1"));
-      }
+  for (const chainId of options.chainIds) {
+    for (let index = 0; index < TX_UUIDS.length; index += 1) {
+      const hash = setupHash(chainId, index);
+      receipts.set(
+        hash,
+        options.missingSetupReceipts
+          ? UNREADABLE
+          : receipt(hash, SAFE_FACTORY, [], options.revertedSetups ? "0x0" : "0x1"),
+      );
     }
   }
   const entryHash = (entry: LaneEntry, index: number) =>
@@ -913,6 +921,74 @@ describe("relayr sponsorship lane", () => {
       code: "RELAYR_INVALID_STATUS",
     });
     expect(report.confirmed).not.toHaveBeenCalled();
+  });
+
+  test("skips the Safe a chain already has and keeps the launch", async () => {
+    const chainIds = [8453];
+    const { lane, laneEvents, provider, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12"],
+      setupPerChain: 1,
+      // Every address but the factory answers with code, so the predicted Safe exists.
+      code: () => SAFE_FACTORY_RUNTIME,
+    });
+
+    await lane.deploy(intent(chainIds, 1), chainIds, report);
+
+    const entries = provider.create.mock.calls[0]![0];
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ target: FORWARDER, virtual_nonce: 0 });
+    expect(laneEvents).toContainEqual(
+      expect.objectContaining({ event: "setup_skipped", chainId: 8453, index: 0 }),
+    );
+    expect(report.confirmed).toHaveBeenCalledTimes(1);
+    expect(report.failed).not.toHaveBeenCalled();
+  });
+
+  test("logs a reverted Safe creation and still confirms the chain", async () => {
+    const chainIds = [8453];
+    const { hashes, lane, laneEvents, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12"],
+      setupPerChain: 1,
+      revertedSetups: true,
+    });
+
+    await lane.deploy(intent(chainIds, 1), chainIds, report);
+
+    expect(laneEvents).toContainEqual({
+      event: "setup_reverted",
+      intentId: "intent-1",
+      chainId: 8453,
+      index: 0,
+      transactionHash: setupHash(8453, 0),
+    });
+    expect(report.failed).not.toHaveBeenCalled();
+    expect(report.confirmed).toHaveBeenCalledWith(8453, hashes.get(8453), "12");
+  });
+
+  test("logs a Safe creation whose receipt never arrives without failing the chain", async () => {
+    const chainIds = [8453];
+    const { hashes, lane, laneEvents, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12"],
+      setupPerChain: 1,
+      missingSetupReceipts: true,
+    });
+
+    await lane.deploy(intent(chainIds, 1), chainIds, report);
+
+    expect(laneEvents).toContainEqual(
+      expect.objectContaining({ event: "setup_unobserved", chainId: 8453, index: 0 }),
+    );
+    expect(report.confirmed).toHaveBeenCalledWith(8453, hashes.get(8453), "12");
+    expect(report.failed).not.toHaveBeenCalled();
   });
 
   test("fails every chain when the creation fee is above the sponsor ceiling", async () => {

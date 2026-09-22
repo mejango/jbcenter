@@ -121,6 +121,9 @@ export type SponsorEvent =
   | { event: "payment"; intentId: string; chainId: number; transactionHash: Hex; wei: string }
   | { event: "sent"; intentId: string; chainId: number; transactionHash: Hex }
   | { event: "confirmed"; intentId: string; chainId: number; projectId: string }
+  | { event: "setup_skipped"; intentId: string; chainId: number; index: number; safe: Address }
+  | { event: "setup_reverted"; intentId: string; chainId: number; index: number; transactionHash: Hex }
+  | { event: "setup_unobserved"; intentId: string; chainId: number; index: number; transactionHash: Hex }
   | { event: "failed"; intentId: string; chainId: number; error: string }
   | { event: "deferred"; intentId: string; chainIds: number[]; error: string }
   | { event: "status_invalid"; intentId: string; bundleUuid?: string; detail: string };
