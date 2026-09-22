@@ -13304,7 +13304,7 @@
     },
     {
       "name": "jb_deploy_intent",
-      "description": "Ask JB Center to sponsor execution of a published intent’s own committed calls on the supported rollups. Returns one row per chain with status queued, sent, confirmed or failed; repeating the request returns the same rows. Queued is not confirmation and a failed row is terminal for that intent. Refusals return a fixed code: NOT_SPONSORABLE, SPONSOR_QUOTA, SPONSOR_BUDGET or SPONSOR_UNAVAILABLE. This server signs nothing and sends no wallet transaction.",
+      "description": "Ask JB Center to sponsor execution of a published intent’s own committed calls on the supported rollups, for every sponsored chain or for the chains named in chainIds. Returns one row per requested chain with status queued, sent, confirmed or failed; repeating the request returns the same rows. Queued is not confirmation and a failed row is terminal for that chain. A chain Center does not sponsor, such as Ethereum, is deployed by its own payer and is never queued here. Refusals return a fixed code: NOT_SPONSORABLE, SPONSOR_QUOTA, SPONSOR_BUDGET or SPONSOR_UNAVAILABLE. This server signs nothing and sends no wallet transaction.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -13312,6 +13312,47 @@
             "type": "string",
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "chainIds": {
+            "minItems": 1,
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "const": 1
+                },
+                {
+                  "type": "number",
+                  "const": 10
+                },
+                {
+                  "type": "number",
+                  "const": 8453
+                },
+                {
+                  "type": "number",
+                  "const": 42161
+                },
+                {
+                  "type": "number",
+                  "const": 11155111
+                },
+                {
+                  "type": "number",
+                  "const": 11155420
+                },
+                {
+                  "type": "number",
+                  "const": 84532
+                },
+                {
+                  "type": "number",
+                  "const": 421614
+                }
+              ]
+            }
           }
         },
         "required": [
@@ -14768,7 +14809,7 @@
           },
           {
             "name": "jb_deploy_intent",
-            "description": "Ask JB Center to sponsor execution of a published intent’s own committed calls on the supported rollups. Returns one row per chain with status queued, sent, confirmed or failed; repeating the request returns the same rows. Queued is not confirmation and a failed row is terminal for that intent. Refusals return a fixed code: NOT_SPONSORABLE, SPONSOR_QUOTA, SPONSOR_BUDGET or SPONSOR_UNAVAILABLE. This server signs nothing and sends no wallet transaction."
+            "description": "Ask JB Center to sponsor execution of a published intent’s own committed calls on the supported rollups, for every sponsored chain or for the chains named in chainIds. Returns one row per requested chain with status queued, sent, confirmed or failed; repeating the request returns the same rows. Queued is not confirmation and a failed row is terminal for that chain. A chain Center does not sponsor, such as Ethereum, is deployed by its own payer and is never queued here. Refusals return a fixed code: NOT_SPONSORABLE, SPONSOR_QUOTA, SPONSOR_BUDGET or SPONSOR_UNAVAILABLE. This server signs nothing and sends no wallet transaction."
           }
         ],
         "references": [
@@ -14779,7 +14820,7 @@
         "limits": [
           "The server holds no wallet key: it never signs and never broadcasts a transaction.",
           "publish_intent stores an envelope the user already signed; it is a persistent publication, not wallet approval, and there is no edit, replace or withdraw.",
-          "deploy_intent requests Center-funded execution of the committed calls. Queued rows are not confirmations, a failed row is terminal for that intent, and one intent has exactly one deploying sender across all of its chains.",
+          "deploy_intent requests Center-funded execution of the committed calls, for every sponsored chain or for a named subset. Queued rows are not confirmations, a failed row is terminal for that chain, and every chain of one intent is deployed by the same sender.",
           "Plan tokens expire for simulation; expired tokens remain inspectable for receipt verification.",
           "Nested Safe/Relayr execution cannot be claimed verified without matching inner-call evidence."
         ]

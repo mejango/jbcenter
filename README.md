@@ -372,8 +372,10 @@ Before writing, JB Center fetches the receipt and call trace from the configured
 requires a successful transaction with the configured confirmation count, exactly one matching
 `JBProjects.Create(projectId, owner, caller)` event from canonical `JBProjects`, and a successful
 direct or nested `CALL` whose target and calldata exactly match the signed per-chain commitment.
-Nested matching supports Safe and Relayr execution. Deployment records are write-once per intent
-and chain. Recording the first deployment removes the intent from search while preserving the
+Nested matching supports Safe and Relayr execution. The recorded deployment carries `forwarded`:
+true when the canonical forwarder made the committed call, false when a wallet sent it itself, and
+one deployment that is not forwarded closes the deploy and relay routes for the whole intent.
+Deployment records are write-once per intent and chain. Recording the first deployment removes the intent from search while preserving the
 `.jb`, signature, exact launch call, and deployment provenance at its direct URL.
 
 ## Request a sponsored deploy
@@ -386,6 +388,9 @@ Center's expense, instead of the publisher paying gas directly:
 
 ```http
 POST /v1/intents/:id/deploy
+Content-Type: application/json
+
+{ "chainIds": [84532, 421614] }
 ```
 
 ```json
@@ -397,14 +402,17 @@ POST /v1/intents/:id/deploy
 }
 ```
 
-The response is `202` the first time and `200` on every later call for the same intent, always
-returning the same rows: the request is idempotent per intent, not per call. JB Center only
-sponsors an intent whose `chainIds` are entirely mainnets or entirely testnets from its supported
-set, never a mix. A worker signs each call as a forwarded request, submits the bundle through
+An optional `{"chainIds":[...]}` body limits the request to those chains; with no body, every
+sponsored chain of the intent that has no deployment is queued. The response is `202` when a chain
+was queued and `200` when every requested chain already has a row, and it carries only the rows the
+request touched or found. The queued chains must be entirely mainnets or entirely testnets from the
+supported set, never a mix; a chain outside both sets, such as Ethereum, is left for its own payer.
+A worker signs each call as a forwarded request, submits the bundle through
 Relayr, and confirms it against the same canonical `JBProjects.Create` event and per-chain call
 match used for `POST /v1/intents/:id/deployments`; a confirmed chain both updates its `deploys` row
 and records the deployment. The route answers `503` with no sponsor configured or while paused,
-`404` for an unknown intent, `400` for an already-deployed or unsponsorable intent, and `429` with
+`404` for an unknown intent, `400` for a chain that is not sponsorable or already deployed, `409`
+`mixed_sender` once a wallet has deployed a chain of the intent itself, and `429` with
 `Retry-After: 86400` once the shared daily sponsorship budget or the requester's daily quota is
 spent. The budget is checked first, so a refused request does not consume the requester's quota.
 
@@ -420,6 +428,23 @@ are fixed.
 
 Center must run a single replica while sponsoring: the deploy queue is leased, not locked across
 processes.
+
+## Relay a chain the payer sends
+
+```http
+POST /v1/intents/:id/relay
+Content-Type: application/json
+
+{ "chainId": 1 }
+```
+
+JB Center signs that chain's launch as an ERC-2771 forward request and returns
+`{ chainId, to, data, value, gas, deadline, setup }`. Nothing is stored and nothing is paid: the
+payer sends one transaction to the forwarder with `value` as its value, then records it through
+`POST /v1/intents/:id/deployments`. The deploying sender is still Center's sponsor, so the chain
+pairs with every chain Center deploys itself. A sponsored chain is refused with `sponsored_chain`,
+and the route allows 30 requests per requester per hour. See
+[the guide](docs/rest/PROJECT_INTENTS.md#relay-a-chain-the-payer-sends).
 
 ## Authentication boundaries
 

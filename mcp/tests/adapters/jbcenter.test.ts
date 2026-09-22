@@ -3,12 +3,14 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { describe, expect, it, vi } from 'vitest';
 import {
   CenterClient,
+  CENTER_DEPLOY_REFUSALS,
   CENTER_INTENT_SEMANTICS,
   canonicalCenterJson,
   centerIntentMessage,
   normalizeCenterIntent,
 } from '../../src/adapters/jbcenter.js';
 import { keccak256, toBytes } from 'viem';
+import { DomainError } from '../../src/domain/errors.js';
 import type { fetchJson } from '../../src/adapters/http.js';
 
 const ID = 'b0a555ff-4444-4111-aaaa-333333333333';
@@ -180,6 +182,24 @@ describe('Center intent commitment and read boundary', () => {
     const fetched = await center.getIntent(ID);
     expect(fetched.publisher).toBe(publisher.address);
     expect(fetched.description).toBe('untrusted description');
+
+    // Which sender deployed a chain decides whether Center can still deploy the rest.
+    const deployed = {
+      ...record,
+      status: 'deployed',
+      deployments: [
+        {
+          chainId: 8453,
+          projectId: '1',
+          transactionHash: `0x${'11'.repeat(32)}`,
+          forwarded: true,
+          createdAt: '2026-09-06T00:00:00Z',
+        },
+      ],
+    };
+    request.mockResolvedValue(deployed);
+    expect((await center.getIntent(ID)).deployments[0]?.forwarded).toBe(true);
+    request.mockResolvedValue(record);
     expect(request.mock.calls[0]?.[1]?.method).toBe('GET');
     expect(CENTER_INTENT_SEMANTICS.signature).toContain('not project safety');
   });
@@ -204,6 +224,7 @@ describe('Center intent commitment and read boundary', () => {
             chainId: 10,
             projectId: '1',
             transactionHash: `0x${'11'.repeat(32)}`,
+            forwarded: true,
             createdAt: '2026-09-06T00:00:00Z',
           },
         ],
@@ -318,5 +339,44 @@ describe('CenterClient writes', () => {
       } as never),
     ).rejects.toMatchObject({ code: 'INVALID_SIGNATURE' });
     expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks Center for a subset of chains and sends no chainIds when none are named', async () => {
+    const page = {
+      deploys: [
+        {
+          chainId: 8453,
+          status: 'queued',
+          transactionHash: null,
+          bundleUuid: null,
+          error: null,
+          createdAt: '2026-09-22T00:00:00Z',
+          updatedAt: '2026-09-22T00:00:00Z',
+        },
+      ],
+    };
+    const request = vi.fn<typeof fetchJson>().mockResolvedValue(page);
+    const center = new CenterClient({ fetchJson: request });
+    await expect(center.requestDeploy(ID, [8453])).resolves.toEqual(page);
+    expect(request.mock.calls[0]?.[1]?.body).toEqual({ chainIds: [8453] });
+    await center.requestDeploy(ID);
+    expect(request.mock.calls[1]?.[1]?.body).toEqual({});
+    await expect(center.requestDeploy(ID, [0])).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    await expect(center.requestDeploy(ID, [])).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it('turns a wallet-deployed chain into a terminal refusal', async () => {
+    const request = vi.fn<typeof fetchJson>().mockRejectedValue(
+      new DomainError('UPSTREAM_HTTP_ERROR', 'refused', {
+        details: { status: 409, code: 'mixed_sender' },
+      }),
+    );
+    const center = new CenterClient({ fetchJson: request });
+    await expect(center.requestDeploy(ID)).rejects.toMatchObject({
+      code: 'NOT_SPONSORABLE',
+      message: CENTER_DEPLOY_REFUSALS.MIXED_SENDER,
+      retryable: false,
+    });
   });
 });

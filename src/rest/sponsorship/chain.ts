@@ -36,6 +36,12 @@ import {
   same,
 } from "./validation.js";
 
+/** What a sender must give a forwarded call: the signed inner gas, the 1/64 the EVM keeps
+ * back from a subcall, and the forwarder's own overhead. */
+export function forwardedTransactionGas(inner: bigint): bigint {
+  return inner + inner / 63n + 100_000n;
+}
+
 /** A request owns one call budget and forwards cancellation to the configured RPC. */
 export class SponsorshipChain {
   private remaining = 128 + 24 * RELAYR_LIMITS.maximumCalls;
@@ -422,7 +428,7 @@ export class SponsorshipChain {
         return fail("INVALID_FORWARD_SEQUENCE", "Forwarded calls must use the same chain and forwarder.", 400);
       const gas = decoded.args[0].gas;
       return { from: message.from, to: item.target, data: item.data,
-        value: hex(BigInt(item.value)), gas: hex(gas + gas / 63n + 100_000n) };
+        value: hex(BigInt(item.value)), gas: hex(forwardedTransactionGas(gas)) };
     });
     if (!preceding.length) {
       await this.request(request.chainId, "eth_call", [calls[0], this.tag(evidence)]);

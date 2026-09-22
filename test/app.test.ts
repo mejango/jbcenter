@@ -6,6 +6,7 @@ import { createApp, originsForEnvironment } from "../src/app.js";
 import { JUICESCAN } from "../src/journeyGraph.js";
 import { DeploymentVerificationError } from "../src/deploymentVerifier.js";
 import { SAFE_ABI, SAFE_FACTORY, SAFE_FALLBACK, SAFE_SINGLETON } from "../src/safe.js";
+import { LaneError } from "../src/sponsor/chain.js";
 import { readSponsorPolicy, reservationWei, type SponsorPolicy } from "../src/sponsor/policy.js";
 import type { RpcGateway } from "../src/rpc.js";
 import type { Store } from "../src/store.js";
@@ -35,7 +36,10 @@ const trusted = {
   origin: "https://juicebox.money",
   "content-type": "application/json",
 };
-const verifier = { verify: vi.fn(async () => {}) };
+/** A relay-paid deployment: the committed call came from the canonical forwarder. */
+const verifier = { verify: vi.fn(async () => ({ forwarded: true })) };
+/** A wallet-paid deployment: the payer sent the committed call itself. */
+const walletVerifier = { verify: vi.fn(async () => ({ forwarded: false })) };
 const envelope = {
   format: "juicebox.money/v1",
   deploymentVersion: "6",
@@ -193,6 +197,7 @@ describe("JB Center API", () => {
     expect(discovery).toContain("https://juicebox.center/api/docs/project-intents");
     expect(discovery).toContain("Create a project without a transaction");
     expect(discovery).toContain("create its Safes and then launch");
+    expect(discovery).toContain("any chain the payer sends itself");
     for (const chain of ["eth", "op", "base", "arb", "sep", "opsep", "basesep", "arbsep"]) {
       const result = await app.request(`/inspect/${chain}/42`);
       expect(result.status).toBe(302);
@@ -792,24 +797,161 @@ describe("sponsored deploy requests", () => {
     expect(missing.status).toBe(404);
   });
 
-  it("refuses a deploy request once the intent is already deployed", async () => {
+  it("deploys the chains it is given and leaves the rest of the intent alone", async () => {
     const store = new MemoryStore();
-    const app = createApp(store, { sponsor, deploymentVerifier: verifier });
-    const intent = (await (await publish(app)).json()) as Intent;
-    await app.request(`/v1/intents/${intent.id}/deployments`, {
+    const app = createApp(store, { sponsor });
+    const intent = (await (await publishWith(app, testnetEnvelope)).json()) as Intent;
+    const first = await app.request(`/v1/intents/${intent.id}/deploy`, {
       method: "POST",
       headers: trusted,
-      body: JSON.stringify({
-        chainId: 1,
-        projectId: "42",
-        transactionHash: `0x${"12".repeat(32)}`,
-      }),
+      body: JSON.stringify({ chainIds: [421614] }),
     });
+    expect(first.status).toBe(202);
+    expect(
+      ((await first.json()) as { deploys: IntentDeploy[] }).deploys.map((row) => row.chainId),
+    ).toEqual([421614]);
+
+    // The second request adds the other chain and reports only that one.
+    const second = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({ chainIds: [84532] }),
+    });
+    expect(second.status).toBe(202);
+    expect(
+      ((await second.json()) as { deploys: IntentDeploy[] }).deploys.map((row) => row.chainId),
+    ).toEqual([84532]);
+
+    // Asking again for a queued chain returns its row and queues nothing.
+    const again = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({ chainIds: [84532] }),
+    });
+    expect(again.status).toBe(200);
+    expect(
+      ((await again.json()) as { deploys: IntentDeploy[] }).deploys.map((row) => row.chainId),
+    ).toEqual([84532]);
+    expect(sponsor.kick).toHaveBeenCalledTimes(2);
+    expect((await store.getIntent(intent.id))!.deploys.map((row) => row.chainId)).toEqual([
+      84532, 421614,
+    ]);
+  });
+
+  it("sponsors the sponsored chains of an intent that also names Ethereum", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor });
+    const mixed = {
+      ...envelope,
+      chainIds: [1, 8453],
+      deploymentCalls: [
+        { chainId: 1, to: "0x3333333333333333333333333333333333333333", data: "0x12345678" },
+        { chainId: 8453, to: "0x3333333333333333333333333333333333333333", data: "0x12345678" },
+      ],
+      jb: { ...envelope.jb, chains: [1, 8453] },
+    };
+    const intent = (await (await publishWith(app, mixed)).json()) as Intent;
     const response = await app.request(`/v1/intents/${intent.id}/deploy`, {
       method: "POST",
       headers: trusted,
     });
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(202);
+    expect(
+      ((await response.json()) as { deploys: IntentDeploy[] }).deploys.map((row) => row.chainId),
+    ).toEqual([8453]);
+    // One chain is queued, so the reservation is one chain's worth.
+    const stored = store.intents.find((item) => item.id === intent.id)!;
+    expect((stored.deploys as unknown as { reservedWei: bigint }[])[0]!.reservedWei).toBe(
+      reservationWei(sponsor.policy, 1),
+    );
+
+    const unsponsored = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({ chainIds: [1] }),
+    });
+    expect(unsponsored.status).toBe(400);
+    expect(await errorCode(unsponsored)).toBe("bad_request");
+  });
+
+  it("keeps sponsoring after a relayed chain and stops after a wallet-sent one", async () => {
+    const record = (app: ReturnType<typeof createApp>, id: string, chainId: number) =>
+      app.request(`/v1/intents/${id}/deployments`, {
+        method: "POST",
+        headers: trusted,
+        body: JSON.stringify({
+          chainId,
+          projectId: "42",
+          transactionHash: `0x${"12".repeat(32)}`,
+        }),
+      });
+    const deploy = (app: ReturnType<typeof createApp>, id: string) =>
+      app.request(`/v1/intents/${id}/deploy`, { method: "POST", headers: trusted });
+
+    const relayed = createApp(new MemoryStore(), { sponsor, deploymentVerifier: verifier });
+    const first = (await (await publishWith(relayed, testnetEnvelope)).json()) as Intent;
+    expect((await deploy(relayed, first.id)).status).toBe(202);
+
+    const forwarded = createApp(new MemoryStore(), { sponsor, deploymentVerifier: verifier });
+    const second = (await (await publishWith(forwarded, testnetEnvelope)).json()) as Intent;
+    expect((await record(forwarded, second.id, 84532)).status).toBe(201);
+    expect((await deploy(forwarded, second.id)).status).toBe(202);
+
+    const wallet = createApp(new MemoryStore(), { sponsor, deploymentVerifier: walletVerifier });
+    const third = (await (await publishWith(wallet, testnetEnvelope)).json()) as Intent;
+    const recorded = await record(wallet, third.id, 84532);
+    expect(((await recorded.json()) as { forwarded: boolean }).forwarded).toBe(false);
+    const refused = await deploy(wallet, third.id);
+    expect(refused.status).toBe(409);
+    expect(await errorCode(refused)).toBe("mixed_sender");
+  });
+
+  it("refuses a chain outside the intent, a deployed chain, and an intent with nothing left", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor, deploymentVerifier: verifier });
+    const intent = (await (await publishWith(app, testnetEnvelope)).json()) as Intent;
+    const outside = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({ chainIds: [10] }),
+    });
+    expect(outside.status).toBe(400);
+
+    await app.request(`/v1/intents/${intent.id}/deployments`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({
+        chainId: 84532,
+        projectId: "42",
+        transactionHash: `0x${"12".repeat(32)}`,
+      }),
+    });
+    const deployed = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({ chainIds: [84532] }),
+    });
+    expect(deployed.status).toBe(400);
+
+    // The rest of the intent is still deployable, and only that chain comes back.
+    const rest = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(rest.status).toBe(202);
+    expect(
+      ((await rest.json()) as { deploys: IntentDeploy[] }).deploys.map((row) => row.chainId),
+    ).toEqual([421614]);
+
+    const mainnetOnly = (await (await publish(app)).json()) as Intent;
+    expect(
+      (
+        await app.request(`/v1/intents/${mainnetOnly.id}/deploy`, {
+          method: "POST",
+          headers: trusted,
+        })
+      ).status,
+    ).toBe(400);
   });
 
   it("enforces the per-requester daily quota", async () => {
@@ -845,5 +987,156 @@ describe("sponsored deploy requests", () => {
     );
     const expectedTotal = 2n * (sponsor.policy.maximumGas * sponsor.policy.maximumFeePerGas + 100_000_000_000_000n);
     expect(reservedWei).toEqual([expectedTotal / 2n, expectedTotal / 2n]);
+  });
+});
+
+describe("relay requests", () => {
+  const relayed = {
+    chainId: 1,
+    to: "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2",
+    data: "0x4715378212345678",
+    value: "100000000000000",
+    gas: "404761",
+    deadline: 1_700_001_800,
+    setup: [],
+  };
+  let sponsor: {
+    policy: SponsorPolicy;
+    kick: ReturnType<typeof vi.fn>;
+    relay: ReturnType<typeof vi.fn>;
+  };
+
+  beforeEach(() => {
+    sponsor = {
+      policy: readSponsorPolicy({}),
+      kick: vi.fn(),
+      relay: vi.fn(async () => relayed),
+    };
+  });
+
+  const relay = (app: ReturnType<typeof createApp>, id: string, body: unknown) =>
+    app.request(`/v1/intents/${id}/relay`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify(body),
+    });
+
+  it("returns a signed request for a chain Center does not sponsor", async () => {
+    const app = createApp(new MemoryStore(), { sponsor });
+    const intent = (await (await publish(app)).json()) as Intent;
+    const response = await relay(app, intent.id, { chainId: 1 });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(relayed);
+    expect(sponsor.relay).toHaveBeenCalledWith(expect.objectContaining({ id: intent.id }), 1);
+  });
+
+  it("refuses a sponsored chain, a foreign chain, a bad id and a missing intent", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor });
+    const mainnet = (await (await publish(app)).json()) as Intent;
+    const testnet = (await (await publishWith(app, testnetEnvelope)).json()) as Intent;
+
+    const sponsored = await relay(app, testnet.id, { chainId: 84532 });
+    expect(sponsored.status).toBe(400);
+    expect(await errorCode(sponsored)).toBe("sponsored_chain");
+
+    const foreign = await relay(app, mainnet.id, { chainId: 8453 });
+    expect(foreign.status).toBe(400);
+    expect(await errorCode(foreign)).toBe("bad_request");
+
+    expect((await relay(app, "not-a-uuid", { chainId: 1 })).status).toBe(400);
+    expect((await relay(app, randomUUID(), { chainId: 1 })).status).toBe(404);
+    expect((await relay(app, mainnet.id, {})).status).toBe(400);
+    expect(sponsor.relay).not.toHaveBeenCalled();
+  });
+
+  it("refuses a chain that already has a deployment", async () => {
+    const app = createApp(new MemoryStore(), { sponsor, deploymentVerifier: verifier });
+    const intent = (await (await publish(app)).json()) as Intent;
+    await app.request(`/v1/intents/${intent.id}/deployments`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({
+        chainId: 1,
+        projectId: "42",
+        transactionHash: `0x${"12".repeat(32)}`,
+      }),
+    });
+    const response = await relay(app, intent.id, { chainId: 1 });
+    expect(response.status).toBe(400);
+    expect(await errorCode(response)).toBe("bad_request");
+    expect(sponsor.relay).not.toHaveBeenCalled();
+  });
+
+  it("signs after a relayed chain and refuses once a wallet deployed one", async () => {
+    const mixed = {
+      ...envelope,
+      chainIds: [1, 8453],
+      deploymentCalls: [
+        { chainId: 1, to: "0x3333333333333333333333333333333333333333", data: "0x12345678" },
+        { chainId: 8453, to: "0x3333333333333333333333333333333333333333", data: "0x12345678" },
+      ],
+      jb: { ...envelope.jb, chains: [1, 8453] },
+    };
+    const record = (app: ReturnType<typeof createApp>, id: string) =>
+      app.request(`/v1/intents/${id}/deployments`, {
+        method: "POST",
+        headers: trusted,
+        body: JSON.stringify({
+          chainId: 8453,
+          projectId: "42",
+          transactionHash: `0x${"12".repeat(32)}`,
+        }),
+      });
+
+    const forwarded = createApp(new MemoryStore(), { sponsor, deploymentVerifier: verifier });
+    const first = (await (await publishWith(forwarded, mixed)).json()) as Intent;
+    expect((await relay(forwarded, first.id, { chainId: 1 })).status).toBe(200);
+    expect((await record(forwarded, first.id)).status).toBe(201);
+    expect((await relay(forwarded, first.id, { chainId: 1 })).status).toBe(200);
+
+    const wallet = createApp(new MemoryStore(), { sponsor, deploymentVerifier: walletVerifier });
+    const second = (await (await publishWith(wallet, mixed)).json()) as Intent;
+    expect((await record(wallet, second.id)).status).toBe(201);
+    const refused = await relay(wallet, second.id, { chainId: 1 });
+    expect(refused.status).toBe(409);
+    expect(await errorCode(refused)).toBe("mixed_sender");
+  });
+
+  it("spends an hourly bucket of its own and leaves the sponsored quota alone", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor });
+    const intent = (await (await publish(app)).json()) as Intent;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      expect((await relay(app, intent.id, { chainId: 1 })).status).toBe(200);
+    }
+    const refused = await relay(app, intent.id, { chainId: 1 });
+    expect(refused.status).toBe(429);
+    expect(await errorCode(refused)).toBe("relay_limit");
+    expect(refused.headers.get("Retry-After")).toBe("3600");
+    expect([...store.requests.keys()].filter((key) => key.startsWith("deploy:"))).toEqual([]);
+  });
+
+  it("answers 503 with no lane configured and when the lane cannot reach the chain", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor: { policy: sponsor.policy, kick: sponsor.kick } });
+    const intent = (await (await publish(app)).json()) as Intent;
+    const missing = await relay(app, intent.id, { chainId: 1 });
+    expect(missing.status).toBe(503);
+    expect(await errorCode(missing)).toBe("unavailable");
+
+    const failing = createApp(store, {
+      sponsor: {
+        ...sponsor,
+        relay: vi.fn(async () => {
+          throw new LaneError("chain 1 is not configured", "CHAIN_UNCONFIGURED");
+        }),
+      },
+    });
+    const response = await relay(failing, intent.id, { chainId: 1 });
+    expect(response.status).toBe(503);
+    const body = await response.text();
+    expect((JSON.parse(body) as { error: { code: string } }).error.code).toBe("relay_unavailable");
+    expect(body).not.toContain("not configured");
   });
 });

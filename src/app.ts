@@ -48,8 +48,15 @@ import {
   type StorageUsage,
   type Store,
 } from "./store.js";
-import { sponsorFamily, reservationWei, type SponsorRuntime } from "./sponsor/policy.js";
-import type { JbcenterEnv } from "./types.js";
+import { LaneError } from "./sponsor/chain.js";
+import {
+  isSponsoredChain,
+  reservationWei,
+  sponsoredChains,
+  sponsorFamily,
+  type SponsorRuntime,
+} from "./sponsor/policy.js";
+import type { Intent, JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
 import { llmsIndex } from "./llms.js";
 import { JUICESCAN } from "./journeyGraph.js";
@@ -66,6 +73,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const TX_HASH = /^0x[0-9a-f]{64}$/iu;
 /** Both sponsored-deploy refusals reset on a rolling day. */
 const RETRY_AFTER_SECONDS = "86400";
+/** A relay costs Center one RPC pass, so it has its own hourly allowance. */
+const RELAY_PER_REQUESTER_PER_HOUR = 30;
+const RETRY_AFTER_HOUR = "3600";
 
 class BadRequest extends Error {}
 class PayloadTooLarge extends Error {}
@@ -115,12 +125,53 @@ async function json(c: Context): Promise<Record<string, unknown>> {
   }
 }
 
+/** A route whose body is optional: an empty request is an empty object. */
+async function optionalJson(c: Context): Promise<Record<string, unknown>> {
+  const body = await c.req.text();
+  if (!body.trim()) return {};
+  try {
+    return record(JSON.parse(body));
+  } catch (error) {
+    if (error instanceof BadRequest) throw error;
+    throw new BadRequest("Request body must be valid JSON");
+  }
+}
+
 function positiveInteger(value: unknown, name: string): number {
   const parsed = typeof value === "string" && /^\d+$/u.test(value) ? Number(value) : value;
   if (!Number.isSafeInteger(parsed) || Number(parsed) <= 0) {
     throw new BadRequest(`${name} must be a positive safe integer`);
   }
   return Number(parsed);
+}
+
+/** Every chain of one intent is deployed by one sender. Center signs each chain it deploys
+ * or relays as a forward request from its sponsor, so a deployment that was not forwarded
+ * came from a wallet, and no chain of that intent can be signed by the sponsor any more. */
+function walletDeployed(intent: Intent): boolean {
+  return intent.deployments.some((deployment) => !deployment.forwarded);
+}
+
+const MIXED_SENDER = {
+  error: {
+    code: "mixed_sender",
+    message: "A wallet already deployed a chain of this intent; deploy the rest from it",
+  },
+} as const;
+
+function optionalChainIds(value: unknown, within: number[]): number[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length === 0 || value.length > 16) {
+    throw new BadRequest("chainIds must contain between 1 and 16 chains");
+  }
+  const chainIds = value.map((chainId) => positiveInteger(chainId, "chainIds"));
+  if (new Set(chainIds).size !== chainIds.length) {
+    throw new BadRequest("chainIds must contain unique chains");
+  }
+  if (chainIds.some((chainId) => !within.includes(chainId))) {
+    throw new BadRequest("chainIds must be part of this intent");
+  }
+  return chainIds;
 }
 
 function projectId(value: unknown): string {
@@ -758,9 +809,74 @@ export function createApp(
       deploymentVersion: intent.envelope.deploymentVersion,
       call,
     };
-    await options.deploymentVerifier.verify(claim);
-    const deployment = await store.recordDeployment(id, claim);
+    const { forwarded } = await options.deploymentVerifier.verify(claim);
+    const deployment = await store.recordDeployment(id, {
+      chainId,
+      projectId: claim.projectId,
+      transactionHash: claim.transactionHash,
+      forwarded,
+    });
     return c.json(deployment, 201);
+  });
+
+  app.post("/v1/intents/:id/relay", async (c) => {
+    const sponsor = options.sponsor;
+    if (!sponsor?.relay || sponsor.policy.paused) {
+      return c.json({ error: { code: "unavailable", message: "Relay requests are paused" } }, 503);
+    }
+    const id = c.req.param("id");
+    if (!UUID.test(id)) throw new BadRequest("intent id is invalid");
+    const intent = await store.getIntent(id);
+    if (!intent) return c.json({ error: { code: "not_found", message: "Intent not found" } }, 404);
+    const chainId = positiveInteger((await json(c)).chainId, "chainId");
+    if (!intent.envelope.chainIds.includes(chainId)) {
+      throw new BadRequest("chainId is not part of this intent");
+    }
+    if (intent.deployments.some((deployment) => deployment.chainId === chainId)) {
+      throw new BadRequest("chainId already has a deployment");
+    }
+    if (walletDeployed(intent)) return c.json(MIXED_SENDER, 409);
+    // Center deploys a sponsored chain itself. Handing out a second signed request for one
+    // would put a visitor and the sponsor lane on the same forwarder nonce.
+    if (isSponsoredChain(chainId)) {
+      return c.json(
+        {
+          error: {
+            code: "sponsored_chain",
+            message: "Center deploys this chain; request a deploy",
+          },
+        },
+        400,
+      );
+    }
+    const allowance = await store.consumeRequest(
+      `relay:${c.get("client")}`,
+      RELAY_PER_REQUESTER_PER_HOUR,
+      3600,
+    );
+    if (!allowance.allowed) {
+      return c.json(
+        { error: { code: "relay_limit", message: "Relay request limit reached; try again later" } },
+        429,
+        { "Retry-After": RETRY_AFTER_HOUR },
+      );
+    }
+    try {
+      return c.json(await sponsor.relay(intent, chainId), 200);
+    } catch (error) {
+      // Node and forwarder failures carry request URLs and signed bytes; only the code travels.
+      console.warn(JSON.stringify({
+        level: "warn",
+        service: "center",
+        message: "relay_unavailable",
+        chainId,
+        error: error instanceof LaneError ? (error.code ?? "lane error") : "relay error",
+      }));
+      return c.json(
+        { error: { code: "relay_unavailable", message: "Center could not prepare this chain" } },
+        503,
+      );
+    }
   });
 
   app.post("/v1/intents/:id/deploy", async (c) => {
@@ -775,11 +891,32 @@ export function createApp(
     if (!UUID.test(id)) throw new BadRequest("intent id is invalid");
     const intent = await store.getIntent(id);
     if (!intent) return c.json({ error: { code: "not_found", message: "Intent not found" } }, 404);
-    if (intent.deploys.length) return c.json({ deploys: intent.deploys }, 200);
-    if (intent.status !== "undeployed") throw new BadRequest(`intent is ${intent.status}`);
-    if (!sponsorFamily(intent.envelope.chainIds)) throw new BadRequest("intent chains are not sponsorable");
+    if (walletDeployed(intent)) return c.json(MIXED_SENDER, 409);
+    const requested = optionalChainIds((await optionalJson(c)).chainIds, intent.envelope.chainIds);
+    const deployed = new Set(intent.deployments.map((deployment) => deployment.chainId));
+    if (requested?.some((chainId) => deployed.has(chainId))) {
+      throw new BadRequest("chainIds must name chains with no deployment");
+    }
+    if (requested?.some((chainId) => !isSponsoredChain(chainId))) {
+      throw new BadRequest("chainIds must name chains Center sponsors");
+    }
+    // A chain Center does not sponsor is deployed through the relay route, and a chain that is
+    // already deployed is done: either way it is nothing this request can queue.
+    const selected = sponsoredChains(requested ?? intent.envelope.chainIds).filter(
+      (chainId) => !deployed.has(chainId),
+    );
+    if (!selected.length) throw new BadRequest("intent has no sponsored chain left to deploy");
+    if (!sponsorFamily(selected)) throw new BadRequest("intent chains are not sponsorable");
+    const queued = intent.deploys.filter((deploy) => selected.includes(deploy.chainId));
+    const fresh = selected.filter(
+      (chainId) => !intent.deploys.some((deploy) => deploy.chainId === chainId),
+    );
+    if (!fresh.length) return c.json({ deploys: queued }, 200);
     const requester = c.get("client");
-    const reserved = reservationWei(sponsor.policy, intent.envelope.deploymentCalls.length);
+    const reserved = reservationWei(
+      sponsor.policy,
+      intent.envelope.deploymentCalls.filter((call) => fresh.includes(call.chainId)).length,
+    );
     const since = new Date(Date.now() - 86_400_000);
     const budgetSpent = { error: { code: "sponsor_budget", message: "The daily sponsorship budget is spent" } };
     // The co-hosted MCP is one requester with no caller to charge, so it draws on its own slice of
@@ -807,14 +944,9 @@ export function createApp(
         { "Retry-After": RETRY_AFTER_SECONDS },
       );
     }
-    const deploys = await store.queueDeploys(
-      id,
-      intent.envelope.chainIds,
-      requester,
-      reserved / BigInt(intent.envelope.chainIds.length),
-    );
+    const deploys = await store.queueDeploys(id, fresh, requester, reserved / BigInt(fresh.length));
     sponsor.kick();
-    return c.json({ deploys }, 202);
+    return c.json({ deploys: deploys.filter((deploy) => selected.includes(deploy.chainId)) }, 202);
   });
 
   return app;

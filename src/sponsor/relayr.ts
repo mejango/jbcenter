@@ -1,7 +1,7 @@
 import { createPublicClient, http, keccak256, type Address, type Hex } from "viem";
 import type { ContractCatalog } from "../rest/contracts/catalog.js";
 import { callsForChain } from "../intent.js";
-import type { SponsorshipChain } from "../rest/sponsorship/chain.js";
+import { forwardedTransactionGas, type SponsorshipChain } from "../rest/sponsorship/chain.js";
 import { FORWARD_REQUEST_TYPES } from "../rest/sponsorship/constants.js";
 import { verifyRelayrPaymentEvent } from "../rest/sponsorship/paymentContract.js";
 import { bindFamilyQuoteStatus, parseFamilyQuote, parseStatus, type RelayrProvider } from "../rest/sponsorship/provider.js";
@@ -21,13 +21,16 @@ import {
   PROJECTS_ABI,
   type DeployLane,
   type LaneReport,
+  type RelayLane,
   type SponsorEvents,
   type SponsorSigner,
 } from "./chain.js";
 import { CREATION_FEE_CEILING, reservationWei, type SponsorPolicy } from "./policy.js";
-import type { DeploymentCall } from "../types.js";
+import type { DeploymentCall, RelayRequest } from "../types.js";
 
 const REQUEST_TTL_SECONDS = 47 * 3600;
+/** A relay request is held by a person about to press send, not by a worker. */
+const RELAY_TTL_SECONDS = 30 * 60;
 const POLL_INTERVAL_MS = 5_000;
 const POLL_LIMIT_MS = 15 * 60_000;
 const RECEIPT_TIMEOUT_MS = 180_000;
@@ -68,7 +71,7 @@ export function createRelayrLane(options: {
   now?: () => number;
   wait?: (ms: number) => Promise<void>;
   onEvent?: SponsorEvents;
-}): DeployLane {
+}): DeployLane & RelayLane {
   const {
     chain: makeChain, catalog, provider, rpcUrls, signer, policy, projectsAddress,
     now = Date.now, wait = sleep, onEvent = logSponsorEvent,
@@ -396,6 +399,81 @@ export function createRelayrLane(options: {
         report,
         track,
       });
+    },
+
+    // Center signs the launch and pays for nothing: the visitor sends the forwarder call with
+    // the creation fee as its value, so `_msgSender()` on the destination is still the sponsor
+    // and this chain's salts match every chain Center deploys itself.
+    async relay(intent, chainId) {
+      const { setup, launch } = callsForChain(intent.envelope.deploymentCalls, chainId);
+      if (!launch || !rpcUrls.has(chainId))
+        throw new LaneError(`chain ${chainId} is not configured`, "CHAIN_UNCONFIGURED");
+      const fee = await client(chainId).readContract({
+        address: projectsAddress,
+        abi: PROJECTS_ABI,
+        functionName: "creationFee",
+      });
+      // Both simulations send the fee from the sponsor, so the node needs it in that balance.
+      const balance = await client(chainId).getBalance({ address: signer.address });
+      if (balance < fee)
+        throw new LaneError(
+          `sponsor holds less than the creation fee on chain ${chainId} by ${fee - balance} wei`,
+          "SPONSOR_UNFUNDED",
+        );
+      const chain = makeChain();
+      const deadline = Math.floor(now() / 1000) + RELAY_TTL_SECONDS;
+      const prepared = await chain.prepare(
+        catalog,
+        {
+          chainId,
+          to: launch.to,
+          data: launch.data,
+          value: fee.toString(),
+          label: "intent-relay",
+          dependsOn: [],
+          decoded: null,
+        },
+        signer.address,
+        0,
+        deadline,
+      );
+      const signature = await signer.signTypedData({
+        domain: prepared.domain,
+        types: FORWARD_REQUEST_TYPES,
+        primaryType: "ForwardRequest",
+        message: {
+          from: prepared.message.from,
+          to: prepared.message.to,
+          value: BigInt(prepared.message.value),
+          gas: BigInt(prepared.message.gas),
+          nonce: BigInt(prepared.message.nonce),
+          deadline: Number(prepared.message.deadline),
+          data: prepared.message.data,
+        },
+      });
+      const entry = await chain.signed(prepared, signature);
+      const proxyCreationCode = creationCodeReader();
+      const pending: RelayRequest["setup"] = [];
+      for (const call of setup) {
+        const plan = decodeSafeSetupCall(call);
+        if (!plan) throw new LaneError("setup call is not a Safe creation", "SETUP_CALL_INVALID");
+        const safe = predictSafeAddress(plan, await proxyCreationCode(chainId));
+        const existing = await client(chainId).getCode({ address: safe });
+        // A Safe 1.4.1 address depends on the factory, the initializer and the salt, never on
+        // the sender, so the payer can create it and Center's launch still finds it.
+        if (existing && existing !== "0x") continue;
+        pending.push({ to: SAFE_FACTORY, data: call.data, value: "0" });
+      }
+      onEvent({ event: "relay", intentId: intent.id, chainId, deadline });
+      return {
+        chainId,
+        to: entry.target,
+        data: entry.data,
+        value: entry.value,
+        gas: forwardedTransactionGas(BigInt(prepared.message.gas)).toString(),
+        deadline,
+        setup: pending,
+      };
     },
 
     // The prepayment of a resumed bundle was spent by the attempt that submitted it.

@@ -57,9 +57,17 @@ const ipfsCache = process.env.IPFS_CACHE_DIR ? new IpfsDiskCache({
 }) : undefined;
 await ipfsCache?.ready();
 
+const sponsorSignerKey = process.env.SPONSOR_SIGNER_KEY;
+if (sponsorSignerKey && !/^0x[0-9a-fA-F]{64}$/.test(sponsorSignerKey))
+  throw new Error("SPONSOR_SIGNER_KEY must be a 32-byte hex private key");
+// The deploying sender the verifier looks for behind the canonical forwarder.
+const sponsorSigner = sponsorSignerKey ? privateKeyToAccount(sponsorSignerKey as Hex) : undefined;
 const pool = createPool(connectionString);
 await migrate(pool);
-const deploymentVerifier = new RpcDeploymentVerifier(canonicalDeploymentChains(rpcUpstreams));
+const deploymentVerifier = new RpcDeploymentVerifier(
+  canonicalDeploymentChains(rpcUpstreams),
+  sponsorSigner?.address,
+);
 const store = new PostgresStore(pool);
 const rpc = createRpcGateway(rpcUpstreams);
 const pinning = filebaseRpcToken && pinataJwt
@@ -126,11 +134,8 @@ const rest = await createRestRuntime({
   ...(process.env.REST_PUBLIC_ORIGIN ? { audience: process.env.REST_PUBLIC_ORIGIN } : {}),
   executionConfiguration: await readRestExecutionConfiguration(process.env),
 });
-const sponsorSignerKey = process.env.SPONSOR_SIGNER_KEY;
 let sponsor: (SponsorRuntime & { stop(): Promise<void> }) | undefined;
-if (sponsorSignerKey) {
-  if (!/^0x[0-9a-fA-F]{64}$/.test(sponsorSignerKey)) throw new Error("SPONSOR_SIGNER_KEY must be a 32-byte hex private key");
-  const signer = privateKeyToAccount(sponsorSignerKey as Hex);
+if (sponsorSigner) {
   const sponsorPolicy = readSponsorPolicy(process.env);
   const sponsorRpcUrls = new Map([...rpcUpstreams].map(([chainId, urls]) => [chainId, urls[0]!]));
   const onSponsorEvent = (event: SponsorEvent) => {
@@ -142,18 +147,19 @@ if (sponsorSignerKey) {
     catalog: rest.catalog,
     provider: new RelayrProvider(),
     rpcUrls: sponsorRpcUrls,
-    signer,
+    signer: sponsorSigner,
     policy: sponsorPolicy,
     projectsAddress: PROJECTS,
     onEvent: onSponsorEvent,
   });
-  sponsor = createSponsorWorker({
+  const worker = createSponsorWorker({
     store,
     verifier: deploymentVerifier,
     lane,
     policy: sponsorPolicy,
     onEvent: onSponsorEvent,
   });
+  sponsor = { ...worker, relay: (intent, chainId) => lane.relay(intent, chainId) };
 }
 const handler = createHttpHandler(mcp.config, () => createMcpServer(mcp.services), {
   healthPath: "/mcp/healthz",

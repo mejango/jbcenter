@@ -65,4 +65,16 @@ describe("readable developer guides", () => {
     expect(markdown).toContain("1 to 4 calls");
     expect(markdown).not.toMatch(/exactly one .*call per/i);
   });
+
+  it("documents the relay route and the per-chain deploy", async () => {
+    const markdown = await readFile(new URL("../docs/rest/PROJECT_INTENTS.md", import.meta.url), "utf8");
+    expect(markdown).toContain("## Relay a chain the payer sends");
+    expect(markdown).toContain("POST /v1/intents/:id/relay");
+    expect(markdown).toContain("sponsored_chain");
+    expect(markdown).toContain("relay_limit");
+    expect(markdown).toContain("mixed_sender");
+    expect(markdown).toContain('"chainIds": [8453]');
+    expect(markdown).toContain("the same forwarder nonce");
+    expect(markdown).not.toContain("is refused for an\nintent that already has a recorded deployment");
+  });
 });

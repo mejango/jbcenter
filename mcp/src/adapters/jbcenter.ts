@@ -1,4 +1,5 @@
 import type {
+  JBCenterDeployment,
   JBCenterIntent,
   JBCenterIntentInput,
   JBCenterJson,
@@ -133,6 +134,12 @@ const deployRowSchema = z.object({
 const deployPageSchema = z.object({ deploys: z.array(deployRowSchema).max(16) });
 export type CenterDeployRow = z.infer<typeof deployRowSchema>;
 export type CenterDeployPage = z.infer<typeof deployPageSchema>;
+/** Center names the sender that made each deployment: `forwarded` rides alongside the SDK's
+ * deployment shape, and a deployment that is not forwarded ends Center's part in the intent. */
+export type CenterIntent = Omit<JBCenterIntent, 'deployments'> & {
+  deployments: (JBCenterDeployment & { forwarded: boolean })[];
+};
+
 const intentSchema = z.object({
   ...metadata,
   id: uuidSchema,
@@ -151,6 +158,10 @@ const intentSchema = z.object({
           .regex(/^[1-9]\d*$/u)
           .max(78),
         transactionHash: hashSchema,
+        /** True when the launch came through Center's forwarder with Center's sponsor as the
+         * appended sender, so Center can still sponsor or relay the intent's remaining chains.
+         * A Center that does not name the sender reads as false, which refuses sponsorship. */
+        forwarded: z.boolean().default(false),
         createdAt: z.string().max(64),
       }),
     )
@@ -169,7 +180,9 @@ function invalidResponse(): never {
 }
 export const CENTER_DEPLOY_REFUSALS = {
   NOT_SPONSORABLE:
-    'JB Center does not sponsor this intent. Every chain must be one of the supported rollups, all in one family, and the intent must have no recorded deployment. Deploy it from a funded wallet instead.',
+    'JB Center does not sponsor these chains. Every requested chain must be one of the supported rollups, all in one family, and must have no recorded deployment. Deploy the rest from a funded wallet instead.',
+  MIXED_SENDER:
+    'A wallet already deployed a chain of this intent, so JB Center cannot deploy the rest: every chain of one intent needs the same sender. Deploy the remaining chains from that wallet.',
   SPONSOR_QUOTA:
     'The daily sponsored deploy quota is spent. Retry in a day, or deploy the intent from a funded wallet.',
   SPONSOR_BUDGET:
@@ -191,6 +204,9 @@ function deployRefusal(error: unknown): DomainError {
       retryable: true,
       details: { retryAfterSeconds: 60 },
     });
+  // One intent has one deploying sender, so a wallet-sent chain is terminal for sponsorship.
+  if (code === 'mixed_sender')
+    return new DomainError('NOT_SPONSORABLE', CENTER_DEPLOY_REFUSALS.MIXED_SENDER);
   if (code === 'sponsor_quota' || status === 429)
     return new DomainError('SPONSOR_QUOTA', CENTER_DEPLOY_REFUSALS.SPONSOR_QUOTA, day);
   if (status === 503)
@@ -398,7 +414,7 @@ export class CenterClient {
     return parsed.data as JBCenterSearchPage;
   }
 
-  async getIntent(id: string): Promise<JBCenterIntent> {
+  async getIntent(id: string): Promise<CenterIntent> {
     input(uuidSchema, id);
     const parsed = intentSchema.safeParse(await this.read(`v1/intents/${encodeURIComponent(id)}`));
     if (!parsed.success || parsed.data.id.toLowerCase() !== id.toLowerCase()) invalidResponse();
@@ -431,7 +447,7 @@ export class CenterClient {
       invalidResponse();
     if ((parsed.data.status === 'undeployed') !== (parsed.data.deployments.length === 0))
       invalidResponse();
-    return { ...parsed.data, envelope } as JBCenterIntent;
+    return { ...parsed.data, envelope } as CenterIntent;
   }
 
   /**
@@ -487,12 +503,18 @@ export class CenterClient {
     return { ...parsed.data, envelope } as JBCenterIntent<TJb>;
   }
 
-  /** Asks Center to execute the intent's own signed calls at Center's expense. Signs nothing. */
-  async requestDeploy(id: string): Promise<CenterDeployPage> {
+  /** Asks Center to execute the intent's own signed calls at Center's expense, for every
+   * sponsored chain or for the named ones. Signs nothing. */
+  async requestDeploy(id: string, chainIds?: number[]): Promise<CenterDeployPage> {
     input(uuidSchema, id);
+    const selected =
+      chainIds === undefined ? undefined : input(z.array(chainIdSchema).min(1).max(16), chainIds);
     let payload: unknown;
     try {
-      payload = await this.write(`v1/intents/${encodeURIComponent(id)}/deploy`, {});
+      payload = await this.write(
+        `v1/intents/${encodeURIComponent(id)}/deploy`,
+        selected ? { chainIds: selected } : {},
+      );
     } catch (error) {
       throw deployRefusal(error);
     }
