@@ -5,7 +5,7 @@ import type { SponsorshipChain } from "../rest/sponsorship/chain.js";
 import { FORWARD_REQUEST_TYPES } from "../rest/sponsorship/constants.js";
 import { verifyRelayrPaymentEvent } from "../rest/sponsorship/paymentContract.js";
 import { parseFamilyQuote, parseStatus, type RelayrProvider } from "../rest/sponsorship/provider.js";
-import type { RelayrEntry, RelayrIndependentEntry } from "../rest/sponsorship/types.js";
+import type { RelayrEntry } from "../rest/sponsorship/types.js";
 import {
   decodeSafeSetupCall,
   predictSafeAddress,
@@ -38,7 +38,6 @@ const NOT_EXECUTED = "relayr did not execute the bundle in time";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-type LaneEntry = RelayrEntry | RelayrIndependentEntry;
 /** Which committed call of a chain an entry carries, and where it sits in that chain. */
 type EntryRole = { chainId: number; role: "setup" | "launch"; index: number };
 type EntryHash = EntryRole & { hash: Hex };
@@ -213,12 +212,15 @@ export function createRelayrLane(options: {
       const chain = makeChain();
       const track = tracker(chainIds, report);
       const deadline = Math.floor(now() / 1000) + REQUEST_TTL_SECONDS;
-      const entries: LaneEntry[] = [];
+      const entries: RelayrEntry[] = [];
       const roles: EntryRole[] = [];
       const proxyCreationCode = creationCodeReader();
       for (const chainId of chainIds) {
         const { setup, launch } = callsForChain(intent.envelope.deploymentCalls, chainId);
         if (!launch || !rpcUrls.has(chainId)) return track.failRest(`chain ${chainId} is not configured`);
+        // Relayr sends a chain's entries in virtual-nonce order, counting from zero, so a
+        // chain's Safe creations are numbered before its launch. Nothing depends on the order.
+        let nonce = 0;
         for (const [position, call] of setup.entries()) {
           const plan = decodeSafeSetupCall(call);
           if (!plan) return track.failRest("setup call is not a Safe creation");
@@ -238,7 +240,13 @@ export function createRelayrLane(options: {
             data: call.data,
           });
           if (gas > policy.maximumGas) return track.failRest("setup gas above the sponsor cap");
-          entries.push({ chain: chainId, target: SAFE_FACTORY, data: call.data, value: "0" });
+          entries.push({
+            chain: chainId,
+            target: SAFE_FACTORY,
+            data: call.data,
+            value: "0",
+            virtual_nonce: nonce++,
+          });
           roles.push({ chainId, role: "setup", index: position });
         }
         const fee = await client(chainId).readContract({
@@ -287,7 +295,9 @@ export function createRelayrLane(options: {
             data: prepared.message.data,
           },
         });
-        entries.push(await chain.signed(prepared, signature));
+        // The Safe creations are not forwarder calls, so they are not preceding entries of
+        // the forward request; the launch's own nonce puts it after them all the same.
+        entries.push({ ...(await chain.signed(prepared, signature)), virtual_nonce: nonce });
         roles.push({ chainId, role: "launch", index: setup.length });
       }
 

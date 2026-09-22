@@ -43,6 +43,8 @@ export function laneErrorMessage(error: unknown): string {
 /** The same failure as the operator reads it: a coded lane error keeps its sentence. */
 export function laneEventMessage(error: unknown): string {
   if (error instanceof LaneError && error.code) return scrub(error.message, ERROR_LIMIT) || error.code;
+  if (error instanceof RelayrResponseError)
+    return `relayr request failed, relayr status ${error.responseDetails.status}`;
   return laneErrorMessage(error);
 }
 
@@ -82,10 +84,20 @@ export function laneOutcome(error: unknown, context: { paid: boolean }): LaneOut
   if (context.paid) return "retry";
   if (error instanceof LaneError)
     return error.code !== undefined && RETRY_UNPAID.has(error.code) ? "retry" : "terminal";
-  if (error instanceof RelayrResponseError) return error.status >= 500 ? "retry" : "terminal";
+  if (error instanceof RelayrResponseError) return relayrRejected(error) ? "terminal" : "retry";
   if (error instanceof RestError) return RETRY_UNPAID.has(error.code) ? "retry" : "terminal";
   if (rpcFailure(error)) return "retry";
   return "terminal";
+}
+
+/**
+ * A request the execution service read and refused. The mapped RestError status is the
+ * one Center answers its own callers with, so the verdict reads Relayr's own HTTP status:
+ * a 4xx names something wrong with the request, and anything else could still pass later.
+ */
+function relayrRejected(error: RelayrResponseError): boolean {
+  const { status } = error.responseDetails;
+  return status >= 400 && status < 500;
 }
 
 /** A call the node executed and rejected: sending it again cannot change the answer. */
