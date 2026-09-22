@@ -293,8 +293,10 @@ const intent = await central("/v1/intents", {
 
 JB Center accepts any JSON object as `jb`, caps signed envelopes at 16.8 MB, and indexes common
 Juicebox Money and Revnet Money metadata fields. `chainIds` must match `chains` or `data.chainIds`
-when the `.jb` declares them. `deploymentCalls` must contain exactly one ABI-encoded call per
-chain. The call target and complete calldata are part of the signed content, making the frozen
+when the `.jb` declares them. `deploymentCalls` holds 1 to 4 ABI-encoded calls per chain. The last call for a chain
+launches the project; each earlier call creates a Safe on the canonical Safe 1.4.1 proxy
+factory, so an intent can create the multisig that owns it. See
+[the guide](docs/rest/PROJECT_INTENTS.md#setup-calls). The call target and complete calldata are part of the signed content, making the frozen
 deployment directly executable and independently verifiable without re-deriving time-sensitive
 arguments.
 

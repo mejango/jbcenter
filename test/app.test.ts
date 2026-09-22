@@ -192,6 +192,7 @@ describe("JB Center API", () => {
     const discovery = await (await app.request("/llms.txt")).text();
     expect(discovery).toContain("https://juicebox.center/api/docs/project-intents");
     expect(discovery).toContain("Create a project without a transaction");
+    expect(discovery).toContain("create its Safes and then launch");
     for (const chain of ["eth", "op", "base", "arb", "sep", "opsep", "basesep", "arbsep"]) {
       const result = await app.request(`/inspect/${chain}/42`);
       expect(result.status).toBe(302);
