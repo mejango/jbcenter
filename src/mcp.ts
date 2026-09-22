@@ -9,7 +9,9 @@ import {
   type PinProjectLogo,
   type PinProjectMetadataJson,
   type Services,
+  upstreamErrorCode,
 } from "@juicebox/mcp/host";
+import { getAddress } from "viem";
 import { originsForEnvironment } from "./app.js";
 import { isIpfsCid, type PinningService } from "./ipfs.js";
 import {
@@ -19,13 +21,15 @@ import {
   RpcBadRequest,
   type RpcGateway,
 } from "./rpc.js";
-import type { Store } from "./store.js";
+import type { SearchFilters, Store } from "./store.js";
 
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const METADATA_LIMIT = 64 * 1024;
 const LOGO_LIMIT = 1024 * 1024;
 const READ_RESPONSE_LIMIT = 2 * 1024 * 1024;
+/** An intent echo is an intent: writes answer under the same bound as reads. */
+const WRITE_RESPONSE_LIMIT = READ_RESPONSE_LIMIT;
 
 export const MCP_BACKEND_LIMITS = {
   readsPerMinute: 600,
@@ -34,6 +38,7 @@ export const MCP_BACKEND_LIMITS = {
   pinsPerWindow: 10,
   pinsSitePerWindow: 200,
   pinWindowSeconds: 600,
+  writesPerMinute: 60,
 } as const;
 
 function invalidRequest(): never {
@@ -198,7 +203,7 @@ export function createCenterReadFetcher(store: Store, centerUrl: string) {
       if (
         [...params.keys()].some(
           (key) =>
-            !["q", "limit", "cursor"].includes(key) ||
+            !["q", "limit", "cursor", "owner", "publisher"].includes(key) ||
             params.getAll(key).length !== 1,
         )
       )
@@ -216,7 +221,14 @@ export function createCenterReadFetcher(store: Store, centerUrl: string) {
         !Number.isSafeInteger(offset)
       )
         invalidRequest();
-      read = () => store.search(query, limit, offset);
+      const filters: SearchFilters = {};
+      for (const key of ["owner", "publisher"] as const) {
+        const value = params.get(key);
+        if (value === null) continue;
+        if (!/^0x[0-9a-fA-F]{40}$/u.test(value)) invalidRequest();
+        filters[key] = getAddress(value);
+      }
+      read = () => store.search(query, limit, offset, filters);
     } else if (pathname.startsWith(`${prefix}/v1/intents/`)) {
       const id = pathname.slice(`${prefix}/v1/intents/`.length);
       if (!UUID.test(id) || target.search) invalidRequest();
@@ -244,6 +256,92 @@ export function createCenterReadFetcher(store: Store, centerUrl: string) {
         options.maxBytes,
         READ_RESPONSE_LIMIT,
       );
+    } catch (error) {
+      safeFailure(error, signal);
+    }
+  };
+}
+
+export type CenterFetch = (request: Request) => Response | Promise<Response>;
+
+function writePath(pathname: string, prefix: string): boolean {
+  if (pathname === `${prefix}/v1/intents`) return true;
+  const intents = `${prefix}/v1/intents/`;
+  const suffix = "/deploy";
+  if (!pathname.startsWith(intents) || !pathname.endsWith(suffix)) return false;
+  return UUID.test(pathname.slice(intents.length, pathname.length - suffix.length));
+}
+
+function refusal(status: number, body: string): DomainError {
+  const code = upstreamErrorCode(body);
+  return new DomainError(
+    "UPSTREAM_HTTP_ERROR",
+    `The internal Center route returned HTTP ${status}.`,
+    {
+      retryable: status === 429 || status >= 500,
+      details: { status, ...(code === undefined ? {} : { code }) },
+    },
+  );
+}
+
+/**
+ * Reads run against the store; the two intent writes run through the Hono app itself, so
+ * signature verification, publish limits and sponsor policy have exactly one implementation.
+ * The app admits the request on the in-process marker `centerFetch` carries, so no browser
+ * Origin is fabricated and no caller header decides the identity.
+ */
+export function createCenterFetcher(
+  store: Store,
+  centerUrl: string,
+  options: { centerFetch?: CenterFetch } = {},
+) {
+  const base = baseUrl(centerUrl);
+  const prefix = base.pathname.replace(/\/$/u, "");
+  const read = createCenterReadFetcher(store, centerUrl);
+  return async (url: string | URL, fetchOptions: FetchJsonOptions = {}): Promise<unknown> => {
+    const method = fetchOptions.method ?? (fetchOptions.body === undefined ? "GET" : "POST");
+    if (method === "GET") return read(url, fetchOptions);
+    const target = targetUrl(url, base);
+    const { centerFetch } = options;
+    if (method !== "POST" || !centerFetch || target.search) invalidRequest();
+    if (!writePath(target.pathname, prefix)) invalidRequest();
+    let body: string | undefined;
+    try {
+      body = JSON.stringify(fetchOptions.body ?? {});
+    } catch {
+      invalidRequest();
+    }
+    if (body === undefined) invalidRequest();
+    const signal = signalFor(fetchOptions);
+    try {
+      await quota(store, "center:mcp:writes", MCP_BACKEND_LIMITS.writesPerMinute, 60, signal);
+      const response = await cancellable(signal, () =>
+        Promise.resolve(
+          // The adapter's operator headers stay with the adapter: in process the app reads the
+          // caller from its own marker and from the publisher the signature already proved.
+          centerFetch(
+            new Request(target, {
+              method: "POST",
+              headers: { accept: "application/json", "content-type": "application/json" },
+              body,
+            }),
+          ),
+        ),
+      );
+      const text = await response.text();
+      if (Buffer.byteLength(text) > WRITE_RESPONSE_LIMIT)
+        throw new DomainError(
+          "UPSTREAM_RESPONSE_TOO_LARGE",
+          "The backend response exceeded its size limit. Narrow the query.",
+        );
+      if (!response.ok) throw refusal(response.status, text);
+      let payload: unknown = null;
+      try {
+        payload = JSON.parse(text) as unknown;
+      } catch {
+        payload = null;
+      }
+      return boundedResult(payload, fetchOptions.maxBytes, WRITE_RESPONSE_LIMIT);
     } catch (error) {
       safeFailure(error, signal);
     }
@@ -430,6 +528,8 @@ export function createCenterMcp(
     pinning?: PinningService;
     env?: NodeJS.ProcessEnv;
     rpcSiteLimitPerMinute?: number;
+    /** The Hono app's own fetch. Without it the MCP has reads only. */
+    centerFetch?: CenterFetch;
   },
 ): { config: Config; services: Services } {
   const env = options.env ?? process.env;
@@ -456,9 +556,21 @@ export function createCenterMcp(
     KNOWLEDGE_PATH: env.MCP_KNOWLEDGE_PATH,
     MAX_CONCURRENT_REQUESTS: env.MCP_MAX_CONCURRENT_REQUESTS,
   });
+  // An in-process write is routed by its own URL, so the bridge base has to be this service's own
+  // origin. A foreign Center could never answer it, and the marker must not travel off-process.
+  if (options.centerFetch && new URL(config.centerUrl).origin !== new URL(publicOrigin).origin) {
+    throw new DomainError(
+      "INVALID_CONFIG",
+      "The in-process Center bridge requires the Center URL to be this service's own origin.",
+    );
+  }
   const center = new CenterClient({
     baseUrl: config.centerUrl,
-    fetchJson: createCenterReadFetcher(store, config.centerUrl),
+    fetchJson: createCenterFetcher(
+      store,
+      config.centerUrl,
+      options.centerFetch ? { centerFetch: options.centerFetch } : {},
+    ),
   });
   const services = createServices(config, {
     rpcFetchJson: createCenterRpcFetcher(

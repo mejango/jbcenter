@@ -7,7 +7,9 @@ import {
   type DeployPatch,
   type NewDeployment,
   type NewIntent,
+  type SearchFilters,
   type StorageLimits,
+  type StorageUsage,
   type Store,
 } from "../store.js";
 import type {
@@ -180,7 +182,7 @@ export class PostgresStore implements Store {
   async createIntent(
     value: NewIntent,
     limits: StorageLimits,
-  ): Promise<{ intent: Intent; created: boolean }> {
+  ): Promise<{ intent: Intent; created: boolean; usage?: StorageUsage }> {
     const id = randomUUID();
     const client = await this.pool.connect();
     try {
@@ -251,7 +253,14 @@ export class PostgresStore implements Store {
         ],
       );
       await client.query("COMMIT");
-      return { intent: intent(result.rows[0]!), created: true };
+      return {
+        intent: intent(result.rows[0]!),
+        created: true,
+        usage: {
+          intents: Number(usage.rows[0]!.count) + 1,
+          bytes: Number(usage.rows[0]!.bytes) + value.jbBytes,
+        },
+      };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -275,14 +284,30 @@ export class PostgresStore implements Store {
       : null;
   }
 
-  async search(query: string, limit: number, offset: number): Promise<SearchPage> {
-    const params: unknown[] = [];
-    const search = query
-      ? "AND search_vector @@ websearch_to_tsquery('simple', $1)"
-      : "";
-    if (query) params.push(query);
-    const limitParam = params.push(limit);
-    const offsetParam = params.push(offset);
+  async search(
+    query: string,
+    limit: number,
+    offset: number,
+    filters: SearchFilters,
+  ): Promise<SearchPage> {
+    const filterParams: unknown[] = [];
+    const conditions: string[] = [];
+    if (query) {
+      filterParams.push(query);
+      conditions.push(`search_vector @@ websearch_to_tsquery('simple', $${filterParams.length})`);
+    }
+    if (filters.owner) {
+      filterParams.push(filters.owner.toLowerCase());
+      conditions.push(`lower(owner) = $${filterParams.length}`);
+    }
+    if (filters.publisher) {
+      filterParams.push(filters.publisher.toLowerCase());
+      conditions.push(`lower(publisher) = $${filterParams.length}`);
+    }
+    const where = conditions.length ? `AND ${conditions.join(" AND ")}` : "";
+    const rowParams = [...filterParams, limit, offset];
+    const limitParam = filterParams.length + 1;
+    const offsetParam = filterParams.length + 2;
     const order = query
       ? "ts_rank(search_vector, websearch_to_tsquery('simple', $1)) DESC, created_at DESC, id"
       : "created_at DESC, id";
@@ -290,16 +315,16 @@ export class PostgresStore implements Store {
       this.pool.query<IntentRow>(
         `${selectIntent}
          WHERE NOT EXISTS (SELECT 1 FROM deployments WHERE deployments.intent_id = intents.id)
-         ${search}
+         ${where}
          ORDER BY ${order}
          LIMIT $${limitParam} OFFSET $${offsetParam}`,
-        params,
+        rowParams,
       ),
       this.pool.query<{ count: string }>(
         `SELECT count(*)::text AS count FROM intents
          WHERE NOT EXISTS (SELECT 1 FROM deployments WHERE deployments.intent_id = intents.id)
-         ${search}`,
-        query ? [query] : [],
+         ${where}`,
+        filterParams,
       ),
     ]);
     const totalCount = Number(count.rows[0]!.count);
@@ -449,10 +474,11 @@ export class PostgresStore implements Store {
     );
   }
 
-  async sponsoredWeiSince(since: Date): Promise<bigint> {
+  async sponsoredWeiSince(since: Date, requester?: string): Promise<bigint> {
     const result = await this.pool.query<{ wei: string }>(
-      "SELECT coalesce(sum(reserved_wei + spent_wei), 0)::text AS wei FROM intent_deploys WHERE created_at >= $1",
-      [since],
+      `SELECT coalesce(sum(reserved_wei + spent_wei), 0)::text AS wei FROM intent_deploys
+       WHERE created_at >= $1 AND ($2::text IS NULL OR requester = $2)`,
+      [since, requester ?? null],
     );
     return BigInt(result.rows[0]!.wei);
   }

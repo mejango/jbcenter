@@ -111,14 +111,14 @@ npm run dev
 
 Pinning and intent API requests require an origin hardcoded for the active Railway environment.
 Production accepts `https://juicebox.money`, `https://revnet.money`, `https://eth.shop`,
-`https://succulent.money`, and `https://homerun.money`. `dev` accepts the first four sites'
-`dev.` subdomains, `http://localhost:3001` through `http://localhost:3004`, and Homerun's
-`http://localhost:3010` and `http://localhost:3014`. The homepage, `/ipfs/*` read gateway, and `/v1/rpc/:chainId`
+`https://succulent.money`, `https://homerun.money`, and `https://beep.biz`. `dev` accepts the
+first four sites' `dev.` subdomains, `http://localhost:3001` through `http://localhost:3004`, and
+Homerun's `http://localhost:3010` and `http://localhost:3014`. The homepage, `/ipfs/*` read gateway, and `/v1/rpc/:chainId`
 RPC are public; RPC accepts any or no Origin. `GET /healthz` is public for infrastructure checks.
 
 ## Connect an assistant through MCP
 
-The `mcp/` package provides **57 V6-only tools across ten capability families**: project and
+The `mcp/` package provides **59 V6-only tools across ten capability families**: project and
 account intelligence, payments and cash-outs, launches and ruleset changes, buyback hooks, router
 terminals, 721 shops, revnets and loans, omnichain operations, source and webclient development,
 and reviewed project metadata publication. Read the [26 user journeys](mcp/docs/USER_JOURNEYS.md)
@@ -136,8 +136,15 @@ Point a Streamable HTTP MCP client at:
 
 The server routes `/mcp` directly to the MCP transport before Center's browser API middleware.
 MCP uses Center's store, read-only RPC gateway, and pinning service through bounded internal
-callbacks. It does not send HTTP requests back to itself or impersonate an approved browser Origin.
-Its Host and browser Origin checks remain active; non-browser clients do not need to invent an Origin.
+callbacks. Publishing an intent and requesting a sponsored deploy are the two exceptions: MCP hands
+the Hono app an in-process `Request` marked internal, so both reuse Center's own signature
+verification, publish limits and sponsor policy instead of a second implementation. The marker
+travels in Hono's environment and never in a header, so no network caller can claim it and no
+browser Origin is impersonated. A publisher key is free to mint, so an in-process publish
+spends both a per-publisher hourly key and a shared `mcp` hourly bucket, and is stored under the
+single `mcp` identity whose lifetime intent and byte caps bound the whole MCP surface; a sponsored
+deploy spends the shared `mcp` requester. Host and browser Origin checks remain active for every
+network caller; non-browser clients do not need to invent an Origin.
 Search removes non-V6 intent listings while preserving the upstream cursor; a mixed-version source
 count is not reported as a V6 total. Direct intent reads also reject other deployment versions.
 
@@ -157,6 +164,10 @@ service uses PostgreSQL-backed shared backend quotas: 600 Center reads per minut
 requests per minute, also subject to `RPC_SITE_LIMIT_PER_MINUTE`; and ten MCP pins per ten minutes,
 also subject to the existing 200-per-site pin budget. These are service-wide budgets across
 replicas, in addition to MCP transport limits. See [MCP deployment](mcp/docs/DEPLOYMENT.md).
+
+The MCP exposes the intent flow as `jb_prepare_intent` (local commitment and signing message),
+`jb_publish_intent` (publish an envelope the caller already signed), `jb_get_intent` and
+`jb_deploy_intent` (request a sponsored deploy). The MCP holds no key and signs nothing.
 
 ## Pin and read IPFS content
 
@@ -240,6 +251,10 @@ uses the separately authenticated REST plan/submission API.
 
 ## Publish an intent
 
+The complete integrator recipe lives in [the project intents guide](docs/rest/PROJECT_INTENTS.md),
+served at [`/api/docs/project-intents`](https://juicebox.center/api/docs/project-intents). This
+section is the short version.
+
 First ask JB Center for the deterministic message to sign:
 
 ```sh
@@ -292,6 +307,11 @@ GET /v1/intents/:id
 GET /v1/search?q=climate&limit=20&cursor=20
 ```
 
+`GET /v1/search` also accepts `owner` and `publisher`, each an address matched case-insensitively
+and combinable with `q`: `owner` matches the indexed `jb.owner` and answers "which projects does
+this account have", `publisher` matches the signing key and answers "which intents did my server
+publish".
+
 Search returns a merge-friendly page:
 
 ```json
@@ -327,7 +347,7 @@ requested (see "Request a sponsored deploy" below), independent of `deployments`
 `deploys` is always present, and is empty until a deploy is requested. `status` is `queued`,
 `sent`, `confirmed` or `failed`. `bundleUuid` identifies the Relayr bundle once one has been
 submitted; `transactionHash` and `error` fill in as each chain settles. `error` is always a coded,
-bounded message: upstream exception text never reaches this field.
+authored message capped at 300 characters with secrets scrubbed before it is stored.
 
 ## Record deployment
 
@@ -353,6 +373,9 @@ and chain. Recording the first deployment removes the intent from search while p
 `.jb`, signature, exact launch call, and deployment provenance at its direct URL.
 
 ## Request a sponsored deploy
+
+The [project intents guide](docs/rest/PROJECT_INTENTS.md) covers the chain families, quotas,
+reservations and refusal codes in full.
 
 A trusted webclient can ask JB Center to execute an undeployed intent's own signed calls, at
 Center's expense, instead of the publisher paying gas directly:
@@ -409,6 +432,10 @@ The remaining controls are environment variables:
 - `RPC_PUBLIC_SITE_LIMIT_PER_MINUTE` — shared keyless RPC budget across untrusted origins; default `5000`.
 - `MAX_INTENTS_PER_CLIENT` — lifetime intent count per client; default `10000`.
 - `MAX_STORAGE_BYTES_PER_CLIENT` — lifetime stored envelope bytes per client; default 1 GiB.
+- `MCP_MAX_INTENTS` — lifetime intent count for the co-hosted MCP's single storage identity; default `100000`.
+- `MCP_MAX_STORAGE_BYTES` — lifetime stored envelope bytes for that identity; default 10 GiB. Both
+  replace the per-client pair for an in-process publish, and Center logs `storage_near_limit` once
+  either identity passes four fifths of its cap.
 - `WALLET_ORIGIN` — hosted passkey wallet origin (for example `https://my.juicebox.center`); mounts the wallet site with the reviewed Base manifest.
 - `WALLET_NETWORKS_PAYER_KEY` — optional private key funding Relayr bundles that deploy an account on more chains (Base ETH for Optimism and Arbitrum, Base Sepolia ETH for the testnets). A separate key: the creation and recovery keys track their own nonces.
 - `WALLET_LEGACY_ORIGINS` — optional comma-separated former wallet origins; requests on those hosts redirect (301) to the same path on `WALLET_ORIGIN`.
@@ -428,6 +455,8 @@ The remaining controls are environment variables:
   platform whose server publishes on behalf of its users — one signing key, one outbound IP — needs
   both of these and `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` raised past their per-caller defaults.
 - `SPONSOR_DAILY_BUDGET_WEI` — total wei reserved for sponsored deploys per rolling day, across every requester; default `50000000000000000`.
+- `SPONSOR_MCP_DAILY_BUDGET_WEI` — the slice of that day the co-hosted MCP may spend, checked
+  before the shared budget; default a fifth of `SPONSOR_DAILY_BUDGET_WEI`.
 - `SPONSOR_MAX_GAS` — gas ceiling per forwarded deployment call; default `8000000`.
 - `SPONSOR_MAX_FEE_PER_GAS` — max fee per gas the sponsor signs when paying for the Relayr bundle; default `1000000000`.
 - `SPONSOR_CONFIRMATIONS` — confirmations awaited on each destination chain before a sponsored deploy is recorded; default `2`, and a lower value is raised to `2`, which the deployment verifier requires.

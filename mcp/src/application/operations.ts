@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Address, Hex } from 'viem';
 import type { JBCenterJsonObject } from '@bananapus/nana-sdk-core/jbcenter';
 import type { Services } from '../app.js';
 import {
@@ -33,6 +34,7 @@ import {
 import { DomainError } from '../domain/errors.js';
 import type { PlanDraft } from '../domain/types.js';
 import { INDEXED_VALUE_SEMANTICS } from '../adapters/bendystraw.js';
+import { upstreamErrorDetails } from '../adapters/http.js';
 import { resolveProjectIdentifier } from '../services/identity.js';
 import { KNOWLEDGE_CATEGORIES } from '../services/knowledge.js';
 import {
@@ -116,6 +118,30 @@ const payoutShape = {
 };
 
 import { observed } from './preparation.js';
+
+/** Center's publish-limit refusal becomes a fixed sentence; every other code stays the bounded generic. */
+function publishRefusal(error: unknown): unknown {
+  const { status, code } = upstreamErrorDetails(error);
+  if (status === 429 && code === 'publish_limit')
+    return new DomainError(
+      'PUBLISH_LIMIT',
+      "Center's publish limit is reached for this publisher or for the shared assistant budget. Try again later.",
+      { retryable: true },
+    );
+  return error;
+}
+
+/** The V6 Center deployment commitment: shared by local preparation and signed publication. */
+const centerIntentEnvelopeShape = {
+  format: z.string().max(113),
+  deploymentVersion: z.literal('6'),
+  chainIds: z.array(chainIdSchema).min(1).max(16),
+  deploymentCalls: z
+    .array(z.object({ chainId: chainIdSchema, to: addressSchema, data: hexSchema }).strict())
+    .min(1)
+    .max(16),
+  jb: jsonObjectSchema,
+};
 
 function definitions(s: Services): ProtocolOperation[] {
   const operations = [
@@ -565,17 +591,39 @@ function definitions(s: Services): ProtocolOperation[] {
     defineOperation(
       'prepare_intent',
       'Locally prepare the exact JB Center content commitment and signing message for a V6 deployment intent. Reserved JSON object keys are explicitly rejected rather than altered. No pin, signature, publication, or deployment occurs.',
-      {
-        format: z.string().max(113),
-        deploymentVersion: z.literal('6'),
-        chainIds: z.array(chainIdSchema).min(1).max(8),
-        deploymentCalls: z
-          .array(z.object({ chainId: chainIdSchema, to: addressSchema, data: hexSchema }).strict())
-          .min(1)
-          .max(8),
-        jb: jsonObjectSchema,
-      },
+      centerIntentEnvelopeShape,
       (input) => s.center.prepareIntent({ ...input, jb: input.jb as JBCenterJsonObject }),
+    ),
+    operationWithSchema(
+      'publish_intent',
+      'Publish a V6 JB Center project intent the user has already signed. The envelope, publisher and signature are stored unchanged; the signature is verified against this exact envelope before anything is sent. This server holds no key and signs nothing. Publication is a persistent external mutation: a published intent cannot be edited, replaced or withdrawn. It is not wallet approval and moves no funds. Republishing identical content from the same publisher returns the existing intent.',
+      z
+        .object({
+          ...centerIntentEnvelopeShape,
+          publisher: addressSchema,
+          signature: hexSchema,
+        })
+        .strict(),
+      async ({ publisher, signature, ...envelope }) => {
+        try {
+          return await s.center.publishIntent({
+            ...envelope,
+            jb: envelope.jb as JBCenterJsonObject,
+            publisher: publisher as Address,
+            signature: signature as Hex,
+          });
+        } catch (error) {
+          throw publishRefusal(error);
+        }
+      },
+      { externalMutation: true, idempotent: true },
+    ),
+    operationWithSchema(
+      'deploy_intent',
+      'Ask JB Center to sponsor execution of a published intent’s own committed calls on the supported rollups. Returns one row per chain with status queued, sent, confirmed or failed; repeating the request returns the same rows. Queued is not confirmation and a failed row is terminal for that intent. Refusals return a fixed code: NOT_SPONSORABLE, SPONSOR_QUOTA, SPONSOR_BUDGET or SPONSOR_UNAVAILABLE. This server signs nothing and sends no wallet transaction.',
+      z.object({ id: z.string().uuid() }).strict(),
+      async ({ id }) => s.center.requestDeploy(id),
+      { externalMutation: true, idempotent: true },
     ),
     defineOperation(
       'search_reference',

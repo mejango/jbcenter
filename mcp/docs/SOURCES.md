@@ -89,7 +89,7 @@ Before a release, resync against the intended source revisions, inspect the Git 
 
 The service validates the complete bundle with Zod at construction, checks document hashes and the bundle fingerprint, bounds the file to 16 MiB, and bounds every search/page input again at the service boundary. Unit tests cover deterministic ranking, contract citations, category filtering, missing matches, lossless pagination, source/bundle tampering, traversal attempts, reference metadata isolation, and standalone corpus coverage.
 
-The SDK, indexer, skills, Center and three webclients also contribute their local `RISKS.md` so integration guidance stays paired with its trust and failure assumptions. Webclient integration risk references use the SDK category.
+The SDK, indexer, Center and three webclients also contribute their local `RISKS.md` so integration guidance stays paired with its trust and failure assumptions. Webclient integration risk references use the SDK category.
 
 ## Executed router and buyback rollout records
 

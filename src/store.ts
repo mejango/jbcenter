@@ -23,6 +23,12 @@ export type StorageLimits = {
   maxBytes: number;
 };
 
+/** What the storage identity holds once the new intent is stored. */
+export type StorageUsage = {
+  intents: number;
+  bytes: number;
+};
+
 export type NewDeployment = {
   chainId: number;
   projectId: string;
@@ -37,6 +43,11 @@ export type DeployPatch = {
   spentWei?: bigint;
 };
 
+export type SearchFilters = {
+  owner?: Address;
+  publisher?: Address;
+};
+
 export interface Store {
   health(): Promise<void>;
   consumeRequest(
@@ -46,12 +57,18 @@ export interface Store {
   ): Promise<{ allowed: boolean; remaining: number }>;
   /** Removes rate-limit windows older than two days; returns the count removed. */
   cleanupRateLimits(): Promise<number>;
+  /** `usage` accompanies a stored intent; a repeat publication stores nothing and reports none. */
   createIntent(
     value: NewIntent,
     limits: StorageLimits,
-  ): Promise<{ intent: Intent; created: boolean }>;
+  ): Promise<{ intent: Intent; created: boolean; usage?: StorageUsage }>;
   getIntent(id: string): Promise<Intent | null>;
-  search(query: string, limit: number, offset: number): Promise<SearchPage>;
+  search(
+    query: string,
+    limit: number,
+    offset: number,
+    filters: SearchFilters,
+  ): Promise<SearchPage>;
   recordDeployment(intentId: string, value: NewDeployment): Promise<Deployment>;
   queueDeploys(
     intentId: string,
@@ -68,7 +85,8 @@ export interface Store {
   /** Give a claim back unspent: the lease ends and the attempt is not counted. */
   /** Hands a claim back without spending an attempt; the rows wait five minutes before the next pass. */
   releaseClaim(intentId: string, chainIds: number[]): Promise<void>;
-  sponsoredWeiSince(since: Date): Promise<bigint>;
+  /** Reserved plus spent wei since `since`, for one requester or, with none, for every requester. */
+  sponsoredWeiSince(since: Date, requester?: string): Promise<bigint>;
 }
 
 export class ConflictError extends Error {}

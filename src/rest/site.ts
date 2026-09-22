@@ -19,6 +19,27 @@ export const ACCOUNTS_PAGE_HEADERS = {
   "Content-Security-Policy": "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self' https://*.getpara.com https://*.usecapsule.com wss://*.getpara.com wss://*.usecapsule.com https://*.publicnode.com; img-src 'self' data: blob:; frame-src https://app.beta.getpara.com https://app.getpara.com https://app.beta.usecapsule.com https://app.usecapsule.com; worker-src 'self' blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
 } as const;
 
+export const REST_DOCUMENTS = [
+  "ARCHITECTURE",
+  "QUICKSTART",
+  "CLIENT",
+  "USER_JOURNEYS",
+  "AUTHENTICATION",
+  "API",
+  "AI_GUIDE",
+  "PROJECT_INTENTS",
+  "CONTRACTS",
+  "INDEXER",
+  "TRANSACTIONS",
+  "OMNICHAIN",
+  "SPONSORSHIP",
+  "SMART_ACCOUNTS",
+  "SESSIONS",
+  "EXECUTION_OPERATIONS",
+  "PRODUCTION_CHECK",
+  "PRODUCTION_OPERATIONS",
+] as const;
+
 export interface RestSite {
   app: ReturnType<typeof createRestApp>;
   wallet?: Hono;
@@ -41,25 +62,7 @@ export async function readRestAssets() {
     "utf8",
   );
   const documents = new Map<string, string>();
-  for (const name of [
-    "ARCHITECTURE",
-    "QUICKSTART",
-    "CLIENT",
-    "USER_JOURNEYS",
-    "AUTHENTICATION",
-    "API",
-    "AI_GUIDE",
-    "CONTRACTS",
-    "INDEXER",
-    "TRANSACTIONS",
-    "OMNICHAIN",
-    "SPONSORSHIP",
-    "SMART_ACCOUNTS",
-    "SESSIONS",
-    "EXECUTION_OPERATIONS",
-    "PRODUCTION_CHECK",
-    "PRODUCTION_OPERATIONS",
-  ]) {
+  for (const name of REST_DOCUMENTS) {
     const content = await readFile(
       new URL(`../../docs/rest/${name}.md`, import.meta.url),
       "utf8",

@@ -189,6 +189,23 @@ return `complete:false` with `stoppedAt` and `remainingStepIndices` at HTTP 202.
 Neither a bundle nor an omnichain journey is atomic. Resume only the remaining
 authorized work after checking existing hashes and dependencies.
 
+## Create a project without a transaction
+
+A Juicebox V6 project can be published as a signed, frozen set of per-chain launch calls before
+any transaction exists. The publisher signs a message quoting the content hash; Center stores the
+calls unchanged; the project appears in search and has a page immediately. Center's sponsor can
+then execute those exact calls on the supported rollups at its own expense, or one wallet can
+send them and record the results.
+
+The complete recipe, including the envelope, the guard to apply before signing, the sponsored
+chain ids, quotas and refusal codes, is in the [project intents guide](./PROJECT_INTENTS.md).
+
+Two rules carry into every other journey here. A publish signature is not transaction approval:
+it authorizes storage and publication of frozen calldata and moves no funds. And one intent has
+exactly one deploying sender across all of its chains, because the deployment salts hash the
+sender; mixing a sponsored deploy with a self-paid one leaves unrelated projects that can never
+be linked.
+
 ## prepaid publication and funding
 
 Use this path only when current `sponsorship` capabilities report configured

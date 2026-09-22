@@ -2,7 +2,7 @@ import { createHttpHandler, createMcpServer } from "@juicebox/mcp/host";
 import type { Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { keepUpstreamConnections } from "./keepAlive.js";
-import { createApp } from "./app.js";
+import { createApp, MCP_CLIENT } from "./app.js";
 import { migrate } from "./db/migrate.js";
 import { createPool, PostgresStore } from "./db/postgres.js";
 import { canonicalDeploymentChains, PROJECTS, RpcDeploymentVerifier } from "./deploymentVerifier.js";
@@ -65,7 +65,12 @@ const rpc = createRpcGateway(rpcUpstreams);
 const pinning = filebaseRpcToken && pinataJwt
   ? new RedundantIpfsPinning(new FilebaseRpcStorage(filebaseRpcToken), pinataJwt)
   : undefined;
-const mcp = createCenterMcp(store, { rpc, rpcSiteLimitPerMinute, ...(pinning ? { pinning } : {}) });
+const mcp = createCenterMcp(store, {
+  rpc,
+  rpcSiteLimitPerMinute,
+  centerFetch: (request) => app.fetch(request, { internal: MCP_CLIENT }),
+  ...(pinning ? { pinning } : {}),
+});
 const metrics = new Metrics();
 const paraEnvironment = process.env.PARA_ENVIRONMENT ?? "BETA";
 if (paraEnvironment !== "BETA" && paraEnvironment !== "PROD") throw new Error("PARA_ENVIRONMENT must be BETA or PROD");
@@ -162,6 +167,8 @@ const app = createApp(store, {
     requestLimitPerMinute: positiveInteger("RATE_LIMIT_PER_MINUTE", 600),
     maxIntentsPerClient: positiveInteger("MAX_INTENTS_PER_CLIENT", 10_000),
     maxStorageBytesPerClient: positiveInteger("MAX_STORAGE_BYTES_PER_CLIENT", 1_073_741_824),
+    mcpMaxIntents: positiveInteger("MCP_MAX_INTENTS", 100_000),
+    mcpMaxStorageBytes: positiveInteger("MCP_MAX_STORAGE_BYTES", 10_737_418_240),
     rpcRequestLimitPerMinute: positiveInteger("RPC_REQUEST_LIMIT_PER_MINUTE", 600),
     rpcSiteLimitPerMinute,
     rpcPublicRequestLimitPerMinute: positiveInteger("RPC_PUBLIC_REQUEST_LIMIT_PER_MINUTE", 120),

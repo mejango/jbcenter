@@ -13,7 +13,7 @@ The deployment endpoint is **https://juicebox.center/mcp**. This package lives i
 - Exact project metadata review and explicitly approved public JSON pinning through the integrated Center backend, returning a CID and URI for a separate V6 launch.
 - Local stdio and stateless Streamable HTTP transports, bounded requests, cancellation, Docker packaging and CI.
 
-The **57 tools across ten capability families** compose into [26 user journeys](docs/USER_JOURNEYS.md) for contributors, creators, operators, revnet participants, omnichain users, and developers, including tool sequences and what establishes completion.
+The **59 tools across ten capability families** compose into [26 user journeys](docs/USER_JOURNEYS.md) for contributors, creators, operators, revnet participants, omnichain users, and developers, including tool sequences and what establishes completion.
 
 Start with `jb_list_capabilities` in an MCP client. It groups the tools and reports their coverage limits. The generated [tool catalog](docs/TOOLS.md), [architecture](docs/ARCHITECTURE.md), [source provenance](docs/SOURCES.md), and [webclient guide](docs/WEBCLIENTS.md) describe the implementation in more detail.
 
@@ -75,7 +75,7 @@ This configuration identifies the deployment endpoint; building the package does
 
 **Bendystraw:** the parent service uses `MCP_BENDYSTRAW_MAINNET_URL` and `MCP_BENDYSTRAW_TESTNET_URL`; standalone execution uses `BENDYSTRAW_MAINNET_URL` and `BENDYSTRAW_TESTNET_URL`. Configure complete authorized GraphQL endpoints independently. There is no guessed keyless endpoint or hidden embedded API key. An absent network reports `NOT_CONFIGURED`; indexed operations never fall back to another network. Mainnet access does not establish testnet access.
 
-**JB Center:** the integrated service uses bounded callbacks into Center's store, RPC gateway and pinning service, without self-HTTP or an invented Origin. Standalone search and intent reads need approved access to Center's non-RPC API and a corresponding `JBCENTER_ORIGIN`; access failures remain explicit. Intent signing-message preparation runs locally in either mode. Search removes non-V6 listings while preserving the upstream cursor and reporting an unknown V6 total when the source count spans versions. Direct intent reads reject other deployment versions.
+**JB Center:** the integrated service uses bounded callbacks into Center's store, RPC gateway and pinning service for reads, and hands the two intent write routes to Center's own application through an in-process request marker, so signature verification, publish limits and sponsor policy keep one implementation; the MCP still signs nothing. Standalone search and intent reads need approved access to Center's non-RPC API and a corresponding `JBCENTER_ORIGIN`; access failures remain explicit. Intent signing-message preparation runs locally in either mode. Search removes non-V6 listings while preserving the upstream cursor and reporting an unknown V6 total when the source count spans versions. Direct intent reads reject other deployment versions.
 
 **References:** checked-in bundles run offline. Sources include file hashes, Git revisions and dirty-source flags. See [SOURCES.md](docs/SOURCES.md) for refresh commands and authority rules. App development has a separate [reference bundle](docs/WEBCLIENTS.md).
 
@@ -87,7 +87,7 @@ This configuration identifies the deployment endpoint; building the package does
 4. Use `jb_simulate_plan` immediately before signing each step in an external wallet. Prerequisites need matching confirmed transactions; simulated allowance overrides are never substituted for them.
 5. Use `jb_verify_plan` with step indices and transaction hashes. Pending, reverted, mismatched, confirmed and unverified outcomes remain distinct. A confirmed outer Safe/Relayr transaction is not proof of the intended inner action.
 
-The MCP has no wallet key and does not sign, broadcast, or publish Center intents. The integrated metadata tools can publish an explicitly approved new metadata document to IPFS; that separate workflow does not execute a transaction. Client applications handle wallet execution and signed-intent publication. MCP development tools include the relevant reference implementations.
+The MCP has no wallet key and does not sign or broadcast. It can store a Center intent the user already signed, and request Center-funded execution of that intent's committed calls; both are Center-side publications, not wallet actions, and neither spends the user's funds. The integrated metadata tools can publish an explicitly approved new metadata document to IPFS. Client applications handle wallet execution. MCP development tools include the relevant reference implementations.
 
 Plan expiry is enforced by this service, not universally by the destination contract. A wallet integration must reject expired plans and re-prepare when account, chain, terms or quote assumptions change. Plans are authenticated, not encrypted; treat them as transaction details, not secret storage.
 

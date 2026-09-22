@@ -48,7 +48,12 @@ describe('real MCP application protocol', () => {
       expect(tool.inputSchema.type).toBe('object');
       expect(tool.outputSchema?.type).toBe('object');
       expect(tool.annotations?.readOnlyHint).toBe(
-        !['jb_pin_project_logo', 'jb_pin_project_metadata'].includes(tool.name),
+        ![
+          'jb_pin_project_logo',
+          'jb_pin_project_metadata',
+          'jb_publish_intent',
+          'jb_deploy_intent',
+        ].includes(tool.name),
       );
     }
     const result = await client.callTool({ name: 'jb_list_capabilities', arguments: {} });
@@ -64,6 +69,29 @@ describe('real MCP application protocol', () => {
     ];
     expect(catalogNames.sort()).toEqual(tools.map((tool) => tool.name).sort());
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it('registers the intent write tools as non-read-only and never as transaction plans', async () => {
+    const { tools } = await client.listTools();
+    const publish = tools.find((tool) => tool.name === 'jb_publish_intent');
+    const deploy = tools.find((tool) => tool.name === 'jb_deploy_intent');
+    expect(publish?.annotations?.readOnlyHint).toBe(false);
+    expect(deploy?.annotations?.readOnlyHint).toBe(false);
+    expect(publish?.annotations?.idempotentHint).toBe(true);
+    expect(deploy?.annotations?.idempotentHint).toBe(true);
+    expect(publish?.description).toContain('already signed');
+    expect(deploy?.description).toContain('sponsor');
+    expect(Object.keys(publish?.inputSchema.properties ?? {}).sort()).toEqual(
+      [
+        'chainIds',
+        'deploymentCalls',
+        'deploymentVersion',
+        'format',
+        'jb',
+        'publisher',
+        'signature',
+      ].sort(),
+    );
+    expect(Object.keys(deploy?.inputSchema.properties ?? {})).toEqual(['id']);
   });
   it('resolves identifiers with explicit V6 and no network', async () => {
     const result = await client.callTool({

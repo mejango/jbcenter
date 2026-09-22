@@ -1,6 +1,6 @@
 # User journeys
 
-The Juicebox MCP helps people understand projects, contribute, publish reviewed project metadata, operate treasuries and shops, manage revnet positions, reconcile cross-chain activity, and build applications. Its 56 V6-only tools across ten capability families combine into the 26 journeys below. The [tool catalog](TOOLS.md) supplies exact API descriptions and schemas; this guide explains the user goals, sequence of work, and expected outcomes.
+The Juicebox MCP helps people understand projects, contribute, publish reviewed project metadata, operate treasuries and shops, manage revnet positions, reconcile cross-chain activity, and build applications. Its 59 V6-only tools across ten capability families combine into the 26 journeys below. The [tool catalog](TOOLS.md) supplies exact API descriptions and schemas; this guide explains the user goals, sequence of work, and expected outcomes.
 
 These journeys describe the implemented V6 service. A natural-language request is a starting point for an assistant, not a complete transaction instruction: the assistant still needs the user's intended project, chain, account, asset, amount, beneficiary, and terms where relevant.
 
@@ -53,18 +53,19 @@ flowchart LR
   G -->|Confirmed prerequisite; more steps| D
 ```
 
-The shared [transaction review journey](#reconcile-a-prepared-transaction) applies to every transaction below. The MCP does not hold wallet keys, sign, broadcast, or publish Center intents. A client or external wallet performs those actions after the user approves the exact operation. The integrated service can publish new project metadata through the separate [explicit public-upload review](#review-and-pin-new-project-metadata); pinning does not execute a transaction. A supported semantic outcome, such as NFT delivery, requires more evidence than a successful outer transaction receipt.
+The shared [transaction review journey](#reconcile-a-prepared-transaction) applies to every transaction below. The MCP does not hold wallet keys, sign, or broadcast. It can publish a Center intent the user already signed and request its sponsored deploy; neither action signs anything or spends the user's funds. A client or external wallet performs those actions after the user approves the exact operation. The integrated service can publish new project metadata through the separate [explicit public-upload review](#review-and-pin-new-project-metadata); pinning does not execute a transaction. A supported semantic outcome, such as NFT delivery, requires more evidence than a successful outer transaction receipt.
 
 **Availability.** The following prerequisites determine which parts can run:
 
-| Work                                                                                                                                               | Required access                                                                           |
-| -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Capability discovery, source/ABI lookup, webclient integration plans, hypothetical economics, local intent-message and metadata review preparation | Installed service and its bundled references; no upstream request needed                  |
-| Live project, permission, hook, position, loan, quote, transaction preparation, and receipt checks                                                 | Configured RPC supporting the adapter's canonical block-hash reads                        |
-| Named-project and account discovery, indexed activity, indexer status, indexed omnichain groups                                                    | Configured Bendystraw endpoint for the selected network                                   |
-| Center intent listings and signature-verified intent reads                                                                                         | Integrated Center store callbacks, or approved standalone API access                      |
-| Publication of exact reviewed new standard project metadata                                                                                        | Integrated Center pinning backend, available quotas/providers, and explicit user approval |
-| Signing, submission, image/media publication, proof acquisition, and application implementation                                                    | External wallet, client, developer environment, or appropriate integration                |
+| Work                                                                                                                                               | Required access                                                                                                             |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Capability discovery, source/ABI lookup, webclient integration plans, hypothetical economics, local intent-message and metadata review preparation | Installed service and its bundled references; no upstream request needed                                                    |
+| Live project, permission, hook, position, loan, quote, transaction preparation, and receipt checks                                                 | Configured RPC supporting the adapter's canonical block-hash reads                                                          |
+| Named-project and account discovery, indexed activity, indexer status, indexed omnichain groups                                                    | Configured Bendystraw endpoint for the selected network                                                                     |
+| Center intent listings and signature-verified intent reads                                                                                         | Integrated Center store callbacks, or approved standalone API access                                                        |
+| Publication of a user-signed V6 intent, and its request for a Center-sponsored deploy                                                              | Integrated Center write routes (in-process only) and a signature the user already produced over the exact prepared envelope |
+| Publication of exact reviewed new standard project metadata                                                                                        | Integrated Center pinning backend, available quotas/providers, and explicit user approval                                   |
+| Signing, submission, image/media publication, proof acquisition, and application implementation                                                    | External wallet, client, developer environment, or appropriate integration                                                  |
 
 Search reports each upstream separately. A Center outage need not erase available deployed-project results, and unavailable indexed metadata need not erase a successful on-chain project read. Center search filters out other deployment versions and preserves the upstream cursor; an empty filtered page can still have a next page. When the upstream count includes other versions, the V6 total remains unknown. Mainnet and testnet indexers require separate configuration. See [deployment configuration](DEPLOYMENT.md) for setup.
 
@@ -278,7 +279,16 @@ This permissionless operation synchronizes accounting. It does not move or claim
 
 Use `jb_search_projects` to discover undeployed Center listings, inspect each listing's deployment version and chain IDs, and use `jb_get_intent` to validate a selected V6 envelope's commitment and publisher signature. Listings alone are not per-item signature verification. Decode relevant calls with `jb_decode_calldata` and inspect their contract source and live destinations as needed.
 
-For a new intent, first obtain the reviewed deployment calls through the appropriate supported launch journey. `jb_prepare_intent` produces the exact local Center commitment and signing message for those calls and the `.jb` document. External clients handle signing, publication, and later deployment reconciliation. The commitment does not validate arbitrary call economics, prove publisher control of a project, include wallet approval, or replace the full transaction plan's native value and prerequisites.
+For a new intent, first obtain the reviewed deployment calls through the appropriate supported launch journey. `jb_prepare_intent` produces the exact local Center commitment and signing message for those calls and the `.jb` document. External clients handle signing; publication and later deployment reconciliation can run through this server or externally. The commitment does not validate arbitrary call economics, prove publisher control of a project, include wallet approval, or replace the full transaction plan's native value and prerequisites.
+
+To create a project without a transaction: `jb_prepare_intent` returns the exact commitment and
+signing message for the reviewed deployment calls; the user signs that message in an externally
+owned account wallet; `jb_publish_intent` stores the envelope with that publisher and signature;
+`jb_deploy_intent` asks Center to execute the committed calls at its own expense on the supported
+rollups, and `jb_get_intent` polls the per-chain rows. Publication is permanent: there is no edit,
+replace or withdraw. A queued row is not a confirmation, a failed row is terminal for that intent,
+and one intent has exactly one deploying sender across all of its chains. The complete recipe is
+Center's [project intents guide](https://juicebox.center/api/docs/project-intents).
 
 ### Reconcile a prepared transaction
 
