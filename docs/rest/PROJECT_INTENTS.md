@@ -341,7 +341,8 @@ GET /v1/intents/:id
 write-once per chain. `deploys` holds sponsored-deploy rows and is always present, empty until a
 sponsored deploy is requested: `{chainId, status, transactionHash, bundleUuid, error, createdAt,
 updatedAt}` with `status` one of `queued`, `sent`, `confirmed`, `failed`. `error` is always a
-coded, authored message capped at 300 characters with secrets scrubbed before it is stored.
+coded, authored message capped at 300 characters with secrets scrubbed before it is stored, and
+it is set on a waiting row as well as a failed one.
 
 ### Search
 
@@ -482,7 +483,17 @@ Poll `GET /v1/intents/:id` and read `deploys`. This is a `/v1` route like any ot
 the same 600-requests-per-minute per-caller limit (`429` `rate_limit`, `Retry-After: 60`), so
 poll on an interval, not in a tight loop. A row moves `queued` to `sent` to `confirmed`, or to
 `failed`. A confirmed chain also writes its `deployments` entry, so `deployments` and `deploys`
-converge. A `failed` row is terminal for that intent: Center will not retry it and a second
+converge. A `queued` or `sent` row may carry an `error` while Center keeps retrying it:
+`SPONSOR_UNFUNDED` (the sponsor key cannot cover that chain's creation fee yet),
+`SPONSORSHIP_RPC_UNAVAILABLE` (a chain could not be read or simulated) and
+`RELAYR_INVALID_STATUS` (the execution service answered with a status Center would not bind)
+are all waiting states, not outcomes. Keep polling while `status` is not `failed`.
+
+`failed` is set only on a definitive outcome — a reverted or unverifiable deployment, a refused
+quote, an exhausted set of attempts — or after 24 hours on a row whose bundle never resolved,
+which reads `bundle unresolved`. An operator reconciles such a row by recording its deployment
+through `POST /v1/intents/:id/deployments` once the execution service shows the hash. A `failed`
+row is terminal for that intent: Center will not retry it and a second
 `POST /v1/intents/:id/deploy` returns the same rows, including the failed one. Recovery is a new
 intent, or the self-paid path for a fresh intent — never a partial self-paid patch over the same
 one.
@@ -574,7 +585,8 @@ suckers link.
   publication of frozen calldata. Deployment is a separate funded transaction.
 - **Publishing from a smart account.** Center recovers the signer from the signature; a contract
   signature is refused. Publish from an externally owned account.
-- **Expecting a failed sponsored row to retry.** It is terminal for that intent.
+- **Expecting a failed sponsored row to retry.** It is terminal for that intent. A row that is
+  still `queued` or `sent` with an `error` is the opposite case: Center is retrying it.
 - **An HTTPS `logoUri`.** The first-party webclients render `ipfs://` only.
 
 ## Related

@@ -407,7 +407,12 @@ spent. The budget is checked first, so a refused request does not consume the re
 The sponsor charges the budget what it actually spent: when the Relayr prepayment settles, its
 gas and value are written as `spentWei` on the payment's first claimed chain, before any
 destination chain confirms. A chain that fails after a bundle was submitted keeps its reservation,
-because the money may already have left the key. Center must run a single replica while sponsoring:
+because the money may already have left the key.
+
+A failure that cost nothing, and any failure once a bundle has been paid for, leaves the rows
+`queued` or `sent` with a coded `error` saying why they wait; the next claim retries them, and
+`failed` is reserved for a definitive outcome or for a bundle still unresolved after 24 hours.
+Nothing here is configurable: the retry rules are fixed, and no environment variable changes them. Center must run a single replica while sponsoring:
 the deploy queue is leased, not locked across processes.
 
 ## Authentication boundaries
