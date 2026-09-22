@@ -395,4 +395,19 @@ suite("PostgreSQL store", () => {
       { intentId: sibling.id, chainIds: [84532] },
     ]);
   });
+
+  it("adds a chain to an intent that already has a queued row", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "subset deploy", chainIds: [84532, 421614] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(intent.id, [84532], "browser:x", 1000n);
+    const rows = await store!.queueDeploys(intent.id, [421614], "browser:x", 2000n);
+    expect(rows.map((row) => [row.chainId, row.status])).toEqual([
+      [84532, "queued"],
+      [421614, "queued"],
+    ]);
+    expect(await reservedWei(intent.id, 84532)).toBe("1000");
+    expect(await reservedWei(intent.id, 421614)).toBe("2000");
+  });
 });

@@ -125,12 +125,39 @@ async function json(c: Context): Promise<Record<string, unknown>> {
   }
 }
 
+/** A route whose body is optional: an empty request is an empty object. */
+async function optionalJson(c: Context): Promise<Record<string, unknown>> {
+  const body = await c.req.text();
+  if (!body.trim()) return {};
+  try {
+    return record(JSON.parse(body));
+  } catch (error) {
+    if (error instanceof BadRequest) throw error;
+    throw new BadRequest("Request body must be valid JSON");
+  }
+}
+
 function positiveInteger(value: unknown, name: string): number {
   const parsed = typeof value === "string" && /^\d+$/u.test(value) ? Number(value) : value;
   if (!Number.isSafeInteger(parsed) || Number(parsed) <= 0) {
     throw new BadRequest(`${name} must be a positive safe integer`);
   }
   return Number(parsed);
+}
+
+function optionalChainIds(value: unknown, within: number[]): number[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length === 0 || value.length > 16) {
+    throw new BadRequest("chainIds must contain between 1 and 16 chains");
+  }
+  const chainIds = value.map((chainId) => positiveInteger(chainId, "chainIds"));
+  if (new Set(chainIds).size !== chainIds.length) {
+    throw new BadRequest("chainIds must contain unique chains");
+  }
+  if (chainIds.some((chainId) => !within.includes(chainId))) {
+    throw new BadRequest("chainIds must be part of this intent");
+  }
+  return chainIds;
 }
 
 function projectId(value: unknown): string {
@@ -844,11 +871,31 @@ export function createApp(
     if (!UUID.test(id)) throw new BadRequest("intent id is invalid");
     const intent = await store.getIntent(id);
     if (!intent) return c.json({ error: { code: "not_found", message: "Intent not found" } }, 404);
-    if (intent.deploys.length) return c.json({ deploys: intent.deploys }, 200);
-    if (intent.status !== "undeployed") throw new BadRequest(`intent is ${intent.status}`);
-    if (!sponsorFamily(intent.envelope.chainIds)) throw new BadRequest("intent chains are not sponsorable");
+    const requested = optionalChainIds((await optionalJson(c)).chainIds, intent.envelope.chainIds);
+    const deployed = new Set(intent.deployments.map((deployment) => deployment.chainId));
+    if (requested?.some((chainId) => deployed.has(chainId))) {
+      throw new BadRequest("chainIds must name chains with no deployment");
+    }
+    if (requested?.some((chainId) => !isSponsoredChain(chainId))) {
+      throw new BadRequest("chainIds must name chains Center sponsors");
+    }
+    // A chain Center does not sponsor is deployed through the relay route, and a chain that is
+    // already deployed is done: either way it is nothing this request can queue.
+    const selected = sponsoredChains(requested ?? intent.envelope.chainIds).filter(
+      (chainId) => !deployed.has(chainId),
+    );
+    if (!selected.length) throw new BadRequest("intent has no sponsored chain left to deploy");
+    if (!sponsorFamily(selected)) throw new BadRequest("intent chains are not sponsorable");
+    const queued = intent.deploys.filter((deploy) => selected.includes(deploy.chainId));
+    const fresh = selected.filter(
+      (chainId) => !intent.deploys.some((deploy) => deploy.chainId === chainId),
+    );
+    if (!fresh.length) return c.json({ deploys: queued }, 200);
     const requester = c.get("client");
-    const reserved = reservationWei(sponsor.policy, intent.envelope.deploymentCalls.length);
+    const reserved = reservationWei(
+      sponsor.policy,
+      intent.envelope.deploymentCalls.filter((call) => fresh.includes(call.chainId)).length,
+    );
     const since = new Date(Date.now() - 86_400_000);
     const budgetSpent = { error: { code: "sponsor_budget", message: "The daily sponsorship budget is spent" } };
     // The co-hosted MCP is one requester with no caller to charge, so it draws on its own slice of
@@ -876,14 +923,9 @@ export function createApp(
         { "Retry-After": RETRY_AFTER_SECONDS },
       );
     }
-    const deploys = await store.queueDeploys(
-      id,
-      intent.envelope.chainIds,
-      requester,
-      reserved / BigInt(intent.envelope.chainIds.length),
-    );
+    const deploys = await store.queueDeploys(id, fresh, requester, reserved / BigInt(fresh.length));
     sponsor.kick();
-    return c.json({ deploys }, 202);
+    return c.json({ deploys: deploys.filter((deploy) => selected.includes(deploy.chainId)) }, 202);
   });
 
   return app;

@@ -793,24 +793,129 @@ describe("sponsored deploy requests", () => {
     expect(missing.status).toBe(404);
   });
 
-  it("refuses a deploy request once the intent is already deployed", async () => {
+  it("deploys the chains it is given and leaves the rest of the intent alone", async () => {
     const store = new MemoryStore();
-    const app = createApp(store, { sponsor, deploymentVerifier: verifier });
-    const intent = (await (await publish(app)).json()) as Intent;
-    await app.request(`/v1/intents/${intent.id}/deployments`, {
+    const app = createApp(store, { sponsor });
+    const intent = (await (await publishWith(app, testnetEnvelope)).json()) as Intent;
+    const first = await app.request(`/v1/intents/${intent.id}/deploy`, {
       method: "POST",
       headers: trusted,
-      body: JSON.stringify({
-        chainId: 1,
-        projectId: "42",
-        transactionHash: `0x${"12".repeat(32)}`,
-      }),
+      body: JSON.stringify({ chainIds: [421614] }),
     });
+    expect(first.status).toBe(202);
+    expect(
+      ((await first.json()) as { deploys: IntentDeploy[] }).deploys.map((row) => row.chainId),
+    ).toEqual([421614]);
+
+    // The second request adds the other chain and reports only that one.
+    const second = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({ chainIds: [84532] }),
+    });
+    expect(second.status).toBe(202);
+    expect(
+      ((await second.json()) as { deploys: IntentDeploy[] }).deploys.map((row) => row.chainId),
+    ).toEqual([84532]);
+
+    // Asking again for a queued chain returns its row and queues nothing.
+    const again = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({ chainIds: [84532] }),
+    });
+    expect(again.status).toBe(200);
+    expect(
+      ((await again.json()) as { deploys: IntentDeploy[] }).deploys.map((row) => row.chainId),
+    ).toEqual([84532]);
+    expect(sponsor.kick).toHaveBeenCalledTimes(2);
+    expect((await store.getIntent(intent.id))!.deploys.map((row) => row.chainId)).toEqual([
+      84532, 421614,
+    ]);
+  });
+
+  it("sponsors the sponsored chains of an intent that also names Ethereum", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor });
+    const mixed = {
+      ...envelope,
+      chainIds: [1, 8453],
+      deploymentCalls: [
+        { chainId: 1, to: "0x3333333333333333333333333333333333333333", data: "0x12345678" },
+        { chainId: 8453, to: "0x3333333333333333333333333333333333333333", data: "0x12345678" },
+      ],
+      jb: { ...envelope.jb, chains: [1, 8453] },
+    };
+    const intent = (await (await publishWith(app, mixed)).json()) as Intent;
     const response = await app.request(`/v1/intents/${intent.id}/deploy`, {
       method: "POST",
       headers: trusted,
     });
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(202);
+    expect(
+      ((await response.json()) as { deploys: IntentDeploy[] }).deploys.map((row) => row.chainId),
+    ).toEqual([8453]);
+    // One chain is queued, so the reservation is one chain's worth.
+    const stored = store.intents.find((item) => item.id === intent.id)!;
+    expect((stored.deploys as unknown as { reservedWei: bigint }[])[0]!.reservedWei).toBe(
+      reservationWei(sponsor.policy, 1),
+    );
+
+    const unsponsored = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({ chainIds: [1] }),
+    });
+    expect(unsponsored.status).toBe(400);
+    expect(await errorCode(unsponsored)).toBe("bad_request");
+  });
+
+  it("refuses a chain outside the intent, a deployed chain, and an intent with nothing left", async () => {
+    const store = new MemoryStore();
+    const app = createApp(store, { sponsor, deploymentVerifier: verifier });
+    const intent = (await (await publishWith(app, testnetEnvelope)).json()) as Intent;
+    const outside = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({ chainIds: [10] }),
+    });
+    expect(outside.status).toBe(400);
+
+    await app.request(`/v1/intents/${intent.id}/deployments`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({
+        chainId: 84532,
+        projectId: "42",
+        transactionHash: `0x${"12".repeat(32)}`,
+      }),
+    });
+    const deployed = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+      body: JSON.stringify({ chainIds: [84532] }),
+    });
+    expect(deployed.status).toBe(400);
+
+    // The rest of the intent is still deployable, and only that chain comes back.
+    const rest = await app.request(`/v1/intents/${intent.id}/deploy`, {
+      method: "POST",
+      headers: trusted,
+    });
+    expect(rest.status).toBe(202);
+    expect(
+      ((await rest.json()) as { deploys: IntentDeploy[] }).deploys.map((row) => row.chainId),
+    ).toEqual([421614]);
+
+    const mainnetOnly = (await (await publish(app)).json()) as Intent;
+    expect(
+      (
+        await app.request(`/v1/intents/${mainnetOnly.id}/deploy`, {
+          method: "POST",
+          headers: trusted,
+        })
+      ).status,
+    ).toBe(400);
   });
 
   it("enforces the per-requester daily quota", async () => {
