@@ -29,7 +29,7 @@ function asJson(value: unknown, depth = 0): Json {
   throw new Error("jb contains a value JSON cannot represent");
 }
 
-function draftChainIds(jb: Record<string, Json>): number[] | null {
+function jbChainIds(jb: Record<string, Json>): number[] | null {
   const root = jb.app === "revnet.money" && jb.data && typeof jb.data === "object" && !Array.isArray(jb.data)
     ? jb.data
     : jb;
@@ -79,6 +79,7 @@ function deploymentCalls(value: unknown, chainIds: number[]): DeploymentCall[] {
     if (group.length > MAX_CALLS_PER_CHAIN) throw new Error(CALL_COUNT);
     // The last call for a chain launches the project; each earlier one creates a Safe,
     // so the sponsor never pays for arbitrary work.
+    const seen = new Set<Hex>();
     for (const { call, index } of group.slice(0, -1)) {
       if (call.to !== SAFE_FACTORY) {
         throw new Error(`deploymentCalls[${index}].to must be the canonical Safe proxy factory`);
@@ -88,6 +89,12 @@ function deploymentCalls(value: unknown, chainIds: number[]): DeploymentCall[] {
           `deploymentCalls[${index}].data must create a plain Safe with 1 to 20 unique owners`,
         );
       }
+      // The second one creates nothing: the Safe is already at that address, so the
+      // sponsor would pay for a revert.
+      if (seen.has(call.data)) {
+        throw new Error(`deploymentCalls[${index}] repeats a setup call on its chain`);
+      }
+      seen.add(call.data);
     }
   }
   // A stable sort orders the chains and leaves each chain's calls in their signed order.
@@ -123,7 +130,7 @@ export function normalizeEnvelope(value: unknown): IntentEnvelope {
     throw new Error("chainIds must contain unique positive safe integers");
   }
   const jb = asJson(object(raw.jb, "jb")) as Record<string, Json>;
-  const declared = draftChainIds(jb);
+  const declared = jbChainIds(jb);
   if (declared && JSON.stringify(declared) !== JSON.stringify(chainIds)) {
     throw new Error("chainIds must match the chains declared by the .jb file");
   }

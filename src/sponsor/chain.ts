@@ -56,6 +56,8 @@ export type LaneOutcome = "retry" | "terminal";
 /**
  * Codes worth another claim when the sponsor has spent nothing yet. The three transport
  * and parse codes are the bare ones the provider raises when no response exists to wrap.
+ * An empty or off-hash Safe factory runtime is an answer about the node, not the chain:
+ * the canonical factory is deployed everywhere Center sponsors.
  */
 const RETRY_UNPAID = new Set([
   "SPONSORSHIP_RPC_UNAVAILABLE",
@@ -64,6 +66,7 @@ const RETRY_UNPAID = new Set([
   "RELAYR_UNAVAILABLE",
   "RELAYR_INVALID_RESPONSE",
   "RELAYR_RESPONSE_LIMIT",
+  "SAFE_FACTORY_UNAVAILABLE",
 ]);
 
 /**

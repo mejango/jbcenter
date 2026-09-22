@@ -370,6 +370,7 @@ function installRpc(
   creationFee: bigint,
   code: (address: Address) => Hex,
   setupGas: bigint,
+  holdSetupReceipt: (hash: string) => Promise<void>,
 ) {
   const prepayments: TransactionSerializedEIP1559[] = [];
   const simulated: { from: Address; data: Hex }[] = [];
@@ -381,7 +382,7 @@ function installRpc(
       method: string;
       params: unknown[];
     };
-    const result = ((): unknown => {
+    const result = await (async (): Promise<unknown> => {
       switch (method) {
         case "eth_call": {
           const call = params[0] as { to: Address; data: Hex; from?: Address };
@@ -416,7 +417,9 @@ function installRpc(
           prepayments.push(params[0] as TransactionSerializedEIP1559);
           return PAYMENT_HASH;
         case "eth_getTransactionReceipt": {
-          const stored = receipts.get(String(params[0]).toLowerCase());
+          const hash = String(params[0]).toLowerCase();
+          await holdSetupReceipt(hash);
+          const stored = receipts.get(hash);
           if (stored === UNREADABLE) throw new Error("the receipt could not be read");
           return stored ?? null;
         }
@@ -429,6 +432,23 @@ function installRpc(
     });
   });
   return { prepayments, simulated };
+}
+
+/** Answers a Safe creation receipt only once `atOnce` of them are waiting together, so a
+ * lane that observes them one after another never gets past the first. */
+function receiptGate(setupHashes: ReadonlySet<string>, atOnce?: number) {
+  if (!atOnce) return async () => {};
+  const waiting = new Set<string>();
+  let open!: () => void;
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return async (hash: string) => {
+    if (!setupHashes.has(hash)) return;
+    waiting.add(hash);
+    if (waiting.size >= atOnce) open();
+    await opened;
+  };
 }
 
 function harness(options: {
@@ -449,6 +469,8 @@ function harness(options: {
   extraLaunch?: number;
   revertedSetups?: boolean;
   missingSetupReceipts?: boolean;
+  /** Hold every Safe creation receipt until this many of them are asked for at once. */
+  setupReceiptsAtOnce?: number;
   reversedStatus?: boolean;
 }) {
   const amount = options.amount ?? PAYMENT_AMOUNT;
@@ -468,9 +490,11 @@ function harness(options: {
     ),
   );
   // A Safe creation lands in its own transaction, which carries no Create event.
+  const setupHashes = new Set<string>();
   for (const chainId of options.chainIds) {
     for (let index = 0; index < TX_UUIDS.length; index += 1) {
       const hash = setupHash(chainId, index);
+      setupHashes.add(hash.toLowerCase());
       receipts.set(
         hash,
         options.missingSetupReceipts
@@ -479,6 +503,7 @@ function harness(options: {
       );
     }
   }
+  const holdSetupReceipt = receiptGate(setupHashes, options.setupReceiptsAtOnce);
   const entryHash = (entry: LaneEntry, index: number) =>
     entry.target === SAFE_FACTORY ? setupHash(entry.chain, index) : deployHash(entry.chain);
   const events: string[] = [];
@@ -491,6 +516,7 @@ function harness(options: {
     options.creationFee ?? CREATION_FEE,
     code,
     options.setupGas ?? SETUP_GAS,
+    holdSetupReceipt,
   );
   const chain = fakeChain();
   const chainFactory = vi.fn(() => chain.chain);
@@ -969,6 +995,23 @@ describe("relayr sponsorship lane", () => {
     });
     expect(report.failed).not.toHaveBeenCalled();
     expect(report.confirmed).toHaveBeenCalledWith(8453, hashes.get(8453), "12");
+  });
+
+  test("observes every Safe creation receipt at the same time", async () => {
+    const chainIds = [8453, 10];
+    const { lane, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 2,
+      projectIds: ["12", "3"],
+      setupPerChain: 1,
+      setupReceiptsAtOnce: 2,
+    });
+
+    await lane.deploy(intent(chainIds, 1), chainIds, report);
+
+    expect(report.confirmed).toHaveBeenCalledTimes(2);
+    expect(report.failed).not.toHaveBeenCalled();
   });
 
   test("logs a Safe creation whose receipt never arrives without failing the chain", async () => {

@@ -174,6 +174,20 @@ describe("project intent", () => {
     ).toThrow("deploymentCalls must contain 1 to 4 calls for each chainId");
   });
 
+  it("refuses a setup call repeated on one chain and allows it on another", () => {
+    expect(() =>
+      normalizeEnvelope(envelope([setupCall(8453, 1n), setupCall(8453, 1n), launchCall(8453)])),
+    ).toThrow("deploymentCalls[1] repeats a setup call on its chain");
+    const normalized = normalizeEnvelope(
+      envelope(
+        [setupCall(8453, 1n), setupCall(10, 1n), launchCall(8453), launchCall(10)],
+        [10, 8453],
+      ),
+    );
+    expect(callsForChain(normalized.deploymentCalls, 8453).setup).toHaveLength(1);
+    expect(callsForChain(normalized.deploymentCalls, 10).setup).toHaveLength(1);
+  });
+
   it("hashes the setup calls with the rest of the envelope", () => {
     const first = normalizeEnvelope(envelope([setupCall(8453, 1n), launchCall(8453)]));
     const second = normalizeEnvelope(envelope([setupCall(8453, 2n), launchCall(8453)]));

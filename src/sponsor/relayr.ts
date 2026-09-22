@@ -31,6 +31,8 @@ const REQUEST_TTL_SECONDS = 47 * 3600;
 const POLL_INTERVAL_MS = 5_000;
 const POLL_LIMIT_MS = 15 * 60_000;
 const RECEIPT_TIMEOUT_MS = 180_000;
+/** A Safe creation is only logged, so its receipt never holds the worker for long. */
+const SETUP_RECEIPT_TIMEOUT_MS = 60_000;
 const PAYMENT_GAS = 150_000n;
 const NOT_EXECUTED = "relayr did not execute the bundle in time";
 
@@ -177,31 +179,33 @@ export function createRelayrLane(options: {
   /** A Safe creation only has to be observed. The project is owned by the predicted
    * address whether or not the proxy exists yet, and anyone can create it later. */
   async function observeSetups(intentId: string, setups: EntryHash[]): Promise<void> {
-    for (const item of setups) {
-      try {
-        const receipt = await client(item.chainId).waitForTransactionReceipt({
-          hash: item.hash,
-          confirmations: policy.confirmations,
-          timeout: RECEIPT_TIMEOUT_MS,
-        });
-        if (receipt.status !== "success")
+    await Promise.all(
+      setups.map(async (item) => {
+        try {
+          const receipt = await client(item.chainId).waitForTransactionReceipt({
+            hash: item.hash,
+            confirmations: policy.confirmations,
+            timeout: SETUP_RECEIPT_TIMEOUT_MS,
+          });
+          if (receipt.status !== "success")
+            onEvent({
+              event: "setup_reverted",
+              intentId,
+              chainId: item.chainId,
+              index: item.index,
+              transactionHash: item.hash,
+            });
+        } catch {
           onEvent({
-            event: "setup_reverted",
+            event: "setup_unobserved",
             intentId,
             chainId: item.chainId,
             index: item.index,
             transactionHash: item.hash,
           });
-      } catch {
-        onEvent({
-          event: "setup_unobserved",
-          intentId,
-          chainId: item.chainId,
-          index: item.index,
-          transactionHash: item.hash,
-        });
-      }
-    }
+        }
+      }),
+    );
   }
 
   return {

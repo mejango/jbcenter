@@ -116,7 +116,9 @@ do:
 
 Anything else is refused with `400` and a message naming the call index, for example
 `deploymentCalls[0].to must be the canonical Safe proxy factory`. A chain accepts at most
-four calls, so at most three Safes.
+four calls, so at most three Safes. Two byte-identical setup calls on one chain are refused
+with `deploymentCalls[1] repeats a setup call on its chain`, because the second one would
+create nothing and the sponsor would pay for its revert.
 
 A Safe 1.4.1 address depends only on the factory, the singleton, the initializer and the
 salt nonce. It never depends on the sender or the time. So the Safe creation and the
@@ -150,20 +152,34 @@ Center stores `jb` as it is given. The convention for rendering a Safe is:
 ### A Homerun fund that creates its own 2-of-2 owner Safe
 
 ```ts
-import { buildSafeDeploymentCalls, predictSafeAddress } from "@bananapus/nana-sdk-core/safe";
+import {
+  buildSafeDeploymentCalls,
+  predictSafeAddress,
+  SAFE_PROXY_CREATION_CODE,
+} from "@bananapus/nana-sdk-core/safe";
 
-const owner = { owners: [alice, bob], threshold: 2, saltNonce, proxyCreationCode };
-const safe = predictSafeAddress(owner);
+const policy = {
+  owners: [alice, bob],
+  threshold: 2,
+  saltNonce,
+  proxyCreationCode: SAFE_PROXY_CREATION_CODE,
+};
+// A plan carries the address it predicts; the SDK re-derives it and refuses a mismatch.
+const owner = { ...policy, address: predictSafeAddress(policy) };
 
 const deploymentCalls = chainIds.flatMap((chainId) => [
-  ...buildSafeDeploymentCalls([owner]).map((call) => ({ chainId, to: call.to, data: call.data })),
+  ...buildSafeDeploymentCalls([owner]).map((call) => ({
+    chainId,
+    to: call.target,
+    data: call.callData,
+  })),
   {
     chainId,
     to: homerunDeployer[chainId],
     data: encodeFunctionData({
       abi: homerunAbi,
       functionName: "launchFundFor",
-      args: [safe, /* the rest of the fund */],
+      args: [owner.address, /* the rest of the fund */],
     }),
   },
 ]);
@@ -173,7 +189,19 @@ const envelope = {
   deploymentVersion: "6",
   chainIds,
   deploymentCalls,
-  jb: { ...formValues, owner: safe, safes: [{ role: "owner", address: safe, ...owner }] },
+  jb: {
+    ...formValues,
+    owner: owner.address,
+    safes: [
+      {
+        role: "owner",
+        address: owner.address,
+        owners: owner.owners,
+        threshold: owner.threshold,
+        saltNonce: owner.saltNonce,
+      },
+    ],
+  },
 };
 ```
 

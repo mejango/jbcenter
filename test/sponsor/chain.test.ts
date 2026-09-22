@@ -100,6 +100,10 @@ describe("lane outcomes", () => {
       }),
       rpcFailure,
       new LaneError("sponsor holds less than the creation fee on chain 10", "SPONSOR_UNFUNDED"),
+      new LaneError(
+        "the Safe proxy factory runtime on chain 10 is not the canonical one",
+        "SAFE_FACTORY_UNAVAILABLE",
+      ),
     ])
       expect(laneOutcome(error, { paid: false })).toBe("retry");
   });
