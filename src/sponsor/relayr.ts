@@ -12,7 +12,7 @@ import {
   SAFE_FACTORY,
   SAFE_FACTORY_CODE_HASH,
 } from "../safe.js";
-import { hash as isHash, object } from "../rest/sponsorship/validation.js";
+import { hash as isHash, object, same } from "../rest/sponsorship/validation.js";
 import {
   CREATE_TOPIC,
   LaneError,
@@ -24,6 +24,7 @@ import {
   type SponsorSigner,
 } from "./chain.js";
 import { CREATION_FEE_CEILING, reservationWei, type SponsorPolicy } from "./policy.js";
+import type { DeploymentCall } from "../types.js";
 
 const REQUEST_TTL_SECONDS = 47 * 3600;
 const POLL_INTERVAL_MS = 5_000;
@@ -37,6 +38,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 type LaneEntry = RelayrEntry | RelayrIndependentEntry;
 /** Which committed call of a chain an entry carries, and where it sits in that chain. */
 type EntryRole = { chainId: number; role: "setup" | "launch"; index: number };
+type EntryHash = EntryRole & { hash: Hex };
 
 /** Center signs every forward request with its own sponsor key, so the sponsor
  * EOA is the `_msgSender()` the forwarder appends on each destination chain. */
@@ -117,28 +119,36 @@ export function createRelayrLane(options: {
     intentId: string;
     chainIds: number[];
     bundleUuid: string;
-    hashesFrom: (status: unknown) => Map<number, Hex>;
+    hashesFrom: (status: unknown) => EntryHash[];
     report: LaneReport;
     track: ReturnType<typeof tracker>;
   }): Promise<void> {
     const { intentId, chainIds, bundleUuid, hashesFrom, report, track } = options;
-    const hashes = new Map<number, Hex>();
+    const launches = new Map<number, Hex>();
+    const setups: EntryHash[] = [];
     const started = now();
-    while (hashes.size < chainIds.length) {
+    // A chain's outcome is its launch; a Safe creation is only observed.
+    while (launches.size < chainIds.length) {
       // The bundle is paid for by the time it is polled, so an unexecuted one waits
       // for a later claim; the store retires it once it has waited a day.
       if (now() - started > POLL_LIMIT_MS) throw new LaneError(NOT_EXECUTED, "RELAYR_TIMEOUT");
-      for (const [chainId, hash] of hashesFrom(await provider.status(bundleUuid))) {
-        if (!chainIds.includes(chainId) || hashes.has(chainId)) continue;
-        hashes.set(chainId, hash);
-        await report.sent(chainId, hash, bundleUuid);
-        onEvent({ event: "sent", intentId, chainId, transactionHash: hash });
+      for (const found of hashesFrom(await provider.status(bundleUuid))) {
+        if (!chainIds.includes(found.chainId)) continue;
+        if (found.role === "setup") {
+          if (!setups.some((seen) => seen.chainId === found.chainId && seen.index === found.index))
+            setups.push(found);
+          continue;
+        }
+        if (launches.has(found.chainId)) continue;
+        launches.set(found.chainId, found.hash);
+        await report.sent(found.chainId, found.hash, bundleUuid);
+        onEvent({ event: "sent", intentId, chainId: found.chainId, transactionHash: found.hash });
       }
-      if (hashes.size < chainIds.length) await wait(POLL_INTERVAL_MS);
+      if (launches.size < chainIds.length) await wait(POLL_INTERVAL_MS);
     }
 
     for (const chainId of chainIds) {
-      const hash = hashes.get(chainId)!;
+      const hash = launches.get(chainId)!;
       const receipt = await client(chainId).waitForTransactionReceipt({
         hash,
         confirmations: policy.confirmations,
@@ -160,7 +170,10 @@ export function createRelayrLane(options: {
       await track.confirm(chainId, hash, projectId);
       onEvent({ event: "confirmed", intentId, chainId, projectId });
     }
+    await observeSetups(intentId, setups);
   }
+
+  async function observeSetups(_intentId: string, _setups: EntryHash[]): Promise<void> {}
 
   return {
     async deploy(intent, chainIds, report) {
@@ -319,10 +332,10 @@ export function createRelayrLane(options: {
         chainIds,
         bundleUuid: quote.bundleUuid,
         hashesFrom: (status) => {
-          const found = new Map<number, Hex>();
+          const found: EntryHash[] = [];
           for (const item of parseStatus(status, quote)) {
-            const chainId = entries[item.step]?.chain;
-            if (item.hash && chainId !== undefined) found.set(chainId, item.hash);
+            const role = roles[item.step];
+            if (item.hash && role) found.push({ ...role, hash: item.hash });
           }
           return found;
         },
@@ -338,7 +351,8 @@ export function createRelayrLane(options: {
         intentId: intent.id,
         chainIds,
         bundleUuid,
-        hashesFrom: (status) => resumedHashes(status, bundleUuid),
+        hashesFrom: (status) =>
+          resumedEntries(status, bundleUuid, intent.envelope.deploymentCalls),
         report,
         track,
       });
@@ -346,22 +360,46 @@ export function createRelayrLane(options: {
   };
 }
 
-/** A resumed bundle has no retained quote to bind against, so hashes are read
- * defensively and the deployment verifier stays the authority on what each did. */
-function resumedHashes(status: unknown, bundleUuid: string): Map<number, Hex> {
+/** A resumed bundle has no retained quote to bind against, so entries are read
+ * defensively: a Safe creation is the factory carrying one of the chain's committed
+ * setup calls, and the one remaining call on a chain is its launch. */
+function resumedEntries(
+  status: unknown,
+  bundleUuid: string,
+  calls: readonly DeploymentCall[],
+): EntryHash[] {
   if (!object(status) || status.bundle_uuid !== bundleUuid || !Array.isArray(status.transactions))
     throw new LaneError(
       "the execution service status does not match the stored bundle",
       "RELAYR_INVALID_STATUS",
     );
-  const hashes = new Map<number, Hex>();
+  const found: EntryHash[] = [];
   for (const item of status.transactions) {
     if (!object(item) || !object(item.request) || !object(item.status)) continue;
+    const request = item.request;
     const details = object(item.status.data) ? item.status.data : {};
     const nested = object(details.transaction) ? details.transaction.hash : undefined;
     const transactionHash = details.hash ?? nested;
-    if (typeof item.request.chain === "number" && isHash(transactionHash))
-      hashes.set(item.request.chain, transactionHash);
+    const chainId = request.chain;
+    if (typeof chainId !== "number" || !isHash(transactionHash)) continue;
+    const { setup } = callsForChain(calls, chainId);
+    const index =
+      typeof request.target === "string" && same(request.target, SAFE_FACTORY)
+        ? setup.findIndex(
+            (call) => typeof request.data === "string" && same(request.data, call.data),
+          )
+        : -1;
+    found.push(
+      index < 0
+        ? { chainId, role: "launch", index: setup.length, hash: transactionHash }
+        : { chainId, role: "setup", index, hash: transactionHash },
+    );
   }
-  return hashes;
+  const launches = found.filter((item) => item.role === "launch").map((item) => item.chainId);
+  if (new Set(launches).size !== launches.length)
+    throw new LaneError(
+      "the execution service status does not match the stored bundle",
+      "RELAYR_INVALID_STATUS",
+    );
+  return found;
 }

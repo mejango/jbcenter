@@ -41,6 +41,8 @@ import { createRelayrLane, rankPayments } from "../../src/sponsor/relayr.js";
 import type { Intent } from "../../src/types.js";
 import { SAFE_FACTORY_RUNTIME } from "../fixtures/safe-factory.js";
 
+type LaneEntry = RelayrEntry | Omit<RelayrEntry, "virtual_nonce">;
+
 const signer = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const PROJECTS = "0x2222222222222222222222222222222222222222" as Address;
 const FORWARDER = "0x3333333333333333333333333333333333333333" as Address;
@@ -67,6 +69,8 @@ const catalog = await getContractCatalog();
 const rpcUrl = (chainId: number) => `https://rpc.test/${chainId}`;
 const deployHash = (chainId: number) =>
   `0x${chainId.toString(16).padStart(8, "0")}${"77".repeat(28)}` as Hex;
+const setupHash = (chainId: number, index: number) =>
+  `0x${chainId.toString(16).padStart(8, "0")}${index.toString(16).padStart(2, "0")}${"88".repeat(27)}` as Hex;
 
 function safeCall(saltNonce: bigint): Hex {
   return encodeFunctionData({
@@ -199,18 +203,35 @@ function fakeProvider(options: {
   paymentChainId: number;
   paymentChainIds?: number[];
   hashAfter: number;
-  hashes: Map<number, Hex>;
+  entryHash: (entry: LaneEntry, index: number) => Hex;
   amount: bigint;
+  setupPerChain: number;
+  submittedForResume?: boolean;
+  extraLaunch?: number;
+  reversedStatus?: boolean;
 }) {
-  let submitted: RelayrEntry[] = options.chainIds.map((chain) => ({
+  const forwarded = (chain: number): LaneEntry => ({
     chain,
     target: FORWARDER,
     data: "0x",
     value: "0",
     virtual_nonce: 0,
-  }));
+  });
+  // A paid bundle echoes what was submitted: each chain's Safe creations, then its launch.
+  let submitted: LaneEntry[] = options.submittedForResume
+    ? options.chainIds.flatMap((chain) => [
+        ...Array.from({ length: options.setupPerChain }, (_, position) => ({
+          chain,
+          target: SAFE_FACTORY,
+          data: safeCall(BigInt(position + 1)),
+          value: "0",
+        })),
+        forwarded(chain),
+        ...(options.extraLaunch === chain ? [forwarded(chain)] : []),
+      ])
+    : options.chainIds.map(forwarded);
   let polls = 0;
-  const create = vi.fn(async (entries: RelayrEntry[]) => {
+  const create = vi.fn(async (entries: LaneEntry[]) => {
     submitted = entries;
     return {
       bundle_uuid: BUNDLE,
@@ -228,15 +249,17 @@ function fakeProvider(options: {
   const status = vi.fn(async () => {
     polls += 1;
     const ready = polls >= options.hashAfter;
+    const transactions = submitted.map((entry, index) => ({
+      tx_uuid: TX_UUIDS[index]!,
+      request: { ...entry },
+      status: ready
+        ? { state: "Included", data: { hash: options.entryHash(entry, index) } }
+        : { state: "Pending", data: {} },
+    }));
+    // The execution service does not promise submission order back.
     return {
       bundle_uuid: BUNDLE,
-      transactions: submitted.map((entry, index) => ({
-        tx_uuid: TX_UUIDS[index]!,
-        request: { ...entry },
-        status: ready
-          ? { state: "Included", data: { hash: options.hashes.get(entry.chain) } }
-          : { state: "Pending", data: {} },
-      })),
+      transactions: options.reversedStatus ? transactions.reverse() : transactions,
     };
   });
   return {
@@ -417,8 +440,14 @@ function harness(options: {
   setupPerChain?: number;
   setupGas?: bigint;
   code?: (address: Address) => Hex;
+  submittedForResume?: boolean;
+  extraLaunch?: number;
+  revertedSetups?: boolean;
+  missingSetupReceipts?: boolean;
+  reversedStatus?: boolean;
 }) {
   const amount = options.amount ?? PAYMENT_AMOUNT;
+  const setupPerChain = options.setupPerChain ?? 0;
   const hashes = new Map(options.chainIds.map((chainId) => [chainId, deployHash(chainId)]));
   const receipts = new Map<string, unknown>([
     [PAYMENT_HASH, paymentReceipt(amount, options.revertedPayment)],
@@ -433,6 +462,17 @@ function harness(options: {
       ),
     ),
   );
+  // A Safe creation lands in its own transaction, which carries no Create event.
+  if (!options.missingSetupReceipts) {
+    for (const chainId of options.chainIds) {
+      for (let index = 0; index < TX_UUIDS.length; index += 1) {
+        const hash = setupHash(chainId, index);
+        receipts.set(hash, receipt(hash, SAFE_FACTORY, [], options.revertedSetups ? "0x0" : "0x1"));
+      }
+    }
+  }
+  const entryHash = (entry: LaneEntry, index: number) =>
+    entry.target === SAFE_FACTORY ? setupHash(entry.chain, index) : deployHash(entry.chain);
   const events: string[] = [];
   const code =
     options.code ?? ((address: Address) => (address === SAFE_FACTORY ? SAFE_FACTORY_RUNTIME : "0x"));
@@ -451,8 +491,12 @@ function harness(options: {
     paymentChainId: options.paymentChainId,
     ...(options.paymentChainIds ? { paymentChainIds: options.paymentChainIds } : {}),
     hashAfter: options.hashAfter,
-    hashes,
+    entryHash,
     amount,
+    setupPerChain,
+    ...(options.submittedForResume ? { submittedForResume: true } : {}),
+    ...(options.extraLaunch === undefined ? {} : { extraLaunch: options.extraLaunch }),
+    ...(options.reversedStatus ? { reversedStatus: true } : {}),
   });
   const report = {
     bundle: vi.fn(async () => {
@@ -808,6 +852,67 @@ describe("relayr sponsorship lane", () => {
       code: "SAFE_FACTORY_UNAVAILABLE",
     });
     expect(provider.create).not.toHaveBeenCalled();
+  });
+
+  test("reports sent and confirmed on the launch hash while a chain also creates a Safe", async () => {
+    const chainIds = [8453, 10];
+    const { hashes, lane, laneEvents, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12", "3"],
+      setupPerChain: 1,
+      reversedStatus: true,
+    });
+
+    await lane.deploy(intent(chainIds, 1), chainIds, report);
+
+    expect(report.sent).toHaveBeenCalledTimes(2);
+    expect(report.sent).toHaveBeenCalledWith(8453, hashes.get(8453), BUNDLE);
+    expect(report.sent).toHaveBeenCalledWith(10, hashes.get(10), BUNDLE);
+    expect(report.confirmed).toHaveBeenCalledWith(8453, hashes.get(8453), "12");
+    expect(report.confirmed).toHaveBeenCalledWith(10, hashes.get(10), "3");
+    expect(laneEvents.filter((event) => event.event === "sent")).toHaveLength(2);
+    expect(report.failed).not.toHaveBeenCalled();
+  });
+
+  test("resume reads the launch hash of a bundle that also created Safes", async () => {
+    const chainIds = [8453, 10];
+    const { hashes, lane, prepayments, provider, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12", "3"],
+      setupPerChain: 2,
+      submittedForResume: true,
+      reversedStatus: true,
+    });
+
+    await lane.resume(intent(chainIds, 2), chainIds, BUNDLE, report);
+
+    expect(provider.create).not.toHaveBeenCalled();
+    expect(prepayments).toHaveLength(0);
+    expect(report.sent).toHaveBeenCalledTimes(2);
+    expect(report.sent).toHaveBeenCalledWith(8453, hashes.get(8453), BUNDLE);
+    expect(report.confirmed).toHaveBeenCalledWith(10, hashes.get(10), "3");
+  });
+
+  test("resume refuses a bundle that carries two launches for one chain", async () => {
+    const chainIds = [8453];
+    const { lane, report } = harness({
+      chainIds,
+      paymentChainId: 8453,
+      hashAfter: 1,
+      projectIds: ["12"],
+      setupPerChain: 1,
+      submittedForResume: true,
+      extraLaunch: 8453,
+    });
+
+    await expect(lane.resume(intent(chainIds, 1), chainIds, BUNDLE, report)).rejects.toMatchObject({
+      code: "RELAYR_INVALID_STATUS",
+    });
+    expect(report.confirmed).not.toHaveBeenCalled();
   });
 
   test("fails every chain when the creation fee is above the sponsor ceiling", async () => {
