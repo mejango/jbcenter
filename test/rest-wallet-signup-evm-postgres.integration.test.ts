@@ -233,6 +233,7 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       recoveryMode: 'kit', expectedNextNonce: '6',
       registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id });
   // Four sequential signup/login journeys, device addition and two recoveries share this runner
-  // budget; browser, RPC, recovery-worker and production deadlines remain separate.
-  }, 120_000);
+  // budget. The four-worker release gate can spend over 100s reaching the final browser journey;
+  // browser, RPC, recovery-worker and production deadlines remain independently enforced.
+  }, 180_000);
 });

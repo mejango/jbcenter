@@ -103,9 +103,9 @@ async function waitingForLock(backendPid: number) {
   }
   throw new Error("Expected a real PostgreSQL payment lock wait");
 }
-async function waitPast(deadline: number) {
+async function waitPast(deadline: number, maximumWaitMs = 6000) {
   const remaining = deadline - await nowMs();
-  if (remaining > 6000) throw new Error("Fixture deadline is not short and bounded");
+  if (remaining > maximumWaitMs) throw new Error("Fixture deadline is not short and bounded");
   await pool.query("SELECT pg_sleep($1)", [Math.max(0, remaining + 30) / 1000]);
   expect(await nowMs()).toBeGreaterThan(deadline);
 }
@@ -631,20 +631,23 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
   }, 20_000);
 
   it("cleans only expired review receipts in bounded batches while preserving operation, nonce, plan and ceremony history", async () => {
-    const value = await pendingReview({ receiptRetentionMs: 100 }, 3200);
+    const value = await pendingReview({ receiptRetentionMs: 100 }, 8000);
     await value.store.approve(value.view.draft.id, value.assertion);
     const approval = (await value.store.getForApp(value.actor, value.view.draft.id)).approval!;
     const operation = { ...value.record.operation, signature: approval.signature };
     // Real durable relay claim, deliberately no bundler dispatch or EVM effect in this PG suite.
+    const claimNow = await nowMs();
+    expect(claimNow, "Cleanup fixture approval must still be live before the durable claim")
+      .toBeLessThan(Number(value.view.draft.signing.validUntil) * 1000);
     const claimed = await new PostgresUserOperationStore(pool).claim({ actor: value.actor, id: value.record.id,
       key: `submit:${value.plan.id}`, operation, signedCommitment: userOperationCommitment(operation, value.record.entryPoint, 8453),
-      authorization: { issuedAt: Number(value.view.draft.signing.validAfter), expiresAt: Number(value.view.draft.signing.validUntil) }, now: await nowMs() });
+      authorization: { issuedAt: Number(value.view.draft.signing.validAfter), expiresAt: Number(value.view.draft.signing.validUntil) }, now: claimNow });
     expect(claimed.dispatch).toBe(true);
-    const other = await preparedOperation(value, 2000, 2n);
+    const other = await preparedOperation(value, 8000, 2n);
     const pending = await value.store.prepare(value.actor, { operationId: other.record.id, state: token() }, `review:${other.plan.id}`);
     const before = (await pool.query("SELECT document FROM rest_user_operations ORDER BY id")).rows;
     const nonces = (await pool.query("SELECT * FROM rest_user_operation_nonces")).rows;
-    await waitPast(Math.max(Number((await reviewRow(value.view.draft.id)).retain_until_ms), Number((await reviewRow(pending.draft.id)).retain_until_ms)));
+    await waitPast(Math.max(Number((await reviewRow(value.view.draft.id)).retain_until_ms), Number((await reviewRow(pending.draft.id)).retain_until_ms)), 9000);
     const lock = await pool.connect(); await lock.query("BEGIN");
     await lock.query("SELECT id FROM rest_wallet_payment_reviews WHERE id=$1 FOR UPDATE", [value.view.draft.id]);
     try {
