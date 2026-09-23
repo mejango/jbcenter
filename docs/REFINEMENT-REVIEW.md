@@ -88,7 +88,8 @@ Priority labels describe this review's impact assessment, not CVSS scores.
 | R44 | Dependency safety | The approved service advisory check identified Hono advisories affecting 4.13.3. The existing dependency was updated within major version 4 to 4.13.8; no dependency was added. |
 | R45 | Diagnostic reliability | The load tool counted an HTTP error twice when its response body also failed. Each request now contributes at most one failure; a four-request offline check covers success, HTTP error, body failure and network failure. |
 | R46 | Test reliability | Authorization fixtures consumed short readiness windows during unrelated setup, leaked unfinished refresh work between cases, or raced deadline queries against expiry. Fixtures now synchronize at the relevant database boundaries, drain background work, respect persisted ceremony creation times, and assert database-time bounds. Settlement workers open their database connection before timed evidence is issued. Real lock waits, expiry rollback, replay retention and stale lease rejection remain exercised; production deadlines are unchanged. |
-| R47 | Authorized removal / dependency safety | Retired Center's Para email/phone/social sign-in, SDKs, configuration and browser permissions. External-wallet Accounts and native passkey wallets remain; existing Para wallets are not migrated. Removed the Para-only Farcaster and events dependencies. The fresh service production audit reports zero findings, with 211 lockfile entries removed and no surviving version or integrity changes. Juicebox Money and Revnet are untouched. |
+| R47 | Authorized removal / dependency safety | Retired Center's Para email/phone/social sign-in, SDKs, configuration and browser permissions. External-wallet Accounts and native passkey wallets remain; existing Para wallets are not migrated. Removed the Para-only Farcaster and events dependencies. This removal cleared all 22 remaining production audit entries, removing 211 lockfile entries without changing surviving versions or integrity hashes. Juicebox Money and Revnet are untouched. |
+| R48 | Development dependency safety | The full audit also found a Vitest development-server advisory through two package entries. Upgraded the root test runner from locked 3.2.7 to 4.1.11 and gave callable sponsor mocks their existing runtime types. Both complete service and MCP audits now report zero findings, including development dependencies. Application code and test configuration are unchanged by this upgrade. |
 
 ## Measurements and limits
 
@@ -120,6 +121,7 @@ result validates only that older snapshot, not the integrated PR.
 | Integrated local `41ae60e` | Incomplete: source, execution, passkey, MCP and typecheck passed; service timeouts/expiry failures occurred before the run was interrupted. | `.generated/checks/2026-09-23T20-50-22.727Z-25410e74/summary.json` |
 | Integrated CI `35919788663` | Failed: all 4,527 service + 435 MCP + 92 execution/passkey = 5,054 checks/tests passed, but an unhandled Busboy multipart rejection failed the gate. The follow-up fix defers parser destruction until its callback returns; the latest PR checks validate it. | [GitHub CI run](https://github.com/mejango/jbcenter/actions/runs/35919788663) |
 | Integrated CI `35921854125` | Failed: 4,527 of 4,528 service tests, all 434 MCP tests and 92 execution/passkey checks passed. One lock-wait fixture observed stale statement text; its polling now requires the intended SQL stage as well as the blocker. Audits and Docker build were not reached. | [GitHub CI run](https://github.com/mejango/jbcenter/actions/runs/35921854125) |
+| Para removal CI `35924059550` (`2908dc6`) | Passed: 4,501 service + 434 MCP + 92 execution/passkey = 5,027 checks/tests. Typechecks, production build, both production audits and Docker build passed. This precedes the development-only Vitest upgrade; use the PR checks for that revision. | [GitHub CI run](https://github.com/mejango/jbcenter/actions/runs/35924059550) |
 
 Earlier local failures exposed fixture setup/retention timing and joined-journey
 runner limits. Some coincided with host contention; that does not establish an
@@ -139,6 +141,9 @@ After Para retirement, 188 focused browser, restoration, network, client, page
 and build tests passed on Node 22. The seven-bundle production build and strict
 TypeScript checks passed. Five affected lock/expiry fixture checks passed against
 PostgreSQL 16, including a regression that failed before the polling correction.
+The Vitest upgrade passed a clean Node 22/npm 10 install, strict TypeScript,
+52 application tests and 121 runner/browser/release-report tests. Its actual JSON
+report passed the unchanged release-gate summarizer; full validation is in the PR checks.
 
 Regression evidence includes genuine PostgreSQL locking, expiry and recovery;
 local Anvil canonical history; browser reload/backup re-import; stream cancellation;
@@ -149,15 +154,18 @@ blocked statement or completed write. Original evidence expiry, replay retention
 stale lease, concurrency and exact-byte checks remain. Production authorization,
 lease, SQL, browser and RPC deadlines were not relaxed to obtain passing tests.
 
-The production Docker build and offline runtime smoke passed for source snapshot
+An offline runtime smoke passed for source snapshot
 `cce2180`, before the parser fix: all eight browser bundles, documentation,
 the client archive and wallet package loaded; all 59 MCP tools initialized; test
-and diagnostic output was absent. These results do not validate later source edits.
+and diagnostic output was absent. This smoke does not validate later source edits;
+the newer production Docker build passed in the Para-removal CI run above.
 The earlier service audit found 14 moderate and eight low entries, all through
 Para and its Farcaster peer. After the authorized removal, the fresh service
-production audit reports zero findings at every severity. The MCP production
-audit also reports zero findings. Dependency removal changed no surviving locked
-package version or integrity hash; full source validation remains in the PR checks.
+production audit reports zero findings at every severity. The subsequent Vitest
+upgrade also clears the two development audit entries. Both complete service and
+MCP audits now report zero findings. Para removal changed no surviving locked
+package version or integrity hash; the Vitest upgrade changes only development
+dependency versions. Full source validation remains in the PR checks.
 
 Local evidence, failed-run logs, audit results, review notes and the isolated review
 patch are retained in `/private/tmp/jbcenter-review-20260923-i59_snal/`; integrated

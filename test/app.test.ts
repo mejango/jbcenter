@@ -1,16 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { encodeFunctionData, zeroAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { createApp, originsForEnvironment } from "../src/app.js";
 import { JUICESCAN } from "../src/journeyGraph.js";
 import { DeploymentVerificationError } from "../src/deploymentVerifier.js";
 import { SAFE_ABI, SAFE_FACTORY, SAFE_FALLBACK, SAFE_SINGLETON } from "../src/safe.js";
 import { LaneError } from "../src/sponsor/chain.js";
-import { readSponsorPolicy, reservationWei, type SponsorPolicy } from "../src/sponsor/policy.js";
+import { readSponsorPolicy, reservationWei, type SponsorPolicy, type SponsorRuntime } from "../src/sponsor/policy.js";
 import type { RpcGateway } from "../src/rpc.js";
 import type { Store } from "../src/store.js";
-import type { Intent, IntentDeploy, SearchPage } from "../src/types.js";
+import type { Intent, IntentDeploy, RelayRequest, SearchPage } from "../src/types.js";
 import { MemoryStore } from "./support/memoryStore.js";
 
 describe('reserved production credential origin during rollout', () => {
@@ -756,7 +756,7 @@ describe("JB Center API", () => {
 });
 
 describe("sponsored deploy requests", () => {
-  let sponsor: { policy: SponsorPolicy; kick: ReturnType<typeof vi.fn> };
+  let sponsor: { policy: SponsorPolicy; kick: Mock<SponsorRuntime["kick"]> };
 
   beforeEach(() => {
     sponsor = { policy: readSponsorPolicy({}), kick: vi.fn() };
@@ -1143,7 +1143,7 @@ describe("sponsored deploy requests", () => {
 });
 
 describe("relay requests", () => {
-  const relayed = {
+  const relayed: RelayRequest = {
     chainId: 1,
     to: "0x3bA60b60933916a7C87D0860DcEE62a0CE34E3e2",
     data: "0x4715378212345678",
@@ -1154,15 +1154,15 @@ describe("relay requests", () => {
   };
   let sponsor: {
     policy: SponsorPolicy;
-    kick: ReturnType<typeof vi.fn>;
-    relay: ReturnType<typeof vi.fn>;
+    kick: Mock<SponsorRuntime["kick"]>;
+    relay: Mock<NonNullable<SponsorRuntime["relay"]>>;
   };
 
   beforeEach(() => {
     sponsor = {
       policy: readSponsorPolicy({}),
       kick: vi.fn(),
-      relay: vi.fn(async () => relayed),
+      relay: vi.fn<NonNullable<SponsorRuntime["relay"]>>(async () => relayed),
     };
   });
 
