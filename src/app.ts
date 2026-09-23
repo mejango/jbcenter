@@ -317,7 +317,9 @@ async function streamMedia(
       uploadController.abort(error);
       source.unpipe(parser);
       source.destroy();
-      parser.destroy(error);
+      // Busboy still uses its current file after emitting events such as `limit`.
+      // Destroy it once that callback has returned, while aborting the upload now.
+      queueMicrotask(() => parser.destroy(error));
       counted?.destroy(error);
       reject(error);
     };
@@ -327,6 +329,10 @@ async function streamMedia(
         counted?.destroy(error);
         fail(new BadRequest("Invalid multipart body"));
       });
+      if (settled) {
+        file.resume();
+        return;
+      }
       if (field !== "file" || fileSeen) {
         file.resume();
         fail(new BadRequest("Exactly one file field is required"));

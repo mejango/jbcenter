@@ -55,7 +55,7 @@ Priority labels describe this review's impact assessment, not CVSS scores.
 | R13 | P2 reliability | Clearing the 64th payment receipt could become permanently stuck after a transient pending-record deletion failure. Current main already replaces that limit with bounded archive eviction and deduplication; its implementation is retained. |
 | R14 | P2 reliability | Generic API, RPC and pin requests shared caller quota keys despite different budgets/windows. Caller buckets are isolated; pin retry hints use the pin window. |
 | R15 | P2 safety | Message-prefix matching could expose internal failures as validation errors. Intent validation now has an explicit error type; unrelated internal errors stay sanitized. |
-| R16 | P2 reliability | Upload cancellation was not propagated through HTTP pin routes, and invalid trailing multipart data could leave provider work running. Existing cancellation signals now reach the provider and parser cleanup. |
+| R16 | P2 reliability | Upload cancellation was not propagated through HTTP pin routes, and invalid trailing multipart data could leave provider work running. Existing cancellation signals now reach the provider and parser cleanup. Oversize rejection aborts the upload immediately and destroys the parser after its event callback returns, avoiding a Busboy reentrancy failure. |
 | R17 | P2 reliability | SDK response reads and several IPFS cleanup paths could hang on stalled streams/cancellation hooks. Readers observe their deadlines and cleanup no longer waits for an uncooperative cancel promise. |
 | R18 | P2 reliability | Cold IPFS partial responses accepted the wrong interval or wrong body length when Content-Length was absent. Content-Range is matched to the requested range and supplies an enforced stream length. |
 | R19 | P2 consistency | Cold and cached IPFS responses handled Center's ETag differently. Conditional and range behavior now use the same local validator semantics without forwarding a Center ETag as a provider validator. |
@@ -105,135 +105,57 @@ Priority labels describe this review's impact assessment, not CVSS scores.
 
 ## Validation
 
-### Integrated PR
+The table records completed review observations. Use the [PR checks](https://github.com/mejango/jbcenter/pull/56/checks)
+for the complete gate result on the latest revision. The original review's green
+result validates only that older snapshot, not the integrated PR.
 
-**Full validation remains pending.** The PR is a draft until its complete release
-gate passes. The original snapshot's passing result below does not validate the
-newer integrated tree.
+| Tree / run | Result | Evidence |
+| --- | --- | --- |
+| Original baseline | Failed: 4,132 service passes and 11 failures; execution/artifact, passkey, MCP (401 tests) and typecheck passed. Build was not reached. | `.generated/checks/2026-09-23T17-04-21.653Z-3886470e/summary.json` |
+| Original review snapshot | Passed all eight release steps: 4,225 service + 424 MCP + 92 execution/compatibility = 4,741 checks/tests, zero failures or skips. | `.generated/checks/2026-09-23T19-35-25.402Z-b241345e/summary.json` |
+| Integrated local `4c8a607` | Failed: 4,525 of 4,527 service tests passed; all 435 MCP and 92 execution/passkey checks passed. Total: 5,052 passes, two failures, zero skips. | `.generated/checks/2026-09-23T20-35-20.428Z-b7765c0c/summary.json` |
+| Integrated local `41ae60e` | Incomplete: source, execution, passkey, MCP and typecheck passed; service timeouts/expiry failures occurred before the run was interrupted. | `.generated/checks/2026-09-23T20-50-22.727Z-25410e74/summary.json` |
+| Integrated CI `35919788663` | Failed: all 4,527 service + 435 MCP + 92 execution/passkey = 5,054 checks/tests passed, but an unhandled Busboy multipart rejection failed the gate. The follow-up fix defers parser destruction until its callback returns; the latest PR checks validate it. | [GitHub CI run](https://github.com/mejango/jbcenter/actions/runs/35919788663) |
 
-Focused integrated checks passed: 435 MCP tests and its complete check command;
-326 core tests; 400 account/execution tests; 340 transaction/sponsorship tests;
-361 deployment tests; 320 auth/session tests; 236 wallet tests; and focused
-build/generator/OpenAPI checks. These groups overlap and are not an aggregate
-coverage count. They include current-main intent relay, sessionless payment,
-device/network support, inclusion release, and the joined signup/recovery journeys.
-New OpenAPI regressions exercise actual creation-consent bindings and optional
-added-device signers. TypeScript passed with both unused-declaration checks enabled.
+Earlier local failures exposed fixture setup/retention timing and joined-journey
+runner limits. Some coincided with host contention; that does not establish an
+environmental cause for every failure. Failed and incomplete runs remain evidence
+of unsuccessful validation, and their logs are retained.
 
-The production Docker build and offline runtime smoke passed against the final
-runtime sources: all eight browser bundles, documentation, the client archive,
-and the wallet package loaded; all 59 MCP tools initialized; test and diagnostic
-output was absent. The integrated dependency audits report zero high/critical,
-14 moderate and eight low service findings including transitive effects, and zero
-MCP advisories. The remaining Para upgrade is deliberately separate.
+Focused integrated checks passed across core, account/execution, transactions,
+sponsorship, deployment, auth/session, wallet, build/generator and OpenAPI code.
+The latest focused MCP check passed 434 tests after removing a redundant SDK-only
+test; earlier runs' 435 counts above are unchanged. These focused groups overlap
+and are not an aggregate coverage count. They exercise current-main intent relay,
+sessionless payments, device/network support, inclusion release, creation-consent
+bindings, added-device schemas and joined signup/recovery. TypeScript also passed
+with both unused-declaration checks enabled.
 
-The first complete integrated attempt, on clean commit `4c8a607`, recorded
-**5,052 passing checks/tests, two failures and zero skips**: 4,525 of 4,527 service
-tests passed across 204 files; all 435 MCP and 92 execution/passkey checks passed.
-Observation: `.generated/checks/2026-09-23T20-35-20.428Z-b7765c0c/summary.json`.
-Its failures exposed a cleanup fixture allowing only two to three seconds for
-approval/relay setup, and the expanded joined journey exhausting its outer budget
-after 103 seconds of preceding journeys. The cleanup fixture now allows eight
-seconds, then waits for the original real retention deadline; its focused case
-passes. The four-user/device/recovery test now has a three-minute outer budget.
-Inner browser, RPC, database and production authorization deadlines and all
-history/locking assertions remain unchanged.
+Regression evidence includes genuine PostgreSQL locking, expiry and recovery;
+local Anvil canonical history; browser reload/backup re-import; stream cancellation;
+exact quote binding; malformed wire data; and an isolated clean build. Fixtures
+synchronize at the relevant database/browser stage before asserting outcomes.
+Dedicated expiry cases still cross real persisted deadlines and witness the intended
+blocked statement or completed write. Original evidence expiry, replay retention,
+stale lease, concurrency and exact-byte checks remain. Production authorization,
+lease, SQL, browser and RPC deadlines were not relaxed to obtain passing tests.
 
-A second attempt on clean commit `41ae60e` passed source, execution, passkey, MCP,
-and typechecking steps, but encountered further timeouts and early-expiry fixture
-failures in joined signup, app refresh, deployment admission/dispatch, and login.
-Host diagnostics showed roughly 10.9 GB of swap in use and substantial competing
-work. This coincided with much longer durations, but does not establish that every
-failure is environmental. The already-failing run was interrupted to reduce load;
-it is incomplete and is not a passing release observation. Both attempts retained
-unchanged source fingerprints. Observation:
-`.generated/checks/2026-09-23T20-50-22.727Z-25410e74/summary.json`.
+The production Docker build and offline runtime smoke passed for source snapshot
+`cce2180`, before the parser fix: all eight browser bundles, documentation,
+the client archive and wallet package loaded; all 59 MCP tools initialized; test
+and diagnostic output was absent. These results do not validate later source edits.
+Integrated dependency audits found zero high/critical, 14 moderate and eight low
+service findings including transitive effects, and zero MCP advisories. The remaining
+Para upgrade requires separate validation; the proposed forced fix changes its major.
 
-The PR's existing GitHub CI runs the full gate on an isolated runner. Its result
-must be reviewed before merging. Local logs and both summaries are retained in
-the evidence directory with the `pr-` prefix. The original checkout and its
-pre-existing staging remain unchanged.
-
-### Original review snapshot
-
-Baseline: `.generated/checks/2026-09-23T17-04-21.653Z-3886470e/summary.json`.
-Execution/artifact verification, passkey compatibility, MCP checks (401 tests)
-and typecheck passed. Service tests had 4,132 passes and 11 failures across eight
-files; none were hidden by skipping the release gate. The baseline stopped before
-the production build because service checks failed.
-
-Focused checks reproduced the principal behavior defects before fixes. New regression
-coverage includes genuine PostgreSQL lock/expiry/recovery behavior, local Anvil
-canonical history, browser reload and backup re-import, stream cancellation,
-exact quote binding, malformed wire data, and a real isolated clean build.
-Replay fixtures use explicit intermediate database times where the assertion is
-about lifecycle state, while dedicated lock-wait, commit-expiry and final receipt
-expiry tests continue to use the real database clock.
-Synthetic deployment admissions retain their original observation/head deadline;
-expiry tests establish the named lock or write stage before crossing the real
-deadline, so an unrelated early rejection cannot count as the intended proof.
-Queue tests use ordinary interest/lease windows unless expiry is their subject;
-those cases still wait for the actual persisted deadline. Independent Base SQL
-probes use fresh evidence and rolled-back transactions, with a successful fee
-settlement control after the invalid fee profile is rejected.
-Expiry regressions now witness the intended blocked statement or completed write
-before waiting out authorization; an unrelated early rejection cannot satisfy
-those checks. Test setup hooks have the same thirty-second budget as test cases,
-because isolated schemas still queue behind the shared migration lock. Production
-SQL, authorization, lease and RPC deadlines are unchanged.
-The sequential four-user signup and recovery test has a two-minute overall runner
-budget; its individual browser, RPC and recovery limits remain unchanged. A
-failure-only milestone diagnostic identifies where that joined journey stopped.
-The recovery browser helper waits for an actionable upload input and the kit-loaded
-acknowledgement. A delayed-bootstrap probe demonstrated that Playwright could set
-a hidden, disabled file input before initialization; the page correctly ignored
-that event, and browser form validation then prevented any recovery request.
-The synchronized helper reaches replacement registration without changing the UI.
-
-Original review release result: **passed**. Observation:
-`.generated/checks/2026-09-23T19-35-25.402Z-b241345e/summary.json`.
-All eight release steps passed, including artifact/source verification, execution
-and passkey compatibility, MCP checks, type checking, service tests and production
-build. The run recorded **4,741 passing checks/tests, zero failures and zero skips**:
-4,225 service tests across 187 files, 424 MCP tests, and 92 execution/compatibility
-checks. Database integration used isolated PostgreSQL 16; EVM and browser journeys
-ran against their local fixtures.
-
-The source remained unchanged throughout the run, with fingerprint
-`b1432671943bbe826b6a4b1f8fd7994a1ed68942c0d93c840d17bafab5334e1f`.
-Only this report's final validation record was amended afterward. The initial
-staged work remains byte-for-byte unchanged. The isolated review patch applies
-cleanly to the saved starting working tree.
-
-The production Docker build passed. An offline runtime smoke test loaded all
-nine runtime assets and initialized MCP; test output was absent from the image.
-The whole-repository TypeScript check also passed with both unused-declaration
-checks enabled.
-
-Local evidence, audit results, baseline snapshots, agent review notes and the
-isolated `refinement-only.patch` are retained in
-`/private/tmp/jbcenter-review-20260923-i59_snal/`. The successful release observation
-is also copied there as `final-release-summary.json`.
-
-Intermediate runs exposed stale terminal-transaction evidence, short fixture
-windows consumed during setup, a shared migration-lock setup timeout, and a
-host/database clock offset. One captured offset put PostgreSQL 14 ms behind the
-host and fresh evidence 12 ms in the database's future. The settlement fixture
-waits for the actual database clock to reach the original observation and still
-checks its original expiry. A run interrupted by a long wall-clock gap timed out
-without a service test report. Failed and incomplete observations are retained
-under `.generated/checks` and are not counted as passing checks.
-One intermediate twenty-approval serialization case failed a generic response
-assertion; two diagnostic reruns passed, so its original response category remains
-unconfirmed. That case now has sanitized response diagnostics and an explicit
-ten-second fixture pool-queue budget for its two single-connection workers;
-concurrency, SQL/HTTP deadlines, authority checks and winner/replay assertions remain.
-
-The original review service production-dependency audit reports zero high/critical,
-14 moderate and eight low findings including transitive effects, after the Hono
-update. Remaining Para/transitive findings need a separately validated dependency
-upgrade; npm's proposed forced fix downgrades Para to a different major version.
-The MCP production-dependency audit reports zero advisories. The advisory upload was explicitly authorized.
+Local evidence, failed-run logs, audit results, review notes and the isolated review
+patch are retained in `/private/tmp/jbcenter-review-20260923-i59_snal/`; integrated
+local summaries use the `pr-` prefix, and the original green summary is copied as
+`final-release-summary.json`. The original green source fingerprint was
+`b1432671943bbe826b6a4b1f8fd7994a1ed68942c0d93c840d17bafab5334e1f`;
+both integrated local attempts also retained unchanged source fingerprints.
+The original checkout and its pre-existing staging remain unchanged. Review the
+complete gate result for the final PR revision before merging.
 
 ## Deliberate retention and follow-up
 

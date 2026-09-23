@@ -71,7 +71,7 @@ function app(pinning?: PinningService, store = new PinStore()) {
 function pinningMock() {
   return {
     pin: vi.fn(async () => ({ cid: CID, status: "queued" as const })),
-    pinStream: vi.fn(async (content: NodeJS.ReadableStream) => {
+    pinStream: vi.fn<PinningService["pinStream"]>(async (content) => {
       for await (const _chunk of content) {
         // Consume the stream like the S3 multipart uploader does.
       }
@@ -240,6 +240,28 @@ describe("IPFS pinning", () => {
       body: aboveLimit,
     });
     expect(rejected.status).toBe(413);
+    expect(pinning.pinStream).toHaveBeenCalledTimes(2);
+    expect(pinning.pinStream.mock.calls[1]![3]?.aborted).toBe(true);
+    expect(pinning.pinStream.mock.calls[1]![0].destroyed).toBe(true);
+    await expect(pinning.pinStream.mock.results[1]!.value).rejects.toThrow("file must not exceed 5 bytes");
+  });
+
+  it("does not start an upload after a preceding field rejects the same multipart chunk", async () => {
+    const pinning = pinningMock();
+    const form = new FormData();
+    form.append("unexpected", "field");
+    form.append("file", new File(["video"], "clip.mp4", { type: "video/mp4" }));
+    const multipart = new Response(form);
+    const response = await app(pinning).request("/v1/pins/media", {
+      method: "POST",
+      headers: {
+        origin: "https://juicebox.money",
+        "content-type": multipart.headers.get("content-type")!,
+      },
+      body: await multipart.arrayBuffer(),
+    });
+    expect(response.status).toBe(400);
+    expect(pinning.pinStream).not.toHaveBeenCalled();
   });
 
   it("delivers every media byte to a consumer that starts reading later", async () => {

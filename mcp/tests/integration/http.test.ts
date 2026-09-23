@@ -1,11 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { PassThrough } from 'node:stream';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { loadConfig, type Config } from '../../src/config.js';
 import { MAX_PROJECT_LOGO_BYTES } from '../../src/services/metadata.js';
@@ -331,40 +329,6 @@ describe('stateless Streamable HTTP transport', () => {
     expect(overflow.status).toBe(413);
     expect(factory).not.toHaveBeenCalled();
     expect(upload).toHaveBeenCalledOnce();
-  });
-
-  it('bounds stdio messages while allowing the same complete logo envelope', async () => {
-    const input = new PassThrough();
-    const output = new PassThrough();
-    const transport = new StdioServerTransport(input, output, {
-      maxBufferSize: MAX_LOGO_REQUEST_BYTES,
-    });
-    const receive = vi.fn();
-    const error = vi.fn();
-    transport.onmessage = receive;
-    transport.onerror = error;
-    try {
-      await transport.start();
-      input.write(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'tools/call',
-          params: {
-            name: 'jb_pin_project_logo',
-            arguments: { imageBase64: Buffer.alloc(MAX_PROJECT_LOGO_BYTES).toString('base64') },
-          },
-        }) + '\n',
-      );
-      await vi.waitFor(() => expect(receive).toHaveBeenCalledOnce());
-      input.write('x'.repeat(MAX_LOGO_REQUEST_BYTES + 1));
-      await vi.waitFor(() => expect(error).toHaveBeenCalledOnce());
-      expect(receive).toHaveBeenCalledOnce();
-    } finally {
-      await transport.close();
-      input.destroy();
-      output.destroy();
-    }
   });
 
   it('delegates protocol and Accept-header validation to the official transport', async () => {

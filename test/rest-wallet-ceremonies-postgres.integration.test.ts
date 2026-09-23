@@ -136,8 +136,9 @@ suite("PostgreSQL wallet ceremony storage (does not verify authentication)", () 
     // The store gates expiry on the database clock, so the receipt's window and the wait that
     // outlives it both come from that clock rather than a fixed application-side sleep.
     const record = await store.issue({ ...draft(), expiresAt: await databaseNow() + 3_000 }), request = consume(record);
-    expect(await store.consume(request)).toMatchObject({ replayed: false });
-    expect(await databaseNow()).toBeLessThan(record.expiresAt);
+    const consumed = await store.consume(request);
+    expect(consumed).toMatchObject({ replayed: false, record: { consumedAt: expect.any(Number) } });
+    expect(consumed.record.consumedAt).toBeLessThan(record.expiresAt);
     await untilDatabaseTime(record.expiresAt);
     const recovered = await store.get({ id: record.id, accountId: record.accountId });
     expect(recovered?.resultId).toBe(request.resultId);

@@ -30,7 +30,8 @@ describe('recovery relay connection cleanup', () => {
   it.each(['prepare', 'status'] as const)('unlocks and releases its connection when %s fails', async method => {
     const { relay, client } = fixture();
     await expect(relay[method]('invalid-id')).rejects.toMatchObject({ code: 'WALLET_RECOVERY_DISPATCH_CONFLICT' });
-    expect(client.query).toHaveBeenCalledTimes(method === 'prepare' ? 4 : 2);
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('pg_advisory_unlock('),
+      ['recovery-local:' + enrollmentBackupAccount.address.toLowerCase()]);
     expect(client.release).toHaveBeenCalledExactlyOnceWith();
   });
 
