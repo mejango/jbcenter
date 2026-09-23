@@ -80,8 +80,6 @@ const mcp = createCenterMcp(store, {
   ...(pinning ? { pinning } : {}),
 });
 const metrics = new Metrics();
-const paraEnvironment = process.env.PARA_ENVIRONMENT ?? "BETA";
-if (paraEnvironment !== "BETA" && paraEnvironment !== "PROD") throw new Error("PARA_ENVIRONMENT must be BETA or PROD");
 // Hosted wallet: mounted only with an explicit origin. Creation additionally needs every treasury
 // setting; a partial configuration fails startup rather than exposing an incomplete journey.
 const walletOrigin = process.env.WALLET_ORIGIN;
@@ -111,7 +109,6 @@ const wallet: RestWalletConfiguration | undefined = walletOrigin && walletStack
 if (process.env.WALLET_NETWORKS_PAYER_KEY && !/^0x[0-9a-fA-F]{64}$/.test(process.env.WALLET_NETWORKS_PAYER_KEY))
   throw new Error("WALLET_NETWORKS_PAYER_KEY must be a 32-byte hex private key");
 const rest = await createRestRuntime({
-  ...(process.env.PARA_API_KEY ? { para: { apiKey: process.env.PARA_API_KEY, environment: paraEnvironment } } : {}),
   ...(wallet ? { wallet } : {}),
   ...(wallet && walletStack && creationConfigured.length ? { walletSignup: (context: Parameters<typeof createBaseWalletSignupHost>[0]) =>
     createBaseWalletSignupHost(context, { url: dwellirBaseUrl,

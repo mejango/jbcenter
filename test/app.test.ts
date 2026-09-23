@@ -14,7 +14,7 @@ import type { Intent, IntentDeploy, SearchPage } from "../src/types.js";
 import { MemoryStore } from "./support/memoryStore.js";
 
 describe('reserved production credential origin during rollout', () => {
-  it.each(['/', '/accounts', '/assets/para.js', '/wallet', '/ipfs/bafytest'])('keeps %s closed before the wallet host is configured', async path => {
+  it.each(['/', '/accounts', '/assets/accounts.js', '/wallet', '/ipfs/bafytest'])('keeps %s closed before the wallet host is configured', async path => {
     const response = await createApp(new MemoryStore()).request('https://wallet.juicebox.center' + path);
     expect(response.status).toBe(503);
     expect(response.headers.get('cache-control')).toBe('no-store');

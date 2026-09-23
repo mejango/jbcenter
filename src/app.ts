@@ -444,7 +444,7 @@ export function createApp(
   });
 
   // DNS may be attached before the wallet runtime is activated. Reserve its credential
-  // origin even then: legacy Accounts, Para and IPFS must never execute on this host.
+  // origin even then: legacy Accounts and IPFS must never execute on this host.
   app.use('*', async (c, next) => {
     const hostname = new URL(c.req.url).hostname;
     const wireHostname = c.req.header('Host')?.toLowerCase().split(':')[0];

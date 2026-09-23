@@ -46,7 +46,7 @@ it("rebuilds only current runtime files and all assets needed by a fresh dev sta
       import { connect } from './.generated/rest/client/node.js';
       import { createCenterWalletClient } from './.generated/rest/wallet-client/index.js';
       const assets = await readRestAssets();
-      for (const key of ['accountsScript', 'paraScript', 'walletScript', 'walletPaymentScript', 'walletSignupScript', 'walletRecoveryScript', 'walletDeviceScript', 'docsScript'])
+      for (const key of ['accountsScript', 'walletScript', 'walletPaymentScript', 'walletSignupScript', 'walletRecoveryScript', 'walletDeviceScript', 'docsScript'])
         assert(assets[key].length > 0, key);
       assert(assets.documents.size > 0);
       assert.deepEqual([...assets.clientPackage.slice(0, 2)], [0x1f, 0x8b]);

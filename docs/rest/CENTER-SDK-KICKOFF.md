@@ -31,7 +31,7 @@ Every Juicebox app should offer two ways in: **a passkey account powered by juic
 - TDD with observable tests; watch each test fail first. Each repo's own gate (`npm run check` in Center and the SDK, `npm test` + `npm run test:browser` in Beep, Homerun's test scripts) must pass before a push; run gates alone, no edits during a gate. Center's gate needs `PATH=/Users/jango/.nvm/versions/node/v22.23.1/bin:/Users/jango/.foundry/bin:$PATH` and `TEST_DATABASE_URL=postgresql://center_wallet_test:center_wallet_local_test@127.0.0.1:55440/center_wallet_test`; load flakes in sessions/onboarding suites pass alone, rerun the gate.
 - A Fable review before pushing any auth or payment path.
 - Never print environment values, never put keys in command arguments or logs, never commit keys; set Railway variables with `railway variable set KEY --stdin --skip-deploys`, check names only with `railway variables --kv | cut -d= -f1`. A shell rule denies any Bash command containing the word "credential"; write scripts to a file and run them by path.
-- Do not modify Juicebox Money or Revnet Money. Do not touch the unpaid Relayr request `0x2f8bfba5…`. Dwellir only, no public RPC fallback in Center. Center keeps its Para code.
+- Do not modify Juicebox Money or Revnet Money. Do not touch the unpaid Relayr request `0x2f8bfba5…`. Dwellir only, no public RPC fallback in Center. Center's Para integration is retired; passkey accounts and external-wallet support remain.
 - Copy: "account" for the passkey account everywhere; "wallet" only for an external wallet. Cancel buttons are text buttons.
 - After any correction from me, add the pattern to that repo's `tasks/lessons.md`.
 

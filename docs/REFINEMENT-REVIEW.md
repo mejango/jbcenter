@@ -2,8 +2,10 @@
 
 Review date: 2026-09-23. This review covers unused code, duplication,
 unnecessary complexity, inefficiency, and reliability/security defects while
-preserving supported journeys. It is a source review with executable regression
-evidence, not certification of production providers or deployed contracts.
+preserving supported journeys, except the subsequently authorized retirement of
+Center's Para email/phone/social sign-in. Native passkey and external-wallet
+journeys remain. It is a source review with executable regression evidence, not
+certification of production providers or deployed contracts.
 
 The initial review used a local working tree at
 `4402042838e0ad8ef7954a0a60c9a1a162290973`, including its pre-existing edits.
@@ -49,7 +51,7 @@ Priority labels describe this review's impact assessment, not CVSS scores.
 | R07 | P2 reliability | Relay unlock failure leaked a checked-out connection and potentially its advisory lock. Failed unlock now destroys the connection in the shared owner relay used by recovery and device addition. |
 | R08 | P2 safety | Private RPC validated mutable parameters before asynchronous work, allowing transmitted parameters to differ. It now snapshots the parameters before validation. |
 | R09 | P2 reliability | Single-operation browser responses could replace reviewed identity and erase an unrelated recovery reference. Submit/status now reuse the existing immutable-operation check before accepting results. |
-| R10 | P2 reliability | Embedded Para wallets could not perform the exact block read needed to verify failed creation. The existing provider now permits only the required numeric block lookup with transactions disabled. |
+| R10 | Superseded | The initial review fixed an embedded Para block-read restriction. The user subsequently authorized retiring Para from Center; that adapter and its tests are removed with the integration (R47). |
 | R11 | P2 compatibility | The session-key importer rejected the connection format produced by Accounts. It accepts that format through the existing parser and checks audience, account, grant, scope, expiry and key; legacy key files still work. |
 | R12 | P2 reliability | Provider UUID ordering could permanently misbind prepaid transactions. Current main already supplies the shared exact-echo binding helper for intent families; ordinary prepaid quotes now use it with durable provisional binding before exposing a fundable commitment. Once bound, the quote is immutable. Old records without the new marker remain immutable even if runtime verification was incomplete. Provider submission is never repeated. |
 | R13 | P2 reliability | Clearing the 64th payment receipt could become permanently stuck after a transient pending-record deletion failure. Current main already replaces that limit with bounded archive eviction and deduplication; its implementation is retained. |
@@ -79,13 +81,14 @@ Priority labels describe this review's impact assessment, not CVSS scores.
 | R37 | Duplication / efficiency | Configuration conversion repeated within each split group and routing repeated immutable hook reads per token. Conversion is hoisted; routing shares a request-local promise while preserving per-token unknown results. |
 | R38 | Duplication / reliability | Operator journal readers duplicated capped read loops, and publication retry used an unbounded read. Existing bounded journal reading is reused, retaining the stricter funding limit. |
 | R39 | Efficiency | Blob uploads unnecessarily created another full buffer before an already streaming provider. They now use the Blob stream. |
-| R40 | Build simplicity / size | Production compilation included tests/diagnostic scripts, and eight browser entries repeated build configuration. Runtime compilation is source-only and browser entries share one build. Type checking still includes tests. |
+| R40 | Build simplicity / size | Production compilation included tests/diagnostic scripts, and browser entries repeated build configuration. Runtime compilation is source-only and browser entries share one build. Para retirement also removes its separate bundle; external-wallet code is included in Accounts. Type checking still includes tests. |
 | R41 | Unused code / duplication | Removed the unused transaction transport adapter, legacy MCP tool factories, unused private wallet helper/recovery lookup/provider method, unused imports/markup. Reused existing permission hashing, paymaster pin and observation types. Public client exports and deliberate trust-boundary validation remain. Current main uses the RPC error cause, so that bookkeeping is retained. |
 | R42 | Tool reliability | Compiler discovery assumed a legacy cache directory. Verification reuses the existing platform-aware resolver while preserving explicit overrides and exact compiler hashes. |
 | R43 | Test reliability | Anvil history pruning evicted transaction trace prestate across repeated fixtures. A bounded retained history and inclusion-before-finality synchronization preserve the evidence the tests require. |
 | R44 | Dependency safety | The approved service advisory check identified Hono advisories affecting 4.13.3. The existing dependency was updated within major version 4 to 4.13.8; no dependency was added. |
 | R45 | Diagnostic reliability | The load tool counted an HTTP error twice when its response body also failed. Each request now contributes at most one failure; a four-request offline check covers success, HTTP error, body failure and network failure. |
 | R46 | Test reliability | Authorization fixtures consumed short readiness windows during unrelated setup, leaked unfinished refresh work between cases, or raced deadline queries against expiry. Fixtures now synchronize at the relevant database boundaries, drain background work, respect persisted ceremony creation times, and assert database-time bounds. Settlement workers open their database connection before timed evidence is issued. Real lock waits, expiry rollback, replay retention and stale lease rejection remain exercised; production deadlines are unchanged. |
+| R47 | Authorized removal / dependency safety | Retired Center's Para email/phone/social sign-in, SDKs, configuration and browser permissions. External-wallet Accounts and native passkey wallets remain; existing Para wallets are not migrated. Removed the Para-only Farcaster and events dependencies. The fresh service production audit reports zero findings, with 211 lockfile entries removed and no surviving version or integrity changes. Juicebox Money and Revnet are untouched. |
 
 ## Measurements and limits
 
@@ -99,7 +102,7 @@ Priority labels describe this review's impact assessment, not CVSS scores.
   Regression tests verify the new request count and unchanged unknown outcomes.
 - The prior build emitted about 7.3 MiB of tests and 132 KiB of diagnostic scripts
   into runtime output. The actual isolated build regression verifies neither
-  directory is emitted and that all eight browser entries, the SDK archive and the wallet package load.
+  directory is emitted and that the browser entries, SDK archive and wallet package load.
 - No claimed live throughput, provider latency, gas saving, physical-device
   qualification or production-readiness result follows from these local checks.
 
@@ -116,6 +119,7 @@ result validates only that older snapshot, not the integrated PR.
 | Integrated local `4c8a607` | Failed: 4,525 of 4,527 service tests passed; all 435 MCP and 92 execution/passkey checks passed. Total: 5,052 passes, two failures, zero skips. | `.generated/checks/2026-09-23T20-35-20.428Z-b7765c0c/summary.json` |
 | Integrated local `41ae60e` | Incomplete: source, execution, passkey, MCP and typecheck passed; service timeouts/expiry failures occurred before the run was interrupted. | `.generated/checks/2026-09-23T20-50-22.727Z-25410e74/summary.json` |
 | Integrated CI `35919788663` | Failed: all 4,527 service + 435 MCP + 92 execution/passkey = 5,054 checks/tests passed, but an unhandled Busboy multipart rejection failed the gate. The follow-up fix defers parser destruction until its callback returns; the latest PR checks validate it. | [GitHub CI run](https://github.com/mejango/jbcenter/actions/runs/35919788663) |
+| Integrated CI `35921854125` | Failed: 4,527 of 4,528 service tests, all 434 MCP tests and 92 execution/passkey checks passed. One lock-wait fixture observed stale statement text; its polling now requires the intended SQL stage as well as the blocker. Audits and Docker build were not reached. | [GitHub CI run](https://github.com/mejango/jbcenter/actions/runs/35921854125) |
 
 Earlier local failures exposed fixture setup/retention timing and joined-journey
 runner limits. Some coincided with host contention; that does not establish an
@@ -131,6 +135,11 @@ sessionless payments, device/network support, inclusion release, creation-consen
 bindings, added-device schemas and joined signup/recovery. TypeScript also passed
 with both unused-declaration checks enabled.
 
+After Para retirement, 188 focused browser, restoration, network, client, page
+and build tests passed on Node 22. The seven-bundle production build and strict
+TypeScript checks passed. Five affected lock/expiry fixture checks passed against
+PostgreSQL 16, including a regression that failed before the polling correction.
+
 Regression evidence includes genuine PostgreSQL locking, expiry and recovery;
 local Anvil canonical history; browser reload/backup re-import; stream cancellation;
 exact quote binding; malformed wire data; and an isolated clean build. Fixtures
@@ -144,9 +153,11 @@ The production Docker build and offline runtime smoke passed for source snapshot
 `cce2180`, before the parser fix: all eight browser bundles, documentation,
 the client archive and wallet package loaded; all 59 MCP tools initialized; test
 and diagnostic output was absent. These results do not validate later source edits.
-Integrated dependency audits found zero high/critical, 14 moderate and eight low
-service findings including transitive effects, and zero MCP advisories. The remaining
-Para upgrade requires separate validation; the proposed forced fix changes its major.
+The earlier service audit found 14 moderate and eight low entries, all through
+Para and its Farcaster peer. After the authorized removal, the fresh service
+production audit reports zero findings at every severity. The MCP production
+audit also reports zero findings. Dependency removal changed no surviving locked
+package version or integrity hash; full source validation remains in the PR checks.
 
 Local evidence, failed-run logs, audit results, review notes and the isolated review
 patch are retained in `/private/tmp/jbcenter-review-20260923-i59_snal/`; integrated
@@ -165,8 +176,8 @@ complete gate result for the final PR revision before merging.
 - Keep browser-safe ABI helpers separate where importing a server catalog would
   pull filesystem/crypto code into browser builds. The real build test caught
   that attempted consolidation and it was reverted.
-- Keep transitive Para/Farcaster/browser dependencies unless bundler evidence
-  proves they are unused; direct-import searches alone do not prove that.
+- Remove transitive browser dependencies only with dependency and bundle evidence.
+  The removed events polyfill contributed solely to the retired Para bundle.
 - Keep the sequential/prefix simulation checks until a measured alternative
   preserves their state and nonce guarantees.
 - The permanent per-account UserOperation history limit needs a deliberate

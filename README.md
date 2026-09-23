@@ -14,7 +14,7 @@ plans are separate immutable records with durable execution progress.
 
 Start at [the API directory](https://juicebox.center/api), [OpenAPI](https://juicebox.center/api/v1/openapi.json),
 or the [signed-request quickstart](docs/rest/QUICKSTART.md). Select **Sign in** at
-[Accounts](https://juicebox.center/accounts) with email, phone, social login, or an existing wallet, then create API connections with explicit
+[Accounts](https://juicebox.center/accounts) with an existing wallet, then create API connections with explicit
 read, plan, and relay scopes. Every live API request carries a short-lived EIP-712 signature binding
 its audience, account, signer, method, exact path/query, raw body, nonce, and idempotency key.
 Private keys stay with the client. API grants never substitute for onchain signing authority.
@@ -53,7 +53,7 @@ Center is building shared passkey wallets for Homerun and Beep, including signup
 without an existing wallet and recovery to the same account. Shared contracts
 are deployed across eight chains; the local signup and recovery journeys are
 tested. **Consumer production signup remains disabled while hosted Base creation
-and recovery services are completed.** Center retains its Para integration.
+and recovery services are completed.**
 
 Read the [delivery report](docs/rest/CENTER-WALLET-DELIVERY.md) for what is built,
 the evidence and remaining production gates. The
@@ -481,8 +481,6 @@ The remaining controls are environment variables:
 - `WALLET_FRAMEABLE_APP_ORIGINS` — optional comma-separated app origins admitted to frame their own payment reviews and sign-ins inside their pages (`frame-ancestors` names the one app each review or intent was prepared for). Inside a frame no Center cookie takes part: a review is admitted by its id, a sign-in or signup by its intent id plus the launch signature kept on the row (the signup's flow token rides in request bodies), and every passkey ceremony must name the app as its top origin. A framed signup needs the app's `<iframe allow="publickey-credentials-create; publickey-credentials-get">` and a browser that creates passkeys in a cross-origin frame; the page inside offers "Fullscreen" otherwise. Recovery stays top-level. Absent, nothing frames Center.
 - `WALLET_CREATION_SIGNER_KEY`, `WALLET_CREATION_POOL_ID`, `WALLET_CREATION_ALLOCATION_WEI`, `WALLET_CREATION_INITIAL_NONCE` — together, the dedicated Base creation treasury: its private key, permanent pool UUID, whole allocation in wei and the sender's expected first nonce. Startup fails if only some are set; see [WALLET_SIGNUP.md](WALLET_SIGNUP.md).
 - `WALLET_RECOVERY_SIGNER_KEY`, `WALLET_RECOVERY_MAX_OPERATIONS`, `WALLET_RECOVERY_MAX_COST_WEI` — together, the dedicated Base recovery relay: its private key (distinct from creation), the lifetime operation cap and the whole fee budget in wei.
-- `PARA_API_KEY` — public browser API key for account sign-in; authorize the Center origin in the Para dashboard. No Para server secret is used.
-- `PARA_ENVIRONMENT` — `BETA` (default) or `PROD`, matching the public key.
 - `SPONSOR_SIGNER_KEY` — optional private key that turns on `POST /v1/intents/:id/deploy`. It only
   needs ETH on the one rollup it pays the Relayr prepayment from; that prepayment carries the
   destination chains' creation fees and Relayr's executor supplies them there. Keep it a dedicated

@@ -127,7 +127,6 @@ export async function createRestRuntime(options: {
   config: Config;
   upstreams: RpcUpstreams;
   audience?: string;
-  para?: RestSite["para"];
   wallet?: RestWalletConfiguration;
   /** Explicit host capabilities: the unforked local pilot or the hosted Base host. No HTTP field
    * can construct a treasury signer; the host process supplies the factory and its configuration. */
@@ -689,7 +688,6 @@ export async function createRestRuntime(options: {
   if (options.startMaintenance !== false) wallet?.refresh.start();
   return {
     site: {
-      ...(options.para ? { para: options.para } : {}),
       ...(walletSite ? { wallet: walletSite, walletHosts: [new URL(wallet!.origin).host, ...(options.wallet?.legacyOrigins ?? []).map(value => new URL(value).host)] } : {}),
       app,
       audience: auth.audience,

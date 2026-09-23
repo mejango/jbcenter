@@ -6,6 +6,10 @@ For the current delivery state and remaining work, read the
 The sections below retain chronological checkpoints: an early statement that a
 component is planned, unpushed or undeployed is not a current rollout claim.
 
+Current scope update: Center has retired its Para integration while preserving
+passkey accounts and external-wallet support. Earlier Para retention plans below
+are superseded for Center; Juicebox Money and Revnet Money remain unchanged.
+
 Implementation started from Center main `d5ec4af1877cca8d1dda806cdd217aa18b16b3b6` in the isolated `feat/shared-passkey-wallet` worktree. An inventory of local branches and worktrees confirmed that existing Center source work was already represented on main, including squashed deployment and sponsorship changes. Historical dev ancestry does not need merging. No remote push or production activation accompanies this checkpoint.
 
 This is an experimental Base account profile with shared sign-in, app connections and exact payment approval for already enrolled pilot wallets. Public signup and production deployment remain incomplete. The [strategy](CENTER-WALLET-PLAN.md) and [specification](CENTER-WALLET-SPEC.md) remain the delivery contract.
@@ -146,12 +150,12 @@ Complete local signup with durable pre-account resume and same-Safe credential r
 
 Signup setup now advances after the latest deployment observation verifies the canonical creation and the enrolled wallet, before finalized treasury settlement. Review and completion still inspect current chain state and verify fresh owner/browser proofs. An unavailable or contradictory latest observation cannot use retained history to open setup. The joined PostgreSQL/unforked-Anvil test completes login before finality, rejects setup after an actual creation rollback, recovers with the original signed transaction, and later settles the exact fee. The treasury lane remains occupied until that finalized settlement. This removes the user's finality wait; it does not increase sender throughput or enable production adapters.
 
-Integrate and qualify the shared payment helper in the authorized Homerun and Beep pilots; leave Money clients unchanged. Center and Money retain Para alongside passkeys; Beep removes its Para integration. Preserve external-wallet support and historical account records, and verify existing Para-user access before rollout. The strategy's sustained/burst/soak targets remain unqualified; report HTTP/database, synthetic-chain and actual provider capacity separately. Consumer recovery, production RP, remaining devices and funded provider acceptance retain their explicit gates.
+Integrate and qualify the shared payment helper in the authorized Homerun and Beep pilots; leave Money clients unchanged. The plan at this checkpoint retained Para in Center and Money alongside passkeys and removed it from Beep. Preserve external-wallet support and historical account records, and verify existing Para-user access before rollout. The strategy's sustained/burst/soak targets remain unqualified; report HTTP/database, synthetic-chain and actual provider capacity separately. Consumer recovery, production RP, remaining devices and funded provider acceptance retain their explicit gates.
 
 
 ## 2026-09-14 production audit checkpoint
 
-`wallet.juicebox.center` has verified Railway DNS and a valid certificate. It intentionally serves the setup response while the production wallet runtime is disabled. Center retains Para. Do not modify Juicebox Money or Revnet Money; the pilot clients are Homerun and Beep.
+`wallet.juicebox.center` has verified Railway DNS and a valid certificate. It intentionally serves the setup response while the production wallet runtime is disabled. Center retained Para at this checkpoint. Do not modify Juicebox Money or Revnet Money; the pilot clients are Homerun and Beep.
 
 The user-selected Claude Fable 5.1 model reviews cover separate contract/dependency and wallet-integration scopes. The [rollout record](WALLET-DEPENDENCY-ROLLOUT.md) now includes both finalized Relayr payments and all 14 finalized deployment calls across eight chains, plus the complete 13-contract Base runtime observation. The dedicated funding key signed one payment per L1 funding chain. This completes shared dependency deployment; consumer wallet activation remains disabled.
 

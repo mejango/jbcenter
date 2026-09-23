@@ -33,15 +33,11 @@
     "node": ">=22.16.0"
   },
   "dependencies": {
-    "@farcaster/miniapp-sdk": "0.1.10",
-    "@getpara/viem-v2-integration": "3.15.0",
-    "@getpara/web-sdk": "3.15.0",
     "@hono/node-server": "^1.19.9",
     "@juicebox/mcp": "file:./mcp",
     "@scure/bip39": "1.6.0",
     "busboy": "^1.6.0",
     "cbor2": "2.3.0",
-    "events": "3.3.0",
     "hono": "^4.13.8",
     "marked": "18.0.12",
     "multiformats": "^13.4.2",
