@@ -17,9 +17,9 @@ and [endpoint reference](/api#reference).
 
 ## Create your connection
 
-1. Open [Accounts](/accounts) and select **Sign in**. Use your email, phone,
-   social account, or an existing wallet. Your account wallet signs a request
-   that creates or loads your Center account. Signing in sends no transaction.
+1. Open [Accounts](/accounts) and select **Sign in**. Connect an existing wallet.
+   Your wallet signs a request that creates or loads your Center account.
+   Signing in sends no transaction.
 2. Under **02 / API access**, choose a label, expiry and permissions. Start with **Read**
    for data access, **Read + plan** to prepare actions, or **Read + plan + relay**
    to submit wallet-approved actions.

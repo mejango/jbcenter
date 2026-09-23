@@ -129,7 +129,7 @@ async function signBytes(config: ClientOptions, options: RequestOptions, bytes: 
 export async function prepareSignedRequest(config: ClientOptions, options: RequestOptions): Promise<PreparedRequest> {
   return signBytes(config, options, documentBytes(options));
 }
-async function boundedJson(response: Response, maximum: number): Promise<unknown> {
+async function boundedJson(response: Response, maximum: number, signal: AbortSignal): Promise<unknown> {
   const declared = response.headers.get("content-length");
   if (declared && Number(declared) > maximum) {
     void response.body?.cancel().catch(() => undefined);
@@ -141,16 +141,21 @@ async function boundedJson(response: Response, maximum: number): Promise<unknown
   }
   const reader = response.body?.getReader();
   if (!reader) throw new RestClientError("INVALID_RESPONSE", "The response body is missing", response.status);
+  const cancel = () => { void reader.cancel().catch(() => undefined); };
+  signal.addEventListener("abort", cancel, { once: true });
   const chunks: Uint8Array[] = []; let total = 0;
   try {
+    signal.throwIfAborted();
     for (;;) {
-      const { value, done } = await reader.read(); if (done) break;
+      const { value, done } = await reader.read();
+      signal.throwIfAborted();
+      if (done) break;
       total += value.byteLength;
       if (total > maximum) throw new RestClientError("RESPONSE_TOO_LARGE", "Response exceeds the client limit");
       chunks.push(value);
     }
-  } catch (error) { void reader.cancel().catch(() => undefined); throw error; }
-  finally { reader.releaseLock(); }
+  } catch (error) { cancel(); throw error; }
+  finally { signal.removeEventListener("abort", cancel); reader.releaseLock(); }
   const bytes = new Uint8Array(total); let offset = 0;
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
   try { return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
@@ -164,7 +169,7 @@ export async function readPublicRestJson<T>(audience: string, requestTarget: str
     const response = await transport(exactRequestUrl(clientAudience(audience), requestTarget), {
       headers: { accept: "application/json" }, redirect: "error", credentials: "omit", cache: "no-store", signal: controller.signal,
     });
-    const result = await boundedJson(response, 2 * 1024 * 1024);
+    const result = await boundedJson(response, 2 * 1024 * 1024, controller.signal);
     if (!response.ok) throw new RestClientError("DISCOVERY_UNAVAILABLE", "This host has not enabled the requested wallet capability.", response.status);
     return result as T;
   } catch (error) {
@@ -212,9 +217,9 @@ export class SignedRestClient {
           redirect: "error", credentials: "omit", cache: "no-store", signal: controller.signal,
         });
         if ([408, 429, 502, 503, 504].includes(response.status) && attempt < retries) {
-          await response.body?.cancel(); continue;
+          void response.body?.cancel().catch(() => undefined); continue;
         }
-        const result = await boundedJson(response, maxBytes);
+        const result = await boundedJson(response, maxBytes, controller.signal);
         if (!response.ok) {
           const error = result && typeof result === "object" && "error" in result ? result.error : result;
           const code = error && typeof error === "object" && "code" in error

@@ -10,6 +10,7 @@ assert(
   Number.isSafeInteger(concurrency) && concurrency > 0 && concurrency <= 1_000,
   "LOAD_TEST_CONCURRENCY must be between 1 and 1000",
 );
+const target = new URL("/v1/search?limit=20", origin);
 
 let next = 0;
 let failures = 0;
@@ -20,12 +21,12 @@ async function worker() {
     next += 1;
     const started = performance.now();
     try {
-      const response = await fetch(new URL("/v1/search?limit=20", origin), {
+      const response = await fetch(target, {
         headers: { origin: "https://juicebox.money" },
         signal: AbortSignal.timeout(10_000),
       });
-      if (!response.ok) failures += 1;
       await response.arrayBuffer();
+      if (!response.ok) failures += 1;
     } catch {
       failures += 1;
     }

@@ -54,10 +54,11 @@ async function worker(options: { maxHistoricalApplications?: number } = {}, pref
     return { status: response.status, body: await response.json() };
   } };
 }
-async function waitingForLock(pid: number) {
+async function waitingForLock(pid: number, expected?: { blockerPid: number; query: string }) {
   for (let i = 0; i < 100; i++) {
-    const row = (await pool.query("SELECT wait_event_type FROM pg_stat_activity WHERE pid=$1", [pid])).rows[0];
-    if (row?.wait_event_type === "Lock") return;
+    const row = (await pool.query(`SELECT wait_event_type,query,pg_blocking_pids(pid) AS blockers,
+      floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS now FROM pg_stat_activity WHERE pid=$1`, [pid])).rows[0];
+    if (row?.wait_event_type === "Lock" && (!expected || (row.query === expected.query && row.blockers.includes(expected.blockerPid)))) return Number(row.now);
     await new Promise(resolve => setTimeout(resolve, 10));
   }
   throw new Error("Expected backend to wait for a PostgreSQL row/advisory lock");
@@ -335,17 +336,30 @@ suite("PostgreSQL wallet application policy (eligibility only; no authentication
     await store.activate(activation()); const a = await worker(), lock = await pool.connect();
     try {
       await lock.query("BEGIN"); await lock.query("SELECT origin FROM rest_wallet_policy_apps WHERE origin=$1 FOR UPDATE", [origin]);
-      const claim = a.request({ action: "claim", claimId: randomUUID(), input: admission({ expiresAt: Date.now() + 250 }) });
-      await waitingForLock(a.backendPid); await lock.query("SELECT pg_sleep(0.3)"); await lock.query("COMMIT");
+      const blockerPid = Number((await lock.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+      const expiresAt = Number((await lock.query("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS now")).rows[0].now) + 3000;
+      const claim = a.request({ action: "claim", claimId: randomUUID(), input: admission({ expiresAt }) });
+      expect(await waitingForLock(a.backendPid, { blockerPid,
+        query: "SELECT * FROM rest_wallet_policy_apps WHERE origin=$1 FOR SHARE" })).toBeLessThan(expiresAt);
+      await lock.query("SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.03)", [expiresAt]);
+      await lock.query("COMMIT");
       expect(await claim).toMatchObject({ status: 410, body: { code: "WALLET_POLICY_EXPIRED" } });
       expect((await pool.query("SELECT * FROM wallet_policy_claims")).rows).toHaveLength(0);
     } finally { await lock.query("ROLLBACK"); lock.release(); }
   });
 
   it("leaves transaction ownership with the caller and rolls back a claim that expires after admission", async () => {
-    await store.activate(activation()); const a = await worker(), reached = message(a.child, "barrier");
-    const claim = a.request({ action: "claim", claimId: randomUUID(), input: admission({ expiresAt: Date.now() + 250 }), barrier: "after-guard" });
-    await reached; await pool.query("SELECT pg_sleep(0.3)"); a.child.send("release");
+    await store.activate(activation()); const a = await worker();
+    // Leave time for real HTTP and SQL admission, then cross this unchanged deadline at the barrier.
+    const expiresAt = Number((await pool.query("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS now")).rows[0].now) + 3000;
+    const reached = message(a.child, "barrier");
+    const claim = a.request({ action: "claim", claimId: randomUUID(), input: admission({ expiresAt }), barrier: "after-guard" });
+    expect(await Promise.race([reached, claim.then(result => {
+      throw new Error(`Claim completed before the after-guard barrier: ${JSON.stringify(result)}`);
+    })])).toMatchObject({ boundary: "after-guard" });
+    expect((await pool.query("SELECT * FROM wallet_policy_claims")).rows).toHaveLength(0);
+    await pool.query("SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.03)", [expiresAt]);
+    a.child.send("release");
     expect(await claim).toMatchObject({ status: 410, body: { code: "WALLET_POLICY_EXPIRED" } });
     expect((await pool.query("SELECT * FROM wallet_policy_claims")).rows).toHaveLength(0);
   });

@@ -3,12 +3,13 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { createServices } from './app.js';
 import { loadConfig } from './config.js';
 import { createMcpServer } from './mcp/server.js';
+import { MAX_LOGO_REQUEST_BYTES } from './transport/limits.js';
 
 async function main(): Promise<void> {
   const services = await createServices(loadConfig());
   const server = createMcpServer(services);
   const transport = new StdioServerTransport(process.stdin, process.stdout, {
-    maxBufferSize: 256 * 1024,
+    maxBufferSize: MAX_LOGO_REQUEST_BYTES,
   });
   let stopping: Promise<void> | undefined;
   const stop = () => {

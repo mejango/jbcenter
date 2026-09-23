@@ -17,7 +17,6 @@ import { currentPimlicoGuardPackage } from "../smartAccounts/stack/current-pimli
 import type { SessionGuardVersion } from "../smartAccounts/stack/current-pimlico/pins.js";
 import {
   normalizeUserOperation,
-  uoCanonical,
   uoError,
   userOperationMaximumCost,
 } from "./codec.js";

@@ -5,7 +5,6 @@ import { migrate } from '../src/db/migrate.js';
 import { createPool } from '../src/db/postgres.js';
 import { PostgresAccountStore, assertRestActorActive } from '../src/rest/auth/postgres.js';
 import { PostgresSmartAccountRegistry } from '../src/rest/smartAccounts/postgres.js';
-import { fingerprint } from '../src/rest/smartAccounts/service.js';
 import { PostgresTransactionStore } from '../src/rest/transactions/postgres.js';
 import { claimPostgresTransport } from '../src/rest/transactions/transport-reservations.js';
 import { PostgresUserOperationStore } from '../src/rest/userOperations/postgres.js';
@@ -13,8 +12,7 @@ import { getUserOperationHash } from '../src/rest/userOperations/codec.js';
 import { PostgresWalletPolicyStore } from '../src/rest/wallet/policyPostgres.js';
 import { PostgresWalletAppGrantStore } from '../src/rest/wallet/appGrantsPostgres.js';
 import { walletAppPrincipalId } from '../src/rest/wallet/appGrants.js';
-import { refreshTrustedWalletAuthority, seedTrustedWalletAuthority, trustedAuthorityNow,
-  writeTrustedWalletAuthoritySnapshot } from './fixtures/wallet-authority-readiness.js';
+import { refreshTrustedWalletAuthority, seedTrustedWalletAuthority, trustedAuthorityNow } from './fixtures/wallet-authority-readiness.js';
 import { PostgresSessionStore } from '../src/rest/sessions/postgres.js';
 import { recoveryCursor, type UserOperationRecord } from '../src/rest/userOperations/store.js';
 import type { RestActor } from '../src/rest/core.js';
@@ -115,20 +113,36 @@ async function dbSeconds(client: PoolClient) {
     ).rows[0]!.now,
   );
 }
-async function waitUntilBlocked(client: PoolClient, pid: number) {
-  const deadline = performance.now() + 1000;
+async function waitUntilBlocked(client: PoolClient, pid: number, statement: RegExp) {
+  const deadline = performance.now() + 5000;
   for (;;) {
     await client.query('SELECT pg_stat_clear_snapshot()');
     const result = await client.query<{ query: string }>(
       'SELECT query FROM pg_stat_activity WHERE $1::integer=ANY(pg_blocking_pids(pid))',
       [pid],
     );
-    if (result.rows.length) return result.rows.map((row) => row.query);
+    // Activity text and the lock manager can sample opposite sides of a statement
+    // transition. Observe the required statement as well as its blocker before returning.
+    if (result.rows.some((row) => statement.test(row.query))) return result.rows.map((row) => row.query);
     if (performance.now() >= deadline)
       throw new Error('Claim did not reach the expected database wait.');
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
+
+describe('UserOperation database lock observation', () => {
+  it('waits for the requested SQL stage when activity still shows the preceding statement', async () => {
+    const expected = 'SELECT document FROM rest_transaction_plans WHERE id=$1 FOR UPDATE';
+    const activity = [
+      'SELECT document FROM rest_smart_account_bindings WHERE account_id=$1 AND id=$2 AND revoked_at IS NULL',
+      expected,
+    ];
+    const client = { query: async (sql: string) => ({ rows: sql === 'SELECT pg_stat_clear_snapshot()'
+      ? [] : [{ query: activity.shift() ?? expected }] }) } as unknown as PoolClient;
+    expect(await waitUntilBlocked(client, 1, /^SELECT document FROM rest_transaction_plans .*FOR UPDATE$/)).toEqual([expected]);
+    expect(activity).toHaveLength(0);
+  });
+});
 
 suite('PostgreSQL UserOperation persistence', () => {
   beforeAll(async () => {
@@ -204,7 +218,7 @@ suite('PostgreSQL UserOperation persistence', () => {
       const grant = await new PostgresWalletAppGrantStore(pool).insert({ accountId: appOwner.accountId,
         signerAddress: target, origin, callbackUri: `${origin}/callback`, audience: 'https://juicebox.center',
         expectedAppGeneration: 1, expectedAuthorityEpoch: '1', expectedSessionEpoch: '1',
-        expiresAt: await dbSeconds(lock) + 4 });
+        expiresAt: await dbSeconds(lock) + 6 });
       const appActor = { accountId: appOwner.accountId, principalId: walletAppPrincipalId(grant) };
       const id = `app-plan-wait-${expiry.replaceAll(' ', '-')}-expiry`;
       const value = plan(id, appActor, wallet, Date.now());
@@ -219,7 +233,7 @@ suite('PostgreSQL UserOperation persistence', () => {
       await lock.query('SELECT id FROM rest_transaction_plans WHERE id=$1 FOR UPDATE', [value.id]);
       const pid = Number((await lock.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]!.pid);
       pending = store.create(operation, Date.now()).then(result => ({ result }), (error: unknown) => ({ error }));
-      expect(await waitUntilBlocked(lock, pid)).toEqual(expect.arrayContaining([
+      expect(await waitUntilBlocked(lock, pid, /^SELECT document FROM rest_transaction_plans .*FOR UPDATE$/)).toEqual(expect.arrayContaining([
         expect.stringMatching(/^SELECT document FROM rest_transaction_plans .*FOR UPDATE$/),
       ]));
       const expiresAtMs = grant.expiresAt * 1000;
@@ -240,7 +254,7 @@ suite('PostgreSQL UserOperation persistence', () => {
       await lock.query('ROLLBACK'); lock.release();
       await pending;
     }
-  }, 12000);
+  }, 20000);
   it('denies an actual app UserOperation claim after its live setup binding is revoked', async () => {
     const accountId = `eip155:8453:${safe}`, origin = 'https://app.example';
     // Trusted synthetic readiness only; the existing claim path must enforce its live binding.
@@ -577,18 +591,20 @@ suite('PostgreSQL UserOperation persistence', () => {
         (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]!.pid,
       );
       const issuedAt = await dbSeconds(client);
-      const expiresAt = issuedAt + 2;
+      const expiresAt = issuedAt + 6;
       const pending = store.claim({ ...input, authorization: { issuedAt, expiresAt } }).then(
         (result) => ({ result }),
         (error: unknown) => ({ error }),
       );
-      expect(await waitUntilBlocked(client, pid)).toEqual(
+      expect(await waitUntilBlocked(client, pid, /^INSERT INTO rest_user_operation_nonces/)).toEqual(
         expect.arrayContaining([expect.stringMatching(/^INSERT INTO rest_user_operation_nonces/)]),
       );
+      expect(await dbSeconds(client)).toBeLessThan(expiresAt);
       await client.query(
         'SELECT pg_sleep(GREATEST(0,$1::double precision-extract(epoch FROM clock_timestamp())::double precision+0.005))',
         [expiresAt],
       );
+      expect(await dbSeconds(client)).toBeGreaterThanOrEqual(expiresAt);
       await client.query('ROLLBACK');
       expect(await pending).toMatchObject({ error: { code: 'AUTH_EXPIRED', status: 401 } });
       await expectUnclaimed(value);

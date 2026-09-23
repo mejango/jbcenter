@@ -6,13 +6,14 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { homedir } from 'node:os';
 import { keccak256 } from 'viem';
+import { findCachedSolc } from '../stack/passkey/solc-cache.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const argument = (name, fallback) => process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : fallback;
 const workspace = resolve(argument('--workspace', resolve(here, '../../../../../..')));
-const solc = argument('--solc', resolve(homedir(), '.svm/0.8.28/solc-0.8.28'));
+const solc = process.argv.includes('--solc') ? argument('--solc') : await findCachedSolc('0.8.28');
+assert.notEqual(solc, undefined, 'Install the pinned solc 0.8.28 compiler or provide --solc');
 const deployPin = '20883a7c7fcd58b6264f8375b6156a59ab9a2597';
 const corePin = '386a9dc71c73a1e614da9cf2a98e207788034a4b';
 const permissionPin = 'e75d962ebcade48c0e19d849fe27a7e200b3ed74';

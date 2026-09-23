@@ -38,6 +38,9 @@ describe("qualified local deployment settlement producer", () => {
   /** The send lands and the lane is released at its inclusion; the producer settles released operations. */
   async function mine(context: WalletDeploymentSettlementContext) {
     await fixture.rpc("eth_sendRawTransaction", [context.operation.signed!.rawTransaction]);
+    // Acceptance precedes Anvil's asynchronous automining. Finality blocks must follow
+    // actual inclusion, otherwise fast bulk mining can leave this receipt unfinalized.
+    await expect.poll(() => fixture.rpc("eth_getTransactionReceipt", [context.operation.signed!.hash])).not.toBeNull();
     await fixture.rpc("anvil_mine", ["0x41", "0x0"]);
     context.operation.releasedAt = Date.now(); context.operation.reservedWei = context.operation.signed!.maximumExecutionCost;
   }
@@ -75,6 +78,23 @@ describe("qualified local deployment settlement producer", () => {
     expect(evidence.funding.pendingNonce).toBe(evidence.finalizedNonce);
     expect(evidence.observation.fees).toEqual({ executionWei: String(cost), l1Wei: null, operatorWei: null, totalWei: null });
     expect(evidence.observation.dispatchEligible).toBe(false);
+    expect(assertWalletDeploymentSettlementEvidence(evidence, context, Date.now())).toEqual(evidence);
+  });
+
+  it("settles the original canonical snapshot when the head and finalized tag advance during funding", async () => {
+    const context = releasedPool(await initialized()); await mine(context);
+    const originalHead = await fixture.rpc<{ number: Hex }>("eth_getBlockByNumber", ["latest", false]);
+    let advanced = false;
+    alterRpc((_method, _params, result) => result, async method => {
+      if (method === "eth_getBalance" && !advanced) {
+        advanced = true; await fixture.rpc("anvil_mine", ["0x1", "0x0"]);
+      }
+    });
+    const evidence = await producer().observeSettlement(context);
+    expect(advanced).toBe(true);
+    expect(evidence.funding.head.blockNumber).toBe(String(BigInt(originalHead.number)));
+    expect(evidence.funding.head).toEqual(evidence.observation.head);
+    expect(evidence.observation.finality.state).toBe("finalized");
     expect(assertWalletDeploymentSettlementEvidence(evidence, context, Date.now())).toEqual(evidence);
   });
 
@@ -190,6 +210,15 @@ describe("qualified local deployment settlement producer", () => {
     await expect(producer().observeSettlement(context)).rejects.toMatchObject({ status: 502 });
   });
 
+  it.each(["same-height", "advanced-height"])("rejects a replaced %s finalized tag", async fault => {
+    const context = releasedPool(await initialized()); await mine(context);
+    let finalizedReads = 0;
+    alterRpc((method, params, result) => method === "eth_getBlockByNumber" && params[0] === "finalized" && ++finalizedReads > 1
+      ? { ...result, hash: `0x${"ab".repeat(32)}`, number: fault === "advanced-height" ? toHex(BigInt(result.number) + 1n) : result.number }
+      : result);
+    await expect(producer().observeSettlement(context)).rejects.toMatchObject({ status: 502 });
+  });
+
   it.each(["v1-downgrade", "digest", "remaining", "nonce", "extra", "fence", "balance"])("rejects %s in an initialized dispatch admission", async fault => {
     const context = await initialized(), admission: any = await createLocalAnvilWalletDeploymentTransport(fixture).admit(context);
     if (fault === "v1-downgrade") { admission.version = "center-wallet-deployment-local-admission-v1"; delete admission.accounting; }
@@ -249,6 +278,7 @@ describe("qualified local deployment settlement producer", () => {
           initialHead: initial.head, initialNonce: initial.confirmedNonce, spentWei: "0", sequence: 0, nextNonce: initial.confirmedNonce,
           lastSettlementId: null, lastSettlementAnchor: null, fence: null } } };
       await isolated.rpc("eth_sendRawTransaction", [context.operation.signed!.rawTransaction]);
+      await expect.poll(() => isolated.rpc("eth_getTransactionReceipt", [context.operation.signed!.hash])).not.toBeNull();
       await isolated.rpc("anvil_mine", ["0x41", "0x0"]);
       context.operation.releasedAt = Date.now(); context.operation.reservedWei = context.operation.signed!.maximumExecutionCost;
       const evidence = await value.observeSettlement(context);

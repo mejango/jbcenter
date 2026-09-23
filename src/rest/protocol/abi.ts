@@ -7,7 +7,6 @@ import {
 } from "viem";
 import { RestError } from "../core.js";
 
-export const MAX_UINT256 = (1n << 256n) - 1n;
 const invalid = (path: string, message: string): never => {
   throw new RestError(400, "ABI_ARGUMENT_INVALID", `${path}: ${message}`);
 };

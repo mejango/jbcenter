@@ -66,7 +66,7 @@ if (!response.ok) throw new Error('Upload failed: ' + response.status);
 const { cid, uri, gatewayUrl } = await response.json();`;
 
 const API_CONTENT = {
-  rpc: `<div class="resource-panel" data-flow-node>
+  rpc: `<div class="resource-panel">
     <p>Read blockchain data through <a href="/api#glossary-rpc">RPC</a>, the request format used by wallets and apps.</p>
     <p class="access">Public. No API key.</p>
     <code class="endpoint">POST https://juicebox.center/v1/rpc/:chainId</code>
@@ -85,7 +85,7 @@ const API_CONTENT = {
     <a class="reference" href="https://github.com/mejango/jbcenter#read-ethereum-rpc">RPC documentation ↗</a>
     <a class="reference" href="https://github.com/mejango/jbcenter/blob/main/src/rpc.ts">Methods and limits ↗</a>
   </div>`,
-  ipfs: `<div class="resource-panel" data-flow-node>
+  ipfs: `<div class="resource-panel">
     <p>Retrieve files from <a href="/api#glossary-ipfs">IPFS</a>, a shared file network. A file's content gives it an identifier called a CID.</p>
     <p class="access">Public. No API key.</p>
     <code class="endpoint">GET https://juicebox.center/ipfs/:cid[/path]</code>
@@ -94,7 +94,7 @@ const API_CONTENT = {
     <p class="note">Apps on other sites can read files and request parts of a media file. Up to 500 MiB. HTML, scripts, CSS, XML, PDFs, and Wasm download as files.</p>
     <a class="reference" href="https://github.com/mejango/jbcenter#pin-and-read-ipfs-content">Gateway documentation ↗</a>
   </div>`,
-  pinning: `<div class="resource-panel" data-flow-node>
+  pinning: `<div class="resource-panel">
     <p>Upload public files to IPFS. Keeping a copy available is called pinning.</p>
     <p class="access">Uploads must come from an approved app</p>
     <p>Browser uploads: <a href="https://juicebox.money">juicebox.money</a>, <a href="https://revnet.money">revnet.money</a>, <a href="https://eth.shop">eth.shop</a>, <a href="https://succulent.money">succulent.money</a>, or <a href="https://homerun.money">homerun.money</a>.</p>
@@ -117,7 +117,7 @@ const API_CONTENT = {
     <a class="reference" href="https://github.com/mejango/jbcenter#pin-and-read-ipfs-content">Upload documentation ↗</a>
     <a class="reference" href="https://github.com/mejango/jbcenter/blob/main/mcp/docs/USER_JOURNEYS.md">Publish project details with an agent ↗</a>
   </div>`,
-  mcp: `<div class="resource-panel" data-flow-node>
+  mcp: `<div class="resource-panel">
     <p>Give an assistant access to Juicebox tools through <a href="/api#glossary-mcp">MCP</a>, a shared format for connecting AI apps to tools.</p>
     <p class="access">Use a compatible client with Streamable HTTP.</p>
     <code class="endpoint">https://juicebox.center/mcp</code>
@@ -160,14 +160,14 @@ function renderContents(node: DirectoryNode, group: string): string {
 function renderNode(node: DirectoryNode, group: string, index: number): string {
   const title = escapeHtml(node.title);
   if (node.url) {
-    return `<li class="destination" data-flow-node>
+    return `<li class="destination">
       <a class="destination-link" href="${escapeHtml(node.url)}">${renderDestinationTitle(node.title)}<span class="external-arrow" aria-hidden="true">↗</span></a>
       ${node.sourceUrl ? `<a class="source-link" href="${escapeHtml(node.sourceUrl)}">Source<span class="visually-hidden">: ${title}</span></a>` : ""}
       ${node.note ? `<p class="note">${escapeHtml(node.note)}</p>` : ""}
     </li>`;
   }
   return `<li class="branch"><details${node.id ? ` id="directory-${escapeHtml(node.id)}"` : ""} name="${group}">
-    <summary data-flow-node><span>${title}</span><span class="marker" aria-hidden="true"></span></summary>
+    <summary><span>${title}</span><span class="marker" aria-hidden="true"></span></summary>
     <div class="branch-content">${renderContents(node, `${group}-${index}`)}</div>
   </details></li>`;
 }
@@ -430,7 +430,7 @@ export const HOMEPAGE_HTML = `<!doctype html>
       <a class="wordmark" href="/">${BRAND_ICON} juicebox.center</a>
       <span class="edition">V6</span>
     </header>
-    <main id="main">
+    <main id="main" tabindex="-1">
       <h1>Everything Juicebox in one place</h1>
       <p class="introduction">Juicebox lets projects raise and share money under rules anyone can check. Find an app, learn how it works, or build your own. <a href="https://juicebox.money/learn">Start with the basics</a> or look up a word in the <a href="/api#glossary">glossary</a>.</p>
       <section class="journey-explorer" aria-label="Juicebox journeys">

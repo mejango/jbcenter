@@ -68,6 +68,16 @@ describe("explicit unforked local Anvil deployment transport", () => {
     expect(observed.transaction.state).toBe("canonical-success"); expect(observed.wallet.state).toBe("verified");
   });
 
+  it("keeps a fresh canonical observation usable after the chain advances", async () => {
+    const context = await fixture.signedContext(), value = transport();
+    await fixture.rpc("anvil_mine", ["0x1", "0x0"]);
+    const admission = await value.admit(context);
+    expect(admission.environment.head).toEqual(context.operation.observation!.head);
+    expect(assertWalletDeploymentDispatchAdmission(admission, context, Date.now())).toEqual(admission);
+    expect(await value.broadcast(admission)).toBe("accepted");
+    expect(sends()).toHaveLength(1);
+  });
+
   it.each(["https://127.0.0.1:8545", "http://localhost:8545", "http://127.1:8545", "http://2130706433:8545", "http://0x7f000001:8545",
     "http://127.0.0.2:8545", "http://example.com:8545", "http://user@127.0.0.1:8545", "http://127.0.0.1:8545/path",
     "http://127.0.0.1:8545?x=y", "http://127.0.0.1:8545#x", "http://127.0.0.1:65536"])("rejects nonliteral or extended endpoint %s before I/O", endpoint => {
@@ -127,7 +137,7 @@ describe("explicit unforked local Anvil deployment transport", () => {
     transform = (request, result) => {
       if (request.method === "eth_getBlockByNumber" && request.params[0] !== "0x0") {
         if (fault === "fee-cap") result.baseFeePerGas = toHex(BigInt(context.operation.template!.transaction.maxFeePerGas));
-        if (fault === "canonical" && ++blockReads > 2) result.hash = `0x${"ab".repeat(32)}`;
+        if (fault === "canonical" && request.params[0] === toHex(BigInt(context.operation.observation!.head!.blockNumber)) && ++blockReads > 1) result.hash = `0x${"ab".repeat(32)}`;
       }
       if (request.method === "eth_estimateGas" && fault === "estimate") return toHex(BigInt(context.operation.template!.transaction.gas) + 1n);
       if (request.method === "eth_call" && request.params[0].to.toLowerCase() === context.operation.template!.transaction.to.toLowerCase() && fault === "simulation") return `0x${"00".repeat(32)}`;

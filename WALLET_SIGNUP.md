@@ -126,7 +126,7 @@ start configures the single pool and initializes accounting with the explicit
 `WALLET_CREATION_INITIAL_NONCE`, refusing a provider nonce that differs.
 
 The runtime mounts signup only when that factory is provided, and starts/stops its
-worker with maintenance. Normal Center startup and Para compatibility remain
+worker with maintenance. Normal Center startup and external-wallet access remain
 available. Public wallet discovery preserves the installed SDK's exact schema.
 
 `createRestRuntime.walletRecovery` is the corresponding explicit host factory for

@@ -187,11 +187,11 @@ export class PostgresSponsorshipStore implements SponsorshipStore {
       return result;
     });
   }
-  async settle(id: string, submissionHash: Hex, quote?: RelayrQuote, runtimeVerified = true) {
+  async settle(id: string, submissionHash: Hex, quote?: RelayrQuote, runtimeVerified = true, bindingVerified = runtimeVerified) {
     return this.transaction(async (client) =>
       this.save(
         client,
-        settled(await this.required(client, id), submissionHash, quote, runtimeVerified),
+        settled(await this.required(client, id), submissionHash, quote, runtimeVerified, bindingVerified),
       ),
     );
   }

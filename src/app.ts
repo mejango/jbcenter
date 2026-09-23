@@ -14,6 +14,7 @@ import {
   address,
   callsForChain,
   contentHash,
+  IntentValidationError,
   normalizeEnvelope,
   signingMessage,
 } from "./intent.js";
@@ -299,21 +300,39 @@ async function streamMedia(
   }
 
   const source = Readable.fromWeb(body as import("node:stream/web").ReadableStream<Uint8Array>);
+  const uploadController = new AbortController();
+  const signal = AbortSignal.any([c.req.raw.signal, uploadController.signal]);
   return new Promise<PinResult>((resolve, reject) => {
     let fileSeen = false;
     let fileBytes = 0;
     let settled = false;
     let upload: Promise<PinResult> | null = null;
+    let counted: Transform | undefined;
+    const abort = () => fail(new BadRequest("Request was cancelled"));
 
     const fail = (error: Error) => {
       if (settled) return;
       settled = true;
+      signal.removeEventListener("abort", abort);
+      uploadController.abort(error);
       source.unpipe(parser);
       source.destroy();
+      // Busboy still uses its current file after emitting events such as `limit`.
+      // Destroy it once that callback has returned, while aborting the upload now.
+      queueMicrotask(() => parser.destroy(error));
+      counted?.destroy(error);
       reject(error);
     };
 
     parser.on("file", (field, file, info) => {
+      file.once("error", (error) => {
+        counted?.destroy(error);
+        fail(new BadRequest("Invalid multipart body"));
+      });
+      if (settled) {
+        file.resume();
+        return;
+      }
       if (field !== "file" || fileSeen) {
         file.resume();
         fail(new BadRequest("Exactly one file field is required"));
@@ -328,30 +347,28 @@ async function streamMedia(
       // Count bytes inside the pipeline rather than with a `data` listener: a
       // listener would put the part into flowing mode and drain it before the
       // uploader starts pulling, so Filebase would receive an empty body.
-      const counted = new Transform({
+      counted = new Transform({
         transform(chunk: Buffer, _encoding, callback) {
           fileBytes += chunk.byteLength;
           callback(null, chunk);
         },
       });
+      counted.once("error", fail);
       file.once("limit", () => {
         const error = new PayloadTooLarge(`file must not exceed ${maxBytes} bytes`);
         file.destroy(error);
-        counted.destroy(error);
+        counted!.destroy(error);
         fail(error);
       });
-      file.once("error", (error) => counted.destroy(error));
       file.pipe(counted);
-      upload = pinning.pinStream(counted, "media", info.mimeType);
+      upload = pinning.pinStream(counted, "media", info.mimeType, signal);
       void upload.catch(() => fail(new PinFailed("Failed to pin media")));
     });
     parser.on("field", () => fail(new BadRequest("Only the file field is allowed")));
     parser.once("filesLimit", () => fail(new BadRequest("Exactly one file is allowed")));
     parser.once("fieldsLimit", () => fail(new BadRequest("Only the file field is allowed")));
     parser.once("partsLimit", () => fail(new BadRequest("Exactly one file field is required")));
-    parser.once("error", (error) =>
-      fail(error instanceof Error ? error : new BadRequest("Invalid multipart body")),
-    );
+    parser.once("error", () => fail(new BadRequest("Invalid multipart body")));
     source.once("error", (error) => fail(error));
     parser.once("close", async () => {
       if (settled) return;
@@ -367,12 +384,15 @@ async function streamMedia(
         const result = await upload;
         if (settled) return;
         settled = true;
+        signal.removeEventListener("abort", abort);
         resolve(result);
       } catch (error) {
         fail(error instanceof PinFailed ? error : new PinFailed("Failed to pin media"));
       }
     });
-    source.pipe(parser);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    else source.pipe(parser);
   });
 }
 
@@ -385,17 +405,7 @@ export function createApp(
   const allowedOrigins = options.allowedOrigins ?? ALLOWED_ORIGINS;
 
   app.onError((error, c) => {
-    if (
-      error instanceof BadRequest ||
-      error.message.startsWith("chainIds") ||
-      error.message.startsWith("deploymentCalls") ||
-      error.message.startsWith("format") ||
-      error.message.startsWith("version") ||
-      error.message.startsWith("deploymentVersion") ||
-      error.message.startsWith("jb") ||
-      error.message.startsWith("request") ||
-      error.message.startsWith("publisher")
-    ) {
+    if (error instanceof BadRequest || error instanceof IntentValidationError) {
       return c.json({ error: { code: "bad_request", message: error.message } }, 400);
     }
     if (error instanceof PayloadTooLarge) {
@@ -434,7 +444,7 @@ export function createApp(
   });
 
   // DNS may be attached before the wallet runtime is activated. Reserve its credential
-  // origin even then: legacy Accounts, Para and IPFS must never execute on this host.
+  // origin even then: legacy Accounts and IPFS must never execute on this host.
   app.use('*', async (c, next) => {
     const hostname = new URL(c.req.url).hostname;
     const wireHostname = c.req.header('Host')?.toLowerCase().split(':')[0];
@@ -585,11 +595,13 @@ export function createApp(
         : rpc
           ? (options.rpcRequestLimitPerMinute ?? 600)
           : (options.requestLimitPerMinute ?? 600);
-    const result = await store.consumeRequest(c.get("client"), limit, pin ? PIN_WINDOW_SECONDS : 60);
+    const client = c.get("client");
+    const windowSeconds = pin ? PIN_WINDOW_SECONDS : 60;
+    const result = await store.consumeRequest(pin ? `pin:${client}` : rpc ? `rpc:${client}` : client, limit, windowSeconds);
     c.header("X-RateLimit-Limit", String(limit));
     c.header("X-RateLimit-Remaining", String(result.remaining));
     if (!result.allowed) {
-      c.header("Retry-After", "60");
+      c.header("Retry-After", String(windowSeconds));
       return c.json(
         { error: { code: "rate_limit", message: "Request limit exceeded" } },
         429,
@@ -658,6 +670,7 @@ export function createApp(
       const result = await options.pinning.pin(
         new Blob([bytes], { type: "application/json" }),
         "metadata.json",
+        c.req.raw.signal,
       );
       return c.json(pinPayload(result), 201);
     } catch {
@@ -674,7 +687,7 @@ export function createApp(
       return c.json({ error: { code: "unsupported_media", message: "Only images are allowed" } }, 415);
     }
     try {
-      return c.json(pinPayload(await options.pinning.pin(file, "image")), 201);
+      return c.json(pinPayload(await options.pinning.pin(file, "image", c.req.raw.signal)), 201);
     } catch {
       return c.json({ error: { code: "pin_failed", message: "Failed to pin image" } }, 502);
     }

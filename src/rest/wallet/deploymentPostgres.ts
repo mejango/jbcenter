@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isProxy } from "node:util/types";
 import type { Pool, PoolClient } from "pg";
-import { getAddress, hashTypedData, isAddress, type Address, type Hex } from "viem";
+import { getAddress, isAddress, type Address, type Hex } from "viem";
 import { RestError } from "../core.js";
 import type { RelayPolicy } from "../transactions/types.js";
 import { prepareWalletDeploymentTemplate, validateSignedWalletDeployment, verifyWalletDeploymentProof,

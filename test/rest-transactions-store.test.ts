@@ -423,12 +423,16 @@ describe('Memory transaction persistence', () => {
     });
     expect(stale.revision).toBe(renewed.plan.revision);
     renewed.plan.steps[0]!.state = 'confirmed';
+    renewed.plan.steps[0]!.receipt = externalProof(0, signed.hash).receipt!;
+    renewed.plan.steps[0]!.semantic = { status: 'unmodeled' };
     const confirmed = await store.save(owner, 'plan-1', renewed.plan.revision, renewed.plan.steps);
     const late = await store.settleSubmission(owner, 'plan-1', 0, 'lease-2', {
       state: 'submitted',
       broadcastAt: now + 11_000,
     });
-    expect(late.steps[0]!.state).toBe('confirmed');
+    expect(late.steps[0]).toMatchObject({
+      state: 'confirmed', receipt: confirmed.steps[0]!.receipt, semantic: { status: 'unmodeled' },
+    });
     const repeat = await store.claimSubmission(
       claim(
         { ...signed, leaseToken: 'lease-3', leaseUntil: now + 50_000 },

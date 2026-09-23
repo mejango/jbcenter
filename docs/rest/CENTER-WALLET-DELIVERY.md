@@ -5,6 +5,10 @@ Checkpoint: **2026-09-15 UTC** (September 14 in São Paulo). Application source:
 project; the [implementation record](CENTER-WALLET-IMPLEMENTATION.md) preserves
 the detailed chronology. For continuation, start with the [handoff](CENTER-WALLET-HANDOFF.md).
 
+Current scope update: Center has retired its Para integration, preserving passkey
+accounts and external-wallet support. The checkpoint below predates that decision;
+Juicebox Money and Revnet Money integrations are unchanged.
+
 ## Where we stand
 
 **The shared contracts are deployed, signup and recovery work in the local
@@ -61,8 +65,8 @@ flowchart TD
     I --> E
 ```
 
-Center retains Para alongside passkeys. Juicebox Money and Revnet Money retain
-their current integrations. Homerun and Beep are the authorized pilot clients,
+At this checkpoint, Center retained Para alongside passkeys. Juicebox Money and
+Revnet Money retain their current integrations. Homerun and Beep are the authorized pilot clients,
 with external-wallet support preserved. Passkeys come first; WhatsApp is a
 possible later addition. No email/SMS/WhatsApp verification service is required
 for the implemented passkey and recovery-kit design.

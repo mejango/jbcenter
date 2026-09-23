@@ -130,9 +130,17 @@ describe("hosted Base deployment producers on a Base-shaped local chain", () => 
     expect(walletDeploymentFundingConflict(context, evidence.funding, evidence.finalizedNonce, "0")).toBeNull();
   });
   it.each(["l1Fee", "attributes", "runtime"])("withholds settlement when %s evidence is inconsistent", async fault => {
-    const context = await initialized(), value = transport();
-    expect(await value.broadcast(await value.admit(context))).toBe("accepted");
+    const context = await initialized(), value = transport(), admission = await value.admit(context);
+    expect(await value.broadcast(admission)).toBe("accepted");
+    await expect.poll(() => fixture.rpc("eth_getTransactionReceipt", [context.operation.signed!.hash])).not.toBeNull();
     await fixture.rpc("anvil_mine", ["0x41", "0x0"]);
+    context.operation.releasedAt = Date.now(); context.operation.reservedWei = admission.reservation!.totalWei;
+    context.pool.activeOperationId = null; context.pool.reservedWei = admission.reservation!.totalWei;
+    context.pool.accounting!.nextNonce = String(BigInt(context.operation.template!.transaction.nonce) + 1n);
+    // Verify the released context before injecting the fee fault: an unreleased operation
+    // is refused before fee reads and would make each negative check pass for the wrong reason.
+    const valid = await producer().observeSettlement(context);
+    expect(assertWalletDeploymentSettlementEvidence(valid, context, Date.now())).toEqual(valid);
     if (fault === "runtime") await fixture.rpc("anvil_setCode", [fixture.feeContracts[0]!.implementation, "0x6000"]);
     fixture.faults.transform = (method, _params, result) => {
       if (fault === "l1Fee" && method === "eth_getTransactionReceipt" && result && typeof result === "object")

@@ -47,15 +47,22 @@ function byteRange(value: string | null, size: number): [number, number] | "unsa
     : [first, Math.min(last ?? size - 1, size - 1)];
 }
 
-function validContentRange(value: string | null, length: number | null): boolean {
+function contentRangeLength(value: string | null, length: number | null, requested: string): number | null {
   const match = value?.match(/^bytes (\d+)-(\d+)\/(\d+|\*)$/u);
-  if (!match) return false;
+  if (!match) return null;
   const start = Number(match[1]);
   const end = Number(match[2]);
   const total = match[3] === "*" ? null : Number(match[3]);
-  return [start, end, total].every(part => part === null || Number.isSafeInteger(part)) &&
-    start <= end && (total === null || total > end) &&
-    (length === null || length === end - start + 1);
+  const size = end - start + 1;
+  if (![start, end, total, size].every(part => part === null || Number.isSafeInteger(part)) ||
+    start > end || (total !== null && total <= end) || (length !== null && length !== size)) return null;
+  const expected = byteRange(requested, total ?? end + 1);
+  return Array.isArray(expected) && expected[0] === start && expected[1] === end ? size : null;
+}
+
+function cancelBody(response: Response): void {
+  // A provider's cancellation hook must not hold fallback or cache cleanup open.
+  void response.body?.cancel().catch(() => undefined);
 }
 
 async function cachedResponse(entry: CachedIpfsEntry, request: Request, etag: string): Promise<Response> {
@@ -99,7 +106,9 @@ export function createIpfsGateway(options: { cache?: IpfsDiskCache; fetcher?: ty
     }
 
     // A cold range/HEAD stays small and is never retained as a complete object.
-    const requestedRange = request.method === "GET" ? request.headers.get("range") : null;
+    const unchanged = notModified(request, etag), ifRange = request.headers.get("if-range");
+    const requestedRange = request.method === "GET" && !unchanged && (!ifRange || ifRange === etag)
+      ? request.headers.get("range") : null;
     const range = requestedRange && /^bytes=(?:\d+-\d*|-\d+)$/u.test(requestedRange) ? requestedRange : null;
     const readUpstream = async (): Promise<Response> => {
       let lastStatus = 502;
@@ -114,44 +123,44 @@ export function createIpfsGateway(options: { cache?: IpfsDiskCache; fetcher?: ty
             headers: {
               "Accept-Encoding": "identity",
               ...(range ? { Range: range } : {}),
-              ...(range && request.headers.get("if-range") ? { "If-Range": request.headers.get("if-range")! } : {}),
             },
             signal,
           });
           clearTimeout(timer);
           if (!response.ok) {
             lastStatus = response.status;
-            await response.body?.cancel();
+            cancelBody(response);
             continue;
           }
           if (response.status !== 200 && !(range && response.status === 206)) {
-            await response.body?.cancel();
+            cancelBody(response);
             lastStatus = 502;
             continue;
           }
           // Node fetch decompresses bodies. Never retain or forward the compressed byte length.
           const encoded = response.headers.get("content-encoding");
           if (response.status === 206 && encoded && encoded !== "identity") {
-            await response.body?.cancel();
+            cancelBody(response);
             lastStatus = 502;
             continue;
           }
           const rawLength = encoded && encoded !== "identity" ? null : response.headers.get("content-length");
-          const length = rawLength === null ? null : Number(rawLength);
+          let length = rawLength === null ? null : Number(rawLength);
           if (length !== null && (!/^\d+$/u.test(rawLength!) || !Number.isSafeInteger(length) || length < 0)) {
-            await response.body?.cancel();
+            cancelBody(response);
+            lastStatus = 502;
+            continue;
+          }
+          const contentRange = response.headers.get("content-range");
+          if (response.status === 206) length = contentRangeLength(contentRange, length, range!);
+          if (response.status === 206 ? length === null : contentRange !== null) {
+            cancelBody(response);
             lastStatus = 502;
             continue;
           }
           if (length !== null && length > PIN_LIMITS.gateway) {
-            await response.body?.cancel();
+            cancelBody(response);
             return failure(413, "content_too_large", "IPFS asset is too large");
-          }
-          const contentRange = response.headers.get("content-range");
-          if (response.status === 206 ? !validContentRange(contentRange, length) : contentRange !== null) {
-            await response.body?.cancel();
-            lastStatus = 502;
-            continue;
           }
           const headers = mediaHeaders(response.headers.get("content-type") ?? "application/octet-stream");
           if (response.status === 206) headers.set("Accept-Ranges", "bytes");
@@ -160,9 +169,9 @@ export function createIpfsGateway(options: { cache?: IpfsDiskCache; fetcher?: ty
             const value = response.headers.get(name);
             if (value) headers.set(name, value);
           }
-          if (request.method === "HEAD") {
-            await response.body?.cancel();
-            return new Response(null, { status: response.status, headers });
+          if (unchanged || request.method === "HEAD") {
+            cancelBody(response);
+            return new Response(null, { status: unchanged ? 304 : response.status, headers });
           }
           let streamed = 0;
           const body = response.body?.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
@@ -189,12 +198,18 @@ export function createIpfsGateway(options: { cache?: IpfsDiskCache; fetcher?: ty
       ? await options.cache.fetch(path, readUpstream, AbortSignal.any([request.signal, AbortSignal.timeout(300_000)]))
       : await readUpstream();
     const headers = new Headers(response.headers);
+    const status = unchanged && response.ok ? 304 : response.status;
+    if (status === 304) {
+      cancelBody(response);
+      headers.delete("Content-Length");
+      headers.delete("Content-Range");
+    }
     for (const [key, value] of Object.entries(SAFE_HEADERS)) headers.set(key, value);
-    if (response.ok) {
+    if (response.ok || status === 304) {
       headers.set("Cache-Control", IMMUTABLE);
       headers.set("ETag", etag);
     } else headers.set("Cache-Control", "no-store");
     if (!headers.has("X-IPFS-Cache")) headers.set("X-IPFS-Cache", "BYPASS");
-    return new Response(response.body, { status: response.status, headers });
+    return new Response(status === 304 ? null : response.body, { status, headers });
   };
 }

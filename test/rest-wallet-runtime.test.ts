@@ -6,7 +6,7 @@ import { createRestRuntime, type RestWalletConfiguration } from '../src/rest/run
 import { PostgresWalletPaymentReviewStore } from '../src/rest/wallet/paymentReviewsPostgres.js';
 import * as operationService from '../src/rest/userOperations/service.js';
 import { readRestExecutionConfiguration } from '../src/rest/executionConfig.js';
-import type { ContractPin, SmartAccountManifest, SmartSnapshot } from '../src/rest/smartAccounts/types.js';
+import type { SmartAccountManifest, SmartSnapshot } from '../src/rest/smartAccounts/types.js';
 import { PostgresWalletAppGrantStore } from '../src/rest/wallet/appGrantsPostgres.js';
 import { PostgresWalletLoginStore } from '../src/rest/wallet/loginPostgres.js';
 import { PostgresWalletHandoffStore } from '../src/rest/wallet/handoffPostgres.js';

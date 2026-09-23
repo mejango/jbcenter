@@ -19,6 +19,10 @@ const server = createServer(async (request, response) => {
     let raw = "";
     for await (const chunk of request) { raw += String(chunk); if (raw.length > 131072) throw new Error("Fixture request too large"); }
     const body = JSON.parse(raw), connection = Object.create(pool) as Pool;
+    // Receipt/replay tests select a clock at lifecycle boundaries without racing
+    // admission. SQL rows, proofs and database trigger clocks stay genuine.
+    if (body.databaseTimeMs !== undefined && (!Number.isSafeInteger(body.databaseTimeMs)
+      || Math.abs(body.databaseTimeMs - Date.now()) > 3_600_001)) throw new Error("Fixture clock outside bound");
     let wroteLogin = false;
     connection.query = pool.query.bind(pool);
     connection.connect = (async () => {
@@ -27,9 +31,11 @@ const server = createServer(async (request, response) => {
         if (property !== "query") { const value = Reflect.get(target, property); return typeof value === "function" ? value.bind(target) : value; }
         return async (...args: any[]) => {
           const sql = (typeof args[0] === "string" ? args[0] : "").replace(/\s+/g, " ").trim();
+          if (body.databaseTimeMs !== undefined && typeof args[0] === "string")
+            args[0] = args[0].replaceAll("clock_timestamp()", `to_timestamp(${body.databaseTimeMs}::numeric/1000)`);
           const result = await (query as any)(...args);
           // Explicitly simulated elapsed time for the one-hour session deadline only.
-          // Genuine proofs and actual PostgreSQL rows remain untouched. Other expiry tests
+          // Genuine proofs and actual PostgreSQL rows remain untouched. Transaction expiry tests
           // use real database clocks and real blocked transactions.
           if (body.databaseTimeOffsetMs !== undefined && sql.includes("clock_timestamp()") && /\bAS now\b/i.test(sql)) {
             if (!Number.isSafeInteger(body.databaseTimeOffsetMs) || body.databaseTimeOffsetMs < 0 || body.databaseTimeOffsetMs > 3_600_001)

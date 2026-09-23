@@ -190,11 +190,11 @@ describe('dedicated Center wallet HTTP journey',()=>{
     expect((await app.fetch(new Request(origin+'/wallet?payment='+loginId))).status).toBe(200);
     expect((await setup().app.fetch(new Request(origin+'/wallet'))).status).toBe(200);
   });
-  it('serves a dedicated passkey page with self-only scripts and no Para policy',async()=>{
+  it('serves a dedicated passkey page with self-only scripts',async()=>{
     const {app}=setup();const response=await app.fetch(new Request(origin+'/wallet'));
     expect(response.status).toBe(200);expect(await response.text()).toContain('>Sign in</button>');
     expect(response.headers.get('content-security-policy')).toContain("script-src 'self';");
-    expect(response.headers.get('content-security-policy')).not.toMatch(/para|capsule|unsafe/);
+    expect(response.headers.get('content-security-policy')).not.toMatch(/unsafe/);
     const script=await app.fetch(new Request(origin+'/wallet/assets/wallet.js'));
     expect(script.status).toBe(200);expect(script.headers.get('content-type')).toContain('application/javascript');
     expect(await script.text()).toBe('/* local browser entry */');
@@ -287,11 +287,17 @@ describe('dedicated Center wallet HTTP journey',()=>{
     mountRestSite(app as never,{app:new Hono().get('/health',c=>c.text('ok')),audience,accountsScript:'',docsHtml:'docs',docsCss:'',documents:new Map(),wallet} as unknown as RestSite);
     expect((await app.fetch(new Request(origin+'/wallet/config'))).status).toBe(200);
     expect((await app.fetch(new Request('https://center.example.test/api/v1/health'))).status).toBe(200);
-    expect((await app.fetch(new Request('https://center.example.test/accounts'))).status).toBe(200);
+    const accounts=await app.fetch(new Request('https://center.example.test/accounts'));
+    expect(accounts.status).toBe(200);
+    expect(await accounts.text()).not.toMatch(/\bPara\b|data-para-|getpara|usecapsule/);
+    expect(accounts.headers.get('content-security-policy')).toContain("connect-src 'self'");
+    expect(accounts.headers.get('content-security-policy')).toContain("default-src 'none'");
+    expect(accounts.headers.get('content-security-policy')).not.toMatch(/getpara|usecapsule/);
+    expect((await app.fetch(new Request('https://center.example.test/assets/para.js'))).status).toBe(404);
     expect((await app.fetch(new Request('https://center.example.test/wallet/config'))).status).toBe(403);
-    // Third-party Accounts scripts must never execute on the passkey cookie origin.
+    // Accounts scripts must never execute on the passkey cookie origin.
     expect((await app.fetch(new Request(origin+'/accounts'))).status).toBe(404);
-    expect((await app.fetch(new Request(origin+'/assets/para.js'))).status).toBe(404);
+    expect((await app.fetch(new Request(origin+'/assets/accounts.js'))).status).toBe(404);
     expect((await app.fetch(new Request(origin+'/api/v1/health'))).status).toBe(404);
   });
   it('shows the account while authority is being refreshed and keeps the cookie',async()=>{

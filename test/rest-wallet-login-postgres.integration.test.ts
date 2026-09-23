@@ -279,14 +279,18 @@ suite("PostgreSQL discoverable wallet login with genuine P256 and synthetic cano
     expect(again.session.accountId).toBe(value.accountId); expect(again.replayed).toBe(false);
     expect(await store.viewSession(again.sessionToken)).toMatchObject({ id: again.session.id });
   });
-  it("recovers the same session after challenge expiry even when its valid authenticator counter advances", async () => {
-    const value = await initialized(), short = new PostgresWalletLoginStore(pool, { rpId, origin: audience, loginLifetimeMs: 1800 });
-    const begun = await short.begin(), input = proof(value, begun), completed = await short.complete(input);
-    await untilDatabaseTime(begun.login.expiresAtMs);
-    expect(await short.complete(input)).toEqual({ ...completed, replayed: true });
+
+  it("recovers the same session after simulated challenge expiry even when its valid authenticator counter advances", async () => {
+    const child = await worker(), value = await initialized();
+    const admitting = new PostgresWalletLoginStore(pool, { rpId, origin: audience, loginLifetimeMs: 30_000 });
+    const begun = await admitting.begin(), input = proof(value, begun), completed = await admitting.complete(input);
+    const databaseTimeMs = begun.login.expiresAtMs + 1;
+    expect(await child.request({ action: "complete", input: wire(input), databaseTimeMs }))
+      .toEqual({ status: 200, body: { ...completed, replayed: true } });
     const changed = { ...input, assertion: signGet({ ...value.credential, challenge: begun.login.challenge,
       rpId, origin: audience, signCount: 1 }) };
-    expect(await short.complete(changed)).toEqual({ ...completed, replayed: true });
+    expect(await child.request({ action: "complete", input: wire(changed), databaseTimeMs }))
+      .toEqual({ status: 200, body: { ...completed, replayed: true } });
     expect(await completionCount()).toBe(1);
   });
 
@@ -489,13 +493,24 @@ suite("PostgreSQL discoverable wallet login with genuine P256 and synthetic cano
     expect((await pool.query("SELECT id FROM rest_wallet_logins")).rows).toEqual([{ id: live.login.id }]);
     expect(Number((await pool.query("SELECT count(*)::int AS count FROM rest_wallet_ceremonies")).rows[0].count)).toBe(before);
   });
-  it("retains completed login receipts and rejects direct early deletion after challenge expiry", async () => {
-    const value = await initialized(), short = new PostgresWalletLoginStore(pool, { rpId, origin: audience, loginLifetimeMs: 2000 });
-    const begun = await short.begin(), input = proof(value, begun), completed = await short.complete(input);
+  it("retains completed login receipts and rejects direct early deletion after real challenge expiry", async () => {
+    const child = await worker(), value = await initialized();
+    const admitting = new PostgresWalletLoginStore(pool, { rpId, origin: audience, loginLifetimeMs: 2000 });
+    const begun = await admitting.begin(), input = proof(value, begun);
+    const issuance = (await pool.query(`SELECT l.issued_at_ms,c.created_at FROM rest_wallet_logins l
+      JOIN rest_wallet_ceremonies c ON c.id=l.ceremony_id WHERE l.id=$1`, [begun.login.id])).rows[0];
+    const databaseTimeMs = Number(issuance.created_at);
+    expect(databaseTimeMs).toBeGreaterThanOrEqual(Number(issuance.issued_at_ms));
+    expect(databaseTimeMs).toBeLessThan(begun.login.expiresAtMs);
+    // Only admission uses an explicit fixed clock. Cleanup and the deletion trigger
+    // below must observe real expiry, including the pending-vs-completed distinction.
+    const completed = await child.request({ action: "complete", input: wire(input), databaseTimeMs });
+    expect(completed.status, JSON.stringify(completed.body)).toBe(200);
     await untilDatabaseTime(begun.login.expiresAtMs);
-    expect(await short.cleanup()).toBe(0);
+    expect(await databaseNow()).toBeGreaterThan(begun.login.expiresAtMs);
+    expect(await admitting.cleanup()).toBe(0);
     await expect(pool.query('DELETE FROM rest_wallet_logins WHERE id=$1', [begun.login.id])).rejects.toMatchObject({ code: '23514' });
-    expect(await short.complete(input)).toEqual({ ...completed, replayed: true });
+    expect(await admitting.complete(input)).toEqual({ ...completed.body, replayed: true });
   });
 
 });

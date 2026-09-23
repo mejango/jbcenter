@@ -1,10 +1,10 @@
 # Wallet-owned accounts and signed REST requests
 
 Center's API lets software request data or actions through web requests (REST).
-To use protected routes, select **Sign in** on [Accounts](/accounts) with your
-email, phone, social account, or an existing wallet. Your account wallet signs
-the request that creates or loads your account. The network used to identify
-that account is its **authority chain**. The account identifier is
+To use protected routes, select **Sign in** on [Accounts](/accounts) and connect
+an existing wallet. Your wallet signs the request that creates or loads your
+account. The network used to identify that account is its **authority chain**.
+The account identifier is
 `eip155:<authorityChainId>:<lowercaseOwnerAddress>`.
 
 Owners can let a bot sign API requests using its own locally generated

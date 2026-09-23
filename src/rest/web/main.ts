@@ -9,7 +9,8 @@ import {
 } from "../client/index.js";
 import { installSmartWalletUI } from "./smartSessions.js";
 
-import type { Provider } from "./para.js";
+import * as authApi from "./externalWallet.js";
+import type { Provider } from "./externalWallet.js";
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const button = (id: string) => element<HTMLButtonElement>(id);
@@ -27,7 +28,6 @@ let busy = false;
 let smartUi: ReturnType<typeof installSmartWalletUI> | undefined;
 let authRevision = 0;
 let identitySubscription: { provider: Provider; invalidate: () => void; networkChanged: () => void; dispose?: () => void } | undefined;
-let authApi: typeof import("./para.js") | undefined;
 
 function status(message: string, error = false) {
   const node = element("status"); node.textContent = message; node.dataset.error = String(error);
@@ -80,17 +80,13 @@ async function walletTypedSignature(provider: Provider, owner: Address, chainId:
   return signWalletTypedData({ provider: authorityProvider, address: owner, chainId, document: typedData, signatureFormat: "wallet",
     stillCurrent: () => current === connection });
 }
-let para: Promise<typeof import("./para.js")> | undefined;
-function authentication() {
-  return para ??= import("./para.js").then(api => { authApi = api; return api; }).catch(error => { para = undefined; throw error; });
-}
 async function connectAccount(sourceProvider: Provider, enroll: boolean, revision: number) {
   if (revision !== authRevision) return;
-  let networkSession: ReturnType<typeof import("./para.js").walletNetworkSession> | undefined;
+  let networkSession: ReturnType<typeof authApi.walletNetworkSession> | undefined;
   let connection: AccountConnection | undefined, ready = false, setupNetworkRevision = 0;
   const invalidate = () => {
     if (identitySubscription?.invalidate !== invalidate) return;
-    authApi?.forgetSignIn();
+    authApi.forgetSignIn();
     reset();
   };
   const networkChanged = () => {
@@ -111,15 +107,15 @@ async function connectAccount(sourceProvider: Provider, enroll: boolean, revisio
   if (!Array.isArray(accounts) || typeof accounts[0] !== "string" || typeof chain !== "string" || !/^0x[0-9a-fA-F]+$/.test(chain)) throw new Error("Invalid account identity.");
   const owner = getAddress(accounts[0]), walletChainId = Number(chain);
   if (!Number.isSafeInteger(walletChainId) || walletChainId < 1) throw new Error("Invalid account network.");
-  const chainId = enroll ? walletChainId : authApi?.restoredAuthorityChainId(sourceProvider, owner, walletChainId);
+  const chainId = enroll ? walletChainId : authApi.restoredAuthorityChainId(sourceProvider, owner, walletChainId);
   if (!chainId) throw new Error("Restored account identity changed.");
   const accountId = accountIdFor(owner, chainId);
-  networkSession = authApi!.walletNetworkSession({ provider: sourceProvider, owner, chainId: walletChainId,
+  networkSession = authApi.walletNetworkSession({ provider: sourceProvider, owner, chainId: walletChainId,
     stillCurrent: () => !!connection && current === connection && revision === authRevision,
     onChain: (activeChainId) => {
       if (!connection || current !== connection || revision !== authRevision) return;
       connection.walletChainId = activeChainId;
-      if (ready) authApi?.rememberSignIn(sourceProvider, owner, chainId, activeChainId);
+      if (ready) authApi.rememberSignIn(sourceProvider, owner, chainId, activeChainId);
     },
   });
   identitySubscription.dispose = () => networkSession?.dispose();
@@ -137,7 +133,7 @@ async function connectAccount(sourceProvider: Provider, enroll: boolean, revisio
   if (revision !== authRevision || current !== connection) return;
   // This remembers only a public reconnect hint. The wallet still validates and signs every protected action.
   ready = true;
-  authApi?.rememberSignIn(sourceProvider, owner, chainId, connection.walletChainId);
+  authApi.rememberSignIn(sourceProvider, owner, chainId, connection.walletChainId);
   element("identity").textContent = `Signed in as ${owner.slice(0, 6)}…${owner.slice(-4)}`;
   element("identity").title = owner;
   button("disconnect").hidden = false;
@@ -153,10 +149,10 @@ button("connect").addEventListener("click", () => void run(async () => {
   button("connect").textContent = "Signing in…";
   status("Signing in…");
   try {
-    const provider = await (await authentication()).signIn();
+    const provider = await authApi.signIn();
     await connectAccount(provider, true, revision);
   } catch (error) {
-    if (revision === authRevision) { authApi?.forgetSignIn(); reset(); }
+    if (revision === authRevision) { authApi.forgetSignIn(); reset(); }
     throw error;
   } finally {
     button("connect").disabled = false;
@@ -164,7 +160,7 @@ button("connect").addEventListener("click", () => void run(async () => {
   }
 }));
 button("disconnect").addEventListener("click", () => void run(async () => {
-  try { await (await authentication()).signOut(); }
+  try { await authApi.signOut(); }
   finally { reset(); }
 }));
 function botSettings() {
@@ -225,7 +221,6 @@ async function register(document: BotRegistration) {
   if (document.audience !== audience || document.accountId !== connection.accountId) throw new Error("Registration belongs to another account or service.");
   await verifyBotProof(audience, { accountId: document.accountId, ownerRequestNonce: document.ownerRequestNonce, ...document.registration }, document.registration.proofSignature);
   status("Review the bot details and approve registration in your wallet.");
-  (await authentication()).setReviewedRequestBody(document.registration);
   const { bot } = await connection.client.request<{ bot: BotGrant }>({
     method: "POST", requestTarget: "/api/v1/accounts/me/bots", json: document.registration, nonce: document.ownerRequestNonce,
   });
@@ -290,9 +285,7 @@ void (async () => {
   status("Checking your sign-in…");
   element("identity").textContent = "Checking your sign-in…";
   try {
-    const api = await authentication();
-    if (revision !== authRevision) return;
-    const provider = await api.restoreSignIn();
+    const provider = await authApi.restoreSignIn();
     if (revision !== authRevision) return;
     if (provider) await connectAccount(provider, false, revision);
     else {

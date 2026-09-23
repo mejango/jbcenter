@@ -13,7 +13,7 @@ import {
   type RestPlanDraft,
   type RestRpc,
 } from "../core.js";
-import { encodeCursor, recoverableStates, type TransactionStore } from "./store.js";
+import { encodeCursor, isRecoverableStep, type TransactionStore } from "./store.js";
 import type { SmartAccountBinding } from "../smartAccounts/types.js";
 import type {
   ExternalExecutionObserver,
@@ -678,7 +678,7 @@ export class TransactionService {
         results.push({ planId: plan.id, status: "reconciliation-unavailable" });
       }
       for (const step of current.steps) {
-        if (step.attempt && recoverableStates.includes(step.state)) {
+        if (step.attempt && isRecoverableStep(step)) {
           oldestPendingAt = Math.min(oldestPendingAt ?? Infinity, step.attempt.reservedAt);
         }
       }

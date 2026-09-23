@@ -108,7 +108,9 @@ export const pay721Schema = z
     project: projectSchema,
     account: nonzero,
     token: nonzero,
-    amount: positiveUintSchema,
+    amount: uintSchema.describe(
+      'Fresh payment amount in the token’s smallest units. Use 0 for free tiers or eligible NFT-credit purchases.',
+    ),
     beneficiary: nonzero,
     tierIds: z
       .array(uint(16).refine((v) => BigInt(v) > 0n))

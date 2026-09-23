@@ -151,4 +151,38 @@ suite("durable smart account bindings", () => {
       ),
     ).toBe(true);
   });
+  it("rolls back the binding and nonce if authorization expires during its writes", async () => {
+    const value = record(5);
+    // Sequence advances survive rollback, proving the INSERT stage was reached.
+    await pool.query("CREATE SEQUENCE delayed_binding_inserts");
+    await pool.query(`CREATE FUNCTION delay_binding_insert() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        PERFORM nextval('delayed_binding_inserts');
+        PERFORM pg_sleep(GREATEST(0, (NEW.document->'authorization'->>'expiresAt')::numeric
+          - extract(epoch FROM clock_timestamp()) + 0.05));
+        RETURN NEW;
+      END;
+    $$`);
+    await pool.query("CREATE TRIGGER delay_binding_insert BEFORE INSERT ON rest_smart_account_bindings FOR EACH ROW EXECUTE FUNCTION delay_binding_insert()");
+    try {
+      const clock = await pool.query<{ expires_at: string }>(
+        "SELECT (floor(extract(epoch FROM clock_timestamp())) + 6)::text AS expires_at",
+      );
+      value.authorization.expiresAt = Number(clock.rows[0]!.expires_at);
+      await expect(registry.bind(value)).rejects.toMatchObject({
+        code: "SMART_BINDING_EXPIRED",
+      });
+      expect((await pool.query("SELECT is_called FROM delayed_binding_inserts")).rows).toEqual([{ is_called: true }]);
+      expect(await registry.get(accountId, value.id)).toBeUndefined();
+      const nonceRows = await pool.query(
+        "SELECT nonce FROM rest_smart_account_binding_nonces WHERE account_id=$1 AND nonce=$2",
+        [accountId, value.authorization.nonce],
+      );
+      expect(nonceRows.rows).toHaveLength(0);
+    } finally {
+      await pool.query("DROP TRIGGER delay_binding_insert ON rest_smart_account_bindings");
+      await pool.query("DROP FUNCTION delay_binding_insert()");
+      await pool.query("DROP SEQUENCE delayed_binding_inserts");
+    }
+  });
 });

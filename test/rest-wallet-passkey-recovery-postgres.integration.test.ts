@@ -64,15 +64,17 @@ suite('durable replacement-passkey proof intake (canonical state explicitly mode
     return { context, begun, key, record, proof };
   }
   async function observe(context: WalletAuthorityContext, lifetime = 30000): Promise<WalletAuthorityObservation> {
-    const observedAtMs = await now(), expected = walletAuthorityExpectedAnchor(context);
+    const expected = walletAuthorityExpectedAnchor(context), contextDigest = walletAuthorityContextDigest(context);
     const blockNumber = String(BigInt(context.prior?.highestObservedBlock ?? '100') + 1n);
-    return { version: 'center-wallet-authority-observation-v1', accountId: context.accountId, contextDigest: walletAuthorityContextDigest(context),
+    const identity = createWalletAuthorityIdentity(context, { stateHash: context.binding.state.stateHash,
+      sessionAdministration: { epoch: '0', hash: `0x${'77'.repeat(32)}` }, creationTransaction: `0x${'66'.repeat(32)}` });
+    const observedAtMs = await now();
+    return { version: 'center-wallet-authority-observation-v1', accountId: context.accountId, contextDigest,
       observedAtMs, validUntilMs: observedAtMs + lifetime,
       head: blockNumber === context.binding.state.evidence.blockNumber ? structuredClone(context.binding.state.evidence)
         : { chainId: 8453, blockNumber, blockHash: `0x${'88'.repeat(32)}`, timestamp: String(Math.floor(observedAtMs / 1000)), source: 'onchain' },
       priorAnchor: { status: expected ? 'same' : 'none', expected, observed: expected },
-      identity: createWalletAuthorityIdentity(context, { stateHash: context.binding.state.stateHash,
-        sessionAdministration: { epoch: '0', hash: `0x${'77'.repeat(32)}` }, creationTransaction: `0x${'66'.repeat(32)}` }),
+      identity,
       eligibility: 'matched', reason: null };
   }
   async function replacementSetup(value: Awaited<ReturnType<typeof registered>>) {
@@ -136,7 +138,7 @@ suite('durable replacement-passkey proof intake (canonical state explicitly mode
   });
   it('expires unaccepted proofs and preserves the exact accepted receipt after its deadline', async () => {
     // Registration and proof both sign real credentials, so the lifetime covers that work.
-    const short = new PostgresWalletRecoveryStore(pool, { ...policy, lifetimeMs: 4_000 });
+    const short = new PostgresWalletRecoveryStore(pool, { ...policy, lifetimeMs: 5_000 });
     const accepted = await registered(short), receipt = await short.prove(accepted.record.intent.id, accepted.begun.flowToken, accepted.proof);
     const pending = await registered(short);
     await pool.query('SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.02)', [pending.record.intent.expiresAtMs]);
@@ -209,18 +211,36 @@ suite('durable replacement-passkey proof intake (canonical state explicitly mode
   });
   it('rolls every mapping, grant and epoch write back when observation expires during the transaction', async () => {
     const value = await registered(), next = await replacementSetup(value), id = value.record.intent.id;
-    await pool.query(`CREATE FUNCTION delay_recovery_mapping() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
-      IF NEW.activation IS NOT NULL THEN PERFORM pg_sleep(1.1); END IF; RETURN NEW; END $$;
-      CREATE TRIGGER delay_recovery_mapping AFTER UPDATE ON rest_wallet_recoveries FOR EACH ROW EXECUTE FUNCTION delay_recovery_mapping()`);
+    // Sequence writes survive rollback, proving the activation UPDATE reached its
+    // AFTER trigger while the original observation deadline was still live.
+    await pool.query(`CREATE SEQUENCE recovery_mapping_write;
+      CREATE FUNCTION delay_recovery_mapping() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.activation IS NOT NULL THEN
+        PERFORM setval('recovery_mapping_write',floor(extract(epoch FROM clock_timestamp())*1000)::bigint);
+        PERFORM pg_sleep(GREATEST(0,(TG_ARGV[0]::bigint-extract(epoch FROM clock_timestamp())*1000)/1000)+0.02);
+      END IF; RETURN NEW; END $$`);
     try {
-      const short = new PostgresWalletRecoveryStore(pool, policy, { audience: policy.origin, observe: context => observe(context, 1000) });
-      await expect(short.activate(id, value.begun.flowToken, next.assertion)).rejects.toMatchObject({ status: 410 });
+      let expiresAt = 0;
+      const short = new PostgresWalletRecoveryStore(pool, policy, { audience: policy.origin, observe: async context => {
+        const observation = await observe(context, 5000);
+        expiresAt = observation.validUntilMs!;
+        await pool.query(`CREATE TRIGGER delay_recovery_mapping AFTER UPDATE ON rest_wallet_recoveries
+          FOR EACH ROW EXECUTE FUNCTION delay_recovery_mapping('${expiresAt}')`);
+        return observation;
+      } });
+      await expect(short.activate(id, value.begun.flowToken, next.assertion)).rejects.toMatchObject({
+        status: 410, code: 'WALLET_RECOVERY_OBSERVATION_EXPIRED' });
+      const witness = (await pool.query('SELECT last_value,is_called FROM recovery_mapping_write')).rows[0];
+      expect(witness.is_called).toBe(true);
+      expect(Number(witness.last_value)).toBeLessThan(expiresAt);
+      expect(await now()).toBeGreaterThanOrEqual(expiresAt);
       expect((await pool.query('SELECT credential_id,superseded_at FROM rest_wallet_credentials')).rows).toEqual([
         { credential_id: value.context.credential.credentialId, superseded_at: null }]);
       expect((await pool.query('SELECT authority_epoch,session_epoch FROM rest_wallet_authority')).rows[0]).toEqual({ authority_epoch: '1', session_epoch: '1' });
       expect((await pool.query('SELECT count(*)::int AS count FROM rest_bot_grants WHERE revoked_at IS NOT NULL')).rows[0].count).toBe(0);
       expect((await store.get(id, value.begun.flowToken))!.activation).toBeNull();
-    } finally { await pool.query('DROP TRIGGER delay_recovery_mapping ON rest_wallet_recoveries; DROP FUNCTION delay_recovery_mapping()'); }
+    } finally { await pool.query(`DROP TRIGGER IF EXISTS delay_recovery_mapping ON rest_wallet_recoveries;
+      DROP FUNCTION delay_recovery_mapping(); DROP SEQUENCE recovery_mapping_write`); }
   });
   it('reserves account recovery capacity only after valid backup-wallet and replacement-passkey proofs', async () => {
     const context = await existing(), options = { ...policy, maxRecords: 10, maxAccountRecords: 1 };
@@ -275,7 +295,7 @@ suite('durable replacement-passkey proof intake (canonical state explicitly mode
   }, 15000);
   it('reclaims expired unproved recoveries while preserving accepted proofs and their immutable history', async () => {
     // Registration and proof both sign real credentials, so the lifetime covers that work.
-    const short = new PostgresWalletRecoveryStore(pool, { ...policy, lifetimeMs: 4_000 });
+    const short = new PostgresWalletRecoveryStore(pool, { ...policy, lifetimeMs: 5_000 });
     const accepted = await registered(short), receipt = await short.prove(accepted.record.intent.id, accepted.begun.flowToken, accepted.proof);
     const abandoned = await registered(short);
     await pool.query('SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.02)', [abandoned.record.intent.expiresAtMs]);

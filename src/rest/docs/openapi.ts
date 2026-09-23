@@ -404,12 +404,12 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
   add('/wallet/payment-reviews', 'POST', 'prepareWalletPaymentReview', 'Prepare an exact passkey payment review for the current app', 'WalletPayments', 'plan', {
     body: ref('PrepareWalletPaymentReview'), result: ref('WalletPaymentReview'), status: 201, idempotent: true,
     description: 'Requires a current typed wallet-app grant. The server loads its existing prepared operation and derives the payment and SafeOp digest. Neither API owners nor legacy bot grants can use this route. The saved allowlist callback supplies the return location. No signature, nonce reservation or submission occurs here.',
-    extra: { 'x-principal-kind': 'wallet-app', 'x-runtime-capability': 'wallet.payments' },
+    extra: { 'x-principal-kind': 'wallet-app' },
   });
   add('/wallet/payment-reviews/{id}', 'GET', 'getWalletPaymentReview', 'Read the original app review and any live owner approval', 'WalletPayments', 'read', {
     parameters: [pathParameter('id', ref('ResourceId'))], result: ref('WalletPaymentAppReview'),
     description: 'Only the original current app grant and incarnation can retrieve its review. Approval requires a separate explicit passkey ceremony on the central wallet origin. A winning signature is returned only while the review and authority remain live. Submit it through the original UserOperation endpoint with unchanged fields. After review expiry, reconcile the original UserOperation; expiry does not establish a safe replacement.',
-    extra: { 'x-principal-kind': 'wallet-app', 'x-runtime-capability': 'wallet.payments' },
+    extra: { 'x-principal-kind': 'wallet-app' },
   });
   add("/user-operations", "POST", "prepareUserOperation", "Prepare exact EntryPoint v0.7 bytes and the appropriate signing payload", "UserOperations", "plan", {
     body: ref("PrepareUserOperation"), result: { oneOf: [ref("UserOperation"), ref("SponsoredPaymentPreparation")] }, status: 201, idempotent: true,

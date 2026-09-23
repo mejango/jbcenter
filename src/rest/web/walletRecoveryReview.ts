@@ -8,7 +8,6 @@ export interface WalletRecoveryReviewSelection {
 }
 const factoryAbi = parseAbi(['function createSigner(uint256 x,uint256 y,uint176 verifiers) returns(address)']);
 const safeAbi = parseAbi(['function swapOwner(address previousOwner,address oldOwner,address newOwner)']);
-const sentinel = '0x0000000000000000000000000000000000000001';
 const types = { SafeTx: [
   { name: 'to', type: 'address' }, { name: 'value', type: 'uint256' }, { name: 'data', type: 'bytes' },
   { name: 'operation', type: 'uint8' }, { name: 'safeTxGas', type: 'uint256' }, { name: 'baseGas', type: 'uint256' },

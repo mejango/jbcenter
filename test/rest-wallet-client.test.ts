@@ -100,7 +100,7 @@ describe('Center browser wallet connection', () => {
 
   it('completes a callback delivered from another window without touching this page, and launches into a named window', async () => {
     const f = fixture(), client = f.client(), page = f.href();
-    const prepared = await client.prepareConnection();
+    await client.prepareConnection();
     // The callback URL arrives by message from the popup; this page's address stays as it was.
     const delivered = walletHandoffCallback({ request: JSON.parse([...f.data.values()][0]!).request, code });
     expect((await client.completeConnection(delivered)).accountId).toBe(accountId);

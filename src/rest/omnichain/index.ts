@@ -4,15 +4,13 @@ import {
   OMNICHAIN_LIMITS as L,
   type OmnichainDependencies,
   type OmnichainMember,
+  type OmnichainObservation as Observation,
   type OmnichainOptions,
   type OmnichainProject,
 } from "./types.js";
 
 export * from "./types.js";
 type Row = Record<string, unknown>;
-type Observation<T> =
-  | { status: "known"; value: T }
-  | { status: "unknown"; error: { code: string; message: string } };
 const CHAINS: Record<number, IndexerNetwork> = {
   1: "mainnet",
   10: "mainnet",
@@ -322,7 +320,8 @@ export function mapIndexedBridgeMovement(
         .map((event) => event.txHash)
         .filter(
           (hash): hash is string => typeof hash === "string" && HASH.test(hash),
-        ),
+        )
+        .map((hash) => hash.toLowerCase()),
     ),
   ];
   if (hashes.length > 1)

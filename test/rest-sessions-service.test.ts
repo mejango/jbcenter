@@ -908,15 +908,22 @@ for (const kind of ["memory", "postgres"] as const) {
       expect(h.authorizeOwnerPlan).toHaveBeenCalledTimes(count);
     });
     it("supersedes an expired unsubmitted owner plan without changing the compiled permission or resetting counters", async () => {
-      const h = await setup(kind, 1_500),
-        prepared = await h.prepare(),
-        first = await h.ownerPlan(prepared);
+      // Admission must survive real owner-auth/storage work before this test waits
+      // for expiry; whole-second block evidence can spend up to one second of TTL.
+      const h = await setup(kind, 5_000),
+        prepared = await h.prepare();
+      h.advance();
+      const first = await h.ownerPlan(prepared);
       await new Promise((resolve) =>
         setTimeout(
           resolve,
           Math.max(0, first.plan.expiresAt - Date.now()) + 40,
         ),
       );
+      const expiredAt = kind === "postgres"
+        ? Number((await pool!.query("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::text AS now")).rows[0].now)
+        : Date.now();
+      expect(expiredAt).toBeGreaterThanOrEqual(first.plan.expiresAt);
       h.advance();
       const replacement = await h.ownerPlan(prepared);
       expect(replacement.plan.id).not.toBe(first.plan.id);
@@ -1004,6 +1011,25 @@ for (const kind of ["memory", "postgres"] as const) {
         reservationsReleased: true,
       });
       expect(h.verifier.verifyRevoked).toHaveBeenCalled();
+    });
+    it.each([false, true])("reconciles a prepared session's revocation without activation (unlinked=%s)", async (unlinked) => {
+      const h = await setup(kind),
+        prepared = await h.prepare();
+      const revocation = await h.ownerPlan(prepared, "revocation");
+      expect(revocation.session.activation).toBeUndefined();
+      expect(revocation.session.state).toBe("revoking");
+      if (unlinked) await h.unlink();
+      h.observe(prepared, { enabled: false, enableNonce: "1" });
+      expect(await h.service.quota(h.owner, prepared.id)).toMatchObject({
+        state: "revoked",
+        reservationsReleased: true,
+        counters: [],
+      });
+      expect(await h.service.get(h.owner, prepared.id, false)).toMatchObject({
+        state: "revoked",
+        reservationsReleased: true,
+      });
+      expect(h.verifier.verifyRevoked).toHaveBeenCalledTimes(unlinked ? 1 : 0);
     });
     it("keeps a disabled permission revoking until its enable nonce advances and retirement is finalized", async () => {
       const h = await setup(kind),

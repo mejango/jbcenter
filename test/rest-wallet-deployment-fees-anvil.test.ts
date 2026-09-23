@@ -20,7 +20,6 @@ const anvil = process.env.ANVIL_BINARY ?? "anvil", forge = process.env.FORGE_BIN
 const available = spawnSync(anvil, ["--version"]).status === 0 && spawnSync(forge, ["--version"]).status === 0;
 const referenceAddress = "0x000000000000000000000000000000000000bEEF" as Address;
 const relay = privateKeyToAccount(`0x${"22".repeat(32)}`); // Public fixture authority only.
-const bytes = (value: Hex) => Uint8Array.from(Buffer.from(value.slice(2), "hex"));
 type SolidityQuote = {
   fastLzLength: bigint; estimatedSizeScaled: bigint; l1FeeAtParameters: bigint;
   operatorMaximumAtParameters: bigint; executionMaximum: bigint; totalMaximumAtParameters: bigint;

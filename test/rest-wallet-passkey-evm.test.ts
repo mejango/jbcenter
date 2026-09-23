@@ -45,7 +45,6 @@ const rpId = "wallet.juicebox.center", origin = `https://${rpId}`;
 const credentialId = Buffer.from("synthetic-p256-credential").toString("base64url");
 const userHandle = Buffer.from("synthetic-wallet-user").toString("base64url");
 const sha256 = (value: string | Uint8Array) => createHash("sha256").update(value).digest();
-const hex = (value: Uint8Array): Hex => `0x${Buffer.from(value).toString("hex")}`;
 // Public P-256 generator / scalar 1: deliberately public local test authority, never a wallet key.
 const publicKey = {
   x: "0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296" as Hex,

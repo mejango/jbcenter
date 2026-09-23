@@ -7,7 +7,7 @@ Reviewed 2026-09-13 against Center `109cb0e`. This is the implementation strateg
 - Center owns the shared wallet lifecycle and execution. Beep and Juicebox Money are its first two clients.
 - New wallets use passkeys for creation, sign-in and exact payment approval. No email, phone or messaging-provider dependency. WhatsApp remains a possible later contact feature.
 - The existing Center origin allowlist supplies first-party trust. No per-site connection consent. Authentication and fresh transaction approval still apply.
-- Start with Base and the existing V6 payment path. Beep removes its Para integration and uses Center for its built-in wallet. Center and Money support both Para and Center passkeys during the transition. Preserve external wallets, existing account data/IDs and exact signed protocol meanings; retire Para in Center only after a tested migration path exists.
+- Start with Base and the existing V6 payment path. Beep removes its Para integration and uses Center for its built-in wallet. Center retires Para while preserving passkeys, external wallets, existing account data/IDs and exact signed protocol meanings. This retirement does not change Money or Revnet.
 - Reuse the existing client package, PostgreSQL, account inspection, relay and recovery machinery. Do not build an MPC service or a second execution gateway.
 
 ## Review findings that change the sequence
@@ -85,6 +85,8 @@ Each row is a dependency boundary, not a requirement to fit unrelated schema, cr
 | W11. Pressure qualification | Sustained, burst, hot-wallet, backlog, recovery and failure scenarios | Harness begins in W3; W11 aggregates measured behavior after integrations. Fix observed failures and rerun affected scenarios. |
 | W12. Release and migration readiness | New-wallet rollout, legacy compatibility, migration design, operating controls and rollback | W5+W8+W9+W10+W11. External review/remediation, backup restore reconciliation, bounded real-provider pilot and release evidence. Inventory and rehearse actual authority/asset migration before moving legacy users; that later migration does not block new-wallet-only rollout. |
 
+Current Center scope retires Para without a migration. The following original rollout guidance applies to any separately authorized migration:
+
 Prefer new-wallet rollout first. Legacy Para users keep their working account until the reviewed migration is explicitly authorized. A migration must account for credits, project administration, allowances and nontransferable positions, not just ERC-20 balances.
 
 ## Work allocation and file boundaries
@@ -97,7 +99,7 @@ After W1, persistence/shared sessions and deployment/contract execution can prog
 | --- | --- |
 | Authority and identity | Center `src/rest/auth/{signatures,service,store,postgres}.ts`, `contractOwner.ts`, `smartAccounts/{service,onboarding,onboardingStore,onboardingPostgres}.ts` |
 | Contracts and signatures | `smartAccounts/{accountExecution,creation,inspector,types}.ts`, `smartAccounts/stack/`, `userOperations/{service,provider,postgres}.ts` |
-| Shared client and UI | `src/rest/client/{index,center,smartAccounts}.ts`, `web/{main,smartSessions,operationQueue,walletRecovery}.ts`, `site.ts`; isolate passkey UI from the existing Para-enabled page policy |
+| Shared client and UI | `src/rest/client/{index,center,smartAccounts}.ts`, `web/{main,smartSessions,operationQueue,walletRecovery}.ts`, `site.ts`; keep passkey UI isolated from the external-wallet page policy |
 | Beep | `src/embedded-wallet.ts`, `center.ts`, `center-access.ts`, `payment-account.ts`, `client/{main,para}.tsx`, sponsored-payment and receipt code |
 | Money | `src/providers/{Providers,lazy-para-connector,wallet-connectors}.ts*`, `hooks/useWallet.ts`, `lib/{wallet-core,safe,safe-connector,safe-batch-connector}.ts` |
 | Native | Beep `ios/` currently proves Para enrollment and browser checkout only; native payments/funding/receipts/recovery still need implementation |

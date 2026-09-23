@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { encodeFunctionData, erc20Abi, hashTypedData, parseAbi, type Address, type Hex } from "viem";
+import { encodeFunctionData, erc20Abi, hashTypedData, parseAbi, type Address } from "viem";
 import { createWalletPaymentReviewDraft, validateWalletPaymentReviewDraft, assertWalletPaymentReviewContext,
   verifyWalletPaymentReviewProof, type WalletPaymentReviewContext } from "../src/rest/wallet/paymentReviews.js";
 import { createWalletAuthorityContextFixture } from "./fixtures/wallet-authority-context.js";

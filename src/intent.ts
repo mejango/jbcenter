@@ -6,15 +6,17 @@ const MAX_DEPTH = 64;
 const MAX_CALL_DATA_BYTES = 4 * 1024 * 1024;
 const FORMAT = /^[a-z0-9.-]{1,80}\/[a-zA-Z0-9._-]{1,32}$/u;
 
+export class IntentValidationError extends Error {}
+
 function object(value: unknown, name: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${name} must be a JSON object`);
+    throw new IntentValidationError(`${name} must be a JSON object`);
   }
   return value as Record<string, unknown>;
 }
 
 function asJson(value: unknown, depth = 0): Json {
-  if (depth > MAX_DEPTH) throw new Error(`jb exceeds the ${MAX_DEPTH}-level nesting limit`);
+  if (depth > MAX_DEPTH) throw new IntentValidationError(`jb exceeds the ${MAX_DEPTH}-level nesting limit`);
   if (value === null || typeof value === "string" || typeof value === "boolean") return value;
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (Array.isArray(value)) return value.map((item) => asJson(item, depth + 1));
@@ -26,7 +28,7 @@ function asJson(value: unknown, depth = 0): Json {
       ]),
     );
   }
-  throw new Error("jb contains a value JSON cannot represent");
+  throw new IntentValidationError("jb contains a value JSON cannot represent");
 }
 
 function jbChainIds(jb: Record<string, Json>): number[] | null {
@@ -49,20 +51,20 @@ function deploymentCalls(value: unknown, chainIds: number[]): DeploymentCall[] {
     value.length < chainIds.length ||
     value.length > chainIds.length * MAX_CALLS_PER_CHAIN
   ) {
-    throw new Error(CALL_COUNT);
+    throw new IntentValidationError(CALL_COUNT);
   }
   const calls = value.map((item, index) => {
     const raw = object(item, `deploymentCalls[${index}]`);
     const chainId = Number(raw.chainId);
     if (!Number.isSafeInteger(chainId) || chainId <= 0) {
-      throw new Error(`deploymentCalls[${index}].chainId must be a positive safe integer`);
+      throw new IntentValidationError(`deploymentCalls[${index}].chainId must be a positive safe integer`);
     }
     const to = address(raw.to, `deploymentCalls[${index}].to`);
     if (typeof raw.data !== "string" || !/^0x(?:[0-9a-f]{2}){4,}$/iu.test(raw.data)) {
-      throw new Error(`deploymentCalls[${index}].data must be contract calldata`);
+      throw new IntentValidationError(`deploymentCalls[${index}].data must be contract calldata`);
     }
     if (size(raw.data as Hex) > MAX_CALL_DATA_BYTES) {
-      throw new Error(`deploymentCalls[${index}].data exceeds ${MAX_CALL_DATA_BYTES} bytes`);
+      throw new IntentValidationError(`deploymentCalls[${index}].data exceeds ${MAX_CALL_DATA_BYTES} bytes`);
     }
     return { chainId, to, data: raw.data.toLowerCase() as Hex };
   });
@@ -73,26 +75,26 @@ function deploymentCalls(value: unknown, chainIds: number[]): DeploymentCall[] {
     groups.set(call.chainId, group);
   });
   if (groups.size !== chainIds.length || chainIds.some((chainId) => !groups.has(chainId))) {
-    throw new Error(CALL_COUNT);
+    throw new IntentValidationError(CALL_COUNT);
   }
   for (const group of groups.values()) {
-    if (group.length > MAX_CALLS_PER_CHAIN) throw new Error(CALL_COUNT);
+    if (group.length > MAX_CALLS_PER_CHAIN) throw new IntentValidationError(CALL_COUNT);
     // The last call for a chain launches the project; each earlier one creates a Safe,
     // so the sponsor never pays for arbitrary work.
     const seen = new Set<Hex>();
     for (const { call, index } of group.slice(0, -1)) {
       if (call.to !== SAFE_FACTORY) {
-        throw new Error(`deploymentCalls[${index}].to must be the canonical Safe proxy factory`);
+        throw new IntentValidationError(`deploymentCalls[${index}].to must be the canonical Safe proxy factory`);
       }
       if (!decodeSafeSetupCall(call)) {
-        throw new Error(
+        throw new IntentValidationError(
           `deploymentCalls[${index}].data must create a plain Safe with 1 to 20 unique owners`,
         );
       }
       // The second one creates nothing: the Safe is already at that address, so the
       // sponsor would pay for a revert.
       if (seen.has(call.data)) {
-        throw new Error(`deploymentCalls[${index}] repeats a setup call on its chain`);
+        throw new IntentValidationError(`deploymentCalls[${index}] repeats a setup call on its chain`);
       }
       seen.add(call.data);
     }
@@ -115,24 +117,24 @@ export function normalizeEnvelope(value: unknown): IntentEnvelope {
   const format = typeof raw.format === "string" ? raw.format.trim() : "";
   const deploymentVersion =
     typeof raw.deploymentVersion === "string" ? raw.deploymentVersion.trim() : "";
-  if (!FORMAT.test(format)) throw new Error("format must look like juicebox.money/v1");
+  if (!FORMAT.test(format)) throw new IntentValidationError("format must look like juicebox.money/v1");
   if (!deploymentVersion || deploymentVersion.length > 64) {
-    throw new Error("deploymentVersion must be between 1 and 64 characters");
+    throw new IntentValidationError("deploymentVersion must be between 1 and 64 characters");
   }
   if (!Array.isArray(raw.chainIds) || raw.chainIds.length === 0 || raw.chainIds.length > 16) {
-    throw new Error("chainIds must contain between 1 and 16 chains");
+    throw new IntentValidationError("chainIds must contain between 1 and 16 chains");
   }
   const chainIds = [...new Set(raw.chainIds.map(Number))].sort((a, b) => a - b);
   if (
     chainIds.length !== raw.chainIds.length ||
     chainIds.some((chainId) => !Number.isSafeInteger(chainId) || chainId <= 0)
   ) {
-    throw new Error("chainIds must contain unique positive safe integers");
+    throw new IntentValidationError("chainIds must contain unique positive safe integers");
   }
   const jb = asJson(object(raw.jb, "jb")) as Record<string, Json>;
   const declared = jbChainIds(jb);
   if (declared && JSON.stringify(declared) !== JSON.stringify(chainIds)) {
-    throw new Error("chainIds must match the chains declared by the .jb file");
+    throw new IntentValidationError("chainIds must match the chains declared by the .jb file");
   }
   return {
     format,
@@ -162,10 +164,10 @@ export function signingMessage(hash: Hex): string {
 }
 
 export function address(value: unknown, name: string): Address {
-  if (typeof value !== "string") throw new Error(`${name} must be an Ethereum address`);
+  if (typeof value !== "string") throw new IntentValidationError(`${name} must be an Ethereum address`);
   try {
     return getAddress(value);
   } catch {
-    throw new Error(`${name} must be an Ethereum address`);
+    throw new IntentValidationError(`${name} must be an Ethereum address`);
   }
 }

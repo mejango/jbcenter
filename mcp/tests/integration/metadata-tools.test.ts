@@ -6,7 +6,7 @@ import { createServices } from '../../src/app.js';
 import { loadConfig } from '../../src/config.js';
 import { createMcpServer } from '../../src/mcp/server.js';
 import { createMetadataTools } from '../../src/mcp/metadata-tools.js';
-import { ProjectMetadataService } from '../../src/services/metadata.js';
+import { ProjectMetadataService, type PinProjectLogo } from '../../src/services/metadata.js';
 
 const SECRET = 'metadata-protocol-tests-only-'.repeat(3);
 const CID = 'QmYwAPJzv5CZsnAzt8auVZRnGi6FeDxhRFPKtfFA2ux8SA';
@@ -202,6 +202,40 @@ describe('logo pinning', () => {
     ]).toString('base64');
     await expect(attempt({ contentType: 'image/png', imageBase64: oversize })).rejects.toThrow();
     expect(pinLogo).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:s="http://www.w3.org/2000/svg"><s:script>window.active=true</s:script></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:s="http://www.w3.org/2000/svg"><s:foreignObject/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect style="fill:u\\72l(https://example.invalid/image)"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect style="background-image:image-set(\'https://example.invalid/image\' 1x)"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect fill="u&#114;l(https://example.invalid/image)"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect fill="u\\72l(https://example.invalid/image)"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect fill="u&#92;72l(https://example.invalid/image)"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><a><animate attributeName="href" values="javascript:alert(1)"/></a></svg>',
+    '<svg xmlns="http://www.w3.org/1999/xhtml"><form action="https://example.invalid"/></svg>',
+  ])('rejects active SVG encodings and namespaces before publication: %s', async (markup) => {
+    const pinLogo = vi.fn(async () => ({ cid: CID, status: 'queued' as const }));
+    await expect(
+      service(pinLogo).pinLogo({
+        contentType: 'image/svg+xml',
+        imageBase64: svg(markup),
+        confirmPublicUpload: true,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_IMAGE' });
+    expect(pinLogo).not.toHaveBeenCalled();
+  });
+
+  it('retains passive SVG shapes, text references and namespace-qualified groups unchanged', async () => {
+    const pinLogo = vi.fn<PinProjectLogo>(async () => ({ cid: CID, status: 'queued' }));
+    const markup =
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:s="http://www.w3.org/2000/svg"><s:g><path style="fill:red;stroke:#fff" d="M0 0h10v10z"/><text>&#74;uice &amp; friends</text></s:g></svg>';
+    await service(pinLogo).pinLogo({
+      contentType: 'image/svg+xml',
+      imageBase64: svg(markup),
+      confirmPublicUpload: true,
+    });
+    expect(pinLogo.mock.calls[0]?.[0].bytes).toEqual(Buffer.from(markup));
   });
 
   it('reports an unverified publication instead of a fabricated CID', async () => {

@@ -106,7 +106,7 @@ const states: readonly StepState[] = [
   "reverted",
   "reorged",
 ];
-export const recoverableStates: readonly StepState[] = [
+const recoverableStates: readonly StepState[] = [
   "reserved",
   "submitted",
   "unknown",
@@ -445,12 +445,16 @@ export function settle(
   next.revision++;
   return boundedClone(next);
 }
-export function isRecoverable(plan: StoredPlan): boolean {
-  return plan.steps.some(
-    (step) =>
-      (step.attempt || step.externalExecution) &&
-      recoverableStates.includes(step.state),
+export function isRecoverableStep(step: StoredStep): boolean {
+  return Boolean(
+    (step.attempt || step.externalExecution) &&
+      (recoverableStates.includes(step.state) ||
+        (step.state === "confirmed" &&
+          (!step.semantic || step.semantic.status === "unknown"))),
   );
+}
+export function isRecoverable(plan: StoredPlan): boolean {
+  return plan.steps.some(isRecoverableStep);
 }
 
 export function assertExternalIndexes(

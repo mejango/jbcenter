@@ -28,10 +28,6 @@ import { walletLoginTestMigrations } from "./fixtures/wallet-login-setup.js";
 import { startWalletBaseAnvil } from "./fixtures/wallet-base-anvil.js";
 import { exerciseWalletRecoveryEvm } from "./fixtures/wallet-recovery-evm.js";
 import { PostgresWalletLoginStore } from "../src/rest/wallet/loginPostgres.js";
-import { encodeSafe7579MessageSignature } from "../src/rest/smartAccounts/passkeySignatures.js";
-import { passkeyOnboardingProofDocument } from "../src/rest/smartAccounts/passkeyOnboarding.js";
-import { verifyWalletAssertion } from "../src/rest/wallet/webauthn.js";
-import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 const connectionString = process.env.TEST_DATABASE_URL;
 const suite = connectionString ? describe : describe.skip;
@@ -63,7 +59,7 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
     const initialFunding = await deployments.loadFundingContext(fixture.configuration.id);
     const initialized = await deployments.initializeAccounting(initialFunding, await settlement.observeFunding(initialFunding), "2");
     expect(initialized.accounting!.environment).toEqual({ kind: "base-mainnet", genesisHash: fixture.genesisHash });
-    const execution = createWalletDeploymentExecution({ store: deployments, chain: fixture.chain(), dispatchLeaseMs: 500,
+    const execution = createWalletDeploymentExecution({ store: deployments, chain: fixture.chain(),
       signer: mnemonicToAccount("test test test test test test test test test test test junk"),
       experimentalTransport: createBaseWalletDeploymentTransport(base) });
     const smart = createSmartAccountService({ rpc: fixture.readOnlyRpc, manifests: [fixture.manifest], audience: "https://juicebox.center",
@@ -72,15 +68,22 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
         inspectSessions: createInstalledSessionVerifier({ rpc: fixture.readOnlyRpc }).inspectAllAt })] });
     const authority = createWalletAuthorityService({ store: new PostgresWalletAuthorityStore(pool),
       chain: createWalletAuthorityChain({ rpc: fixture.readOnlyRpc, manifest: fixture.manifest, utility: fixture.utility,
+        onError: code => process.stderr.write(`[joined Base authority] ${code}\n`),
         carried: (manifestId, address) => smart.remembered(manifestId, address) }) });
     const flows = new PostgresWalletSignupStore(pool, { rpId, origin: issuer, manifest: fixture.manifest });
     const events: string[] = [];
     const login = new PostgresWalletLoginStore(pool, { rpId, origin: issuer });
     const sessionsBefore = async () => Number((await pool.query("SELECT count(*)::text AS c FROM rest_wallet_logins WHERE completed_at_ms IS NOT NULL")).rows[0].c);
+    const signupChain = fixture.chain();
     let recoveryTarget: Pick<Parameters<typeof exerciseWalletRecoveryEvm>[0], "enrollment" | "originalKey" | "originalSessionToken"> | null = null;
     const operations: string[] = [];
     const signup = createLocalWalletSignup({ flows, enrollments, deployments, settlement, execution, smart, authority, login,
-      registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id, releasedObservationIntervalMs: 0,
+      registry: new PostgresSmartAccountRegistry(pool), chain: { ...signupChain, async preflight(...args) {
+        const result = await signupChain.preflight(...args);
+        // Real Base can produce another block before signup claims this pinned head.
+        await fixture.rpc("anvil_mine", ["0x1", "0x0"]);
+        return result;
+      } }, poolId: fixture.configuration.id, releasedObservationIntervalMs: 0,
       onEvent: event => events.push(`${event.stage}:${event.outcome}`) });
     const until = async (name: string) => { for (let i = 0; i < 600 && !events.includes(name); i++) await new Promise(r => setTimeout(r, 25)); expect(events, events.join(' ')).toContain(name); };
     for (let index = 0; index < 2; index++) {
@@ -125,7 +128,6 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
       expect(dispatch.admission).toMatchObject({ version: "center-wallet-deployment-base-admission-v1", baseTotalAffordability: "reserved" });
       expect(BigInt(dispatch.admission.reservation!.totalWei)).toBeGreaterThan(BigInt(claimed.signed?.maximumExecutionCost ?? (await deployments.get(operation.id))!.signed!.maximumExecutionCost));
       expect(fixture.sends()).toHaveLength(index + 1);
-      await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.leaseUntil - Date.now() + 15)));
       await signup.tick();
       const included = (await deployments.get(operation.id))!;
       // The pass stops at the receipt; the wallet's full inspection runs behind the release.
@@ -199,6 +201,8 @@ suite("hosted Base signup composition against real PostgreSQL and a Base-shaped 
     await fixture.rpc("anvil_mine", ["0x41", "0x0"]);
     let spent = 0n;
     for (const [index, id] of operations.entries()) {
+      const dispatch = (await deployments.getDispatch(id))!;
+      await expect.poll(() => flows.now(), { timeout: 20_000 }).toBeGreaterThanOrEqual(dispatch.leaseUntil);
       await signup.tick();
       const settled = (await deployments.getSettlement(id))!;
       expect(settled).toMatchObject({ nonce: String(index + 2), nextNonce: String(index + 3), sequence: index + 1 });

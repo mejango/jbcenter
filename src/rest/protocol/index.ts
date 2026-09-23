@@ -2,7 +2,6 @@ import {
   decodeAbiParameters,
   decodeFunctionData,
   encodeFunctionData,
-  getAddress,
   isAddressEqual,
   keccak256,
   numberToHex,

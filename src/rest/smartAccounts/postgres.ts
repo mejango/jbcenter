@@ -1,6 +1,7 @@
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type { Hex } from "viem";
 import { RestError } from "../core.js";
+import { databaseNow } from "../auth/postgres.js";
 import { fingerprint, stable } from "./service.js";
 import type {
   SmartAccountBinding,
@@ -119,12 +120,9 @@ export class PostgresSmartAccountRegistry
         "The authenticated API account is absent.",
         404,
       );
-    const clock = await client.query<{ now: string }>(
-      "SELECT floor(extract(epoch FROM clock_timestamp()))::text AS now",
-    );
     return {
       owner: account.rows[0].owner_address,
-      now: Number(clock.rows[0]!.now),
+      now: await databaseNow(client),
     };
   }
   async bind(record: SmartAccountBinding): Promise<SmartAccountBinding> {
@@ -163,7 +161,13 @@ export class PostgresSmartAccountRegistry
           "SMART_BINDING_EXPIRED",
           "Owner account binding authorization expired or exceeds fifteen minutes.",
         );
-      return (await bindSmartAccountInTransaction(client, record, locked.now)).binding;
+      const result = await bindSmartAccountInTransaction(client, record, locked.now);
+      if (record.authorization.expiresAt <= await databaseNow(client))
+        throw error(
+          "SMART_BINDING_EXPIRED",
+          "Owner account binding authorization expired before its binding completed.",
+        );
+      return result.binding;
     });
   }
   async get(ownerAccountId: string, id: Hex) {

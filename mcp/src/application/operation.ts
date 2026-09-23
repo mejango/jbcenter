@@ -62,10 +62,13 @@ const INDEXED = new Set([
 ]);
 const PLANS = new Set(['inspect_plan', 'simulate_plan', 'verify_plan']);
 
-function classification(id: string): { kind: OperationKind; sources: OperationSource[] } {
-  if (id === 'pin_project_metadata') return { kind: 'metadata-write', sources: ['publication'] };
+function classification(
+  id: string,
+  effects: OperationEffects,
+): { kind: OperationKind; sources: OperationSource[] } {
   if (id === 'publish_intent' || id === 'deploy_intent')
     return { kind: 'center-write', sources: ['center'] };
+  if (effects.externalMutation) return { kind: 'metadata-write', sources: ['publication'] };
   if (REFERENCES.has(id)) return { kind: 'reference', sources: ['reference'] };
   if (id === 'prepare_project_metadata') return { kind: 'prepare', sources: ['model'] };
   if (id === 'get_intent' || id === 'prepare_intent')
@@ -94,7 +97,7 @@ export function operationWithSchema<S extends z.ZodObject>(
   return Object.freeze({
     id,
     description,
-    ...classification(id),
+    ...classification(id, effects),
     transaction: false,
     schema,
     get inputJsonSchema() {

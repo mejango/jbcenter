@@ -162,7 +162,7 @@ describe("persistent public IPFS gateway", () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async (_url, init) => {
       if (init?.method === "HEAD") return new Response(null, { headers: { "content-length": "10", "content-type": "video/mp4" } });
       expect(new Headers(init?.headers).get("range")).toBe("bytes=1-3");
-      expect(new Headers(init?.headers).get("if-range")).toBe(ETAG);
+      expect(new Headers(init?.headers).get("if-range")).toBeNull();
       return new Response("123", { status: 206, headers: { "content-type": "video/mp4", "content-length": "3", "content-range": "bytes 1-3/10" } });
     });
     const { gateway, cache } = await setup(fetcher);
@@ -179,6 +179,54 @@ describe("persistent public IPFS gateway", () => {
     expect(await head.text()).toBe("");
     expect(await cache.get(PATH)).toBeNull();
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("checks cold If-Range against Center's validator before contacting a provider", async () => {
+    for (const validator of ['"other"', `W/${ETAG}`, "Wed, 21 Oct 2015 07:28:00 GMT"]) {
+      const fetcher = vi.fn<typeof fetch>().mockImplementation(async (_url, init) => {
+        expect(new Headers(init?.headers).has("range")).toBe(false);
+        expect(new Headers(init?.headers).has("if-range")).toBe(false);
+        return upstream();
+      });
+      const response = await createIpfsGateway({ fetcher })(request({ headers: { range: "bytes=1-3", "if-range": validator } }));
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("0123456789");
+      expect(fetcher).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("answers cold conditional reads only after valid upstream headers, without reading the payload", async () => {
+    for (const validator of [ETAG, `"other", W/${ETAG}`, "*"]) {
+      const pull = vi.fn(), cancel = vi.fn();
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(new ReadableStream({ pull, cancel }, { highWaterMark: 0 }), {
+        headers: { "content-length": "10" },
+      }));
+      const { gateway, cache } = await setup(fetcher);
+      const response = await gateway(request({ headers: { "if-none-match": validator } }));
+      expect(response.status).toBe(304);
+      expect(response.headers.get("etag")).toBe(ETAG);
+      expect(response.headers.get("cache-control")).toContain("immutable");
+      expect(response.headers.has("content-length")).toBe(false);
+      expect(await response.text()).toBe("");
+      expect(pull).not.toHaveBeenCalled();
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(await cache.get(PATH)).toBeNull();
+    }
+    const missing = createIpfsGateway({ fetcher: vi.fn<typeof fetch>().mockImplementation(async () => new Response(null, { status: 404 })) });
+    expect((await missing(request({ headers: { "if-none-match": ETAG } }))).status).toBe(404);
+  });
+
+  it("checks conditional validators after waiting for another cache fill", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => upstream());
+    const { gateway } = await setup(fetcher);
+    const first = await gateway(request());
+    const waiting = gateway(request({ headers: { "if-none-match": ETAG } }));
+    expect(await first.text()).toBe("0123456789");
+    const response = await waiting;
+    expect(response.status).toBe(304);
+    expect(response.headers.get("etag")).toBe(ETAG);
+    expect(await response.text()).toBe("");
+    expect(fetcher).toHaveBeenCalledOnce();
   });
 
   it("retains decoded full content using the actual byte length", async () => {
@@ -200,6 +248,7 @@ describe("persistent public IPFS gateway", () => {
       { "content-range": "bytes 3-1/10" },
       { "content-range": "bytes 1-3/3" },
       { "content-range": "bytes 1-4/10" },
+      { "content-range": "bytes 4-6/10" },
       { "content-range": "bytes 1-3/10", "content-encoding": "gzip" },
     ]) {
       const fetcher = vi.fn<typeof fetch>()
@@ -214,6 +263,41 @@ describe("persistent public IPFS gateway", () => {
       expect(await cache.get(PATH)).toBeNull();
     }
   });
+
+  it.each(["123", "12", "1234"])("enforces Content-Range length without Content-Length for %s", async (body) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(body, {
+      status: 206, headers: { "content-range": "bytes 1-3/10" },
+    }));
+    const response = await createIpfsGateway({ fetcher })(request({ headers: { range: "bytes=1-3" } }));
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-length")).toBe("3");
+    if (body === "123") expect(await response.text()).toBe(body);
+    else await expect(response.text()).rejects.toThrow(body.length < 3 ? "incomplete" : "byte limit");
+  });
+
+  it.each([
+    ["bytes=7-", "bytes 7-9/10", "789"],
+    ["bytes=-4", "bytes 6-9/10", "6789"],
+    ["bytes=8-999", "bytes 8-9/10", "89"],
+    ["bytes=1-3", "bytes 1-3/*", "123"],
+  ])("preserves a valid cold %s response", async (range, contentRange, body) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(body, { status: 206, headers: { "content-range": contentRange! } }));
+    const response = await createIpfsGateway({ fetcher })(request({ headers: { range: range! } }));
+    expect(response.status).toBe(206);
+    expect(await response.text()).toBe(body);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("falls back promptly when a rejected provider's cancellation never settles", async () => {
+    const cancel = vi.fn(() => new Promise<void>(() => undefined));
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(new ReadableStream({ cancel }), { status: 503 }))
+      .mockImplementation(async () => upstream());
+    const response = await createIpfsGateway({ fetcher })(request());
+    expect(await response.text()).toBe("0123456789");
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  }, 2000);
 
   it("releases aborted fills and waiters even when the first caller stops reading", async () => {
     for (const readFirstChunk of [false, true]) {

@@ -181,15 +181,16 @@ async function databaseSeconds(client: Pool | PoolClient): Promise<number> {
   return Number(result.rows[0]!.now);
 }
 
-async function waitForDatabaseLock(lock: PoolClient, backendPid: number): Promise<void> {
+async function waitForDatabaseLock(lock: PoolClient, backendPid: number, statement: RegExp): Promise<void> {
   const deadline = performance.now() + 500;
   for (;;) {
     await lock.query('SELECT pg_stat_clear_snapshot()');
-    const blocked = await lock.query<{ waiting: boolean }>(
-      'SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1::integer = ANY(pg_blocking_pids(pid))) AS waiting',
+    const blocked = await lock.query<{ query: string }>(
+      'SELECT query FROM pg_stat_activity WHERE $1::integer = ANY(pg_blocking_pids(pid))',
       [backendPid],
     );
-    if (blocked.rows[0]!.waiting) return;
+    // Keep polling until activity text and the live blocker identify the same stage.
+    if (blocked.rows.some((row) => statement.test(row.query))) return;
     if (performance.now() >= deadline)
       throw new Error('Submission did not wait for its fixture lock.');
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -406,7 +407,7 @@ suite('PostgreSQL transaction persistence', () => {
         (result) => ({ result }),
         (error: unknown) => ({ error }),
       );
-      await waitForDatabaseLock(lock, pid.rows[0]!.pid);
+      await waitForDatabaseLock(lock, pid.rows[0]!.pid, /FROM rest_accounts.*FOR UPDATE/);
       await waitForDatabaseExpiry(lock, authorization.expiresAt);
       await lock.query('COMMIT');
       expect(await pending).toMatchObject({ error: { status: 401, code: 'AUTH_EXPIRED' } });
@@ -438,15 +439,7 @@ suite('PostgreSQL transaction persistence', () => {
         (result) => ({ result }),
         (error: unknown) => ({ error }),
       );
-      await waitForDatabaseLock(lock, pid.rows[0]!.pid);
-      await lock.query('SELECT pg_stat_clear_snapshot()');
-      const waiting = await lock.query<{ query: string }>(
-        'SELECT query FROM pg_stat_activity WHERE $1::integer = ANY(pg_blocking_pids(pid))',
-        [pid.rows[0]!.pid],
-      );
-      expect(waiting.rows.map((row) => row.query)).toEqual(
-        expect.arrayContaining([expect.stringMatching(/^INSERT INTO rest_transaction_nonces/)]),
-      );
+      await waitForDatabaseLock(lock, pid.rows[0]!.pid, /^INSERT INTO rest_transaction_nonces/);
       await waitForDatabaseExpiry(lock, authorization.expiresAt);
       // Remove the fixture nonce; the claimant can insert it, then must undo its own writes.
       await lock.query('ROLLBACK');
@@ -573,6 +566,32 @@ suite('PostgreSQL transaction persistence', () => {
     });
     expect(await store.get(owner, 'clock-expired')).toBeUndefined();
     expect(await store.findIdempotentPlan(owner, idem('clock-expired'))).toBeUndefined();
+  });
+
+  it.each(['direct', 'relayr'] as const)('recovers confirmed %s calls with unresolved semantic outcomes after restart', async (transport) => {
+    const value = await store.create(plan(`semantic-recovery:${transport}`), idem(`semantic-recovery:${transport}`), now);
+    let current: StoredPlan;
+    if (transport === 'direct') {
+      current = (await store.claimSubmission(claim(value.id, await attempt(20_001)))).plan;
+    } else {
+      await seedSponsoredBinding(value, [0], 'semantic-recovery-binding');
+      current = await store.syncExternalExecutions(owner, value.id);
+    }
+    for (const status of [undefined, 'unknown', 'verified', 'unmodeled', 'failed'] as const) {
+      const semantic = status === undefined ? {} : { semantic: { status } };
+      if (transport === 'direct') {
+        const { semantic: _previous, ...step } = current.steps[0]!;
+        current = await store.save(owner, value.id, current.revision, [{
+          ...step, state: 'confirmed', receipt: externalReceipt(step.attempt!.hash), ...semantic,
+        }]);
+      } else {
+        const { semantic: _previous, ...observation } = confirmedExternal();
+        current = await store.saveExternalExecution(owner, value.id, current.revision,
+          'semantic-recovery-binding', [{ ...observation, ...semantic }]);
+      }
+      const recovered = await new PostgresTransactionStore(pool).recoverable(1_000);
+      expect(recovered.some((entry) => entry.id === value.id)).toBe(status === undefined || status === 'unknown');
+    }
   });
 
   it('continues recovery past unchanged oldest records without mutating their observations', async () => {

@@ -20,7 +20,7 @@ const children: ChildProcess[] = [];
 let admin: Pool, pool: Pool, store: PostgresWalletDeploymentStore, enrollments: PostgresWalletEnrollmentStore;
 const fromBase64 = (value: string): Hex => `0x${Buffer.from(value, "base64url").toString("hex")}`;
 async function now() { return Number((await pool.query("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::text AS now")).rows[0].now); }
-async function waitUntil(time: number) { const delay = Math.max(1, time - await now()); await new Promise(resolve => setTimeout(resolve, delay)); }
+async function waitUntil(time: number) { await expect.poll(now).toBeGreaterThanOrEqual(time); }
 async function signedContext(): Promise<WalletDeploymentExecutionContext> {
   const config = deploymentFixtureConfiguration(), poolRecord = await store.configurePool(config);
   const initial = await enrollments.begin(createWalletEnrollmentIntent({ manifest: enrollmentManifest,
@@ -33,12 +33,13 @@ async function signedContext(): Promise<WalletDeploymentExecutionContext> {
     rpId: pending.intent.rpId, origin: pending.intent.origin }), backupSignature: await signBackupProof(document) });
   const issuedAt = await now(), approval = prepareWalletDeploymentApproval(record, { issuedAt, expiresAt: issuedAt + 120000 });
   let operation = await store.prepare({ poolId: config.id, approval });
+  const assertion = signGet({ ...credential, challenge: hashTypedData(walletDeploymentDocument(record, approval)),
+    rpId: record.intent.rpId, origin: record.intent.origin });
   const admission: WalletDeploymentAdmission = { version: "center-wallet-deployment-admission-v1", chainId: 8453, sender: config.sender,
     blockNumber: "100", blockHash: `0x${"ab".repeat(32)}`, confirmedNonce: "1", pendingNonce: "1", observedAt: await now(),
     enrollmentCommitment: approval.enrollmentCommitment, manifestRevision: record.intent.manifest.revision,
     initializerHash: record.creation!.initializerHash, gas: "1500000", maxFeePerGas: "2000000000", maxPriorityFeePerGas: "1000000" };
-  operation = (await store.claim({ operationId: operation.id, admission, assertion: signGet({ ...credential,
-    challenge: hashTypedData(walletDeploymentDocument(record, approval)), rpId: record.intent.rpId, origin: record.intent.origin }) })).operation;
+  operation = (await store.claim({ operationId: operation.id, admission, assertion })).operation;
   const lease = await store.leaseSigning(operation.id);
   operation = (await store.persistSigned({ operationId: operation.id, leaseToken: lease.leaseToken!, revision: lease.revision,
     rawTransaction: await deploymentFixtureSigner.signTransaction(deploymentFixtureTransaction(operation.template!)) })).operation;
@@ -133,35 +134,50 @@ suite("PostgreSQL exact-byte deployment dispatch fencing", () => {
   }, 15_000);
   it.each(["after-dispatch", "after-commit"])("recovers a process killed at %s without losing signed bytes or allocation", async barrier => {
     const child = await worker(), context = await signedContext(), reached = message(child.child, "barrier");
-    const request = child.request({ action: "lease-dispatch", input: await claim(context), barrier }).catch(() => null);
-    await reached; await kill(child.child); await request;
+    const request = child.request({ action: "lease-dispatch", input: await claim(context), barrier });
+    const completion = request.catch(() => null);
+    await Promise.race([reached, request.then(result => { throw new Error(`Dispatch returned before its crash barrier: ${JSON.stringify(result)}`); })]);
+    await kill(child.child); await completion;
     const journal = await store.getDispatch(context.operation.id);
     if (barrier === "after-dispatch") expect(journal).toBeNull();
     else expect(journal).toMatchObject({ attempts: 1, revision: 1, status: "in-flight" });
     expect(await store.loadExecutionContext(context.operation.id)).toEqual(context);
   });
   it("rolls back an attempt whose lease expires behind an actual process post-write barrier", async () => {
-    const child = await worker(), context = await signedContext(), reached = message(child.child, "barrier");
-    const input = await claim(context, 120), request = child.request({ action: "lease-dispatch", input, barrier: "after-dispatch", continueBarrier: true });
-    await reached; await new Promise(resolve => setTimeout(resolve, 180)); child.child.send({ kind: "continue" });
+    const child = await worker(), context = await signedContext();
+    expect((await child.request({ action: "load", operationId: context.operation.id })).status).toBe(200);
+    const reached = message(child.child, "barrier"), input = await claim(context);
+    const request = child.request({ action: "lease-dispatch", input, barrier: "after-dispatch", continueBarrier: true });
+    const barrier = await Promise.race([reached, request.then(result => { throw new Error(`Dispatch returned before its write barrier: ${JSON.stringify(result)}`); })]);
+    await waitUntil(Number(barrier.leaseUntil));
+    expect(await now()).toBeLessThan(input.admission.expiresAt);
+    child.child.send({ kind: "continue" });
     expect((await request).status).toBe(409); expect(await store.getDispatch(context.operation.id)).toBeNull();
     expect(await store.get(context.operation.id)).toEqual(context.operation);
   });
   it("rejects an admission which expires while waiting for the sender pool lock", async () => {
-    const child = await worker(), context = await signedContext(), input = await claim(context);
-    input.admission.expiresAt = input.admission.observedAt + 150;
-    const locked = await pool.connect(); await locked.query("BEGIN");
-    await locked.query("SELECT id FROM rest_wallet_deployment_pools FOR UPDATE");
-    const request = child.request({ action: "lease-dispatch", input });
-    await new Promise(resolve => setTimeout(resolve, 220)); await locked.query("COMMIT"); locked.release();
-    expect((await request).status).toBe(403); expect(await store.getDispatch(context.operation.id)).toBeNull();
+    const child = await worker(), context = await signedContext();
+    expect((await child.request({ action: "load", operationId: context.operation.id })).status).toBe(200);
+    const locked = await pool.connect();
+    try {
+      await locked.query("BEGIN"); await locked.query("SELECT id FROM rest_wallet_deployment_pools FOR UPDATE");
+      const blocker = (await locked.query("SELECT pg_backend_pid() AS pid")).rows[0].pid, input = await claim(context);
+      const request = child.request({ action: "lease-dispatch", input });
+      await Promise.race([expect.poll(async () => (await pool.query(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+        WHERE $1=ANY(pg_blocking_pids(pid)) AND query LIKE '%rest_wallet_deployment_pools%FOR UPDATE%') AS waiting`, [blocker])).rows[0].waiting).toBe(true),
+        request.then(result => { throw new Error(`Dispatch returned before waiting for its pool lock: ${JSON.stringify(result)}`); })]);
+      expect(await now()).toBeLessThan(input.admission.expiresAt);
+      await waitUntil(input.admission.expiresAt); await locked.query("COMMIT");
+      expect(await request).toMatchObject({ status: 403, body: { code: "WALLET_DEPLOYMENT_DISPATCH_DISABLED" } });
+    } finally { await locked.query("ROLLBACK"); locked.release(); }
+    expect(await store.getDispatch(context.operation.id)).toBeNull();
   });
   it("keeps the permanent eight-attempt limit across worker recovery", async () => {
     const process = await worker();
     let context = await signedContext();
     for (let i = 1; i <= 8; i++) {
       // This case tests the durable attempt cap, not an unrealistically small success deadline.
-      const journal = await store.leaseDispatch(await claim(context, 1500));
+      const journal = await store.leaseDispatch(await claim(context));
       expect(journal.attempts).toBe(i);
       await waitUntil(journal.nextAttemptAt + 5);
       context.operation = (await store.saveObservation({ operationId: context.operation.id, expectedRevision: context.operation.revision,
@@ -170,7 +186,8 @@ suite("PostgreSQL exact-byte deployment dispatch fencing", () => {
     expect((await process.request({ action: "lease-dispatch", input: await claim(context) })).status).toBe(409);
     expect((await store.getDispatch(context.operation.id))!.attempts).toBe(8);
     expect((await store.loadExecutionContext(context.operation.id)).pool.activeOperationId).toBe(context.operation.id);
-  }, 45_000);
+  // Eight ordinary 2 s leases and 1 s cooldowns require 24 s before fixture/database work.
+  }, 60000);
   it.each(["revision=0", "revision=revision+1", "attempts=0", "attempts=9", "status='accepted',settled_at=NULL,revision=revision+1",
     "transaction_hash='0x" + "ab".repeat(32) + "'", "admission=jsonb_set(admission,'{environment,genesisHash}','null'::jsonb)",
     "admission=jsonb_set(admission,'{baseTotalAffordability}','\"covered\"'::jsonb)", "lease_until=lease_until+1", "next_attempt_at=0"])

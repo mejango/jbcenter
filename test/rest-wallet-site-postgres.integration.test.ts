@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { getRequestListener } from "@hono/node-server";
 import { Pool } from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { keccak256, toHex, type Hex } from "viem";
+import { keccak256, toHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { createWalletSite } from "../src/rest/wallet/site.js";
 import { walletFlowCookie, walletSessionCookie } from "../src/rest/wallet/http.js";

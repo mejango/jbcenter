@@ -236,8 +236,14 @@ async function databaseSeconds(client: Pool | PoolClient): Promise<number> {
 async function waitForDatabaseLock(
   lock: PoolClient,
   backendPid: number,
-): Promise<string[]> {
-  const deadline = performance.now() + 1_000;
+  statement: RegExp,
+  pending: Promise<unknown>,
+): Promise<void> {
+  // Admission setup and lock observation share the runner's polling budget,
+  // independently of the approval window whose actual database expiry we prove.
+  const deadline = performance.now() + 8_000;
+  let completed = false;
+  void pending.then(() => { completed = true; }, () => { completed = true; });
   for (;;) {
     // PostgreSQL caches activity snapshots within transactions; refresh the query text too.
     await lock.query("SELECT pg_stat_clear_snapshot()");
@@ -245,10 +251,14 @@ async function waitForDatabaseLock(
       "SELECT query FROM pg_stat_activity WHERE $1::integer = ANY(pg_blocking_pids(pid))",
       [backendPid],
     );
-    if (blocked.rows.length) return blocked.rows.map((row) => row.query);
+    if (blocked.rows.some((row) => statement.test(row.query))) return;
+    if (completed)
+      throw new Error(
+        "Sponsorship publication completed before reaching the required fixture lock.",
+      );
     if (performance.now() >= deadline)
       throw new Error(
-        "Sponsorship publication did not wait for its fixture lock.",
+        "Sponsorship publication did not reach the required SQL lock barrier.",
       );
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
@@ -258,7 +268,7 @@ async function waitForDatabaseExpiry(
   lock: PoolClient,
   expiresAt: number,
 ): Promise<void> {
-  // At most two seconds, measured by the same database clock used for admission.
+  // Measured by the same database clock used for admission, after observing the lock.
   await lock.query(
     "SELECT pg_sleep(GREATEST(0, $1::double precision - extract(epoch FROM clock_timestamp())::double precision + 0.005))",
     [expiresAt],
@@ -505,6 +515,39 @@ suite("PostgreSQL sponsorship persistence", () => {
     expect(await fresh.get(owner, original.id)).toEqual(settled);
   });
 
+  it("binds a provisional UUID permutation once across replicas without changing its exact calls or payment", async () => {
+    const original = preparation(await createPlan("quote-permutation", owner, 2), undefined, [0, 1]);
+    await sponsorships.create(original, milliseconds());
+    const input = claim(original);
+    input.entries[1]!.virtual_nonce = 1;
+    await sponsorships.claim(input);
+    const payload = {
+      bundleUuid: randomUUID(),
+      entries: input.entries.map((entry) => ({ txUuid: randomUUID(), entry })),
+      payments: [{ chainId: 1, to: target, data: "0x1234" as const, value: "100", deadline: String(seconds() + 300) }],
+      observedAt: milliseconds(),
+    };
+    const provisional: RelayrQuote = { ...payload, commitment: digest(payload) };
+    await sponsorships.settle(original.id, input.hash, provisional, false);
+    const fresh = new PostgresSponsorshipStore(pool);
+    const entries = provisional.entries.map(({ entry }, index) => ({ entry, txUuid: provisional.entries[1 - index]!.txUuid }));
+    const boundPayload = { ...payload, entries };
+    const bound: RelayrQuote = { ...boundPayload, commitment: digest(boundPayload) };
+    const replicas = await Promise.all([
+      fresh.settle(original.id, input.hash, bound, false, true),
+      new PostgresSponsorshipStore(pool).settle(original.id, input.hash, bound, false, true),
+    ]);
+    expect(replicas[0]).toEqual(replicas[1]);
+    expect(replicas[0]).toMatchObject({ quote: bound, quoteBindingVerified: true, quoteRuntimeVerified: false });
+    await expect(fresh.settle(original.id, input.hash, provisional, false, true))
+      .rejects.toMatchObject({ code: "SPONSORSHIP_CONFLICT" });
+    const verified = await fresh.settle(original.id, input.hash, bound);
+    expect(verified.quoteRuntimeVerified).toBe(true);
+    expect(verified.quote).toEqual(bound);
+    expect((await fresh.claim(input)).dispatch).toBe(false);
+    expect(await new PostgresSponsorshipStore(pool).get(owner, original.id)).toEqual(verified);
+  });
+
   it("rejects either transport after the other has permanently reserved the same plan step", async () => {
     for (const [index, winner] of ["direct", "relayr"].entries()) {
       const plan = await createPlan(`transport-first:${winner}`);
@@ -604,17 +647,15 @@ suite("PostgreSQL sponsorship persistence", () => {
         "SELECT pg_backend_pid() AS pid",
       );
       const issuedAt = await databaseSeconds(lock);
-      const authorization = { issuedAt, expiresAt: issuedAt + 2 };
+      const authorization = { issuedAt, expiresAt: issuedAt + 5 };
       const pending = sponsorships
         .claim({ ...claim(record), authorization })
         .then(
           (result) => ({ result }),
           (error: unknown) => ({ error }),
         );
-      expect(await waitForDatabaseLock(lock, pid.rows[0]!.pid)).toEqual(
-        expect.arrayContaining([
-          expect.stringMatching(/FROM rest_accounts.*FOR UPDATE/),
-        ]),
+      await waitForDatabaseLock(
+        lock, pid.rows[0]!.pid, /FROM rest_accounts.*FOR UPDATE/, pending,
       );
       await waitForDatabaseExpiry(lock, authorization.expiresAt);
       await lock.query("COMMIT");
@@ -649,17 +690,15 @@ suite("PostgreSQL sponsorship persistence", () => {
         "SELECT pg_backend_pid() AS pid",
       );
       const issuedAt = await databaseSeconds(lock);
-      const authorization = { issuedAt, expiresAt: issuedAt + 2 };
+      const authorization = { issuedAt, expiresAt: issuedAt + 5 };
       const pending = sponsorships
         .claim({ ...claim(record), authorization })
         .then(
           (result) => ({ result }),
           (error: unknown) => ({ error }),
         );
-      expect(await waitForDatabaseLock(lock, pid.rows[0]!.pid)).toEqual(
-        expect.arrayContaining([
-          expect.stringMatching(/^INSERT INTO rest_transaction_transports/),
-        ]),
+      await waitForDatabaseLock(
+        lock, pid.rows[0]!.pid, /^INSERT INTO rest_transaction_transports/, pending,
       );
       await waitForDatabaseExpiry(lock, authorization.expiresAt);
       // Allow both real reservations to finish; the final check must undo the claimant's writes.
@@ -1018,17 +1057,15 @@ suite("PostgreSQL sponsorship persistence", () => {
         "SELECT pg_backend_pid() AS pid",
       );
       const issuedAt = await databaseSeconds(lock);
-      const authorization = { issuedAt, expiresAt: issuedAt + 2 };
+      const authorization = { issuedAt, expiresAt: issuedAt + 5 };
       const pending = sponsorships
         .claim({ ...claim(record), authorization })
         .then(
           (result) => ({ result }),
           (error: unknown) => ({ error }),
         );
-      expect(await waitForDatabaseLock(lock, pid.rows[0]!.pid)).toEqual(
-        expect.arrayContaining([
-          expect.stringMatching(/^INSERT INTO rest_sponsorship_nonces/),
-        ]),
+      await waitForDatabaseLock(
+        lock, pid.rows[0]!.pid, /^INSERT INTO rest_sponsorship_nonces/, pending,
       );
       await waitForDatabaseExpiry(lock, authorization.expiresAt);
       await lock.query("ROLLBACK");

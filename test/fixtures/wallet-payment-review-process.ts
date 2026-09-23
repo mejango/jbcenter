@@ -45,8 +45,10 @@ async function main() {
   if (!configured || typeof configured !== "object" || Array.isArray(configured) ||
       Object.entries(configured).some(([key, value]) => !["maxRecords", "maxAccountRecords", "receiptRetentionMs"].includes(key) ||
         !Number.isSafeInteger(value) || Number(value) <= 0)) throw new Error("Invalid fixture options.");
+  const poolWaitMs = Number(process.env.WALLET_PAYMENT_TEST_POOL_WAIT_MS ?? 5000);
+  if (!Number.isSafeInteger(poolWaitMs) || poolWaitMs < 5000 || poolWaitMs > 10_000) throw new Error("Invalid fixture pool wait.");
   const pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 1,
-    connectionTimeoutMillis: 5000, query_timeout: 10_000,
+    connectionTimeoutMillis: poolWaitMs, query_timeout: 10_000,
     options: `-c search_path=${prefix ? `${prefix},` : ""}${schema} -c statement_timeout=10000 -c lock_timeout=10000 -c idle_in_transaction_session_timeout=15000` });
   const backendPid = Number((await pool.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
   const stages = ["after-account", "after-review-lock", "after-review-write", "after-ceremony-write", "after-count", "after-commit"];
@@ -99,9 +101,10 @@ async function main() {
       response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(result ?? null));
     } catch (error) {
       const expected = error instanceof RestError || error instanceof RestAuthError;
-      const pg = error && typeof error === "object" ? error as { code?: unknown; constraint?: unknown } : {};
+      const pg = error && typeof error === "object" ? error as { code?: unknown; constraint?: unknown; message?: unknown } : {};
       const diagnostic = { ...(typeof pg.code === "string" && /^[0-9A-Z]{5}$/.test(pg.code) ? { databaseCode: pg.code } : {}),
-        ...(typeof pg.constraint === "string" && /^[a-z0-9_]{1,128}$/.test(pg.constraint) ? { constraint: pg.constraint } : {}) };
+        ...(typeof pg.constraint === "string" && /^[a-z0-9_]{1,128}$/.test(pg.constraint) ? { constraint: pg.constraint } : {}),
+        ...(pg.message === "timeout exceeded when trying to connect" ? { failure: "pool-acquisition-timeout" } : {}) };
       if (!expected) process.send?.({ kind: "fixture-error", ...diagnostic });
       response.writeHead(expected ? error.status : 500, { "content-type": "application/json" });
       response.end(JSON.stringify({ code: expected ? error.code : "FIXTURE_ERROR", ...diagnostic }));

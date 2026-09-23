@@ -138,14 +138,16 @@ suite("durable sequential local deployment settlement", () => {
   });
   it("rolls back all settlement writes when evidence expires behind a process barrier", async () => {
     await initializedSettlementPool(pool, store); const context = await releasedSettlementUser(pool, store), child = await worker();
-    const evidence = syntheticSettlement(context, await settlementDatabaseNow(pool)); evidence.funding.expiresAt = evidence.funding.observedAt + 2_000;
+    expect((await child.request({ action: "load", operationId: context.operation.id })).status).toBe(200);
+    // Establish the process and its database connection before fresh evidence. Use the
+    // ordinary funding window, then cross its real database deadline at the write barrier.
+    const evidence = syntheticSettlement(context, await settlementDatabaseNow(pool));
     const reached = message(child.child, "barrier"), request = child.request({ action: "settle", context, evidence, barrier: "after-debit", continueBarrier: true });
-    // The window has to survive the request that reaches the barrier; the database clock ends it.
-    await reached;
-    await pool.query("SELECT pg_sleep(greatest(0, $1::bigint + 50 - floor(extract(epoch FROM clock_timestamp())*1000)) / 1000.0)",
-      [String(evidence.funding.expiresAt)]);
+    await Promise.race([reached, request.then(result => { throw new Error(`Settlement returned before its write barrier: ${JSON.stringify(result)}`); })]);
+    await expect.poll(() => settlementDatabaseNow(pool)).toBeGreaterThanOrEqual(evidence.funding.expiresAt);
     child.child.send({ kind: "continue" });
-    expect((await request).status).toBe(409); expect(await store.getSettlement(context.operation.id)).toBeNull();
+    expect(await request).toMatchObject({ status: 409, body: { code: "WALLET_DEPLOYMENT_SETTLEMENT_INVALID" } });
+    expect(await store.getSettlement(context.operation.id)).toBeNull();
     expect(await store.loadSettlementContext(context.operation.id)).toEqual(context);
   });
   it.each(["confirmed", "pending", "finalized", "balance"])("latches a durable %s contradiction without refund, cursor adoption or receipt", async field => {
@@ -326,13 +328,14 @@ suite("durable sequential local deployment settlement", () => {
       accounting: { digest: enrollmentDigest(context.pool.accounting), remainingWei: walletDeploymentRemainingWei(context.pool), nextNonce: context.pool.accounting!.nextNonce } };
     const lease = await store.leaseDispatch({ operationId: context.operation.id, expectedRevision: context.operation.revision, signedHash: context.operation.signed!.hash, admission, leaseMs: 15_000 });
     const settled = await store.settleDispatch({ operationId: context.operation.id, expectedRevision: lease.revision, leaseToken: lease.leaseToken, signedHash: context.operation.signed!.hash, status: "accepted" });
-    expect(settled.journal.status).toBe("accepted"); expect(settled.journal.leaseUntil).toBeGreaterThan(Date.now());
+    expect(settled.journal.status).toBe("accepted");
     const included = canonicalInclusion(context, await settlementDatabaseNow(pool));
     included.head = observed.head; included.wallet.evidence = observed.head; included.transaction.receipt!.block = observed.head!;
     const saved = await store.saveObservation({ operationId: context.operation.id, signedHash: context.operation.signed!.hash, expectedRevision: context.operation.revision, observation: included });
-    // The provider answered; that attempt sends nothing more. The lease's remaining 15 s hold nothing.
+    // The provider answered; that attempt sends nothing more. Its unexpired lease holds nothing.
     const released = await store.release({ operationId: context.operation.id, expectedRevision: saved.operation.revision });
     expect(released.operation.releasedAt).not.toBeNull();
+    expect(released.operation.releasedAt).toBeLessThan(settled.journal.leaseUntil);
     expect(released.operation.reservedWei).toBe(context.operation.signed!.maximumExecutionCost);
   });
   it("retains the lane while a dispatch lease is live, then releases and settles after expiry", async () => {
@@ -344,13 +347,13 @@ suite("durable sequential local deployment settlement", () => {
     const admission = { ...legacy, version: "center-wallet-deployment-local-admission-v2" as const,
       environment: { kind: "unforked-anvil" as const, genesisHash: context.pool.accounting!.environment.genesisHash, head: legacy.environment.head },
       accounting: { digest: enrollmentDigest(context.pool.accounting), remainingWei: walletDeploymentRemainingWei(context.pool), nextNonce: context.pool.accounting!.nextNonce } };
-    const lease = await store.leaseDispatch({ operationId: context.operation.id, expectedRevision: context.operation.revision, signedHash: context.operation.signed!.hash, admission, leaseMs: 400 });
+    const lease = await store.leaseDispatch({ operationId: context.operation.id, expectedRevision: context.operation.revision, signedHash: context.operation.signed!.hash, admission });
     // The send is out and included; the lane stays claimed by the live lease until it expires.
     const included = canonicalInclusion(context, await settlementDatabaseNow(pool));
     included.head = observed.head; included.wallet.evidence = observed.head; included.transaction.receipt!.block = observed.head!;
     const saved = await store.saveObservation({ operationId: context.operation.id, signedHash: context.operation.signed!.hash, expectedRevision: context.operation.revision, observation: included });
     await expect(store.release({ operationId: context.operation.id, expectedRevision: saved.operation.revision })).rejects.toMatchObject({ code: "WALLET_DEPLOYMENT_BUSY" });
-    await new Promise(resolve => setTimeout(resolve, Math.max(1, lease.leaseUntil - Date.now() + 15)));
+    await expect.poll(() => settlementDatabaseNow(pool)).toBeGreaterThanOrEqual(lease.leaseUntil);
     const released = await store.release({ operationId: context.operation.id, expectedRevision: saved.operation.revision });
     expect(released.operation.reservedWei).toBe(context.operation.signed!.maximumExecutionCost);
     context = await store.loadSettlementContext(context.operation.id);
@@ -361,23 +364,34 @@ suite("durable sequential local deployment settlement", () => {
     await expect(store.leaseDispatch({ operationId: context.operation.id, expectedRevision: context.operation.revision, signedHash: context.operation.signed!.hash, admission })).rejects.toBeDefined();
   });
   it("requires fresh accounting evidence after pool lock waits and rolls back ceremony consumption", async () => {
-    await initializedSettlementPool(pool, store); const prepared = await preparedSettlementUser(pool, store), child = await worker();
-    prepared.input.funding.expiresAt = prepared.input.funding.observedAt + 200;
-    const locked = await pool.connect(); await locked.query("BEGIN"); await locked.query("SELECT id FROM rest_wallet_deployment_pools FOR UPDATE");
-    const request = child.request({ action: "claim", input: prepared.input });
-    await new Promise(resolve => setTimeout(resolve, 260)); await locked.query("COMMIT"); locked.release();
-    expect((await request).status).toBe(409);
+    const child = await worker();
+    expect((await child.request({ action: "get-settlement", operationId: randomUUID() })).status).toBe(200);
+    await initializedSettlementPool(pool, store); const prepared = await preparedSettlementUser(pool, store), locked = await pool.connect();
+    try {
+      await locked.query("BEGIN"); await locked.query("SELECT id FROM rest_wallet_deployment_pools FOR UPDATE");
+      const blocker = (await locked.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      const request = child.request({ action: "claim", input: prepared.input });
+      await Promise.race([expect.poll(async () => (await pool.query(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+        WHERE $1=ANY(pg_blocking_pids(pid)) AND query LIKE '%rest_wallet_deployment_pools%FOR UPDATE%') AS waiting`, [blocker])).rows[0].waiting).toBe(true),
+        request.then(result => { throw new Error(`Claim returned before waiting for its pool lock: ${JSON.stringify(result)}`); })]);
+      expect(await settlementDatabaseNow(pool)).toBeLessThan(prepared.input.funding.expiresAt);
+      await expect.poll(() => settlementDatabaseNow(pool)).toBeGreaterThanOrEqual(prepared.input.funding.expiresAt);
+      await locked.query("COMMIT");
+      expect(await request).toMatchObject({ status: 409, body: { code: "WALLET_DEPLOYMENT_SETTLEMENT_INVALID" } });
+    } finally { await locked.query("ROLLBACK"); locked.release(); }
     expect((await store.get(prepared.operation.id))!.state).toBe("prepared");
     expect((await store.loadFundingContext(prepared.operation.poolId)).pool.activeOperationId).toBeNull();
+    expect((await pool.query("SELECT consumed_at FROM rest_wallet_ceremonies WHERE id=$1", [prepared.operation.approval.ceremony.id])).rows[0].consumed_at).toBeNull();
   });
 
   it.each(["before-insert", "before-commit", "head-before-commit"])("SQL cannot settle when proof expires %s", async stage => {
     await initializedSettlementPool(pool, store); const context = await releasedSettlementUser(pool, store), now = await settlementDatabaseNow(pool);
-    const evidence = syntheticSettlement(context, stage === "before-insert" ? now - 1000 : now); evidence.funding.expiresAt = stage === "before-insert" ? now - 500 : now + 200;
+    const evidence = syntheticSettlement(context, stage === "before-insert" ? now - 1000 : now);
+    if (stage === "before-insert") evidence.funding.expiresAt = now - 500;
     if (stage === "head-before-commit") {
-      evidence.funding.expiresAt = now + 5000;
       Object.assign(evidence.funding.head, { blockNumber: "101", blockHash: `0x${"bc".repeat(32)}`,
-        timestamp: String(Math.floor(now / 1000) - 298) });
+        timestamp: String(Math.floor(now / 1000) - 296) });
+      evidence.funding.expiresAt = Number(evidence.funding.head.timestamp) * 1000 + 300000;
     }
     const receipt = { version: "center-wallet-deployment-settlement-receipt-v1", id: context.operation.id, poolId: context.pool.configuration.id,
       operationId: context.operation.id, evidenceDigest: enrollmentDigest(evidence), evidence, nonce: "1", priorSequence: 0, sequence: 1,
@@ -387,21 +401,22 @@ suite("durable sequential local deployment settlement", () => {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      await expect((async () => {
-        await client.query("INSERT INTO rest_wallet_deployment_settlements(id,pool_id,sequence,evidence_digest,receipt) VALUES($1,$2,1,$3,$4::jsonb)",
+      const insert = () => client.query("INSERT INTO rest_wallet_deployment_settlements(id,pool_id,sequence,evidence_digest,receipt) VALUES($1,$2,1,$3,$4::jsonb)",
           [receipt.id, receipt.poolId, receipt.evidenceDigest, JSON.stringify(receipt)]);
+      if (stage === "before-insert") await expect(insert()).rejects.toMatchObject({ code: "23514" });
+      else {
+        // These writes must succeed while evidence is live. Only COMMIT is expected to
+        // fail, so early rejection cannot masquerade as deferred expiry enforcement.
+        await insert();
         await client.query("UPDATE rest_wallet_deployments SET settlement_id=id WHERE id=$1", [receipt.id]);
         await client.query("UPDATE rest_wallet_deployment_pools SET accounting=$2::jsonb,revision=revision+1 WHERE id=$1",
           [receipt.poolId, JSON.stringify(accounting)]);
-        if (stage === "before-commit") await client.query("SELECT pg_sleep(0.25)");
-        if (stage === "head-before-commit") {
-          const deadline = Number(BigInt(evidence.funding.head.timestamp) * 1000n) + 300000;
-          await client.query("SELECT pg_sleep($1)", [Math.max(0.05, (deadline - Date.now() + 50) / 1000)]);
-        }
-        await client.query("COMMIT");
-      })()).rejects.toMatchObject({ code: "23514" });
+        await expect.poll(() => settlementDatabaseNow(pool)).toBeGreaterThanOrEqual(evidence.funding.expiresAt);
+        await expect(client.query("COMMIT")).rejects.toMatchObject({ code: "23514", message: "Settlement evidence expired before commit" });
+      }
     } finally { await client.query("ROLLBACK"); client.release(); }
     expect(await store.getSettlement(context.operation.id)).toBeNull();
+    expect(await store.loadSettlementContext(context.operation.id)).toEqual(context);
   });
 
 });

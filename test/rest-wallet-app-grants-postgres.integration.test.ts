@@ -109,9 +109,10 @@ async function worker(options: { maxRecords?: number; maxAccountRecords?: number
     return { status: response.status, body: await response.json() };
   } };
 }
-async function waitingForLock(pid: number) {
+async function waitingForLock(pid: number, expected?: { blocker: number; query: string }) {
   for (let attempt = 0; attempt < 150; attempt++) {
-    if ((await pool.query("SELECT wait_event_type FROM pg_stat_activity WHERE pid=$1", [pid])).rows[0]?.wait_event_type === "Lock") return;
+    const row = (await pool.query("SELECT wait_event_type,query,pg_blocking_pids(pid) AS blockers FROM pg_stat_activity WHERE pid=$1", [pid])).rows[0];
+    if (row?.wait_event_type === "Lock" && (!expected || (row.query.includes(expected.query) && row.blockers.includes(expected.blocker)))) return;
     await new Promise(resolve => setTimeout(resolve, 10));
   }
   throw new Error("Expected a real PostgreSQL authority lock wait");
@@ -405,24 +406,44 @@ suite("PostgreSQL typed app-grant storage (trusted fixture; no browser authentic
     expect((await pool.query("SELECT count(*)::int AS count FROM wallet_app_claims")).rows[0].count).toBe(1);
   });
   it("rejects a grant expiring while account admission waits and a request expiring before final commit", async () => {
-    const a = await worker(), grant = await store.insert(await input({ expiresAt: await now() + 2 })), lock = await pool.connect();
+    const a = await worker(), lock = await pool.connect();
     try {
-      await lock.query("BEGIN"); await lock.query("SELECT id FROM rest_accounts WHERE id=$1 FOR UPDATE", [accountId]);
+      await lock.query("BEGIN");
+      const blocker = Number((await lock.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+      const grant = await store.insert(await input({ expiresAt: Math.ceil(await trustedAuthorityNow(pool) / 1000) + 5 }));
+      await lock.query("SELECT id FROM rest_accounts WHERE id=$1 FOR UPDATE", [accountId]);
       const pending = a.request({ action: "claim", id: grant.id, context: actorContext(grant), claimId: randomUUID() });
-      await waitingForLock(a.backendPid); await lock.query("SELECT pg_sleep(2.1)"); await lock.query("COMMIT");
+      await Promise.race([waitingForLock(a.backendPid, { blocker, query: "FROM rest_accounts" }),
+        pending.then(result => { throw new Error(`Claim returned before account lock: ${JSON.stringify(result)}`); })]);
+      expect(await now()).toBeLessThan(grant.expiresAt);
+      await lock.query("SELECT pg_sleep(GREATEST(0,$1::double precision-extract(epoch FROM clock_timestamp())::double precision)+0.05)", [grant.expiresAt]);
+      await lock.query("COMMIT");
       expect((await pending).status).toBe(403);
     } finally { await lock.query("ROLLBACK"); lock.release(); }
     const live = await store.insert(await input()), reached = message(a.child, "barrier");
-    const pending = a.request({ action: "claim", id: live.id, context: requestContext(await now() + 2), claimId: randomUUID(), barrier: "after-guard" });
-    await reached; await pool.query("SELECT pg_sleep(2.1)"); a.child.send("release"); expect((await pending).status).toBe(403);
-    expect((await pool.query("SELECT count(*)::int AS count FROM wallet_app_claims")).rows[0].count).toBe(0);
-  }, 15_000);
-  it("rechecks database expiry after waiting for the policy lock", async () => {
-    const a = await worker(), grant = await store.insert(await input({ expiresAt: await now() + 2 })), lock = await pool.connect();
+    const expiresAt = Math.ceil(await trustedAuthorityNow(pool) / 1000) + 5;
+    const pending = a.request({ action: "claim", id: live.id, context: requestContext(expiresAt), claimId: randomUUID(), barrier: "after-guard" });
     try {
-      await lock.query("BEGIN"); await lock.query("SELECT origin FROM rest_wallet_policy_apps WHERE origin=$1 FOR UPDATE", [origin]);
+      await Promise.race([reached, pending.then(result => { throw new Error(`Claim returned before guard barrier: ${JSON.stringify(result)}`); })]);
+      expect(await now()).toBeLessThan(expiresAt);
+      await pool.query("SELECT pg_sleep(GREATEST(0,$1::double precision-extract(epoch FROM clock_timestamp())::double precision)+0.05)", [expiresAt]);
+    } finally { a.child.send("release"); }
+    expect((await pending).status).toBe(403);
+    expect((await pool.query("SELECT count(*)::int AS count FROM wallet_app_claims")).rows[0].count).toBe(0);
+  });
+  it("rechecks database expiry after waiting for the policy lock", async () => {
+    const a = await worker(), lock = await pool.connect();
+    try {
+      await lock.query("BEGIN");
+      const blocker = Number((await lock.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+      const grant = await store.insert(await input({ expiresAt: Math.ceil(await trustedAuthorityNow(pool) / 1000) + 5 }));
+      await lock.query("SELECT origin FROM rest_wallet_policy_apps WHERE origin=$1 FOR UPDATE", [origin]);
       const pending = a.request({ action: "claim", id: grant.id, context: actorContext(grant), claimId: randomUUID() });
-      await waitingForLock(a.backendPid); await lock.query("SELECT pg_sleep(2.1)"); await lock.query("COMMIT");
+      await Promise.race([waitingForLock(a.backendPid, { blocker, query: "FROM rest_wallet_policy_apps" }),
+        pending.then(result => { throw new Error(`Claim returned before policy lock: ${JSON.stringify(result)}`); })]);
+      expect(await now()).toBeLessThan(grant.expiresAt);
+      await lock.query("SELECT pg_sleep(GREATEST(0,$1::double precision-extract(epoch FROM clock_timestamp())::double precision)+0.05)", [grant.expiresAt]);
+      await lock.query("COMMIT");
       expect((await pending).status).toBe(403);
       expect((await pool.query("SELECT count(*)::int AS count FROM wallet_app_claims")).rows[0].count).toBe(0);
     } finally { await lock.query("ROLLBACK"); lock.release(); }

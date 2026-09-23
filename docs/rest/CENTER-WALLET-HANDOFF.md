@@ -15,8 +15,9 @@ than repeating already-passed localhost passkey probes.
 - The user explicitly approved **Center remote-main pushes**, as well as Beep
   and Homerun main merges/pushes and the production pilot. Do not ask again for
   that permission. Review and run appropriate release checks before shipping.
-- **Do not modify Juicebox Money or Revnet Money.** Center retains Para alongside
-  passkeys. Preserve external-wallet support in the pilot clients.
+- **Do not modify Juicebox Money or Revnet Money.** Center's Para integration is
+  retired; passkey accounts and external-wallet support remain. Preserve
+  external-wallet support in the pilot clients.
 - Use the shared Center origin allowlist. Bind each app request/callback
   cryptographically; do not introduce an extra per-site consent workflow.
 - Use **Center's Dwellir APIs** for chain RPC. No public RPC fallback.

@@ -13,7 +13,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { dirname, resolve, relative, basename, join } from "node:path";
+import { dirname, resolve, basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { keccak256, toFunctionSelector, getAddress } from "viem";
@@ -443,7 +443,7 @@ export async function generateSourceAbis({
     }
     const repo = path.join(root, repoName);
     try { await stat(path.join(repo, 'foundry.toml')); } catch (error) {
-      if (error.code === 'ENOENT') continue;
+      if (error.code === 'ENOENT') throw new Error(`Missing required source build configuration: ${repoName}/foundry.toml`);
       throw error;
     }
     const head = (await git(repo, 'rev-parse', 'HEAD')).toString('utf8').trim();

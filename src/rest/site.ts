@@ -13,12 +13,6 @@ export const REST_PAGE_HEADERS = {
   "Cache-Control": "no-store",
 } as const;
 
-// Para authentication and signing run only on Accounts. API docs keep their narrower policy.
-export const ACCOUNTS_PAGE_HEADERS = {
-  ...REST_PAGE_HEADERS,
-  "Content-Security-Policy": "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self' https://*.getpara.com https://*.usecapsule.com wss://*.getpara.com wss://*.usecapsule.com https://*.publicnode.com; img-src 'self' data: blob:; frame-src https://app.beta.getpara.com https://app.getpara.com https://app.beta.usecapsule.com https://app.usecapsule.com; worker-src 'self' blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
-} as const;
-
 export const REST_DOCUMENTS = [
   "ARCHITECTURE",
   "QUICKSTART",
@@ -46,8 +40,6 @@ export interface RestSite {
   /** Hosts served entirely by the wallet app (its own and retired ones); other hosts never see it. */
   walletHosts?: string[];
   audience: string;
-  para?: { apiKey: string; environment: "BETA" | "PROD" };
-  paraScript?: string;
   accountsScript: string;
   docsScript?: string;
   clientPackage?: Uint8Array;
@@ -70,7 +62,6 @@ export async function readRestAssets() {
     documents.set(name.toLowerCase(), content);
     documents.set(name.toLowerCase().replaceAll("_", "-"), content);
   }
-  const paraScript = await readFile(new URL("../../.generated/rest/para.js", import.meta.url), "utf8");
   const walletScript = await readFile(new URL("../../.generated/rest/wallet.js", import.meta.url), "utf8");
   const walletPaymentScript = await readFile(new URL("../../.generated/rest/wallet-payment.js", import.meta.url), "utf8");
   const walletSignupScript = await readFile(new URL("../../.generated/rest/wallet-signup.js", import.meta.url), "utf8");
@@ -78,7 +69,7 @@ export async function readRestAssets() {
   const walletDeviceScript = await readFile(new URL("../../.generated/rest/wallet-device.js", import.meta.url), "utf8");
   const docsScript = await readFile(new URL("../../.generated/rest/docs.js", import.meta.url), "utf8");
   const clientPackage = new Uint8Array(await readFile(new URL("../../.generated/rest/juicebox-center-client-0.1.0.tgz", import.meta.url)));
-  return { accountsScript, paraScript, walletScript, walletPaymentScript, walletSignupScript, walletRecoveryScript, walletDeviceScript, documents, docsScript, clientPackage };
+  return { accountsScript, walletScript, walletPaymentScript, walletSignupScript, walletRecoveryScript, walletDeviceScript, documents, docsScript, clientPackage };
 }
 
 export function mountRestSite(app: Hono<JbcenterEnv>, site: RestSite): void {
@@ -89,9 +80,9 @@ export function mountRestSite(app: Hono<JbcenterEnv>, site: RestSite): void {
   app.route("/api/v1", site.app);
   app.get("/accounts", (context) =>
     context.html(
-      accountsPage({ audience: site.audience, ...(site.para ? { para: site.para } : {}) }),
+      accountsPage({ audience: site.audience }),
       200,
-      ACCOUNTS_PAGE_HEADERS,
+      REST_PAGE_HEADERS,
     ),
   );
   app.get("/assets/accounts.css", (context) =>
@@ -106,7 +97,6 @@ export function mountRestSite(app: Hono<JbcenterEnv>, site: RestSite): void {
       "Content-Type": "application/javascript; charset=utf-8",
     }),
   );
-  app.get("/assets/para.js", (context) => context.body(site.paraScript ?? "", 200, { ...ACCOUNTS_PAGE_HEADERS, "Content-Type": "application/javascript; charset=utf-8" }));
   app.get("/assets/docs.js", (context) => context.body(site.docsScript ?? "", 200, { ...REST_PAGE_HEADERS, "Content-Type": "application/javascript; charset=utf-8" }));
   app.get("/api/client/juicebox-center-client-0.1.0.tgz", (context) => {
     if (!site.clientPackage) return context.notFound();

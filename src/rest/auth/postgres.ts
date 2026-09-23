@@ -2,7 +2,7 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type { Address } from "viem";
 import { stable } from "../smartAccounts/service.js";
 import { detachedFromRequest, timedAuthPhase } from "../context.js";
-import { createWalletAuthorityIdentity, type WalletAuthorityContext } from "../wallet/authority.js";
+import { createWalletAuthorityIdentity } from "../wallet/authority.js";
 import { PostgresWalletAuthorityStore } from "../wallet/authorityPostgres.js";
 import type { WalletAppGrant } from "../wallet/appGrants.js";
 import { assertWalletAppGrantActiveInTransaction, assertWalletAppGrantActiveOverRows, assertWalletAppGrantTimely, assertWalletAppRefreshIdentityInTransaction,

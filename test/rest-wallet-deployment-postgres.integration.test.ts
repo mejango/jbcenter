@@ -148,11 +148,14 @@ async function worker() {
   });
   children.push(child);
   const ready = await message(child, "ready");
-  return { child, request: async (body: unknown): Promise<{ status: number; body: any }> => {
+  const handle = { child, request: async (body: unknown): Promise<{ status: number; body: any }> => {
     const response = await fetch(`http://127.0.0.1:${ready.port}`, { method: "POST", body: JSON.stringify(body),
       headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(15000) });
     return { status: response.status, body: await response.json() };
   } };
+  // Readiness includes the database connection before a test starts a short lease.
+  expect(await handle.request({ action: "get", operationId: randomUUID() })).toEqual({ status: 200, body: null });
+  return handle;
 }
 async function kill(child: ChildProcess) {
   if (child.exitCode !== null || child.signalCode !== null) return;
@@ -301,24 +304,33 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
   });
 
   it("rolls back fresh admission when its pool lock waits beyond the approval deadline", async () => {
-    const value = await prepared(configuration(), 1200), blocker = await pool.connect();
+    const blocker = await pool.connect(), applicationName = `deployment_pool_expiry_${randomUUID()}`;
+    const waitingPool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 1, application_name: applicationName });
     try {
+      await waitingPool.query("SELECT 1");
+      const blockerPid = (await blocker.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      const value = await prepared(configuration(), 5000);
       await blocker.query("BEGIN");
       await blocker.query("SELECT id FROM rest_wallet_deployment_pools WHERE id=$1 FOR UPDATE", [value.config.id]);
-      const pending = store.claim(value.input).then(result => ({ result }), error => ({ error }));
-      await blocker.query("SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.05)", [value.approval.expiresAt]);
+      const pending = new PostgresWalletDeploymentStore(waitingPool).claim(value.input).then(result => ({ result }), error => ({ error }));
+      await Promise.race([expect.poll(async () => (await pool.query(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+        WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%rest_wallet_deployment_pools%FOR UPDATE%'
+          AND $2=ANY(pg_blocking_pids(pid))) AS waiting`, [applicationName, blockerPid])).rows[0].waiting).toBe(true),
+        pending.then(() => { throw new Error("Claim completed before its pool lock wait was verified"); })]);
+      expect(await databaseNow()).toBeLessThan(value.approval.expiresAt);
+      await expect.poll(databaseNow).toBeGreaterThanOrEqual(value.approval.expiresAt);
       await blocker.query("COMMIT");
-      expect(await pending).toHaveProperty("error");
-    } finally { await blocker.query("ROLLBACK"); blocker.release(); }
-    expect(await counts()).toEqual({ pools: 1, assigned: 0, consumed: 0, lanes: 0 });
-    expect((await store.get(value.operation.id))?.template).toBeNull();
+      expect(await pending).toMatchObject({ error: { status: 410, code: "WALLET_DEPLOYMENT_EXPIRED" } });
+      expect(await counts()).toEqual({ pools: 1, assigned: 0, consumed: 0, lanes: 0 });
+      expect((await store.get(value.operation.id))?.template).toBeNull();
+    } finally { await blocker.query("ROLLBACK"); blocker.release(); await waitingPool.end(); }
   });
 
   it("rolls back nonce, template and consumed approval when post-write work crosses the DB deadline", async () => {
     const child = await worker(), value = await prepared(configuration(), 5000), barrier = message(child.child, "barrier");
     const pending = child.request({ ...claimWire(value), barrier: "after-operation", continueBarrier: true });
-    await barrier;
-    await pool.query("SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.05)", [value.approval.expiresAt]);
+    await Promise.race([barrier, pending.then(result => { throw new Error(`Admission returned before its write barrier: ${JSON.stringify(result)}`); })]);
+    await expect.poll(databaseNow).toBeGreaterThanOrEqual(value.approval.expiresAt);
     child.child.send({ kind: "continue" });
     expect((await pending).status).toBe(410);
     expect(await counts()).toEqual({ pools: 1, assigned: 0, consumed: 0, lanes: 0 });
@@ -396,10 +408,9 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
   });
 
   it("recovers the permanent claim after approval expiry and ceremony receipt cleanup", async () => {
-    // The approval must still be live while its preparation runs; the wait below is what expires it.
-    const value = await prepared(configuration(), 4000), claimed = await store.claim(value.input);
+    const value = await prepared(configuration(), 5000), claimed = await store.claim(value.input);
     await pool.query("DELETE FROM rest_wallet_ceremonies WHERE id=$1", [value.approval.id]);
-    await pool.query("SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.05)", [value.approval.expiresAt]);
+    await expect.poll(databaseNow).toBeGreaterThanOrEqual(value.approval.expiresAt);
     expect(await store.claim(value.input)).toEqual({ operation: claimed.operation, replayed: true });
     expect(await store.cleanup(100)).toBe(0);
     expect(await store.get(value.operation.id)).toEqual(claimed.operation);
@@ -552,14 +563,15 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
   });
 
   it("rolls back signed bytes when post-write work crosses the signing lease deadline", async () => {
-    const value = await prepared(), claimed = await store.claim(value.input), lease = await store.leaseSigning(value.operation.id, 3000);
-    const rawTransaction = await signedTransaction(claimed.operation), child = await worker(), barrier = message(child.child, "barrier");
+    const value = await prepared(), claimed = await store.claim(value.input);
+    const rawTransaction = await signedTransaction(claimed.operation), child = await worker();
+    const lease = await store.leaseSigning(value.operation.id, 3000), barrier = message(child.child, "barrier");
     const pending = child.request({ action: "persist", input: { operationId: value.operation.id,
       leaseToken: lease.leaseToken!, revision: lease.revision, rawTransaction }, barrier: "after-signed", continueBarrier: true });
-    await barrier;
-    await pool.query("SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.05)", [lease.leaseUntil]);
+    await Promise.race([barrier, pending.then(result => { throw new Error(`Signing returned before its write barrier: ${JSON.stringify(result)}`); })]);
+    await expect.poll(databaseNow).toBeGreaterThanOrEqual(lease.leaseUntil!);
     child.child.send({ kind: "continue" });
-    expect((await pending).status).toBe(409);
+    expect(await pending).toMatchObject({ status: 409, body: { code: "WALLET_DEPLOYMENT_CONFLICT" } });
     expect(await store.get(value.operation.id)).toEqual(lease.operation);
     expect(lease.operation).toMatchObject({ state: "claimed", signed: null,
       signingLease: { token: lease.leaseToken, until: lease.leaseUntil } });
@@ -567,7 +579,7 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
   });
 
   it("CAS-publishes one of two different valid signatures across two processes", async () => {
-    const value = await prepared(), claimed = await store.claim(value.input), lease = await store.leaseSigning(value.operation.id, 15000);
+    const value = await prepared(), claimed = await store.claim(value.input);
     const original = await signedTransaction(claimed.operation), unsigned = signableTransaction(claimed.operation);
     const signature = secp256k1.sign(keccak256(serializeTransaction(unsigned)).slice(2), "22".repeat(32),
       { lowS: true, extraEntropy: new Uint8Array(32).fill(7) });
@@ -575,6 +587,7 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
     const alternate = serializeTransaction(unsigned, { r: toHex(signature.r, { size: 32 }), s: toHex(signature.s, { size: 32 }), yParity: signature.recovery });
     expect(alternate).not.toBe(original);
     const [a, b] = await Promise.all([worker(), worker()]);
+    const lease = await store.leaseSigning(value.operation.id, 15000);
     const input = { operationId: value.operation.id, leaseToken: lease.leaseToken!, revision: lease.revision };
     const results = await Promise.all([a.request({ action: "persist", input: { ...input, rawTransaction: original } }),
       b.request({ action: "persist", input: { ...input, rawTransaction: alternate } })]);
@@ -586,8 +599,9 @@ suite("PostgreSQL permanent wallet deployment admission without signing or dispa
   });
 
   it.each(["after-signed", "after-commit"])("recovers exact signed bytes at the %s process crash barrier", async barrierName => {
-    const value = await prepared(), claimed = await store.claim(value.input), lease = await store.leaseSigning(value.operation.id, 15000);
+    const value = await prepared(), claimed = await store.claim(value.input);
     const rawTransaction = await signedTransaction(claimed.operation), [a, b] = await Promise.all([worker(), worker()]);
+    const lease = await store.leaseSigning(value.operation.id, 15000);
     const input = { operationId: value.operation.id, leaseToken: lease.leaseToken!, revision: lease.revision, rawTransaction };
     const barrier = message(a.child, "barrier"), lost = a.request({ action: "persist", input, barrier: barrierName }).catch(() => null);
     await barrier; await kill(a.child); await lost;

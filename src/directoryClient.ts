@@ -46,6 +46,8 @@ export const HOMEPAGE_JS = String.raw`(() => {
       const node = id.slice(slash + 1);
       if (maps.get(view)?.nodes.has(node)) return { view, node };
     }
+    const target = document.getElementById(id);
+    if (target) return { ...current, target };
     return { view: 'apps', node: maps.get('apps').entry };
   }
 
@@ -64,7 +66,7 @@ export const HOMEPAGE_JS = String.raw`(() => {
     const previousMap = maps.get(current.view);
     const previousFocus = document.activeElement;
     const focusWillHide = current.view !== next.view && previousMap.panel.contains(previousFocus);
-    current = next;
+    current = { view: next.view, node: next.node };
     const state = window.history.state?.juiceboxDirectory;
     incoming = state && state.view === current.view && state.node === current.node
       && maps.get(state.fromView)?.nodes.has(state.from)
@@ -88,7 +90,16 @@ export const HOMEPAGE_JS = String.raw`(() => {
       if (reference) reference.open = true;
     }
     routedKey = historyKey();
-    if (moveFocus || focusWillHide) focusNode(node);
+    if (next.target) {
+      for (let target = next.target; target; target = target.parentElement) {
+        if (target.matches('details')) target.open = true;
+      }
+      if (moveFocus) {
+        const focus = next.target.matches('details') ? next.target.querySelector(':scope > summary') : next.target;
+        focus?.focus({ preventScroll: true });
+        next.target.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'auto' });
+      }
+    } else if (moveFocus || focusWillHide) focusNode(node);
     scheduleDraw();
   }
 
@@ -308,7 +319,9 @@ export const HOMEPAGE_JS = String.raw`(() => {
   applyRoute(false);
   if (window.location.hash) {
     window.requestAnimationFrame(() => {
-      maps.get(current.view).nodes.get(current.node).scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+      const nativeTarget = route().target;
+      const target = nativeTarget || maps.get(current.view).nodes.get(current.node);
+      target.scrollIntoView({ block: nativeTarget ? 'start' : 'nearest', inline: 'nearest', behavior: 'auto' });
     });
   }
   window.addEventListener('resize', scheduleDraw, { passive: true });

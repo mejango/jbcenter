@@ -210,6 +210,13 @@ describe("Relayr quote commitments and payment validation", () => {
         expect.objectContaining({ code: 'RELAYR_INVALID_STATUS', status: 502 }),
       );
     }
+    for (const id of [BUNDLE, status.transactions[1]!.tx_uuid]) {
+      const changed = structuredClone(status);
+      changed.transactions[0]!.tx_uuid = id;
+      expect(() => bindFamilyQuoteStatus(changed, provisional)).toThrowError(
+        expect.objectContaining({ code: 'RELAYR_INVALID_STATUS', status: 502 }),
+      );
+    }
   });
 
   it('refuses a sponsored bundle whose echoed calls do not name one entry each', () => {

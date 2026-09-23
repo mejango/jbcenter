@@ -157,6 +157,18 @@ describe('bounded operator dependency funding', () => {
     await expect(fundWalletDependencyQuote({ ...f.options, sign: f.signer })).rejects.toThrow();
     expect(f.calls.filter(c => c.method === 'eth_sendRawTransaction')).toHaveLength(1);
   });
+  it('keeps the smaller funding-journal bound and refuses oversized recovery before provider reads', async () => {
+    const f = await fixture();
+    await fundWalletDependencyQuote({ ...f.options, sign: f.signer });
+    const path = join(f.directory, 'funding', f.response.bundle_uuid, 'funding.json');
+    const saved = JSON.parse(await readFile(path, 'utf8'));
+    await writeFile(path, JSON.stringify({ ...saved, padding: 'x'.repeat(256 * 1024) }));
+    f.calls.length = 0; f.provider.status.mockClear();
+    await expect(reconcileWalletDependencyFunding(f.options)).rejects.toMatchObject({ code: 'WALLET_DEPENDENCY_FUNDING_EVIDENCE_INVALID' });
+    expect(f.provider.status).not.toHaveBeenCalled();
+    expect(f.calls).toHaveLength(0);
+    expect(f.signer).toHaveBeenCalledTimes(1);
+  });
   it('rejects a changed signer or any changed signed payment field', async () => {
     const f = await fixture(), template = await prepareWalletDependencyFunding(f.options);
     const tx = { type: 'eip1559' as const, chainId: template.transaction.chainId, nonce: template.transaction.nonce,

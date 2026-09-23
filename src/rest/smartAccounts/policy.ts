@@ -14,7 +14,6 @@ import { address, exactObject, integer } from "../protocol/abi.js";
 import { fingerprint } from "./service.js";
 import type {
   Allocation,
-  SessionAction,
   SessionPolicyInput,
   SmartAccountBinding,
 } from "./types.js";

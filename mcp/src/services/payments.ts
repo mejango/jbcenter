@@ -257,6 +257,20 @@ export class PaymentService {
   }
 
   async preparePay(input: PayInput, at?: BlockEvidence): Promise<PlanDraft> {
+    return this.preparePayment(input, undefined, at);
+  }
+
+  /** Internal NFT composition: a zero payment still requires the verified active tiers hook.
+   * The product service additionally checks tier minting, credits and overspending. */
+  async prepareNftPay(input: PayInput, verifiedHook: Address): Promise<PlanDraft> {
+    return this.preparePayment(input, verifiedHook);
+  }
+
+  private async preparePayment(
+    input: PayInput,
+    verifiedNftHook?: Address,
+    at?: BlockEvidence,
+  ): Promise<PlanDraft> {
     // The allowance depends only on the terminal: read beside the preview, not after it.
     const {
       quote,
@@ -265,7 +279,7 @@ export class PaymentService {
     } = await this.pay(
       input,
       (client, terminal) =>
-        isNative(input.token)
+        isNative(input.token) || input.amount === '0'
           ? Promise.resolve(0n)
           : client.readContract({
               address: input.token,
@@ -274,10 +288,11 @@ export class PaymentService {
               args: [input.account, terminal],
             }),
       at,
+      verifiedNftHook,
     );
     const calls: PreparedCall[] = [];
-    if (!isNative(input.token)) {
-      const amount = uint(input.amount, 'amount');
+    if (!isNative(input.token) && quote.payment.amount !== '0') {
+      const amount = BigInt(quote.payment.amount);
       if (allowance < amount) {
         if (allowance > 0n) {
           calls.push(
@@ -666,6 +681,7 @@ export class PaymentService {
     input: PayInput,
     beside?: (client: PublicClient, terminal: Address) => Promise<T>,
     at?: BlockEvidence,
+    verifiedNftHook?: Address,
   ) {
     if (
       input.memo !== undefined &&
@@ -673,7 +689,7 @@ export class PaymentService {
     ) {
       throw new DomainError('INVALID_MEMO', 'Payment memo must be at most 256 UTF-8 bytes.');
     }
-    const amount = uint(input.amount, 'amount');
+    const amount = uint(input.amount, 'amount', verifiedNftHook === undefined);
     const slippage = bps(input.slippageBps);
     const requested = Date.now();
     // A head the caller read moments ago pins the quote without another read of it.
@@ -731,6 +747,16 @@ export class PaymentService {
       );
     }
     const hooks = fullPreview[3] as HookSpec[];
+    if (
+      verifiedNftHook !== undefined &&
+      (!context.tieredHook ||
+        !same(context.tieredHook, verifiedNftHook) ||
+        !hooks.some((spec) => same(spec.hook, verifiedNftHook) && !spec.noop))
+    )
+      throw new DomainError(
+        'NFT_HOOK_NOT_INVOKED',
+        'The terminal preview will not invoke the verified NFT hook.',
+      );
     let beneficiaryTokenCount = preview.beneficiaryTokenCount;
     let reservedTokenCount = preview.reservedTokenCount;
     let quoteBasis: 'terminal-issuance-preview' | 'buyback-hook-indicative-output' =

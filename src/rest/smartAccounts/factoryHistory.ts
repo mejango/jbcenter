@@ -28,7 +28,14 @@ export class FactoryHistoryIndex {
   private syncing: Promise<void> | undefined;
   private readonly shutdown = new AbortController();
   async stop() { this.shutdown.abort(); await this.syncing?.catch(() => {}); }
-  constructor(private readonly pool: Pool, private readonly rpc: RestRpc, readonly seed: FactoryHistorySeed) {}
+  constructor(private readonly pool: Pool, private readonly rpc: RestRpc, readonly seed: FactoryHistorySeed) {
+    let previous = "";
+    for (const [account] of seed.creations) {
+      const current = account.toLowerCase();
+      if (current < previous) unavailable("The retained factory index is not sorted by address.");
+      previous = current;
+    }
+  }
   private async header(block: string, signal?: AbortSignal) {
     const h = await this.rpc.request(this.seed.chainId, "eth_getBlockByNumber", [block, false], signal) as {number?: string; hash?: string};
     if (!h || typeof h.number !== "string" || !/^0x[0-9a-f]+$/i.test(h.number) || !word.test(h.hash ?? "")) unavailable("A canonical factory-index anchor is unavailable.");
@@ -85,7 +92,20 @@ export class FactoryHistoryIndex {
     const hash = row.rows[0]?.block_hash ?? this.seed.hash;
     if ((await this.header(`0x${through.toString(16)}`,signal)).hash.toLowerCase() !== hash.toLowerCase()) unavailable("The factory index anchor is no longer canonical.");
     if (end > through + 10000n) unavailable("Account history is catching up. Try checking the account again shortly.");
-    const prefix = this.seed.creations.filter(([account,block])=>account.toLowerCase()===proxy.toLowerCase() && BigInt(block)<=end).map(([,block])=>BigInt(block));
+    // The retained prefix contains millions of rows sorted by address. Locate the
+    // complete matching range without scanning it or allocating a second index.
+    const target = proxy.toLowerCase(), creations = this.seed.creations;
+    let first = 0, last = creations.length;
+    while (first < last) {
+      const middle = first + Math.floor((last - first) / 2);
+      if (creations[middle]![0].toLowerCase() < target) first = middle + 1;
+      else last = middle;
+    }
+    const prefix: bigint[] = [];
+    for (let i = first; i < creations.length && creations[i]![0].toLowerCase() === target; i++) {
+      const block = BigInt(creations[i]![1]);
+      if (block <= end) prefix.push(block);
+    }
     const tail = await this.pool.query<{block_number:string}>("SELECT block_number FROM rest_factory_creations WHERE chain_id=$1 AND factory=$2 AND proxy=$3 AND block_number<=$4 AND block_number>$5",[chainId,factory.toLowerCase(),proxy.toLowerCase(),end.toString(),this.seed.through]);
     const blocks = [...prefix,...tail.rows.map(r=>BigInt(r.block_number))];
     const found: Record<string,unknown>[] = [];
