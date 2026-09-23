@@ -29,7 +29,7 @@ suite("real PostgreSQL workers and unforked Anvil exact deployment recovery", ()
   const wire = (operationId: string, action: "sign" | "recover" = "recover", extra: Record<string, unknown> = {}) => ({ action, operationId,
     localAnvil: { endpoint, expectedGenesisHash: fixture.expectedGenesisHash, utility: fixture.utility }, ...extra });
   async function dbNow(): Promise<number> { return Number((await pool.query("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::text AS now")).rows[0].now); }
-  async function waitUntil(timestamp: number) { await new Promise(resolve => setTimeout(resolve, Math.max(1, timestamp - Date.now() + 15))); }
+  async function waitUntil(timestamp: number) { await expect.poll(dbNow).toBeGreaterThanOrEqual(timestamp); }
   function message(child: ChildProcess, kind: string): Promise<any> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => finish(new Error(`Local worker did not reach ${kind}`)), 15000);
@@ -111,6 +111,7 @@ suite("real PostgreSQL workers and unforked Anvil exact deployment recovery", ()
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 4 });
     // Distinct connection pool: visibility here proves the worker's journal and bytes committed.
     deliveryReader = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 1, query_timeout: 3000 });
+    await deliveryReader.query("SELECT 1");
     for (const name of ["013_rest_wallet_ceremonies.sql", "015_rest_wallet_enrollment.sql", "046_wallet_signup_window.sql", "041_wallet_passkey_name.sql", "043_wallet_networks.sql", "044_wallet_devices.sql", "016_rest_wallet_deployments.sql", "036_wallet_deployment_approval_v2.sql",
       "018_rest_wallet_deployment_observations.sql", "021_rest_wallet_deployment_dispatch.sql", "026_wallet_deployment_settlement.sql", "034_wallet_deployment_base.sql", "054_wallet_deployment_inclusion_release.sql", "056_wallet_deployment_release_after_settled_dispatch.sql"])
       await pool.query(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), "utf8"));
@@ -125,13 +126,14 @@ suite("real PostgreSQL workers and unforked Anvil exact deployment recovery", ()
           const raw = body.params[0] as Hex, hash = keccak256(raw);
           const result = await deliveryReader.query(`SELECT d.id,d.raw_transaction,d.transaction_hash,d.nonce::text AS nonce,
             p.active_operation_id,p.allocation_wei::text AS allocation,j.status,j.transaction_hash AS journal_hash,j.attempts,
-            j.lease_until::text AS lease_until,pg_backend_pid() AS database_pid FROM rest_wallet_deployments d
+            j.lease_until::text AS lease_until,pg_backend_pid() AS database_pid,
+            floor(extract(epoch FROM clock_timestamp())*1000)::text AS database_now FROM rest_wallet_deployments d
             JOIN rest_wallet_deployment_pools p ON p.id=d.pool_id
             JOIN rest_wallet_deployment_dispatches j ON j.operation_id=d.id WHERE d.transaction_hash=$1`, [hash]);
           const row = result.rows[0];
           if (result.rowCount !== 1 || row.raw_transaction !== raw || row.transaction_hash !== hash || row.journal_hash !== hash ||
               row.status !== "in-flight" || row.active_operation_id !== row.id || row.allocation !== fixture.configuration.allocationWei ||
-              Number(row.lease_until) <= Date.now()) {
+              Number(row.lease_until) <= Number(row.database_now)) {
             rejectedDeliveries.push("Send lacked a visible committed exact winner and live dispatch journal");
             throw new Error("Local durability assertion failed");
           }
@@ -246,7 +248,7 @@ suite("real PostgreSQL workers and unforked Anvil exact deployment recovery", ()
 
   it("observes actual pending bytes without another send, then exactly rebroadcasts after a local mempool drop", async () => {
     const context = await claimed(), first = await worker(); await fixture.rpc("evm_setAutomine", [false]);
-    const sent = await first.request(wire(context.operation.id, "recover", { dispatchLeaseMs: 500 }));
+    const sent = await first.request(wire(context.operation.id));
     expect(sent.status).toBe(200); expect(sent.body.dispatch).toBe("accepted"); expect(forwarded).toHaveLength(1);
     const original = (await store.get(context.operation.id))!.signed!, prior = (await store.getDispatch(context.operation.id))!;
     expect(await fixture.rpc("eth_getTransactionReceipt", [original.hash])).toBeNull();
@@ -264,7 +266,7 @@ suite("real PostgreSQL workers and unforked Anvil exact deployment recovery", ()
 
   it("recovers a real mined reorg before finality with the identical persisted transaction", async () => {
     const context = await claimed(), baseline = await fixture.rpc<Hex>("evm_snapshot"), first = await worker();
-    const sent = await first.request(wire(context.operation.id, "recover", { dispatchLeaseMs: 500 }));
+    const sent = await first.request(wire(context.operation.id));
     expect(sent.status).toBe(200); expect(sent.body.dispatch).toBe("accepted");
     const original = (await store.get(context.operation.id))!.signed!, mined = await receipt(original.hash);
     const observed = await first.request(wire(context.operation.id));

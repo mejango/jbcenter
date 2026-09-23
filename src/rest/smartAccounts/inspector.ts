@@ -26,6 +26,7 @@ import {
 } from "./creation.js";
 import { inspectPasskeyOwnerProfile } from "./passkeyProfile.js";
 import { fingerprint } from "./service.js";
+import { permissionIdOf } from "./compiler/encoding.js";
 import {
   LEGACY_SESSION_PARAMETERS,
   LEGACY_SESSION_SETUP_ABI,
@@ -1062,18 +1063,7 @@ export function createSafe7579Inspector(
                 "SMART_SESSION_HISTORY_UNSUPPORTED",
                 "Session administration epoch exhausted.",
               );
-            const permissionIds = initializations?.map((session) =>
-              keccak256(
-                encodeAbiParameters(
-                  [{ type: "address" }, { type: "bytes" }, { type: "bytes32" }],
-                  [
-                    session.sessionValidator,
-                    session.sessionValidatorInitData,
-                    session.salt,
-                  ],
-                ),
-              ),
-            );
+            const permissionIds = initializations?.map(permissionIdOf);
             history!.sessionAdministration = {
               epoch: String(epoch),
               hash: fingerprint({

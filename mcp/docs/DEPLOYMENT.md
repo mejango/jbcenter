@@ -46,26 +46,28 @@ These are service-wide budgets rather than per-user allowances. The public RPC g
 
 ## Transport and service limits
 
-| Boundary                                   |              Default |
-| ------------------------------------------ | -------------------: |
-| Request body, HTTP and stdio               |              256 KiB |
-| Plan payload / token                       |    128 KiB / 192 KiB |
-| New metadata canonical JSON / review token |     64 KiB / 100 KiB |
-| Tool result data                           |              512 KiB |
-| HTTP concurrent requests per process       |                   16 |
-| HTTP per socket-IP rate / burst            | 120 per minute / 120 |
-| Rate-limit identities retained             |               10,000 |
-| HTTP operation deadline                    |           60 seconds |
-| Body/header receive timeout                |      15 / 10 seconds |
-| Standalone MCP graceful shutdown           |           10 seconds |
-| Integrated Center graceful shutdown        |           25 seconds |
-| Upstream requests per tool                 |                  128 |
-| RPC timeout / response cap                 |   12 seconds / 5 MiB |
-| Default adapter timeout / response cap     |   15 seconds / 2 MiB |
-| Simulation/view gas bound                  |           30,000,000 |
-| RPC log range                              |        50,000 blocks |
-| Transaction-plan lifetime                  |          300 seconds |
-| Metadata-review lifetime                   |          600 seconds |
+| Boundary                                   |                 Default |
+| ------------------------------------------ | ----------------------: |
+| Ordinary HTTP request body                 |                 256 KiB |
+| Logo HTTP envelope / stdio message         | Base64 of 1 MiB + 4 KiB |
+| Decoded project logo image                 |                   1 MiB |
+| Plan payload / token                       |       128 KiB / 192 KiB |
+| New metadata canonical JSON / review token |        64 KiB / 100 KiB |
+| Tool result data                           |                 512 KiB |
+| HTTP concurrent requests per process       |                      16 |
+| HTTP per socket-IP rate / burst            |    120 per minute / 120 |
+| Rate-limit identities retained             |                  10,000 |
+| HTTP operation deadline                    |              60 seconds |
+| Body/header receive timeout                |         15 / 10 seconds |
+| Standalone MCP graceful shutdown           |              10 seconds |
+| Integrated Center graceful shutdown        |              25 seconds |
+| Upstream requests per tool                 |                     128 |
+| RPC timeout / response cap                 |      12 seconds / 5 MiB |
+| Default adapter timeout / response cap     |      15 seconds / 2 MiB |
+| Simulation/view gas bound                  |              30,000,000 |
+| RPC log range                              |           50,000 blocks |
+| Transaction-plan lifetime                  |             300 seconds |
+| Metadata-review lifetime                   |             600 seconds |
 
 Legacy JSON-RPC batch arrays are rejected. MCP GET and DELETE return 405; this is stateless POST request/response without an SSE subscription stream. Forwarded headers are ignored. If an ingress presents one socket address for all users, the local per-IP quota is shared; configure distributed per-user/IP quotas at the trusted ingress when needed. Process-local transport limits and shared backend budgets protect different resources.
 

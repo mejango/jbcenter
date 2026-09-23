@@ -399,10 +399,21 @@ export class RoutingService {
             'UNSUPPORTED_BUYBACK_IMPLEMENTATION',
             'Registry-selected custom buyback hook is identified, but its pool and oracle semantics require a separate adapter.',
           );
+        if (!selected.length) return [];
+        // These hook properties are identical for every token at this pinned snapshot.
+        // Keep failures inside each token's observation rather than losing the whole list.
+        const configuration = Promise.all([
+          client.readContract({
+            address: hook,
+            abi: jbBuybackHookAbi,
+            functionName: 'poolManager',
+          }),
+          client.readContract({ address: hook, abi: jbBuybackHookAbi, functionName: 'oracleHook' }),
+        ]);
         return Promise.all(
           selected.map(async (terminalToken) => ({
             terminalToken,
-            pool: await observe(() => this.pool(snapshot, hook, terminalToken)),
+            pool: await observe(() => this.pool(snapshot, hook, terminalToken, configuration)),
           })),
         );
       }),
@@ -496,10 +507,11 @@ export class RoutingService {
     snapshot: RpcSnapshot & { projectId: bigint },
     hook: Address,
     terminalToken: Address,
+    configuration: Promise<[Address, Address]>,
   ) {
     const { client, projectId } = snapshot;
     const token = normalized(terminalToken);
-    const [key, twapWindow, manager, configuredOracle] = await Promise.all([
+    const [key, twapWindow, [manager, configuredOracle]] = await Promise.all([
       client.readContract({
         address: hook,
         abi: jbBuybackHookAbi,
@@ -512,8 +524,7 @@ export class RoutingService {
         functionName: 'twapWindowOf',
         args: [projectId, token],
       }),
-      client.readContract({ address: hook, abi: jbBuybackHookAbi, functionName: 'poolManager' }),
-      client.readContract({ address: hook, abi: jbBuybackHookAbi, functionName: 'oracleHook' }),
+      configuration,
     ]);
     if (!configured(key))
       return {

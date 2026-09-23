@@ -32,7 +32,7 @@ function immutableJson(value: unknown): string {
   if (value && typeof value === "object") return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${immutableJson(item)}`).join(",")}}`;
   return JSON.stringify(value) ?? "null";
 }
-function assertSameOperation(result: PreparedUserOperation, reviewed: PreparedUserOperation) {
+export function assertSameOperation(result: PreparedUserOperation, reviewed: PreparedUserOperation) {
   for (const key of ["id", "planId", "planCommitment", "accountBindingId", "accountStateHash", "chainId", "entryPoint", "operationHash", "commitment", "gasPolicyId", "providerId", "stepIndexes", "expiresAt", "createdAt", "operation", "signing", "session"] as const) {
     if (immutableJson(result[key]) !== immutableJson(reviewed[key])) fail("The returned operation differs from the reviewed transaction. Keep its original operation ID for recovery.");
   }

@@ -1,4 +1,11 @@
-# Atomic passkey bootstrap: local proof and next production candidate
+# Atomic passkey bootstrap: historical experiment
+
+This document preserves the original bootstrap experiment and its implementation
+proposal. The versioned initializer, inspector and direct deployment relay are
+now implemented. See the current [deployment strategy](../../../../../../docs/rest/WALLET-DEPLOYMENT-STRATEGY.md)
+and [delivery report](../../../../../../docs/rest/CENTER-WALLET-DELIVERY.md)
+for their behavior and remaining production gates. The measurements below remain
+local experiment evidence.
 
 A single Safe factory transaction can deploy the immutable passkey signer and initialize the Safe with that signer plus an independent recovery EOA. Use the existing direct deployment relay pattern with a newly versioned initializer. The tested EntryPoint initCode variant is onchain-feasible but is unsuitable for the current canonical bundler path without further architectural changes.
 
@@ -44,7 +51,7 @@ Latest local measurements in evidence/local-bootstrap.json:
 
 ## Why the direct transaction is the next candidate
 
-Beep already implements the relevant pattern in src/deployment-service.ts: a bounded prepaid deployment gas wallet, fresh exact initializer approval, durable raw EIP1559 transaction before dispatch, unresolved nonce protection, canonical receipt rechecks, and rebroadcast of identical bytes. Center has no equivalent direct relay today. Its Relayr sponsorship module forwards ERC2771 requests and is not a drop-in factory deployment path.
+At the time of this experiment, Beep implemented the relevant pattern in src/deployment-service.ts: a bounded prepaid deployment gas wallet, fresh exact initializer approval, durable raw EIP1559 transaction before dispatch, unresolved nonce protection, canonical receipt rechecks, and rebroadcast of identical bytes. Center had no equivalent direct relay. Its Relayr sponsorship module forwards ERC2771 requests and is not a drop-in factory deployment path.
 
 Moving that deployment responsibility to Center requires shared PostgreSQL authorization, budget and nonce records. Beep's process-local busy flag and SQLite coordination do not protect multiple Center replicas. Keep the existing bounded pool and exact-byte recovery semantics while implementing those shared invariants. The operator gas key never becomes a Safe owner and receives no customer spending authority.
 

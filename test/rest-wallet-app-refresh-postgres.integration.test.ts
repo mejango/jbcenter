@@ -2,13 +2,12 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { keccak256, type Hex } from 'viem';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { keccak256 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { migrate } from '../src/db/migrate.js';
 import { buildRequestTypedData, REST_AUTH_HEADERS as H, type RequestClaims } from '../src/rest/auth/signatures.js';
 import { PostgresAccountStore } from '../src/rest/auth/postgres.js';
-import { createRestAuth } from '../src/rest/auth/service.js';
 import { PostgresWalletAppGrantStore } from '../src/rest/wallet/appGrantsPostgres.js';
 import { walletAppPrincipalId, type WalletAppGrant } from '../src/rest/wallet/appGrants.js';
 import { PostgresWalletPolicyStore } from '../src/rest/wallet/policyPostgres.js';
@@ -19,6 +18,8 @@ import { createWalletLoginSetup } from './fixtures/wallet-login-setup.js';
 const connectionString = process.env.TEST_DATABASE_URL, suite = connectionString ? describe : describe.skip;
 const schema = `wallet_app_refresh_${randomUUID().replaceAll('-', '')}`;
 const audience = 'https://juicebox.center', origin = 'https://beep.example';
+// Reconciliation performs genuine context validation before these tests wait for expiry.
+const expiringReadinessMs = 3000;
 const appKey = privateKeyToAccount(`0x${'71'.repeat(32)}`), otherKey = privateKeyToAccount(`0x${'72'.repeat(32)}`);
 const children = new Set<ChildProcess>();
 let admin: Pool, pool: Pool, first: Worker, second: Worker, unknown: Worker;
@@ -51,10 +52,10 @@ async function stop(child: ChildProcess) {
     child.once('exit', exited); child.kill('SIGKILL');
   });
 }
-async function start(mode: 'fresh' | 'unknown' | 'queue-error' = 'fresh', observeBarrier = false) {
+async function start(mode: 'fresh' | 'unknown' | 'queue-error' = 'fresh', observeBarrier = false, interestMs?: number) {
   const child = fork(fileURLToPath(new URL('./fixtures/wallet-app-refresh-process.ts', import.meta.url)), [], {
     execArgv: ['--import', 'tsx'], env: { ...process.env, WALLET_APP_REFRESH_TEST_SCHEMA: schema,
-      WALLET_APP_REFRESH_TEST_MODE: mode, WALLET_APP_REFRESH_TEST_QUEUE_OPTIONS: JSON.stringify({ interestMs: 1000 }),
+      WALLET_APP_REFRESH_TEST_MODE: mode, WALLET_APP_REFRESH_TEST_QUEUE_OPTIONS: JSON.stringify(interestMs === undefined ? {} : { interestMs }),
       ...(observeBarrier ? { WALLET_APP_REFRESH_TEST_BARRIER: 'observe' } : {}) }, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
   children.add(child); const ready = await message(child, 'ready');
   return { child, backendPid: Number(ready.backendPid), url: `http://127.0.0.1:${ready.port}` };
@@ -62,22 +63,23 @@ async function start(mode: 'fresh' | 'unknown' | 'queue-error' = 'fresh', observ
 async function seed(options: { readyMs?: number; grantSeconds?: number } = {}) {
   // Genuine enrollment/credential/setup consent. Only canonical observation is synthetic;
   // the process uses the actual authority reducer/CAS and real scheduling queue.
-  const login = await createWalletLoginSetup(pool, { lifetimeMs: options.readyMs ?? 30_000 });
+  const login = await createWalletLoginSetup(pool);
   const authority = (await pool.query('SELECT authority_epoch,session_epoch FROM rest_wallet_authority WHERE account_id=$1', [login.accountId])).rows[0];
   const grant = await new PostgresWalletAppGrantStore(pool).insert({ accountId: login.accountId, signerAddress: appKey.address,
     origin, callbackUri: `${origin}/callback`, audience, expectedAppGeneration: 1,
     expectedAuthorityEpoch: authority.authority_epoch, expectedSessionEpoch: authority.session_epoch,
-    expiresAt: Math.floor(await nowMs() / 1000) + (options.grantSeconds ?? 600) });
-  return { ...login, grant };
+    expiresAt: Math.ceil(await nowMs() / 1000) + (options.grantSeconds ?? 600) });
+  return { ...login, grant, ...(options.readyMs === undefined ? {} : await login.refreshReadiness(options.readyMs)) };
 }
 async function signed(grant: WalletAppGrant, options: { changes?: Partial<RequestClaims>; key?: typeof appKey;
-  browserOrigin?: string | null; claimId?: string; barrier?: string; target?: string } = {}) {
+  browserOrigin?: string | null; claimId?: string; barrier?: string; target?: string; lifetimeSeconds?: number } = {}) {
   const key = options.key ?? appKey, target = options.target ?? (options.claimId ? '/fixture/claim' : '/api/v1/accounts/me');
   const body = options.claimId ? Buffer.from(JSON.stringify({ id: options.claimId })) : Buffer.alloc(0);
-  const current = Math.floor(await nowMs() / 1000);
+  const currentMs = await nowMs(), current = Math.floor(currentMs / 1000);
   const claims: RequestClaims = { accountId: grant.accountId, signer: key.address, grantId: grant.id,
     method: options.claimId ? 'POST' : 'GET', requestTarget: target, contentType: options.claimId ? 'application/json' : '',
-    bodyHash: keccak256(body), issuedAt: current, expiresAt: current + 60,
+    bodyHash: keccak256(body), issuedAt: current,
+    expiresAt: options.lifetimeSeconds === undefined ? current + 60 : Math.ceil(currentMs / 1000) + options.lifetimeSeconds,
     nonce: `0x${randomUUID().replaceAll('-', '').repeat(2)}`, idempotencyKey: '', ...options.changes };
   const signature = await key.signTypedData(buildRequestTypedData(audience, claims));
   const headers = new Headers({ [H.account]: claims.accountId, [H.signer]: claims.signer, [H.grant]: claims.grantId,
@@ -115,10 +117,13 @@ async function nonceCount(request: Awaited<ReturnType<typeof signed>>) {
   return Number((await pool.query('SELECT count(*)::int AS count FROM rest_request_nonces WHERE account_id=$1 AND nonce=$2',
     [request.claims.accountId, request.claims.nonce])).rows[0].count);
 }
-async function waitForLock(pid: number) {
+async function waitForLock(pid: number, blocker: number, pending: ReturnType<typeof send>) {
+  let ended = '';
+  void pending.then(result => { ended = `${result.status}/${result.body.code ?? 'success'}`; }, () => { ended = 'transport-failed'; });
   for (let i = 0; i < 200; i++) {
-    const row = (await pool.query('SELECT wait_event_type FROM pg_stat_activity WHERE pid=$1', [pid])).rows[0];
-    if (row?.wait_event_type === 'Lock') return;
+    if (ended) throw new Error(`Request ended before its account lock: ${ended}`);
+    const row = (await pool.query('SELECT wait_event_type,query,pg_blocking_pids(pid) AS blockers FROM pg_stat_activity WHERE pid=$1', [pid])).rows[0];
+    if (row?.wait_event_type === 'Lock' && /\brest_accounts\b/.test(row.query) && row.blockers.includes(blocker)) return;
     await new Promise(resolve => setTimeout(resolve, 10));
   }
   throw new Error('Expected a real PostgreSQL request lock');
@@ -137,14 +142,17 @@ suite('signed app requests renew their own bounded authority refresh interest', 
     [first, second, unknown] = await Promise.all([start(), start(), start('unknown')]);
   }, 20_000);
   beforeEach(async () => {
-    // A previous test's background refresh tick may still be cleaning the queue; a deadlock with
-    // the truncate aborts one side, so the truncate simply tries again.
-    for (let attempt = 0; ; attempt++) {
-      try { await pool.query('TRUNCATE rest_accounts,rest_wallet_credentials,rest_wallet_enrollments,rest_wallet_ceremonies,rest_wallet_policy,wallet_app_refresh_events,wallet_app_refresh_claims CASCADE'); break; }
-      catch (error) { if (attempt >= 5 || (error as { code?: string }).code !== '40P01') throw error; await new Promise(resolve => setTimeout(resolve, 50)); }
-    }
+    // A ready principal can return while its refresh keeps running. Finish that work
+    // before clearing events/rows so it cannot leak into the next test.
+    await Promise.all([...children].map(async child => {
+      const drained = message(child, 'drained'); child.send('drain'); await drained;
+    }));
+    await pool.query('TRUNCATE rest_accounts,rest_wallet_credentials,rest_wallet_enrollments,rest_wallet_ceremonies,rest_wallet_policy,wallet_app_refresh_events,wallet_app_refresh_claims CASCADE');
     await pool.query('UPDATE rest_wallet_authority_refresh_control SET configuration=NULL,window_start_ms=0,starts_in_window=0 WHERE id=1');
     await new PostgresWalletPolicyStore(pool).activate({ expectedRevision: 0, nextRevision: 1, configuration: configuration() });
+  });
+  afterEach(async () => {
+    await Promise.all([...children].filter(child => ![first.child, second.child, unknown.child].includes(child)).map(stop));
   });
   afterAll(async () => {
     const results = await Promise.allSettled([...children].map(stop));
@@ -153,12 +161,11 @@ suite('signed app requests renew their own bounded authority refresh interest', 
   }, 15_000);
 
   it('refreshes an idle expired interest and readiness window through a genuine signed app request', async () => {
-    const value = await seed({ readyMs: 1000 });
+    const value = await seed({ readyMs: expiringReadinessMs }), process = await start('fresh', false, 1000);
     await new PostgresWalletAuthorityRefreshQueue(pool, { interestMs: 1000 }).request(value.accountId);
     const deadline = Number((await pool.query('SELECT interested_until_ms FROM rest_wallet_authority_refresh_jobs WHERE account_id=$1', [value.accountId])).rows[0].interested_until_ms);
     await waitPast(Math.max(deadline, value.observation.validUntilMs!));
-    const request = await signed(value.grant), response = await send(first, request);
-    // Admitted on the known identity at once; the observation it asked for lands afterwards.
+    const request = await signed(value.grant), response = await send(process, request);
     expect(response).toMatchObject({ status: 200, body: { kind: 'wallet-app', principalId: walletAppPrincipalId(value.grant) } });
     await untilWork({ requests: 1, observations: 1, claims: 0 }); expect(await nonceCount(request)).toBe(1);
     let current: any;
@@ -198,7 +205,7 @@ suite('signed app requests renew their own bounded authority refresh interest', 
   });
 
   it('renews refresh interest on a checking refusal even inside the memo window', async () => {
-    const value = await seed({ readyMs: 500 }); await waitPast(value.observation.validUntilMs!);
+    const value = await seed({ readyMs: expiringReadinessMs }); await waitPast(value.observation.validUntilMs!);
     const a = await signed(value.grant, { claimId: randomUUID() });
     expect((await send(unknown, a)).status).toBe(200);
     await untilWork({ requests: 1, observations: 1, claims: 1 });
@@ -215,9 +222,8 @@ suite('signed app requests renew their own bounded authority refresh interest', 
 
   it.each(['signature', 'signer', 'origin', 'owner-only', 'grant-revoked', 'grant-expired', 'epoch', 'credential', 'binding', 'policy', 'policy-readded'] as const)(
     'does not schedule provider work for invalid %s', async invalidation => {
-      // Whole-second expiry must leave a full second for admission before this
-      // test intentionally waits past it. +1 could expire at the next tick.
-      const value = await seed({ grantSeconds: invalidation === 'grant-expired' ? 2 : 600 });
+      // Grant admission is setup; its deliberate real expiry is the assertion boundary.
+      const value = await seed({ grantSeconds: invalidation === 'grant-expired' ? 5 : 600 });
       if (invalidation === 'grant-revoked') await pool.query('UPDATE rest_wallet_app_grants SET revoked_at=$2 WHERE id=$1', [value.grant.id, Math.floor(await nowMs() / 1000)]);
       if (invalidation === 'grant-expired') await waitPast(value.grant.expiresAt * 1000);
       if (invalidation === 'epoch') await new PostgresWalletAppGrantStore(pool).advanceEpochs({ accountId: value.accountId, kind: 'logout',
@@ -251,7 +257,7 @@ suite('signed app requests renew their own bounded authority refresh interest', 
   });
 
   it('preserves legacy bot requests without requesting wallet readiness work', async () => {
-    const value = await seed({ readyMs: 500 }), id = randomUUID(), current = Math.floor(await nowMs() / 1000);
+    const value = await seed({ readyMs: expiringReadinessMs }), id = randomUUID(), current = Math.floor(await nowMs() / 1000);
     await new PostgresAccountStore(pool).registerBot({ id, accountId: value.accountId, botAddress: appKey.address,
       scopes: ['read'], label: 'legacy bot fixture', createdAt: current, expiresAt: current + 600, revokedAt: null });
     await waitPast(value.observation.validUntilMs!);
@@ -261,7 +267,7 @@ suite('signed app requests renew their own bounded authority refresh interest', 
   });
 
   it('consumes an identical request once across two HTTP processes before scheduling any work', async () => {
-    const value = await seed({ readyMs: 500 }); await waitPast(value.observation.validUntilMs!);
+    const value = await seed({ readyMs: expiringReadinessMs }); await waitPast(value.observation.validUntilMs!);
     const request = await signed(value.grant, { barrier: 'after-nonce-commit' }), barrier = message(first.child, 'barrier');
     const accepted = send(first, request); expect((await barrier).boundary).toBe('after-nonce-commit');
     expect(await nonceCount(request)).toBe(1); expect(await work()).toEqual({ requests: 0, observations: 0, claims: 0 });
@@ -271,7 +277,7 @@ suite('signed app requests renew their own bounded authority refresh interest', 
   });
 
   it('admits on the known identity while its observation is unavailable, spending the nonce once', async () => {
-    const value = await seed({ readyMs: 500 }); await waitPast(value.observation.validUntilMs!);
+    const value = await seed({ readyMs: expiringReadinessMs }); await waitPast(value.observation.validUntilMs!);
     const claimId = randomUUID(), request = await signed(value.grant, { claimId });
     expect((await send(unknown, request)).status).toBe(200); expect(await nonceCount(request)).toBe(1);
     await untilWork({ requests: 1, observations: 1, claims: 1 });
@@ -288,7 +294,7 @@ suite('signed app requests renew their own bounded authority refresh interest', 
   });
 
   it('admits on the known identity across a queue admission outage without running an observer', async () => {
-    const value = await seed({ readyMs: 500 }), process = await start('queue-error'); await waitPast(value.observation.validUntilMs!);
+    const value = await seed({ readyMs: expiringReadinessMs }), process = await start('queue-error'); await waitPast(value.observation.validUntilMs!);
     const request = await signed(value.grant, { claimId: randomUUID() });
     expect((await send(process, request)).status).toBe(200); expect(await nonceCount(request)).toBe(1);
     await untilRequests(1); expect(await work()).toEqual({ requests: 1, observations: 0, claims: 1 });
@@ -307,23 +313,40 @@ suite('signed app requests renew their own bounded authority refresh interest', 
   });
 
   it('rejects request expiry behind an account lock before consuming or scheduling its nonce', async () => {
-    const value = await seed(), request = await signed(value.grant, { changes: { expiresAt: Math.floor(await nowMs() / 1000) + 2 } });
-    const lock = await pool.connect(); await lock.query('BEGIN');
-    await lock.query('SELECT id FROM rest_accounts WHERE id=$1 FOR UPDATE', [value.accountId]);
-    const response = send(first, request);
-    try { await waitForLock(first.backendPid); await waitPast(request.claims.expiresAt * 1000); }
+    // A dedicated worker supplies a current, warm backend PID; shared pools may
+    // retire their startup connection after idle time between unrelated scenarios.
+    const value = await seed(), process = await start();
+    const lock = await pool.connect();
+    let request: Awaited<ReturnType<typeof signed>>, response: ReturnType<typeof send>;
+    try {
+      await lock.query('BEGIN');
+      const blocker = Number((await lock.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
+      await lock.query('SELECT id FROM rest_accounts WHERE id=$1 FOR UPDATE', [value.accountId]);
+      expect((await pool.query('SELECT state FROM pg_stat_activity WHERE pid=$1', [process.backendPid])).rows[0]?.state).toBe('idle');
+      // Sign only after the holder and warm worker are ready. 3–4 real seconds leaves
+      // an expiry margin inside the unchanged production 5s PostgreSQL lock timeout.
+      request = await signed(value.grant, { lifetimeSeconds: 3 });
+      response = send(process, request);
+      await waitForLock(process.backendPid, blocker, response);
+      expect(await nowMs()).toBeLessThan(request.claims.expiresAt * 1000);
+      await waitPast(request.claims.expiresAt * 1000);
+    }
     finally { await lock.query('ROLLBACK'); lock.release(); }
     expect((await response).status).toBe(401); expect(await nonceCount(request)).toBe(0);
     expect(await work()).toEqual({ requests: 0, observations: 0, claims: 0 });
   });
 
   it('refuses a request that expires after its nonce is written but before the admission commits, rolling the nonce back', async () => {
-    const value = await seed({ readyMs: 500 }), process = await start();
+    const value = await seed({ readyMs: expiringReadinessMs }), process = await start();
     await waitPast(value.observation.validUntilMs!);
     const request = await signed(value.grant, { claimId: randomUUID(), barrier: 'after-nonce-insert',
-      changes: { expiresAt: Math.floor(await nowMs() / 1000) + 2 } });
+      lifetimeSeconds: 3 });
     const barrier = message(process.child, 'barrier'), response = send(process, request);
+    await Promise.race([barrier, response.then(result => {
+      throw new Error(`Request ended before nonce write: ${result.status}/${result.body.code ?? 'success'}`);
+    })]);
     expect((await barrier).boundary).toBe('after-nonce-insert');
+    expect(await nowMs()).toBeLessThan(request.claims.expiresAt * 1000);
     await waitPast(request.claims.expiresAt * 1000);
     process.child.send('release');
     expect((await response).status).toBe(401);
@@ -332,7 +355,7 @@ suite('signed app requests renew their own bounded authority refresh interest', 
 
   it.each(['grant-revoked', 'logout', 'binding-revoked', 'policy-readded'] as const)(
     'returns no principal when %s happens after its durable scheduling claim', async invalidation => {
-      const value = await seed({ readyMs: 500 }), process = await start();
+      const value = await seed({ readyMs: expiringReadinessMs }), process = await start();
       await waitPast(value.observation.validUntilMs!);
       const request = await signed(value.grant, { claimId: randomUUID(), barrier: 'after-nonce-commit' });
       const barrier = message(process.child, 'barrier'), response = send(process, request);
@@ -352,7 +375,7 @@ suite('signed app requests renew their own bounded authority refresh interest', 
     });
 
   it('admits a request whose credential is superseded only after its admission commits, and refuses the next one', async () => {
-    const value = await seed({ readyMs: 500 }), process = await start();
+    const value = await seed({ readyMs: expiringReadinessMs }), process = await start();
     await waitPast(value.observation.validUntilMs!);
     const request = await signed(value.grant, { barrier: 'after-nonce-commit' });
     const barrier = message(process.child, 'barrier'), response = send(process, request);
@@ -367,7 +390,7 @@ suite('signed app requests renew their own bounded authority refresh interest', 
   });
 
   it('does not requeue an attempt lost after nonce commit when its process crashes', async () => {
-    const value = await seed({ readyMs: 500 }), process = await start(); await waitPast(value.observation.validUntilMs!);
+    const value = await seed({ readyMs: expiringReadinessMs }), process = await start(); await waitPast(value.observation.validUntilMs!);
     const request = await signed(value.grant, { barrier: 'after-nonce-commit' }), barrier = message(process.child, 'barrier');
     const response = send(process, request).catch(() => null); expect((await barrier).boundary).toBe('after-nonce-commit');
     expect(await nonceCount(request)).toBe(1); await stop(process.child); await response;

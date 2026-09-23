@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { hashTypedData } from "viem";
 import { createWalletEnrollmentIntent, walletEnrollmentDocument } from "../src/rest/wallet/enrollment.js";
 import { PostgresWalletEnrollmentStore } from "../src/rest/wallet/enrollmentPostgres.js";
+import { walletAuthorityMaximumAgeMs } from "../src/rest/wallet/authority.js";
 import { PostgresWalletAuthorityRefreshQueue, type WalletAuthorityRefreshQueueOptions } from "../src/rest/wallet/authorityRefreshPostgres.js";
 import { createRegistration, enrollmentBackupAccount, enrollmentManifest, signBackupProof, signGet } from "./fixtures/wallet-enrollment-crypto.js";
 import { trustedWalletAuthorityFixture } from "./fixtures/wallet-authority-readiness.js";
@@ -18,7 +19,9 @@ const children = new Set<ChildProcess>();
 let admin: Pool, pool: Pool, enrollments: PostgresWalletEnrollmentStore;
 type Lease = NonNullable<Awaited<ReturnType<PostgresWalletAuthorityRefreshQueue["claim"]>>>;
 const options: WalletAuthorityRefreshQueueOptions = { maxTracked: 8, maxConcurrent: 2, maxStartsPerMinute: 30,
-  interestMs: 5000, leaseMs: 2000, refreshLeadMs: 100, verifiedMinRetryMs: 80, backoffBaseMs: 120, backoffMaxMs: 240 };
+  refreshLeadMs: 100, verifiedMinRetryMs: 80, backoffBaseMs: 120, backoffMaxMs: 240 };
+// Ordinary cases keep production interest/lease defaults. Only cases that wait for
+// actual expiry shorten those windows, leaving time for their prior live-state checks.
 
 async function databaseNow(): Promise<number> {
   return Number((await pool.query("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::text AS now")).rows[0].now);
@@ -170,8 +173,9 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
   });
 
   it("admits one lease across two actual HTTP processes and releases their single connections", async () => {
-    const accountId = await eligibleAccount(); await queue().request(accountId);
+    const accountId = await eligibleAccount();
     const [a, b] = await Promise.all([worker(), worker()]);
+    await queue().request(accountId);
     expect(a.backendPid).not.toBe(b.backendPid);
     expect(a.child.pid).not.toBe(b.child.pid);
     const holder = await pool.connect();
@@ -193,7 +197,7 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
     expect(leases[0]!.untilMs).toBeGreaterThan(await databaseNow());
     const observations = await Promise.all([a.request({ action: "stats" }), b.request({ action: "stats" })]);
     for (const observed of observations) expect(observed).toMatchObject({ status: 200, body: { inFlight: 1, startsInWindow: 1 } });
-    expect(await a.request({ action: "complete", lease: leases[0], result: { outcome: "verified", readyUntilMs: await databaseNow() + 1000 } }))
+    expect(await a.request({ action: "complete", lease: leases[0], result: { outcome: "verified", readyUntilMs: await databaseNow() + walletAuthorityMaximumAgeMs } }))
       .toEqual({ status: 200, body: true });
     expect(await b.request({ action: "complete", lease: leases[0], result: { outcome: "failed", readyUntilMs: null } }))
       .toEqual({ status: 200, body: false });
@@ -201,15 +205,15 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
 
   it("enforces one shared concurrency cap across accounts and replicas", async () => {
     const store = queue(), ids = await Promise.all([eligibleAccount(), eligibleAccount(), eligibleAccount()]);
-    for (const id of ids) await store.request(id);
     const [a, b] = await Promise.all([worker(), worker()]);
+    for (const id of ids) await store.request(id);
     const results = await Promise.all([a.request({ action: "claim" }), b.request({ action: "claim" }), a.request({ action: "claim" })]);
     expect(results.map(result => result.status)).toEqual([200, 200, 200]);
     const leases = results.map(result => result.body).filter(Boolean) as Lease[];
     expect(leases).toHaveLength(2); expect(new Set(leases.map(lease => lease.accountId)).size).toBe(2);
     expect(await store.stats()).toMatchObject({ tracked: 3, inFlight: 2, startsInWindow: 2 });
     expect(await store.claim()).toBeNull();
-    expect(await store.complete(leases[0]!, { outcome: "verified", readyUntilMs: await databaseNow() + 1000 })).toBe(true);
+    expect(await store.complete(leases[0]!, { outcome: "verified", readyUntilMs: await databaseNow() + walletAuthorityMaximumAgeMs })).toBe(true);
     const next = await store.claim();
     expect(next?.accountId).toBe(ids.find(id => !leases.some(lease => lease.accountId === id)));
     expect(await store.stats()).toMatchObject({ inFlight: 2, startsInWindow: 3 });
@@ -252,7 +256,7 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
     expect(leases).toHaveLength(1);
     expect(await store.stats()).toMatchObject({ tracked: 2, due: 1, inFlight: 1, startsInWindow: 1, maxStartsPerMinute: 1 });
     expect(await a.request({ action: "complete", lease: leases[0],
-      result: { outcome: "verified", readyUntilMs: await databaseNow() + 1000 } })).toEqual({ status: 200, body: true });
+      result: { outcome: "verified", readyUntilMs: await databaseNow() + walletAuthorityMaximumAgeMs } })).toEqual({ status: 200, body: true });
     const interestDeadlines = await Promise.all(ids.slice(0, 2).map(async id => Number((await job(id!)).interested_until_ms)));
     await untilDatabaseTime(Math.max(...interestDeadlines));
     expect(await store.claim()).toBeNull();
@@ -268,8 +272,8 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
   });
 
   it("reclaims a crashed process only after database lease expiry and fences its stale completion", async () => {
-    const configuration = { ...options, leaseMs: 1500 }, store = queue(configuration), accountId = await eligibleAccount();
-    await store.request(accountId); const [a, b] = await Promise.all([worker(configuration), worker(configuration)]);
+    const configuration = { ...options, leaseMs: 5000 }, store = queue(configuration), accountId = await eligibleAccount();
+    const [a, b] = await Promise.all([worker(configuration), worker(configuration)]); await store.request(accountId);
     const barrier = message(a.child, "barrier");
     const disconnected = a.request({ action: "claim", barrier: "after-claim" }).catch(() => null);
     const held = await barrier; expect(held.lease).toMatchObject({ accountId });
@@ -281,23 +285,31 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
     const reclaimed = (await b.request({ action: "claim" })).body as Lease;
     expect(reclaimed).toMatchObject({ accountId }); expect(reclaimed.token).not.toBe(held.lease.token);
     const before = await job(accountId);
-    expect(await store.complete(held.lease, { outcome: "verified", readyUntilMs: await databaseNow() + 1000 })).toBe(false);
-    expect(await store.complete({ ...reclaimed, token: randomUUID() }, { outcome: "failed", readyUntilMs: null })).toBe(false);
+    // Both invalid acknowledgments must leave the live replacement lease unchanged
+    // before its real holder is allowed to acknowledge it.
+    expect(await Promise.all([
+      store.complete(held.lease, { outcome: "verified", readyUntilMs: reclaimed.untilMs }),
+      store.complete({ ...reclaimed, token: randomUUID() }, { outcome: "failed", readyUntilMs: null }),
+    ])).toEqual([false, false]);
     expect(await job(accountId)).toEqual(before);
-    expect(await store.complete(reclaimed, { outcome: "verified", readyUntilMs: await databaseNow() + 1000 })).toBe(true);
+    expect(await store.complete(reclaimed, { outcome: "verified", readyUntilMs: reclaimed.untilMs })).toBe(true);
+    expect(await job(accountId)).toMatchObject({ lease_token: null, lease_until_ms: null, failures: 0 });
   });
 
   it("rejects completion whose actual row-lock wait crosses database lease expiry without changing authority", async () => {
-    const configuration = { ...options, leaseMs: 1500 }, store = queue(configuration), accountId = await eligibleAccount();
+    const configuration = { ...options, leaseMs: 4000 }, store = queue(configuration), accountId = await eligibleAccount();
     const child = await worker(configuration);
-    await store.request(accountId); const lease = await store.claim(); expect(lease).not.toBeNull();
-    const before = await job(accountId), holder = await pool.connect();
+    await store.request(accountId);
+    const holder = await pool.connect();
+    let lease: Lease, before: Awaited<ReturnType<typeof job>>;
     try {
       await holder.query("BEGIN");
       const blocker = Number((await holder.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+      lease = (await store.claim())!; expect(lease).not.toBeNull();
+      before = await job(accountId);
       await holder.query("SELECT account_id FROM rest_wallet_authority_refresh_jobs WHERE account_id=$1 FOR UPDATE", [accountId]);
       const completing = child.request({ action: "complete", lease,
-        result: { outcome: "verified", readyUntilMs: await databaseNow() + 3000 } });
+        result: { outcome: "verified", readyUntilMs: await databaseNow() + walletAuthorityMaximumAgeMs } });
       await waitForLock(child.backendPid, blocker, "rest_wallet_authority_refresh_jobs");
       await untilDatabaseTime(lease!.untilMs); await holder.query("COMMIT");
       expect(await completing).toEqual({ status: 200, body: false });
@@ -308,18 +320,30 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
   });
 
   it("anchors refresh to the original readiness deadline and bounds retries of expired receipts", async () => {
-    const store = queue(), accountId = await eligibleAccount(); await store.request(accountId);
-    const lease = await store.claim(), readyUntilMs = await databaseNow() + 2500;
+    const configuration = { ...options, leaseMs: 5000 }, store = queue(configuration), accountId = await eligibleAccount();
+    await store.request(accountId);
+    // A claim may legitimately become due while IPC/assertions run. In either path,
+    // its persisted lease start must never precede the original scheduling deadline.
+    async function claimAtOrAfter(due: number) {
+      let claimed = await store.claim();
+      if (!claimed) { await untilDatabaseTime(due); claimed = await store.claim(); }
+      expect(claimed?.accountId).toBe(accountId);
+      expect(claimed!.untilMs - configuration.leaseMs).toBeGreaterThanOrEqual(due);
+      return claimed!;
+    }
+    const lease = await store.claim(), readyUntilMs = lease!.untilMs;
     expect(await store.complete(lease!, { outcome: "verified", readyUntilMs })).toBe(true);
     const due = readyUntilMs - options.refreshLeadMs!;
     expect(Number((await job(accountId)).due_at_ms)).toBe(due);
     expect(await store.request(accountId)).toEqual({ status: "coalesced", retryAtMs: due });
-    expect(await store.claim()).toBeNull();
-    await untilDatabaseTime(due); const next = await store.claim(); expect(next).not.toBeNull();
+    const next = await claimAtOrAfter(due);
     const before = await databaseNow();
-    expect(await store.complete(next!, { outcome: "verified", readyUntilMs: before - 1 })).toBe(true);
-    expect(Number((await job(accountId)).due_at_ms)).toBeGreaterThanOrEqual(before + options.verifiedMinRetryMs!);
-    expect(await store.claim()).toBeNull();
+    expect(await store.complete(next, { outcome: "verified", readyUntilMs: before - 1 })).toBe(true);
+    const after = await databaseNow(), retry = await job(accountId), retryAt = Number(retry.due_at_ms);
+    expect(retry.failures).toBe(1);
+    expect(retryAt).toBeGreaterThanOrEqual(before + options.backoffBaseMs!);
+    expect(retryAt).toBeLessThanOrEqual(after + options.backoffBaseMs!);
+    await claimAtOrAfter(retryAt);
   });
 
   it("ends its own interest at the failure cap, and the customer's next request renews it", async () => {
@@ -345,7 +369,7 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
     await Promise.all(Array.from({ length: 10 }, () => store.request(first)));
     expect((await job(first)).due_at_ms).toBe(backedOff.due_at_ms);
     const secondLease = await store.claim(); expect(secondLease?.accountId).toBe(second);
-    expect(await store.complete(secondLease!, { outcome: "verified", readyUntilMs: await databaseNow() + 3000 })).toBe(true);
+    expect(await store.complete(secondLease!, { outcome: "verified", readyUntilMs: await databaseNow() + walletAuthorityMaximumAgeMs })).toBe(true);
     for (const outcome of ["unready", "conflict", "failed"] as const) {
       await untilDatabaseTime(Number((await job(first)).due_at_ms));
       const lease = await store.claim(); expect(lease?.accountId).toBe(first);
@@ -365,14 +389,12 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
     expect(Number((await job(first)).due_at_ms)).toBeGreaterThanOrEqual(beforeProgress);
     await untilDatabaseTime(Number((await job(first)).due_at_ms));
     const recovered = await store.claim();
-    expect(await store.complete(recovered!, { outcome: "verified", readyUntilMs: await databaseNow() + 1000 })).toBe(true);
+    expect(await store.complete(recovered!, { outcome: "verified", readyUntilMs: await databaseNow() + walletAuthorityMaximumAgeMs })).toBe(true);
     expect((await job(first)).failures).toBe(0);
   });
 
   it("removes idle jobs while retaining unexpired leases and their capacity until expiry", async () => {
-    // The second account's interest has to survive the reads that observe it, and the first
-    // account's is ended by the wait below rather than by how long the reads take.
-    const configuration = { ...options, maxTracked: 1, interestMs: 2_000, leaseMs: 4000 };
+    const configuration = { ...options, maxTracked: 1, interestMs: 3000, leaseMs: 8000 };
     const store = queue(configuration), first = await eligibleAccount(), second = await eligibleAccount();
     await store.request(first); const lease = await store.claim(); expect(lease).not.toBeNull();
     await untilDatabaseTime(Number((await job(first)).interested_until_ms));
@@ -383,7 +405,7 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
     expect((await store.request(second)).status).toBe("queued");
     expect(await job(first)).toBeUndefined();
     expect(await store.stats()).toMatchObject({ tracked: 1, interested: 1, inFlight: 0, startsInWindow: 1 });
-    expect(await store.complete(lease!, { outcome: "verified", readyUntilMs: await databaseNow() + 1000 })).toBe(false);
+    expect(await store.complete(lease!, { outcome: "verified", readyUntilMs: await databaseNow() + walletAuthorityMaximumAgeMs })).toBe(false);
   });
 
   it("rejects a replica with larger persisted limits without changing jobs or the start budget", async () => {
@@ -402,9 +424,9 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
   });
 
   it("starts fresh interest after an actual account-lock wait during queue admission", async () => {
-    const configuration = { ...options, interestMs: 3000 }, store = queue(configuration), accountId = await eligibleAccount();
+    const configuration = { ...options, interestMs: 3000 }, accountId = await eligibleAccount();
     const child = await worker(configuration), holder = await pool.connect();
-    let released = 0;
+    let releasedAt = 0, admittedAt = 0;
     try {
       await holder.query("BEGIN");
       const blocker = Number((await holder.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
@@ -412,11 +434,15 @@ suite("PostgreSQL bounded wallet authority refresh scheduling", () => {
       const admitting = child.request({ action: "request", accountId });
       await waitForLock(child.backendPid, blocker, "INSERT INTO rest_wallet_authority_refresh_jobs");
       await untilDatabaseTime(await databaseNow() + configuration.interestMs + 20);
-      released = await databaseNow(); await holder.query("COMMIT");
+      releasedAt = await databaseNow();
+      await holder.query("COMMIT");
       expect(await admitting).toMatchObject({ status: 200, body: { status: "queued" } });
+      admittedAt = await databaseNow();
     } finally { await holder.query("ROLLBACK"); holder.release(); }
-    // Interest measured from the lock release, not from the admission's first database sample.
-    expect(Number((await job(accountId)).interested_until_ms)).toBeGreaterThanOrEqual(released + configuration.interestMs);
-    expect((await store.claim())?.accountId).toBe(accountId);
+    // Prove the full bounded window starts after the blocked admission. A later
+    // claim would instead test whether assertions/IPC happened to fit inside that window.
+    const interestUntil = Number((await job(accountId)).interested_until_ms);
+    expect(interestUntil).toBeGreaterThanOrEqual(releasedAt + configuration.interestMs);
+    expect(interestUntil).toBeLessThanOrEqual(admittedAt + configuration.interestMs);
   });
 });

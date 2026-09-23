@@ -7,10 +7,12 @@ import {
   SmartAccountClient,
   assertReviewedOperation,
   assertWalletIdentity,
+  clientAudience,
   newRequestNonce,
   ownerOperationSignature,
   ownerOperationSigning,
   packOwnerSignatures,
+  parseConnection,
   readPublicRestJson,
   sessionActionPlanInput,
   signSessionUserOperation,
@@ -34,7 +36,7 @@ import type {
   SmartAccountManifest,
 } from "../smartAccounts/types.js";
 import type { StoredSession } from "../sessions/types.js";
-import { installOperationQueue } from "./operationQueue.js";
+import { assertSameOperation, installOperationQueue } from "./operationQueue.js";
 import { recordWalletRecovery, removeWalletRecovery, renderWalletRecovery, walletRecoveries, type WalletRecoveryRecord } from "./walletRecovery.js";
 
 export interface SmartWalletConnection {
@@ -349,9 +351,6 @@ export function installSmartWalletUI(options: {
       binding.state.threshold <= 1 ||
       field("operation-authority").value === "session";
     if (!host) return;
-    const selected = host.smartAccounts.deployments.find(
-      (entry) => entry.manifestId === field("smart-manifest").value,
-    );
     button("smart-switch").hidden = true;
     const sponsored = host.userOperations?.providers?.some(
       (entry) => entry.chainId === selectedChainId() && entry.paymasterConfigured,
@@ -877,20 +876,27 @@ export function installSmartWalletUI(options: {
           fail("The local key file is invalid.");
         }
         check();
-        const data = value as {
+        const s = requireSession();
+        let data = value as {
           format?: string;
           botAddress?: string;
           privateKey?: string;
         };
-        if (
+        if (data?.format === "juicebox-center-connection-v1") {
+          const imported = parseConnection(value);
+          if (clientAudience(imported.audience) !== clientAudience(options.audience) ||
+              imported.accountId !== connection().accountId || imported.grantId !== s.compiled.grantId ||
+              !imported.scopes.includes("relay") || imported.expiresAt <= Math.floor(Date.now() / 1000))
+            fail("The connection must authorize this session's account and bot grant with unexpired relay access.");
+          data = imported;
+        } else if (
           !data ||
           data.format !== "juicebox-center-bot-key-v1" ||
           typeof data.privateKey !== "string" ||
           !/^0x[0-9a-fA-F]{64}$/.test(data.privateKey)
         )
           fail("Use a Juicebox Center bot key file.");
-        const signer = privateKeyToAccount(data.privateKey as Hex),
-          s = requireSession();
+        const signer = privateKeyToAccount(data.privateKey as Hex);
         if (
           !data.botAddress ||
           !same(signer.address, data.botAddress) ||
@@ -1074,6 +1080,7 @@ export function installSmartWalletUI(options: {
       throw error;
     }
     check();
+    assertSameOperation(result, reviewed!);
     operation = result;
     show("operation-review", result);
     element("operation-result").textContent =
@@ -1088,6 +1095,7 @@ export function installSmartWalletUI(options: {
     if (!reviewed || !operationClient) fail("Prepare an operation first.");
     const result = await operationClient!.userOperation(reviewed!.id);
     check();
+    assertSameOperation(result, reviewed!);
     operation = result;
     if (submissionKey && ["confirmed", "reverted"].includes(result.state)) removeWalletRecovery(c.accountId, submissionKey);
     refreshRecovery();

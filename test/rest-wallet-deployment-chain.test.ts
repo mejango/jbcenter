@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { decodeFunctionData, encodeAbiParameters, encodeFunctionResult, getAddress, hashTypedData, keccak256, parseAbi,
+import { decodeFunctionData, encodeAbiParameters, encodeFunctionResult, hashTypedData, keccak256, parseAbi,
   padHex, parseTransaction, stringToHex, toHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { RestRpc } from "../src/rest/core.js";

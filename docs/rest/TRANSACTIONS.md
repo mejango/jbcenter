@@ -59,7 +59,7 @@ Plans contain 1–32 calls. Dependencies refer only to distinct earlier calls, y
 
 ## Smart accounts, sponsorship, and session permissions
 
-The implemented `UserOperationService` prepares and publishes EntryPoint v0.7 operations for the pinned Safe7579 stack. It independently verifies account implementation/history, EntryPoint/version/chain, nonce, exact execution calldata, gas and paymaster policy, external signatures, and operation-scoped receipt evidence. Its HTTP routes are `POST /user-operations`, `POST /user-operations/:id/submissions`, and `GET /user-operations/:id`. Create the source plan through `POST /smart-accounts/bindings/:id/plans`. The older `SmartAccountTransportAdapter` interface is not the runtime dispatch mechanism.
+The implemented `UserOperationService` prepares and publishes EntryPoint v0.7 operations for the pinned Safe7579 stack. It independently verifies account implementation/history, EntryPoint/version/chain, nonce, exact execution calldata, gas and paymaster policy, external signatures, and operation-scoped receipt evidence. Its HTTP routes are `POST /user-operations`, `POST /user-operations/:id/submissions`, and `GET /user-operations/:id`. Create the source plan through `POST /smart-accounts/bindings/:id/plans`.
 
 Omit `sessionId` for fresh, finite-validity SafeOp signatures from the current Safe-owner threshold over up to sixteen ordered calls. Supply an exact active `sessionId` for a bound bot to sign one approved action with the installed key's EIP-191 signature. API signing remains separate in both cases. Operations outside the session's exact targets, recipients, assets, amounts and validity need a new owner-approved transaction; the API grant cannot expand that policy.
 

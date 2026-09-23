@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import { toHex, type Hex } from 'viem';
+import { toHex } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
 import type { ContractPin, SmartAccountManifest } from '../smartAccounts/types.js';
 import { observeBaseReceiptFees } from './baseFeeObservation.js';

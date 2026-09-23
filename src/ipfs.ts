@@ -134,10 +134,8 @@ export class FilebaseRpcStorage implements IpfsStorage {
     signal?: AbortSignal,
   ): Promise<string> {
     signal?.throwIfAborted();
-    const bytes = Buffer.from(await content.arrayBuffer());
-    signal?.throwIfAborted();
     return this.addStream(
-      Readable.from(bytes),
+      Readable.fromWeb(content.stream() as import("node:stream/web").ReadableStream<Uint8Array>),
       filename,
       content.type || "application/octet-stream",
       signal,

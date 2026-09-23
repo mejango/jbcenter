@@ -39,13 +39,14 @@ export async function preparedSettlementUser(pool: Pool, store: PostgresWalletDe
     rpId: pending.intent.rpId, origin: pending.intent.origin }), backupSignature: await signBackupProof(document) });
   const issuedAt = await settlementDatabaseNow(pool), approval = prepareWalletDeploymentApproval(record, { issuedAt, expiresAt: issuedAt + 120000 });
   const operation = await store.prepare({ poolId: config.id, approval });
+  const assertion = signGet({ ...credential, challenge: hashTypedData(walletDeploymentDocument(record, approval)),
+    rpId: record.intent.rpId, origin: record.intent.origin });
   const fundingContext = await store.loadFundingContext(config.id), funding = syntheticFunding(fundingContext, await settlementDatabaseNow(pool));
   const admission: WalletDeploymentAdmission = { version: "center-wallet-deployment-admission-v1", chainId: 8453, sender: config.sender,
     blockNumber: funding.head.blockNumber, blockHash: funding.head.blockHash, confirmedNonce: funding.confirmedNonce, pendingNonce: funding.pendingNonce,
     observedAt: funding.observedAt, enrollmentCommitment: approval.enrollmentCommitment, manifestRevision: record.intent.manifest.revision,
     initializerHash: record.creation!.initializerHash, gas: "1500000", maxFeePerGas: "2000000000", maxPriorityFeePerGas: "1000000" };
-  return { operation, enrollment: record, input: { operationId: operation.id, admission, funding,
-    assertion: signGet({ ...credential, challenge: hashTypedData(walletDeploymentDocument(record, approval)), rpId: record.intent.rpId, origin: record.intent.origin }) } };
+  return { operation, enrollment: record, input: { operationId: operation.id, admission, funding, assertion } };
 }
 export async function signedSettlementUser(pool: Pool, store: PostgresWalletDeploymentStore) {
   const prepared = await preparedSettlementUser(pool, store);

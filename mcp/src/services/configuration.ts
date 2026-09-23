@@ -312,25 +312,28 @@ export class ConfigurationService {
         }),
       ),
     ]);
-    const lockChanges = rulesetConfigurations.map((config, configurationIndex) => ({
-      configurationIndex,
-      groups: splitGroups.map((group) => {
-        const specified = toRulesetConfig(config).splitGroups.find(
-          (item) => item.groupId === BigInt(group.groupId),
-        );
-        const effective =
-          specified && specified.splits.length > 0 ? specified.splits : group.fallbackSplits;
-        return {
-          groupId: group.groupId,
-          removedOrWeakenedLockedSplits: changedLockedSplits(
-            group.splits,
-            effective,
-            BigInt(evidence.timestamp),
-          ),
-          usesFallbackSplits: !specified || specified.splits.length === 0,
-        };
-      }),
-    }));
+    const lockChanges = rulesetConfigurations.map((config, configurationIndex) => {
+      const proposed = toRulesetConfig(config);
+      return {
+        configurationIndex,
+        groups: splitGroups.map((group) => {
+          const specified = proposed.splitGroups.find(
+            (item) => item.groupId === BigInt(group.groupId),
+          );
+          const effective =
+            specified && specified.splits.length > 0 ? specified.splits : group.fallbackSplits;
+          return {
+            groupId: group.groupId,
+            removedOrWeakenedLockedSplits: changedLockedSplits(
+              group.splits,
+              effective,
+              BigInt(evidence.timestamp),
+            ),
+            usesFallbackSplits: !specified || specified.splits.length === 0,
+          };
+        }),
+      };
+    });
     const warnings = configurationWarnings(rulesetConfigurations);
     if (
       lockChanges.some((config) =>

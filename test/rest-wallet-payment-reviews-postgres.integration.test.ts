@@ -103,16 +103,17 @@ async function waitingForLock(backendPid: number) {
   }
   throw new Error("Expected a real PostgreSQL payment lock wait");
 }
-async function waitPast(deadline: number) {
+async function waitPast(deadline: number, maximumWaitMs = 6000) {
   const remaining = deadline - await nowMs();
-  if (remaining > 6000) throw new Error("Fixture deadline is not short and bounded");
+  if (remaining > maximumWaitMs) throw new Error("Fixture deadline is not short and bounded");
   await pool.query("SELECT pg_sleep($1)", [Math.max(0, remaining + 30) / 1000]);
   expect(await nowMs()).toBeGreaterThan(deadline);
 }
-async function worker(extra: Options = {}, prefix = "") {
+async function worker(extra: Options = {}, prefix = "", poolWaitMs = 5000) {
   const child = fork(fileURLToPath(new URL("./fixtures/wallet-payment-review-process.ts", import.meta.url)), [], {
     execArgv: ["--import", "tsx"], env: { ...process.env, WALLET_PAYMENT_TEST_SCHEMA: schema,
-      WALLET_PAYMENT_TEST_OPTIONS: JSON.stringify(extra), WALLET_PAYMENT_TEST_PREFIX_SCHEMA: prefix },
+      WALLET_PAYMENT_TEST_OPTIONS: JSON.stringify(extra), WALLET_PAYMENT_TEST_PREFIX_SCHEMA: prefix,
+      WALLET_PAYMENT_TEST_POOL_WAIT_MS: String(poolWaitMs) },
     stdio: ["ignore", "ignore", "pipe", "ipc"],
   });
   children.add(child); child.stderr?.resume();
@@ -314,7 +315,10 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
   });
 
   it("serializes twenty competing genuine approvals across two processes and retains the first winning envelope", async () => {
-    const value = await pendingReview(), first = await worker(), second = await worker();
+    // All twenty requests still contend on one connection per process. This case
+    // observes their serialization, so queued checkout may outlast the usual 5s.
+    const poolWaitMs = 10_000;
+    const value = await pendingReview(), first = await worker({}, "", poolWaitMs), second = await worker({}, "", poolWaitMs);
     const assertions = Array.from({ length: 20 }, (_, index) => signGet({ ...value.login.credential,
       challenge: value.view.draft.signing.digest, rpId: walletLoginFixtureRpId, origin: issuer, signCount: index + 1 }));
     const winning = first.request({ action: "approve", id: value.view.draft.id,
@@ -324,7 +328,7 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
       action: "approve", id: value.view.draft.id, assertion }));
     await waitingForLock(second.backendPid); first.child.send("release");
     const replies = await Promise.all([winning, ...competing]);
-    expect(replies.every(reply => reply.status === 200)).toBe(true);
+    expect(replies.filter(reply => reply.status !== 200)).toEqual([]);
     expect(replies.filter(reply => reply.body.replayed === false)).toHaveLength(1);
     const winner = replies.findIndex(reply => reply.body.replayed === false), expected = verifyWalletPaymentReviewProof(value.view.draft, assertions[winner]!);
     expect((await value.store.getForApp(value.actor, value.view.draft.id)).approval).toEqual({ signature: expected.signature, signedCommitment: expected.signedCommitment });
@@ -541,7 +545,7 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
   });
 
   it("does not retrieve or revive an approved envelope after its finite SafeOp review deadline", async () => {
-    const value = await pendingReview({}, 2200);
+    const value = await pendingReview({}, 5000);
     await value.store.approve(value.view.draft.id, value.assertion);
     await waitPast(value.view.draft.expiresAtMs);
     await Promise.all([() => value.store.getForApp(value.actor, value.view.draft.id),
@@ -627,20 +631,23 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
   }, 20_000);
 
   it("cleans only expired review receipts in bounded batches while preserving operation, nonce, plan and ceremony history", async () => {
-    const value = await pendingReview({ receiptRetentionMs: 100 }, 3200);
+    const value = await pendingReview({ receiptRetentionMs: 100 }, 8000);
     await value.store.approve(value.view.draft.id, value.assertion);
     const approval = (await value.store.getForApp(value.actor, value.view.draft.id)).approval!;
     const operation = { ...value.record.operation, signature: approval.signature };
     // Real durable relay claim, deliberately no bundler dispatch or EVM effect in this PG suite.
+    const claimNow = await nowMs();
+    expect(claimNow, "Cleanup fixture approval must still be live before the durable claim")
+      .toBeLessThan(Number(value.view.draft.signing.validUntil) * 1000);
     const claimed = await new PostgresUserOperationStore(pool).claim({ actor: value.actor, id: value.record.id,
       key: `submit:${value.plan.id}`, operation, signedCommitment: userOperationCommitment(operation, value.record.entryPoint, 8453),
-      authorization: { issuedAt: Number(value.view.draft.signing.validAfter), expiresAt: Number(value.view.draft.signing.validUntil) }, now: await nowMs() });
+      authorization: { issuedAt: Number(value.view.draft.signing.validAfter), expiresAt: Number(value.view.draft.signing.validUntil) }, now: claimNow });
     expect(claimed.dispatch).toBe(true);
-    const other = await preparedOperation(value, 2000, 2n);
+    const other = await preparedOperation(value, 8000, 2n);
     const pending = await value.store.prepare(value.actor, { operationId: other.record.id, state: token() }, `review:${other.plan.id}`);
     const before = (await pool.query("SELECT document FROM rest_user_operations ORDER BY id")).rows;
     const nonces = (await pool.query("SELECT * FROM rest_user_operation_nonces")).rows;
-    await waitPast(Math.max(Number((await reviewRow(value.view.draft.id)).retain_until_ms), Number((await reviewRow(pending.draft.id)).retain_until_ms)));
+    await waitPast(Math.max(Number((await reviewRow(value.view.draft.id)).retain_until_ms), Number((await reviewRow(pending.draft.id)).retain_until_ms)), 9000);
     const lock = await pool.connect(); await lock.query("BEGIN");
     await lock.query("SELECT id FROM rest_wallet_payment_reviews WHERE id=$1 FOR UPDATE", [value.view.draft.id]);
     try {

@@ -31,6 +31,8 @@ import type {
   RelayrEntry,
   SponsorshipPolicy,
 } from "../src/rest/sponsorship/types.js";
+import { digest } from "../src/rest/sponsorship/validation.js";
+import { settled } from "../src/rest/sponsorship/store.js";
 
 // Public fixture keys only; signatures never leave the injected offline provider.
 const owner = privateKeyToAccount(`0x${"11".repeat(32)}`);
@@ -66,6 +68,8 @@ async function fixture(
     paymentCode: PAYMENT_CODE,
     domainChain: 1n,
     quoteFailure: false,
+    quoteIdsReversed: false,
+    statusFailure: false,
     sequenceFailure: false,
     paymentDeadline: Math.floor(now / 1000) + 300,
     providerState: "Success",
@@ -244,9 +248,10 @@ async function fixture(
         [{ type: "bytes16" }, { type: "uint40" }],
         [`0x${BUNDLE.replaceAll("-", "")}`, flags.paymentDeadline],
       );
+      const ids = posted.map((_, i) => i ? TX_ID.slice(0, -4) + String(i).padStart(4, "0") : TX_ID);
       return Response.json({
         bundle_uuid: BUNDLE,
-        tx_uuids: posted.map((_, i) => i ? TX_ID.slice(0, -4) + String(i).padStart(4, "0") : TX_ID),
+        tx_uuids: flags.quoteIdsReversed ? ids.reverse() : ids,
         payment_info: [
           {
             chain: 1,
@@ -259,6 +264,7 @@ async function fixture(
         ],
       });
     }
+    if (flags.statusFailure) throw new Error("Fixture status is unavailable");
     return Response.json({
       bundle_uuid: BUNDLE,
       transactions: posted.map((entry, i) => ({
@@ -389,6 +395,93 @@ async function knownExecution(
 }
 
 describe("Relayr sponsorship service", () => {
+  it.each(["publication", "refresh", "funding"] as const)(
+    "authenticates unordered UUIDs during %s without repeating publication",
+    async (recovery) => {
+      const f = await fixture({}, undefined, 2);
+      f.flags.quoteIdsReversed = true;
+      f.flags.statusFailure = recovery !== "publication";
+      const prepared = await f.prepare();
+      const signatures = await f.sign(prepared);
+      const submitted = await f.service.submit(f.actor, prepared.id, { signatures }, "publish");
+      if (recovery !== "publication") {
+        expect(submitted.quote?.transactions).toEqual([]);
+        expect(submitted.availability).toBe("requires_verification");
+        f.flags.statusFailure = false;
+        if (recovery === "refresh") await f.service.refresh(f.actor, prepared.id);
+      }
+      const funding = await f.service.prepareFunding(f.actor, prepared.id, { chainId: 1, payer: owner.address });
+      const recovered = await f.service.get(f.actor, prepared.id);
+      expect(recovered.quote?.transactions.map((transaction) => transaction.txUuid))
+        .toEqual([TX_ID, TX_ID.slice(0, -4) + "0001"]);
+      expect(funding.summary).toMatchObject({ quoteCommitment: recovered.quote!.commitment });
+      expect((await f.store.get(f.actor, prepared.id))!.quoteBindingVerified).toBe(true);
+      if (recovery !== "publication") {
+        expect(recovered.quote!.commitment).not.toBe(submitted.quote!.commitment);
+        expect(recovered.quote!.runtimeVerified).toBe(false);
+      }
+      await f.service.submit(f.actor, prepared.id, { signatures }, "publish");
+      expect(f.fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    },
+  );
+
+  it("rejects changes to provisional quote content and freezes the first authenticated UUID mapping", async () => {
+    const f = await fixture({}, undefined, 2);
+    f.flags.quoteIdsReversed = true;
+    f.flags.statusFailure = true;
+    const prepared = await f.prepare();
+    await f.service.submit(f.actor, prepared.id, { signatures: await f.sign(prepared) }, "publish");
+    const provisional = (await f.store.get(f.actor, prepared.id))!;
+    for (const mutate of [
+      (quote: NonNullable<typeof provisional.quote>) => { quote.bundleUuid = TX_ID; },
+      (quote: NonNullable<typeof provisional.quote>) => { quote.payments[0]!.value = "124"; },
+      (quote: NonNullable<typeof provisional.quote>) => { quote.entries[0]!.entry.virtual_nonce++; },
+      (quote: NonNullable<typeof provisional.quote>) => { quote.entries[0]!.txUuid = BUNDLE; },
+      (quote: NonNullable<typeof provisional.quote>) => { quote.observedAt++; },
+    ]) {
+      const candidate = structuredClone(provisional.quote!);
+      mutate(candidate);
+      const { commitment: _commitment, ...payload } = candidate;
+      candidate.commitment = digest(payload);
+      await expect(f.store.settle(prepared.id, provisional.submission!.hash, candidate, false, true))
+        .rejects.toMatchObject({ code: "SPONSORSHIP_CONFLICT" });
+      expect(await f.store.get(f.actor, prepared.id)).toEqual(provisional);
+    }
+    f.flags.statusFailure = false;
+    await f.service.refresh(f.actor, prepared.id);
+    const bound = (await f.store.get(f.actor, prepared.id))!;
+    await expect(f.store.settle(prepared.id, bound.submission!.hash, provisional.quote, false, true))
+      .rejects.toMatchObject({ code: "SPONSORSHIP_CONFLICT" });
+    expect(await f.store.get(f.actor, prepared.id)).toEqual(bound);
+    // Older funding preparation could expose a commitment before payment
+    // runtimes were verified. An absent marker must never reopen that review.
+    const { quoteBindingVerified: _bindingVerified, ...legacy } = provisional;
+    for (const quoteRuntimeVerified of [false, true]) {
+      const previous = { ...legacy, quoteRuntimeVerified };
+      expect(() => settled(previous, previous.submission!.hash, bound.quote, false, true))
+        .toThrowError(expect.objectContaining({ code: "SPONSORSHIP_CONFLICT" }));
+    }
+  });
+
+  it("does not rebind a legacy funding commitment lacking the explicit provisional marker", async () => {
+    const f = await fixture({}, undefined, 2);
+    f.flags.quoteIdsReversed = true;
+    f.flags.statusFailure = true;
+    const prepared = await f.prepare();
+    const submitted = await f.service.submit(f.actor, prepared.id, { signatures: await f.sign(prepared) }, "publish");
+    const get = f.store.get.bind(f.store);
+    vi.spyOn(f.store, "get").mockImplementation(async (...args) => {
+      const record = await get(...args);
+      if (record) delete record.quoteBindingVerified;
+      return record;
+    });
+    f.flags.statusFailure = false;
+    await expect(f.service.prepareFunding(f.actor, prepared.id, { chainId: 1, payer: owner.address }))
+      .rejects.toMatchObject({ code: "RELAYR_INVALID_STATUS" });
+    expect((await get(f.actor, prepared.id))!.quote!.commitment).toBe(submitted.quote!.commitment);
+    expect(f.fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
   it.each(["publication", "owner-approval"] as const)(
     "does not expose signatures when the %s window expires during original-plan tagging",
     async (mode) => {

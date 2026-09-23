@@ -118,6 +118,35 @@ describe("private REST RPC", () => {
     });
     expect(calls).toHaveLength(0);
   });
+  it.each([
+    {
+      method: "eth_sendRawTransaction",
+      params: ["0x01"],
+      mutate: (params: unknown[]) => { params[0] = "not signed transaction bytes"; },
+    },
+    {
+      method: "eth_call",
+      params: [{ data: "0x1234" }, { blockHash: `0x${"11".repeat(32)}`, requireCanonical: true }],
+      mutate: (params: unknown[]) => {
+        (params[0] as { data: string }).data = "0xabcd";
+        (params[1] as { requireCanonical: boolean }).requireCanonical = false;
+      },
+    },
+  ])("snapshots $method parameters before waiting for quota and chain verification", async ({ method, params, mutate }) => {
+    const expected = structuredClone(params);
+    const requests: unknown[] = [];
+    const rpc = createRestRpc({
+      upstreams: new Map([[1, ["https://fixture.example"]]]),
+      consume: async () => { mutate(params); },
+      fetcher: async (_url, init) => {
+        const request = JSON.parse(String(init?.body));
+        requests.push(request);
+        return Response.json({ jsonrpc: "2.0", id: request.id, result: request.method === "eth_chainId" ? "0x1" : "0x" });
+      },
+    });
+    await rpc.request(1, method, params);
+    expect(requests[1]).toMatchObject({ method, params: expected });
+  });
 });
 
 const trace = () => [

@@ -680,20 +680,22 @@ export class ExtensionService {
     }
     const deadline = BigInt(loan.createdAt) + duration;
     const expired = BigInt(snapshot.evidence.timestamp) > deadline;
-    const fullRepaymentSourceFee = expired
-      ? null
-      : await snapshot.client.readContract({
-          ...read,
-          functionName: 'determineSourceFeeAmount',
-          args: [loan, loan.amount],
-        });
-    return { loans, loan, holder, projectId, deadline, expired, fullRepaymentSourceFee };
+    return { loans, loan, holder, projectId, deadline, expired };
   }
 
   async getLoan(raw: z.input<typeof getLoanInputSchema>) {
     const input = getLoanInputSchema.parse(raw);
     const snapshot = await this.rpc.snapshot(input.chainId);
     const live = await this.liveLoan(input.chainId, BigInt(input.loanId), snapshot);
+    const fullRepaymentSourceFee = live.expired
+      ? null
+      : await snapshot.client.readContract({
+          address: live.loans,
+          abi: revLoansAbi,
+          functionName: 'determineSourceFeeAmount',
+          args: [live.loan, live.loan.amount],
+          blockNumber: block(snapshot),
+        });
     return {
       chainId: input.chainId,
       loanId: input.loanId,
@@ -703,11 +705,11 @@ export class ExtensionService {
       loan: live.loan,
       repaymentDeadline: live.deadline.toString(),
       expired: live.expired,
-      fullRepaymentSourceFee: live.fullRepaymentSourceFee?.toString() ?? null,
+      fullRepaymentSourceFee: fullRepaymentSourceFee?.toString() ?? null,
       fullRepaymentAmount:
-        live.fullRepaymentSourceFee === null
+        fullRepaymentSourceFee === null
           ? null
-          : (live.loan.amount + live.fullRepaymentSourceFee).toString(),
+          : (live.loan.amount + fullRepaymentSourceFee).toString(),
       evidence: [snapshot.evidence],
       semantics:
         'The ERC-721 owner controls the loan. Partial repayment replaces the loan ID and preserves its creation time. Expiry is strictly after the deadline.',

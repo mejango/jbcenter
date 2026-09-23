@@ -92,8 +92,14 @@ async function main(): Promise<void> {
       if (body.barrier !== undefined && !["after-grant-write", "after-code-write", "after-receipt-write", "after-commit"].includes(body.barrier)) {
         throw new RestError(400, "FIXTURE_BARRIER", "Unknown fixture barrier.");
       }
+      // Receipt lifecycle tests select an explicit SQL time; genuine proofs, rows,
+      // constraints and database trigger clocks remain unchanged.
+      if (body.databaseTimeMs !== undefined && (!Number.isSafeInteger(body.databaseTimeMs)
+        || Math.abs(body.databaseTimeMs - Date.now()) > 3_600_001)) throw new Error("Fixture clock outside bound");
       let paused = false;
       const wrapQuery = (query: (...args: any[]) => any) => async (...args: any[]) => {
+        if (body.databaseTimeMs !== undefined && typeof args[0] === "string")
+          args[0] = args[0].replaceAll("clock_timestamp()", `to_timestamp(${body.databaseTimeMs}::numeric/1000)`);
         const result = await query(...args);
         const sql = (typeof args[0] === "string" ? args[0] : args[0]?.text ?? "").trim();
         if (!paused && ((body.barrier === "after-grant-write" && /^INSERT\s+INTO\s+rest_wallet_app_grants\b/i.test(sql))

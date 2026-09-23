@@ -568,13 +568,12 @@ describe("smart client HTTP boundary", () => {
     expect(() => client.userOperation("../steal")).toThrow();
   });
 
-  it("bundles the account controls separately from the deferred sign-in SDK", async () => {
+  it("bundles the account controls with external wallet discovery", async () => {
     const result = await build({
       entryPoints: [
         new URL("../src/rest/web/main.ts", import.meta.url).pathname,
       ],
       bundle: true,
-      external: ["./para.js"], // Match the production build: Para manages its own session storage.
       platform: "browser",
       format: "esm",
       target: "es2022",
@@ -585,6 +584,7 @@ describe("smart client HTTP boundary", () => {
     const source = result.outputFiles[0]!.text;
     expect(source).toContain("eth_signTypedData_v4");
     expect(source).toContain("eth_sendTransaction");
+    expect(source).toContain("eip6963:requestProvider");
     expect(source).not.toContain('from"node:');
     // Public recovery references may use localStorage. rest-wallet-recovery.test.ts rejects private keys, signatures and restored authority.
     expect(source).not.toContain("sessionStorage");

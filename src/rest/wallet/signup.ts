@@ -3,7 +3,7 @@ import { RestError, type RestRpc } from "../core.js";
 import { detachedFromRequest } from "../context.js";
 import type { createSmartAccountService } from "../smartAccounts/service.js";
 import type { VerifiedSmartAccountRegistry } from "../smartAccounts/types.js";
-import { enrollmentDigest, walletEnrollmentDocument } from "./enrollment.js";
+import { walletEnrollmentDocument } from "./enrollment.js";
 import { copyWalletEnrollmentProof, copyWalletEnrollmentRegistration, type PostgresWalletEnrollmentStore } from "./enrollmentPostgres.js";
 import { copyWalletSignupAssertion, type PostgresWalletSignupStore } from "./signupPostgres.js";
 import { prepareWalletDeploymentApproval, walletDeploymentDocument } from "./deployment.js";

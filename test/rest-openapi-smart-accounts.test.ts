@@ -7,6 +7,11 @@ import { smartAccountSchemas } from "../src/rest/docs/smartAccounts.js";
 import { createSessionPolicyReviewer, createSmartAccountService, MemorySmartAccountRegistry, type SmartAccountBinding } from "../src/rest/smartAccounts/index.js";
 import { CHECKED_SMART_ACCOUNT_BINDING_MANIFESTS } from "../src/rest/smartAccounts/manifests.js";
 import { onboardingDocument, type OnboardingInput } from "../src/rest/smartAccounts/onboarding.js";
+import { LEGACY_COMPILER_RUNTIME_HASHES } from "../src/rest/smartAccounts/compiler.js";
+import { createConfiguredSmartAccountStack } from "../src/rest/smartAccounts/stack/config.js";
+import { createBaseWalletProductionStack } from "../src/rest/wallet/productionStack.js";
+import { walletPasskeyConsentBinding } from "../src/rest/wallet/bindingConsent.js";
+import { trustedWalletAuthorityFixture } from "./fixtures/wallet-authority-readiness.js";
 
 const address = "0x0000000000000000000000000000000000000001" as const;
 const wallet = "0x0000000000000000000000000000000000000002" as const;
@@ -95,6 +100,50 @@ describe("smart-account documentation reflects actual runtime capabilities", () 
     const unlinked = await service.revoke(principal, hash);
     expect(validator("SmartBindingUnlinked")(unlinked)).toBe(true);
     expect(unlinked.onchainSessionRevoked).toBe(false);
+  });
+
+  it("validates real passkey and locally pinned guard manifests in capability responses", async () => {
+    const [passkey, guarded] = await Promise.all([createBaseWalletProductionStack(), createConfiguredSmartAccountStack({
+      chainId: 8453, sessionGuard: { address: asset, runtimeCodeHash: LEGACY_COMPILER_RUNTIME_HASHES.sessionGuard },
+    })]);
+    const service = createSmartAccountService({ audience: "https://juicebox.center", manifests: [passkey.manifest, guarded.manifest],
+      registry: new MemorySmartAccountRegistry(), rpc: { request: async () => { throw new Error("Discovery must not contact RPC"); } } });
+    const capabilities = await service.capabilities();
+    const validate = validator("SmartAccountCapabilities");
+    expect(validate(capabilities), JSON.stringify(validate.errors)).toBe(true);
+    expect(capabilities.deployments).toHaveLength(2);
+    const guard = guarded.manifest.policies.find(pin => pin.source.repository === "juicebox-center")!;
+    expect(guard.source.contentSha256).toBeDefined();
+    expect(validator("SmartContractPin")({ ...guard, source: { ...guard.source, contentSha256: undefined } })).toBe(false);
+    expect(validator("SmartAccountManifest")({ ...passkey.manifest, ownerProfile: { ...passkey.manifest.ownerProfile, version: "unknown" } })).toBe(false);
+  });
+
+  it("validates the existing passkey binding response and retains required owner and setup evidence", () => {
+    const { binding: passkey } = trustedWalletAuthorityFixture(`eip155:8453:${wallet}`, now * 1000);
+    const validate = validator("SmartAccountBinding");
+    expect(validate(passkey), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate({ ...passkey, authorization: { ...passkey.authorization, setup: undefined } })).toBe(false);
+    expect(validate({ ...passkey, state: { ...passkey.state, ownerProfile: { ...passkey.state.ownerProfile, recoveryOwner: undefined } } })).toBe(false);
+  });
+
+  it.each([false, true])("validates consent-binding output with additional devices: %s", (withDevices) => {
+    const { binding: passkey } = trustedWalletAuthorityFixture(`eip155:8453:${wallet}`, now * 1000);
+    const state = structuredClone(passkey.state), profile = state.ownerProfile!;
+    const device = { ...profile.signer, address: recipient };
+    if (withDevices) { profile.devices = [device]; state.owners.unshift(device.address); }
+    const created = walletPasskeyConsentBinding({ accountId: passkey.ownerAccountId, state,
+      consent: { id: grant.id, digest: hash }, nowSeconds: now });
+    const validate = validator("SmartAccountBinding");
+    expect(created.binding.authorization.method).toBe("center-wallet-passkey-creation-v1");
+    expect(created.binding.authorization).not.toHaveProperty("setup");
+    const validateProfile = validator("SmartPasskeyOwnerState");
+    expect(validateProfile(created.binding.state.ownerProfile), JSON.stringify(validateProfile.errors)).toBe(true);
+    expect(validate(created.binding), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate({ ...created.binding, authorization: { ...created.binding.authorization, setup: passkey.authorization.setup } })).toBe(false);
+    expect(validate({ ...created.binding, authorization: { ...created.binding.authorization, method: "safe-passkey-owner-threshold-and-api-grant" } })).toBe(false);
+    expect(validateProfile({ ...profile, devices: [{ ...device, x: undefined }] })).toBe(false);
+    expect(validateProfile({ ...profile, devices: [{ ...device, kind: "ecdsa" }] })).toBe(false);
+    expect(validateProfile({ ...profile, devices: [{ ...device, verifiers: "0x" }] })).toBe(false);
   });
 
   it("validates a real bounded policy review while retaining missing activation requirements", async () => {

@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { RestError } from '../core.js';
 import { validateAudience } from '../auth/signatures.js';
@@ -15,7 +15,7 @@ import { validateWalletRpConfiguration, verifyWalletAssertion, type WalletAssert
 import { copyWalletSignupAssertion } from './signupPostgres.js';
 import { passkeyOnboardingSigningPayload } from '../smartAccounts/passkeyOnboarding.js';
 import type { WalletCredentialRecovery } from './credentialRecovery.js';
-import { assertRecoveryContinuationInTransaction } from './recoveryFlowPostgres.js';
+import { assertRecoveryContinuationInTransaction, hashRecoveryFlowToken } from './recoveryFlowPostgres.js';
 
 export interface WalletRecoveryRecord {
   intent: WalletRecoveryIntent; candidate: WalletRecoveryCandidate | null; proof: WalletRecoveryProof | null;
@@ -24,7 +24,6 @@ export interface WalletRecoveryRecord {
 interface Row { id: string; token_hash: string; intent: WalletRecoveryIntent; candidate: WalletRecoveryCandidate | null; proof: WalletRecoveryProof | null; activation?: WalletCredentialRecovery | null }
 const sqlNow = 'floor(extract(epoch FROM clock_timestamp())*1000)::bigint';
 const recordOf = (row: Row): WalletRecoveryRecord => ({ intent: row.intent, candidate: row.candidate, proof: row.proof, activation: row.activation ?? null });
-const hashToken = (value: string) => createHash('sha256').update('center-wallet-recovery-flow-v1:' + value).digest('hex');
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const token = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value)
   && Buffer.from(value, 'base64url').toString('base64url') === value;
@@ -79,20 +78,14 @@ export class PostgresWalletRecoveryStore {
       await this.ceremonies.issueInTransaction(client, intent.registration, null);
       const row = (await client.query<Row>(`INSERT INTO rest_wallet_recoveries(id,account_id,enrollment_id,token_hash,created_at_ms,
         expires_at_ms,retain_until_ms,intent) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [intent.id, accountId, intent.enrollmentId, hashToken(flowToken), intent.issuedAtMs, intent.expiresAtMs, intent.expiresAtMs + 86400000, intent])).rows[0]!;
+      [intent.id, accountId, intent.enrollmentId, hashRecoveryFlowToken(flowToken), intent.issuedAtMs, intent.expiresAtMs, intent.expiresAtMs + 86400000, intent])).rows[0]!;
       await this.live(client, intent); return { record: recordOf(row), flowToken };
     });
   }
   async get(id: string, flowToken: string): Promise<WalletRecoveryRecord | null> {
     if (typeof id !== 'string' || !uuid.test(id) || !token(flowToken)) return null;
     const row = (await this.pool.query<Row>(`SELECT r.* FROM rest_wallet_recoveries r LEFT JOIN rest_wallet_recovery_flows f ON f.id=r.id
-      WHERE r.id=$1 AND ((f.id IS NULL AND r.token_hash=$2) OR (f.token_hash=$2 AND f.expires_at_ms>${sqlNow}))`, [id, hashToken(flowToken)])).rows[0];
-    return row ? recordOf(row) : null;
-  }
-  async getByToken(flowToken: string): Promise<WalletRecoveryRecord | null> {
-    if (!token(flowToken)) return null;
-    const row = (await this.pool.query<Row>(`SELECT r.* FROM rest_wallet_recoveries r LEFT JOIN rest_wallet_recovery_flows f ON f.id=r.id
-      WHERE (f.id IS NULL AND r.token_hash=$1) OR (f.token_hash=$1 AND f.expires_at_ms>${sqlNow})`, [hashToken(flowToken)])).rows[0];
+      WHERE r.id=$1 AND ((f.id IS NULL AND r.token_hash=$2) OR (f.token_hash=$2 AND f.expires_at_ms>${sqlNow}))`, [id, hashRecoveryFlowToken(flowToken)])).rows[0];
     return row ? recordOf(row) : null;
   }
   async isCurrentActivation(id: string, flowToken: string): Promise<boolean> {

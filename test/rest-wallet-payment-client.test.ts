@@ -480,6 +480,22 @@ describe('Center browser payment review continuity', () => {
     expect(f.helper().pendingPayment()!.status).toBe('paid');
   });
 
+  it('retries clearing the last archive slot after a transient pending-record removal failure', async () => {
+    const f = fixture(); await f.helper().preparePayment(f.input()); f.cancel(); await f.helper().refreshPayment();
+    const key = [...f.data.keys()][0]!, historyKey = key + ':history';
+    f.data.set(historyKey, JSON.stringify(Array.from({ length: 63 }, (_, index) => ({ operationId: 'previous-' + index }))));
+    const remove = f.storage.removeItem;
+    f.storage.removeItem = () => { throw new Error('Transient storage failure'); };
+    expect(() => f.helper().clearPayment()).toThrow();
+    expect(JSON.parse(f.data.get(historyKey)!)).toHaveLength(64);
+    expect(f.helper().pendingPayment()?.operationId).toBe(f.prepared.id);
+    f.storage.removeItem = remove;
+    f.helper().clearPayment();
+    expect(f.helper().pendingPayment()).toBeNull();
+    expect(JSON.parse(f.data.get(historyKey)!)).toHaveLength(64);
+    expect(JSON.parse(f.data.get(historyKey)!).filter((item: { operationId: string }) => item.operationId === f.prepared.id)).toHaveLength(1);
+  });
+
   it('requires canonical verified economic effects before paid and archives terminal evidence before clearing', async () => {
     const f = fixture(); await f.helper().preparePayment(f.input()); await f.helper().completePayment(f.callback()); await f.helper().submitPayment();
     const confirmed = f.observedOperation();

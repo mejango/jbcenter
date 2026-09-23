@@ -50,8 +50,10 @@ export async function startWalletDeploymentAnvil(setup?: (rpc: <T = unknown>(met
   const port = (server.address() as { port: number }).port;
   await new Promise<void>(resolve => server.close(() => resolve()));
   const endpoint = `http://127.0.0.1:${port}`;
+  // Repeated snapshot resets and finality mining still consume Anvil's history cache.
+  // Keep enough bounded in-memory history for trace verification without writing it to disk.
   const child: ChildProcess = spawn(process.env.ANVIL_BINARY ?? "anvil", ["--host", "127.0.0.1", "--port", String(port),
-    "--chain-id", "8453", "--hardfork", "cancun", "--silent"], { stdio: "ignore" });
+    "--chain-id", "8453", "--hardfork", "cancun", "--prune-history", "4096", "--silent"], { stdio: "ignore" });
   let requestId = 0;
   async function rpc<T = unknown>(method: string, params: readonly unknown[] = [], signal?: AbortSignal): Promise<T> {
     const response = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" },

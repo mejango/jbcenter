@@ -268,6 +268,41 @@ describe('routing hook resolution', () => {
 });
 
 describe('routing diagnostics', () => {
+  it('shares pinned hook properties across token pools without combining their observations', async () => {
+    const { service, reads } = fixture();
+    const result = await service.getRouting({ project, tokens: [native, custom] });
+    expect(reads.filter((read) => read.functionName === 'poolManager')).toHaveLength(1);
+    expect(reads.filter((read) => read.functionName === 'oracleHook')).toHaveLength(1);
+    expect(reads.filter((read) => read.functionName === 'poolKeyOf')).toHaveLength(2);
+    expect(result).toMatchObject({
+      buybackPools: {
+        status: 'known',
+        value: [
+          { terminalToken: native, pool: { status: 'known' } },
+          { terminalToken: custom, pool: { status: 'known' } },
+        ],
+      },
+    });
+  });
+
+  it('keeps shared hook read failures unknown for every selected token', async () => {
+    const { service, reads } = fixture((request) => {
+      if (request.functionName === 'poolManager') throw new Error('manager unavailable');
+      return pass;
+    });
+    const result = await service.getRouting({ project, tokens: [native, custom] });
+    expect(reads.filter((read) => read.functionName === 'poolManager')).toHaveLength(1);
+    expect(result).toMatchObject({
+      buybackPools: {
+        status: 'known',
+        value: [
+          { terminalToken: native, pool: { status: 'unknown' } },
+          { terminalToken: custom, pool: { status: 'unknown' } },
+        ],
+      },
+    });
+  });
+
   it.each([1, 11155111] as const)(
     'resolves chain %i gateway and distinguishes issued IDs, retained custody and failed reads',
     async (chainId) => {

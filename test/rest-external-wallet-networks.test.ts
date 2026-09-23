@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { keccak256, recoverTypedDataAddress, stringToHex, type Hex, type TypedDataDefinition } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { accountIdFor, buildRequestTypedData } from "../src/rest/auth/signatures.js";
-import { walletNetworkSession, type Provider } from "../src/rest/web/para.js";
+import { walletNetworkSession, type Provider } from "../src/rest/web/externalWallet.js";
 
 const owner = privateKeyToAccount(`0x${"01".padStart(64, "0")}`);
 const other = privateKeyToAccount(`0x${"02".padStart(64, "0")}`);
@@ -47,7 +47,7 @@ function fixture() {
   return { state, listeners, emit, changeNetwork, switchChain, sign, send, receipt, raw, onChain, session, signWith };
 }
 
-describe("wallet execution networks", () => {
+describe("external wallet execution networks", () => {
   it("switches for execution and returns to the fixed API authority before signing", async () => {
     const f = fixture(), authority = apiRequest();
     const execution = await f.session.execution(10);

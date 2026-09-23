@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
+import { findCachedSolc } from "../../src/rest/smartAccounts/stack/passkey/solc-cache.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const stack = resolve(root, "src/rest/smartAccounts/stack");
@@ -68,9 +68,9 @@ console.log("Session gas estimation: complete storage layout matches the source-
 
 // Forge has installed the exact compiler through SVM. The target verifier independently checks
 // the official compiler binary hash and owns its disposable local Anvil process.
-const targetSolc = process.env.CENTER_TARGET_SOLC ?? resolve(
-  process.env.SVM_HOME ?? resolve(homedir(), ".svm"), "0.8.28/solc-0.8.28",
-);
+const targetSolc = process.env.CENTER_TARGET_SOLC ?? (process.env.SVM_HOME !== undefined
+  ? resolve(process.env.SVM_HOME, "0.8.28/solc-0.8.28") : await findCachedSolc("0.8.28"));
+if (targetSolc === undefined) throw new Error("Install the pinned solc 0.8.28 compiler or set CENTER_TARGET_SOLC.");
 const targetTests = run(process.execPath, ["--import", "tsx", "--test", "--test-reporter=tap",
   resolve(root, "src/rest/smartAccounts/targets-evidence/verify.test.mjs")], true,
   { CENTER_TARGET_SOLC: targetSolc });

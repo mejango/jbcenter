@@ -11,22 +11,14 @@ import { type RelayrProvider } from '../sponsorship/provider.js';
 import { reconcileWalletDependencyQuote, writeWalletDependencyEvidence } from './dependencyPublication.js';
 import { prepareWalletDependencyFunding, sendWalletDependencyFundingRaw, validateWalletDependencyFundingSignature,
   WALLET_DEPENDENCY_FUNDING_MARGIN_SECONDS, type WalletDependencyFundingTemplate } from './dependencyFunding.js';
+import { readWalletDependencyJournal } from './dependencyJournal.js';
 
 function invalid(): never {
   throw new RestError(409, 'WALLET_DEPENDENCY_FUNDING_EVIDENCE_INVALID', 'The saved payment and canonical chain evidence must agree exactly.');
 }
 async function readBounded(path: string): Promise<unknown> {
-  const file = await open(path, 'r');
-  try {
-    const buffer = Buffer.alloc(256 * 1024 + 1); let length = 0;
-    while (length < buffer.length) {
-      const result = await file.read(buffer, length, buffer.length - length, null);
-      if (!result.bytesRead) break;
-      length += result.bytesRead;
-    }
-    if (length === buffer.length) invalid();
-    return JSON.parse(buffer.subarray(0, length).toString('utf8'));
-  } finally { await file.close(); }
+  try { return (await readWalletDependencyJournal(path, 256 * 1024)).value; }
+  catch { return invalid(); }
 }
 export type WalletDependencyFundingRecoveryOptions = {
   directory: string; bodyHash: string; bundleUuid: string; payer: Address;

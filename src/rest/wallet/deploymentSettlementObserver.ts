@@ -122,9 +122,15 @@ export function createWalletDeploymentSettlementObserver(adapter: WalletDeployme
           rpc.request("eth_getBlockByNumber", [toHex(BigInt(observation.head.blockNumber)), false]),
           rpc.request("eth_getTransactionCount", [context.pool.configuration.sender, "pending"]), identity(rpc),
         ]);
-        if (!same(anchor(inclusion), receipt.block) || !same(anchor(finalized), observation.finality.evidence) ||
-            BigInt(anchor(currentFinalized).blockNumber) < BigInt(observation.finality.evidence.blockNumber) ||
+        const currentFinality = anchor(currentFinalized), priorFinality = observation.finality.evidence;
+        if (!same(anchor(inclusion), receipt.block) || !same(anchor(finalized), priorFinality) ||
+            BigInt(currentFinality.blockNumber) < BigInt(priorFinality.blockNumber) ||
+            (currentFinality.blockNumber === priorFinality.blockNumber && !same(currentFinality, priorFinality)) ||
             !same(anchor(head), observation.head) || String(quantity(pending)) !== evidence.pendingNonce || !same(environment, initialEnvironment)) unavailable();
+        // Finality may advance during observation. Keep the original qualified anchor and
+        // require the newer finalized tag to agree with its own canonical numbered block.
+        if (currentFinality.blockNumber !== priorFinality.blockNumber && !same(anchor(await rpc.request("eth_getBlockByNumber",
+          [toHex(BigInt(currentFinality.blockNumber)), false])), currentFinality)) unavailable();
         rpc.check(); assertWalletDeploymentFundingEvidence(evidence, context, now());
         return { version: "center-wallet-deployment-settlement-evidence-v1", funding: evidence, operationId: context.operation.id,
           operationRevision: context.operation.revision, transactionHash: context.operation.signed!.hash,

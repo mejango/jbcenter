@@ -1,11 +1,17 @@
-import { createServer, type RequestListener, type Server, type ServerResponse } from 'node:http';
+import {
+  createServer,
+  type IncomingMessage,
+  type RequestListener,
+  type Server,
+  type ServerResponse,
+} from 'node:http';
 import type { AddressInfo } from 'node:net';
 import express, { type ErrorRequestHandler, type Request, type Response } from 'express';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Config } from '../config.js';
+import { MAX_BODY_BYTES, MAX_LOGO_REQUEST_BYTES } from './limits.js';
 
-const MAX_BODY_BYTES = 256 * 1024;
 const ALLOWED_CORS_HEADERS = new Set([
   'accept',
   'content-type',
@@ -143,6 +149,7 @@ export function createHttpHandler(
   const limiter = new RateLimiter(rateLimitPerMinute, maxRateLimitEntries);
   const active = new Map<Response, { cancel: () => Promise<void>; finish: () => Promise<void> }>();
   const cleanups = new Set<Promise<void>>();
+  const bodySizes = new WeakMap<IncomingMessage, number>();
   let draining = false;
   let closing: Promise<void> | undefined;
   const app = express();
@@ -290,10 +297,24 @@ export function createHttpHandler(
       res.once('finish', onClose);
       next();
     },
-    express.json({ limit: MAX_BODY_BYTES, strict: true, inflate: false }),
+    express.json({
+      limit: MAX_LOGO_REQUEST_BYTES,
+      strict: true,
+      inflate: false,
+      verify: (req, _res, body) => {
+        bodySizes.set(req, body.length);
+      },
+    }),
     async (req, res) => {
       const scope = active.get(res);
       if (!scope || res.destroyed || res.writableEnded) return;
+      if (
+        (bodySizes.get(req) ?? 0) > MAX_BODY_BYTES &&
+        !(req.body?.method === 'tools/call' && req.body?.params?.name === 'jb_pin_project_logo')
+      ) {
+        rpcError(res, 413, 'Request body exceeds 256 KiB.');
+        return;
+      }
       // The SDK retains legacy batching support. Reject batches so one accepted
       // HTTP request cannot fan out into unbounded concurrent tool invocations.
       if (Array.isArray(req.body)) {
@@ -339,7 +360,8 @@ export function createHttpHandler(
   });
   const errors: ErrorRequestHandler = (error: unknown, _req, res, _next) => {
     const type = error && typeof error === 'object' && 'type' in error ? error.type : undefined;
-    if (type === 'entity.too.large') rpcError(res, 413, 'Request body exceeds 256 KiB.');
+    if (type === 'entity.too.large')
+      rpcError(res, 413, 'Request body exceeds the MCP upload limit.');
     else if (type === 'encoding.unsupported' || type === 'charset.unsupported')
       rpcError(res, 415, 'Unsupported request encoding.');
     else if (type === 'entity.parse.failed' || type === 'request.size.invalid')

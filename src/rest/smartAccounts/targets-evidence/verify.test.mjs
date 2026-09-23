@@ -9,6 +9,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { keccak256 } from 'viem';
 import { verifyRuntime } from '../../protocol/code.ts';
+import { findCachedSolc } from '../stack/passkey/solc-cache.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bytes = file => readFileSync(resolve(here, file));
@@ -38,7 +39,9 @@ async function rpc(method, params) {
   assert(response.ok); const value = await response.json(); assert(!value.error, JSON.stringify(value.error)); return value.result;
 }
 before(async () => {
-  const solc = process.env.CENTER_TARGET_SOLC ?? resolve(process.env.SVM_HOME ?? resolve(homedir(), '.svm'), '0.8.28/solc-0.8.28');
+  const solc = process.env.CENTER_TARGET_SOLC ?? (process.env.SVM_HOME !== undefined
+    ? resolve(process.env.SVM_HOME, '0.8.28/solc-0.8.28') : await findCachedSolc('0.8.28'));
+  assert.notEqual(solc, undefined, 'Install the pinned solc 0.8.28 compiler or set CENTER_TARGET_SOLC');
   const allowed = new Set([
     '81515b0e53deaa266d549545ccaac0a5a96e6d4e8201c77f673b2c710976d9ea',
     '9a0fb7e0db2c0641dbae1c5cc645dc686820c83af516226abb1c0a2f76636f25',

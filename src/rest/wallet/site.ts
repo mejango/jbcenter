@@ -118,7 +118,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   app.use(base || '/', protect);
   app.use(`${base}/*`, protect);
   app.use('*', async (c, next) => {
-    // When mounted alongside the legacy site, no Accounts/Para or other app code may
+    // When mounted alongside the legacy site, no Accounts or other app code may
     // execute on this credential origin and inherit its cookie authority.
     if (!isWalletPath(c.req.path) && (c.req.header('Host') ?? new URL(c.req.url).host) === new URL(origin).host) {
       for (const [key, value] of Object.entries(pageHeaders)) c.header(key, value);

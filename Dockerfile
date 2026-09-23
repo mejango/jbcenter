@@ -2,12 +2,11 @@ FROM node:22.23.1-bookworm-slim AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY mcp/package.json mcp/package-lock.json ./mcp/
-RUN npm ci --ignore-scripts && npm --prefix mcp ci --ignore-scripts
+RUN npm ci --ignore-scripts --no-audit --no-fund && npm --prefix mcp ci --ignore-scripts --no-audit --no-fund
 
 FROM dependencies AS build
-COPY tsconfig.json ./
+COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
-COPY test ./test
 COPY scripts/rest ./scripts/rest
 COPY docs/rest ./docs/rest
 COPY client ./client
@@ -20,7 +19,7 @@ FROM node:22.23.1-bookworm-slim AS production-dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY mcp/package.json mcp/package-lock.json ./mcp/
-RUN npm ci --omit=dev --ignore-scripts && npm --prefix mcp ci --omit=dev --ignore-scripts && npm cache clean --force
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm --prefix mcp ci --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean --force
 
 FROM production-dependencies AS runtime
 ENV NODE_ENV=production

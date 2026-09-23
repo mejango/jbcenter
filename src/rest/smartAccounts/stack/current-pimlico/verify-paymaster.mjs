@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { keccak256 } from "viem";
+import { findCachedSolc } from "../passkey/solc-cache.mjs";
 
 // Offline reproduction: all compiler inputs are checked in. No credentials, RPC calls or transactions.
 const root = dirname(fileURLToPath(import.meta.url));
@@ -119,10 +119,10 @@ for (const verification of evidence.verifiedSources) {
 }
 
 const solcOption = process.argv.indexOf("--solc");
-const installedSolc = resolve(process.env.SVM_HOME || resolve(homedir(), ".svm"), "0.8.26/solc-0.8.26");
 const solcPath = solcOption >= 0 ? process.argv[solcOption + 1] :
-  process.env.SOLC_0_8_26 || installedSolc;
-assert.ok(solcPath, "--solc requires a path");
+  process.env.SOLC_0_8_26 || await findCachedSolc("0.8.26", process.env.SVM_HOME
+    ? resolve(process.env.SVM_HOME, "0.8.26/solc-0.8.26") : undefined);
+assert.ok(solcPath, solcOption >= 0 ? "--solc requires a path" : "Install the pinned solc 0.8.26 binary or provide --solc, SOLC_0_8_26 or SVM_HOME");
 // Resolve explicit paths before both hashing and execution, avoiding any PATH lookup discrepancy.
 const solc = realpathSync(resolve(solcPath));
 const compilerStat = statSync(solc);

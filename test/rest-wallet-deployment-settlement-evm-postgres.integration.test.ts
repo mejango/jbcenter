@@ -60,6 +60,14 @@ suite("real PostgreSQL and unforked Anvil sequential deployment settlement", () 
     // This fixture deploys exactly two test contracts from its public genesis sender. The host
     // fixes its initial nonce explicitly; the provider's observed nonce is never adopted.
     expect(funding.confirmedNonce).toBe("2");
+    // The fixture host and its database can differ by milliseconds. Wait for real
+    // database time without changing the original observation or expiry.
+    await expect.poll(dbNow, { timeout: funding.expiresAt - funding.observedAt }).toBeGreaterThanOrEqual(funding.observedAt);
+    const databaseNow = await dbNow(), timing = JSON.stringify({ databaseMinusObservedMs: databaseNow - funding.observedAt,
+      expiresInMs: funding.expiresAt - databaseNow, hostMinusDatabaseMs: Date.now() - databaseNow,
+      headMinusDatabaseMs: Number(funding.head.timestamp) * 1000 - databaseNow });
+    expect(databaseNow, `Funding must be observed by the database clock: ${timing}`).toBeGreaterThanOrEqual(funding.observedAt);
+    expect(databaseNow, `Funding must remain fresh at the database clock: ${timing}`).toBeLessThan(funding.expiresAt);
     await store.initializeAccounting(context, funding, "2");
   }
   async function prepared() {
@@ -100,7 +108,7 @@ suite("real PostgreSQL and unforked Anvil sequential deployment settlement", () 
   }
   async function settlement(operationId: string) {
     const dispatch = await store.getDispatch(operationId);
-    if (dispatch) await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.leaseUntil - Date.now() + 15)));
+    if (dispatch) await expect.poll(dbNow).toBeGreaterThanOrEqual(dispatch.leaseUntil);
     await fixture.rpc("anvil_mine", ["0x41", "0x0"]);
     await release(operationId);
     const context = await store.loadSettlementContext(operationId), evidence = await producer().observeSettlement(context);
@@ -228,7 +236,7 @@ suite("real PostgreSQL and unforked Anvil sequential deployment settlement", () 
     expect(committed).toMatchObject({ receipts: 1, markers: 1, active_operation_id: null,
       accounting: { nextNonce: "3", spentWei: proof.evidence.fees.totalWei, sequence: 1 } });
     await kill(first.child); await request;
-    await new Promise(resolve => setTimeout(resolve, Math.max(1, proof.evidence.funding.expiresAt - Date.now() + 15)));
+    await expect.poll(dbNow).toBeGreaterThanOrEqual(proof.evidence.funding.expiresAt);
     const recovered = await second.request({ action: "settle", ...proof });
     expect(recovered.status).toBe(200); expect(recovered.body.replayed).toBe(true);
     expect(recovered.body.settlement).toEqual(await store.getSettlement(deployed.context.operation.id));

@@ -1,5 +1,5 @@
 import { base } from './walletBase.js';
-import { getAddress, hashTypedData, isAddress, type Address, type Hex, type TypedDataDefinition } from 'viem';
+import { getAddress, hashTypedData, isAddress, type Address, type TypedDataDefinition } from 'viem';
 import type { WalletRecoveryView } from '../wallet/recoveryService.js';
 import { readWalletRecoveryKit, recoveryAccountFromPhrase, type WalletRecoveryKit, type WalletRecoverySecret } from './walletRecoveryKit.js';
 import { assertWalletRecoveryRotationReview } from './walletRecoveryReview.js';

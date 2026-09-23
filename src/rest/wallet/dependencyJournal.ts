@@ -4,10 +4,12 @@ import { join, resolve } from 'node:path';
 import { RestError } from '../core.js';
 import { object, uuid } from '../sponsorship/validation.js';
 
-export async function readWalletDependencyJournal(path: string) {
+export async function readWalletDependencyJournal(path: string, maximumBytes = 2 * 1024 * 1024) {
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1 || maximumBytes > 2 * 1024 * 1024)
+    throw new Error('Invalid dependency journal bound.');
   const file = await open(path, 'r');
   try {
-    const buffer = Buffer.alloc(2 * 1024 * 1024 + 1); let length = 0;
+    const buffer = Buffer.alloc(maximumBytes + 1); let length = 0;
     while (length < buffer.length) {
       const result = await file.read(buffer, length, buffer.length - length, null);
       if (!result.bytesRead) break;

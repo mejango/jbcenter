@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Pool, type QueryResultRow } from "pg";
+import { Pool } from "pg";
 import type { Address, Hex } from "viem";
 import {
   ConflictError,
@@ -22,7 +22,7 @@ import type {
   SearchPage,
 } from "../types.js";
 
-type IntentRow = QueryResultRow & {
+type IntentRow = {
   id: string;
   content_hash: Hex;
   format: string;
@@ -41,7 +41,9 @@ type IntentRow = QueryResultRow & {
   created_at: Date;
 };
 
-type DeploymentRow = QueryResultRow & {
+type SearchRow = Omit<IntentRow, "deployment_calls" | "jb" | "signature">;
+
+type DeploymentRow = {
   chain_id: string;
   project_id: string;
   transaction_hash: Hex;
@@ -49,7 +51,7 @@ type DeploymentRow = QueryResultRow & {
   created_at: Date;
 };
 
-type IntentDeployRow = QueryResultRow & {
+type IntentDeployRow = {
   chain_id: string;
   status: IntentDeployStatus;
   bundle_uuid: string | null;
@@ -138,8 +140,8 @@ export function createPool(connectionString: string): Pool & { connectsSinceLast
   // A connection the server terminates (idle-in-transaction timeout, restart) emits "error" on
   // the client that holds it. Without a listener that is an uncaught exception and the whole
   // process dies; with one, the query in flight rejects and the caller reports it.
-  const report = (source: string) => (error: Error) =>
-    console.error(JSON.stringify({ level: "error", service: "db", code: "PG_CONNECTION_ERROR", source, message: String(error.message).slice(0, 200) }));
+  const report = (source: string) => () =>
+    console.error(JSON.stringify({ level: "error", service: "db", code: "PG_CONNECTION_ERROR", source }));
   let connects = 0;
   pool.on("error", report("idle"));
   pool.on("connect", (client) => { client.on("error", report("client")); connects += 1; });
@@ -314,8 +316,10 @@ export class PostgresStore implements Store {
       ? "ts_rank(search_vector, websearch_to_tsquery('simple', $1)) DESC, created_at DESC, id"
       : "created_at DESC, id";
     const [rows, count] = await Promise.all([
-      this.pool.query<IntentRow>(
-        `${selectIntent}
+      this.pool.query<SearchRow>(
+        `SELECT id, content_hash, format, deployment_version, chain_ids, publisher,
+                name, description, tagline, tags, logo_uri, owner, created_at
+         FROM intents
          WHERE NOT EXISTS (SELECT 1 FROM deployments WHERE deployments.intent_id = intents.id)
          ${where}
          ORDER BY ${order}
@@ -330,26 +334,23 @@ export class PostgresStore implements Store {
       ),
     ]);
     const totalCount = Number(count.rows[0]!.count);
-    const items: SearchItem[] = rows.rows.map((row) => {
-      const value = intent(row);
-      return {
-        source: "jbcenter",
-        status: "undeployed",
-        intentId: value.id,
-        contentHash: value.contentHash,
-        format: value.envelope.format,
-        deploymentVersion: value.envelope.deploymentVersion,
-        chainIds: value.envelope.chainIds,
-        publisher: value.publisher,
-        name: value.name,
-        description: value.description,
-        tagline: value.tagline,
-        tags: value.tags,
-        logoUri: value.logoUri,
-        owner: value.owner,
-        createdAt: value.createdAt,
-      };
-    });
+    const items: SearchItem[] = rows.rows.map((row) => ({
+      source: "jbcenter",
+      status: "undeployed",
+      intentId: row.id,
+      contentHash: row.content_hash,
+      format: row.format,
+      deploymentVersion: row.deployment_version,
+      chainIds: row.chain_ids.map(Number),
+      publisher: row.publisher,
+      name: row.name,
+      description: row.description,
+      tagline: row.tagline,
+      tags: row.tags,
+      logoUri: row.logo_uri,
+      owner: row.owner,
+      createdAt: row.created_at.toISOString(),
+    }));
     return {
       items,
       totalCount,

@@ -2,9 +2,7 @@ import {
   concatHex,
   encodeAbiParameters,
   encodeFunctionData,
-  keccak256,
   parseAbi,
-  parseAbiParameters,
   type Address,
   type Hex,
 } from "viem";
@@ -14,7 +12,8 @@ import {
   encodeSafe7579Execution,
   type Safe7579Call,
 } from "./accountExecution.js";
-import type { CompiledSession, LegacySession } from "./compiler/types.js";
+import type { CompiledSession } from "./compiler/types.js";
+import { permissionIdOf } from "./compiler/encoding.js";
 import { compiledSessionHash } from "./compiler.js";
 import { fingerprint } from "./service.js";
 
@@ -99,15 +98,6 @@ export interface OwnerSessionTransaction {
 
 function fail(message: string): never {
   throw new RestError(400, "SMART_SESSION_SETUP_INVALID", message);
-}
-function permissionIdOf(session: LegacySession): Hex {
-  return keccak256(
-    encodeAbiParameters(parseAbiParameters("address, bytes, bytes32"), [
-      session.sessionValidator,
-      session.sessionValidatorInitData,
-      session.salt,
-    ]),
-  );
 }
 function checkedCompiled(compiled: CompiledSession): void {
   if (

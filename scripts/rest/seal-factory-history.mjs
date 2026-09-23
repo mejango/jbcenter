@@ -24,8 +24,10 @@ for await(const line of pages){
  }
 }
 for(let from=0;from<=meta.through;from+=500)if(!seen.has(from))throw Error('Missing page '+from);
-const response=await fetch('https://api-base-mainnet-archive.n.dwellir.com/'+process.env.DWELLIR_API_KEY,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),body:JSON.stringify([{jsonrpc:'2.0',id:1,method:'eth_chainId',params:[]},{jsonrpc:'2.0',id:2,method:'eth_getBlockByNumber',params:['0x'+meta.through.toString(16),false]}])});
+const response=await fetch('https://api-base-mainnet-archive.n.dwellir.com/'+process.env.DWELLIR_API_KEY,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),body:JSON.stringify([{jsonrpc:'2.0',id:1,method:'eth_chainId',params:[]},{jsonrpc:'2.0',id:2,method:'eth_getBlockByNumber',params:['0x'+meta.through.toString(16),false]},{jsonrpc:'2.0',id:3,method:'eth_getBlockByNumber',params:['finalized',false]}])});
 const result=await response.json();if(!response.ok||!Array.isArray(result)||result.find(r=>r.id===1)?.result!=='0x2105'||result.find(r=>r.id===2)?.result?.hash!==meta.hash)throw Error('Finalized anchor no longer matches');
+const finalized=result.find(r=>r.id===3)?.result;
+if(!/^0x(?:0|[1-9a-f][0-9a-f]*)$/i.test(finalized?.number)||!/^0x[0-9a-fA-F]{64}$/.test(finalized?.hash)||BigInt(finalized.number)<BigInt(meta.through)||(BigInt(finalized.number)===BigInt(meta.through)&&finalized.hash.toLowerCase()!==meta.hash.toLowerCase()))throw Error('Factory history anchor is not finalized');
 creations.sort((a,b)=>a[0].localeCompare(b[0])||a[1]-b[1]);
 const bytes=JSON.stringify({chainId:8453,factory,through:meta.through,hash:meta.hash,creations})+'\n';
 await mkdir(output,{recursive:true});await writeFile(output+'/base.json.gz',gzipSync(bytes));await writeFile(output+'/base.sha256',createHash('sha256').update(bytes).digest('hex')+'\n');

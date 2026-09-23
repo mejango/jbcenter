@@ -15,7 +15,14 @@ export async function exerciseRecoveryBrowser(options: {
   hold: { arm(): void; release(): void };
 }) {
   const { page, context, cdp, authenticatorId, origin, recovery, login } = options, kit = JSON.parse(options.kitText);
-  const openBackup = () => page.getByLabel('Open your backup file').setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(options.kitText) });
+  const openBackup = async (contents = options.kitText, filename = 'recovery.json') => {
+    await page.getByLabel('My backup file', { exact: true }).check();
+    const input = page.getByLabel('Open your backup file');
+    // setInputFiles bypasses native actionability, including during the state read.
+    await input.waitFor({ state: 'visible', timeout: 15000 });
+    await expect.poll(() => input.isEnabled(), { timeout: 15000 }).toBe(true);
+    await input.setInputFiles({ name: filename, mimeType: 'application/json', buffer: Buffer.from(contents) });
+  };
   const contains = async (value: string) => expect.poll(() => page.locator('#wallet-status').textContent(), { timeout: 15000 }).toContain(value);
   const originalSession = (await context.cookies()).find(cookie => cookie.name === walletSessionCookie)!;
   expect(await login.readSession(originalSession.value)).not.toBeNull();
@@ -25,6 +32,7 @@ export async function exerciseRecoveryBrowser(options: {
   // receives a programmatic file, so wait for the initial state before opening the backup.
   await contains('Open your backup file');
   await openBackup();
+  await contains('Backup file loaded.');
   await page.getByLabel('New passkey name').fill('Juicebox replacement');
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await contains('Create your replacement passkey');
@@ -48,8 +56,9 @@ export async function exerciseRecoveryBrowser(options: {
   const before = await recovery.status(originalFlow.value);
   expect(before.walletAddress.toLowerCase()).toBe(kit.walletAddress.toLowerCase());
   const wrongKit = JSON.stringify({ ...kit, walletAddress: '0x' + '66'.repeat(20) });
-  await page.getByLabel('Open your backup file').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(wrongKit) });
+  await openBackup(wrongKit, 'wrong.json');
   await contains('does not match');
+  await openBackup(); await contains('Backup file loaded.');
   await page.getByRole('button', { name: 'Check again' }).click();
   await page.getByRole('button', { name: 'Review passkey replacement' }).click();
   await page.getByRole('button', { name: 'Approve passkey replacement' }).click();
@@ -75,6 +84,7 @@ export async function exerciseRecoveryBrowser(options: {
   await contains('Resume the original recovery');
   expect(await page.locator('#recovery-words').inputValue()).toBe('');
   await openBackup();
+  await contains('Backup file loaded.');
   await page.getByText('Resume a recovery you started', { exact: true }).click();
   await page.getByRole('button', { name: 'Resume', exact: true }).click();
   await contains('replacement passkey is in place');

@@ -493,19 +493,23 @@ suite("PostgreSQL canonical wallet authority with genuine enrollment and explici
   it("rolls back a changed observation when post-write work crosses the canonical head-age deadline", async () => {
     const value = await authorizedFixture(), firstContext = await store.loadContext(value.accountId), child = await worker();
     const first = await canonicalObservation(firstContext);
-    // These consecutive synthetic heads advance in time. Both are initially within the real
-    // head-age bound; the changed result has no readiness deadline of its own.
+    // Leave time for initial reconciliation, then start the changed observation's
+    // window. Both advancing synthetic heads retain the current real head-age bound.
     const headAgeSeconds = walletAuthorityMaximumHeadAgeMs / 1000;
-    const initialHeadSeconds = Math.floor(first.observedAtMs / 1000) - (headAgeSeconds - 2);
+    const initialHeadSeconds = Math.floor(first.observedAtMs / 1000) - (headAgeSeconds - 5);
     first.head!.timestamp = String(initialHeadSeconds); first.validUntilMs = (initialHeadSeconds + headAgeSeconds) * 1000;
     const original = await store.reconcile(firstContext, first), context = await store.loadContext(value.accountId);
     const observation = await canonicalObservation(context, { stateHash: word("46"), eligibility: "changed" });
-    observation.head!.timestamp = String(initialHeadSeconds + 2);
+    observation.head!.timestamp = String(Math.max(initialHeadSeconds + 1, Math.floor(observation.observedAtMs / 1000) - (headAgeSeconds - 5)));
     const headDeadline = Number(observation.head!.timestamp) * 1000 + walletAuthorityMaximumHeadAgeMs;
     expect(observation.validUntilMs).toBeNull(); expect(headDeadline).toBeGreaterThan(observation.observedAtMs);
     const barrier = message(child.child, "barrier");
     const pending = child.request({ action: "reconcile", context, observation, barrier: "after-authority-write", continueBarrier: true });
-    await barrier; await untilDatabaseTime(headDeadline);
+    expect(await Promise.race([barrier, pending.then(result => {
+      throw new Error(`Changed observation completed before the authority write barrier: ${JSON.stringify(result)}`);
+    })])).toMatchObject({ stage: "after-authority-write", backendPid: child.backendPid });
+    expect(await store.get(value.accountId)).toEqual(original.snapshot);
+    await untilDatabaseTime(headDeadline);
     expect(await databaseNow()).toBeLessThan(observation.observedAtMs + 30000);
     child.child.send({ kind: "continue" }); expect((await pending).status).toBe(410);
     expect(await store.get(value.accountId)).toEqual(original.snapshot);

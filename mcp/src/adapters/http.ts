@@ -134,7 +134,16 @@ export async function fetchJson(
         );
       chunks.push(chunk.value);
     }
-    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+    try {
+      return JSON.parse(
+        new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)),
+      ) as unknown;
+    } catch {
+      throw new DomainError(
+        'UPSTREAM_INVALID_RESPONSE',
+        'The upstream did not return valid UTF-8 JSON.',
+      );
+    }
   } catch (error) {
     if (error instanceof DomainError) throw error;
     if (signal.aborted)
@@ -143,8 +152,6 @@ export async function fetchJson(
         'The upstream request was cancelled or exceeded its time limit.',
         { retryable: true },
       );
-    if (error instanceof SyntaxError)
-      throw new DomainError('UPSTREAM_INVALID_RESPONSE', 'The upstream did not return valid JSON.');
     throw new DomainError('UPSTREAM_UNAVAILABLE', 'The configured upstream could not be reached.', {
       retryable: true,
     });

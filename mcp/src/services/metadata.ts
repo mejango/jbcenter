@@ -73,7 +73,7 @@ const LOGO_CONTENT_TYPES = [
   'image/svg+xml',
 ] as const;
 const ACTIVE_SVG_CONTENT =
-  /<(?:script|foreignObject|iframe|object|embed|image|use|style)\b|(?:on[a-z]+|href|src)\s*=|url\s*\(|@import|<!doctype|<\?xml-stylesheet/iu;
+  /<(?:[^\s<>/:]+:)?(?:script|foreignObject|iframe|object|embed|image|use|style|animate(?:Motion|Transform)?|set)\b|(?:on[a-z]+|href|src)\s*=|(?:url|image-set)\s*\(|@import|<!doctype|<\?xml-stylesheet/iu;
 const RASTER_MAGIC: Record<string, (bytes: Buffer) => boolean> = {
   'image/png': (bytes) =>
     bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
@@ -93,9 +93,24 @@ function isImageOfType(bytes: Buffer, contentType: (typeof LOGO_CONTENT_TYPES)[n
   } catch {
     return false;
   }
+  // Inspect XML character references and CSS escapes as a browser would, without
+  // rewriting the bytes the user approved. Namespaces must remain SVG or XLink.
+  const inspected = text
+    .replace(/&#(?:x([0-9a-f]+)|([0-9]+));/giu, (match, hex, decimal) => {
+      const code = Number.parseInt(hex ?? decimal, hex === undefined ? 10 : 16);
+      return code <= 0x10ffff ? String.fromCodePoint(code) : match;
+    })
+    .replace(/\\(?:([0-9a-f]{1,6})\s?|([^\r\n\f]))/giu, (match, hex, escaped) => {
+      if (hex === undefined) return escaped;
+      const code = Number.parseInt(hex, 16);
+      return code <= 0x10ffff ? String.fromCodePoint(code) : match;
+    });
   return (
     /^﻿?\s*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg[\s>]/iu.test(text) &&
-    !ACTIVE_SVG_CONTENT.test(text)
+    !ACTIVE_SVG_CONTENT.test(inspected) &&
+    [...inspected.matchAll(/\bxmlns(?::[^\s=]+)?\s*=\s*(["'])(.*?)\1/giu)].every((match) =>
+      ['http://www.w3.org/2000/svg', 'http://www.w3.org/1999/xlink'].includes(match[2]!),
+    )
   );
 }
 
@@ -391,7 +406,7 @@ export class ProjectMetadataService {
     )
       throw new DomainError(
         'INVALID_IMAGE',
-        'The image must be canonical base64 of at most 1 MiB whose bytes match the declared type; an SVG must be inert markup without scripts, external references or styles. No upload was attempted.',
+        'The image must be canonical base64 of at most 1 MiB whose bytes match the declared type; an SVG must be inert markup without scripts, external references, animation or stylesheets. No upload was attempted.',
       );
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     const extension =

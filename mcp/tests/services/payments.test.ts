@@ -237,6 +237,22 @@ function cashHookMetadata(minimum: bigint, explicit: boolean, direct = 100n): He
 }
 
 describe('payment quotes and approval plans', () => {
+  it('preserves the caller-supplied canonical snapshot through ordinary payment preparation', async () => {
+    const f = fixture();
+    const { client } = await f.snapshot();
+    f.snapshot.mockClear();
+    const at: BlockEvidence = {
+      ...evidence,
+      blockNumber: '456',
+      blockHash: `0x${'cd'.repeat(32)}`,
+    };
+    const snapshotAt = vi.fn(() => ({ client, evidence: at }));
+    const service = new PaymentService({ snapshot: f.snapshot, snapshotAt, client: () => client });
+    const plan = await service.preparePay(payInput, at);
+    expect(snapshotAt).toHaveBeenCalledWith(project.chainId, at);
+    expect(f.snapshot).not.toHaveBeenCalled();
+    expect(plan.evidence).toEqual([at]);
+  });
   it('reads the project context and terminal together, keeps them for minutes, and drops them when the live preview disagrees', async () => {
     const f = fixture();
     const names = () => f.readContract.mock.calls.map(([request]) => request.functionName);
@@ -413,6 +429,56 @@ describe('payment quotes and approval plans', () => {
       '',
       '0x',
     ]);
+  });
+
+  it('requires positive ordinary payments even when a verified NFT hook is configured', async () => {
+    const { service, snapshot } = fixture({ dataHook: custom, nftClone: custom });
+    await expect(service.quotePay({ ...payInput, amount: '0' })).rejects.toMatchObject({
+      code: 'INVALID_AMOUNT',
+    });
+    await expect(service.preparePay({ ...payInput, amount: '0' })).rejects.toMatchObject({
+      code: 'INVALID_AMOUNT',
+    });
+    expect(snapshot).not.toHaveBeenCalled();
+  });
+
+  it('prepares zero-value NFT calls only for the matching active verified hook without token approval', async () => {
+    const { service, readContract } = fixture({
+      dataHook: custom,
+      nftClone: custom,
+      beneficiaryCount: 0n,
+      payHooks: [{ hook: custom, noop: false, amount: 0n, metadata: '0x' }],
+      errorOn: 'allowance',
+    });
+    const input = { ...payInput, token, amount: '0' };
+    const plan = await service.prepareNftPay(input, custom);
+    expect(plan.calls).toHaveLength(1);
+    expect(plan.calls[0]?.value).toBe('0');
+    expect(
+      decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }),
+    ).toMatchObject({
+      functionName: 'pay',
+      args: [12n, token, 0n, beneficiary, 0n, '', '0x'],
+    });
+    expect(readContract.mock.calls.some(([request]) => request.functionName === 'allowance')).toBe(
+      false,
+    );
+    await expect(service.prepareNftPay(input, beneficiary)).rejects.toMatchObject({
+      code: 'NFT_HOOK_NOT_INVOKED',
+    });
+    for (const payHooks of [
+      [],
+      [{ hook: custom, noop: true, amount: 0n, metadata: '0x' as const }],
+    ])
+      await expect(
+        fixture({ dataHook: custom, nftClone: custom, payHooks }).service.prepareNftPay(
+          input,
+          custom,
+        ),
+      ).rejects.toMatchObject({ code: 'NFT_HOOK_NOT_INVOKED' });
+    await expect(fixture().service.prepareNftPay(input, custom)).rejects.toMatchObject({
+      code: 'NFT_HOOK_NOT_INVOKED',
+    });
   });
 
   it('keeps verified zero issuance explicit, and never converts a failed preview to zero', async () => {

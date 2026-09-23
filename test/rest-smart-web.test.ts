@@ -3,6 +3,7 @@ import { hashTypedData, keccak256, recoverAddress, sliceHex, stringToHex, toHex,
 import { privateKeyToAccount } from "viem/accounts";
 import {
   SignedRestClient,
+  connectionForBot,
   type PreparedUserOperation,
   type WalletTypedData,
 } from "../src/rest/client/index.js";
@@ -141,6 +142,7 @@ async function harness(options: {
   const preparedById = new Map<string, PreparedUserOperation>();
   let prepared: PreparedUserOperation | undefined,
     holdPreparation: Promise<void> | undefined;
+  let operationResponseChange: Partial<PreparedUserOperation> = {};
   let rejectNextDiscovery = false,
     interruptNextBinding = false,
     interruptNextOperation = false,
@@ -326,10 +328,10 @@ async function harness(options: {
           threshold: b.state.threshold,
         });
       if (interruptNextOperation) { interruptNextOperation = false; throw new Error("Submission response interrupted"); }
-      return Response.json({ ...prepared, state: "pending" });
+      return Response.json({ ...prepared, state: "pending", ...operationResponseChange });
     }
     if (path === "/api/v1/user-operations/web-operation")
-      return Response.json({ ...preparedById.get("web-operation"), state: "confirmed" });
+      return Response.json({ ...preparedById.get("web-operation"), state: "confirmed", ...operationResponseChange });
     if (path === "/api/v1/user-operations/web-operation-10")
       return Response.json({ ...preparedById.get("web-operation-10"), state: "confirmed" });
     throw new Error(`Unexpected path ${path}`);
@@ -439,6 +441,7 @@ async function harness(options: {
     bindingReview: () => bindingReview,
     interruptBinding: () => { interruptNextBinding = true; },
     interruptOperation: () => { interruptNextOperation = true; },
+    changeOperationResponse: (changes: Partial<PreparedUserOperation>) => { operationResponseChange = changes; },
     cancelApiApproval: () => { cancelNextApiApproval = true; },
     interruptDiscovery: () => { rejectNextDiscovery = true; },
     interruptCreation: (knownHash = true, invalidate = false) => {
@@ -780,7 +783,7 @@ it("clears delegated signatures when hosted activation is withdrawn", async () =
   expect(f.signatures).toHaveLength(0);
 });
 
-it("keeps the imported key local, authenticates with its bot grant, and clears stale signatures when switching sessions", async () => {
+it.each(["legacy", "connection"])("keeps the imported %s key local, authenticates with its bot grant, and clears stale signatures when switching sessions", async (format) => {
   const f = await harness();
   f.field("operation-authority").value = "session";
   await f.change("operation-authority");
@@ -788,11 +791,15 @@ it("keeps the imported key local, authenticates with its bot grant, and clears s
     {
       size: 256,
       text: async () =>
-        JSON.stringify({
+        JSON.stringify(format === "legacy" ? {
           format: "juicebox-center-bot-key-v1",
           botAddress: f.bot.address,
           privateKey: f.botPrivateKey,
-        }),
+        } : connectionForBot("https://juicebox.center", {
+          id: f.session().compiled.grantId, accountId: f.accountId, botAddress: f.bot.address,
+          scopes: ["read", "plan", "relay"], label: "Browser fixture", createdAt: Math.floor(Date.now() / 1000),
+          expiresAt: Math.floor(Date.now() / 1000) + 3600, revokedAt: null,
+        }, f.botPrivateKey)),
     },
   ];
   await f.change("session-key-file");
@@ -821,6 +828,48 @@ it("keeps the imported key local, authenticates with its bot grant, and clears s
   expect(f.field("operation-submit").disabled).toBe(true);
   await f.click("operation-submit");
   expect(f.signatures).toHaveLength(0);
+});
+
+it.each([
+  { audience: "https://another.example" },
+  { accountId: `eip155:10:${ownerKey.address.toLowerCase()}` },
+  { grantId: "11111111-1111-4111-8111-111111111111" },
+  { scopes: ["read", "plan"] },
+  { expiresAt: 1 },
+])("rejects a connection file that does not authorize this session: %j", async (changes) => {
+  const f = await harness();
+  f.field("operation-authority").value = "session";
+  await f.change("operation-authority");
+  f.field("session-key-file").files = [{ size: 512, text: async () => JSON.stringify({
+    format: "juicebox-center-connection-v1", audience: "https://juicebox.center", accountId: f.accountId,
+    grantId: f.session().compiled.grantId, botAddress: f.bot.address, privateKey: f.botPrivateKey,
+    scopes: ["read", "plan", "relay"], expiresAt: Math.floor(Date.now() / 1000) + 3600, ...changes,
+  }) }];
+  const before = f.requests.length;
+  await f.change("session-key-file");
+  expect(f.errors).toHaveLength(1);
+  await f.click("operation-plan");
+  expect(f.requests).toHaveLength(before);
+  expect(f.signatures).toEqual([]);
+});
+
+it.each(["submit", "status"])("retains the reviewed operation and recovery reference when %s returns a different operation", async (stage) => {
+  const f = await harness({ sessions: null });
+  await f.click("operation-plan"); await f.click("operation-prepare"); await f.click("operation-sign");
+  if (stage === "submit") f.changeOperationResponse({ id: "unrelated-operation", state: "confirmed" });
+  await f.click("operation-submit");
+  if (stage === "status") {
+    f.changeOperationResponse({ commitment: `0x${"ff".repeat(32)}`, state: "confirmed" });
+    await f.click("operation-status");
+  }
+  expect(f.errors).toHaveLength(1);
+  expect(walletRecoveries(f.accountId)).toMatchObject([{ operationId: "web-operation" }]);
+  expect(f.field("operation-submit").disabled).toBe(true);
+  f.changeOperationResponse({});
+  await f.click("operation-status");
+  expect(f.errors).toHaveLength(1);
+  expect(walletRecoveries(f.accountId)).toEqual([]);
+  expect(f.signatures).toHaveLength(1);
 });
 
 it("submits the session's real EIP191 USE signature and allows expired sessions to be explicitly retired", async () => {

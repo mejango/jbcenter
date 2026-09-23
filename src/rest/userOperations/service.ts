@@ -819,7 +819,7 @@ export class UserOperationService {
     this.speculated.delete(record.id);
     const carried = held && held.revision === record.revision && this.now() - held.at <= speculationMaxAgeMs ? held : undefined;
     if (carried) { stages.speculatedAgeMs = this.now() - carried.at; stages.speculatedHead = Number(carried.head.blockNumber); }
-    const { head, binding, manifest, preflight } = carried ?? await this.verifyAtHead({ record, plan, operation, policy, provider, planManifest, signal }, stage);
+    const { binding, manifest, preflight } = carried ?? await this.verifyAtHead({ record, plan, operation, policy, provider, planManifest, signal }, stage);
     if (manifest.id !== planManifest.id || manifest.revision !== planManifest.revision)
       fail("USER_OPERATION_ACCOUNT_CHANGED", "The plan's reviewed owner or module configuration changed.");
     const passkeyProfile = userOperationPasskeyProfile(binding, manifest);

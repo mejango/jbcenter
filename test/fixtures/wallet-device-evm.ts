@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import { hashTypedData, toHex, type Address, type Hex } from 'viem';
+import { toHex, type Address, type Hex } from 'viem';
 import { expect } from 'vitest';
 import type { WalletEnrollment } from '../../src/rest/wallet/enrollment.js';
 import { recoveryFixtureRelay } from './wallet-recovery-crash-runtime.js';

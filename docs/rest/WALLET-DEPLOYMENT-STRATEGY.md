@@ -2,6 +2,8 @@
 
 Current rollout checkpoint: local signup, recovery, dispatch and settlement have advanced beyond this original design. See [WALLET_SIGNUP.md](../../WALLET_SIGNUP.md) for the implemented local journey and [shared dependency rollout](WALLET-DEPENDENCY-ROLLOUT.md) for the audit-gated eight-chain infrastructure deployment. Production wallet relayers remain disabled; the sections below retain the original W4 design chronology.
 
+Current Center scope retires Para sign-in while preserving passkey and external-wallet paths. Para references below describe the original W4 design; Money and Revnet are unchanged by this retirement.
+
 W4 moves the narrow prepaid SafeFactory deployment journey into Center. Implemented slices provide pure approval/template/envelope validation, a PostgreSQL pool and nonce journal through durable signed-byte persistence, and bounded read-only chain preflight. Signing transport, broadcasting, reconciliation and routes remain planned. No production manifest, treasury key, funding or deployment is enabled by these helpers.
 
 ## Authority and implemented boundary

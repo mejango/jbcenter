@@ -336,6 +336,7 @@ describe("bridge movement hints remain distinct from confirmation", () => {
   it("rejects conflicting source hashes for the same movement and accepts duplicate identical evidence", () => {
     expect(() => mapIndexedBridgeMovement(movement(ROOT), [movementEvent(ROOT), { ...movementEvent(ROOT), txHash: OTHER_TX_HASH }])).toThrowError(expect.objectContaining({ code: "OMNICHAIN_MOVEMENT_CONFLICT" }));
     expect(mapIndexedBridgeMovement(movement(ROOT), [movementEvent(ROOT), movementEvent(ROOT)]).sourceTransaction).toMatchObject({ hash: TX_HASH });
+    expect(mapIndexedBridgeMovement(movement(ROOT), [movementEvent(ROOT), { ...movementEvent(ROOT), txHash: `0x${TX_HASH.slice(2).toUpperCase()}` }]).sourceTransaction).toMatchObject({ hash: TX_HASH });
   });
 
   it("returns destination claim event pages separately without asserting cross-chain confirmation", async () => {
