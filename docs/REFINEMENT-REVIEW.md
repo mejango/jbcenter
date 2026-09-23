@@ -107,8 +107,52 @@ Priority labels describe this review's impact assessment, not CVSS scores.
 
 ### Integrated PR
 
-Validation of the integrated current-main tree is in progress. Results below
-describe the original review snapshot until this section records the PR gate.
+**Full validation remains pending.** The PR is a draft until its complete release
+gate passes. The original snapshot's passing result below does not validate the
+newer integrated tree.
+
+Focused integrated checks passed: 435 MCP tests and its complete check command;
+326 core tests; 400 account/execution tests; 340 transaction/sponsorship tests;
+361 deployment tests; 320 auth/session tests; 236 wallet tests; and focused
+build/generator/OpenAPI checks. These groups overlap and are not an aggregate
+coverage count. They include current-main intent relay, sessionless payment,
+device/network support, inclusion release, and the joined signup/recovery journeys.
+New OpenAPI regressions exercise actual creation-consent bindings and optional
+added-device signers. TypeScript passed with both unused-declaration checks enabled.
+
+The production Docker build and offline runtime smoke passed against the final
+runtime sources: all eight browser bundles, documentation, the client archive,
+and the wallet package loaded; all 59 MCP tools initialized; test and diagnostic
+output was absent. The integrated dependency audits report zero high/critical,
+14 moderate and eight low service findings including transitive effects, and zero
+MCP advisories. The remaining Para upgrade is deliberately separate.
+
+The first complete integrated attempt, on clean commit `4c8a607`, recorded
+**5,052 passing checks/tests, two failures and zero skips**: 4,525 of 4,527 service
+tests passed across 204 files; all 435 MCP and 92 execution/passkey checks passed.
+Observation: `.generated/checks/2026-09-23T20-35-20.428Z-b7765c0c/summary.json`.
+Its failures exposed a cleanup fixture allowing only two to three seconds for
+approval/relay setup, and the expanded joined journey exhausting its outer budget
+after 103 seconds of preceding journeys. The cleanup fixture now allows eight
+seconds, then waits for the original real retention deadline; its focused case
+passes. The four-user/device/recovery test now has a three-minute outer budget.
+Inner browser, RPC, database and production authorization deadlines and all
+history/locking assertions remain unchanged.
+
+A second attempt on clean commit `41ae60e` passed source, execution, passkey, MCP,
+and typechecking steps, but encountered further timeouts and early-expiry fixture
+failures in joined signup, app refresh, deployment admission/dispatch, and login.
+Host diagnostics showed roughly 10.9 GB of swap in use and substantial competing
+work. This coincided with much longer durations, but does not establish that every
+failure is environmental. The already-failing run was interrupted to reduce load;
+it is incomplete and is not a passing release observation. Both attempts retained
+unchanged source fingerprints. Observation:
+`.generated/checks/2026-09-23T20-50-22.727Z-25410e74/summary.json`.
+
+The PR's existing GitHub CI runs the full gate on an isolated runner. Its result
+must be reviewed before merging. Local logs and both summaries are retained in
+the evidence directory with the `pr-` prefix. The original checkout and its
+pre-existing staging remain unchanged.
 
 ### Original review snapshot
 
