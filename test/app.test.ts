@@ -473,6 +473,87 @@ describe("JB Center API", () => {
     expect(limited.status).toBe(429);
   });
 
+  it("keeps search, RPC and pin caller budgets independent", async () => {
+    const app = createApp(new MemoryStore(), {
+      requestLimitPerMinute: 1,
+      rpcRequestLimitPerMinute: 1,
+      rpc: { supports: () => true, request: async (_chain, request) => ({ jsonrpc: "2.0", id: request.id, result: "0x1" }) },
+      pinning: { pin: async () => ({ cid: "fixture", status: "queued" }), pinStream: async () => { throw new Error("Unexpected stream"); } },
+    });
+    expect((await app.request("/v1/search", { headers: trusted })).status).toBe(200);
+    const rpc = () => app.request("/v1/rpc/1", { method: "POST", headers: trusted,
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId" }) });
+    expect((await rpc()).status).toBe(200);
+    expect((await rpc()).status).toBe(429);
+    for (let index = 0; index < 10; index++) {
+      expect((await app.request("/v1/pins/json", { method: "POST", headers: trusted, body: "{}" })).status).toBe(201);
+    }
+    const pin = await app.request("/v1/pins/json", { method: "POST", headers: trusted, body: "{}" });
+    expect(pin.status).toBe(429);
+    expect(pin.headers.get("retry-after")).toBe("600");
+    expect((await app.request("/v1/search", { headers: trusted })).status).toBe(429);
+  });
+
+  it("does not expose internal failures that resemble validation messages", async () => {
+    const store = new MemoryStore();
+    store.search = async () => { throw new Error("request provider token=private-marker"); };
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await createApp(store).request("/v1/search", { headers: trusted });
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: { code: "internal_error", message: "Internal server error" } });
+    } finally { log.mockRestore(); }
+  });
+
+  it.each(["json", "file", "media"])("cancels %s provider work when the HTTP caller aborts", async (kind) => {
+    let providerSignal: AbortSignal | undefined;
+    const waitForAbort = (signal?: AbortSignal) => {
+      providerSignal = signal;
+      return new Promise<never>((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal.reason), { once: true }));
+    };
+    const app = createApp(new MemoryStore(), { pinning: {
+      pin: async (_content, _filename, signal) => waitForAbort(signal),
+      pinStream: async (_content, _filename, _type, signal) => waitForAbort(signal),
+    } });
+    const controller = new AbortController();
+    const form = new FormData();
+    form.set("file", new File(["image"], "image.png", { type: "image/png" }));
+    const response = app.request(`/v1/pins/${kind}`, { method: "POST", signal: controller.signal,
+      headers: kind === "json" ? trusted : { origin: trusted.origin }, body: kind === "json" ? "{}" : form });
+    await vi.waitFor(() => expect(providerSignal).toBeDefined());
+    controller.abort();
+    expect(providerSignal!.aborted).toBe(true);
+    expect((await response).ok).toBe(false);
+  });
+
+  it("aborts streamed provider work when a later multipart field invalidates the upload", async () => {
+    let providerSignal: AbortSignal | undefined;
+    const app = createApp(new MemoryStore(), { pinning: {
+      pin: async () => { throw new Error("Unexpected buffered upload"); },
+      pinStream: async (content, _filename, _type, signal) => {
+        providerSignal = signal;
+        for await (const _chunk of content) { /* Consume the streamed file before the extra field. */ }
+        return { cid: "fixture", status: "queued" };
+      },
+    } });
+    const form = new FormData();
+    form.set("file", new File(["image"], "image.png", { type: "image/png" }));
+    form.set("unexpected", "field");
+    const response = await app.request("/v1/pins/media", { method: "POST", headers: { origin: trusted.origin }, body: form });
+    expect(response.status).toBe(400);
+    expect(providerSignal?.aborted).toBe(true);
+  });
+
+  it("rejects unsupported streamed files without an unhandled parser error", async () => {
+    const pinStream = vi.fn(async () => ({ cid: "fixture", status: "queued" as const }));
+    const app = createApp(new MemoryStore(), { pinning: { pin: pinStream, pinStream } });
+    const form = new FormData();
+    form.set("file", new File(["executable"], "file.bin", { type: "application/octet-stream" }));
+    expect((await app.request("/v1/pins/media", { method: "POST", headers: { origin: trusted.origin }, body: form })).status).toBe(415);
+    expect(pinStream).not.toHaveBeenCalled();
+    await new Promise(resolve => setImmediate(resolve));
+  });
+
   it("serves RPC reads to any origin keyless, and everything else to trusted origins only", async () => {
     const rpc: RpcGateway = {
       supports: (chainId: number) => chainId === 1,

@@ -63,6 +63,27 @@ describe('bounded upstream HTTP', () => {
       code: 'UPSTREAM_TIMEOUT',
     });
   });
+  it('preserves UTF-8 split across chunks and rejects malformed bytes instead of replacing them', async () => {
+    const bytes = new TextEncoder().encode('{"value":"🍊"}');
+    const streamed = (body: Uint8Array) =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            for (const byte of body) controller.enqueue(Uint8Array.of(byte));
+            controller.close();
+          },
+        }),
+      );
+    const fetcher = vi.fn(async () => streamed(bytes));
+    vi.stubGlobal('fetch', fetcher);
+    await expect(fetchJson('https://upstream.example')).resolves.toEqual({ value: '🍊' });
+    fetcher.mockImplementation(async () =>
+      streamed(Uint8Array.from([0x7b, 0x22, 0x76, 0x22, 0x3a, 0x22, 0xff, 0x22, 0x7d])),
+    );
+    await expect(fetchJson('https://upstream.example')).rejects.toMatchObject({
+      code: 'UPSTREAM_INVALID_RESPONSE',
+    });
+  });
   it('shares an upstream call budget across parallel reads', async () => {
     const fetcher = vi.fn(async () => new Response('{"ok":true}'));
     vi.stubGlobal('fetch', fetcher);

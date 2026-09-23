@@ -34,6 +34,7 @@ import type { StoredPlan } from "../transactions/types.js";
 import {
   createSessionRecord,
   createSessionObservation,
+  sessionQuota,
   type SessionStore,
 } from "./store.js";
 import type {
@@ -268,14 +269,13 @@ export class SessionService {
   ) {
     scope(principal, "read");
     const record = await this.required(principal, id);
-    return refresh && record.activation
+    return refresh && (record.activation || record.revocation)
       ? this.refresh(principal, record, signal)
       : record;
   }
 
   async quota(principal: RestPrincipal, id: string, signal?: AbortSignal) {
-    await this.get(principal, id, true, signal);
-    return this.options.store.quota(actorOf(principal), id);
+    return sessionQuota(await this.get(principal, id, true, signal));
   }
 
   /** Rejected or superseded setup plans never become executable through the generic owner transport. */

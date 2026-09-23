@@ -1,9 +1,7 @@
 import {
-  decodeAbiParameters,
   decodeFunctionResult,
   encodeAbiParameters,
   encodeFunctionData,
-  getAddress,
   isAddressEqual,
   keccak256,
   parseAbi,
@@ -16,7 +14,7 @@ import { RestError, type RestRpc } from "../core.js";
 import { rpcHex } from "../protocol/code.js";
 import type { SmartSnapshot } from "./types.js";
 import { fingerprint } from "./service.js";
-import { compiledSessionHash, SESSION_GUARD_INIT_ABI } from "./compiler.js";
+import { compiledSessionHash } from "./compiler.js";
 import {
   actionIdOf,
   decodeUniversalAction,

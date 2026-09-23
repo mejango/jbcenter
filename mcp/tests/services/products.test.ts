@@ -32,6 +32,7 @@ import {
   verify721Hook,
 } from '../../src/domain/products.js';
 import type { BlockEvidence, ChainId, RpcProvider } from '../../src/domain/types.js';
+import { consumeRequest, withRequestBudget } from '../../src/domain/context.js';
 
 const currentResolverRuntime =
   `0x${gunzipSync(Buffer.from(JSON.parse(readFileSync(new URL('./fixtures/router-resolver-1.3.json', import.meta.url), 'utf8')).runtimeGzipBase64, 'base64')).toString('hex')}` as Hex;
@@ -145,7 +146,7 @@ function fixture(
     credits?: bigint;
     leftover?: bigint;
     restrictedCost?: bigint;
-    mintError?: boolean;
+    mintError?: boolean | string;
     amountToIssue?: bigint;
     stageStart?: number;
     permission?: boolean;
@@ -167,6 +168,11 @@ function fixture(
     currentResolverCode?: boolean;
     routeMismatch?: boolean;
     invalidPriceCurrency?: bigint;
+    tierPrice?: bigint;
+    tierDiscountPercent?: number;
+    paymentTokenCount?: bigint;
+    reservedTokenCount?: bigint;
+    countRequests?: boolean;
   } = {},
 ) {
   const chainId = options.chainId ?? project.chainId;
@@ -190,6 +196,7 @@ function fixture(
     dataHook: options.noHook ? zeroAddress : options.revnet ? owner : hook,
   };
   const readContract = vi.fn(async (request: Request): Promise<unknown> => {
+    if (options.countRequests) consumeRequest();
     if (options.errorOn === request.functionName) throw new Error('RPC unavailable');
     switch (request.functionName) {
       case 'controllerOf':
@@ -221,7 +228,12 @@ function fixture(
       case 'tiersOf':
         return [tier];
       case 'tierOf':
-        return { ...tier, flags: { ...tier.flags, ...options.flagsTier } };
+        return {
+          ...tier,
+          price: options.tierPrice ?? tier.price,
+          discountPercent: options.tierDiscountPercent ?? tier.discountPercent,
+          flags: { ...tier.flags, ...options.flagsTier },
+        };
       case 'flagsOf':
         return { ...collectionFlags, ...options.flags };
       case 'tokenUriResolverOf':
@@ -249,7 +261,12 @@ function fixture(
       case 'terminalsOf':
         return [v6Address('JBMultiTerminal', chainId)];
       case 'previewPayFor':
-        return [ruleset, 101n, 10n, [{ hook, noop: false, amount: 0n, metadata: '0x' }]];
+        return [
+          ruleset,
+          options.paymentTokenCount ?? 101n,
+          options.reservedTokenCount ?? 10n,
+          [{ hook, noop: false, amount: 0n, metadata: '0x' }],
+        ];
       case 'accountingContextForTokenOf':
         return {
           token: options.sourceToken ?? request.args?.[1],
@@ -301,7 +318,10 @@ function fixture(
     }
   });
   const simulateContract = vi.fn(async (request: Request) => {
-    if (options.mintError) throw new Error('InsufficientSupplyRemaining');
+    if (options.mintError)
+      throw new Error(
+        typeof options.mintError === 'string' ? options.mintError : 'InsufficientSupplyRemaining',
+      );
     if (request.functionName !== 'recordMint')
       throw new Error(`Unexpected simulation ${request.functionName}`);
     return {
@@ -313,6 +333,7 @@ function fixture(
     };
   });
   const getBytecode = vi.fn(async ({ address }: { address: Address }) => {
+    if (options.countRequests) consumeRequest();
     if (options.noCode?.toLowerCase() === address.toLowerCase()) return undefined;
     if (
       deploymentAddresses('JBRouterTerminal', chainId).some(
@@ -339,7 +360,13 @@ function fixture(
     timestamp: '1000',
     source: 'rpc',
   };
-  const snapshot = vi.fn(async () => ({ client, evidence }));
+  const snapshot = vi.fn(async () => {
+    if (options.countRequests) {
+      consumeRequest();
+      consumeRequest();
+    }
+    return { client, evidence };
+  });
   const rpc: RpcProvider = { snapshot, client: () => client };
   return {
     service: new ProductService(rpc),
@@ -399,6 +426,113 @@ describe('verified per-chain NFT shops', () => {
 });
 
 describe('721 payment preparation', () => {
+  it('quotes and prepares zero-value free tiers without requiring overspending', async () => {
+    for (const tierPricing of [{ tierPrice: 0n }, { tierDiscountPercent: 200 }]) {
+      const f = fixture({
+        ...tierPricing,
+        paymentTokenCount: 0n,
+        reservedTokenCount: 0n,
+        flags: { preventOverspending: true },
+      });
+      const input = { ...pay, amount: '0' };
+      const quote = await f.service.quote721Pay(input);
+      expect(quote).toMatchObject({
+        normalizedPayment: '0',
+        usableNFTCredits: '0',
+        tiers: [{ effectivePrice: '0' }],
+      });
+      const plan = await f.service.prepare721Pay(input);
+      expect(plan.calls).toHaveLength(1);
+      expect(plan.calls[0]!.value).toBe('0');
+      expect(
+        decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args,
+      ).toEqual([
+        12n,
+        NATIVE_TOKEN,
+        0n,
+        beneficiary,
+        0n,
+        '',
+        build721PayMetadata({
+          metadataIdTarget: v6Address('JB721TiersHook', project.chainId),
+          tierIdsToMint: [1n],
+          allowOverspending: false,
+        }),
+      ]);
+      expect(f.simulateContract).toHaveBeenCalledWith(
+        expect.objectContaining({
+          functionName: 'recordMint',
+          account: hook,
+          args: [0n, [1], false],
+        }),
+      );
+    }
+  });
+  it('spends only the direct beneficiary’s NFT credits for zero-value purchases', async () => {
+    for (const token of [NATIVE_TOKEN, account]) {
+      const f = fixture({ credits: 88n, paymentTokenCount: 0n, reservedTokenCount: 0n });
+      const plan = await f.service.prepare721Pay({
+        ...pay,
+        token,
+        amount: '0',
+        beneficiary: account,
+      });
+      expect(plan.calls).toHaveLength(1);
+      expect(plan.calls[0]!.value).toBe('0');
+      expect(plan.summary).toMatchObject({
+        normalizedPayment: '0',
+        usableNFTCredits: '88',
+        resultingNFTCredits: '0',
+        tiers: [{ effectivePrice: '88' }],
+      });
+      expect(f.simulateContract).toHaveBeenCalledWith(
+        expect.objectContaining({
+          functionName: 'recordMint',
+          account: hook,
+          args: [88n, [1], false],
+        }),
+      );
+    }
+    await expect(
+      fixture({
+        credits: 88n,
+        paymentTokenCount: 0n,
+        reservedTokenCount: 0n,
+        flagsTier: { cantBuyWithCredits: true },
+        restrictedCost: 88n,
+      }).service.prepare721Pay({ ...pay, amount: '0', beneficiary: account }),
+    ).rejects.toMatchObject({
+      code: 'NFT_CREDITS_RESTRICTED',
+    });
+    const gift = fixture({
+      credits: 88n,
+      mintError: 'PriceExceedsAmount',
+      paymentTokenCount: 0n,
+      reservedTokenCount: 0n,
+    });
+    await expect(gift.service.prepare721Pay({ ...pay, amount: '0' })).rejects.toThrow(
+      'PriceExceedsAmount',
+    );
+    expect(gift.simulateContract).toHaveBeenCalledWith(
+      expect.objectContaining({ args: [0n, [1], false] }),
+    );
+  });
+  it('reads repeated tier details once while preserving every requested mint and summary row', async () => {
+    const f = fixture();
+    const plan = await f.service.prepare721Pay({ ...pay, amount: '176', tierIds: ['1', '1'] });
+    expect(f.readContract.mock.calls.filter(([r]) => r.functionName === 'tierOf')).toHaveLength(1);
+    expect(f.simulateContract).toHaveBeenCalledWith(
+      expect.objectContaining({ args: [176n, [1, 1], false] }),
+    );
+    expect(plan.summary).toMatchObject({
+      tierIds: ['1', '1'],
+      indicativeTokenIds: ['1000000001', '1000000002'],
+      tiers: [
+        { id: 1, effectivePrice: '88' },
+        { id: 1, effectivePrice: '88' },
+      ],
+    });
+  });
   it('uses implementation metadata target, pinned SDK payment route, and exact store feasibility', async () => {
     const f = fixture();
     const plan = await f.service.prepare721Pay(pay);
@@ -982,6 +1116,59 @@ describe('standard project launches with attached 721 tiers', () => {
       [0n, 1n, 2n, 18n],
       [0n, 2n, 2n, 6n],
     ]);
+  });
+  it('reuses equal price reads across assets within the request budget and retains every review row', async () => {
+    const contexts = Array.from({ length: 8 }, (_, index) => ({
+      token: `0x${String(index + 2).padStart(40, '0')}` as Address,
+      decimals: '18',
+      currency: '1',
+    }));
+    const input = {
+      ...launch,
+      rulesetConfigurations: Array.from({ length: 16 }, (_, index) => ({
+        ...launch.rulesetConfigurations[0]!,
+        mustStartAtOrAfter: String(2000 + index * 86400),
+        duration: '86400',
+        metadata: { ...metadata, baseCurrency: String(index + 1) },
+      })),
+      deployTiersHookConfig: {
+        ...launch.deployTiersHookConfig,
+        tiersConfig: { ...launch.deployTiersHookConfig.tiersConfig, currency: '17' },
+      },
+      terminalConfigurations: [
+        {
+          terminal: v6Address('JBMultiTerminal', 8453),
+          accountingContextsToAccept: contexts,
+        },
+      ],
+    };
+    const f = fixture({ countRequests: true });
+    const plan = await withRequestBudget(() => f.service.prepare721Launch(input));
+    expect(
+      f.readContract.mock.calls.filter(([r]) => r.functionName === 'pricePerUnitOf'),
+    ).toHaveLength(17);
+    expect(plan.summary).toMatchObject({
+      pricingChecks: contexts.flatMap((context) =>
+        Array.from({ length: 17 }, (_, index) => ({
+          token: context.token,
+          pricingCurrency: context.currency,
+          unitCurrency: String(index + 1),
+          decimals: context.decimals,
+          price: String(10n ** 18n),
+        })),
+      ),
+    });
+    const decoded = decodeFunctionData({
+      abi: jb721TiersHookProjectDeployerAbi,
+      data: plan.calls[0]!.data,
+    });
+    if (decoded.functionName !== 'launchProjectFor') throw new Error('Wrong launch selector');
+    expect(decoded.args?.[2].terminalConfigurations[0]?.accountingContextsToAccept).toHaveLength(8);
+    // Cached observations belong only to one preparation's canonical block.
+    await withRequestBudget(() => f.service.prepare721Launch(input));
+    expect(
+      f.readContract.mock.calls.filter(([r]) => r.functionName === 'pricePerUnitOf'),
+    ).toHaveLength(34);
   });
   it('fails malformed scalars as validation issues instead of uncaught BigInt conversions', () => {
     expect(() => tierConfigSchema.safeParse({ ...tierConfig, price: 'abc' })).not.toThrow();

@@ -109,10 +109,11 @@ async function waitPast(deadline: number) {
   await pool.query("SELECT pg_sleep($1)", [Math.max(0, remaining + 30) / 1000]);
   expect(await nowMs()).toBeGreaterThan(deadline);
 }
-async function worker(extra: Options = {}, prefix = "") {
+async function worker(extra: Options = {}, prefix = "", poolWaitMs = 5000) {
   const child = fork(fileURLToPath(new URL("./fixtures/wallet-payment-review-process.ts", import.meta.url)), [], {
     execArgv: ["--import", "tsx"], env: { ...process.env, WALLET_PAYMENT_TEST_SCHEMA: schema,
-      WALLET_PAYMENT_TEST_OPTIONS: JSON.stringify(extra), WALLET_PAYMENT_TEST_PREFIX_SCHEMA: prefix },
+      WALLET_PAYMENT_TEST_OPTIONS: JSON.stringify(extra), WALLET_PAYMENT_TEST_PREFIX_SCHEMA: prefix,
+      WALLET_PAYMENT_TEST_POOL_WAIT_MS: String(poolWaitMs) },
     stdio: ["ignore", "ignore", "pipe", "ipc"],
   });
   children.add(child); child.stderr?.resume();
@@ -314,7 +315,10 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
   });
 
   it("serializes twenty competing genuine approvals across two processes and retains the first winning envelope", async () => {
-    const value = await pendingReview(), first = await worker(), second = await worker();
+    // All twenty requests still contend on one connection per process. This case
+    // observes their serialization, so queued checkout may outlast the usual 5s.
+    const poolWaitMs = 10_000;
+    const value = await pendingReview(), first = await worker({}, "", poolWaitMs), second = await worker({}, "", poolWaitMs);
     const assertions = Array.from({ length: 20 }, (_, index) => signGet({ ...value.login.credential,
       challenge: value.view.draft.signing.digest, rpId: walletLoginFixtureRpId, origin: issuer, signCount: index + 1 }));
     const winning = first.request({ action: "approve", id: value.view.draft.id,
@@ -324,7 +328,7 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
       action: "approve", id: value.view.draft.id, assertion }));
     await waitingForLock(second.backendPid); first.child.send("release");
     const replies = await Promise.all([winning, ...competing]);
-    expect(replies.every(reply => reply.status === 200)).toBe(true);
+    expect(replies.filter(reply => reply.status !== 200)).toEqual([]);
     expect(replies.filter(reply => reply.body.replayed === false)).toHaveLength(1);
     const winner = replies.findIndex(reply => reply.body.replayed === false), expected = verifyWalletPaymentReviewProof(value.view.draft, assertions[winner]!);
     expect((await value.store.getForApp(value.actor, value.view.draft.id)).approval).toEqual({ signature: expected.signature, signedCommitment: expected.signedCommitment });
@@ -541,7 +545,7 @@ suite("PostgreSQL payment reviews with genuine passkey login and app grants", ()
   });
 
   it("does not retrieve or revive an approved envelope after its finite SafeOp review deadline", async () => {
-    const value = await pendingReview({}, 2200);
+    const value = await pendingReview({}, 5000);
     await value.store.approve(value.view.draft.id, value.assertion);
     await waitPast(value.view.draft.expiresAtMs);
     await Promise.all([() => value.store.getForApp(value.actor, value.view.draft.id),

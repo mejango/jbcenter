@@ -274,14 +274,14 @@ export class IpfsDiskCache {
           }
           if (!cancelled && !aborted) controller.enqueue(chunk.value);
         } catch (error) {
-          await reader.cancel(error).catch(() => undefined);
+          void reader.cancel(error).catch(() => undefined);
           await finish(false);
           if (!cancelled) controller.error(error);
         }
       },
       cancel: async (reason) => {
         cancelled = true;
-        await reader.cancel(reason).catch(() => undefined);
+        void reader.cancel(reason).catch(() => undefined);
         await finish(false);
       },
     }, { highWaterMark: 0 });

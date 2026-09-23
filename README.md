@@ -100,7 +100,8 @@ from successful publisher or pin-provider records, not an unverified local build
 
 ## Run it
 
-Requires Node 22 and PostgreSQL 14 or newer.
+Requires Node 22.16.0 or newer and PostgreSQL 14 or newer. The complete release
+checks require a disposable PostgreSQL 16 database.
 
 ```sh
 cp .env.example .env
@@ -571,5 +572,4 @@ LOAD_TEST_CONCURRENCY=25 \
 npm run load:test
 ```
 
-Raise `RATE_LIMIT_PER_MINUTE` above the load-test request count for the test caller. Client/Para UI
-integration is intentionally deferred until the service contract is final.
+Raise `RATE_LIMIT_PER_MINUTE` above the load-test request count for the test caller.

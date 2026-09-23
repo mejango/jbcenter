@@ -261,26 +261,34 @@ suite("real signed app requests across two PostgreSQL HTTP replicas", () => {
   });
 
   it.each(["grant", "request"])("refuses a signed request whose %s expires while it waits for the account lock, writing no nonce", async boundary => {
-    const current = await now(), expiresAt = current + 3;
-    const value = await grant(origin, boundary === "grant" ? { expiresAt } : {});
-    const request = await signed(value, boundary === "request" ? { changes: { expiresAt } } : {});
+    // Use a fresh worker so its observed backend PID has not been retired while idle.
+    const replica = children.length; await start();
+    const process = children[replica]!;
     const lock = await pool.connect(); let pending: ReturnType<typeof send> | undefined;
     try {
       // Admission is one transaction under the account lock; a request that waits behind another
       // writer past its own or its grant's expiry is refused at the clock read after the lock.
       await lock.query("BEGIN");
+      const blocker = Number((await lock.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+      // Grant insertion itself needs the account lock. Prepare the holder first,
+      // then issue a real 3–4s window inside the unchanged 5s SQL/auth budgets.
+      const expiresAt = Math.ceil(await trustedAuthorityNow(pool) / 1000) + 3;
+      const value = await grant(origin, boundary === "grant" ? { expiresAt } : {});
       await lock.query("SELECT id FROM rest_accounts WHERE id=$1 FOR UPDATE", [accountId]);
-      pending = send(0, request);
-      expect(await responseOrLock(pending, children[0]!.backendPid)).toBe("blocked");
-      expect((await pool.query("SELECT query FROM pg_stat_activity WHERE pid=$1", [children[0]!.backendPid])).rows[0].query)
-        .toContain("FROM rest_accounts");
+      const request = await signed(value, boundary === "request" ? { changes: { expiresAt } } : {});
+      pending = send(replica, request);
+      if (await responseOrLock(pending, process.backendPid) !== "blocked")
+        throw new Error(`Request returned before account lock: ${JSON.stringify(await pending)}`);
+      const blocked = (await pool.query("SELECT query,pg_blocking_pids(pid) AS blockers FROM pg_stat_activity WHERE pid=$1", [process.backendPid])).rows[0];
+      expect(blocked.query).toContain("FROM rest_accounts");
+      expect(blocked.blockers).toContain(blocker);
       expect(await now()).toBeLessThan(expiresAt);
       await lock.query("SELECT pg_sleep(GREATEST(0,$1::double precision-extract(epoch FROM clock_timestamp())::double precision+0.05))", [expiresAt]);
       await lock.query("ROLLBACK");
       expect(await pending).toMatchObject(boundary !== "request"
         ? { status: 403, body: { code: "FORBIDDEN" } } : { status: 401, body: { code: "AUTH_REQUIRED" } });
       expect(await nonceCount(request.claims.nonce)).toBe(0);
-    } finally { await lock.query("ROLLBACK"); lock.release(); await pending?.catch(() => {}); }
+    } finally { await lock.query("ROLLBACK"); lock.release(); await pending?.catch(() => {}); await stop(process.child); }
   }, 10_000);
 
   it("does not revive an old signed app grant when the same origin and callback are re-enabled", async () => {

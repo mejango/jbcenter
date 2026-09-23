@@ -1,15 +1,15 @@
 // Joined service proof: real PostgreSQL, unforked Anvil, P256 owners and browser-key consent.
 // Test-only treasury and synthetic genesis balances. This does not qualify production Base fees.
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, onTestFailed } from "vitest";
 import { hashTypedData, toHex, type Hex } from "viem";
-import { generatePrivateKey, mnemonicToAccount, privateKeyToAccount } from "viem/accounts";
+import { mnemonicToAccount } from "viem/accounts";
 import { PostgresWalletEnrollmentStore } from "../src/rest/wallet/enrollmentPostgres.js";
-import { createWalletEnrollmentIntent, walletEnrollmentDocument } from "../src/rest/wallet/enrollment.js";
+import { walletEnrollmentDocument } from "../src/rest/wallet/enrollment.js";
 import { PostgresWalletDeploymentStore } from "../src/rest/wallet/deploymentPostgres.js";
-import { prepareWalletDeploymentApproval, walletDeploymentDocument } from "../src/rest/wallet/deployment.js";
+import { walletDeploymentDocument } from "../src/rest/wallet/deployment.js";
 import { createWalletDeploymentExecution } from "../src/rest/wallet/deploymentExecution.js";
 import { createLocalAnvilWalletDeploymentTransport } from "../src/rest/wallet/deploymentLocalAnvil.js";
 import { createLocalAnvilWalletDeploymentSettlement } from "../src/rest/wallet/deploymentSettlementLocalAnvil.js";
@@ -18,9 +18,6 @@ import { PostgresSmartAccountRegistry } from "../src/rest/smartAccounts/postgres
 import { PostgresOnboardingStore } from "../src/rest/smartAccounts/onboardingPostgres.js";
 import { createSafe7579Inspector } from "../src/rest/smartAccounts/inspector.js";
 import { createInstalledSessionVerifier } from "../src/rest/smartAccounts/installed.js";
-import { passkeyOnboardingProofDocument, type PasskeyOnboardingInput } from "../src/rest/smartAccounts/passkeyOnboarding.js";
-import { encodeSafe7579MessageSignature } from "../src/rest/smartAccounts/passkeySignatures.js";
-import { verifyWalletAssertion } from "../src/rest/wallet/webauthn.js";
 import { PostgresWalletAuthorityStore } from "../src/rest/wallet/authorityPostgres.js";
 import { createWalletAuthorityChain } from "../src/rest/wallet/authorityChain.js";
 import { createWalletAuthorityService } from "../src/rest/wallet/authorityService.js";
@@ -40,7 +37,6 @@ const issuer = "https://wallet.juicebox.center", rpId = "wallet.juicebox.center"
 suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
   const schema = `rest_wallet_signup_${randomUUID().replaceAll("-", "")}`;
   let admin: Pool, pool: Pool, fixture: Awaited<ReturnType<typeof startWalletDeploymentAnvil>>;
-  const dbNow = async () => Number((await pool.query("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::text AS now")).rows[0].now);
   const count = async (table: string) => Number((await pool.query(`SELECT count(*)::text AS count FROM ${table}`)).rows[0].count);
   beforeAll(async () => {
     admin = new Pool({ connectionString }); await admin.query(`CREATE SCHEMA ${schema}`);
@@ -57,13 +53,25 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
   });
 
   it("takes four users through signup and fresh login, including saved recovery kits, cancellation, lost replies and cookie recovery", async () => {
+    const startedAt = performance.now();
+    let stage = "initializing", stageStartedAt = startedAt;
+    const enterStage = (next: string) => { stage = next; stageStartedAt = performance.now(); };
+    onTestFailed(() => {
+      console.error(`[joined wallet signup] stage=${stage}; stageElapsedMs=${Math.round(performance.now() - stageStartedAt)}; totalElapsedMs=${Math.round(performance.now() - startedAt)}`);
+    });
     const enrollments = new PostgresWalletEnrollmentStore(pool), deployments = new PostgresWalletDeploymentStore(pool);
     const settlement = createLocalAnvilWalletDeploymentSettlement(fixture);
     await fixture.rpc("anvil_setBalance", [fixture.sender, toHex(BigInt(fixture.configuration.allocationWei))]);
     await deployments.configurePool(fixture.configuration);
     const initialFunding = await deployments.loadFundingContext(fixture.configuration.id);
-    await deployments.initializeAccounting(initialFunding, await settlement.observeFunding(initialFunding), "2");
-    const execution = createWalletDeploymentExecution({ store: deployments, chain: fixture.chain(), dispatchLeaseMs: 500,
+    const initialObservation = await settlement.observeFunding(initialFunding);
+    // The local producer and PostgreSQL use separate real clocks; admit only once the DB
+    // reaches this unchanged observation time, while its original expiry is still live.
+    const databaseNow = async () => Number((await pool.query("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::text AS now")).rows[0].now);
+    await expect.poll(databaseNow).toBeGreaterThanOrEqual(initialObservation.observedAt);
+    expect(await databaseNow(), JSON.stringify({ observedAt: initialObservation.observedAt, expiresAt: initialObservation.expiresAt })).toBeLessThan(initialObservation.expiresAt);
+    await deployments.initializeAccounting(initialFunding, initialObservation, "2");
+    const execution = createWalletDeploymentExecution({ store: deployments, chain: fixture.chain(),
       signer: mnemonicToAccount("test test test test test test test test test test test junk"),
       experimentalTransport: createLocalAnvilWalletDeploymentTransport(fixture) });
     const smart = createSmartAccountService({ rpc: fixture.readOnlyRpc, manifests: [fixture.manifest], audience: "https://juicebox.center",
@@ -83,6 +91,7 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
     const accounts: string[] = [], receipts: string[] = [];
     let recoveryTarget: Pick<Parameters<typeof exerciseWalletRecoveryEvm>[0], 'enrollment' | 'originalKey' | 'originalSessionToken'> | null = null;
     for (let index = 0; index < 2; index++) {
+      enterStage(index === 0 ? "programmatic signup 1" : "programmatic signup 2");
       const begunFlow = await signup.begin({ recoveryOwner: enrollmentBackupAccount.address, passkeyName: "Juicebox test" });
       const flowToken = begunFlow.flowToken;
       const initial = (await enrollments.get(begunFlow.view.enrollmentId))!;
@@ -122,9 +131,9 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       // Under gate load a shared local anvil can time a read out and the pass says "not now"; the
       // worker's next pass sends, as in production (the kicked pass may already be the one that did).
       for (let attempt = 0; attempt < 5 && !(await deployments.getDispatch(operation.id)); attempt++) await signup.tick();
-      expect((await deployments.getDispatch(operation.id))!.status).toBe("accepted");
       const dispatch = (await deployments.getDispatch(operation.id))!, sent = (await deployments.get(operation.id))!;
-      await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.leaseUntil - Date.now() + 15)));
+      expect(dispatch.status, `Dispatch lease remaining: ${dispatch.leaseUntil - await flows.now()}ms`).toBe("accepted");
+      await expect.poll(() => flows.now()).toBeGreaterThanOrEqual(dispatch.leaseUntil);
       if (beforeCreation) {
         // The send is out but not yet observed as included: roll the chain back under it, with
         // PostgreSQL still retaining its original signed winner and the lane still held.
@@ -135,13 +144,13 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
         // Reach the retained head watermark and the retry cooldown, then let the normal worker
         // resend only the already journaled bytes. No replacement nonce or approval.
         await fixture.rpc("anvil_mine", ["0x1", "0x0"]);
-        await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.nextAttemptAt - Date.now() + 15)));
+        await expect.poll(() => flows.now()).toBeGreaterThanOrEqual(dispatch.nextAttemptAt);
         await signup.tick();
         expect((await signup.status(flowToken)).phase).toBe("deploying");
         await expect(signup.activate(flowToken)).rejects.toMatchObject({ code: "WALLET_SIGNUP_STATE" });
         const resent = (await deployments.getDispatch(operation.id))!;
         expect(resent.attempts).toBe(dispatch.attempts + 1);
-        await new Promise(resolve => setTimeout(resolve, Math.max(1, resent.leaseUntil - Date.now() + 15)));
+        await expect.poll(() => flows.now()).toBeGreaterThanOrEqual(resent.leaseUntil);
       }
       await signup.tick();
       // The resent bytes land with the interval chain's next block; keep observing until they do.
@@ -160,7 +169,6 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       expect(await count("rest_accounts")).toBe(index);
 
       expect((await signup.status(flowToken)).phase).toBe("awaiting_activation");
-      const browser = privateKeyToAccount(generatePrivateKey());
       if (index === 0) {
         const read = fixture.readOnlyRpc.request;
         fixture.readOnlyRpc.request = (chain, method, params, signal) => method === "eth_getTransactionReceipt"
@@ -197,6 +205,8 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
       // reservation behind the already released lane.
       expect(await deployments.getSettlement(operation.id)).toBeNull();
       expect((await deployments.loadFundingContext(fixture.configuration.id)).pool.activeOperationId).toBeNull();
+      const latestDispatch = (await deployments.getDispatch(operation.id))!;
+      await expect.poll(() => flows.now()).toBeGreaterThanOrEqual(latestDispatch.leaseUntil);
       await fixture.rpc("anvil_mine", ["0x41", "0x0"]);
       await signup.tick();
       const settled = (await deployments.getSettlement(operation.id))!;
@@ -211,12 +221,18 @@ suite("joined wallet signup against real PostgreSQL and unforked EVM", () => {
     expect((await deployments.listUnresolved()).items).toEqual([]);
     expect(await fixture.rpc<Hex>("eth_getTransactionCount", [fixture.sender, "latest"])).toBe("0x4");
     // The same account gains a device first; recovery then replaces the primary with the device kept.
+    enterStage("programmatic device addition");
     const added = await exerciseWalletDeviceEvm({ pool, fixture, smart, authority, ...recoveryTarget!, audience: 'https://juicebox.center' });
+    enterStage("programmatic recovery");
     await exerciseWalletRecoveryEvm({ pool, fixture, smart, authority, ...recoveryTarget!, originalSessionToken: added.primarySessionToken, audience: 'https://juicebox.center' });
+    enterStage("external wallet browser signup");
     await exerciseSignupBrowser({ pool, fixture, enrollments, deployments, settlement, execution, smart, authority, resume: false,
       registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id });
+    enterStage("recovery kit browser signup and recovery");
     await exerciseSignupBrowser({ pool, fixture, enrollments, deployments, settlement, execution, smart, authority,
       recoveryMode: 'kit', expectedNextNonce: '6',
       registry: new PostgresSmartAccountRegistry(pool), chain: fixture.chain(), poolId: fixture.configuration.id });
+  // Four sequential signup/login journeys, device addition and two recoveries share this runner
+  // budget; browser, RPC, recovery-worker and production deadlines remain separate.
   }, 120_000);
 });

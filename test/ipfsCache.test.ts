@@ -78,9 +78,9 @@ describe("persistent IPFS cache", () => {
     expect(await readdir(options.directory)).toEqual([]);
   });
 
-  it("cleans cancelled fills and lets waiting callers retry", async () => {
+  it.each([false, true])("cleans cancelled fills and lets waiting callers retry (stalled cancellation: %s)", async (stalled) => {
     const { value, options } = await cache();
-    const cancelled = vi.fn();
+    const cancelled = vi.fn(() => stalled ? new Promise<void>(() => undefined) : undefined);
     const fetcher = vi.fn<() => Promise<Response>>()
       .mockResolvedValueOnce(new Response(new ReadableStream({ cancel: cancelled })))
       .mockImplementation(async () => new Response("recovered"));
@@ -91,7 +91,7 @@ describe("persistent IPFS cache", () => {
     expect(await (await waiter).text()).toBe("recovered");
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect((await readdir(options.directory)).every((entry) => !entry.startsWith(".tmp-"))).toBe(true);
-  });
+  }, 2000);
 
   it("evicts the least recently accessed content under the byte budget and serves already opened streams", async () => {
     const { value } = await cache(8);

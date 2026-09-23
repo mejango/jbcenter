@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { decodeFunctionData, hashTypedData, parseAbi, zeroAddress, type Address } from 'viem';
+import { decodeFunctionData, hashTypedData, parseAbi, zeroAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createWalletAuthorityContextFixture } from './fixtures/wallet-authority-context.js';
 import { createRegistration, enrollmentBackupAccount } from './fixtures/wallet-enrollment-crypto.js';

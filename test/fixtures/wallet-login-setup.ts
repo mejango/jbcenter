@@ -110,36 +110,46 @@ export async function createWalletLoginSetup(pool: Pool, options: { lifetimeMs?:
     lifetimeMs?: number; blockNumber?: string; blockHash?: Hex; stateHash?: Hex;
     sessionAdministration?: { epoch: string; hash: Hex }; eligibility?: "matched" | "changed";
   } = {}): Promise<WalletAuthorityObservation> {
-    const observedAtMs = await databaseNow(), expected = walletAuthorityExpectedAnchor(context);
+    const expected = walletAuthorityExpectedAnchor(context), contextDigest = walletAuthorityContextDigest(context);
+    const identity = createWalletAuthorityIdentity(context, { stateHash: changes.stateHash ?? context.binding.state.stateHash,
+      sessionAdministration: changes.sessionAdministration ?? { epoch: "0", hash: word("33") }, creationTransaction: word("34") });
     const blockNumber = changes.blockNumber ?? (BigInt(context.prior?.highestObservedBlock ?? "99") + 1n).toString();
+    // Start the evidence lifetime after expensive context/identity validation.
+    const observedAtMs = await databaseNow();
     const head = { chainId: 8453, blockNumber, blockHash: changes.blockHash ?? keccak256(toHex(`canonical-test-block-${blockNumber}`)),
       timestamp: String(Math.floor(observedAtMs / 1000)), source: "onchain" as const };
     return { version: "center-wallet-authority-observation-v1", accountId: context.accountId,
-      contextDigest: walletAuthorityContextDigest(context), observedAtMs,
+      contextDigest, observedAtMs,
       validUntilMs: changes.eligibility === "changed" ? null : observedAtMs + (changes.lifetimeMs ?? 30000), head,
       priorAnchor: { status: expected ? "same" : "none", expected, observed: expected ? structuredClone(expected) : null },
-      identity: createWalletAuthorityIdentity(context, { stateHash: changes.stateHash ?? context.binding.state.stateHash,
-        sessionAdministration: changes.sessionAdministration ?? { epoch: "0", hash: word("33") }, creationTransaction: word("34") }),
+      identity,
       eligibility: changes.eligibility ?? "matched", reason: changes.eligibility === "changed" ? "owner-profile-changed" : null };
   }
   async function initialized(lifetimeMs: number) {
-    const value = await authorizedFixture(), context = await authority.loadContext(value.accountId);
-    const observation = await canonicalObservation(context, { lifetimeMs });
-    await authority.reconcile(context, observation);
-    return { ...value, context, observation };
+    const value = await authorizedFixture();
+    async function refreshReadiness(lifetimeMs = 30_000) {
+      const context = await authority.loadContext(value.accountId);
+      const observation = await canonicalObservation(context, { lifetimeMs });
+      await authority.reconcile(context, observation);
+      return { context, observation };
+    }
+    return { ...value, ...await refreshReadiness(lifetimeMs), refreshReadiness };
   }
   return initialized(options.lifetimeMs ?? 30_000);
 }
 
 export async function completeWalletLoginFixture(pool: Pool, options: { lifetimeMs?: number; origin?: string; rpId?: string; manifest?: SmartAccountManifest } = {}) {
-  const value = await createWalletLoginSetup(pool, options);
+  const value = await createWalletLoginSetup(pool, { ...options, lifetimeMs: 30_000 });
   const origin = options.origin ?? walletLoginFixtureOrigin, rpId = options.rpId ?? new URL(origin).hostname;
   const store = new PostgresWalletLoginStore(pool, { rpId, origin });
   const begun = await store.begin();
   const input = { loginId: begun.login.id, flowToken: begun.flowToken,
     assertion: signGet({ ...value.credential, challenge: begun.login.challenge,
       rpId, origin }) };
-  return { ...value, ...begun, input, ...await store.complete(input) };
+  const completed = await store.complete(input);
+  // A short readiness window belongs to the test's next action, not login setup.
+  return { ...value, ...begun, input, ...completed,
+    ...(options.lifetimeMs === undefined || options.lifetimeMs === 30_000 ? {} : await value.refreshReadiness(options.lifetimeMs)) };
 }
 
 /** Adds a device passkey to a set-up account the way activation will: a second registration under

@@ -72,6 +72,14 @@ const counts = async () => (await pool.query(`SELECT
   (SELECT count(*)::int FROM rest_wallet_credentials) AS credentials,
   (SELECT count(*)::int FROM rest_wallet_enrollments WHERE state='verified') AS verified,
   (SELECT count(*)::int FROM rest_wallet_ceremonies WHERE consumed_at IS NOT NULL) AS consumed`)).rows[0];
+async function waitingForLock(pid: number, blockerPid: number, sql: string, expiresAt: number) {
+  await expect.poll(async () => (await pool.query(`SELECT query,wait_event_type,
+    $2::int=ANY(pg_blocking_pids(pid)) AS blocked,
+    extract(epoch FROM clock_timestamp())*1000 < $3 AS live
+    FROM pg_stat_activity WHERE pid=$1`, [pid, blockerPid, expiresAt])).rows[0], { interval: 10 }).toMatchObject({
+    query: expect.stringContaining(sql), wait_event_type: "Lock", blocked: true, live: true,
+  });
+}
 
 suite("PostgreSQL wallet enrollment without deployment or sessions", () => {
   beforeAll(async () => {
@@ -187,26 +195,34 @@ suite("PostgreSQL wallet enrollment without deployment or sessions", () => {
   });
 
   it("rejects an otherwise valid finalization after its enrollment lock waits past the DB deadline", async () => {
-    const { record, credential } = await pending({ expiresAt: Date.now() + 3_000 }), signed = await proof(record, credential);
     const blocker = await pool.connect();
+    const waitingPool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 1 });
     try {
+      const blockerPid = (await blocker.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      const ready = (await waitingPool.query("SELECT pg_backend_pid() AS pid,floor(extract(epoch FROM clock_timestamp())*1000)::bigint+10000 AS expires_at")).rows[0];
+      const { record, credential } = await pending({ expiresAt: Number(ready.expires_at) }), signed = await proof(record, credential);
       await blocker.query("BEGIN");
       await blocker.query("SELECT 1 FROM rest_wallet_enrollments WHERE id=$1 FOR UPDATE", [record.intent.id]);
-      const completion = store.finalize(record.intent.id, signed);
+      const completion = new PostgresWalletEnrollmentStore(waitingPool).finalize(record.intent.id, signed)
+        .then(result => ({ result }), error => ({ error }));
+      await waitingForLock(ready.pid, blockerPid, "SELECT * FROM rest_wallet_enrollments WHERE id=$1 FOR UPDATE", record.intent.expiresAt);
       await blocker.query("SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.05)", [record.intent.expiresAt]);
       await blocker.query("COMMIT");
-      await expect(completion).rejects.toMatchObject({ code: "WALLET_ENROLLMENT_EXPIRED" });
+      expect(await completion).toMatchObject({ error: { code: "WALLET_ENROLLMENT_EXPIRED" } });
+      expect(await store.get(record.intent.id)).toEqual(record);
       expect(await counts()).toEqual({ credentials: 0, verified: 0, consumed: 1 });
-    } finally { await blocker.query("ROLLBACK"); blocker.release(); }
-  }, 10_000);
+    } finally { await blocker.query("ROLLBACK"); blocker.release(); await waitingPool.end(); }
+  }, 20_000);
 
   it("rolls back an insertion that waits on credential uniqueness until after the deadline", async () => {
     const owner = await pending();
     await store.finalize(owner.record.intent.id, await proof(owner.record, owner.credential));
-    const target = await pending({ expiresAt: Date.now() + 5_000 }), signed = await proof(target.record, target.credential);
-    const blocker = await pool.connect(), applicationName = `enrollment_expiry_${randomUUID()}`;
-    const waitingPool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 1, application_name: applicationName });
+    const blocker = await pool.connect();
+    const waitingPool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 1 });
     try {
+      const blockerPid = (await blocker.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      const ready = (await waitingPool.query("SELECT pg_backend_pid() AS pid,floor(extract(epoch FROM clock_timestamp())*1000)::bigint+10000 AS expires_at")).rows[0];
+      const target = await pending({ expiresAt: Number(ready.expires_at) }), signed = await proof(target.record, target.credential);
       await blocker.query("BEGIN");
       // An uncommitted historical-key collision blocks the target's unique INSERT. It is always
       // rolled back; the target INSERT can then succeed and must face the post-write deadline check.
@@ -214,23 +230,20 @@ suite("PostgreSQL wallet enrollment without deployment or sessions", () => {
         (rp_id,credential_id,enrollment_id,account_id,user_handle,public_key_x,public_key_y,backup_eligible,verified_at,superseded_at)
         SELECT rp_id,$1,enrollment_id,account_id,user_handle,public_key_x,public_key_y,backup_eligible,verified_at,verified_at
         FROM rest_wallet_credentials WHERE credential_id=$2`, [target.credential.credentialId, owner.credential.credentialId]);
-      const completion = new PostgresWalletEnrollmentStore(waitingPool).finalize(target.record.intent.id, signed);
-      let waiting = false;
-      for (let i = 0; i < 100 && !waiting; i++) {
-        waiting = (await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%INSERT INTO rest_wallet_credentials%'", [applicationName])).rowCount === 1;
-        if (!waiting) await new Promise(resolve => setTimeout(resolve, 10));
-      }
-      expect(waiting).toBe(true);
+      const completion = new PostgresWalletEnrollmentStore(waitingPool).finalize(target.record.intent.id, signed)
+        .then(result => ({ result }), error => ({ error }));
+      await waitingForLock(ready.pid, blockerPid, "INSERT INTO rest_wallet_credentials", target.record.intent.expiresAt);
       await blocker.query("SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.05)", [target.record.intent.expiresAt]);
       await blocker.query("ROLLBACK");
-      await expect(completion).rejects.toMatchObject({ code: "WALLET_ENROLLMENT_EXPIRED" });
-      expect((await store.get(target.record.intent.id))?.state).toBe("awaiting_possession");
+      expect(await completion).toMatchObject({ error: { code: "WALLET_ENROLLMENT_EXPIRED" } });
+      expect(await store.get(target.record.intent.id)).toEqual(target.record);
       expect(await counts()).toEqual({ credentials: 1, verified: 1, consumed: 3 });
     } finally { await blocker.query("ROLLBACK"); blocker.release(); await waitingPool.end(); }
-  }, 15_000);
+  }, 20_000);
 
   it("retains the original verified identity through expiry, bounded cleanup and response replay", async () => {
-    const { record, credential } = await pending({ expiresAt: Date.now() + 3_000 }), signed = await proof(record, credential);
+    const expiresAt = Number((await pool.query("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint+10000 AS expires_at")).rows[0].expires_at);
+    const { record, credential } = await pending({ expiresAt }), signed = await proof(record, credential);
     const completed = await store.finalize(record.intent.id, signed);
     await pool.query("SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.05)", [record.intent.expiresAt]);
     expect(await store.get(record.intent.id)).toEqual(completed.record);
@@ -249,7 +262,7 @@ suite("PostgreSQL wallet enrollment without deployment or sessions", () => {
     expect(deleted).toBe(2); expect(await store.cleanup(2)).toBe(1);
     expect(replay).toEqual({ ...completed, replayed: true });
     expect(await counts()).toEqual({ credentials: 1, verified: 1, consumed: 0 });
-  }, 10_000);
+  }, 20_000);
 
   it("preserves historical credential identity and never restores an old primary during receipt replay", async () => {
     const { record, credential } = await pending(), signed = await proof(record, credential);

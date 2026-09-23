@@ -199,10 +199,15 @@ let shuttingDown = false;
 const shutdown = async () => {
   if (shuttingDown) return;
   shuttingDown = true;
-  await runtime.close();
-  await sponsor?.stop();
-  await rest.stop();
-  await pool.end();
+  try {
+    await runtime.close();
+  } finally {
+    try { await sponsor?.stop(); }
+    finally {
+      try { await rest.stop(); }
+      finally { await pool.end(); }
+    }
+  }
 };
 const stop = () => void shutdown().catch(() => {
   console.error("JB Center shutdown failed");

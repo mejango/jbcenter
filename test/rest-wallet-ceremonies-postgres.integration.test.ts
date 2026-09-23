@@ -22,6 +22,9 @@ const consume = (record: WalletCeremony): WalletCeremonyConsume => ({
   id: record.id, accountId: record.accountId, purpose: record.purpose, contextDigest: record.contextDigest,
   challenge: record.challenge, expiresAt: record.expiresAt, proofDigest: digest, resultId: randomUUID(),
 });
+async function untilDatabaseTime(deadline: number) {
+  await pool.query("SELECT pg_sleep(GREATEST(0,($1-extract(epoch FROM clock_timestamp())*1000)/1000)+0.03)", [deadline]);
+}
 
 function message(child: ChildProcess, kind: string): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -132,10 +135,10 @@ suite("PostgreSQL wallet ceremony storage (does not verify authentication)", () 
   it("recovers an expired consumed receipt without turning it into a new authorization", async () => {
     // The store gates expiry on the database clock, so the receipt's window and the wait that
     // outlives it both come from that clock rather than a fixed application-side sleep.
-    const record = await store.issue({ ...draft(), expiresAt: await databaseNow() + 2_000 }), request = consume(record);
-    await store.consume(request);
-    await pool.query("SELECT pg_sleep(greatest(0, $1::bigint + 1 - floor(extract(epoch FROM clock_timestamp())*1000)) / 1000.0)",
-      [String(record.expiresAt)]);
+    const record = await store.issue({ ...draft(), expiresAt: await databaseNow() + 3_000 }), request = consume(record);
+    expect(await store.consume(request)).toMatchObject({ replayed: false });
+    expect(await databaseNow()).toBeLessThan(record.expiresAt);
+    await untilDatabaseTime(record.expiresAt);
     const recovered = await store.get({ id: record.id, accountId: record.accountId });
     expect(recovered?.resultId).toBe(request.resultId);
     expect(recovered!.expiresAt).toBeLessThan(await databaseNow());
@@ -270,15 +273,29 @@ suite("PostgreSQL wallet ceremony storage (does not verify authentication)", () 
   });
 
   it("rechecks expiration after waiting for another transaction's row lock", async () => {
-    const record = await store.issue({ ...draft(), expiresAt: Date.now() + 300 });
     const blocker = await pool.connect();
-    await blocker.query("BEGIN");
-    await blocker.query("SELECT 1 FROM rest_wallet_ceremonies WHERE id=$1 FOR UPDATE", [record.id]);
-    const pending = store.consume(consume(record));
-    await blocker.query("SELECT pg_sleep(0.4)");
-    await blocker.query("COMMIT"); blocker.release();
-    await expect(pending).rejects.toMatchObject({ code: "WALLET_CEREMONY_EXPIRED" });
-    expect((await store.get({ id: record.id, accountId: record.accountId }))?.resultId).toBeNull();
+    const consumingPool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 1 });
+    try {
+      await blocker.query("BEGIN");
+      const holder = (await blocker.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      const waiter = (await consumingPool.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      const record = await store.issue({ ...draft(), expiresAt: await databaseNow() + 3000 });
+      await blocker.query("SELECT 1 FROM rest_wallet_ceremonies WHERE id=$1 FOR UPDATE", [record.id]);
+      const pending = new PostgresWalletCeremonyStore(consumingPool).consume(consume(record))
+        .then(result => ({ result }), error => ({ error }));
+      await expect.poll(async () => (await pool.query(
+        "SELECT wait_event_type,query,pg_blocking_pids(pid) AS blockers FROM pg_stat_activity WHERE pid=$1", [waiter],
+      )).rows[0]).toMatchObject({
+        wait_event_type: "Lock", query: "SELECT * FROM rest_wallet_ceremonies WHERE id=$1 FOR UPDATE", blockers: [holder],
+      });
+      expect(await databaseNow()).toBeLessThan(record.expiresAt);
+      await untilDatabaseTime(record.expiresAt);
+      await blocker.query("COMMIT");
+      expect(await pending).toMatchObject({ error: { code: "WALLET_CEREMONY_EXPIRED" } });
+      expect(await store.get({ id: record.id, accountId: record.accountId })).toMatchObject({
+        consumedAt: null, proofDigest: null, resultId: null,
+      });
+    } finally { await blocker.query("ROLLBACK"); blocker.release(); await consumingPool.end(); }
   });
 
   it("rolls back a killed process after writing consumption but before commit", async () => {

@@ -443,14 +443,12 @@ export class ProductService {
       snapshot: async () => snapshot,
       client: () => snapshot.client,
     });
-    const plan = await payments.preparePay({ ...input, metadata });
+    const plan = await payments.prepareNftPay({ ...input, metadata }, verifiedShop.hook);
     const quote = plan.summary as {
       terminal: Address;
       hooks: Array<{ hook: Address; noop: boolean }>;
       [key: string]: unknown;
     };
-    if (!quote.hooks.some((spec) => same(spec.hook, verifiedShop.hook) && !spec.noop))
-      fail('NFT_HOOK_NOT_INVOKED', 'The terminal preview will not invoke the verified NFT hook.');
     const destination = await this.nftDestination(snapshot, input, metadata, quote);
     const [accounting, prices, credits, flags, tiers] = await Promise.all([
       snapshot.client.readContract({
@@ -477,16 +475,21 @@ export class ProductService {
         args: [verifiedShop.hook],
       }),
       Promise.all(
-        input.tierIds.map((id) =>
-          snapshot.client.readContract({
-            address: verifiedShop.store,
-            abi: jb721TiersHookStoreAbi,
-            functionName: 'tierOf',
-            args: [verifiedShop.hook, BigInt(id), false],
-          }),
+        [...new Set(input.tierIds)].map(
+          async (id) =>
+            [
+              id,
+              await snapshot.client.readContract({
+                address: verifiedShop.store,
+                abi: jb721TiersHookStoreAbi,
+                functionName: 'tierOf',
+                args: [verifiedShop.hook, BigInt(id), false],
+              }),
+            ] as const,
         ),
       ),
     ]);
+    const tiersById = new Map(tiers);
     if (!same(accounting.token, destination.token))
       fail(
         'TOKEN_NOT_ACCEPTED',
@@ -566,10 +569,12 @@ export class ProductService {
         usableNFTCredits: usesCredits ? credits.toString() : '0',
         leftoverNFTCredits: leftover.toString(),
         resultingNFTCredits: String(leftover + (usesCredits ? 0n : credits)),
-        tiers: tiers.map((tier) => ({
-          ...(jsonSafe(tier) as object),
-          effectivePrice: effectiveTierPrice(tier.price, tier.discountPercent).toString(),
-        })),
+        tiers: input.tierIds
+          .map((id) => tiersById.get(id)!)
+          .map((tier) => ({
+            ...(jsonSafe(tier) as object),
+            effectivePrice: effectiveTierPrice(tier.price, tier.discountPercent).toString(),
+          })),
         metadata,
         deliveryCheck:
           'Canonical hook identity, active invocation, metadata target, exact currency normalization and isolated store mint feasibility checked at one block. The signed payer call still requires full plan simulation.',
@@ -849,17 +854,21 @@ export class ProductService {
       )
         reserveDefault = tier.reserveBeneficiary;
     }
-    for (const id of input.tierIdsToRemove) {
-      const tier = await snapshot.client.readContract({
-        address: s.store,
-        abi: jb721TiersHookStoreAbi,
-        functionName: 'tierOf',
-        args: [s.hook, BigInt(id), false],
-      });
+    const tiersToRemove = await Promise.all(
+      input.tierIdsToRemove.map((id) =>
+        snapshot.client.readContract({
+          address: s.store,
+          abi: jb721TiersHookStoreAbi,
+          functionName: 'tierOf',
+          args: [s.hook, BigInt(id), false],
+        }),
+      ),
+    );
+    for (const [index, tier] of tiersToRemove.entries()) {
       if (tier.initialSupply === 0 || tier.flags.cantBeRemoved)
         fail(
           'NFT_TIER_NOT_REMOVABLE',
-          `Tier ${id} is absent or permanently protected from removal.`,
+          `Tier ${input.tierIdsToRemove[index]} is absent or permanently protected from removal.`,
         );
     }
     return {
@@ -892,6 +901,61 @@ export class ProductService {
     };
   }
 
+  private async pricingChecks(
+    snapshot: RpcSnapshot,
+    chainId: ChainId,
+    contexts: readonly { token: Address; currency: string; decimals: string }[],
+    currencies: readonly string[],
+  ) {
+    const checks = [];
+    const prices = new Map<string, Promise<bigint>>();
+    const units = [...new Set(currencies)];
+    for (const context of contexts) {
+      if (!same(context.token, NATIVE_TOKEN)) {
+        const decimals = await snapshot.client.readContract({
+          address: context.token,
+          abi: erc20Abi,
+          functionName: 'decimals',
+        });
+        if (Number(context.decimals) !== decimals)
+          fail(
+            'TOKEN_DECIMALS_MISMATCH',
+            'An accounting context does not match the token’s on-chain decimals.',
+          );
+      }
+      const rows = await Promise.all(
+        units.map(async (currency) => {
+          const key = `${context.currency}:${currency}:${context.decimals}`;
+          let read = prices.get(key);
+          if (!read) {
+            read = snapshot.client.readContract({
+              address: v6Address('JBPrices', chainId),
+              abi: jbPricesAbi,
+              functionName: 'pricePerUnitOf',
+              args: [0n, BigInt(context.currency), BigInt(currency), BigInt(context.decimals)],
+            });
+            prices.set(key, read);
+          }
+          const price = await read;
+          if (price === 0n)
+            fail(
+              'MISSING_PRICE_FEED',
+              'An accepted reserve lacks a nonzero base-currency or NFT-currency price.',
+            );
+          return {
+            token: context.token,
+            pricingCurrency: context.currency,
+            unitCurrency: currency,
+            decimals: context.decimals,
+            price: String(price),
+          };
+        }),
+      );
+      checks.push(...rows);
+    }
+    return checks;
+  }
+
   async prepareRevnetDeploy(raw: z.input<typeof prepareRevnetDeploySchema>): Promise<PlanDraft> {
     const input = prepareRevnetDeploySchema.parse(raw);
     const snapshot = await this.rpc.snapshot(input.chainId);
@@ -905,47 +969,17 @@ export class ProductService {
       v6Address('REVLoans', input.chainId),
     ]);
     const fee = await getProjectCreationFee(snapshot.client, input.chainId);
-    const priceChecks = [];
-    for (const context of input.accountingContexts) {
-      if (!same(context.token, NATIVE_TOKEN)) {
-        const decimals = await snapshot.client.readContract({
-          address: context.token,
-          abi: erc20Abi,
-          functionName: 'decimals',
-        });
-        if (Number(context.decimals) !== decimals)
-          fail(
-            'TOKEN_DECIMALS_MISMATCH',
-            'An accounting context does not match the token’s on-chain decimals.',
-          );
-      }
-      const currencies = new Set([
+    const priceChecks = await this.pricingChecks(
+      snapshot,
+      input.chainId,
+      input.accountingContexts,
+      [
         input.config.baseCurrency,
         ...(input.tiered721Config
           ? [input.tiered721Config.baseline721HookConfiguration.tiersConfig.currency]
           : []),
-      ]);
-      for (const currency of currencies) {
-        const price = await snapshot.client.readContract({
-          address: v6Address('JBPrices', input.chainId),
-          abi: jbPricesAbi,
-          functionName: 'pricePerUnitOf',
-          args: [0n, BigInt(context.currency), BigInt(currency), BigInt(context.decimals)],
-        });
-        if (price === 0n)
-          fail(
-            'MISSING_PRICE_FEED',
-            'A reserve asset lacks a nonzero base-currency or NFT-currency price.',
-          );
-        priceChecks.push({
-          token: context.token,
-          pricingCurrency: context.currency,
-          unitCurrency: currency,
-          decimals: context.decimals,
-          price: String(price),
-        });
-      }
-    }
+      ],
+    );
     for (const config of input.suckerConfig.deployerConfigurations) {
       await this.code(snapshot.client, [config.deployer]);
       const allowed = await snapshot.client.readContract({
@@ -1092,52 +1126,22 @@ export class ProductService {
         'The project deployer does not reference the canonical directory and tiers factory.',
       );
     this.validateInitialTiers(input.deployTiersHookConfig.tiersConfig.tiers);
-    const pricingChecks = [];
     for (const terminal of input.terminalConfigurations) {
       if (!same(terminal.terminal, multi))
         fail(
           'UNSUPPORTED_TERMINAL',
           '721 launch preparation supports canonical V6 multi-terminal accounting contexts. Configure router routes separately after deployment.',
         );
-      for (const context of terminal.accountingContextsToAccept) {
-        if (!same(context.token, NATIVE_TOKEN)) {
-          const decimals = await snapshot.client.readContract({
-            address: context.token,
-            abi: erc20Abi,
-            functionName: 'decimals',
-          });
-          if (decimals !== Number(context.decimals))
-            fail(
-              'TOKEN_DECIMALS_MISMATCH',
-              'An accounting context does not match the token’s current decimals.',
-            );
-        }
-        const currencies = new Set([
-          ...input.rulesetConfigurations.map((ruleset) => ruleset.metadata.baseCurrency),
-          input.deployTiersHookConfig.tiersConfig.currency,
-        ]);
-        for (const currency of currencies) {
-          const price = await snapshot.client.readContract({
-            address: prices,
-            abi: jbPricesAbi,
-            functionName: 'pricePerUnitOf',
-            args: [0n, BigInt(context.currency), BigInt(currency), BigInt(context.decimals)],
-          });
-          if (price === 0n)
-            fail(
-              'MISSING_PRICE_FEED',
-              'An accepted reserve lacks a nonzero default price for the ruleset or NFT pricing currency.',
-            );
-          pricingChecks.push({
-            token: context.token,
-            pricingCurrency: context.currency,
-            unitCurrency: currency,
-            decimals: context.decimals,
-            price: String(price),
-          });
-        }
-      }
     }
+    const pricingChecks = await this.pricingChecks(
+      snapshot,
+      input.chainId,
+      input.terminalConfigurations.flatMap((terminal) => terminal.accountingContextsToAccept),
+      [
+        ...input.rulesetConfigurations.map((ruleset) => ruleset.metadata.baseCurrency),
+        input.deployTiersHookConfig.tiersConfig.currency,
+      ],
+    );
     if (!same(input.deployTiersHookConfig.tokenUriResolver, zeroAddress))
       await this.code(snapshot.client, [input.deployTiersHookConfig.tokenUriResolver]);
     const launchConfig = {

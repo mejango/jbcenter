@@ -123,12 +123,13 @@ export class MemorySponsorshipStore implements SponsorshipStore {
       },
     );
   }
-  async settle(id: string, submissionHash: Hex, quote?: RelayrQuote, runtimeVerified = true) {
+  async settle(id: string, submissionHash: Hex, quote?: RelayrQuote, runtimeVerified = true, bindingVerified = runtimeVerified) {
     const record = settled(
       this.records.get(id) ?? missing(),
       submissionHash,
       quote,
       runtimeVerified,
+      bindingVerified,
     );
     this.records.set(id, record);
     return clone(record);

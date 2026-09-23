@@ -136,7 +136,7 @@ describe("hosted Base deployment boundary shapes", () => {
     (a: any) => { delete a.reservation; }, (a: any) => { a.feeScope = "local-execution-only"; }, (a: any) => { a.baseTotalAffordability = "unknown"; },
     (a: any) => { a.environment.kind = "unforked-anvil"; }, (a: any) => { a.version = "center-wallet-deployment-local-admission-v2"; },
     (a: any) => { a.reservation.attributesTransaction = "0x" + "00".repeat(32); }, (a: any) => { a.reservation.extra = 1; },
-    (a: any, c: any) => { a.balanceWei = String(BigInt(a.reservation.totalWei) - 1n); },
+    (a: any) => { a.balanceWei = String(BigInt(a.reservation.totalWei) - 1n); },
   ])("rejects a Base admission with a drifted or unaffordable reservation %#", async mutate => {
     const { context, now } = await fixture(undefined, false);
     context.operation.observation = syntheticDeploymentObservation(context, now - 100);

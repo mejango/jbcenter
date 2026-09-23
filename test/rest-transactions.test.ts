@@ -227,6 +227,44 @@ function harness(
 }
 
 describe("durable signed transaction relay", () => {
+  it.each(["direct", "relayr"] as const)(
+    "keeps a confirmed %s execution recoverable until its modeled outcome is known",
+    async (transport) => {
+      let semantic: "unknown" | "verified" = "unknown";
+      const external = externalFixture();
+      const f = harness({
+        verifier: { verify: async () => ({ status: semantic }) },
+        ...(transport === "relayr" ? { externalObserver: external.observer } : {}),
+      });
+      const plan = await f.service.createPlan(actor, f.draft(true), "semantic-recovery", requestHash);
+      if (transport === "relayr") {
+        f.transports.claim(plan.id, [0], "relayr", "semantic-binding");
+        f.confirm(external.rawOuter);
+      } else {
+        const raw = await f.signed();
+        await f.service.submitStep(actor, plan.id, 0, raw, "semantic-submit", requestHash);
+        f.confirm(raw);
+      }
+      const unresolved = await f.service.recoverPending();
+      expect(unresolved.reconciled).toMatchObject([{
+        status: "pending",
+        steps: [{ state: "confirmed", semantic: { status: "unknown" } }, { blockedBy: [0] }],
+      }]);
+      if (transport === "direct") expect(unresolved.oldestPendingAt).toBe(now);
+      expect(await f.store.recoverable(10)).toHaveLength(1);
+      semantic = "verified";
+      const resolved = await f.service.recoverPending();
+      expect(resolved.reconciled).toMatchObject([{
+        status: "partial",
+        steps: [{ state: "confirmed", semantic: { status: "verified" } }, { blockedBy: [] }],
+      }]);
+      expect(resolved.oldestPendingAt).toBeNull();
+      expect(await f.store.recoverable(10)).toEqual([]);
+      expect(f.rpc.mock.calls.filter(([, method]) => method === "eth_sendRawTransaction"))
+        .toHaveLength(transport === "direct" ? 1 : 0);
+    },
+  );
+
   it("samples submission age through uncertain recovery and clears it after canonical completion", async () => {
     const f = harness();
     const plan = await f.service.createPlan(actor, f.draft(), "age-plan", requestHash);

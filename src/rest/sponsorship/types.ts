@@ -80,6 +80,8 @@ export interface SponsorshipRecord {
     startedAt: number;
   };
   quote?: RelayrQuote;
+  /** Explicit false permits new provisional UUID rebinding; absent legacy mappings stay immutable. */
+  quoteBindingVerified?: boolean;
   quoteRuntimeVerified?: boolean;
   observations: DestinationObservation[];
 }

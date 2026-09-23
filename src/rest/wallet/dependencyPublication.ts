@@ -1,12 +1,12 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, rename } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, open, rename } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { RestError } from '../core.js';
 import { object, uuid } from '../sponsorship/validation.js';
 import { stable } from '../smartAccounts/service.js';
 import { bindIndependentQuoteStatus, parseIndependentQuoteBinding, parseIndependentStatus, RelayrResponseError, type RelayrResponseDetails, type RelayrProvider } from '../sponsorship/provider.js';
 import { prepareWalletDependencyBundle, type inspectWalletDependencyChain, type WalletDependencyFamily } from './dependencyBundle.js';
-import { walletDependencyPublicationLocation } from './dependencyJournal.js';
+import { readWalletDependencyJournal, walletDependencyPublicationLocation } from './dependencyJournal.js';
 
 type Observation = Awaited<ReturnType<typeof inspectWalletDependencyChain>>;
 
@@ -53,7 +53,7 @@ export async function publishWalletDependencyQuote(options: {
     // A permanent claim keyed to the previous attempt prevents concurrent/stale readers
     // from admitting more than one successor, without deleting any history or locks.
     let previous: unknown;
-    try { previous = JSON.parse(await readFile(path, 'utf8')); } catch { throw error; }
+    try { previous = (await readWalletDependencyJournal(path)).value; } catch { throw error; }
     if (!object(previous) || previous.state !== 'not-submitted' || !uuid(previous.attemptId)
       || previous.bodyHash !== bundle.bodyHash || previous.family !== bundle.family) throw error;
     await mkdir(join(directory, `retry-${previous.attemptId}`), { mode: 0o700 });
@@ -148,20 +148,7 @@ export async function reconcileWalletDependencyQuote(options: {
   if (!/^[0-9a-f]{64}$/.test(options.bodyHash) || !validSource(options.source)) invalid();
   const { directory } = await walletDependencyPublicationLocation(options.directory, options.bodyHash);
   const originalPath = join(directory, 'publication.json');
-  const file = await open(originalPath, 'r');
-  let bytes: Buffer;
-  try {
-    const buffer = Buffer.alloc(2 * 1024 * 1024 + 1);
-    let length = 0;
-    while (length < buffer.length) {
-      const result = await file.read(buffer, length, buffer.length - length, null);
-      if (!result.bytesRead) break;
-      length += result.bytesRead;
-    }
-    if (length === buffer.length) invalid();
-    bytes = buffer.subarray(0, length);
-  } finally { await file.close(); }
-  const original: unknown = JSON.parse(bytes.toString('utf8'));
+  const { value: original, sha256 } = await readWalletDependencyJournal(originalPath);
   const now = options.now ?? Date.now;
   if (!object(original) || original.version !== 'center-wallet-dependency-publication-v2'
     || !['response-received', 'quote-received', 'quote-bound', 'status-received', 'quoted'].includes(String(original.state))
@@ -175,7 +162,7 @@ export async function reconcileWalletDependencyQuote(options: {
   const provisionalQuote = parseIndependentQuoteBinding(original.response, bundle.body.transactions, Number(original.responseReceivedAt));
   const evidence = { version: 'center-wallet-dependency-reconciliation-v1', bodyHash: original.bodyHash,
     publicationSource: original.source, reconciliationSource: structuredClone(options.source),
-    originalSha256: createHash('sha256').update(bytes).digest('hex'), bundleUuid: provisionalQuote.bundleUuid,
+    originalSha256: sha256, bundleUuid: provisionalQuote.bundleUuid,
     fundingEnabled: false as const, historicalRecipeOnly: true as const };
   const name = `reconciliation-${randomUUID()}`;
   let status: unknown;

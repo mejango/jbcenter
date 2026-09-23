@@ -19,7 +19,11 @@ const positive128 = { allOf: [uint128, { not: { const: "0" } }] };
 const gasBudget = { paymaster: ref("Address"), maxGasPerOperation: positive128, maxFeePerGas: positive128,
   maxPriorityFeePerGas: uint128, totalGasLimit: positive128, totalSponsoredCostLimit: ref("PositiveUint256"),
   maxPaymasterDataLength: { type: "integer", const: 130 } };
-const pinFields = { address: ref("Address"), runtimeCodeHash: ref("Hash"), source: object({ repository: text, commit: text, artifactSha256: ref("Sha256") }) };
+const pinFields = { address: ref("Address"), runtimeCodeHash: ref("Hash"), source: { oneOf: [
+  object({ repository: { type: "string", pattern: "^https://github\\.com/" }, commit: { type: "string", pattern: "^[a-f0-9]{40}$" },
+    contentSha256: ref("Sha256"), artifactSha256: ref("Sha256") }, ["repository", "commit", "artifactSha256"]),
+  object({ repository: { type: "string", const: "juicebox-center" }, contentSha256: ref("Sha256"), artifactSha256: ref("Sha256") }),
+] } };
 const setupAddress = { allOf: [ref("Address"), { not: { enum: [`0x${"0".repeat(40)}`, `0x${"0".repeat(39)}1`] } }] };
 const setupScopes = { type: "array", const: ["read", "plan", "relay"] };
 const setupGrantId = { type: "string", format: "uuid", pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" };
@@ -32,16 +36,25 @@ const setupSignature = { type: "string", pattern: "^0x[0-9a-fA-F]{128}(?:1[bBcC]
   description: "One direct 65-byte EIP-712 EOA signature with v=27 or v=28." };
 const setupTime = { ...decimalString(Number.MAX_SAFE_INTEGER), description: "Typed-data uint64 serialized as a decimal string. Request timestamps use JSON integers in Unix seconds." };
 const bindingAuthorization = { digest: ref("Hash"), nonce, expiresAt: ref("UnixSeconds") };
+const passkeySigner = object({ address: ref("Address"), kind: { type: "string", const: "contract" }, x: ref("Hash"), y: ref("Hash"),
+  verifiers: { type: "string", pattern: "^0x[0-9a-fA-F]{44}$" }, runtimeCodeHash: ref("Hash") });
 
 export function smartAccountSchemas(): Record<string, Schema> {
   return {
     SmartContractPin: object(pinFields),
+    SmartPasskeyOwnerProfile: object({ version: { type: "string", const: "center-passkey-v1" },
+      signerFactory: ref("SmartContractPin"), signerSingleton: ref("SmartContractPin"), p256Verifier: ref("SmartContractPin") }),
+    SmartPasskeyCreationProfile: object({ version: { type: "string", const: "center-passkey-bootstrap-v1" }, multiSend: ref("SmartContractPin") }),
+    SmartPasskeyOwnerState: object({ version: { type: "string", const: "center-passkey-v1" },
+      signer: passkeySigner, devices: array(passkeySigner),
+      recoveryOwner: object({ address: ref("Address"), kind: { type: "string", const: "ecdsa" } }) }, ["version", "signer", "recoveryOwner"]),
     SmartAccountManifest: object({ id: text, mode: { type: "string", enum: ["ownership-only", "execution-candidate"] }, chainId: chain,
       revision: ref("Hash"), safeVersion: { type: "string", const: "1.4.1" }, proxyRuntimeCodeHash: ref("Hash"),
       singleton: ref("SmartContractPin"), factory: ref("SmartContractPin"), safe7579: ref("SmartContractPin"), launchpad: ref("SmartContractPin"),
       entryPoint: object({ ...pinFields, version: { type: "string", const: "0.7" } }),
       smartSessions: object({ ...pinFields, generation: { type: "string", enum: ["legacy-validator", "emissary"] } }),
       policies: array(ref("SmartContractPin")), moduleInspectorId: text,
+      ownerProfile: ref("SmartPasskeyOwnerProfile"), creationProfile: ref("SmartPasskeyCreationProfile"),
     }, ["id", "mode", "chainId", "revision", "safeVersion", "proxyRuntimeCodeHash", "singleton", "factory", "safe7579", "launchpad", "smartSessions", "policies", "moduleInspectorId"]),
     SmartDeploymentResearch: { ...object({ schemaVersion: { type: "integer", const: 1 }, readOnly: yes, observedAt: { type: "string", format: "date-time" },
       limitations: array(text), contracts: { type: "object", additionalProperties: { type: "object", additionalProperties: true } },
@@ -60,7 +73,8 @@ export function smartAccountSchemas(): Record<string, Schema> {
       owners: array(ref("Address"), { minItems: 1, maxItems: 16, uniqueItems: true }), threshold: { type: "integer", minimum: 1, maximum: 16 }, safeNonce: ref("Uint256"),
       stateHash: ref("Hash"), evidence: ref("BlockEvidence"), codeHashes: array(object({ address: ref("Address"), runtimeCodeHash: ref("Hash") })),
       modules: nullable(ref("SmartModuleEvidence")), moduleConfigurationVerified: boolean, executionVerified: no,
-    }),
+      ownerProfile: ref("SmartPasskeyOwnerState"),
+    }, ["chainId", "address", "manifestId", "manifestRevision", "owners", "threshold", "safeNonce", "stateHash", "evidence", "codeHashes", "modules", "moduleConfigurationVerified", "executionVerified"]),
     SmartBindingChallengeInput: { ...object(challengeFields), description: "Select a server-published reviewed manifest and an existing Safe distinct from the API owner EOA. The API owner must be a current Safe owner. Nonce must be nonzero." },
     SmartBindingInput: object({ ...challengeFields, stateHash: ref("Hash"), signature: { type: "string", pattern: "^0x(?:[0-9a-fA-F]{130}){1,16}$",
       description: "Exactly the current threshold of concatenated 65-byte EOA owner signatures, sorted by ascending owner address. Only direct EIP-712 signatures with v=27 or v=28 are accepted." } }),
@@ -95,8 +109,8 @@ export function smartAccountSchemas(): Record<string, Schema> {
     }) }),
     SmartAccountBinding: object({ id: ref("Hash"), ownerAccountId: ref("AccountId"), ownerAddress: ref("Address"), wallet, manifestId: text,
       authorization: { oneOf: [
-        object({ ...bindingAuthorization, method: { type: "string", const: "safe-current-owner-threshold" } }),
-        object({ ...bindingAuthorization, method: { type: "string", const: "safe-current-owner-threshold-and-api-grant" },
+        object({ ...bindingAuthorization, method: { type: "string", enum: ["safe-current-owner-threshold", "center-wallet-passkey-creation-v1"] } }),
+        object({ ...bindingAuthorization, method: { type: "string", enum: ["safe-current-owner-threshold-and-api-grant", "safe-passkey-owner-threshold-and-api-grant"] },
           setup: object({ manifestRevision: ref("Hash"), initializerHash: ref("Hash"), issuedAt: ref("UnixSeconds"), grantId: setupGrantId,
             botAddress: setupAddress, scopes: setupScopes, grantExpiresAt: ref("UnixSeconds"), label: setupLabel }) }),
       ] }, state: ref("SmartAccountState"),

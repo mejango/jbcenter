@@ -32,7 +32,7 @@ export async function exerciseWalletRecoveryEvm(options: {
 }) {
   const { pool, fixture, enrollment } = options, rpId = enrollment.intent.rpId, origin = enrollment.intent.origin;
   const observer = createWalletAuthorityChain({ rpc: fixture.readOnlyRpc, manifest: fixture.manifest, utility: fixture.utility });
-  const recovery = new PostgresWalletRecoveryStore(pool, { rpId, origin, lifetimeMs: 2000 }, { audience: options.audience, observe: context => observer.observe(context) });
+  const recovery = new PostgresWalletRecoveryStore(pool, { rpId, origin, lifetimeMs: 5000 }, { audience: options.audience, observe: context => observer.observe(context) });
   const accountId = enrollment.receipt!.accountId, begun = await recovery.begin(accountId), intent = begun.record.intent;
   await new PostgresWalletRecoveryFlowStore(pool).initialize({ recoveryId: intent.id, flowToken: begun.flowToken, passkeyName: 'Juicebox replacement' });
   const replacement = createRegistration({ rpId, origin, userHandle: intent.userHandle,
@@ -102,7 +102,8 @@ export async function exerciseWalletRecoveryEvm(options: {
     flowToken: begun.flowToken, replacement, initializerHash: enrollment.creation!.initializerHash, replacementSigner: candidate.signerAddress, priorCredentialId: options.originalKey.credentialId, relayAddress: relay.address, rpc: fixture.rpc,
     config: { endpoint: fixture.endpoint, expectedGenesisHash: fixture.expectedGenesisHash, manifest: fixture.manifest,
       utility: fixture.utility, origin, rpId, audience: options.audience, ...(base ? { relay: 'base' as const } : {}) } });
-  expect((await options.authority.refreshAuthority(accountId)).snapshot.readiness).toBe('verified');
+  const refreshed = await options.authority.refreshAuthority(accountId);
+  expect(refreshed.snapshot.readiness, JSON.stringify(refreshed.snapshot.latestObservation)).toBe('verified');
   const login = new PostgresWalletLoginStore(pool, { rpId, origin });
   expect(await login.readSession(options.originalSessionToken)).toBeNull();
   const oldLogin = await login.begin();

@@ -1,12 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isAddress, keccak256, type Address, type Hex } from "viem";
 import type { ContractCatalog } from "../contracts/catalog.js";
-import {
-  RestError,
-  type RestActor,
-  type RestPlanDraft,
-  type RestRpc,
-} from "../core.js";
+import type { RestActor, RestPlanDraft, RestRpc } from "../core.js";
 import type { TransactionStore } from "../transactions/store.js";
 import type { SemanticVerifier, StoredPlan } from "../transactions/types.js";
 import { SponsorshipChain } from "./chain.js";
@@ -20,6 +15,7 @@ import {
 import { observeDestination } from "./execution.js";
 import {
   assertPaymentEligible,
+  bindFamilyQuoteStatus,
   parseQuoteBinding,
   parseStatus,
   RelayrProvider,
@@ -535,15 +531,17 @@ export class RelayrSponsorshipService {
           "RELAYR_PAYMENT_CHAIN_DISABLED",
           "The quote includes a payment chain disabled by host policy.",
         );
-      await Promise.all([
+      const [verified] = await Promise.all([
+        this.providerStatus(record, request.signal),
         ...quote.payments.map((payment) =>
           chain.paymentRuntime(payment.chainId),
         ),
-        this.provider
-          .status(quote.bundleUuid, request.signal)
-          .then((status) => parseStatus(status, quote)),
       ]);
-      record = await this.options.store.settle(id, submissionHash, quote);
+      record = await this.options.store.settle(
+        id,
+        submissionHash,
+        verified.record.quote,
+      );
     } catch {
       // This includes malformed responses and storage/provider cancellation:
       // creation may have happened, so none of these permit a second POST.
@@ -560,17 +558,17 @@ export class RelayrSponsorshipService {
     const record = await this.required(actor, id);
     if (!record.quote) return this.view(record);
     const plan = await this.plan(actor, record.planId);
-    const observations = await this.observe(record, plan, request.signal);
+    const observed = await this.observe(record, plan, request.signal);
     // Receipt logs are consumed transiently by semantic verification, never
     // kept as unbounded provider material in a durable sponsorship record.
-    const bounded = observations.map((value) => ({
+    const bounded = observed.observations.map((value) => ({
       ...value,
       ...(value.receipt
         ? { receipt: { ...value.receipt, logs: [], logsStored: false } }
         : {}),
     }));
     return this.view(
-      await this.options.store.observe(id, record.revision, bounded),
+      await this.options.store.observe(id, observed.record.revision, bounded),
     );
   }
   async observePlanStep(
@@ -597,7 +595,28 @@ export class RelayrSponsorshipService {
         reason:
           "No authenticated quote is available; do not repeat publication.",
       };
-    return (await this.observe(record, plan, request.signal, index))[0]!;
+    return (await this.observe(record, plan, request.signal, index))
+      .observations[0]!;
+  }
+  private async providerStatus(record: SponsorshipRecord, signal?: AbortSignal) {
+    const status = await this.provider.status(record.quote!.bundleUuid, signal);
+    if (!record.quoteBindingVerified && !record.quoteRuntimeVerified) {
+      // Older records may already have produced a funding draft even without
+      // runtime verification. Only explicitly provisional new quotes can rebind.
+      const quote =
+        record.quoteBindingVerified === false
+          ? bindFamilyQuoteStatus(status, record.quote!)
+          : record.quote!;
+      parseStatus(status, quote);
+      record = await this.options.store.settle(
+        record.id,
+        record.submission!.hash,
+        quote,
+        false,
+        true,
+      );
+    }
+    return { record, hints: parseStatus(status, record.quote!) };
   }
   private async observe(
     record: SponsorshipRecord,
@@ -646,23 +665,21 @@ export class RelayrSponsorshipService {
     const succeeded = (value: DestinationObservation | undefined) =>
       value?.receipt?.status === "success" &&
       ["confirmed", "confirming"].includes(value.state);
-    if (known.every(succeeded)) return known as DestinationObservation[];
+    if (known.every(succeeded))
+      return { record, observations: known as DestinationObservation[] };
     let hints: ReturnType<typeof parseStatus>;
     try {
-      hints = parseStatus(
-        await this.provider.status(quote.bundleUuid, signal),
-        quote,
-      );
+      ({ record, hints } = await this.providerStatus(record, signal));
     } catch (error) {
       assertSignal(signal);
       // Failed outer attempts can be retried by Relayr without consuming the
       // forwarding nonce. Preserve their independent proof during an outage,
       // while still looking for a later successful attempt when available.
       if (known.every((value) => value?.receipt?.canonical))
-        return known as DestinationObservation[];
+        return { record, observations: known as DestinationObservation[] };
       throw error;
     }
-    return Promise.all(
+    const observations = await Promise.all(
       positions.map(({ position }, i) => {
         if (succeeded(known[i])) return known[i]!;
         const hint = hints.find((value) => value.step === position)!;
@@ -670,6 +687,7 @@ export class RelayrSponsorshipService {
         return verify(position, hint);
       }),
     );
+    return { record, observations };
   }
   async prepareFunding(
     actor: RestActor,
@@ -690,8 +708,8 @@ export class RelayrSponsorshipService {
         "Provide a payment chain and the wallet that will review and sign funding.",
         400,
       );
-    const record = await this.required(actor, id);
-    const quote = record.quote;
+    let record = await this.required(actor, id);
+    let quote = record.quote;
     if (!quote)
       fail(
         "RELAYR_QUOTE_UNAVAILABLE",
@@ -729,10 +747,8 @@ export class RelayrSponsorshipService {
       );
     const plan = await this.plan(actor, record.planId);
     const chain = this.chain(request.signal);
-    parseStatus(
-      await this.provider.status(quote.bundleUuid, request.signal),
-      quote,
-    );
+    record = (await this.providerStatus(record, request.signal)).record;
+    quote = record.quote!;
     await this.dependencies(
       plan,
       record.requests.map((value) => value.stepIndex),
@@ -848,7 +864,9 @@ export class RelayrSponsorshipService {
                 : [],
               runtimeVerified: record.quoteRuntimeVerified === true,
               observedAt: record.quote.observedAt,
-              transactions: record.quote.entries.map((value) => ({
+              transactions: (record.quoteBindingVerified || record.quoteRuntimeVerified
+                ? record.quote.entries
+                : []).map((value) => ({
                 txUuid: value.txUuid,
                 chainId: value.entry.chain,
                 outerCallHash: keccak256(value.entry.data),

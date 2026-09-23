@@ -19,12 +19,14 @@ const fees = (l1Wei: string) => ({ profile: "base-fjord-jovian-receipt-v1" as co
   totalWei: String(500000000000n + BigInt(l1Wei) + 7n) });
 let admin: Pool, pool: Pool, store: PostgresWalletDeploymentStore;
 
-function baseAdmission(context: WalletDeploymentSettlementContext, now: number): WalletDeploymentDispatchAdmission {
-  const operation = context.operation, execution = BigInt(operation.signed!.maximumExecutionCost);
+function baseAdmission(context: WalletDeploymentSettlementContext, now: number): Extract<WalletDeploymentDispatchAdmission, { version: "center-wallet-deployment-base-admission-v1" }> {
+  const operation = context.operation, execution = BigInt(operation.signed!.maximumExecutionCost), observation = operation.observation!;
   return { version: "center-wallet-deployment-base-admission-v1", operationId: operation.id, poolConfigurationDigest: operation.poolConfigurationDigest,
     templateCommitment: operation.templateCommitment!, transactionHash: operation.signed!.hash, operationRevision: operation.revision,
     observationDigest: enrollmentDigest(operation.observation), environment: { kind: "base-mainnet", genesisHash: base.genesisHash, head: operation.observation!.head! },
-    observedAt: now, expiresAt: now + 3000, balanceWei: context.pool.configuration.allocationWei, maximumExecutionCost: operation.signed!.maximumExecutionCost,
+    observedAt: now, expiresAt: Math.min(now + 3000, observation.observedAt + context.pool.configuration.policy.maximumObservationAgeMs,
+      Number(BigInt(observation.head!.timestamp) * 1000n) + 300000),
+    balanceWei: context.pool.configuration.allocationWei, maximumExecutionCost: operation.signed!.maximumExecutionCost,
     feeScope: "base-execution-l1-operator-reserved", baseTotalAffordability: "reserved",
     accounting: { digest: walletDeploymentAccountingDigest(context.pool.accounting!), remainingWei: walletDeploymentRemainingWei(context.pool), nextNonce: context.pool.accounting!.nextNonce },
     reservation: { attributesTransaction: `0x${"44".repeat(32)}`, parametersDigest: "a".repeat(64), l1WeiAtParameters: "16289011957",
@@ -74,11 +76,11 @@ suite("durable hosted Base deployment accounting", () => {
     let context = await observed(await signedSettlementUser(pool, store));
     const admission = baseAdmission(context, await settlementDatabaseNow(pool));
     const lease = await store.leaseDispatch({ operationId: context.operation.id, expectedRevision: context.operation.revision,
-      signedHash: context.operation.signed!.hash, admission, leaseMs: 300 });
+      signedHash: context.operation.signed!.hash, admission });
     expect(lease.admission).toEqual(admission);
     await store.settleDispatch({ operationId: context.operation.id, expectedRevision: lease.revision, leaseToken: lease.leaseToken,
       signedHash: context.operation.signed!.hash, status: "accepted" });
-    await new Promise(resolve => setTimeout(resolve, Math.max(1, lease.leaseUntil - Date.now() + 15)));
+    await expect.poll(() => settlementDatabaseNow(pool)).toBeGreaterThanOrEqual(lease.leaseUntil);
     context = await released(context);
     // The release reserves the Base admission's full reservation, not only the execution ceiling.
     expect(context.operation.reservedWei).toBe(admission.reservation!.totalWei);
@@ -93,33 +95,41 @@ suite("durable hosted Base deployment accounting", () => {
   it("SQL refuses a local admission version, an unaffordable reservation and local fees under Base accounting", async () => {
     const hosted = deploymentFixtureConfiguration(); hosted.policy.maximumObservationAgeMs = 30_000;
     await initializedSettlementPool(pool, store, base, hosted);
-    const context = await observed(await signedSettlementUser(pool, store)), now = await settlementDatabaseNow(pool);
-    const admission: any = baseAdmission(context, now);
-    // Each attempt claims its lease at the current database time: only the admission under
-    // test varies, never how long the surrounding cases took to run.
-    const lease = async (value: unknown) => {
-      const claimedAt = await settlementDatabaseNow(pool);
-      return pool.query(`INSERT INTO rest_wallet_deployment_dispatches
-        (operation_id,transaction_hash,template_commitment,revision,attempts,status,lease_token,lease_until,admission,admission_digest,claimed_at,next_attempt_at)
-        VALUES($1,$2,$3,1,1,'in-flight',$4,$5,$6::jsonb,$7,$8,$9)`, [context.operation.id, context.operation.signed!.hash, context.operation.templateCommitment,
-        randomUUID(), claimedAt + 3000, JSON.stringify(value), enrollmentDigest(value), claimedAt, claimedAt + 4000]).then(async result => {
-          await pool.query("DELETE FROM rest_wallet_deployment_dispatches WHERE operation_id=$1", [context.operation.id]).catch(() => undefined); return result; });
+    let context = await signedSettlementUser(pool, store);
+    const lease = async (change: (admission: ReturnType<typeof baseAdmission>) => unknown) => {
+      // Each independent SQL probe gets fresh evidence and its own rollback. A prior
+      // negative check must neither age this lease nor leave a permanent dispatch row.
+      context = await observed(context);
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const now = await settlementDatabaseNow(pool), value = change(baseAdmission(context, now));
+        return await client.query(`INSERT INTO rest_wallet_deployment_dispatches
+          (operation_id,transaction_hash,template_commitment,revision,attempts,status,lease_token,lease_until,admission,admission_digest,claimed_at,next_attempt_at)
+          VALUES($1,$2,$3,1,1,'in-flight',$4,$5,$6::jsonb,$7,$8,$9)`, [context.operation.id, context.operation.signed!.hash, context.operation.templateCommitment,
+          randomUUID(), now + 3000, JSON.stringify(value), enrollmentDigest(value), now, now + 4000]);
+      } finally { await client.query("ROLLBACK"); client.release(); }
     };
-    const local = { ...admission, version: "center-wallet-deployment-local-admission-v2", feeScope: "local-execution-only", baseTotalAffordability: "unknown",
-      environment: { ...admission.environment, kind: "unforked-anvil" } }; delete local.reservation;
-    await expect(lease(local)).rejects.toMatchObject({ code: "23514" });
-    const unaffordable = { ...admission.reservation, l1WeiAtParameters: context.pool.configuration.allocationWei };
-    unaffordable.totalWei = String(BigInt(admission.maximumExecutionCost) + 2n * (BigInt(unaffordable.l1WeiAtParameters) + BigInt(unaffordable.operatorMaximumWei)));
-    await expect(lease({ ...admission, reservation: unaffordable })).rejects.toMatchObject({ code: "23514" });
-    const { reservation: _omitted, ...late } = { ...admission, version: "center-wallet-deployment-local-admission-v2", feeScope: "local-execution-only",
-      baseTotalAffordability: "unknown", environment: { ...admission.environment, kind: "unforked-anvil" }, expiresAt: now + 5001 };
-    await expect(lease(late)).rejects.toMatchObject({ code: "23514" });
-    await expect(lease({ ...admission, feeScope: "local-execution-only" })).rejects.toMatchObject({ code: "23514" });
-    await expect(lease({ ...admission, expiresAt: now + 20_001 })).rejects.toMatchObject({ code: "23514" });
-    await expect(lease({ ...admission, expiresAt: now + 15_000 })).resolves.toBeDefined();
-    const evidence = settlementAt(context, now, "16289011957");
+    await expect(lease(({ reservation: _omitted, ...admission }) => ({ ...admission, version: "center-wallet-deployment-local-admission-v2",
+      feeScope: "local-execution-only", baseTotalAffordability: "unknown", environment: { ...admission.environment, kind: "unforked-anvil" } })))
+      .rejects.toMatchObject({ code: "23514" });
+    await expect(lease(admission => {
+      const unaffordable = { ...admission.reservation, l1WeiAtParameters: context.pool.configuration.allocationWei };
+      unaffordable.totalWei = String(BigInt(admission.maximumExecutionCost) + 2n * (BigInt(unaffordable.l1WeiAtParameters) + BigInt(unaffordable.operatorMaximumWei)));
+      return { ...admission, reservation: unaffordable };
+    })).rejects.toMatchObject({ code: "23514" });
+    await expect(lease(({ reservation: _omitted, ...admission }) => ({ ...admission, version: "center-wallet-deployment-local-admission-v2",
+      feeScope: "local-execution-only", baseTotalAffordability: "unknown", environment: { ...admission.environment, kind: "unforked-anvil" },
+      expiresAt: admission.observedAt + 5001 }))).rejects.toMatchObject({ code: "23514" });
+    await expect(lease(admission => ({ ...admission, feeScope: "local-execution-only" }))).rejects.toMatchObject({ code: "23514" });
+    await expect(lease(admission => ({ ...admission, expiresAt: admission.observedAt + 20_001 }))).rejects.toMatchObject({ code: "23514" });
+    await expect(lease(admission => ({ ...admission, expiresAt: admission.observedAt + 15_000 }))).resolves.toMatchObject({ rowCount: 1 });
+    expect(await store.getDispatch(context.operation.id)).toBeNull();
+    context = await released(context);
+    const evidence = settlementAt(context, await settlementDatabaseNow(pool), "16289011957");
     const localFees = { ...evidence, fees: { profile: "unforked-anvil-execution-fees-v1", executionWei: "500000000000", totalWei: "500000000000" } };
-    await expect(store.settle(context, localFees as never)).rejects.toBeDefined();
+    await expect(store.settle(context, localFees as never)).rejects.toMatchObject({ code: "WALLET_DEPLOYMENT_SETTLEMENT_INVALID" });
+    await expect(store.settle(context, evidence)).resolves.toMatchObject({ settlement: { spentWei: evidence.fees.totalWei } });
   });
   it("records an actual cost above the remaining allocation as a permanent debit behind an allocation-exceeded fence", async () => {
     await initializedSettlementPool(pool, store, base);

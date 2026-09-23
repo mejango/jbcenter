@@ -190,14 +190,39 @@ describe('transport-independent protocol operations', () => {
       kind: 'prepare',
       transaction: false,
     });
-    expect(operations.get('pin_project_metadata')).toMatchObject({
-      kind: 'metadata-write',
-      transaction: false,
-    });
+    for (const id of ['publish_intent', 'deploy_intent']) {
+      expect(operations.get(id)).toMatchObject({
+        kind: 'center-write',
+        sources: ['center'],
+        transaction: false,
+        effects: { externalMutation: true, idempotent: true },
+      });
+    }
+    for (const id of ['pin_project_logo', 'pin_project_metadata']) {
+      expect(operations.get(id)).toMatchObject({
+        kind: 'metadata-write',
+        sources: ['publication'],
+        transaction: false,
+        effects: { externalMutation: true, idempotent: false },
+      });
+    }
     for (const id of ['get_reference', 'get_contract', 'plan_integration', 'list_capabilities']) {
       expect(operations.get(id)).toMatchObject({ kind: 'reference', transaction: false });
     }
   });
+
+  it.each(['pin_project_logo', 'pin_project_metadata'])(
+    'rejects onchain source selection before invoking %s',
+    async (id) => {
+      const logo = vi.spyOn(services.metadata, 'pinLogo');
+      const metadata = vi.spyOn(services.metadata, 'pin');
+      await expect(operations.execute(id, {}, { source: 'onchain' })).rejects.toMatchObject({
+        code: 'SOURCE_NOT_SUPPORTED',
+      });
+      expect(logo).not.toHaveBeenCalled();
+      expect(metadata).not.toHaveBeenCalled();
+    },
+  );
 
   it('filters Center search to V6 without rewriting the upstream cursor or claiming a V6 count', async () => {
     vi.spyOn(services.bendystraw, 'searchProjects').mockResolvedValue({

@@ -47,7 +47,7 @@ async function main(): Promise<void> {
   const pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 1,
     connectionTimeoutMillis: 5_000, query_timeout: 10_000,
     options: `-c search_path=${schema} -c statement_timeout=10000 -c lock_timeout=5000 -c idle_in_transaction_session_timeout=15000` });
-  const queue = new PostgresWalletAuthorityRefreshQueue(pool, { interestMs: 1000, ...queueOptions });
+  const queue = new PostgresWalletAuthorityRefreshQueue(pool, queueOptions);
   const event = async (kind: string, accountId: string) => {
     await pool.query("INSERT INTO wallet_app_refresh_events(kind,account_id) VALUES($1,$2)", [kind, accountId]);
   };
@@ -84,6 +84,19 @@ async function main(): Promise<void> {
       },
       claim: queue.claim.bind(queue), complete: queue.complete.bind(queue), stats: queue.stats.bind(queue),
     } });
+  const pendingWork = new Set<Promise<unknown>>();
+  const track = <T>(pending: Promise<T>): Promise<T> => {
+    pendingWork.add(pending);
+    void pending.then(() => pendingWork.delete(pending), () => pendingWork.delete(pending));
+    return pending;
+  };
+  process.on("message", value => {
+    if (value === "drain") void (async () => {
+      // Admission returns before background demand finishes, which then starts its tick.
+      while (pendingWork.size) await Promise.allSettled([...pendingWork]);
+      process.send?.({ kind: "drained" });
+    })();
+  });
   let stopping = false;
   const stop = (code = 0) => {
     if (stopping) return;
@@ -145,7 +158,9 @@ async function main(): Promise<void> {
         return typeof value === "function" ? value.bind(current) : value;
       } });
       const auth = createRestAuth({ store: new PostgresAccountStore(connection,
-        { maxNoncesPerAccount: 1000, ...{ walletRefresh: { request: refresh.request, tick: refresh.tick } } }), audience: "https://juicebox.center" });
+        { maxNoncesPerAccount: 1000, walletRefresh: {
+          request: accountId => track(refresh.request(accountId)), tick: () => track(refresh.tick()),
+        } }), audience: "https://juicebox.center" });
       const principal = await auth.authenticate({ headers, body, method: request.method ?? "GET", requestTarget: target,
         contentType: headers.get("content-type") ?? "", signal: AbortSignal.timeout(15_000) },
       [target === "/fixture/claim" ? "plan" : "read"], target === "/fixture/owner");

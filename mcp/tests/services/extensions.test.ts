@@ -464,7 +464,13 @@ describe('loan plans and authority', () => {
   });
 
   it('prepares native repayment with the explicit maximum and refund semantics', async () => {
-    const plan = await fixture().service.prepareRepay(repay);
+    const f = fixture();
+    const plan = await f.service.prepareRepay(repay);
+    expect(
+      f.readContract.mock.calls.filter(
+        ([request]) => request.functionName === 'determineSourceFeeAmount',
+      ),
+    ).toHaveLength(1);
     expect(plan.calls).toHaveLength(1);
     expect(plan.calls[0]?.value).toBe('10200');
     expect(plan.summary).toMatchObject({
@@ -498,11 +504,17 @@ describe('loan plans and authority', () => {
   });
 
   it('uses remaining collateral capacity for partial repayment and retains NFT ownership', async () => {
-    const plan = await fixture({ available: 100n, capacity: 4000n }).service.prepareRepay({
+    const f = fixture({ available: 100n, capacity: 4000n });
+    const plan = await f.service.prepareRepay({
       ...repay,
       collateralCountToReturn: '500',
       maxRepayBorrowAmount: '6200',
     });
+    expect(
+      f.readContract.mock.calls
+        .filter(([request]) => request.functionName === 'determineSourceFeeAmount')
+        .map(([request]) => request.args?.[1]),
+    ).toEqual([6000n]);
     expect(plan.summary).toMatchObject({
       principal: '6000',
       quotedRepayment: '6100',

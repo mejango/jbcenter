@@ -101,7 +101,12 @@ suite("PostgreSQL store", () => {
     expect(created.created).toBe(true);
     expect(created.usage).toEqual({ intents: 1, bytes: 100 });
     expect((await store!.getIntent(created.intent.id))?.envelope).toEqual(created.intent.envelope);
-    expect((await store!.search("climate", 20, 0, {})).items).toHaveLength(1);
+    expect((await store!.search("climate", 20, 0, {})).items).toEqual([{
+      source: "jbcenter", status: "undeployed", intentId: created.intent.id,
+      contentHash: created.intent.contentHash, format: "juicebox.money/v1", deploymentVersion: "6",
+      chainIds: [1], publisher: zeroAddress, name: "Climate garden", description: "Public goods",
+      tagline: null, tags: ["climate"], logoUri: null, owner: zeroAddress, createdAt: created.intent.createdAt,
+    }]);
 
     await store!.recordDeployment(created.intent.id, {
       chainId: 1,

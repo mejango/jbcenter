@@ -127,11 +127,13 @@ export function createRestRpc(options: {
         throw new RestError(400, "UNSUPPORTED_CHAIN", "The requested chain is not configured");
       const broadcast = method === "eth_sendRawTransaction";
       const trace = method === "debug_traceBlockByNumber" || method === "debug_traceTransaction";
+      // Validation and transmission must use the same bytes across quota and chain-verification awaits.
+      params = trace ? traceParams(method, params) : structuredClone(params);
       const request = {
         jsonrpc: "2.0" as const,
         id: nextId(),
         method,
-        params: trace ? traceParams(method, params) : params,
+        params,
       };
       if (broadcast) {
         if (

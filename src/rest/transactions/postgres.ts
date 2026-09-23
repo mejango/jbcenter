@@ -492,14 +492,17 @@ export class PostgresTransactionStore implements TransactionStore {
       if (current.revision !== expectedRevision)
         conflict("Transaction plan changed; inspect it before retrying.");
       const next = applyExternalObservations(current, bindingId, updates);
-      for (const update of updates)
-        await assertPostgresTransport(
-          client,
-          planId,
-          [update.index],
-          current.steps[update.index]!.externalExecution!.transport,
-          bindingId,
-        );
+      for (const transport of ["relayr", "erc4337"] as const) {
+        const indexes = updates
+          .filter(
+            (update) => current.steps[update.index]!.externalExecution!.transport === transport,
+          )
+          .map((update) => update.index);
+        if (indexes.length)
+          await assertPostgresTransport(
+            client, planId, indexes, transport, bindingId,
+          );
+      }
       if (next.revision !== current.revision) await this.update(client, next);
       return boundedClone(next);
     });
@@ -536,7 +539,7 @@ export class PostgresTransactionStore implements TransactionStore {
     assertLimit(limit);
     const cursor = decodeCursor(cursorValue);
     const result = await this.pool.query<PlanRow>(
-      `${selectPlan} p WHERE (jsonb_path_exists(document, '$.steps[*] ? ((exists(@.attempt) || exists(@.externalExecution)) && (@.state == "reserved" || @.state == "submitted" || @.state == "unknown" || @.state == "confirming" || @.state == "reorged"))') OR EXISTS (SELECT 1 FROM rest_transaction_transports t WHERE t.plan_id = p.id AND t.transport IN ('relayr', 'erc4337') AND p.document->'steps'->t.step_index->'externalExecution' IS NULL)) AND ($2::bigint IS NULL OR (created_at, id COLLATE "C") > ($2::bigint, $3::text COLLATE "C")) ORDER BY created_at, id COLLATE "C" LIMIT $1`,
+      `${selectPlan} p WHERE (jsonb_path_exists(document, '$.steps[*] ? ((exists(@.attempt) || exists(@.externalExecution)) && (@.state == "reserved" || @.state == "submitted" || @.state == "unknown" || @.state == "confirming" || @.state == "reorged" || (@.state == "confirmed" && (!exists(@.semantic.status) || @.semantic.status == "unknown"))))') OR EXISTS (SELECT 1 FROM rest_transaction_transports t WHERE t.plan_id = p.id AND t.transport IN ('relayr', 'erc4337') AND p.document->'steps'->t.step_index->'externalExecution' IS NULL)) AND ($2::bigint IS NULL OR (created_at, id COLLATE "C") > ($2::bigint, $3::text COLLATE "C")) ORDER BY created_at, id COLLATE "C" LIMIT $1`,
       [limit, cursor?.createdAt ?? null, cursor?.id ?? null],
     );
     return result.rows.map((row) => boundedClone(row.document));

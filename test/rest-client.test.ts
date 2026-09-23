@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { keccak256, type Hex } from "viem";
+import { keccak256 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
   SignedRestClient, accountIdFor, createBotRegistration, exactRequestUrl, newRequestNonce,
@@ -100,6 +100,23 @@ describe("signed REST client request binding", () => {
     await expect(client.request({ requestTarget: "/api/v1/accounts/me", timeoutMs: 40 })).rejects.toMatchObject({ code: "TIMEOUT" });
     expect(aborted[0]).toBeGreaterThanOrEqual(35);
     await expect(client.request({ requestTarget: "/api/v1/accounts/me", timeoutMs: 60_001 })).rejects.toThrow();
+  });
+
+  it("times out a stalled response body even when its cancellation never settles", async () => {
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    const client = new SignedRestClient({ ...config, timeoutMs: 5, fetch: async () =>
+      new Response(new ReadableStream({ cancel }), { headers: { "content-type": "application/json" } }) });
+    await expect(client.request({ requestTarget: "/api/v1/accounts/me" })).rejects.toMatchObject({ code: "TIMEOUT" });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("retries a rejected response without waiting for its cancellation hook", async () => {
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    let requests = 0;
+    const client = new SignedRestClient({ ...config, fetch: async () => ++requests === 1
+      ? new Response(new ReadableStream({ cancel }), { status: 503 }) : Response.json({ ready: true }) });
+    await expect(client.request({ requestTarget: "/api/v1/accounts/me", retries: 1 })).resolves.toEqual({ ready: true });
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it("identifies an initial API signing failure as unsent while preserving wallet cancellation details", async () => {

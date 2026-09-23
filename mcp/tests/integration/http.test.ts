@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { PassThrough } from 'node:stream';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { loadConfig, type Config } from '../../src/config.js';
+import { MAX_PROJECT_LOGO_BYTES } from '../../src/services/metadata.js';
+import { MAX_LOGO_REQUEST_BYTES } from '../../src/transport/limits.js';
 import {
   createHttpHandler,
   createHttpServer,
@@ -286,6 +290,81 @@ describe('stateless Streamable HTTP transport', () => {
     expect((await post(url, toolsList, { 'content-encoding': 'gzip' })).status).toBe(415);
     expect(JSON.stringify(logger.mock.calls)).not.toContain('SECRET_DO_NOT_LOG');
     await vi.waitFor(() => expect(runtime.activeRequests()).toBe(0));
+  });
+
+  it('admits a complete 1 MiB logo while retaining the smaller limit for ordinary HTTP messages', async () => {
+    const upload = vi.fn(async ({ imageBase64 }: { imageBase64: string }) => ({
+      content: [{ type: 'text' as const, text: String(Buffer.from(imageBase64, 'base64').length) }],
+    }));
+    const factory = vi.fn(() => {
+      const server = fixtureServer();
+      server.registerTool(
+        'jb_pin_project_logo',
+        { inputSchema: { imageBase64: z.string() } },
+        upload,
+      );
+      return server;
+    });
+    const { url } = await start(factory);
+    const request = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: {
+        name: 'jb_pin_project_logo',
+        arguments: { imageBase64: Buffer.alloc(MAX_PROJECT_LOGO_BYTES).toString('base64') },
+      },
+    };
+    const response = await post(url, request);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      result: { content: [{ text: String(MAX_PROJECT_LOGO_BYTES) }] },
+    });
+    expect(upload).toHaveBeenCalledOnce();
+    factory.mockClear();
+    const ordinary = await post(url, { ...request, params: { ...request.params, name: 'echo' } });
+    expect(ordinary.status).toBe(413);
+    const overflow = await post(url, {
+      ...request,
+      padding: 'x'.repeat(MAX_LOGO_REQUEST_BYTES),
+    });
+    expect(overflow.status).toBe(413);
+    expect(factory).not.toHaveBeenCalled();
+    expect(upload).toHaveBeenCalledOnce();
+  });
+
+  it('bounds stdio messages while allowing the same complete logo envelope', async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const transport = new StdioServerTransport(input, output, {
+      maxBufferSize: MAX_LOGO_REQUEST_BYTES,
+    });
+    const receive = vi.fn();
+    const error = vi.fn();
+    transport.onmessage = receive;
+    transport.onerror = error;
+    try {
+      await transport.start();
+      input.write(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: {
+            name: 'jb_pin_project_logo',
+            arguments: { imageBase64: Buffer.alloc(MAX_PROJECT_LOGO_BYTES).toString('base64') },
+          },
+        }) + '\n',
+      );
+      await vi.waitFor(() => expect(receive).toHaveBeenCalledOnce());
+      input.write('x'.repeat(MAX_LOGO_REQUEST_BYTES + 1));
+      await vi.waitFor(() => expect(error).toHaveBeenCalledOnce());
+      expect(receive).toHaveBeenCalledOnce();
+    } finally {
+      await transport.close();
+      input.destroy();
+      output.destroy();
+    }
   });
 
   it('delegates protocol and Accept-header validation to the official transport', async () => {

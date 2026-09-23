@@ -498,6 +498,11 @@ export function createEmbeddedProvider(input: {
         if (typeof params[0] !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(params[0])) throw unsupported();
         return createPublicClient({ chain, transport: http(rpc) }).request({ method, params: [params[0] as Hex] });
       }
+      if (method === "eth_getBlockByNumber") {
+        if (params.length !== 2 || typeof params[0] !== "string" || !/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]{0,15})$/.test(params[0]) || params[1] !== false)
+          throw unsupported();
+        return createPublicClient({ chain, transport: http(rpc) }).request({ method, params: [params[0] as Hex, false] });
+      }
       if (!["eth_signTypedData_v4", "eth_sendTransaction"].includes(method)) throw unsupported();
       if (signing) throw new CenterWalletError("Finish the current approval before starting another.");
       signing = true;

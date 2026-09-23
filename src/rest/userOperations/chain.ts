@@ -420,12 +420,6 @@ export class UserOperationChain {
     }
     const pimlico = configured?.paymasterPolicy?.profile === "pimlico-v7-legacy-mode" || configured?.paymasterPolicy?.profile === "pimlico-v7-current-flags";
     const payer = op.paymaster ?? op.sender;
-    const totalGas =
-      BigInt(op.callGasLimit) +
-      BigInt(op.verificationGasLimit) +
-      BigInt(op.preVerificationGas) +
-      BigInt(op.paymasterVerificationGasLimit ?? "0x0") +
-      BigInt(op.paymasterPostOpGasLimit ?? "0x0");
     const reads = await Promise.allSettled([
       this.runtime(binding.chainId, binding.entryPoint, evidence, true),
       this.runtime(binding.chainId, binding.accountCode, evidence),

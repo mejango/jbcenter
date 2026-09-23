@@ -52,7 +52,7 @@ export async function startWalletBaseAnvil() {
     /** Runs after the upstream answered and before the reply is shaped; lets a test mine between two reads. */
     after: (method: string, params: readonly unknown[]) => Promise<void> } =
     { transform: (_method, _params, result) => result, send: "none", after: async () => undefined };
-  function shape(method: string, params: readonly unknown[], result: unknown): unknown {
+  function shape(method: string, _params: readonly unknown[], result: unknown): unknown {
     if ((method === "eth_getBlockByNumber" || method === "eth_getBlockByHash") && record(result) && Array.isArray(result.transactions) && typeof result.hash === "string") {
       blocks.set(result.hash.toLowerCase(), { number: String(result.number), timestamp: String(result.timestamp) });
       const full = result.transactions.some(record);

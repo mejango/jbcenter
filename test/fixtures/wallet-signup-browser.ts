@@ -175,13 +175,47 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await contains('cancelled');
     await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
     await page.getByRole('button', { name: 'Create passkey', exact: true }).click();
+    let encoded = '';
     if (kitMode) {
       await contains('Check the original signup');
       await page.getByRole('button', { name: 'Check signup' }).click();
       await contains('Your passkey is ready');
-      expect((await page.locator('#signup-recovery').textContent())?.toLowerCase()).toBe('a backup password you get once the account exists');
-      // One click and one prompt approve creation and prove the passkey.
-      await page.getByRole('button', { name: 'Create account', exact: true }).click();
+      const create = page.getByRole('button', { name: 'Create account', exact: true });
+      expect(await create.isDisabled()).toBe(true);
+      const predictedAddress = await page.locator('#signup-address').textContent();
+      // The backup includes the predicted address before any deployment approval.
+      expect(await page.locator('#recovery-phrase').getAttribute('type')).toBe('password');
+      await page.getByRole('button', { name: 'Show' }).click();
+      const shown = await page.locator('#recovery-phrase').inputValue();
+      expect(await page.locator('#recovery-phrase').getAttribute('type')).toBe('text');
+      expect(shown.split(' ')).toHaveLength(24);
+      await page.getByRole('button', { name: 'Hide' }).click();
+      const downloaded = page.waitForEvent('download');
+      await page.getByRole('button', { name: 'Save backup file' }).click();
+      const stream = await (await downloaded).createReadStream(), chunks = [];
+      if (!stream) throw new Error('No recovery download.');
+      for await (const chunk of stream) chunks.push(chunk);
+      encoded = Buffer.concat(chunks).toString('utf8'); const kit = JSON.parse(encoded);
+      recoveryKitText = encoded;
+      expect(kit.walletAddress.toLowerCase()).toBe(predictedAddress?.toLowerCase());
+      expect(kit.mnemonic).toBe(shown);
+      expect(await create.isDisabled()).toBe(false);
+      await page.reload(); await contains('Your passkey is ready');
+      expect(await page.locator('#recovery-phrase').inputValue()).toBe('');
+      expect(await create.isDisabled()).toBe(true);
+      const before = observed.filter(value => value.path === '/signup/deployment/review').length;
+      // The handler also guards programmatic activation of a disabled control.
+      await page.evaluate(() => { const next = document.getElementById('signup-next') as HTMLButtonElement; next.disabled = false; next.click(); });
+      await contains('Save your complete backup file');
+      expect(observed.filter(value => value.path === '/signup/deployment/review')).toHaveLength(before);
+      await page.locator('#recovery-verify summary').click();
+      const wrong = JSON.stringify({ ...kit, walletAddress: '0x' + '44'.repeat(20) });
+      await page.getByLabel('Backup file', { exact: true }).setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(wrong) });
+      await contains('does not match'); expect(await create.isDisabled()).toBe(true);
+      await page.getByLabel('Backup file', { exact: true }).setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(encoded) });
+      await contains('Backup file verified'); expect(await create.isDisabled()).toBe(false);
+      // One click and one prompt still approve creation and prove the passkey.
+      await create.click();
     }
     // Under gate load a shared local anvil can time the approval's chain reads out; the page says
     // so and a person clicks again, as they would. Once.
@@ -200,35 +234,8 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     await signup.tick();
     // Under load the dispatch may already have settled by now; only an open lease needs waiting out.
     const dispatch = await options.deployments.getDispatch(deploymentId);
-    if (dispatch) await new Promise(resolve => setTimeout(resolve, Math.max(1, dispatch.leaseUntil - Date.now() + 20)));
+    if (dispatch) await expect.poll(() => flows.now()).toBeGreaterThanOrEqual(dispatch.leaseUntil);
     await options.fixture.rpc('anvil_mine', ['0x41', '0x0']); await signup.tick();
-    let encoded = '';
-    if (kitMode) {
-      // The kit is presented once the wallet exists; saving it unlocks browser setup.
-      await contains('save your backup password');
-      // The password stays masked until asked for, and copies through the clipboard.
-      expect(await page.locator('#recovery-phrase').getAttribute('type')).toBe('password');
-      await page.getByRole('button', { name: 'Show' }).click();
-      const shown = await page.locator('#recovery-phrase').inputValue();
-      expect(await page.locator('#recovery-phrase').getAttribute('type')).toBe('text');
-      expect(shown.split(' ')).toHaveLength(24);
-      await page.getByRole('button', { name: 'Hide' }).click();
-      // Continuing before saving is allowed, after a plain warning that can be declined.
-      await page.getByRole('button', { name: 'Continue', exact: true }).click();
-      await expect.poll(() => page.locator('#explain-title').textContent()).toBe('Nothing saved yet');
-      await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
-      await contains('Cancelled');
-      const downloaded = page.waitForEvent('download');
-      await page.getByRole('button', { name: 'Save backup file' }).click();
-      const stream = await (await downloaded).createReadStream(), chunks = [];
-      if (!stream) throw new Error('No recovery download.');
-      for await (const chunk of stream) chunks.push(chunk);
-      encoded = Buffer.concat(chunks).toString('utf8'); const kit = JSON.parse(encoded);
-      recoveryKitText = encoded;
-      expect(kit.walletAddress.toLowerCase()).toBe(originalAddress?.toLowerCase());
-      expect(kit.mnemonic.split(' ')).toHaveLength(24);
-      expect(kit.mnemonic).toBe(shown);
-    }
     const resumed = options.resume ?? true;
     if (resumed) {
       await context.clearCookies({ name: walletSignupCookie });
@@ -244,11 +251,15 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
       expect(await page.locator('#recovery-phrase').inputValue()).toBe('');
       await page.setViewportSize({ width: 320, height: 844 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      // After a reload the words are gone: the page names the backup password's address and offers a start over.
+      // After a reload, continue requires the saved backup for this exact account.
       expect(await page.locator('#recovery-restore-box').isVisible()).toBe(true);
       expect(await page.getByRole('link', { name: 'start over' }).isVisible()).toBe(true);
       expect(await page.locator('#signup-recovery-label').textContent()).toBe('Backup password address');
       expect((await page.locator('#signup-recovery').textContent())?.toLowerCase()).toBe(String(kit.recoveryOwner).toLowerCase());
+      expect(await page.getByRole('button', { name: 'Continue', exact: true }).isDisabled()).toBe(true);
+      await page.locator('#recovery-verify summary').click();
+      await page.getByLabel('Backup file', { exact: true }).setInputFiles({ name: 'recovery.json', mimeType: 'application/json', buffer: Buffer.from(encoded) });
+      await contains('Backup file verified');
       expect(await page.getByRole('button', { name: 'Continue', exact: true }).isDisabled()).toBe(false);
       const persisted = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
       expect(persisted.includes(kit.mnemonic)).toBe(false);
@@ -316,7 +327,7 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
     expect((await options.deployments.getSettlement(deploymentId))?.nextNonce).toBe(options.expectedNextNonce ?? '5');
     await writeFile(new URL('summary.json', out), JSON.stringify({ passed: true, browser: browser.version(),
       evidence: 'real HTTP, PostgreSQL, unforked Anvil; virtual authenticator and test EOA',
-      recoveryMode: options.recoveryMode ?? 'wallet', ...(kitMode ? { reloadOffersStartOver: true, phraseAbsentFromStorageAndRequests: true } : {}),
+      recoveryMode: options.recoveryMode ?? 'wallet', ...(kitMode ? { backupBeforeDeployment: true, resumedDeploymentRequiresBackup: true, savedKitRestored: true, wrongKitRejected: true, phraseAbsentFromStorageAndRequests: true } : {}),
       cancelledPrompt: true, lostRegistrationReplyRecovered: lostRegistration, lostSetupReplyRecovered: lostSetup,
       cookieLossResumedSameWallet: true, separateFreshLogin: true, mobileWidth: 320, pageErrors: errors, requests: observed }, null, 2));
   } finally { await recovery?.stop(); await signup.stop(); await browser.close(); await new Promise<void>(resolve => server.close(() => resolve())); }

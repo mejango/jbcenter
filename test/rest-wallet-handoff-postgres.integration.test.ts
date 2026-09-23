@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { privateKeyToAccount } from "viem/accounts";
-import { hashTypedData, keccak256, toHex } from "viem";
+import { hashTypedData } from "viem";
 import { migrate } from "../src/db/migrate.js";
 import { PostgresWalletPolicyStore } from "../src/rest/wallet/policyPostgres.js";
 import { validateWalletHandoffRequest, walletHandoffCodeHash, walletHandoffExchangeDocument, walletHandoffPkceChallenge,
@@ -13,8 +13,6 @@ import { PostgresWalletHandoffStore, type WalletHandoffStoreOptions } from "../s
 import { PostgresWalletAppGrantStore } from "../src/rest/wallet/appGrantsPostgres.js";
 import { PostgresWalletLoginStore } from "../src/rest/wallet/loginPostgres.js";
 import { createWalletLoginDraft } from "../src/rest/wallet/login.js";
-import { PostgresWalletAuthorityStore } from "../src/rest/wallet/authorityPostgres.js";
-import { walletAuthorityContextDigest, walletAuthorityExpectedAnchor } from "../src/rest/wallet/authority.js";
 import { completeWalletLoginFixture, createWalletLoginSetup, walletLoginFixtureOrigin, walletLoginFixtureRpId } from "./fixtures/wallet-login-setup.js";
 import { signGet } from "./fixtures/wallet-enrollment-crypto.js";
 
@@ -134,15 +132,6 @@ async function holdAccount(accountId: string) {
   await lock.query("SELECT id FROM rest_accounts WHERE id=$1 FOR UPDATE", [accountId]);
   return async () => { try { await lock.query("ROLLBACK"); } finally { lock.release(); } };
 }
-async function refreshSyntheticObservation(accountId: string) {
-  const authority = new PostgresWalletAuthorityStore(pool), context = await authority.loadContext(accountId);
-  const prior = context.prior!.latestObservation!, observedAtMs = await nowMs(), expected = walletAuthorityExpectedAnchor(context);
-  const blockNumber = (BigInt(context.prior!.highestObservedBlock!) + 1n).toString();
-  await authority.reconcile(context, { ...prior, contextDigest: walletAuthorityContextDigest(context), observedAtMs,
-    validUntilMs: observedAtMs + 30_000, head: { ...prior.head!, blockNumber,
-      blockHash: keccak256(toHex(`handoff-synthetic-block-${blockNumber}`)), timestamp: String(Math.floor(observedAtMs / 1000)) },
-    priorAnchor: { status: "same", expected, observed: expected } });
-}
 
 suite("PostgreSQL wallet handoff with genuine request-key proofs and credentialless exchange", () => {
   beforeAll(async () => {
@@ -258,11 +247,11 @@ suite("PostgreSQL wallet handoff with genuine request-key proofs and credentiall
   });
 
   it("cleans expired receipts in bounded batches, skips held rows and preserves the live grant", async () => {
-    // This checks cleanup and row locking, not a 100ms completion deadline under
-    // the full parallel EVM suite. Keep the successful exchange alive long enough.
-    const value = await issuedHandoff({ receiptRetentionMs: 1000 }, 30_000, 1600);
+    // Successful admission uses the same 3s budget as the real expiry cases below;
+    // cleanup still waits each original, immutable retention deadline.
+    const value = await issuedHandoff({ receiptRetentionMs: 3000 }, 30_000, 3000);
     const first = await value.target.exchange(value.exchange, origin);
-    const another = await request({ expiresAtMs: await nowMs() + 1000 });
+    const another = await request({ expiresAtMs: await nowMs() + 3000 });
     const other = await value.target.prepare({ request: another.request, signature: another.signature }, origin);
     const deadline = Math.max(Number((await handoffRow(value.prepared.id)).retain_until_ms), Number((await handoffRow(other.id)).retain_until_ms));
     await waitPast(deadline);
@@ -412,15 +401,29 @@ suite("PostgreSQL wallet handoff with genuine request-key proofs and credentiall
       expect(await counts()).toEqual({ handoffs: 1, consumed: 1, grants: 1, grantIds: 1 });
     });
 
-  it("replays the same fixed receipt after code and request expiry, then refuses receipt expiry", async () => {
-    const value = await issuedHandoff({ codeLifetimeMs: 700, receiptRetentionMs: 2400 }, 30_000, 1100);
-    const first = await value.target.exchange(value.exchange, origin), retained = await handoffRow(value.prepared.id);
-    await waitPast(value.input.request.expiresAtMs);
-    const replayed = await value.target.exchange(value.exchange, origin);
-    expect(replayed).toEqual({ grant: first.grant, replayed: true });
-    expect(await handoffRow(value.prepared.id)).toEqual(retained);
+  it("replays the same fixed receipt at simulated code/request expiry, then refuses real receipt expiry", async () => {
+    const process = await worker({ codeLifetimeMs: 700, receiptRetentionMs: 2400 });
+    const login = await completeWalletLoginFixture(pool), databaseTimeMs = await nowMs();
+    const input = await request({ issuedAtMs: databaseTimeMs, expiresAtMs: databaseTimeMs + 1100 });
+    const prepared = await process.request({ action: "prepare", input: { request: input.request, signature: input.signature }, databaseTimeMs });
+    expect(prepared.status).toBe(200);
+    const launchSignature = await appKey.signTypedData(walletHandoffLaunchDocument({ request: input.request, intentId: prepared.body.id }));
+    const issued = await process.request({ action: "issue", intentId: prepared.body.id, sessionId: login.session.id, launchSignature, databaseTimeMs });
+    expect(issued.status).toBe(200);
+    const exchange = await exchangeInput(input.request, prepared.body.id, issued.body.code, input.verifier);
+    const first = await process.request({ action: "exchange", input: exchange, databaseTimeMs });
+    expect(first.status).toBe(200);
+    const retained = await handoffRow(prepared.body.id), admissionDeadline = Math.max(input.request.expiresAtMs, Number(retained.code_expires_at_ms));
+    const replayTimeMs = admissionDeadline + 1;
+    expect(replayTimeMs).toBeLessThan(Number(retained.receipt_until_ms));
+    await waitPast(admissionDeadline);
+    // Replay's intermediate instant is explicit so scheduling cannot skip the short
+    // receipt window. Its stored expiry never changes, and final refusal uses real time.
+    const replayed = await process.request({ action: "exchange", input: exchange, databaseTimeMs: replayTimeMs });
+    expect(replayed).toEqual({ status: 200, body: { grant: first.body.grant, replayed: true } });
+    expect(await handoffRow(prepared.body.id)).toEqual(retained);
     await waitPast(Number(retained.receipt_until_ms));
-    await expect(value.target.exchange(value.exchange, origin)).rejects.toMatchObject({ status: 410 });
+    await expect(store.exchange(exchange, origin)).rejects.toMatchObject({ status: 410 });
     expect(await counts()).toEqual({ handoffs: 1, consumed: 1, grants: 1, grantIds: 1 });
   });
 
@@ -484,7 +487,7 @@ suite("PostgreSQL wallet handoff with genuine request-key proofs and credentiall
   });
 
   it("does not reissue a grant after the original grant and its capped receipt expire", async () => {
-    const value = await issuedHandoff(), process = await worker({ grantLifetimeSeconds: 2 });
+    const value = await issuedHandoff(), process = await worker({ grantLifetimeSeconds: 5 });
     const first = await process.request({ action: "exchange", input: value.exchange });
     expect(first.status).toBe(200);
     const retained = await handoffRow(value.prepared.id);
@@ -554,7 +557,7 @@ suite("PostgreSQL wallet handoff with genuine request-key proofs and credentiall
     });
 
   it.each([false, true])("refuses expired refresh identity when consumed=%s", async consumed => {
-    const value = await issuedHandoff({ codeLifetimeMs: 600, receiptRetentionMs: 900 });
+    const value = await issuedHandoff({ codeLifetimeMs: 3000, receiptRetentionMs: 3000 });
     if (consumed) await value.target.exchange(value.exchange, origin);
     const row = await handoffRow(value.prepared.id);
     await waitPast(Number(consumed ? row.receipt_until_ms : row.code_expires_at_ms));

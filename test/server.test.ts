@@ -243,7 +243,7 @@ describe("Center and MCP share one HTTP listener", () => {
     expect(await response.json()).toEqual({ jsonrpc: "2.0", id: "wire-id", result: "0x2105" });
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
     expect(rpc.request).toHaveBeenCalledWith(8453, body);
-    expect(store.consumeRequest.mock.calls.some(([client]) => client.startsWith("public:"))).toBe(
+    expect(store.consumeRequest.mock.calls.some(([client]) => client.startsWith("rpc:public:"))).toBe(
       true,
     );
     expect((await post(url, toolsList, { origin: "https://ipfs-client.example" })).status).toBe(

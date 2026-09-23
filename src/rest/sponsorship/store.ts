@@ -8,7 +8,7 @@ import type {
   RelayrQuote,
   SponsorshipRecord,
 } from "./types.js";
-import { assertKey, clone, fail, hash, same } from "./validation.js";
+import { assertKey, clone, digest, fail, hash, same } from "./validation.js";
 
 export interface SponsorshipClaim {
   actor: RestActor;
@@ -37,6 +37,7 @@ export interface SponsorshipStore {
     submissionHash: Hex,
     quote?: RelayrQuote,
     runtimeVerified?: boolean,
+    bindingVerified?: boolean,
   ): Promise<SponsorshipRecord>;
   observe(
     id: string,
@@ -189,17 +190,37 @@ export function settled(
   submissionHash: Hex,
   quote?: RelayrQuote,
   runtimeVerified = true,
+  bindingVerified = runtimeVerified,
 ): SponsorshipRecord {
   if (!record.submission || !same(record.submission.hash, submissionHash))
     return conflict();
+  bindingVerified ||= runtimeVerified;
   if (record.quote) {
-    if (quote && !same(record.quote.commitment, quote.commitment))
-      return conflict();
-    if (quote && runtimeVerified && !record.quoteRuntimeVerified)
+    const rebinding = quote && !same(record.quote.commitment, quote.commitment);
+    if (rebinding) {
+      // Only the provisional UUID ordering may change, before any binding or
+      // fundable quote was verified. Payment bytes and ordered calls stay exact.
+      if (
+        record.quoteBindingVerified !== false ||
+        record.quoteRuntimeVerified ||
+        !bindingVerified ||
+        quoteIdentity(record.quote) !== quoteIdentity(quote)
+      )
+        return conflict();
+      const { commitment, ...payload } = quote;
+      if (!same(commitment, digest(payload))) return conflict();
+    }
+    if (
+      quote &&
+      ((runtimeVerified && !record.quoteRuntimeVerified) ||
+        (bindingVerified && !record.quoteBindingVerified && !record.quoteRuntimeVerified))
+    )
       return clone({
         ...record,
         revision: record.revision + 1,
-        quoteRuntimeVerified: true,
+        quote: rebinding ? quote : record.quote,
+        quoteBindingVerified: record.quoteBindingVerified || bindingVerified,
+        quoteRuntimeVerified: record.quoteRuntimeVerified || runtimeVerified,
       });
     return clone(record);
   }
@@ -208,6 +229,17 @@ export function settled(
     ...record,
     revision: record.revision + 1,
     state: quote ? "quoted" : "submission_unknown",
-    ...(quote ? { quote, quoteRuntimeVerified: runtimeVerified } : {}),
+    ...(quote
+      ? { quote, quoteBindingVerified: bindingVerified, quoteRuntimeVerified: runtimeVerified }
+      : {}),
+  });
+}
+
+function quoteIdentity(quote: RelayrQuote): Hex {
+  const { commitment: _commitment, entries, ...metadata } = quote;
+  return digest({
+    ...metadata,
+    entries: entries.map(({ entry }) => entry),
+    transactionIds: entries.map(({ txUuid }) => txUuid).sort(),
   });
 }

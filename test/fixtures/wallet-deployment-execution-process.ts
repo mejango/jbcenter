@@ -31,7 +31,7 @@ const server = createServer(async (request, response) => {
               (body.barrier === "after-commit" && sql === "COMMIT") ||
               (body.barrier === "after-signed-commit" && sql === "COMMIT" && mutation === "signed") ||
               (body.barrier === "after-dispatch-commit" && sql === "COMMIT" && mutation === "dispatch")) {
-            process.send?.({ kind: "barrier", pid: process.pid });
+            process.send?.({ kind: "barrier", pid: process.pid, leaseUntil: result.rows?.[0]?.lease_until });
             await new Promise<void>(resolve => {
               if (body.continueBarrier) process.once("message", () => resolve());
             });

@@ -35,7 +35,7 @@ export function sponsorshipSchemas(): Record<string, Schema> {
       revision: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER }, authorizations: array(ref("ForwardAuthorization"), { minItems: 1, maxItems: RELAYR_LIMITS.maximumCalls }),
       submission: object({ hash: ref("Hash"), startedAt: ref("UnixMilliseconds"), repeatPublicationAllowed: { type: "boolean", const: false } }),
       quote: object({ bundleUuid: text, commitment: ref("Hash"), payments: array(ref("SponsorshipPayment"), { maxItems: RELAYR_MAINNET_CHAINS.length }), runtimeVerified: boolean,
-        observedAt: ref("UnixMilliseconds"), transactions: array(object({ txUuid: text, chainId: chain, outerCallHash: ref("Hash") }), { minItems: 1, maxItems: RELAYR_LIMITS.maximumCalls }) }),
+        observedAt: ref("UnixMilliseconds"), transactions: array(object({ txUuid: text, chainId: chain, outerCallHash: ref("Hash") }), { maxItems: RELAYR_LIMITS.maximumCalls }) }),
       observations: array(ref("SponsorshipObservation"), { maxItems: RELAYR_LIMITS.maximumCalls }), authorizationNotice: text, fundingNotice: text, recovery: text, economicCompletion: boolean,
     }, ["id", "planId", "planCommitment", "commitment", "state", "availability", "createdAt", "publicationExpiresAt", "revision", "authorizations", "observations", "authorizationNotice", "fundingNotice", "economicCompletion"]),
   };

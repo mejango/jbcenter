@@ -2,7 +2,7 @@ import { getAddress, hashTypedData, isAddress, type Address, type Hex } from 'vi
 import type { createLocalWalletSignup } from '../wallet/signup.js';
 import { base } from './walletBase.js';
 import { checkedRedirect, framed, listenForTheme } from './walletFramed.js';
-import { createWalletRecoverySecret, recoveryAccountFromPhrase, serializeWalletRecoveryKit,
+import { createWalletRecoverySecret, readWalletRecoveryKit, recoveryAccountFromPhrase, serializeWalletRecoveryKit,
   type WalletRecoveryKitIdentity, type WalletRecoverySecret } from './walletRecoveryKit.js';
 
 type Signup = ReturnType<typeof createLocalWalletSignup>;
@@ -134,14 +134,12 @@ function render() {
   if (view?.phase === 'ready_to_sign_in' && approvedHere && !sessionTried && !busy) void run(async () => { if (!(await session())) render(); });
   form.querySelector('button')!.disabled = engaged;
   name.disabled = engaged;
-  // The kit is presented once the wallet exists. Earlier phases still need the words in memory
-  // to sign the enrollment; a reload before then strands the signup, so say so and offer a fresh start.
-  // The backup password is shown as soon as the account's address is fixed, while Base is still
-  // creating it: the wait is the time to save it. Continue lights up when the account is ready.
-  const kitPhase = !!view && ['deploying', 'awaiting_activation', 'preparing_sign_in', 'ready_to_sign_in'].includes(view.phase);
-  const stranded = kitMode() && !recoverySecret && !!view && ['awaiting_registration', 'awaiting_possession'].includes(view.phase);
+  // Registration fixes the complete recovery identity. Save it before approving creation;
+  // after a reload, reopen the same backup before continuing.
+  const kitPhase = !!view?.walletAddress && !!view.initializerHash && view.phase !== 'expired';
+  const stranded = kitMode() && !recoverySecret && view?.phase === 'awaiting_registration';
   // A stranded attempt that never created a passkey lost nothing worth mentioning: show the clean form.
-  if (stranded) message(view!.phase === 'awaiting_possession' ? 'Your last signup cannot continue without its backup password. Sign up again with a new passkey.' : '');
+  if (stranded) message('');
   form.hidden = !known || (!!view && !stranded) || loggingIn; details.hidden = !view || stranded;
   // A default name that tells passkeys apart later: the site, then when it was made.
   if (!form.hidden && !name.value) {
@@ -160,16 +158,21 @@ function render() {
   el<HTMLButtonElement>('recovery-download').disabled = engaged;
   el<HTMLButtonElement>('recovery-share').hidden = !recoverySecret || typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function';
   el<HTMLButtonElement>('recovery-share').disabled = engaged;
+  el<HTMLInputElement>('recovery-file').disabled = engaged;
+  el<HTMLTextAreaElement>('recovery-words').disabled = engaged;
+  el<HTMLButtonElement>('recovery-restore').disabled = engaged;
   el('signup-name').textContent = view?.passkeyName ?? '';
   el('signup-recovery-label').textContent = mode() === 'wallet' ? 'Recovery wallet' : showKit && recoverySecret ? 'Backup password'
     : showKit ? 'Backup password address' : 'Recovery';
   el('signup-recovery').textContent = mode() === 'wallet' ? view?.recoveryOwner ?? ''
-    : kitPhase ? recoverySecret ? '' : view?.recoveryOwner ?? '' : 'A backup password you get once the account exists';
+    : kitPhase ? recoverySecret ? '' : view?.recoveryOwner ?? '' : 'A backup password you save before creating the account';
   el('signup-address').textContent = view?.walletAddress ?? 'Not created yet';
   const label = view?.phase === 'awaiting_registration' ? 'Create passkey'
     : view?.phase === 'awaiting_possession' || view?.phase === 'awaiting_deployment_approval' ? 'Create account'
     : view?.phase === 'awaiting_activation' ? 'Continue' : view?.phase === 'deploying' && mode() === 'kit' ? 'Continue' : view?.phase === 'ready_to_sign_in' ? 'Log in' : view?.phase === 'expired' ? 'Sign up' : null;
   next.hidden = !label || !!pending || stranded; next.textContent = label; next.disabled = engaged || view?.phase === 'deploying';
+  if (view && ['awaiting_possession', 'awaiting_deployment_approval', 'awaiting_activation'].includes(view.phase)
+    && kitMode() && kitSavedWallet !== view.walletAddress) next.disabled = true;
   el<HTMLButtonElement>('recovery-show').disabled = engaged; el<HTMLButtonElement>('recovery-copy').disabled = engaged;
   // "log in" resumes with a passkey; a finished wallet lands at sign-in. Once the state is known (or its load failed),
   // it stays offered unless a signup with a passkey is under way, so a returning user is never without a way in.
@@ -245,6 +248,12 @@ async function assertion(challenge: string, rpId: string) {
 }
 async function advance() {
   if (!view) return;
+  if (['awaiting_possession', 'awaiting_deployment_approval', 'awaiting_activation'].includes(view.phase)) {
+    if (kitMode()) {
+      if (!view.walletAddress || kitSavedWallet !== view.walletAddress)
+        throw new Error('Save your complete backup file, or reopen the saved file, before continuing.');
+    } else if (view.phase === 'awaiting_deployment_approval') await recoveryOwner(view.recoveryOwner);
+  }
   if (view.phase === 'expired') {
     if (inFrame()) { view = null; flowToken = ''; } else await send('restart', {});
     csrf = '';
@@ -259,8 +268,9 @@ async function advance() {
     native = null;
     await send('register', { type: 'public-key', credentialId: encode(value.rawId), rawId: encode(value.rawId),
       clientDataJSON: encode(value.response.clientDataJSON), attestationObject: encode(value.response.attestationObject) });
-    // Straight on to checking the passkey and approving creation; the first page said so.
-    if (current()?.phase === 'awaiting_possession') await advance();
+    // Existing-wallet signup keeps its single approval prompt. Kit users first save the
+    // complete backup, which now includes the address determined by this registration.
+    if (current()?.phase === 'awaiting_possession' && !kitMode()) await advance();
   } else if (view.phase === 'awaiting_possession' && view.possession) {
     // The recovery owner signs the enrollment document; the single passkey prompt then approves
     // creation, which also proves possession of the new passkey.
@@ -283,11 +293,6 @@ async function advance() {
   } else if (view.phase === 'awaiting_deployment_approval') {
     await approve();
   } else if (view.phase === 'awaiting_activation') {
-    if (mode() === 'kit' && recoverySecret && kitSavedWallet !== view.walletAddress) {
-      // Nothing saved, shared or copied: say so once, then respect the choice.
-      await announce('Nothing saved yet', 'Without the backup password you cannot get back into this account if you lose the passkey. Continue anyway?');
-      kitSavedWallet = view.walletAddress;
-    }
     // The passkey already consented to this account when it created the wallet; Center binds the
     // account from that proof. No prompt: reading and preparing need no grant, payments still do.
     messageLinked('Finishing', ' your account…');
@@ -362,8 +367,26 @@ el('recovery-show').addEventListener('click', () => {
 el('recovery-copy').addEventListener('click', () => { void run(async () => {
   if (!recoverySecret) throw new Error('Restore your backup password first.');
   await navigator.clipboard.writeText(recoverySecret.mnemonic);
-  kitSavedWallet = view!.walletAddress!;
-  message('Backup password copied. Paste it somewhere private, then clear your clipboard.');
+  message('Backup password copied. Keep it private and save the complete backup file before continuing.');
+}); });
+el('recovery-file').addEventListener('change', () => { void run(async () => {
+  const input = el<HTMLInputElement>('recovery-file'), file = input.files?.[0];
+  if (!file || file.size > 8192) throw new Error('Choose a valid backup file.');
+  try {
+    const kit = readWalletRecoveryKit(await file.text(), kitIdentity());
+    recoverySecret = { mnemonic: kit.mnemonic, recoveryOwner: kit.recoveryOwner };
+    kitSavedWallet = view!.walletAddress!;
+    message('Backup file verified. You can continue.');
+  } finally { input.value = ''; }
+}); });
+el('recovery-restore').addEventListener('click', () => { void run(async () => {
+  const input = el<HTMLTextAreaElement>('recovery-words');
+  const mnemonic = input.value.trim().toLowerCase().replace(/\s+/g, ' ');
+  try {
+    const owner = recoveryAccountFromPhrase(mnemonic, kitIdentity().recoveryOwner);
+    recoverySecret = { mnemonic, recoveryOwner: owner.address }; kitSavedWallet = null;
+    message('Backup password restored. Save the complete backup file before continuing.');
+  } finally { input.value = ''; }
 }); });
 next.addEventListener('click', () => { void run(advance); });
 el('recovery-restart-link').addEventListener('click', event => { event.preventDefault(); restart.click(); });
@@ -459,6 +482,7 @@ const timer = setInterval(() => {
 window.addEventListener('pagehide', () => {
   disposed = true; native?.abort(); clearInterval(timer); source?.close(); recoverySecret = null;
   el<HTMLInputElement>('recovery-phrase').value = '';
+  el<HTMLTextAreaElement>('recovery-words').value = ''; el<HTMLInputElement>('recovery-file').value = '';
   for (const url of downloadUrls) URL.revokeObjectURL(url); downloadUrls.clear();
 }, { once: true });
 void run(async () => {

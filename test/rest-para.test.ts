@@ -48,6 +48,20 @@ function setup(confirm = vi.fn<(review: Review) => Promise<void>>().mockResolved
 
 afterEach(() => { vi.restoreAllMocks(); for (const mock of Object.values(rpc)) mock.mockReset(); });
 
+it("lets embedded wallet recovery verify an exact receipt block without exposing arbitrary RPC reads", async () => {
+  const { provider, sign, confirm } = setup();
+  const block = { hash: `0x${"ab".repeat(32)}` };
+  rpc.receipt.mockResolvedValue(block);
+  await expect(provider.request({ method: "eth_getBlockByNumber", params: ["0x123", false] })).resolves.toEqual(block);
+  expect(rpc.receipt).toHaveBeenCalledExactlyOnceWith({ method: "eth_getBlockByNumber", params: ["0x123", false] });
+  for (const params of [["latest", false], ["pending", false], ["0x01", false], ["0x1", true], ["0x1"], ["0x1", false, "extra"]])
+    await expect(provider.request({ method: "eth_getBlockByNumber", params })).rejects.toMatchObject({ code: 4200 });
+  await expect(provider.request({ method: "eth_getBalance", params: [owner.address, "latest"] })).rejects.toMatchObject({ code: 4200 });
+  expect(rpc.receipt).toHaveBeenCalledOnce();
+  expect(sign).not.toHaveBeenCalled();
+  expect(confirm).not.toHaveBeenCalled();
+});
+
 describe("embedded account approvals", () => {
   it("uses the sign-in approval for one exact enrollment and reviews subsequent signatures", async () => {
     const f = setup();

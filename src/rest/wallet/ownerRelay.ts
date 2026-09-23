@@ -144,7 +144,14 @@ export function createWalletOwnerRelay<Record, Review extends { safeNonce: strin
       }
       locked = true; return await run(client, rpc);
     } finally {
-      rpc.close(); if (locked) await client.query("SELECT pg_advisory_unlock(hashtextextended('rest_wallet_recovery_lanes'::regclass::oid::text||$1,0))", ['recovery-local:' + sender]); client.release();
+      rpc.close();
+      try {
+        if (locked) await client.query("SELECT pg_advisory_unlock(hashtextextended('rest_wallet_recovery_lanes'::regclass::oid::text||$1,0))", ['recovery-local:' + sender]);
+      } catch (error) {
+        // A failed unlock must not return a potentially locked session to the pool.
+        client.release(true); throw error;
+      }
+      client.release();
     }
   }
   async function required(id: string): Promise<Record> {

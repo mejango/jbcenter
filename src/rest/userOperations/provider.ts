@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { keccak256, stringToHex, toHex, type Hex } from "viem";
 import { RestError } from "../core.js";
+import { CURRENT_PIMLICO_PAYMASTER } from "../smartAccounts/stack/current-pimlico/pins.js";
 import {
   sessionGasEstimationOverrides,
   type SessionGasEstimation,
@@ -34,11 +35,7 @@ export const PIMLICO_LEGACY_V7_PAYMASTER = Object.freeze({
     "0x1cd962f550282d1e4eadd0db10a956db2338c40f69c8b07cb434486275e1c11a" as const,
 });
 /** Independently reproduced solc 0.8.26 deployment; see stack/current-pimlico. */
-export const PIMLICO_CURRENT_V7_PAYMASTER = Object.freeze({
-  address: "0x777777777777aec03fd955926dbf81597e66834c" as const,
-  runtimeCodeHash:
-    "0x337b6e1b6c2167c0528c5240c028ead407c673595b2820029b69741b76d98fbc" as const,
-});
+export const PIMLICO_CURRENT_V7_PAYMASTER = CURRENT_PIMLICO_PAYMASTER;
 
 export function createPimlicoCurrentV7PaymasterPolicy(options: {
   policyId: string;
@@ -535,7 +532,7 @@ export class UserOperationProvider {
       paymasterPostOpGasLimit:
         value.paymasterPostOpGasLimit ?? operation.paymasterPostOpGasLimit,
     });
-    const proof = this.inspectPaymaster(chainOf(config), op, phase);
+    const proof = this.inspectPaymaster(config.chainId, op, phase);
     return {
       operation: op,
       isFinal: phase === "final" || value.isFinal === true,
@@ -765,52 +762,6 @@ export class UserOperationProvider {
     if (!uoObject(value) || typeof value.transactionHash !== "string") return null;
     return { transactionHash: uoHash(value.transactionHash, "outer transaction hash") };
   }
-  async find(
-    chainId: number,
-    hash: Hex,
-    signal?: AbortSignal,
-  ): Promise<{
-    operation: UserOperationV07;
-    transactionHash: Hex | null;
-  } | null> {
-    const config = this.configuration(chainId);
-    const expected = uoHash(hash, "operation hash");
-    const value = await this.rpc(
-      config,
-      false,
-      "eth_getUserOperationByHash",
-      [expected],
-      signal,
-    );
-    if (value === null) return null;
-    if (
-      !uoObject(value) ||
-      uoAddress(value.entryPoint, "returned EntryPoint") !==
-        config.entryPoint.address.toLowerCase()
-    )
-      uoError(
-        "INVALID_USER_OPERATION_RECEIPT",
-        "The bundler lookup changed the expected EntryPoint.",
-        502,
-      );
-    const operation = normalizeUserOperation(value.userOperation);
-    if (
-      getUserOperationHash(operation, config.entryPoint.address, chainId) !==
-      expected
-    )
-      uoError(
-        "INVALID_USER_OPERATION_RECEIPT",
-        "The bundler lookup changed the expected operation.",
-        502,
-      );
-    return {
-      operation,
-      transactionHash:
-        value.transactionHash === null
-          ? null
-          : uoHash(value.transactionHash, "outer transaction hash"),
-    };
-  }
   private async rpc(
     config: UserOperationProviderConfig,
     paymaster: boolean,
@@ -963,4 +914,3 @@ export class UserOperationProvider {
     }
   }
 }
-const chainOf = (config: UserOperationProviderConfig) => config.chainId;

@@ -575,6 +575,32 @@ suite('PostgreSQL transaction persistence', () => {
     expect(await store.findIdempotentPlan(owner, idem('clock-expired'))).toBeUndefined();
   });
 
+  it.each(['direct', 'relayr'] as const)('recovers confirmed %s calls with unresolved semantic outcomes after restart', async (transport) => {
+    const value = await store.create(plan(`semantic-recovery:${transport}`), idem(`semantic-recovery:${transport}`), now);
+    let current: StoredPlan;
+    if (transport === 'direct') {
+      current = (await store.claimSubmission(claim(value.id, await attempt(20_001)))).plan;
+    } else {
+      await seedSponsoredBinding(value, [0], 'semantic-recovery-binding');
+      current = await store.syncExternalExecutions(owner, value.id);
+    }
+    for (const status of [undefined, 'unknown', 'verified', 'unmodeled', 'failed'] as const) {
+      const semantic = status === undefined ? {} : { semantic: { status } };
+      if (transport === 'direct') {
+        const { semantic: _previous, ...step } = current.steps[0]!;
+        current = await store.save(owner, value.id, current.revision, [{
+          ...step, state: 'confirmed', receipt: externalReceipt(step.attempt!.hash), ...semantic,
+        }]);
+      } else {
+        const { semantic: _previous, ...observation } = confirmedExternal();
+        current = await store.saveExternalExecution(owner, value.id, current.revision,
+          'semantic-recovery-binding', [{ ...observation, ...semantic }]);
+      }
+      const recovered = await new PostgresTransactionStore(pool).recoverable(1_000);
+      expect(recovered.some((entry) => entry.id === value.id)).toBe(status === undefined || status === 'unknown');
+    }
+  });
+
   it('continues recovery past unchanged oldest records without mutating their observations', async () => {
     const expected = await store.recoverable(100);
     expect(expected.length).toBeGreaterThan(1);
