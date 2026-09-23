@@ -113,7 +113,7 @@ async function dbSeconds(client: PoolClient) {
     ).rows[0]!.now,
   );
 }
-async function waitUntilBlocked(client: PoolClient, pid: number) {
+async function waitUntilBlocked(client: PoolClient, pid: number, statement: RegExp) {
   const deadline = performance.now() + 5000;
   for (;;) {
     await client.query('SELECT pg_stat_clear_snapshot()');
@@ -121,12 +121,28 @@ async function waitUntilBlocked(client: PoolClient, pid: number) {
       'SELECT query FROM pg_stat_activity WHERE $1::integer=ANY(pg_blocking_pids(pid))',
       [pid],
     );
-    if (result.rows.length) return result.rows.map((row) => row.query);
+    // Activity text and the lock manager can sample opposite sides of a statement
+    // transition. Observe the required statement as well as its blocker before returning.
+    if (result.rows.some((row) => statement.test(row.query))) return result.rows.map((row) => row.query);
     if (performance.now() >= deadline)
       throw new Error('Claim did not reach the expected database wait.');
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
+
+describe('UserOperation database lock observation', () => {
+  it('waits for the requested SQL stage when activity still shows the preceding statement', async () => {
+    const expected = 'SELECT document FROM rest_transaction_plans WHERE id=$1 FOR UPDATE';
+    const activity = [
+      'SELECT document FROM rest_smart_account_bindings WHERE account_id=$1 AND id=$2 AND revoked_at IS NULL',
+      expected,
+    ];
+    const client = { query: async (sql: string) => ({ rows: sql === 'SELECT pg_stat_clear_snapshot()'
+      ? [] : [{ query: activity.shift() ?? expected }] }) } as unknown as PoolClient;
+    expect(await waitUntilBlocked(client, 1, /^SELECT document FROM rest_transaction_plans .*FOR UPDATE$/)).toEqual([expected]);
+    expect(activity).toHaveLength(0);
+  });
+});
 
 suite('PostgreSQL UserOperation persistence', () => {
   beforeAll(async () => {
@@ -217,7 +233,7 @@ suite('PostgreSQL UserOperation persistence', () => {
       await lock.query('SELECT id FROM rest_transaction_plans WHERE id=$1 FOR UPDATE', [value.id]);
       const pid = Number((await lock.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]!.pid);
       pending = store.create(operation, Date.now()).then(result => ({ result }), (error: unknown) => ({ error }));
-      expect(await waitUntilBlocked(lock, pid)).toEqual(expect.arrayContaining([
+      expect(await waitUntilBlocked(lock, pid, /^SELECT document FROM rest_transaction_plans .*FOR UPDATE$/)).toEqual(expect.arrayContaining([
         expect.stringMatching(/^SELECT document FROM rest_transaction_plans .*FOR UPDATE$/),
       ]));
       const expiresAtMs = grant.expiresAt * 1000;
@@ -580,7 +596,7 @@ suite('PostgreSQL UserOperation persistence', () => {
         (result) => ({ result }),
         (error: unknown) => ({ error }),
       );
-      expect(await waitUntilBlocked(client, pid)).toEqual(
+      expect(await waitUntilBlocked(client, pid, /^INSERT INTO rest_user_operation_nonces/)).toEqual(
         expect.arrayContaining([expect.stringMatching(/^INSERT INTO rest_user_operation_nonces/)]),
       );
       expect(await dbSeconds(client)).toBeLessThan(expiresAt);
