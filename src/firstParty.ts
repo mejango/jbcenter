@@ -16,6 +16,7 @@ const PRODUCTION_APPLICATIONS = applications([
   "https://succulent.money",
   "https://homerun.money",
   "https://beep.biz",
+  "https://api.signa.center",
 ]);
 const DEV_APPLICATIONS = applications([
   "https://dev.juicebox.money",
