@@ -3,6 +3,11 @@
 Implementation architecture. The generated OpenAPI specification describes the mounted routes;
 capability discovery reports which execution transports and deployment adapters are configured.
 
+The account and wallet product is intended to move to Signa. The
+[Signa preparation contract](SIGNA_MIGRATION.md) defines ownership, portable hosting
+seams and the credential and execution guarantees that must survive that move.
+The architecture below describes the current combined deployment.
+
 ## Confirmed scope
 
 - Operate within the existing jbcenter service at juicebox.center.

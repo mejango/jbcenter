@@ -688,7 +688,7 @@ export async function createRestRuntime(options: {
   if (options.startMaintenance !== false) wallet?.refresh.start();
   return {
     site: {
-      ...(walletSite ? { wallet: walletSite, walletHosts: [new URL(wallet!.origin).host, ...(options.wallet?.legacyOrigins ?? []).map(value => new URL(value).host)] } : {}),
+      ...(walletSite ? { wallet: walletSite, walletOrigins: [wallet!.origin, ...(options.wallet?.legacyOrigins ?? [])] } : {}),
       app,
       audience: auth.audience,
       docsHtml: apiDocsPage(openapi),
