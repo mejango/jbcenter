@@ -12,8 +12,9 @@ export async function settlementDatabaseNow(pool: Pool): Promise<number> {
   return Number((await pool.query("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::text AS now")).rows[0].now);
 }
 export function syntheticFunding(context: WalletDeploymentFundingContext, now: number, environment?: WalletDeploymentEnvironment): WalletDeploymentFundingEvidence {
+  // Block 100 has one immutable timestamp; observation freshness still advances below.
   const head = { chainId: 8453 as const, blockNumber: "100", blockHash: `0x${"ab".repeat(32)}` as Hex,
-    timestamp: String(Math.floor(now / 1000)), source: "onchain" as const };
+    timestamp: context.pool.accounting?.initialHead.timestamp ?? String(Math.floor(now / 1000)), source: "onchain" as const };
   return { version: "center-wallet-deployment-funding-v1", poolId: context.pool.configuration.id, configurationDigest: context.pool.configurationDigest,
     poolRevision: context.pool.revision, accountingDigest: context.pool.accounting ? walletDeploymentAccountingDigest(context.pool.accounting) : null,
     environment: context.pool.accounting?.environment ?? environment ?? { kind: "unforked-anvil", genesisHash: `0x${"cd".repeat(32)}`, instanceId: `0x${"ef".repeat(32)}` },

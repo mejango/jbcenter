@@ -209,6 +209,9 @@ suite("durable sequential local deployment settlement", () => {
     await expect(store.settle(second, syntheticSettlement(second, await settlementDatabaseNow(pool)))).rejects.toMatchObject({ code: "WALLET_DEPLOYMENT_SETTLEMENT_INVALID" });
     const settledFirst = await store.settle(await store.loadSettlementContext(first.operation.id), syntheticSettlement(await store.loadSettlementContext(first.operation.id), await settlementDatabaseNow(pool)));
     expect(settledFirst.settlement).toMatchObject({ nonce: "1", sequence: 1 });
+    // A fresh observation of the same synthetic block must retain its timestamp across clock seconds.
+    await expect.poll(async () => Math.floor(await settlementDatabaseNow(pool) / 1000))
+      .toBeGreaterThan(Math.floor(settledFirst.settlement!.evidence.funding.observedAt / 1000));
     const context = await store.loadSettlementContext(second.operation.id);
     const settledSecond = await store.settle(context, syntheticSettlement(context, await settlementDatabaseNow(pool)));
     expect(settledSecond.settlement).toMatchObject({ nonce: "2", sequence: 2 });
