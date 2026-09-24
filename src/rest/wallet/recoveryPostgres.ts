@@ -145,13 +145,17 @@ export class PostgresWalletRecoveryStore {
    * history and the replacement setup anchor. HTTP must never supply an observation. */
   async activate(id: string, flowToken: string, input: WalletAssertion | null, options: { passkeyName?: string } = {}): Promise<{ receipt: WalletCredentialRecovery; replayed: boolean }> {
     if (!this.activationObserver) throw new RestError(503, 'WALLET_RECOVERY_UNAVAILABLE', 'Canonical recovery activation is not configured.');
-    const assertion = input === null ? null : copyWalletSignupAssertion(input), passkeyName = copyWalletPasskeyName(options.passkeyName), before = await this.required(id, flowToken);
-    if (before.activation) return this.transaction(async client => {
-      const current = await loadWalletAuthorityContextInTransaction(client, before.intent.accountId), row = await this.lock(client, id, flowToken);
-      if (!row.activation || stable(row.activation) !== stable(before.activation) || stable(current.credential.recovery) !== stable(row.activation)) conflict();
-      return { receipt: row.activation, replayed: true };
+    const assertion = input === null ? null : copyWalletSignupAssertion(input), passkeyName = copyWalletPasskeyName(options.passkeyName), located = await this.required(id, flowToken);
+    // Another replica may activate after the locator read. Capture the recovery and
+    // current credential together under the existing account → recovery lock order.
+    const { before, raw } = await this.transaction(async client => {
+      const raw = await loadWalletAuthorityContextInTransaction(client, located.intent.accountId);
+      return { raw, before: recordOf(await this.lock(client, id, flowToken)) };
     });
-    const raw = await this.transaction(client => loadWalletAuthorityContextInTransaction(client, before.intent.accountId));
+    if (before.activation) {
+      if (stable(raw.credential.recovery) !== stable(before.activation)) conflict();
+      return { receipt: before.activation, replayed: true };
+    }
     const prepared = createWalletRecoveryMapping(before, raw, await this.now(), this.activationObserver.audience), expected = stable(raw);
     // An owner-setup binding is activated by a fresh assertion over its setup document; a consent
     // binding already carries this recovery's proof as its digest, so no further prompt exists.

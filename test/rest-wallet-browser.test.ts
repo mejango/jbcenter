@@ -275,6 +275,44 @@ describe("served Center wallet UI (local HTTP contract, virtual authenticator)",
     expect(await page.evaluate(() => [...document.querySelectorAll("button")].filter(b => b.offsetParent !== null && getComputedStyle(b).backgroundColor !== "rgba(0, 0, 0, 0)").length)).toBe(1);
   });
 
+  it.each(["admitted", "wrong-origin"])("accepts only plain heading fonts from the admitted parent (%s)", async parent => {
+    const otherOrigin = origin.replace("localhost", "127.0.0.1"), framedUrl = `${origin}/wallet?intent=${intentId}`;
+    await page.route(framedUrl, async route => {
+      const response = await route.fetch(), headers = response.headers();
+      // Admit both fixture parents at the HTTP layer to exercise the intent-bound message check independently.
+      headers["content-security-policy"] = headers["content-security-policy"]!.replace("frame-ancestors 'none'", `frame-ancestors ${origin} ${otherOrigin}`);
+      await route.fulfill({ response, headers });
+    });
+    await page.goto(`${parent === "admitted" ? origin : otherOrigin}/app/callback`);
+    await page.evaluate(src => { const frame = document.createElement("iframe"); frame.src = src; document.body.append(frame); }, framedUrl);
+    await expect.poll(() => page.frames().some(frame => frame.url() === framedUrl)).toBe(true);
+    const frame = page.frames().find(frame => frame.url() === framedUrl)!;
+    await expect.poll(() => frame.locator("#wallet-status").getAttribute("data-state")).toBe("ready");
+    const headingFont = () => frame.locator("h1").evaluate(heading => getComputedStyle(heading).fontFamily);
+    const originalFont = await headingFont();
+    await frame.evaluate(() => window.addEventListener("message", () => {
+      document.documentElement.dataset.themeMessages = String(Number(document.documentElement.dataset.themeMessages ?? 0) + 1);
+    }));
+    let messages = 0;
+    for (const theme of [{ headingFont: '"Courier New", monospace' }, { headingFont: 42 },
+      { headingFont: "url(https://outside.invalid/font.woff2)" }, { headingFont: "serif; color: red" }, { font: "serif" }]) {
+      await page.evaluate(({ origin, theme }) => {
+        document.querySelector("iframe")!.contentWindow!.postMessage({ type: "juicebox-center:theme", theme }, origin);
+      }, { origin, theme });
+      // Observe actual delivery before checking rejection; a late message cannot make this pass.
+      await expect.poll(() => frame.locator("html").getAttribute("data-theme-messages")).toBe(String(++messages));
+      expect(await headingFont()).toBe(parent === "admitted" ? '"Courier New", monospace' : originalFont);
+      expect(await frame.locator("body").evaluate(body => getComputedStyle(body).fontFamily)).toBe(parent === "admitted" && "font" in theme ? "serif" : originalFont);
+    }
+    expect(await frame.evaluate(() => JSON.parse(sessionStorage.getItem("center:frame-theme") ?? "{}")))
+      .toEqual(parent === "admitted" ? { headingFont: '"Courier New", monospace', font: "serif" } : {});
+    await frame.goto(framedUrl);
+    await expect.poll(() => frame.locator("#wallet-status").getAttribute("data-state")).toBe("ready");
+    expect(await headingFont()).toBe(parent === "admitted" ? '"Courier New", monospace' : originalFont);
+    expect(await frame.locator("body").evaluate(body => getComputedStyle(body).fontFamily)).toBe(parent === "admitted" ? "serif" : originalFont);
+    expect(errors).toEqual([]);
+  });
+
   it("signs in only on a real click, sends canonical assertion bytes with CSRF, and logs out", async () => {
     await loadAndEnroll();
     expect(await page.evaluate(() => (window as any).passkeyRequests)).toBe(0);
