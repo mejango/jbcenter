@@ -41,7 +41,7 @@ const workInProgress: readonly (DirectoryNode & {
   },
   {
     title: "Token locks and rewards → Sticky",
-    url: "https://github.com/mejango/jbsticky",
+    url: "https://github.com/mejango/sticky",
     note: "Unfinished token lock and reward tools.",
   },
   {
