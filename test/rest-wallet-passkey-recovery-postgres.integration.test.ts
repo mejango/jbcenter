@@ -174,6 +174,27 @@ suite('durable replacement-passkey proof intake (canonical state explicitly mode
     await expect(pool.query('UPDATE rest_wallet_credentials SET superseded_at=NULL WHERE credential_id=$1', [value.context.credential.credentialId])).rejects.toMatchObject({ code: '23514' });
     await expect(pool.query('DELETE FROM rest_wallet_credentials WHERE credential_id=$1', [value.context.credential.credentialId])).rejects.toMatchObject({ code: '23514' });
   });
+  it('replays activation when another replica commits after the initial recovery read', async () => {
+    const value = await registered(), next = await replacementSetup(value), id = value.record.intent.id;
+    const first = new PostgresWalletRecoveryStore(pool, policy, { audience: policy.origin, observe });
+    const replayObserver = vi.fn(observe), second = new PostgresWalletRecoveryStore(pool, policy, { audience: policy.origin, observe: replayObserver });
+    const get = second.get.bind(second);
+    let committed: Awaited<ReturnType<PostgresWalletRecoveryStore['activate']>> | undefined;
+    const initialRead = vi.spyOn(second, 'get').mockImplementationOnce(async (id, token) => {
+      const pending = await get(id, token);
+      expect(pending!.activation).toBeNull();
+      committed = await first.activate(id, token, next.assertion);
+      return pending;
+    });
+    try {
+      const replayed = await second.activate(id, value.begun.flowToken, next.assertion);
+      expect(committed!.replayed).toBe(false);
+      expect(replayed).toEqual({ receipt: committed!.receipt, replayed: true });
+      expect(replayObserver).not.toHaveBeenCalled();
+      expect((await pool.query('SELECT authority_epoch,session_epoch FROM rest_wallet_authority')).rows[0])
+        .toEqual({ authority_epoch: '2', session_epoch: '2' });
+    } finally { initialRead.mockRestore(); }
+  });
   it('requires a configured canonical observer and fresh replacement-passkey setup proof before switching', async () => {
     const value = await registered(), next = await replacementSetup(value), id = value.record.intent.id;
     await expect(store.activate(id, value.begun.flowToken, next.assertion)).rejects.toMatchObject({ status: 503 });
