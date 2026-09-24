@@ -1,19 +1,18 @@
-import { BRAND_CSS, BRAND_ICON, FAVICON_LINK } from "../../branding.js";
+import { BRAND_CSS, BRAND_ICON } from "../../branding.js";
 import { externalWalletDialogHtml, externalWalletCss } from "./externalWalletPage.js";
+import { escapeHtml } from "./html.js";
 import { smartWalletSections } from "./smartPage.js";
 
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
-}
-export function accountsPage(options: { scriptPath?: string; stylePath?: string; audience?: string } = {}): string {
+export function accountsPage(options: { scriptPath?: string; stylePath?: string; faviconPath?: string; audience?: string } = {}): string {
+  const referenceOrigin = options.audience ?? "";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer">
-<title>Accounts | Juicebox Center</title>${FAVICON_LINK}<link rel="stylesheet" href="${escapeHtml(options.stylePath ?? "/assets/accounts.css")}"><script type="module" src="${escapeHtml(options.scriptPath ?? "/assets/accounts.js")}"></script></head>
+<title>Accounts | Juicebox Center</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(options.faviconPath ?? "/favicon.svg")}"><link rel="stylesheet" href="${escapeHtml(options.stylePath ?? "/assets/accounts.css")}"><script type="module" src="${escapeHtml(options.scriptPath ?? "/assets/accounts.js")}"></script></head>
 <body data-audience="${escapeHtml(options.audience ?? "")}"><main>
-<header><a href="/">${BRAND_ICON} JUICEBOX CENTER</a><span>V6 / ACCOUNTS</span></header>
+<header><a href="${escapeHtml(referenceOrigin)}/">${BRAND_ICON} JUICEBOX CENTER</a><span>V6 / ACCOUNTS</span></header>
 <h1>Your account.<br>Your bots.</h1>
 <p class="lede">Sign in, choose what your app can do, and download its API connection. Your account stays in control of transaction approvals.</p>
-<nav class="section-nav" aria-label="Account sections"><a href="#wallet-heading">Sign in</a><a href="#bots-heading">API access</a><a href="#smart-heading">Optional transaction wallet</a><a id="session-nav" href="#session-heading" hidden>Bot permissions</a><a href="/api">API docs</a></nav>
+<nav class="section-nav" aria-label="Account sections"><a href="#wallet-heading">Sign in</a><a href="#bots-heading">API access</a><a href="#smart-heading">Optional transaction wallet</a><a id="session-nav" href="#session-heading" hidden>Bot permissions</a><a href="${escapeHtml(referenceOrigin)}/api">API docs</a></nav>
 <p id="status" role="status" aria-live="polite">Sign in to get started.</p>
 <section aria-labelledby="wallet-heading"><h2 id="wallet-heading">01 / Sign in</h2>
 <p>Use an existing wallet to create and manage API access.</p>
@@ -37,9 +36,9 @@ export function accountsPage(options: { scriptPath?: string; stylePath?: string;
 <p>Choose your permissions, then approve API access in your wallet. Download one connection file containing your local key and account settings. Keep it private.</p>
 <div class="row"><button id="generate-bot" type="button">Create API connection</button><button id="register-generated" type="button" hidden disabled>Download connection again</button></div>
 <p id="pending-bot"></p>
-<div id="connection-next" hidden><h3>Make your first request</h3><pre><code>npm install https://juicebox.center/api/client/juicebox-center-client-0.1.0.tgz
+<div id="connection-next" hidden><h3>Make your first request</h3><pre><code>npm install ${escapeHtml(options.audience ?? "https://juicebox.center")}/api/client/juicebox-center-client-0.1.0.tgz
 chmod 600 juicebox-connection.json
-npx center account --connection juicebox-connection.json</code></pre><p>Run these commands in the folder containing your connection file. <a href="/api/docs/quickstart">Continue with JavaScript or TypeScript →</a></p></div>
+npx center account --connection juicebox-connection.json</code></pre><p>Run these commands in the folder containing your connection file. <a href="${escapeHtml(referenceOrigin)}/api/docs/quickstart">Continue with JavaScript or TypeScript →</a></p></div>
 <details><summary>Bring your own bot key</summary><p>Download a public proof request. Use the command-line tool (CLI) with your local key, then paste the registration JSON it creates. Keep the private key file on your machine.</p>
 <button id="proof-request" type="button">Download proof request</button>
 <label>Public registration JSON<textarea id="registration-json" rows="7" spellcheck="false" autocomplete="off" placeholder='{"format":"juicebox-center-bot-registration-v1",…}'></textarea></label>
@@ -47,7 +46,7 @@ npx center account --connection juicebox-connection.json</code></pre><p>Run thes
 </fieldset>
 <div id="bot-management" hidden><h3>Registered bots</h3><ul id="bot-list" class="bot-list"><li>Sign in to view your connections.</li></ul><div class="row"><button id="refresh-bots" type="button" disabled>Refresh bots</button></div></div>
 </section>
-${smartWalletSections()}
+${smartWalletSections(referenceOrigin)}
 <footer>Private keys stay in your wallet or this page. Signatures approve exact API requests and reviewed blockchain actions.</footer>
 </main>${externalWalletDialogHtml()}</body></html>`;
 }

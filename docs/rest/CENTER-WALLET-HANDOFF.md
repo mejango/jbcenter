@@ -62,7 +62,7 @@ domain; `WALLET_ORIGIN`, with `WALLET_LEGACY_ORIGINS` for the retired host). Pag
 at the host root (`basePath: ''` in `src/index.ts`): `/` is the signup page for a plain visit,
 `/create`, `/recover`, `/config`, `/handoff/*` and the rest sit directly under the host, and
 `/wallet/…` links still work (navigations 301, calls are served). The REST app dispatches the
-wallet hosts to the wallet app before path routing (`walletHosts` in `mountRestSite`). Creation
+wallet origins to the wallet app before path routing (`walletOrigins` in `mountRestSite`). Creation
 approvals are v2 (bound to the registered identity, so one assertion approves creation and proves
 possession; migration 036). A third recovery option, a password the user chooses, was built
 and then withdrawn the same evening after review: a sealed envelope fetchable by wallet address

@@ -284,7 +284,7 @@ describe('dedicated Center wallet HTTP journey',()=>{
   });
   it('mounts the wallet without applying its cookie origin to other Center routes',async()=>{
     const {app:wallet}=setup(); const app=new Hono();
-    mountRestSite(app as never,{app:new Hono().get('/health',c=>c.text('ok')),audience,accountsScript:'',docsHtml:'docs',docsCss:'',documents:new Map(),wallet} as unknown as RestSite);
+    mountRestSite(app as never,{app:new Hono().get('/health',c=>c.text('ok')),audience:new URL(audience).origin,accountsScript:'',docsHtml:'docs',docsCss:'',documents:new Map(),wallet} as unknown as RestSite);
     expect((await app.fetch(new Request(origin+'/wallet/config'))).status).toBe(200);
     expect((await app.fetch(new Request('https://center.example.test/api/v1/health'))).status).toBe(200);
     const accounts=await app.fetch(new Request('https://center.example.test/accounts'));

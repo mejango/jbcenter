@@ -187,6 +187,7 @@ const app = createApp(store, {
   });
 const runtime = createCenterServer(app.fetch, handler, {
   port,
+  ...(rest.site.walletOrigins ? { walletOrigins: rest.site.walletOrigins } : {}),
   shutdownGraceMs: positiveInteger("SHUTDOWN_GRACE_MS", 25_000),
 });
 await runtime.listen();

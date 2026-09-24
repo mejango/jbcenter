@@ -3,6 +3,7 @@ import { request } from "node:http";
 import { connect, type Socket } from "node:net";
 import type { Readable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -17,6 +18,7 @@ import { createApp, type AppOptions } from "../src/app.js";
 import type { PinningService } from "../src/ipfs.js";
 import type { RpcGateway } from "../src/rpc.js";
 import { createCenterServer, type CenterServer } from "../src/server.js";
+import { createWalletSite } from "../src/rest/wallet/site.js";
 import type { NewDeployment, NewIntent, StorageLimits, Store } from "../src/store.js";
 
 const CID = "QmbWqxBEKC3P8tqsKc98xmWNzrzDtRLMiMPL8wBuTGsMnR";
@@ -80,10 +82,11 @@ async function start(
     factory?: () => McpServer;
     http?: HttpOptions;
     grace?: number;
+    allowedHosts?: string;
   } = {},
 ) {
   const store = options.store ?? new ServerStore();
-  const config = loadConfig({ PORT: "0" });
+  const config = loadConfig({ PORT: "0", ...(options.allowedHosts ? { ALLOWED_HOSTS: options.allowedHosts } : {}) });
   const mcp = createHttpHandler(config, options.factory ?? fixtureServer, {
     ...options.http,
     healthPath: "/mcp/healthz",
@@ -95,6 +98,7 @@ async function start(
     port: 0,
     hostname: "127.0.0.1",
     shutdownGraceMs: options.grace ?? 100,
+    walletOrigins: [...(options.app?.walletOrigins ?? []), ...(options.app?.rest?.walletOrigins ?? [])],
   });
   servers.push(server);
   const address = await server.listen();
@@ -114,9 +118,9 @@ async function post(
   });
 }
 
-function rawPost(url: URL, host: string) {
+function requestWithHost(url: URL, host: string, method = "POST") {
   return new Promise<{ status: number | undefined; body: string }>((resolve, reject) => {
-    const req = request(url, { method: "POST", headers: { ...mcpHeaders, host } }, (res) => {
+    const req = request(url, { method, headers: { ...mcpHeaders, host } }, (res) => {
       const chunks: Buffer[] = [];
       res.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
       res.once("end", () =>
@@ -124,7 +128,7 @@ function rawPost(url: URL, host: string) {
       );
     });
     req.once("error", reject);
-    req.end(JSON.stringify(toolsList));
+    req.end(method === "POST" ? JSON.stringify(toolsList) : undefined);
   });
 }
 
@@ -137,10 +141,41 @@ describe("Center and MCP share one HTTP listener", () => {
   it("keeps every MCP path on the reserved wallet host inside the wallet HTTP boundary", async () => {
     const { base } = await start();
     for (const path of ['/mcp', '/mcp/healthz', '/mcp/readyz']) {
-      const result = await rawPost(new URL(base + path), 'wallet.juicebox.center');
+      const result = await requestWithHost(new URL(base + path), 'wallet.juicebox.center');
       expect(result.status).toBe(503);
       expect(result.body).toBe('Juicebox wallet setup is in progress. Please try again later.');
     }
+    expect((await post(base + '/mcp')).status).toBe(200);
+  });
+  it("reserves configured Signa MCP paths before its wallet runtime is enabled", async () => {
+    const { base } = await start({ app: { walletOrigins: ['https://signa.center:8443'] }, allowedHosts: 'signa.center:8443,signa.center:9443' });
+    for (const path of ['/mcp', '/mcp/healthz', '/mcp/readyz']) {
+      const method = path === '/mcp' ? 'POST' : 'GET';
+      expect((await requestWithHost(new URL(base + path), 'signa.center:8443', method)).status).toBe(503);
+      expect((await requestWithHost(new URL(base + path), 'signa.center:9443', method)).status).toBe(200);
+    }
+    expect((await post(base + '/mcp')).status).toBe(200);
+  });
+  it("keeps configured active and retired wallet origins inside the real wallet HTTP boundary", async () => {
+    const origin = 'https://signa.center', legacy = 'https://my.juicebox.center';
+    // These paths use the real wallet host guards and assets, without reading account storage.
+    const wallet = createWalletSite({ origin, audience: 'https://juicebox.center', legacyOrigins: [legacy], basePath: '',
+      browserScript: '/* credential origin only */', login: {} as never, handoff: {} as never, policy: {} as never,
+      refresh: { request: async () => {}, tick: async () => {} } });
+    const { base } = await start({ allowedHosts: 'signa.center,signa.center:8443,my.juicebox.center', app: { rest: { wallet, walletOrigins: [origin, legacy], app: new Hono() as never,
+      audience: 'https://juicebox.center', accountsScript: '/* account manager */', docsHtml: 'Reference docs', docsCss: '', documents: new Map() } } });
+    for (const path of ['/mcp', '/mcp/healthz', '/mcp/readyz', '/accounts', '/assets/accounts.js', '/api', '/ipfs/bafytest']) {
+      const method = path === '/mcp' ? 'POST' : 'GET';
+      expect((await requestWithHost(new URL(base + path), 'signa.center', method)).status).toBe(404);
+      expect((await requestWithHost(new URL(base + path), 'my.juicebox.center', method)).status).toBe(301);
+    }
+    for (const path of ['/accounts', '/assets/accounts.js', '/api'])
+      expect((await fetch(base + path)).status).toBe(200);
+    const asset = new URL(base + '/assets/wallet.js');
+    expect(await requestWithHost(asset, 'signa.center', 'GET')).toEqual({ status: 200, body: '/* credential origin only */' });
+    for (const host of ['SIGNA.CENTER', 'signa.center:443'])
+      expect((await requestWithHost(asset, host, 'GET')).status).toBe(403);
+    expect((await requestWithHost(new URL(base + '/mcp'), 'signa.center:8443')).status).toBe(200);
     expect((await post(base + '/mcp')).status).toBe(200);
   });
   it("serves the complete MCP through the official client alongside Center", async () => {
@@ -327,8 +362,8 @@ describe("Center and MCP share one HTTP listener", () => {
     expect(unknownMcp.status).toBe(404);
     expect(await unknownMcp.json()).toMatchObject({ error: { message: "Not found." } });
     expect((await fetch(url)).status).toBe(405);
-    expect((await rawPost(url, "attacker.example")).status).toBe(403);
-    expect((await rawPost(new URL(`${base}/healthz`), "attacker.example")).status).toBe(404);
+    expect((await requestWithHost(url, "attacker.example")).status).toBe(403);
+    expect((await requestWithHost(new URL(`${base}/healthz`), "attacker.example")).status).toBe(404);
   });
 
   it("allows an active MCP operation to finish during shared shutdown", async () => {

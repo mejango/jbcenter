@@ -1,9 +1,12 @@
-export function smartWalletSections(): string {
+import { escapeHtml } from "./html.js";
+
+export function smartWalletSections(referenceOrigin = ""): string {
+  const api = `${escapeHtml(referenceOrigin)}/api`;
   return `<details id="smart-setup"><summary>Optional: keep transaction funds in a separate wallet</summary>
 <p>Give your transactions a separate wallet, controlled by your signed-in account. Keep funds apart from your personal balance, share approvals with other owners, or approve a bot to act within exact limits on supported networks. API access only needs sign-in; this setup is optional.</p>
 <section aria-labelledby="smart-heading"><h2 id="smart-heading">Set up your transaction wallet</h2>
 <p>Use the same owners and approval rule on the networks you choose. Review the wallet address on each network before creating it. Balances and network fees stay separate.</p>
-<p class="service-links"><a href="/api/docs/smart-accounts">Wallet setup guide</a></p>
+<p class="service-links"><a href="${api}/docs/smart-accounts">Wallet setup guide</a></p>
 <p id="smart-readiness">Sign in to see the supported networks.</p>
 <button id="smart-discover" type="button" hidden>Try again</button>
 <fieldset id="smart-fields" disabled>
@@ -44,7 +47,7 @@ export function smartWalletSections(): string {
 <fieldset id="operation-fields" disabled>
 <label id="operation-authority-label" class="smart-field" hidden>Who approves<select id="operation-authority" disabled><option value="owner">Fresh owner approval</option><option value="session">Approved bot permission</option></select></label>
 <div id="session-key-fields" hidden><label>Local bot key file<input id="session-key-file" type="file" accept="application/json,.json"></label><p id="session-key-status">Load the bot key downloaded during registration. The key stays in this page's memory and is never sent to the service.</p><button id="session-key-clear" type="button">Clear local key</button></div>
-<p>Choose an <a href="/api#write">operation from the API guide</a> and enter its input. The resulting calls are shown before signing.</p>
+<p>Choose an <a href="${api}#write">operation from the API guide</a> and enter its input. The resulting calls are shown before signing.</p>
 <details id="operation-session-template" hidden><summary>Fill from bot permissions</summary>
 <label>New address for project details<input id="operation-uri" placeholder="ipfs://…" spellcheck="false"></label>
 <label>Payment or transfer amount, smallest token units<input id="operation-amount" inputmode="numeric"></label>
@@ -72,7 +75,7 @@ export function smartWalletSections(): string {
 </div>
 </fieldset></section>
 <section id="session-section" aria-labelledby="session-heading" hidden><h2 id="session-heading">Optional bot permissions</h2>
-<p>Allow a registered bot to repeat one action for 7 or 30 days. This permission is called a session. Moving funds still needs fresh owner approval unless you approve the exact payment budget below. <a href="/api/docs/sessions">Bot permission guide</a>.</p>
+<p>Allow a registered bot to repeat one action for 7 or 30 days. This permission is called a session. Moving funds still needs fresh owner approval unless you approve the exact payment budget below. <a href="${api}/docs/sessions">Bot permission guide</a>.</p>
 <fieldset id="session-fields" disabled>
 <label>Bot grant ID<input id="session-grant" spellcheck="false" autocomplete="off"></label>
 <p>The bot’s API access must include relay and remain valid for the whole session.</p>
@@ -86,7 +89,7 @@ export function smartWalletSections(): string {
 <label>Exact minimum project tokens returned per V6 payment<input id="session-min-return" inputmode="numeric" value="0"></label>
 <label><input id="session-budget-consent" type="checkbox"> I authorize repeat payments within this exact recipient, chain, asset, time and amount budget.</label>
 </div>
-<details><summary>Required limits on sponsored network costs</summary><p>Use the sponsor contract (<a href="/api#glossary-paymaster">paymaster</a>) reviewed by this service. Enter exact integers in gas units and wei, as required by each field. These limits cover the whole session; the wallet cannot pay its own session network costs.</p>
+<details><summary>Required limits on sponsored network costs</summary><p>Use the sponsor contract (<a href="${api}#glossary-paymaster">paymaster</a>) reviewed by this service. Enter exact integers in gas units and wei, as required by each field. These limits cover the whole session; the wallet cannot pay its own session network costs.</p>
 <label>Gas budget JSON<textarea id="session-gas" rows="10" spellcheck="false" autocomplete="off">{
   "paymaster": "",
   "maxGasPerOperation": "1000000",
