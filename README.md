@@ -47,18 +47,11 @@ configuration, and the checked session guard still requires a verified deploymen
 chain. Live capabilities report configured availability. Gas sponsorship is separate from permission
 to spend funds.
 
-## Shared passkey wallets
+## Passkey accounts
 
-Center is building shared passkey wallets for Homerun and Beep, including signup
-without an existing wallet and recovery to the same account. Shared contracts
-are deployed across eight chains; the local signup and recovery journeys are
-tested. **Consumer production signup remains disabled while hosted Base creation
-and recovery services are completed.**
-
-Read the [delivery report](docs/rest/CENTER-WALLET-DELIVERY.md) for what is built,
-the evidence and remaining production gates. The
-[implementation handoff](docs/rest/CENTER-WALLET-HANDOFF.md) identifies the next
-slice, repository state, operating constraints and validation commands.
+[Signa](https://signa.center) owns signup, recovery, devices, wallet sessions, and payment approval
+for Homerun and Beep. Center retains the project and protocol APIs those apps use. The earlier
+[wallet delivery report](docs/rest/CENTER-WALLET-DELIVERY.md) records the retired Center host.
 
 ## Ecosystem directory
 
@@ -464,6 +457,8 @@ upstreams for fail-closed deployment verification.
 
 The remaining controls are environment variables:
 
+Signa hosts passkey accounts and wallets at `signa.center`; Center keeps the project and protocol APIs.
+
 - `RATE_LIMIT_PER_MINUTE` — shared PostgreSQL-backed limit per named API client; default `600`.
 - `RPC_REQUEST_LIMIT_PER_MINUTE` — per browser/IP or named-client RPC requests; default `600`.
 - `RPC_SITE_LIMIT_PER_MINUTE` — shared RPC requests across all clients; default `20000`.
@@ -475,12 +470,6 @@ The remaining controls are environment variables:
 - `MCP_MAX_STORAGE_BYTES` — lifetime stored envelope bytes for that identity; default 10 GiB. Both
   replace the per-client pair for an in-process publish, and Center logs `storage_near_limit` once
   either identity passes four fifths of its cap.
-- `WALLET_ORIGIN` — hosted passkey wallet origin (for example `https://my.juicebox.center`); mounts the wallet site with the reviewed Base manifest.
-- `WALLET_NETWORKS_PAYER_KEY` — optional private key funding Relayr bundles that deploy an account on more chains (Base ETH for Optimism and Arbitrum, Base Sepolia ETH for the testnets). A separate key: the creation and recovery keys track their own nonces.
-- `WALLET_LEGACY_ORIGINS` — optional comma-separated former wallet origins; requests on those hosts redirect (301) to the same path on `WALLET_ORIGIN`.
-- `WALLET_FRAMEABLE_APP_ORIGINS` — optional comma-separated app origins admitted to frame their own payment reviews and sign-ins inside their pages (`frame-ancestors` names the one app each review or intent was prepared for). Inside a frame no Center cookie takes part: a review is admitted by its id, a sign-in or signup by its intent id plus the launch signature kept on the row (the signup's flow token rides in request bodies), and every passkey ceremony must name the app as its top origin. A framed signup needs the app's `<iframe allow="publickey-credentials-create; publickey-credentials-get">` and a browser that creates passkeys in a cross-origin frame; the page inside offers "Fullscreen" otherwise. Recovery stays top-level. Absent, nothing frames Center.
-- `WALLET_CREATION_SIGNER_KEY`, `WALLET_CREATION_POOL_ID`, `WALLET_CREATION_ALLOCATION_WEI`, `WALLET_CREATION_INITIAL_NONCE` — together, the dedicated Base creation treasury: its private key, permanent pool UUID, whole allocation in wei and the sender's expected first nonce. Startup fails if only some are set; see [WALLET_SIGNUP.md](WALLET_SIGNUP.md).
-- `WALLET_RECOVERY_SIGNER_KEY`, `WALLET_RECOVERY_MAX_OPERATIONS`, `WALLET_RECOVERY_MAX_COST_WEI` — together, the dedicated Base recovery relay: its private key (distinct from creation), the lifetime operation cap and the whole fee budget in wei.
 - `SPONSOR_SIGNER_KEY` — optional private key that turns on `POST /v1/intents/:id/deploy`. It only
   needs ETH on the one rollup it pays the Relayr prepayment from; that prepayment carries the
   destination chains' creation fees and Relayr's executor supplies them there. Keep it a dedicated
