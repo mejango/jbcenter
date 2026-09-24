@@ -11,22 +11,22 @@ export const framed = window.self !== window.top;
 const themeTokens: Record<string, RegExp> = {
   background: /^#[0-9a-f]{3,8}$/i, foreground: /^#[0-9a-f]{3,8}$/i, muted: /^#[0-9a-f]{3,8}$/i, line: /^#[0-9a-f]{3,8}$/i,
   accent: /^#[0-9a-f]{3,8}$/i, accentForeground: /^#[0-9a-f]{3,8}$/i,
-  font: /^[\w\s,'"-]{1,200}$/, radius: /^(?:\d{1,3}(?:\.\d+)?(?:px|rem|em)\s*){1,4}$/,
+  font: /^[\w\s,'"-]{1,200}$/, headingFont: /^[\w\s,'"-]{1,200}$/, radius: /^(?:\d{1,3}(?:\.\d+)?(?:px|rem|em)\s*){1,4}$/,
   inset: /^\d{1,3}(?:\.\d+)?(?:px|rem|em)$/,
 };
 const themeVariables: Record<string, string> = { background: "--wallet-bg", foreground: "--wallet-fg", muted: "--wallet-muted", line: "--wallet-line",
-  accent: "--wallet-accent", accentForeground: "--wallet-accent-fg", font: "--wallet-font", radius: "--wallet-radius", inset: "--wallet-inset" };
+  accent: "--wallet-accent", accentForeground: "--wallet-accent-fg", font: "--wallet-font", headingFont: "--wallet-heading-font", radius: "--wallet-radius", inset: "--wallet-inset" };
 const themeKey = "center:frame-theme";
 const themed = () => document.documentElement.classList.add("themed");
-/** Sets the valid tokens and returns them; anything else in the message is ignored. */
+const appliedTheme: Record<string, string> = {};
+/** Keep the cached theme in step with CSS: omitted tokens retain their previous valid value. */
 function applyTheme(theme: Record<string, unknown>): Record<string, string> {
-  const kept: Record<string, string> = {};
   for (const [key, value] of Object.entries(theme)) {
     const pattern = themeTokens[key];
-    if (pattern && typeof value === "string" && pattern.test(value.trim())) { document.documentElement.style.setProperty(themeVariables[key]!, value.trim()); kept[key] = value.trim(); }
+    if (pattern && typeof value === "string" && pattern.test(value.trim())) { document.documentElement.style.setProperty(themeVariables[key]!, value.trim()); appliedTheme[key] = value.trim(); }
   }
   themed();
-  return kept;
+  return appliedTheme;
 }
 let reportSize: (() => void) | null = null;
 if (framed) {
