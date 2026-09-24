@@ -3,15 +3,11 @@ import type { Hono } from "hono";
 import type { JbcenterEnv } from "../types.js";
 import type { createRestApp } from "./app.js";
 import { guidePage } from "./docs/guide.js";
-import { accountsCss, accountsPage } from "./web/page.js";
+import { mountAccountsSite } from "./accountsSite.js";
+import { createWalletHostMatcher } from "../walletHosts.js";
+import { REST_PAGE_HEADERS } from "./pageHeaders.js";
 
-export const REST_PAGE_HEADERS = {
-  "Content-Security-Policy":
-    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
-  "X-Content-Type-Options": "nosniff",
-  "Referrer-Policy": "no-referrer",
-  "Cache-Control": "no-store",
-} as const;
+export { REST_PAGE_HEADERS } from "./pageHeaders.js";
 
 export const REST_DOCUMENTS = [
   "ARCHITECTURE",
@@ -32,13 +28,14 @@ export const REST_DOCUMENTS = [
   "EXECUTION_OPERATIONS",
   "PRODUCTION_CHECK",
   "PRODUCTION_OPERATIONS",
+  "SIGNA_MIGRATION",
 ] as const;
 
 export interface RestSite {
   app: ReturnType<typeof createRestApp>;
   wallet?: Hono;
-  /** Hosts served entirely by the wallet app (its own and retired ones); other hosts never see it. */
-  walletHosts?: string[];
+  /** Origins served entirely by the wallet app (its own and retired ones). */
+  walletOrigins?: readonly string[];
   audience: string;
   accountsScript: string;
   docsScript?: string;
@@ -73,30 +70,12 @@ export async function readRestAssets() {
 }
 
 export function mountRestSite(app: Hono<JbcenterEnv>, site: RestSite): void {
-  if (site.wallet && site.walletHosts?.length) {
-    const hosts = new Set(site.walletHosts);
-    app.use("*", async (c, next) => hosts.has(c.req.header("host") ?? new URL(c.req.url).host) ? site.wallet!.fetch(c.req.raw, c.env) : next());
+  if (site.wallet && site.walletOrigins?.length) {
+    const walletHost = createWalletHostMatcher(site.walletOrigins);
+    app.use("*", async (c, next) => walletHost(c.req.header("host")) || walletHost(new URL(c.req.url).host) ? site.wallet!.fetch(c.req.raw, c.env) : next());
   } else if (site.wallet) app.route("/", site.wallet);
   app.route("/api/v1", site.app);
-  app.get("/accounts", (context) =>
-    context.html(
-      accountsPage({ audience: site.audience }),
-      200,
-      REST_PAGE_HEADERS,
-    ),
-  );
-  app.get("/assets/accounts.css", (context) =>
-    context.body(accountsCss(), 200, {
-      ...REST_PAGE_HEADERS,
-      "Content-Type": "text/css; charset=utf-8",
-    }),
-  );
-  app.get("/assets/accounts.js", (context) =>
-    context.body(site.accountsScript, 200, {
-      ...REST_PAGE_HEADERS,
-      "Content-Type": "application/javascript; charset=utf-8",
-    }),
-  );
+  mountAccountsSite(app, { audience: site.audience, accountsScript: site.accountsScript });
   app.get("/assets/docs.js", (context) => context.body(site.docsScript ?? "", 200, { ...REST_PAGE_HEADERS, "Content-Type": "application/javascript; charset=utf-8" }));
   app.get("/api/client/juicebox-center-client-0.1.0.tgz", (context) => {
     if (!site.clientPackage) return context.notFound();
