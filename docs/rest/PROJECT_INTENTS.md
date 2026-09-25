@@ -46,7 +46,8 @@ Two ways in for a new integrator:
    `mejango/jbcenter` repository: one production entry per app, and several localhost and dev
    entries per app in the development list. Open a pull request adding your origin, or ask the
    maintainers. Production entries today are `https://juicebox.money`, `https://revnet.money`,
-   `https://eth.shop`, `https://succulent.money`, `https://homerun.money` and `https://beep.biz`.
+   `https://eth.shop`, `https://succulent.money`, `https://homerun.money`, `https://sticky.center`
+   and `https://beep.biz`.
 2. **Use the MCP tools.** Connect any Streamable HTTP MCP client to
    `https://juicebox.center/mcp`. `jb_prepare_intent`, `jb_publish_intent`, `jb_get_intent`
    and `jb_deploy_intent` run server-side inside Center, so they need no origin, no REST
