@@ -19,12 +19,12 @@ afterEach(() => vi.unstubAllEnvs());
 describe("one first-party configuration", () => {
   it("preserves all existing production and development origins and their order", () => {
     expect(originsForEnvironment("production")).toEqual([
-      "https://juicebox.money", "https://revnet.money", "https://eth.shop", "https://succulent.money", "https://homerun.money", "https://beep.biz", "https://api.signa.center",
+      "https://juicebox.money", "https://revnet.money", "https://eth.shop", "https://succulent.money", "https://homerun.money", "https://sticky.center", "https://beep.biz", "https://api.signa.center",
     ]);
     expect(originsForEnvironment("dev")).toEqual([
       "https://dev.juicebox.money", "https://dev.revnet.money", "http://localhost:3001", "http://localhost:3002",
       "https://dev.eth.shop", "http://localhost:3003", "https://dev.succulent.money", "http://localhost:3004", "http://localhost:3010", "http://localhost:3014",
-      "http://127.0.0.1:8787",
+      "http://127.0.0.1:8787", "http://127.0.0.1:8788",
     ]);
     expect(originsForEnvironment("preview")).toEqual(originsForEnvironment("production"));
     expect(originsForEnvironment("production")).not.toContain("https://juicebox.center");

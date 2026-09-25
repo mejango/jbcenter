@@ -262,6 +262,7 @@ describe("JB Center API", () => {
       "https://eth.shop",
       "https://succulent.money",
       "https://homerun.money",
+      "https://sticky.center",
       "https://beep.biz",
       "https://api.signa.center",
     ]);
@@ -278,6 +279,7 @@ describe("JB Center API", () => {
       "http://localhost:3010",
       "http://localhost:3014",
       "http://127.0.0.1:8787",
+      "http://127.0.0.1:8788",
     ]);
 
     const app = createApp(new MemoryStore(), { allowedOrigins: devOrigins });

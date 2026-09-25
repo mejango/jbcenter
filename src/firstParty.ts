@@ -15,6 +15,7 @@ const PRODUCTION_APPLICATIONS = applications([
   "https://eth.shop",
   "https://succulent.money",
   "https://homerun.money",
+  "https://sticky.center",
   "https://beep.biz",
   "https://api.signa.center",
 ]);
@@ -30,6 +31,7 @@ const DEV_APPLICATIONS = applications([
   "http://localhost:3010",
   "http://localhost:3014",
   "http://127.0.0.1:8787",
+  "http://127.0.0.1:8788",
 ]);
 
 /** The shared trusted configuration. Empty callbacks admit no wallet handoff. */
