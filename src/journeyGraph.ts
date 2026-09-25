@@ -658,7 +658,8 @@ export const journeyNodes: readonly JourneyNode[] = [
     title: "Sticky (unfinished)",
     kind: "resource",
     links: [
-      { title: "Explore source", url: "https://github.com/mejango/sticky" },
+      { title: "Open prototype", url: "https://sticky.center" },
+      { title: "Source", url: "https://github.com/mejango/sticky" },
     ],
     edges: [{ to: "wip-next" }],
   },
