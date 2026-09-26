@@ -268,9 +268,14 @@ recorded deployment carries `forwarded`: true when the committed call came from 
 `ERC2771Forwarder` with Center's sponsor as the appended sender, false when any other sender made
 it, including a wallet that sent the committed call itself. A chain that already has
 a deployment is refused by both routes, and one deployment that is not forwarded closes both
-routes for the whole intent with `409` `mixed_sender` and retires its queued rows. So deploy a
-chain Center does not sponsor with a relay request, never from your own wallet: sent from any
-other address it produces different token and sucker salts.
+routes for the whole intent with `409` `mixed_sender`. Recording it also retires, in the same
+database transaction, every queued sponsored row of the intent on every chain that has no bundle
+yet (`failed`, `mixed sender`), so a sponsor that becomes funded later can never launch a second
+project; the worker's claim refuses such rows too, and a lane already running on one cannot
+attach its bundle. A row that already has a bundle is left alone, because its prepayment may
+have left the sponsor key: the worker resumes it. So deploy a chain Center does not sponsor with
+a relay request, never from your own wallet: sent from any other address it produces different
+token and sucker salts.
 
 On the sponsored path Center's sponsor key signs an ERC-2771 forward request per chain against
 the canonical `ERC2771Forwarder` from the V6 manifest, after checking that the call's target
@@ -639,7 +644,8 @@ and `RELAYR_TIMEOUT` (the execution service has not executed the bundle yet) are
 states, not outcomes. Keep polling while `status` is not `failed`.
 
 `failed` is set only on a definitive outcome — a reverted or unverifiable deployment, a refused
-quote, an exhausted set of attempts — or after 24 hours of waiting: `bundle unresolved` for a row
+quote, an exhausted set of attempts, a wallet deployment recorded for the intent before the row
+had a bundle (`mixed sender`) — or after 24 hours of waiting: `bundle unresolved` for a row
 whose bundle the execution service never resolved, `retries exhausted` for one that never got that
 far. An operator reconciles an unresolved bundle by recording its deployment through
 `POST /v1/intents/:id/deployments` once the execution service shows the hash. A `failed`
@@ -748,7 +754,9 @@ address to a forwarded call). Nested matching covers Safe and Relayr execution.
 | `503` | `unavailable` | Deployment verification is not configured |
 
 Never mix senders. Recording a chain your own wallet sent closes the deploy and relay routes for
-the whole intent with `409` `mixed_sender`, and the chains still queued are retired. Deploy the
+the whole intent with `409` `mixed_sender`, and every chain still queued without a bundle is
+retired at once with `mixed sender`, on every chain of the intent, so the sponsor can never
+launch it later. A chain whose sponsored bundle was already paid is left to finish. Deploy the
 rest from the same wallet. A chain Center does not sponsor is relayed, not sent from your wallet,
 whenever Center deploys any other chain of the intent.
 
