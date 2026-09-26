@@ -115,6 +115,18 @@ const selectIntent = `
   FROM intents
 `;
 
+/** Whether a wallet, not the sponsor's forwarder, deployed any chain of the row's intent. */
+const walletDeployedOf = (row: string): string =>
+  `EXISTS (SELECT 1 FROM deployments w WHERE w.intent_id = ${row}.intent_id AND NOT w.forwarded)`;
+
+/** Retires the bundle-less sponsored rows of intents a wallet deployed: of one intent, or of
+ * every intent when $1 is null. A live lease does not protect a row, since a dry key's claim
+ * is handed back with one; a lane still running on such a row cannot attach its bundle. */
+const retireUnpaidForWallet = `
+  UPDATE intent_deploys d SET status = 'failed', error = 'mixed sender', reserved_wei = 0, updated_at = now()
+  WHERE ($1::uuid IS NULL OR d.intent_id = $1) AND d.status = 'queued' AND d.bundle_uuid IS NULL
+    AND ${walletDeployedOf("d")}`;
+
 const selectDeploys = `
   SELECT chain_id, status, bundle_uuid, transaction_hash, error, created_at, updated_at
   FROM intent_deploys WHERE intent_id = $1 ORDER BY chain_id
@@ -359,32 +371,44 @@ export class PostgresStore implements Store {
   }
 
   async recordDeployment(intentId: string, value: NewDeployment): Promise<Deployment> {
-    let inserted;
+    const client = await this.pool.connect();
     try {
-      inserted = await this.pool.query<DeploymentRow>(
+      await client.query("BEGIN");
+      const inserted = await client.query<DeploymentRow>(
         `INSERT INTO deployments (intent_id, chain_id, project_id, transaction_hash, forwarded)
          VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (intent_id, chain_id) DO NOTHING
          RETURNING chain_id, project_id::text, transaction_hash, forwarded, created_at`,
         [intentId, value.chainId, value.projectId, value.transactionHash, value.forwarded],
       );
+      let recorded = inserted.rows[0];
+      if (!recorded) {
+        const existing = await client.query<DeploymentRow>(
+          `SELECT chain_id, project_id::text, transaction_hash, forwarded, created_at
+           FROM deployments WHERE intent_id = $1 AND chain_id = $2`,
+          [intentId, value.chainId],
+        );
+        recorded = existing.rows[0];
+        if (!recorded || recorded.project_id !== value.projectId || recorded.transaction_hash !== value.transactionHash) {
+          throw new ConflictError("A different deployment is already recorded for that chain");
+        }
+      }
+      // A wallet deployment closes the sponsor route for every chain of the intent, so the
+      // same transaction retires each sponsored row that never reached a bundle: none of them
+      // may launch a second project once the sponsor can pay. A row with a bundle may already
+      // have paid, so it is left for the worker to resume.
+      if (!recorded.forwarded) await client.query(retireUnpaidForWallet, [intentId]);
+      await client.query("COMMIT");
+      return deployment(recorded);
     } catch (error) {
+      await client.query("ROLLBACK");
       if ((error as { code?: string }).code === "23505") {
         throw new ConflictError("That onchain project or transaction is already linked");
       }
       throw error;
+    } finally {
+      client.release();
     }
-    if (inserted.rows[0]) return deployment(inserted.rows[0]);
-    const existing = await this.pool.query<DeploymentRow>(
-      `SELECT chain_id, project_id::text, transaction_hash, forwarded, created_at
-       FROM deployments WHERE intent_id = $1 AND chain_id = $2`,
-      [intentId, value.chainId],
-    );
-    const current = existing.rows[0];
-    if (!current || current.project_id !== value.projectId || current.transaction_hash !== value.transactionHash) {
-      throw new ConflictError("A different deployment is already recorded for that chain");
-    }
-    return deployment(current);
   }
 
   async queueDeploys(
@@ -441,16 +465,21 @@ export class PostgresStore implements Store {
          AND (bundle_uuid IS NOT NULL OR error IS NOT NULL)
          AND (lease_until IS NULL OR lease_until < now())`,
     );
+    // A row queued after a wallet deployed a chain of its intent is retired like the rows
+    // that recording the deployment retired.
+    await this.pool.query(retireUnpaidForWallet, [null]);
     // A 'sent' row whose lease expired carries a bundle, so the worker resumes it.
     const result = await this.pool.query<{ intent_id: string; chain_id: string }>(
       `WITH picked AS (
-         SELECT intent_id FROM intent_deploys
+         SELECT intent_id FROM intent_deploys c
          WHERE status IN ('queued', 'sent') AND (lease_until IS NULL OR lease_until < now()) AND attempts < 3
+           AND (bundle_uuid IS NOT NULL OR NOT ${walletDeployedOf("c")})
          GROUP BY intent_id ORDER BY intent_id LIMIT $2
        )
        UPDATE intent_deploys d SET lease_until = now() + make_interval(secs => $1), attempts = attempts + 1, updated_at = now()
        FROM picked WHERE d.intent_id = picked.intent_id AND d.status IN ('queued', 'sent')
          AND (d.lease_until IS NULL OR d.lease_until < now()) AND d.attempts < 3
+         AND (d.bundle_uuid IS NOT NULL OR NOT ${walletDeployedOf("d")})
        RETURNING d.intent_id, d.chain_id`,
       [leaseSeconds, limit],
     );
@@ -468,7 +497,7 @@ export class PostgresStore implements Store {
   async updateDeploy(intentId: string, chainId: number, patch: DeployPatch): Promise<void> {
     // A failed row that carries a bundle keeps its reservation: the prepayment may
     // already have left the key, and the budget must keep counting it.
-    await this.pool.query(
+    const updated = await this.pool.query(
       `UPDATE intent_deploys SET status = coalesce($3, status),
          transaction_hash = coalesce($4, transaction_hash), bundle_uuid = coalesce($5, bundle_uuid),
          error = $6, spent_wei = coalesce($7::numeric, spent_wei),
@@ -477,7 +506,8 @@ export class PostgresStore implements Store {
            WHEN $3 = 'failed' AND bundle_uuid IS NULL AND $5::text IS NULL THEN 0
            ELSE reserved_wei END,
          updated_at = now()
-       WHERE intent_id = $1 AND chain_id = $2`,
+       WHERE intent_id = $1 AND chain_id = $2
+         AND NOT ($5::text IS NOT NULL AND status = 'failed' AND bundle_uuid IS NULL)`,
       [
         intentId,
         chainId,
@@ -488,6 +518,9 @@ export class PostgresStore implements Store {
         patch.spentWei?.toString() ?? null,
       ],
     );
+    // The lane records its bundle before any ETH leaves the key, so refusing a retired
+    // row here stops a lane that was already running when the row was retired.
+    if (patch.bundleUuid !== undefined && updated.rowCount === 0) throw new ConflictError("deploy retired before its bundle");
   }
 
   async releaseClaim(intentId: string, chainIds: number[]): Promise<void> {
