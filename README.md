@@ -108,7 +108,8 @@ Production accepts `https://juicebox.money`, `https://revnet.money`, `https://et
 `https://succulent.money`, `https://homerun.money`, `https://sticky.center`, and `https://beep.biz`.
 `dev` accepts the first four sites' `dev.` subdomains, `http://localhost:3001` through
 `http://localhost:3004`, Homerun's `http://localhost:3010` and `http://localhost:3014`, and
-Sticky's `http://127.0.0.1:8788`. The homepage, `/ipfs/*` read gateway, and `/v1/rpc/:chainId`
+Sticky's `http://127.0.0.1:8788`, `https://sticky-dev.up.railway.app` and
+`https://dev.sticky.center`. The homepage, `/ipfs/*` read gateway, and `/v1/rpc/:chainId`
 RPC are public; RPC accepts any or no Origin. `GET /healthz` is public for infrastructure checks.
 
 ## Connect an assistant through MCP

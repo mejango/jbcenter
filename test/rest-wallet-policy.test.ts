@@ -24,7 +24,7 @@ describe("one first-party configuration", () => {
     expect(originsForEnvironment("dev")).toEqual([
       "https://dev.juicebox.money", "https://dev.revnet.money", "http://localhost:3001", "http://localhost:3002",
       "https://dev.eth.shop", "http://localhost:3003", "https://dev.succulent.money", "http://localhost:3004", "http://localhost:3010", "http://localhost:3014",
-      "http://127.0.0.1:8787", "http://127.0.0.1:8788",
+      "http://127.0.0.1:8787", "http://127.0.0.1:8788", "https://sticky-dev.up.railway.app", "https://dev.sticky.center",
     ]);
     expect(originsForEnvironment("preview")).toEqual(originsForEnvironment("production"));
     expect(originsForEnvironment("production")).not.toContain("https://juicebox.center");
