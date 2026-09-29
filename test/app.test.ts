@@ -280,6 +280,8 @@ describe("JB Center API", () => {
       "http://localhost:3014",
       "http://127.0.0.1:8787",
       "http://127.0.0.1:8788",
+      "https://sticky-dev.up.railway.app",
+      "https://dev.sticky.center",
     ]);
 
     const app = createApp(new MemoryStore(), { allowedOrigins: devOrigins });
