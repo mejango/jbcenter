@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { zeroAddress, type Hex } from "viem";
 import { migrate } from "../src/db/migrate.js";
 import { createPool, PostgresStore } from "../src/db/postgres.js";
-import type { NewIntent } from "../src/store.js";
+import { ConflictError, type NewIntent } from "../src/store.js";
 
 const connectionString = process.env.TEST_DATABASE_URL;
 const suite = connectionString ? describe : describe.skip;
@@ -457,6 +457,103 @@ suite("PostgreSQL store", () => {
       [intent.id, `0x${"c3".repeat(32)}`],
     );
     expect(legacy.rows[0]!.forwarded).toBe(false);
+  });
+
+  it("retires every unpaid row when a wallet deployment is recorded, and keeps a paid one", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "wallet fallback", chainIds: [84532, 421614, 11155420] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(intent.id, [84532, 421614, 11155420], "browser:w", 400n);
+    // A dry key: the claim is handed back with no bundle, its lease still running.
+    await store!.claimQueuedDeploys(30, 50);
+    for (const chainId of [84532, 421614]) {
+      await store!.updateDeploy(intent.id, chainId, { error: "SPONSOR_UNFUNDED" });
+    }
+    await store!.releaseClaim(intent.id, [84532, 421614]);
+    // The third chain already reached a bundle, so its prepayment may have left the key.
+    await store!.updateDeploy(intent.id, 11155420, { status: "queued", bundleUuid: "bundle-w" });
+
+    await store!.recordDeployment(intent.id, {
+      chainId: 84532,
+      projectId: "61",
+      transactionHash: `0x${"d4".repeat(32)}`,
+      forwarded: false,
+    });
+    expect((await store!.listDeploys(intent.id)).map((row) => [row.chainId, row.status, row.error, row.bundleUuid]))
+      .toEqual([
+        [84532, "failed", "mixed sender", null],
+        [421614, "failed", "mixed sender", null],
+        [11155420, "queued", null, "bundle-w"],
+      ]);
+    expect(await reservedWei(intent.id, 84532)).toBe("0");
+    expect(await reservedWei(intent.id, 421614)).toBe("0");
+    expect(await reservedWei(intent.id, 11155420)).toBe("400");
+
+    // Once the backoff ends, only the paid row is claimed, to resume its bundle.
+    await expire(intent.id);
+    const claims = await store!.claimQueuedDeploys(30, 50);
+    expect(claims.find((claim) => claim.intentId === intent.id)).toEqual({
+      intentId: intent.id,
+      chainIds: [11155420],
+    });
+  });
+
+  it("never claims an unpaid row queued after a wallet deployment", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "late queue", chainIds: [84532, 421614] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.recordDeployment(intent.id, {
+      chainId: 84532,
+      projectId: "62",
+      transactionHash: `0x${"e5".repeat(32)}`,
+      forwarded: false,
+    });
+    // A deploy request that read the intent before the record queues its row after it.
+    await store!.queueDeploys(intent.id, [421614], "browser:w", 300n);
+    const claims = await store!.claimQueuedDeploys(30, 50);
+    expect(claims.some((claim) => claim.intentId === intent.id)).toBe(false);
+    expect((await store!.listDeploys(intent.id))[0]).toMatchObject({ status: "failed", error: "mixed sender" });
+    expect(await reservedWei(intent.id, 421614)).toBe("0");
+  });
+
+  it("refuses a bundle for a row retired while its lane was running", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "in flight", chainIds: [84532] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(intent.id, [84532], "browser:w", 200n);
+    expect(await store!.claimQueuedDeploys(1000, 50)).toContainEqual({ intentId: intent.id, chainIds: [84532] });
+    await store!.recordDeployment(intent.id, {
+      chainId: 84532,
+      projectId: "63",
+      transactionHash: `0x${"f6".repeat(32)}`,
+      forwarded: false,
+    });
+    await expect(
+      store!.updateDeploy(intent.id, 84532, { status: "queued", bundleUuid: "bundle-late" }),
+    ).rejects.toBeInstanceOf(ConflictError);
+    expect((await store!.listDeploys(intent.id))[0]).toMatchObject({
+      status: "failed",
+      error: "mixed sender",
+      bundleUuid: null,
+    });
+  });
+
+  it("leaves the queue alone when the sponsor's own forwarder deployed a chain", async () => {
+    const { intent } = await store!.createIntent(
+      newIntent({ name: "forwarded record", chainIds: [84532, 421614] }),
+      { maxIntents: 100, maxBytes: 1_000_000 },
+    );
+    await store!.queueDeploys(intent.id, [84532, 421614], "browser:w", 100n);
+    await store!.recordDeployment(intent.id, {
+      chainId: 84532,
+      projectId: "64",
+      transactionHash: `0x${"a7".repeat(32)}`,
+      forwarded: true,
+    });
+    expect((await store!.listDeploys(intent.id)).map((row) => row.status)).toEqual(["queued", "queued"]);
   });
 
   it("adds a chain to an intent that already has a queued row", async () => {

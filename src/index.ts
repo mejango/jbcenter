@@ -11,10 +11,7 @@ import { IpfsDiskCache } from "./ipfsCache.js";
 import { createRpcGateway, dwellirRpcUpstreams } from "./rpc.js";
 import { createCenterMcp } from "./mcp.js";
 import { createCenterServer } from "./server.js";
-import { createRestRuntime, type RestWalletConfiguration } from "./rest/runtime.js";
-import { createBaseWalletProductionStack } from "./rest/wallet/productionStack.js";
-import { createBaseWalletDeviceHost, createBaseWalletRecoveryHost, createBaseWalletSignupHost } from "./rest/wallet/baseHost.js";
-import { DWELLIR_RPC_HOSTS } from "./rpc.js";
+import { createRestRuntime } from "./rest/runtime.js";
 import { readRestExecutionConfiguration } from "./rest/executionConfig.js";
 import { Metrics } from "./observability.js";
 import { SponsorshipChain } from "./rest/sponsorship/chain.js";
@@ -80,53 +77,7 @@ const mcp = createCenterMcp(store, {
   ...(pinning ? { pinning } : {}),
 });
 const metrics = new Metrics();
-// Hosted wallet: mounted only with an explicit origin. Creation additionally needs every treasury
-// setting; a partial configuration fails startup rather than exposing an incomplete journey.
-const walletOrigin = process.env.WALLET_ORIGIN;
-const creationSettings = ["WALLET_CREATION_SIGNER_KEY", "WALLET_CREATION_POOL_ID", "WALLET_CREATION_ALLOCATION_WEI", "WALLET_CREATION_INITIAL_NONCE"] as const;
-const creationConfigured = creationSettings.filter(name => process.env[name]);
-if (creationConfigured.length && (creationConfigured.length !== creationSettings.length || !walletOrigin))
-  throw new Error("Hosted wallet creation requires WALLET_ORIGIN and every WALLET_CREATION_* setting together");
-const recoverySettings = ["WALLET_RECOVERY_SIGNER_KEY", "WALLET_RECOVERY_MAX_OPERATIONS", "WALLET_RECOVERY_MAX_COST_WEI"] as const;
-const recoveryConfigured = recoverySettings.filter(name => process.env[name]);
-if (recoveryConfigured.length && (recoveryConfigured.length !== recoverySettings.length || !walletOrigin))
-  throw new Error("Hosted wallet recovery requires WALLET_ORIGIN and every WALLET_RECOVERY_* setting together");
-const walletStack = walletOrigin ? await createBaseWalletProductionStack() : undefined;
-const dwellirBaseUrl = `https://${DWELLIR_RPC_HOSTS[8453]}/${process.env.DWELLIR_API_KEY}`;
-// WALLET_LEGACY_ORIGINS: comma-separated former wallet origins that now redirect to WALLET_ORIGIN.
-const walletLegacyOrigins = (process.env.WALLET_LEGACY_ORIGINS ?? "").split(",").map(value => value.trim()).filter(Boolean);
-// WALLET_FRAMEABLE_APP_ORIGINS: comma-separated app origins admitted to frame their own payment reviews.
-const walletFrameableAppOrigins = (process.env.WALLET_FRAMEABLE_APP_ORIGINS ?? "").split(",").map(value => value.trim()).filter(Boolean);
-const wallet: RestWalletConfiguration | undefined = walletOrigin && walletStack
-  ? { origin: walletOrigin, manifest: walletStack.manifest, utility: walletStack.utility, ...(walletLegacyOrigins.length ? { legacyOrigins: walletLegacyOrigins } : {}),
-      ...(walletFrameableAppOrigins.length ? { frameableAppOrigins: walletFrameableAppOrigins } : {}),
-      basePath: "",
-      // Payment reviews: Base USDC through the catalog-pinned V6 terminal.
-      payments: walletStack.payments,
-      // WALLET_NETWORKS_PAYER_KEY funds Relayr bundles that deploy the account on more chains (Base
-      // for Optimism/Arbitrum, Base Sepolia for testnets). Absent, "Add more" stays off.
-      ...(process.env.WALLET_NETWORKS_PAYER_KEY ? { networksPayerKey: process.env.WALLET_NETWORKS_PAYER_KEY as `0x${string}` } : {}) } : undefined;
-if (process.env.WALLET_NETWORKS_PAYER_KEY && !/^0x[0-9a-fA-F]{64}$/.test(process.env.WALLET_NETWORKS_PAYER_KEY))
-  throw new Error("WALLET_NETWORKS_PAYER_KEY must be a 32-byte hex private key");
 const rest = await createRestRuntime({
-  ...(wallet ? { wallet } : {}),
-  ...(wallet && walletStack && creationConfigured.length ? { walletSignup: (context: Parameters<typeof createBaseWalletSignupHost>[0]) =>
-    createBaseWalletSignupHost(context, { url: dwellirBaseUrl,
-      signerKey: process.env.WALLET_CREATION_SIGNER_KEY as `0x${string}`, poolId: process.env.WALLET_CREATION_POOL_ID!,
-      allocationWei: process.env.WALLET_CREATION_ALLOCATION_WEI!, initialNonce: process.env.WALLET_CREATION_INITIAL_NONCE!,
-      manifest: walletStack.manifest, utility: walletStack.utility,
-      // Idle worker passes happen every second; only work and failures are worth a log line.
-      onEvent: event => { if (event.stage !== "worker" || event.outcome !== "pass") console.info(JSON.stringify({ service: "wallet", action: "creation", ...event })); } }) } : {}),
-  ...(wallet && walletStack && recoveryConfigured.length ? { walletDevices: (context: Parameters<typeof createBaseWalletDeviceHost>[0]) =>
-    createBaseWalletDeviceHost(context, { url: dwellirBaseUrl, signerKey: process.env.WALLET_RECOVERY_SIGNER_KEY as `0x${string}`,
-      maximumOperations: positiveInteger("WALLET_RECOVERY_MAX_OPERATIONS", 1), maximumCostWei: process.env.WALLET_RECOVERY_MAX_COST_WEI!,
-      manifest: walletStack.manifest, utility: walletStack.utility,
-      onDeviceEvent: event => console.info(JSON.stringify({ service: "wallet", action: "device", ...event })) }) } : {}),
-  ...(wallet && walletStack && recoveryConfigured.length ? { walletRecovery: (context: Parameters<typeof createBaseWalletRecoveryHost>[0]) =>
-    createBaseWalletRecoveryHost(context, { url: dwellirBaseUrl, signerKey: process.env.WALLET_RECOVERY_SIGNER_KEY as `0x${string}`,
-      maximumOperations: positiveInteger("WALLET_RECOVERY_MAX_OPERATIONS", 1), maximumCostWei: process.env.WALLET_RECOVERY_MAX_COST_WEI!,
-      manifest: walletStack.manifest, utility: walletStack.utility,
-      onEvent: event => console.info(JSON.stringify({ service: "wallet", action: "recovery", ...event })) }) } : {}),
   pool, store, services: mcp.services, config: mcp.config, upstreams: rpcUpstreams, rpcSiteLimitPerMinute, metrics,
   ...(process.env.REST_PUBLIC_ORIGIN ? { audience: process.env.REST_PUBLIC_ORIGIN } : {}),
   executionConfiguration: await readRestExecutionConfiguration(process.env),

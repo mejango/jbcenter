@@ -37,6 +37,18 @@ function byChainId(deploys: IntentDeploy[]): IntentDeploy[] {
   return (deploys as StoredDeploy[]).slice().sort((a, b) => a.chainId - b.chainId).map(toIntentDeploy);
 }
 
+/** Mirrors the Postgres store: a wallet deployment retires every bundle-less queued row. */
+function retireUnpaidForWallet(intent: Intent): void {
+  if (!intent.deployments.some((deployment) => !deployment.forwarded)) return;
+  for (const deploy of intent.deploys as StoredDeploy[]) {
+    if (deploy.status !== "queued" || deploy.bundleUuid !== null) continue;
+    deploy.status = "failed";
+    deploy.error = "mixed sender";
+    deploy.reservedWei = 0n;
+    deploy.updatedAt = new Date().toISOString();
+  }
+}
+
 export class MemoryStore implements Store {
   async cleanupRateLimits() { return 0; }
   intents: Intent[] = [];
@@ -145,6 +157,7 @@ export class MemoryStore implements Store {
     };
     intent.deployments.push(deployment);
     intent.status = "deployed";
+    if (!deployment.forwarded) retireUnpaidForWallet(intent);
     return deployment;
   }
 
@@ -215,6 +228,7 @@ export class MemoryStore implements Store {
         deploy.updatedAt = new Date().toISOString();
       }
     }
+    for (const intent of this.intents) retireUnpaidForWallet(intent);
     for (const intent of [...this.intents].sort((a, b) => a.id.localeCompare(b.id))) {
       if (claimed.length >= limit) break;
       const eligible = (intent.deploys as StoredDeploy[]).filter(
@@ -240,6 +254,8 @@ export class MemoryStore implements Store {
   async updateDeploy(intentId: string, chainId: number, patch: DeployPatch): Promise<void> {
     const intent = this.intents.find(({ id }) => id === intentId);
     const deploy = intent?.deploys.find((item) => item.chainId === chainId) as StoredDeploy | undefined;
+    if (patch.bundleUuid !== undefined && (!deploy || (deploy.status === "failed" && deploy.bundleUuid === null)))
+      throw new ConflictError("deploy retired before its bundle");
     if (!deploy) return;
     if (patch.status !== undefined) deploy.status = patch.status;
     if (patch.transactionHash !== undefined) deploy.transactionHash = patch.transactionHash;

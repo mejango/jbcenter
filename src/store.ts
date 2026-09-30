@@ -71,6 +71,8 @@ export interface Store {
     offset: number,
     filters: SearchFilters,
   ): Promise<SearchPage>;
+  /** A deployment that was not forwarded came from a wallet: recording it also retires every
+   * sponsored row of the intent that never reached a bundle. A row with a bundle is kept. */
   recordDeployment(intentId: string, value: NewDeployment): Promise<Deployment>;
   /** With `retryFailed`, a failed row among `chainIds` is reset to a fresh attempt; without it,
    * every row that already exists is left as it is. */
@@ -86,6 +88,7 @@ export interface Store {
     leaseSeconds: number,
     limit: number,
   ): Promise<{ intentId: string; chainIds: number[] }[]>;
+  /** Attaching a bundle to a row retired before it had one throws a ConflictError. */
   updateDeploy(intentId: string, chainId: number, patch: DeployPatch): Promise<void>;
   /** Give a claim back unspent: the lease ends and the attempt is not counted. */
   /** Hands a claim back without spending an attempt; the rows wait five minutes before the next pass. */

@@ -369,16 +369,57 @@ describe("sponsor worker", () => {
     ]);
   });
 
-  test("a wallet-sent deployment retires the whole claim without spending", async () => {
+  test("recording a wallet deployment retires every unpaid row before the worker can claim it", async () => {
     const store = new MemoryStore();
     const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
     await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
+    // The sponsor was dry: the rows wait with no bundle.
+    for (const chainId of [84532, 421614]) {
+      await store.updateDeploy(intent.id, chainId, { error: "SPONSOR_UNFUNDED" });
+    }
     await store.recordDeployment(intent.id, {
       chainId: 84532,
       projectId: "9",
       transactionHash: HASH,
       forwarded: false,
     });
+    // Retired at once, the other chain too: the sponsor's salts no longer pair with the wallet's.
+    expect((await store.getIntent(intent.id))?.deploys.map((row) => [row.status, row.error])).toEqual([
+      ["failed", "mixed sender"],
+      ["failed", "mixed sender"],
+    ]);
+    expect(await store.sponsoredWeiSince(new Date(0))).toBe(0n);
+    const lane: DeployLane = { deploy: vi.fn(async () => {}), resume: vi.fn(async () => {}) };
+    const worker = createSponsorWorker({
+      store,
+      verifier: { verify: vi.fn(async () => ({ forwarded: true })) },
+      lane,
+      policy,
+    });
+    // Even with the sponsor funded now, there is nothing left to claim.
+    await worker.runOnce();
+    await worker.stop();
+    expect(lane.deploy).not.toHaveBeenCalled();
+    expect(lane.resume).not.toHaveBeenCalled();
+  });
+
+  test("a wallet deployment recorded after the claim retires the whole claim without spending", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
+    await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
+    const read = store.getIntent.bind(store);
+    // The claim is taken first; the worker reads the intent after the wallet's record landed.
+    store.getIntent = async (id: string) => {
+      const intent = await read(id);
+      intent!.deployments.push({
+        chainId: 84532,
+        projectId: "9",
+        transactionHash: HASH,
+        forwarded: false,
+        createdAt: new Date().toISOString(),
+      });
+      return intent;
+    };
     const lane: DeployLane = { deploy: vi.fn(async () => {}), resume: vi.fn(async () => {}) };
     const events: SponsorEvent[] = [];
     const worker = createSponsorWorker({
@@ -392,14 +433,90 @@ describe("sponsor worker", () => {
     await worker.stop();
     expect(lane.deploy).not.toHaveBeenCalled();
     expect(lane.resume).not.toHaveBeenCalled();
-    expect((await store.getIntent(intent.id))?.deploys.map((row) => [row.status, row.error])).toEqual([
-      ["failed", "mixed sender"],
-      ["failed", "mixed sender"],
-    ]);
     expect(events).toEqual([
       { event: "failed", intentId: intent.id, chainId: 84532, error: "mixed sender" },
       { event: "failed", intentId: intent.id, chainId: 421614, error: "mixed sender" },
     ]);
+  });
+
+  test("a row queued after a wallet deployment is never claimed", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
+    await store.recordDeployment(intent.id, {
+      chainId: 84532,
+      projectId: "9",
+      transactionHash: HASH,
+      forwarded: false,
+    });
+    // A deploy request that read the intent before the record queues its row after it.
+    await store.queueDeploys(intent.id, [421614], "browser:x", 10n);
+    expect(await store.claimQueuedDeploys(30, 5)).toEqual([]);
+    expect((await store.getIntent(intent.id))?.deploys.map((row) => [row.status, row.error])).toEqual([
+      ["failed", "mixed sender"],
+    ]);
+  });
+
+  test("a wallet deployment leaves a paid row for the worker to resume", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532, 421614] }), limits);
+    await store.queueDeploys(intent.id, [84532, 421614], "browser:x", 10n);
+    await store.updateDeploy(intent.id, 421614, { status: "queued", bundleUuid: BUNDLE });
+    await store.recordDeployment(intent.id, {
+      chainId: 84532,
+      projectId: "9",
+      transactionHash: HASH,
+      forwarded: false,
+    });
+    expect((await store.getIntent(intent.id))?.deploys.map((row) => [row.status, row.bundleUuid])).toEqual([
+      ["failed", null],
+      ["queued", BUNDLE],
+    ]);
+    const lane: DeployLane = { deploy: vi.fn(async () => {}), resume: vi.fn(async () => {}) };
+    const worker = createSponsorWorker({
+      store,
+      verifier: { verify: vi.fn(async () => ({ forwarded: true })) },
+      lane,
+      policy,
+    });
+    await worker.runOnce();
+    await worker.stop();
+    expect(lane.deploy).not.toHaveBeenCalled();
+    expect(lane.resume).toHaveBeenCalledWith(expect.objectContaining({ id: intent.id }), [421614], BUNDLE, expect.anything());
+  });
+
+  test("a lane already running when a wallet deploys cannot attach its bundle", async () => {
+    const store = new MemoryStore();
+    const { intent } = await store.createIntent(newIntent({ chainIds: [84532] }), limits);
+    await store.queueDeploys(intent.id, [84532], "browser:x", 10n);
+    const paid = vi.fn();
+    const lane: DeployLane = {
+      resume: vi.fn(async () => {}),
+      deploy: vi.fn(async (_i, _c, report) => {
+        await store.recordDeployment(intent.id, {
+          chainId: 84532,
+          projectId: "9",
+          transactionHash: HASH,
+          forwarded: false,
+        });
+        await report.bundle(BUNDLE);
+        paid();
+      }),
+    };
+    const worker = createSponsorWorker({
+      store,
+      verifier: { verify: vi.fn(async () => ({ forwarded: true })) },
+      lane,
+      policy,
+    });
+    await worker.runOnce();
+    await worker.stop();
+    expect(paid).not.toHaveBeenCalled();
+    expect((await store.getIntent(intent.id))?.deploys[0]).toMatchObject({
+      status: "failed",
+      bundleUuid: null,
+      error: "another sender already deployed this chain",
+    });
+    expect(await store.sponsoredWeiSince(new Date(0))).toBe(0n);
   });
 
   test("a deployment on the only claimed chain spends nothing", async () => {
