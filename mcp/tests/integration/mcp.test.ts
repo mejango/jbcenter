@@ -51,6 +51,7 @@ describe('real MCP application protocol', () => {
         ![
           'jb_pin_project_logo',
           'jb_pin_project_metadata',
+          'jb_pin_nft_metadata',
           'jb_publish_intent',
           'jb_deploy_intent',
         ].includes(tool.name),

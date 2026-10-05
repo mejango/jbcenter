@@ -102,6 +102,31 @@ describe("REST OpenAPI contract", () => {
     }
   });
 
+  it("documents NFT preparation and its extensible JSON without exposing pinning as a read", () => {
+    const path = spec.paths["/api/v1/operations/prepare_nft_metadata"];
+    expect(path?.get?.["x-operation"]).toBe("prepare_nft_metadata");
+    expect(path?.get?.["x-source"]).toEqual(["model"]);
+    expect(path?.get?.["x-effects"]).toEqual({ externalMutation: false, idempotent: true });
+    expect(path?.post).toBeUndefined();
+    const idParameter = (spec.paths["/api/v1/operations/{id}"]!.get!.parameters as Record<string, unknown>[])
+      .find((parameter) => parameter.name === "id")!;
+    const ids = (idParameter.schema as { enum: string[] }).enum;
+    expect(ids).toContain("prepare_nft_metadata");
+    for (const id of ["pin_nft_metadata", "pin_project_metadata", "pin_project_logo"]) {
+      expect(ids).not.toContain(id);
+      expect(spec.paths[`/api/v1/operations/${id}`]).toBeUndefined();
+    }
+    const schemas = JSON.stringify({ $id: "urn:juicebox:nft-input-schemas", $defs: spec.components.schemas })
+      .replaceAll("#/components/schemas/", "#/$defs/");
+    const ajv = new Ajv2020({ strict: false, validateFormats: false });
+    ajv.addSchema(JSON.parse(schemas));
+    const validate = ajv.compile({ $ref: "urn:juicebox:nft-input-schemas#/$defs/OperationInput_prepare_nft_metadata" });
+    expect(validate({ version: 6, metadata: { categoryName: "Access",
+      attributes: [{ trait_type: "Credits", value: 100 }], custom: { nested: [null, true, "value"] } } }), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate({ version: 6, metadata: [] })).toBe(false);
+    expect(validate({ version: 5, metadata: {} })).toBe(false);
+  });
+
   it("models custom request signatures, public discovery, JSON query serialization and distinct transaction signatures", () => {
     for (const methods of Object.values(spec.paths)) for (const operation of Object.values(methods)) {
       const auth = operation["x-auth"] as { scheme: string; idempotencyRequired: boolean };

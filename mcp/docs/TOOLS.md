@@ -4,26 +4,32 @@ Generated from the real MCP server with the official MCP client. Regenerate with
 
 For user goals, tool sequences, external handoffs and completion evidence, see the [user journeys](USER_JOURNEYS.md).
 
-59 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of a project logo and reviewed project metadata through the integrated Center backend. No tool signs or broadcasts transactions.
+61 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of a project logo and reviewed project or NFT metadata through the integrated Center backend. No tool signs or broadcasts transactions.
 
 `jb_pin_project_logo` uploads one PNG, JPEG, GIF, WebP or inert SVG of at most 1 MiB and returns its `ipfs://` logoUri. `jb_prepare_project_metadata` returns the exact canonical JSON, SHA256 and an expiring review token. `jb_pin_project_metadata` uploads only that reviewed document after explicit public-upload authorization. Both pins are public mutations; a review token is not user approval. `logoUri` must be `ipfs://` because the first-party webclients do not render HTTPS logos. The workflow creates new standard project metadata and does not merge existing documents or update project URIs on-chain.
 
+`jb_prepare_nft_metadata` and `jb_pin_nft_metadata` review and publish a complete NFT JSON object, preserving attributes and custom fields within 64 KiB. Pin artwork with `jb_pin_project_logo` and put its `logoUri` in NFT `metadata.image`. The NFT pin receipt includes static-tier encoding only when its CID can be represented by the 721 hook; it does not create or update a tier or override a custom resolver.
+
 Every tool returns a structured envelope `{schemaVersion, observedAt, ok, data|error}`. Exact amounts use integer strings. Per-tool source coverage and execution limits remain in the returned domain data.
 
-## V6 project metadata and IPFS publication
+## V6 project and NFT metadata publication to IPFS
 
 | Tool | Behavior |
 |---|---|
 | `jb_pin_project_logo` | Publish one project logo image to public IPFS using the integrated Center pinning backend and return its ipfs:// logoUri for jb_prepare_project_metadata. Accepts standard base64 of a PNG, JPEG, GIF, WebP or inert SVG file of at most 1 MiB whose bytes match the declared contentType. This is a persistent external mutation; get explicit user authorization for this exact public upload before setting confirmPublicUpload:true. Content may remain public permanently. Does not fetch URLs, resize, pin metadata, use wallet keys, or submit chain transactions. Repeated calls may repeat publication/provider quota consumption. |
 | `jb_prepare_project_metadata` | Prepare complete new standard Juicebox V6 project metadata for review without uploading anything. Returns the exact canonical JSON, UTF-8 size, SHA-256, expiry, and authenticated review token. Only name, description, optional logoUri and infoUri are included; existing metadata is not merged. URLs and image bytes are never fetched. A review token is not user approval to publish. |
 | `jb_pin_project_metadata` | Publish the exact document reviewed through jb_prepare_project_metadata to public IPFS using the integrated Center pinning backend. This is a persistent external mutation; get explicit user authorization for this exact public upload before setting confirmPublicUpload:true. A prepare token alone is not approval. Content may remain public permanently. Requires an unexpired authentic review token; does not upload images (use jb_pin_project_logo), fetch URLs, use wallet keys, or submit chain transactions. Repeated calls may repeat publication/provider quota consumption. |
+| `jb_prepare_nft_metadata` | Prepare complete NFT tier metadata for review without uploading anything. Preserves image, attributes, properties, animation_url and all custom JSON fields in a root object, bounded to 64 KiB canonical UTF-8 JSON and supported structural depth. Returns exact canonical JSON, SHA-256, expiry and a purpose-bound review token. Linked content is never fetched, rendered or verified. Use jb_pin_project_logo to publish a local image first and copy logoUri into image. A token is not user approval to publish. |
+| `jb_pin_nft_metadata` | Publish the exact NFT metadata reviewed through jb_prepare_nft_metadata to public IPFS using the integrated Center pinning backend and shared upload quota. Requires explicit user authorization for this exact potentially permanent public upload before confirmPublicUpload:true and an unexpired authentic NFT review token. Returns metadataUri and CID, plus encodedIpfsUri only when the CID supports V6 static-tier encoding. Does not fetch or upload linked images, use wallet keys, or add or update tiers on-chain. Repeated calls may consume publication quota again. |
 
 - Preparation returns exact new metadata for review; it does not merge an existing document.
 - Pinning publishes the reviewed JSON publicly and requires explicit user authorization.
+- NFT metadata preserves attributes and custom JSON fields within 64 KiB. Use the NFT tools for shop tier metadata, not the project metadata schema. Pinning does not configure a tier or change its token URI resolver.
+- For NFT artwork, use jb_pin_project_logo and put its returned logoUri in metadata.image before preparing the NFT JSON. Images and JSON are separate uploads under the same pin quota.
 - The metadata token is not approval. jb_pin_project_logo is the only tool that uploads image bytes: one PNG, JPEG, GIF, WebP or inert SVG of at most 1 MiB, returned as the ipfs:// logoUri; HTTPS logoUri values are rejected because first-party webclients do not render them.
 - Upload errors can leave public content behind; cancellation does not roll back publication.
 
-Source areas: JB Center, jb-project-metadata.
+Source areas: JB Center, jb-project-metadata, jb-721-tier-content.
 
 ## Projects, accounts and indexed activity
 

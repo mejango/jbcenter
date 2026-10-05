@@ -114,10 +114,10 @@ RPC are public; RPC accepts any or no Origin. `GET /healthz` is public for infra
 
 ## Connect an assistant through MCP
 
-The `mcp/` package provides **59 V6-only tools across ten capability families**: project and
+The `mcp/` package provides **61 V6-only tools across ten capability families**: project and
 account intelligence, payments and cash-outs, launches and ruleset changes, buyback hooks, router
 terminals, 721 shops, revnets and loans, omnichain operations, source and webclient development,
-and reviewed project metadata publication. Read the [26 user journeys](mcp/docs/USER_JOURNEYS.md)
+and reviewed project and NFT metadata publication. Read the [27 user journeys](mcp/docs/USER_JOURNEYS.md)
 and [tool catalog](mcp/docs/TOOLS.md) for exact coverage and limitations.
 
 Point a Streamable HTTP MCP client at:
@@ -153,6 +153,16 @@ anonymous MCP pin budget as JSON) and referenced as `ipfs://<cid>`; HTTPS logos 
 the first-party webclients only render content-addressed images. Neither tool merges existing
 metadata, updates an existing project, signs, or broadcasts a transaction. Agents and scripts pin
 through the MCP; the `/v1/pins/*` routes below are for approved browser origins.
+
+NFT tier documents use `jb_prepare_nft_metadata` and `jb_pin_nft_metadata` with the same exact
+public-upload review, integrated pinning backend, and shared pin budget. Unlike the standard
+project schema, NFT publication preserves supplied `image`, `attributes`, `properties`,
+`animation_url`, and custom JSON fields, with canonical object-key ordering and a 64 KiB limit.
+The existing image tool's returned `logoUri` can be used as `metadata.image`. No provider API key
+or wallet is needed. Publication returns a real CID and `metadataUri`; configuring an NFT tier
+requires a separate transaction. See the [NFT metadata journey](mcp/docs/USER_JOURNEYS.md#review-and-pin-nft-tier-metadata)
+for static 721 encoding constraints. These new tools require deployment before use at the public
+endpoint; their presence in this source checkout does not establish live availability.
 
 `/mcp/healthz` reports MCP liveness and `/mcp/readyz` reports local MCP readiness with upstream
 health explicitly unchecked. Center's `/readyz` continues checking PostgreSQL. The integrated

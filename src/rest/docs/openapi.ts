@@ -1,5 +1,5 @@
 import type { ProtocolOperations } from "@juicebox/mcp/host";
-import { operationDescriptors } from "../app.js";
+import { isRestReadOperation, operationDescriptors } from "../app.js";
 import { ALL_BOT_SCOPES, REST_AUTH_HEADERS } from "../auth/index.js";
 import type { ContractCatalog } from "../contracts/catalog.js";
 import { REST_LIMITS, REST_PREFIX } from "../http.js";
@@ -259,7 +259,7 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
   });
 
   const transactionDescriptors = descriptors.filter((item) => item.transaction);
-  const readDescriptors = descriptors.filter((item) => !item.transaction && (item.kind !== "prepare" || ["prepare_project_metadata", "prepare_intent"].includes(item.id)));
+  const readDescriptors = descriptors.filter(isRestReadOperation);
   const genericPlans: Schema[] = [object({ operation: { const: "contract_calls", type: "string" }, input: ref("PrepareContractCalls") })];
   for (const descriptor of descriptors) schemas[`OperationInput_${descriptor.id}`] = modernSchema(descriptor.inputJsonSchema, `OperationInput_${descriptor.id}`) as Schema;
   for (const descriptor of transactionDescriptors) genericPlans.push(object({ operation: { type: "string", const: descriptor.id }, input: ref(`OperationInput_${descriptor.id}`) }));

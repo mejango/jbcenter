@@ -10,10 +10,10 @@ The deployment endpoint is **https://juicebox.center/mcp**. This package lives i
 - Payment, cash-out, payout, buyback/router, NFT, revnet, loan and bridge workflows built against the pinned SDK and checked against V6 source.
 - Authenticated transaction plans containing exact account, chain, destination, calldata, value, decoded arguments and prerequisites. Fresh simulation and receipt verification are separate operations.
 - Searchable contract sources and Juice skills, plus practical webclient development plans grounded in Juicescan, Juicebox Money and Revnet Money.
-- Exact project metadata review and explicitly approved public JSON pinning through the integrated Center backend, returning a CID and URI for a separate V6 launch.
+- Exact project and NFT metadata review and explicitly approved public JSON pinning through the integrated Center backend, returning a CID and URI for a separate V6 launch or tier configuration.
 - Local stdio and stateless Streamable HTTP transports, bounded requests, cancellation, Docker packaging and CI.
 
-The **59 tools across ten capability families** compose into [26 user journeys](docs/USER_JOURNEYS.md) for contributors, creators, operators, revnet participants, omnichain users, and developers, including tool sequences and what establishes completion.
+The **61 tools across ten capability families** compose into [27 user journeys](docs/USER_JOURNEYS.md) for contributors, creators, operators, revnet participants, omnichain users, and developers, including tool sequences and what establishes completion.
 
 Start with `jb_list_capabilities` in an MCP client. It groups the tools and reports their coverage limits. The generated [tool catalog](docs/TOOLS.md), [architecture](docs/ARCHITECTURE.md), [source provenance](docs/SOURCES.md), and [webclient guide](docs/WEBCLIENTS.md) describe the implementation in more detail.
 
@@ -100,6 +100,17 @@ Plan expiry is enforced by this service, not universally by the destination cont
 5. Use the returned `metadataUri` in `jb_prepare_launch.projectUri`, `jb_prepare_721_launch.projectUri`, or `jb_prepare_revnet_deploy.config.description.uri`, then follow the separate transaction workflow.
 
 The 64 KiB JSON limit applies to the complete canonical UTF-8 document. This workflow creates new standard metadata; it does not merge or preserve an existing document's fields, update an existing project's URI, or fetch linked content. A logo is pinned separately by `jb_pin_project_logo` (1 MiB, same anonymous pin budget) or already has a real canonical IPFS CID. The receipt acknowledges the primary upload and queued redundancy; it does not claim retrieval or linked-content availability was verified. If publication returns `METADATA_PUBLICATION_UNVERIFIED`, content may already be public: inspect backend status before deliberately retrying. See the [metadata journey](docs/USER_JOURNEYS.md#review-and-pin-new-project-metadata).
+
+## Publish NFT tier metadata
+
+The NFT tools described here are part of this change and require deployment before they are available at the public endpoint. Check `jb_list_capabilities` on the connected server.
+
+1. Pin a local tier image with the existing `jb_pin_project_logo` tool after approval of that public image upload. Use its returned `logoUri` as the NFT document's `image`; no separate image tool, provider API key, or wallet is needed.
+2. Call `jb_prepare_nft_metadata` with `version: 6` and the complete NFT JSON object in `metadata`. Supply the intended `name`, `description`, `image`, `attributes`, `properties`, `animation_url`, and custom fields as needed. Supplied fields and array order are preserved; object keys are canonically ordered. The canonical UTF-8 document is limited to 64 KiB and 64 levels of nesting; ambiguous or unsafe JSON structures are rejected.
+3. Show the exact `review.jsonText`, SHA256, size, and expiry to the user, explaining public visibility and potential permanence. Only after approval of that exact document, call `jb_pin_nft_metadata` with the review `token` and `confirmPublicUpload: true`.
+4. Keep the returned real `metadataUri` and CID. Follow the [NFT metadata journey](docs/USER_JOURNEYS.md#review-and-pin-nft-tier-metadata) to use a compatible CID in a static 721 tier; publication alone does not create or change a tier.
+
+NFT JSON uses the same authenticated review, integrated pinning backend, expiry, and shared pin budget as project metadata. It preserves supplied NFT fields instead of projecting them onto the standard project metadata schema. Supply the complete intended document when replacing metadata; the tools do not fetch or merge an existing document, fetch linked media, or verify marketplace rendering. String values, including URI formats, are preserved without promising reader compatibility. Use a real published image URI for `image`. Apply the same publication-receipt and uncertain-publication handling described above.
 
 ## Correctness boundaries
 

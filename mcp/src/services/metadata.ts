@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { decodeEncodedIpfsUri, encodeIpfsUri } from '@bananapus/nana-sdk-core';
 import { CID } from 'multiformats/cid';
 import { z } from 'zod';
 import { consumeRequest } from '../domain/context.js';
@@ -12,6 +13,7 @@ const MAX_ENVELOPE_BYTES = MAX_PROJECT_METADATA_BYTES + 4096;
 const MAX_TTL_SECONDS = 600;
 const PREFIX = 'jbmetadata1';
 const PURPOSE = 'juicebox-v6-project-metadata-publication';
+const NFT_PURPOSE = 'juicebox-v6-nft-metadata-publication';
 const KEY_DOMAIN = 'juicebox-mcp/project-metadata-pinning/key/v1';
 const CID_ENVELOPE = /^(?:Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{20,160})$/u;
 
@@ -170,6 +172,68 @@ export const pinProjectMetadataSchema = z
   })
   .strict();
 
+// Preserve extensible NFT documents without letting serialization silently alter
+// non-JSON inputs. The shared guard owns reserved keys, depth and node-count limits.
+const nftMetadataSchema = z.preprocess(
+  (value, ctx) => {
+    try {
+      assertUnambiguousJson(value);
+      const pending = [value];
+      while (pending.length) {
+        const item = pending.pop();
+        if (typeof item === 'string') unicodeString().parse(item);
+        if (item === null || typeof item !== 'object') continue;
+        const array = Array.isArray(item);
+        const prototype = Object.getPrototypeOf(item);
+        if (
+          array
+            ? prototype !== Array.prototype
+            : prototype !== Object.prototype && prototype !== null
+        )
+          throw new Error('Use plain JSON objects.');
+        const keys = Reflect.ownKeys(item);
+        if (array && keys.length !== item.length + 1)
+          throw new Error('JSON arrays must have only contiguous indexed items.');
+        for (const key of keys) {
+          if (array && key === 'length') continue;
+          if (typeof key !== 'string') throw new Error('JSON cannot preserve symbol keys.');
+          unicodeString().parse(key);
+          const property = Object.getOwnPropertyDescriptor(item, key)!;
+          if (!property.enumerable || !('value' in property))
+            throw new Error('JSON cannot preserve hidden properties or accessors.');
+          if (array && (!/^(?:0|[1-9][0-9]*)$/u.test(key) || Number(key) >= item.length))
+            throw new Error('JSON arrays must have only contiguous indexed items.');
+          pending.push(property.value);
+        }
+      }
+      return value;
+    } catch {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'NFT metadata must be a JSON object containing only ordinary JSON values and valid Unicode, without reserved keys, hidden properties or unsupported structural depth. No altered review document will be produced.',
+      });
+      return z.NEVER;
+    }
+  },
+  z.record(z.string(), z.json()),
+);
+
+export const prepareNftMetadataSchema = z
+  .object({
+    version: prepareProjectMetadataSchema.shape.version,
+    metadata: nftMetadataSchema.describe(
+      'Complete NFT metadata JSON object, at most 64 KiB of canonical UTF-8 JSON. Preserves image, attributes, properties, animation_url and custom fields. Linked content is not fetched, rendered or verified. This is not standard project metadata and does not update a tier on-chain.',
+    ),
+  })
+  .strict();
+
+export const pinNftMetadataSchema = pinProjectMetadataSchema.extend({
+  token: pinProjectMetadataSchema.shape.token.describe(
+    'Unexpired review token returned by jb_prepare_nft_metadata; project metadata tokens cannot be used here, and tokens do not establish user approval.',
+  ),
+});
+
 export const pinProjectLogoSchema = z
   .object({
     contentType: z
@@ -200,21 +264,34 @@ const timestampSchema = z
   .string()
   .datetime({ offset: false })
   .refine((value) => new Date(value).toISOString() === value);
+const envelopeFields = {
+  schemaVersion: z.literal(1),
+  audience: z.string().min(1).max(2048),
+  version: z.literal(6),
+  issuedAt: timestampSchema,
+  expiresAt: timestampSchema,
+  contentSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+  utf8Bytes: z.number().int().positive().max(MAX_PROJECT_METADATA_BYTES),
+};
 const envelopeSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    ...envelopeFields,
     purpose: z.literal(PURPOSE),
-    audience: z.string().min(1).max(2048),
-    version: z.literal(6),
-    issuedAt: timestampSchema,
-    expiresAt: timestampSchema,
-    contentSha256: z.string().regex(/^[0-9a-f]{64}$/u),
-    utf8Bytes: z.number().int().positive().max(MAX_PROJECT_METADATA_BYTES),
     metadata: projectMetadataSchema,
   })
   .strict();
 
-type MetadataEnvelope = z.output<typeof envelopeSchema>;
+type MetadataEnvelope = Omit<z.output<typeof envelopeSchema>, 'purpose' | 'metadata'> & {
+  purpose: string;
+  metadata: unknown;
+};
+const nftEnvelopeSchema = z
+  .object({
+    ...envelopeFields,
+    purpose: z.literal(NFT_PURPOSE),
+    metadata: nftMetadataSchema,
+  })
+  .strict();
 export type PinProjectMetadataJson = (
   jsonText: string,
   signal?: AbortSignal,
@@ -224,7 +301,7 @@ export type PinProjectLogo = (
   signal?: AbortSignal,
 ) => Promise<{ cid: string; status: 'queued' }>;
 
-function metadataBytes(metadata: z.output<typeof projectMetadataSchema>) {
+function metadataBytes(metadata: unknown) {
   const jsonText = canonicalJson(metadata);
   const utf8Bytes = Buffer.byteLength(jsonText, 'utf8');
   if (utf8Bytes > MAX_PROJECT_METADATA_BYTES)
@@ -278,51 +355,8 @@ export class ProjectMetadataService {
   prepare(input: unknown) {
     assertUnambiguousJson(input);
     const parsed = prepareProjectMetadataSchema.parse(input);
-    const bytes = metadataBytes(parsed.metadata);
-    const now = this.now();
-    const envelope: MetadataEnvelope = {
-      schemaVersion: 1,
-      purpose: PURPOSE,
-      audience: this.audience,
-      version: 6,
-      issuedAt: new Date(now).toISOString(),
-      expiresAt: new Date(now + this.ttlSeconds * 1000).toISOString(),
-      contentSha256: bytes.contentSha256,
-      utf8Bytes: bytes.utf8Bytes,
-      metadata: parsed.metadata,
-    };
-    const payload = Buffer.from(canonicalJson(envelope), 'utf8').toString('base64url');
-    const token = `${PREFIX}.${payload}.${this.signature(payload).toString('base64url')}`;
     return {
-      version: 6 as const,
-      token,
-      issuedAt: envelope.issuedAt,
-      expiresAt: envelope.expiresAt,
-      review: {
-        metadata: parsed.metadata,
-        ...bytes,
-        contentType: 'application/json; charset=utf-8',
-        serialization:
-          'Canonical JSON with sorted keys, no trailing newline, and no Unicode normalization.',
-      },
-      publication: {
-        configured: this.pinJson !== undefined,
-        uploaded: false,
-        requiresExplicitUserAuthorization: true,
-        tokenEstablishesAuthorization: false,
-        visibility: 'public',
-        removalGuaranteed: false,
-        linkedContentFetched: false,
-        linkedContentAvailabilityVerified: false,
-        nextStep: {
-          tool: 'jb_pin_project_metadata',
-          instruction:
-            'Show the user review.metadata and the public, potentially permanent upload consequence. After explicit authorization, pass this response’s token and confirmPublicUpload:true. Preparation alone is not approval. No wallet is needed to pin.',
-        },
-        availability: this.pinJson
-          ? 'The integrated pinning backend is configured; publication still requires authorization and successful quota/provider checks.'
-          : `This server has no pinning backend. Connect to the hosted ${this.audience} service and prepare the same reviewed metadata there before authorizing a pin; review tokens cannot be assumed portable between servers.`,
-      },
+      ...this.prepareReview(parsed.metadata, PURPOSE, 'jb_pin_project_metadata'),
       warnings: [
         'This creates a new document containing only the displayed fields. It does not merge or preserve fields from an existing project metadata document.',
         'A logoUri references an already pinned image as ipfs://<cid>. Preparation does not fetch or pin it; pin a local image with jb_pin_project_logo first, or omit logoUri.',
@@ -334,58 +368,64 @@ export class ProjectMetadataService {
   async pin(input: unknown) {
     assertUnambiguousJson(input);
     const parsed = pinProjectMetadataSchema.parse(input);
-    const { envelope, bytes } = this.open(parsed.token);
-    if (!this.pinJson)
-      throw new DomainError(
-        'NOT_CONFIGURED',
-        `Public metadata pinning is not configured on this server. Prepare the same metadata through ${this.audience}, review it, and authorize pinning there. No upload was attempted.`,
-      );
-    const signal = consumeRequest();
-    let result: Awaited<ReturnType<PinProjectMetadataJson>>;
-    try {
-      result = await this.pinJson(bytes.jsonText, signal);
-      if (
-        !result ||
-        typeof result.cid !== 'string' ||
-        !isCanonicalCid(result.cid) ||
-        result.status !== 'queued'
-      )
-        throw new Error('Invalid pinning receipt.');
-    } catch {
-      throw new DomainError(
-        'METADATA_PUBLICATION_UNVERIFIED',
-        'The pinning operation did not return a valid completion receipt. Content may already be public; an automatic retry could repeat publication or consume quota. Inspect backend status before deliberately retrying.',
-        {
-          details: { publicUploadMayHaveOccurred: true, contentSha256: bytes.contentSha256 },
-        },
-      );
-    }
+    const published = await this.publishMetadata(this.open(parsed.token, envelopeSchema));
     return {
-      version: envelope.version,
-      metadataUri: `ipfs://${result.cid}`,
-      cid: result.cid,
-      contentSha256: bytes.contentSha256,
-      utf8Bytes: bytes.utf8Bytes,
-      publication: {
-        visibility: 'public',
-        primaryUploadAcknowledged: true,
-        redundancyStatus: result.status,
-        removalGuaranteed: false,
-        retrievedContentVerified: false,
-        linkedContentFetched: false,
-        onchainTransactionSubmitted: false,
-      },
+      ...published,
       launchInputs: [
-        { tool: 'jb_prepare_launch', field: 'projectUri', value: `ipfs://${result.cid}` },
-        { tool: 'jb_prepare_721_launch', field: 'projectUri', value: `ipfs://${result.cid}` },
+        { tool: 'jb_prepare_launch', field: 'projectUri', value: published.metadataUri },
+        { tool: 'jb_prepare_721_launch', field: 'projectUri', value: published.metadataUri },
         {
           tool: 'jb_prepare_revnet_deploy',
           field: 'config.description.uri',
-          value: `ipfs://${result.cid}`,
+          value: published.metadataUri,
         },
       ],
       nextStep:
         'Choose the intended V6 launch composition, use the indicated URI field, and complete its other typed inputs for a separate transaction review. Pinning itself has not changed any project. This workflow does not prepare existing-project URI updates.',
+    };
+  }
+
+  prepareNft(input: unknown) {
+    assertUnambiguousJson(input);
+    const parsed = prepareNftMetadataSchema.parse(input);
+    return {
+      ...this.prepareReview(parsed.metadata, NFT_PURPOSE, 'jb_pin_nft_metadata'),
+      warnings: [
+        'This creates a new NFT metadata document with all displayed fields. It does not merge with existing metadata or update an NFT tier on-chain.',
+        'Images, animation URLs and other linked content are preserved as supplied, not fetched, rendered, pinned or checked for availability or renderer compatibility. To publish a local image first, use jb_pin_project_logo and copy its logoUri into metadata.image.',
+        'Pinning does not create a tier or submit a transaction. Use a compatible returned encodedIpfsUri only in a separately reviewed tier configuration with the intended base URI and resolver.',
+      ],
+    };
+  }
+
+  async pinNft(input: unknown) {
+    assertUnambiguousJson(input);
+    const parsed = pinNftMetadataSchema.parse(input);
+    const published = await this.publishMetadata(this.open(parsed.token, nftEnvelopeSchema));
+    let tierEncoding:
+      | { supported: true; cidV0: string; encodedIpfsUri: `0x${string}` }
+      | { supported: false; reason: string };
+    try {
+      const encodedIpfsUri = encodeIpfsUri(published.cid);
+      tierEncoding = {
+        supported: true,
+        cidV0: decodeEncodedIpfsUri(encodedIpfsUri),
+        encodedIpfsUri,
+      };
+    } catch {
+      // A successful upload stays successful even when its CID cannot be stored in
+      // the contract's static-tier slot (including its zero-digest sentinel).
+      tierEncoding = {
+        supported: false,
+        reason:
+          'This valid public IPFS CID cannot be represented by the V6 tier bytes32 encoding. That encoding requires a dag-pb CID with a nonzero 32-byte sha2-256 digest. Do not substitute this CID’s digest into encodedIpfsUri.',
+      };
+    }
+    return {
+      ...published,
+      tierEncoding,
+      nextStep:
+        'Review the pinned NFT metadata separately from project metadata. When tierEncoding.supported is true, encodedIpfsUri is suitable only for a separately reviewed static tier using the matching ipfs:// base URI and compatible resolver. Pinning has not added or changed a tier. When unsupported, keep this publication receipt and choose a compatible publishing format before preparing a tier; automatic repinning may consume quota.',
     };
   }
 
@@ -458,11 +498,110 @@ export class ProjectMetadataService {
     };
   }
 
+  private prepareReview<T>(metadata: T, purpose: string, pinTool: string) {
+    const bytes = metadataBytes(metadata);
+    const now = this.now();
+    const envelope: MetadataEnvelope = {
+      schemaVersion: 1,
+      purpose,
+      audience: this.audience,
+      version: 6,
+      issuedAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + this.ttlSeconds * 1000).toISOString(),
+      contentSha256: bytes.contentSha256,
+      utf8Bytes: bytes.utf8Bytes,
+      metadata,
+    };
+    const payload = Buffer.from(canonicalJson(envelope), 'utf8').toString('base64url');
+    const token = `${PREFIX}.${payload}.${this.signature(payload).toString('base64url')}`;
+    return {
+      version: 6 as const,
+      token,
+      issuedAt: envelope.issuedAt,
+      expiresAt: envelope.expiresAt,
+      review: {
+        metadata,
+        ...bytes,
+        contentType: 'application/json; charset=utf-8',
+        serialization:
+          'Canonical JSON with sorted keys, no trailing newline, and no Unicode normalization.',
+      },
+      publication: {
+        configured: this.pinJson !== undefined,
+        uploaded: false,
+        requiresExplicitUserAuthorization: true,
+        tokenEstablishesAuthorization: false,
+        visibility: 'public',
+        removalGuaranteed: false,
+        linkedContentFetched: false,
+        linkedContentAvailabilityVerified: false,
+        nextStep: {
+          tool: pinTool,
+          instruction:
+            'Show the user review.metadata and the public, potentially permanent upload consequence. After explicit authorization, pass this response’s token and confirmPublicUpload:true. Preparation alone is not approval. No wallet is needed to pin.',
+        },
+        availability: this.pinJson
+          ? 'The integrated pinning backend is configured; publication still requires authorization and successful quota/provider checks.'
+          : `This server has no pinning backend. Connect to the hosted ${this.audience} service and prepare the same reviewed metadata there before authorizing a pin; review tokens cannot be assumed portable between servers.`,
+      },
+    };
+  }
+
+  private async publishMetadata({
+    envelope,
+    bytes,
+  }: {
+    envelope: MetadataEnvelope;
+    bytes: ReturnType<typeof metadataBytes>;
+  }) {
+    if (!this.pinJson)
+      throw new DomainError(
+        'NOT_CONFIGURED',
+        `Public metadata pinning is not configured on this server. Prepare the same metadata through ${this.audience}, review it, and authorize pinning there. No upload was attempted.`,
+      );
+    const signal = consumeRequest();
+    let result: Awaited<ReturnType<PinProjectMetadataJson>>;
+    try {
+      result = await this.pinJson(bytes.jsonText, signal);
+      if (
+        !result ||
+        typeof result.cid !== 'string' ||
+        !isCanonicalCid(result.cid) ||
+        result.status !== 'queued'
+      )
+        throw new Error('Invalid pinning receipt.');
+    } catch {
+      throw new DomainError(
+        'METADATA_PUBLICATION_UNVERIFIED',
+        'The pinning operation did not return a valid completion receipt. Content may already be public; an automatic retry could repeat publication or consume quota. Inspect backend status before deliberately retrying.',
+        {
+          details: { publicUploadMayHaveOccurred: true, contentSha256: bytes.contentSha256 },
+        },
+      );
+    }
+    return {
+      version: envelope.version,
+      metadataUri: `ipfs://${result.cid}`,
+      cid: result.cid,
+      contentSha256: bytes.contentSha256,
+      utf8Bytes: bytes.utf8Bytes,
+      publication: {
+        visibility: 'public',
+        primaryUploadAcknowledged: true,
+        redundancyStatus: result.status,
+        removalGuaranteed: false,
+        retrievedContentVerified: false,
+        linkedContentFetched: false,
+        onchainTransactionSubmitted: false,
+      },
+    };
+  }
+
   private signature(payload: string): Buffer {
     return createHmac('sha256', this.key).update(`${PREFIX}.${payload}`, 'utf8').digest();
   }
 
-  private open(token: string) {
+  private open<T extends MetadataEnvelope>(token: string, schema: z.ZodType<T>) {
     const fail = () =>
       new DomainError(
         'INVALID_METADATA_TOKEN',
@@ -489,13 +628,13 @@ export class ProjectMetadataService {
     const encoded = Buffer.from(payload, 'base64url');
     if (encoded.length > MAX_ENVELOPE_BYTES || encoded.toString('base64url') !== payload)
       throw fail();
-    let envelope: MetadataEnvelope;
+    let envelope: T;
     let bytes: ReturnType<typeof metadataBytes>;
     try {
       const jsonText = new TextDecoder('utf-8', { fatal: true }).decode(encoded);
       const value: unknown = JSON.parse(jsonText);
       assertUnambiguousJson(value);
-      envelope = envelopeSchema.parse(value);
+      envelope = schema.parse(value);
       if (canonicalJson(envelope) !== jsonText || envelope.audience !== this.audience) throw fail();
       bytes = metadataBytes(envelope.metadata);
       if (bytes.contentSha256 !== envelope.contentSha256 || bytes.utf8Bytes !== envelope.utf8Bytes)
