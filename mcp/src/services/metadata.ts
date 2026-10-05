@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { decodeEncodedIpfsUri, encodeIpfsUri } from '@bananapus/nana-sdk-core';
 import { CID } from 'multiformats/cid';
 import { z } from 'zod';
 import { consumeRequest } from '../domain/context.js';
@@ -12,6 +13,7 @@ const MAX_ENVELOPE_BYTES = MAX_PROJECT_METADATA_BYTES + 4096;
 const MAX_TTL_SECONDS = 600;
 const PREFIX = 'jbmetadata1';
 const PURPOSE = 'juicebox-v6-project-metadata-publication';
+const NFT_PURPOSE = 'juicebox-v6-nft-metadata-publication';
 const KEY_DOMAIN = 'juicebox-mcp/project-metadata-pinning/key/v1';
 const CID_ENVELOPE = /^(?:Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{20,160})$/u;
 
@@ -170,6 +172,68 @@ export const pinProjectMetadataSchema = z
   })
   .strict();
 
+// Preserve extensible NFT documents without letting serialization silently alter
+// non-JSON inputs. The shared guard owns reserved keys, depth and node-count limits.
+const nftMetadataSchema = z.preprocess(
+  (value, ctx) => {
+    try {
+      assertUnambiguousJson(value);
+      const pending = [value];
+      while (pending.length) {
+        const item = pending.pop();
+        if (typeof item === 'string') unicodeString().parse(item);
+        if (item === null || typeof item !== 'object') continue;
+        const array = Array.isArray(item);
+        const prototype = Object.getPrototypeOf(item);
+        if (
+          array
+            ? prototype !== Array.prototype
+            : prototype !== Object.prototype && prototype !== null
+        )
+          throw new Error('Use plain JSON objects.');
+        const keys = Reflect.ownKeys(item);
+        if (array && keys.length !== item.length + 1)
+          throw new Error('JSON arrays must have only contiguous indexed items.');
+        for (const key of keys) {
+          if (array && key === 'length') continue;
+          if (typeof key !== 'string') throw new Error('JSON cannot preserve symbol keys.');
+          unicodeString().parse(key);
+          const property = Object.getOwnPropertyDescriptor(item, key)!;
+          if (!property.enumerable || !('value' in property))
+            throw new Error('JSON cannot preserve hidden properties or accessors.');
+          if (array && (!/^(?:0|[1-9][0-9]*)$/u.test(key) || Number(key) >= item.length))
+            throw new Error('JSON arrays must have only contiguous indexed items.');
+          pending.push(property.value);
+        }
+      }
+      return value;
+    } catch {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'NFT metadata must be a JSON object containing only ordinary JSON values and valid Unicode, without reserved keys, hidden properties or unsupported structural depth. No altered review document will be produced.',
+      });
+      return z.NEVER;
+    }
+  },
+  z.record(z.string(), z.json()),
+);
+
+export const prepareNftMetadataSchema = z
+  .object({
+    version: prepareProjectMetadataSchema.shape.version,
+    metadata: nftMetadataSchema.describe(
+      'Complete NFT metadata JSON object, at most 64 KiB of canonical UTF-8 JSON. Preserves image, attributes, properties, animation_url and custom fields. Linked content is not fetched, rendered or verified. This is not standard project metadata and does not update a tier on-chain.',
+    ),
+  })
+  .strict();
+
+export const pinNftMetadataSchema = pinProjectMetadataSchema.extend({
+  token: pinProjectMetadataSchema.shape.token.describe(
+    'Unexpired review token returned by jb_prepare_nft_metadata; project metadata tokens cannot be used here, and tokens do not establish user approval.',
+  ),
+});
+
 export const pinProjectLogoSchema = z
   .object({
     contentType: z
@@ -221,6 +285,13 @@ type MetadataEnvelope = Omit<z.output<typeof envelopeSchema>, 'purpose' | 'metad
   purpose: string;
   metadata: unknown;
 };
+const nftEnvelopeSchema = z
+  .object({
+    ...envelopeFields,
+    purpose: z.literal(NFT_PURPOSE),
+    metadata: nftMetadataSchema,
+  })
+  .strict();
 export type PinProjectMetadataJson = (
   jsonText: string,
   signal?: AbortSignal,
@@ -311,6 +382,50 @@ export class ProjectMetadataService {
       ],
       nextStep:
         'Choose the intended V6 launch composition, use the indicated URI field, and complete its other typed inputs for a separate transaction review. Pinning itself has not changed any project. This workflow does not prepare existing-project URI updates.',
+    };
+  }
+
+  prepareNft(input: unknown) {
+    assertUnambiguousJson(input);
+    const parsed = prepareNftMetadataSchema.parse(input);
+    return {
+      ...this.prepareReview(parsed.metadata, NFT_PURPOSE, 'jb_pin_nft_metadata'),
+      warnings: [
+        'This creates a new NFT metadata document with all displayed fields. It does not merge with existing metadata or update an NFT tier on-chain.',
+        'Images, animation URLs and other linked content are preserved as supplied, not fetched, rendered, pinned or checked for availability or renderer compatibility. To publish a local image first, use jb_pin_project_logo and copy its logoUri into metadata.image.',
+        'Pinning does not create a tier or submit a transaction. Use a compatible returned encodedIpfsUri only in a separately reviewed tier configuration with the intended base URI and resolver.',
+      ],
+    };
+  }
+
+  async pinNft(input: unknown) {
+    assertUnambiguousJson(input);
+    const parsed = pinNftMetadataSchema.parse(input);
+    const published = await this.publishMetadata(this.open(parsed.token, nftEnvelopeSchema));
+    let tierEncoding:
+      | { supported: true; cidV0: string; encodedIpfsUri: `0x${string}` }
+      | { supported: false; reason: string };
+    try {
+      const encodedIpfsUri = encodeIpfsUri(published.cid);
+      tierEncoding = {
+        supported: true,
+        cidV0: decodeEncodedIpfsUri(encodedIpfsUri),
+        encodedIpfsUri,
+      };
+    } catch {
+      // A successful upload stays successful even when its CID cannot be stored in
+      // the contract's static-tier slot (including its zero-digest sentinel).
+      tierEncoding = {
+        supported: false,
+        reason:
+          'This valid public IPFS CID cannot be represented by the V6 tier bytes32 encoding. That encoding requires a dag-pb CID with a nonzero 32-byte sha2-256 digest. Do not substitute this CID’s digest into encodedIpfsUri.',
+      };
+    }
+    return {
+      ...published,
+      tierEncoding,
+      nextStep:
+        'Review the pinned NFT metadata separately from project metadata. When tierEncoding.supported is true, encodedIpfsUri is suitable only for a separately reviewed static tier using the matching ipfs:// base URI and compatible resolver. Pinning has not added or changed a tier. When unsupported, keep this publication receipt and choose a compatible publishing format before preparing a tier; automatic repinning may consume quota.',
     };
   }
 

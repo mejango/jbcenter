@@ -78,6 +78,7 @@ describe('metadata MCP publication boundary', () => {
     ).toEqual([
       'jb_pin_project_logo',
       'jb_pin_project_metadata',
+      'jb_pin_nft_metadata',
       'jb_publish_intent',
       'jb_deploy_intent',
     ]);
@@ -116,6 +117,58 @@ describe('metadata MCP publication boundary', () => {
       data: { logoUri: `ipfs://${CID}`, contentType: 'image/png' },
     });
     expect(pinLogo).toHaveBeenCalledOnce();
+
+    const nftMetadata = {
+      name: 'Squeeze access pass',
+      categoryName: 'Access',
+      description: 'A shop tier with custom metadata.',
+      image: `ipfs://${CID}`,
+      attributes: [{ trait_type: 'Credits', value: 100 }],
+      properties: { service: 'Squeeze', transferable: true },
+      squeeze: { revision: 1, benefits: ['payouts', 'access'] },
+    };
+    expect(
+      listed.tools.find((tool) => tool.name === 'jb_prepare_nft_metadata')?.annotations
+        ?.readOnlyHint,
+    ).toBe(true);
+    const nftPrepared = await client.callTool({
+      name: 'jb_prepare_nft_metadata',
+      arguments: { version: 6, metadata: nftMetadata },
+    });
+    expect(nftPrepared.isError).not.toBe(true);
+    const nftData = (
+      nftPrepared.structuredContent as {
+        data: { token: string; review: { jsonText: string; metadata: unknown } };
+      }
+    ).data;
+    expect(nftData.review.metadata).toEqual(nftMetadata);
+    expect(JSON.parse(nftData.review.jsonText)).toEqual(nftMetadata);
+    const callsBeforeNftPin = pinJson.mock.calls.length;
+    for (const [name, token, confirmPublicUpload] of [
+      ['jb_pin_nft_metadata', data.token, true],
+      ['jb_pin_project_metadata', nftData.token, true],
+      ['jb_pin_nft_metadata', nftData.token, false],
+    ] as const) {
+      const refused = await client.callTool({
+        name,
+        arguments: { token, confirmPublicUpload },
+      });
+      expect(refused.isError).toBe(true);
+    }
+    expect(pinJson.mock.calls).toHaveLength(callsBeforeNftPin);
+    const nftPinned = await client.callTool({
+      name: 'jb_pin_nft_metadata',
+      arguments: { token: nftData.token, confirmPublicUpload: true },
+    });
+    expect(nftPinned.structuredContent).toMatchObject({
+      ok: true,
+      data: {
+        metadataUri: `ipfs://${CID}`,
+        tierEncoding: { supported: true, cidV0: CID },
+        publication: { onchainTransactionSubmitted: false },
+      },
+    });
+    expect(pinJson.mock.calls.at(-1)?.[0]).toBe(nftData.review.jsonText);
   });
 });
 

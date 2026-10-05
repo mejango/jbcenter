@@ -106,6 +106,7 @@ const page = (params: URLSearchParams) => ({
 });
 const nonTransactionPreparations = new Set([
   "prepare_project_metadata",
+  "prepare_nft_metadata",
   "prepare_intent",
 ]);
 const statelessPlanOperations = new Set([

@@ -190,6 +190,12 @@ describe('transport-independent protocol operations', () => {
       kind: 'prepare',
       transaction: false,
     });
+    expect(operations.get('prepare_nft_metadata')).toMatchObject({
+      kind: 'prepare',
+      sources: ['model'],
+      transaction: false,
+      effects: { externalMutation: false, idempotent: true },
+    });
     for (const id of ['publish_intent', 'deploy_intent']) {
       expect(operations.get(id)).toMatchObject({
         kind: 'center-write',
@@ -198,7 +204,7 @@ describe('transport-independent protocol operations', () => {
         effects: { externalMutation: true, idempotent: true },
       });
     }
-    for (const id of ['pin_project_logo', 'pin_project_metadata']) {
+    for (const id of ['pin_project_logo', 'pin_project_metadata', 'pin_nft_metadata']) {
       expect(operations.get(id)).toMatchObject({
         kind: 'metadata-write',
         sources: ['publication'],
@@ -211,16 +217,18 @@ describe('transport-independent protocol operations', () => {
     }
   });
 
-  it.each(['pin_project_logo', 'pin_project_metadata'])(
+  it.each(['pin_project_logo', 'pin_project_metadata', 'pin_nft_metadata'])(
     'rejects onchain source selection before invoking %s',
     async (id) => {
       const logo = vi.spyOn(services.metadata, 'pinLogo');
       const metadata = vi.spyOn(services.metadata, 'pin');
+      const nft = vi.spyOn(services.metadata, 'pinNft');
       await expect(operations.execute(id, {}, { source: 'onchain' })).rejects.toMatchObject({
         code: 'SOURCE_NOT_SUPPORTED',
       });
       expect(logo).not.toHaveBeenCalled();
       expect(metadata).not.toHaveBeenCalled();
+      expect(nft).not.toHaveBeenCalled();
     },
   );
 
@@ -656,6 +664,8 @@ describe('transport-independent protocol operations', () => {
       'prepare_intent',
       'prepare_project_metadata',
       'pin_project_metadata',
+      'prepare_nft_metadata',
+      'pin_nft_metadata',
     ]) {
       await expect(operations.prepare(id, {})).rejects.toMatchObject({
         code: 'NOT_TRANSACTION_OPERATION',

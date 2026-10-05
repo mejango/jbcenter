@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { keccak256, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { z } from "zod";
-import { DomainError, type PlanDraft, type ProtocolOperation, type ProtocolOperations } from "@juicebox/mcp/host";
+import { createProtocolOperations, createServices, loadConfig, DomainError, type PlanDraft, type ProtocolOperation, type ProtocolOperations } from "@juicebox/mcp/host";
 import { createRestApp, type RestDependencies } from "../src/rest/app.js";
 import { timedAuthPhase } from "../src/rest/context.js";
 import { createRestAuth, MemoryAccountStore, type BotScope, type BotGrant, type RestPrincipal } from "../src/rest/auth/index.js";
@@ -181,6 +181,34 @@ describe('signed wallet payment review controller', () => {
 });
 
 describe("mounted signed REST API", () => {
+  it("prepares exact NFT metadata through a signed read without exposing public-upload mutations", async () => {
+    const pinJson = vi.fn(async () => ({ cid: "QmYwAPJzv5CZsnAzt8auVZRnGi6FeDxhRFPKtfFA2ux8SA", status: "queued" as const }));
+    const services = createServices(loadConfig({ NODE_ENV: "test", PUBLIC_ORIGIN: audience,
+      PLAN_SECRET: "rest-nft-metadata-tests-only-32-byte-secret" }), { pinJson });
+    const operations = createProtocolOperations(services);
+    const f = await fixture({ operations });
+    const reader = await f.register(["read"]);
+    const input = { version: 6, metadata: {
+      name: "Squeeze tier", categoryName: "Access", attributes: [{ trait_type: "Credits", value: 100 }],
+      custom: { enabled: true, values: [null, "preserved", 3] },
+    } };
+    const requestTarget = `/api/v1/operations/prepare_nft_metadata?input=${encodeURIComponent(JSON.stringify(input))}`;
+    expect((await f.app.request(`${audience}${requestTarget}`)).status).toBe(401);
+    const response = await f.send({ requestTarget }, reader.config);
+    expect(response.status).toBe(200);
+    const prepared = await response.json();
+    expect(prepared.review.metadata).toEqual(input.metadata);
+    expect(JSON.parse(prepared.review.jsonText)).toEqual(input.metadata);
+    expect(prepared.publication).toMatchObject({ uploaded: false, tokenEstablishesAuthorization: false });
+    for (const id of ["pin_nft_metadata", "pin_project_metadata", "pin_project_logo"]) {
+      const result = await f.send({ requestTarget: `/api/v1/operations/${id}?input=${encodeURIComponent(JSON.stringify({ token: prepared.token, confirmPublicUpload: true }))}` }, reader.config);
+      expect(result.status).toBe(404);
+      expect(await result.json()).toMatchObject({ code: "READ_OPERATION_NOT_FOUND" });
+    }
+    expect(pinJson).not.toHaveBeenCalled();
+    expect(f.rpcCalls).toHaveLength(0);
+  });
+
   it("only executes explicitly supported local preparations and keeps mutations off read routes", async () => {
     const permitted = ["prepare_project_metadata", "prepare_intent"];
     const excluded = ["prepare_unknown", "pin_project_metadata", "prepare_pay", "inspect_plan"];

@@ -1,6 +1,6 @@
 # User journeys
 
-The Juicebox MCP helps people understand projects, contribute, publish reviewed project metadata, operate treasuries and shops, manage revnet positions, reconcile cross-chain activity, and build applications. Its 59 V6-only tools across ten capability families combine into the 26 journeys below. The [tool catalog](TOOLS.md) supplies exact API descriptions and schemas; this guide explains the user goals, sequence of work, and expected outcomes.
+The Juicebox MCP helps people understand projects, contribute, publish reviewed project and NFT metadata, operate treasuries and shops, manage revnet positions, reconcile cross-chain activity, and build applications. Its 61 V6-only tools across ten capability families combine into the 27 journeys below. The [tool catalog](TOOLS.md) supplies exact API descriptions and schemas; this guide explains the user goals, sequence of work, and expected outcomes.
 
 These journeys describe the implemented V6 service. A natural-language request is a starting point for an assistant, not a complete transaction instruction: the assistant still needs the user's intended project, chain, account, asset, amount, beneficiary, and terms where relevant.
 
@@ -40,7 +40,7 @@ Start with `jb_list_capabilities` when the assistant needs to discover supported
 
 **Amounts and rights.** Tool arguments use exact integer strings for asset amounts and uint256 identifiers. The assistant translates human amounts using the correct asset decimals and keeps accounting currency separate from token address. An operator permission is scoped to its account, project, and operation. An unavailable read cannot establish either a zero balance or permission to act.
 
-**Transaction handoff.** Transaction-preparation tools return an authenticated unsigned plan and the first step's preflight result. Review the actual result: returning a plan alone does not establish that its preflight succeeded. `jb_prepare_intent` returns a Center commitment/signing message. `jb_prepare_project_metadata` returns an exact JSON review and publication token. Neither is a transaction plan or user approval.
+**Transaction handoff.** Transaction-preparation tools return an authenticated unsigned plan and the first step's preflight result. Review the actual result: returning a plan alone does not establish that its preflight succeeded. `jb_prepare_intent` returns a Center commitment/signing message. `jb_prepare_project_metadata` and `jb_prepare_nft_metadata` return exact JSON reviews and publication tokens. These results are not transaction plans or user approval.
 
 ```mermaid
 flowchart LR
@@ -53,7 +53,7 @@ flowchart LR
   G -->|Confirmed prerequisite; more steps| D
 ```
 
-The shared [transaction review journey](#reconcile-a-prepared-transaction) applies to every transaction below. The MCP does not hold wallet keys, sign, or broadcast. It can publish a Center intent the user already signed and request its sponsored deploy; neither action signs anything or spends the user's funds. A client or external wallet performs those actions after the user approves the exact operation. The integrated service can publish new project metadata through the separate [explicit public-upload review](#review-and-pin-new-project-metadata); pinning does not execute a transaction. A supported semantic outcome, such as NFT delivery, requires more evidence than a successful outer transaction receipt.
+The shared [transaction review journey](#reconcile-a-prepared-transaction) applies to every transaction below. The MCP does not hold wallet keys, sign, or broadcast. It can publish a Center intent the user already signed and request its sponsored deploy; neither action signs anything or spends the user's funds. A client or external wallet performs those actions after the user approves the exact operation. The integrated service can publish project and NFT metadata through separate [explicit public-upload review](#review-and-pin-new-project-metadata); pinning does not execute a transaction. A supported semantic outcome, such as NFT delivery, requires more evidence than a successful outer transaction receipt.
 
 **Availability.** The following prerequisites determine which parts can run:
 
@@ -64,8 +64,8 @@ The shared [transaction review journey](#reconcile-a-prepared-transaction) appli
 | Named-project and account discovery, indexed activity, indexer status, indexed omnichain groups                                                    | Configured Bendystraw endpoint for the selected network                                                                     |
 | Center intent listings and signature-verified intent reads                                                                                         | Integrated Center store callbacks, or approved standalone API access                                                        |
 | Publication of a user-signed V6 intent, and its request for a Center-sponsored deploy                                                              | Integrated Center write routes (in-process only) and a signature the user already produced over the exact prepared envelope |
-| Publication of exact reviewed new standard project metadata                                                                                        | Integrated Center pinning backend, available quotas/providers, and explicit user approval                                   |
-| Signing, submission, image/media publication, proof acquisition, and application implementation                                                    | External wallet, client, developer environment, or appropriate integration                                                  |
+| Publication of exact reviewed project/NFT metadata and supported images                                                                            | Integrated Center pinning backend, available quotas/providers, and explicit user approval                                   |
+| Signing, submission, other media publication, proof acquisition, and application implementation                                                    | External wallet, client, developer environment, or appropriate integration                                                  |
 
 Search reports each upstream separately. A Center outage need not erase available deployed-project results, and unavailable indexed metadata need not erase a successful on-chain project read. Center search filters out other deployment versions and preserves the upstream cursor; an empty filtered page can still have a next page. When the upstream count includes other versions, the V6 total remains unknown. Mainnet and testnet indexers require separate configuration. See [deployment configuration](DEPLOYMENT.md) for setup.
 
@@ -153,6 +153,40 @@ The integrated Center backend pins the exact canonical JSON bytes and returns `m
 
 This journey handles a new standard document of at most 64 KiB of canonical UTF-8 JSON. It does not fetch images or check linked-content availability, preserve custom fields from existing metadata, merge an existing document, or prepare an existing-project URI update. In a standalone server without the pinning callback, preparation explains the missing backend; prepare the same document through `https://juicebox.center/mcp` before seeking approval there. Tokens are not assumed portable between servers. A `METADATA_PUBLICATION_UNVERIFIED` result means content may already be public; inspect backend status before deliberately retrying. A queued redundancy receipt does not prove content was fetched back or that every replica is available.
 
+### Review and pin NFT tier metadata
+
+> “Publish this NFT image and complete tier metadata, including its attributes, so I can configure my shop.”
+
+This journey requires a deployed server exposing `jb_prepare_nft_metadata` and `jb_pin_nft_metadata`; their addition in this change does not establish availability at the public endpoint. Check the connected server's capabilities first.
+
+If the tier image is a local file, call `jb_pin_project_logo` with its base64 bytes, matching `contentType`, and `confirmPublicUpload: true` only after the user approves that exact public upload. The existing image tool accepts PNG, JPEG, GIF, WebP, or inert SVG up to 1 MiB. Despite its name, the returned `logoUri` can be used as the NFT metadata's `image`. Agents need no Pinata or other provider API key, Center REST account, or wallet for this MCP publication flow.
+
+Call `jb_prepare_nft_metadata` with `version: 6` and the complete intended plain JSON object in `metadata`. For example, a metadata document without linked media can be prepared with:
+
+```json
+{
+  "version": 6,
+  "metadata": {
+    "name": "Squeeze tier",
+    "description": "A Squeeze collectible.",
+    "categoryName": "Access",
+    "attributes": [{ "trait_type": "Edition", "value": "First" }],
+    "properties": { "collection": "Squeeze" },
+    "custom": { "edition": 1 }
+  }
+}
+```
+
+When an image has been pinned, include its actual returned `logoUri` under `metadata.image`. Include other intended fields such as `animation_url` in the same review. The NFT tool preserves supplied custom fields, nested objects, and array order; only object-key ordering is canonicalized. The complete canonical UTF-8 document must fit within 64 KiB; nesting is limited to 64 levels and ambiguous or unsafe JSON structures are rejected. String values, including URI formats, are preserved without fetching them or promising reader compatibility. The strict project metadata tool remains appropriate for project-level `name`, `description`, `logoUri`, and `infoUri`; it rejects additional NFT fields rather than silently removing them.
+
+For shop categories, separately configure the tier's on-chain numeric `category` (for example, `category: 1`). Current Juicebox Money and Revnet Money shops read the label from a tier's `metadata.categoryName` for that category ID, falling back to `General` for `0` or `Category N` otherwise. Keep `categoryName` consistent across tiers that share an ID. Publishing NFT JSON preserves this field; it does not assign or change a tier's on-chain category. Other clients may use different label conventions.
+
+Show the returned `review.metadata` and exact `review.jsonText`, SHA256, size, and expiry to the user. Preparation uploads nothing. After explicit approval of that exact public, potentially permanent document, call `jb_pin_nft_metadata` with the unmodified `token` and `confirmPublicUpload: true`. Edits or expiry require a new review. The review token is authenticated and bound to the server; it does not establish user approval and cannot be substituted for a project metadata review token.
+
+The integrated Center backend returns the real `metadataUri`, CID, content SHA256, and primary-upload/queued-redundancy receipt. NFT JSON and images consume the same shared MCP pin budget as project metadata. The tools neither fetch linked media nor merge an existing document. To preserve an existing NFT's fields, supply its complete intended replacement document in the review. A queued receipt does not establish successful retrieval or marketplace rendering. If publication reports `METADATA_PUBLICATION_UNVERIFIED`, content may already be public; inspect backend status before deliberately retrying.
+
+For a static V6 721 tier, a compatible DAG-PB CID with a SHA2-256 32-byte digest returns `tierEncoding.supported: true`, the equivalent `tierEncoding.cidV0`, and `tierEncoding.encodedIpfsUri`. Use that bytes32 value in the tier's `encodedIpfsUri` field only with a hook whose `baseUri` is `ipfs://`. Other CIDs return `tierEncoding.supported: false` and a `reason`; the publication's real CID and `metadataUri` remain valid, but an arbitrary CID digest is not an interchangeable static tier encoding. A custom token URI resolver can override static URI construction, so inspect the actual shop configuration before preparing a tier. Pinning creates no tier and changes no on-chain metadata. Use the separate NFT launch or tier-addition transaction journey, and review the exact configuration before external wallet execution.
+
 ### Launch a core project
 
 > “Prepare a project with these economic terms, recipients, and accepted assets.”
@@ -167,7 +201,7 @@ The wallet executes the plan; verification derives the deployed project identity
 
 Use `jb_prepare_721_launch` with complete rulesets, tiers, pricing, and accepted terminal contexts. The supported factory wires the canonical 721 hook and metadata fields. Review creation fees, pricing-feed availability, reserves, tier categories, and immutable or restrictive flags before signing.
 
-After launch verification, use `jb_get_project` and `jb_get_721_shop` on the returned identity to inspect the result. Collection media and tier-specific content creation/publication happen outside the MCP; the project-level metadata URI can come from the reviewed metadata journey. Attaching an NFT configuration to an ordinary core-launch argument is not an equivalent supported path.
+After launch verification, use `jb_get_project` and `jb_get_721_shop` on the returned identity to inspect the result. Obtain project-level metadata through the [project metadata journey](#review-and-pin-new-project-metadata), and publish tier images and complete NFT JSON through the [NFT metadata journey](#review-and-pin-nft-tier-metadata). Media creation and unsupported media uploads require an external integration. Attaching an NFT configuration to an ordinary core-launch argument is not an equivalent supported path.
 
 ## Operate a project
 
@@ -207,7 +241,7 @@ Clearing an override restores its actual fallback behavior; it does not necessar
 
 > “Prepare new tiers and retire these removable tiers.”
 
-Read `jb_get_721_shop`, inspect relevant rights, and use `jb_prepare_adjust_tiers` with explicit additions and removal IDs. Review price, category, supply, votes, reserves, discount, split settings, and flags. After verifying the transaction, re-read the shop's relevant pages.
+Read `jb_get_721_shop`, inspect relevant rights, and use `jb_prepare_adjust_tiers` with explicit additions and removal IDs. Publish complete tier JSON through the [NFT metadata journey](#review-and-pin-nft-tier-metadata) when needed, and check the existing hook's base URI and token URI resolver before using a static encoding. Review price, category, supply, votes, reserves, discount, split settings, and flags. After verifying the transaction, re-read the shop's relevant pages.
 
 This journey supports additions and removals with contract constraints. It does not expose every NFT administration method, such as arbitrary edits to an existing tier, owner minting, transfer operations, discount setters, or metadata setters. Source and ABI references remain available for implementing those distinct workflows.
 

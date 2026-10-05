@@ -70,7 +70,8 @@ function classification(
     return { kind: 'center-write', sources: ['center'] };
   if (effects.externalMutation) return { kind: 'metadata-write', sources: ['publication'] };
   if (REFERENCES.has(id)) return { kind: 'reference', sources: ['reference'] };
-  if (id === 'prepare_project_metadata') return { kind: 'prepare', sources: ['model'] };
+  if (id === 'prepare_project_metadata' || id === 'prepare_nft_metadata')
+    return { kind: 'prepare', sources: ['model'] };
   if (id === 'get_intent' || id === 'prepare_intent')
     return { kind: id === 'get_intent' ? 'read' : 'prepare', sources: ['center'] };
   if (id === 'search_projects') return { kind: 'read', sources: ['indexer', 'center'] };

@@ -429,6 +429,44 @@ describe("shared read-only RPC bridge", () => {
 });
 
 describe("reviewed JSON pinning bridge", () => {
+  it("publishes NFT attributes through the existing publisher and shared pin quotas", async () => {
+    const store = storeMock();
+    const pinning = pinningMock();
+    const { services } = createCenterMcp(store, {
+      rpc: rpcMock(),
+      pinning,
+      env: {
+        NODE_ENV: "production",
+        MCP_PLAN_SECRET: "mcp-secret-for-tests-with-32-bytes",
+      },
+    });
+    const metadata = {
+      name: "Squeeze access pass",
+      categoryName: "Access",
+      image: `ipfs://${CID}`,
+      attributes: [{ trait_type: "Credits", value: 100 }],
+      properties: { service: "Squeeze" },
+    };
+    const review = services.metadata.prepareNft({ version: 6, metadata });
+    expect(pinning.pin).not.toHaveBeenCalled();
+    const receipt = await services.metadata.pinNft({
+      token: review.token,
+      confirmPublicUpload: true,
+    });
+    expect(receipt.metadataUri).toBe(`ipfs://${CID}`);
+    expect(JSON.parse(await pinning.pin.mock.calls[0]![0].text())).toEqual(metadata);
+    expect(store.consumeRequest.mock.calls).toEqual([
+      ["pin:mcp", 10, 600],
+      ["pin:site", 200, 600],
+    ]);
+    store.counts.set("pin:mcp", 10);
+    await expect(services.metadata.pinNft({
+      token: review.token,
+      confirmPublicUpload: true,
+    })).rejects.toMatchObject({ code: "METADATA_PUBLICATION_UNVERIFIED" });
+    expect(pinning.pin).toHaveBeenCalledOnce();
+  });
+
   it("pins a sniffed logo under the same anonymous MCP quotas", async () => {
     const store = storeMock();
     const pinning = pinningMock();
