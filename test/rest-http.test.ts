@@ -181,6 +181,40 @@ describe('signed wallet payment review controller', () => {
 });
 
 describe("mounted signed REST API", () => {
+  it("only executes explicitly supported local preparations and keeps mutations off read routes", async () => {
+    const permitted = ["prepare_project_metadata", "prepare_intent"];
+    const excluded = ["prepare_unknown", "pin_project_metadata", "prepare_pay", "inspect_plan"];
+    const entries: ProtocolOperation[] = [
+      ...[...permitted, "prepare_unknown"].map((id) => ({
+        ...descriptor(id, false), kind: "prepare" as const, sources: ["model" as const],
+      })),
+      { ...descriptor("pin_project_metadata", false), effects: { externalMutation: true, idempotent: false } },
+      descriptor("prepare_pay", true),
+      descriptor("inspect_plan", false),
+    ];
+    const execute = vi.fn<ProtocolOperations["execute"]>(async (_id, input) => input);
+    const operations: ProtocolOperations = {
+      list: () => entries, get: (id) => entries.find((entry) => entry.id === id)!,
+      execute, prepare: vi.fn(),
+    };
+    const f = await fixture({ operations });
+    const input = { version: 6, metadata: { name: "Reviewed metadata" } };
+    for (const id of permitted) {
+      const requestTarget = `/api/v1/operations/${id}?input=${encodeURIComponent(JSON.stringify(input))}`;
+      expect((await f.app.request(`${audience}${requestTarget}`)).status).toBe(401);
+      const response = await f.send({ requestTarget });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(input);
+    }
+    for (const id of excluded) {
+      const response = await f.send({ requestTarget: `/api/v1/operations/${id}` });
+      expect(response.status).toBe(404);
+      expect(await response.json()).toMatchObject({ code: "READ_OPERATION_NOT_FOUND" });
+    }
+    expect(execute.mock.calls.map(([id]) => id)).toEqual(permitted);
+    expect(operations.prepare).not.toHaveBeenCalled();
+  });
+
   it("keeps discovery public and requires a signature for live reads", async () => {
     const f = await fixture();
     const capabilities = await f.app.request(`${audience}/api/v1/capabilities`);

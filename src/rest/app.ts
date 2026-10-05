@@ -3,7 +3,7 @@ import { canonical as canonicalValue } from "./sponsorship/validation.js";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import type { Address, Hex } from "viem";
-import type { ProtocolOperations } from "@juicebox/mcp/host";
+import type { ProtocolOperation, ProtocolOperations } from "@juicebox/mcp/host";
 import type { Store } from "../store.js";
 import {
   createRestAuthRouter,
@@ -113,6 +113,13 @@ const statelessPlanOperations = new Set([
   "simulate_plan",
   "verify_plan",
 ]);
+
+export function isRestReadOperation(
+  operation: Pick<ProtocolOperation, "id" | "kind" | "transaction" | "effects">,
+): boolean {
+  return !operation.effects.externalMutation && !operation.transaction &&
+    (operation.kind !== "prepare" || nonTransactionPreparations.has(operation.id));
+}
 
 export function operationDescriptors(operations: ProtocolOperations) {
   return operations
@@ -687,11 +694,7 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
     const params = query(context, ["input", "source"]);
     const id = context.req.param("id");
     const descriptor = byId.get(id);
-    if (
-      !descriptor ||
-      descriptor.transaction ||
-      (descriptor.kind === "prepare" && !nonTransactionPreparations.has(id))
-    )
+    if (!descriptor || !isRestReadOperation(descriptor))
       throw new RestError(
         404,
         "READ_OPERATION_NOT_FOUND",
