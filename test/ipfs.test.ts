@@ -101,7 +101,7 @@ describe("IPFS pinning", () => {
   });
 
   it("pins JSON directly from trusted browser origins", async () => {
-    for (const origin of ["https://juicebox.money", "https://revnet.money", "https://homerun.money"]) {
+    for (const origin of ["https://juicebox.money", "https://revnet.money", "https://homerun.money", "https://market.chancedb.com"]) {
       const pinning = pinningMock();
       const response = await app(pinning).request(
         "/v1/pins/json",
@@ -117,6 +117,26 @@ describe("IPFS pinning", () => {
       });
       expect(pinning.pin).toHaveBeenCalledOnce();
     }
+  });
+
+  it("allows the ChanceDB JSON-upload preflight without spending the pin budget", async () => {
+    const pinning = pinningMock();
+    const store = new PinStore();
+    const origin = "https://market.chancedb.com";
+    const response = await app(pinning, store).request("/v1/pins/json", {
+      method: "OPTIONS",
+      headers: {
+        origin,
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type",
+      },
+    });
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe(origin);
+    expect(response.headers.get("access-control-allow-methods")).toContain("POST");
+    expect(response.headers.get("access-control-allow-headers")?.toLowerCase()).toContain("content-type");
+    expect(store.requests.size).toBe(0);
+    expect(pinning.pin).not.toHaveBeenCalled();
   });
 
   it("rejects foreign and originless callers", async () => {
