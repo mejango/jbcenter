@@ -101,7 +101,7 @@ describe("IPFS pinning", () => {
   });
 
   it("pins JSON directly from trusted browser origins", async () => {
-    for (const origin of ["https://juicebox.money", "https://revnet.money", "https://homerun.money", "https://market.chancedb.com"]) {
+    for (const origin of ["https://juicebox.money", "https://revnet.money", "https://homerun.money", "https://market.chancedb.com", "https://metalog.money"]) {
       const pinning = pinningMock();
       const response = await app(pinning).request(
         "/v1/pins/json",
@@ -119,10 +119,12 @@ describe("IPFS pinning", () => {
     }
   });
 
-  it("allows the ChanceDB JSON-upload preflight without spending the pin budget", async () => {
+  it.each([
+    "https://market.chancedb.com",
+    "https://metalog.money",
+  ])("allows the JSON-upload preflight for %s without spending the pin budget", async (origin) => {
     const pinning = pinningMock();
     const store = new PinStore();
-    const origin = "https://market.chancedb.com";
     const response = await app(pinning, store).request("/v1/pins/json", {
       method: "OPTIONS",
       headers: {
@@ -136,6 +138,18 @@ describe("IPFS pinning", () => {
     expect(response.headers.get("access-control-allow-methods")).toContain("POST");
     expect(response.headers.get("access-control-allow-headers")?.toLowerCase()).toContain("content-type");
     expect(store.requests.size).toBe(0);
+    expect(pinning.pin).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "https://metalog-production.up.railway.app",
+    "https://www.metalog.money",
+    "https://metalog.money.example.com",
+  ])("does not admit unconfigured Metalog-related origin %s", async (origin) => {
+    const pinning = pinningMock();
+    const response = await app(pinning).request("/v1/pins/json", jsonRequest("{}", origin));
+    expect(response.status).toBe(403);
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
     expect(pinning.pin).not.toHaveBeenCalled();
   });
 
