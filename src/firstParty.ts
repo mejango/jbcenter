@@ -18,6 +18,7 @@ const PRODUCTION_APPLICATIONS = applications([
   "https://sticky.center",
   "https://beep.biz",
   "https://market.chancedb.com",
+  "https://metalog.money",
   "https://api.signa.center",
 ]);
 const DEV_APPLICATIONS = applications([
