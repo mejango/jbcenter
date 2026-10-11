@@ -22,11 +22,11 @@ export interface RepositoryGroup {
   links: readonly DirectoryLink[];
 }
 
-// Published September 3, 2026; latest jb-directory record in Pinata, pinned by
-// Filebase. HTML and app.js verified through eth.sucks on September 6.
+// Published from Juicescan 8435e4d, pinned by Filebase and Pinata.
+// HTML and app.js verified byte-for-byte through Center and eth.sucks on October 11, 2026.
 // Update only after confirming a newer published CID, not a local build hash.
 export const JUICESCAN_URL =
-  "https://bafybeidt2dd3bsiyyk6rfkjuuglcpjvojxeztxd2g4esamopeybpcj25di.eth.sucks/";
+  "https://bafybeicz4ap53e3ddadtk6ippema7grzmx4dtkktnvufeqq7txybgatnfq.eth.sucks/";
 
 // WIP scope includes maintainer-designated projects; deployment alone is not readiness.
 const workInProgress: readonly (DirectoryNode & {
