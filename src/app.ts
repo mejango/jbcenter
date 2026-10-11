@@ -62,10 +62,12 @@ import { mountRestSite, type RestSite } from "./rest/site.js";
 import { createWalletHostMatcher } from "./walletHosts.js";
 import { llmsIndex } from "./llms.js";
 import { JUICESCAN } from "./journeyGraph.js";
+import { JUICESCAN_URL } from "./directory.js";
 import { originsForEnvironment } from "./firstParty.js";
 export { originsForEnvironment } from "./firstParty.js";
 
 const MAX_BODY_BYTES = 16_800_000;
+const JUICESCAN_RPC_ORIGIN = new URL(JUICESCAN_URL).origin;
 
 export const ALLOWED_ORIGINS = originsForEnvironment();
 const PIN_WINDOW_SECONDS = 10 * 60;
@@ -526,7 +528,9 @@ export function createApp(
     }
     const origin = c.req.header("origin");
     const trustedOrigin = origin && allowedOrigins.some((allowed) => allowed === origin);
-    if (!trustedOrigin) {
+    // Only the currently published explorer gets the browser RPC budget, not write or wallet trust.
+    const publishedExplorerRpc = rpcPath(c.req.path) && origin === JUICESCAN_RPC_ORIGIN;
+    if (!trustedOrigin && !publishedExplorerRpc) {
       // The read-only RPC gateway is open to any origin — sites served from IPFS have no stable
       // origin to allowlist — under its own tighter budgets, keyed by IP.
       if (rpcPath(c.req.path)) {
