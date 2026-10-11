@@ -4,6 +4,8 @@ import { privateKeyToAccount } from "viem/accounts";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { createApp, originsForEnvironment } from "../src/app.js";
 import { JUICESCAN } from "../src/journeyGraph.js";
+import { JUICESCAN_URL } from "../src/directory.js";
+import { firstPartyForEnvironment } from "../src/firstParty.js";
 import { DeploymentVerificationError } from "../src/deploymentVerifier.js";
 import { SAFE_ABI, SAFE_FACTORY, SAFE_FALLBACK, SAFE_SINGLETON } from "../src/safe.js";
 import { LaneError } from "../src/sponsor/chain.js";
@@ -629,6 +631,51 @@ describe("JB Center API", () => {
       expect(accepted.status).toBe(200);
       expect(accepted.headers.get("access-control-allow-origin")).toBe(origin);
       await expect(accepted.json()).resolves.toEqual({ jsonrpc: "2.0", id: 7, result: "0x1" });
+    }
+  });
+
+  it("gives only the published explorer the browser RPC budget without write or wallet trust", async () => {
+    const store = new MemoryStore();
+    const consume = vi.spyOn(store, "consumeRequest");
+    const app = createApp(store, {
+      rpc: {
+        supports: () => true,
+        request: async (_chainId, request) => ({ jsonrpc: "2.0", id: request.id, result: "0x1" }),
+      },
+    });
+    const origin = new URL(JUICESCAN_URL).origin;
+    const request = (value: string) => app.request("/v1/rpc/1", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: value },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId" }),
+    });
+    for (let index = 0; index < 600; index++) {
+      const response = await request(origin);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-ratelimit-limit")).toBe("600");
+    }
+    expect((await request(origin)).status).toBe(429);
+    expect(consume.mock.calls.some(([key]) => key === "rpc:site")).toBe(true);
+    // Another CID, an origin with a path, and another port never inherit the published CID's lane.
+    for (const other of ["https://bafy-other.eth.sucks", origin + "/", origin + ":8443"]) {
+      const response = await request(other);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-ratelimit-limit")).toBe("120");
+    }
+    // Public callers still share their per-IP lane; the explorer did not spend it.
+    for (let index = 3; index < 120; index++) expect((await request("https://unknown.example")).status).toBe(200);
+    expect((await request("https://unknown.example")).status).toBe(429);
+    for (const path of ["/v1/search", "/v1/intents", "/v1/pins/json"]) {
+      const response = await app.request(path, {
+        method: path === "/v1/search" ? "GET" : "POST",
+        headers: { "content-type": "application/json", origin },
+        ...(path === "/v1/search" ? {} : { body: "{}" }),
+      });
+      expect(response.status).toBe(403);
+      expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    }
+    for (const environment of ["production", "dev"]) {
+      expect(firstPartyForEnvironment(environment).some(application => application.origin === origin)).toBe(false);
     }
   });
 
