@@ -22,11 +22,11 @@ export interface RepositoryGroup {
   links: readonly DirectoryLink[];
 }
 
-// Published from merged Juicescan 222c5f0, pinned by Filebase and Pinata.
+// Published from merged Juicescan c1ba651, pinned by Filebase and Pinata.
 // HTML, app.js, CSS and manifest verified byte-for-byte through Center and eth.sucks on October 12, 2026.
 // Update only after confirming a newer published CID, not a local build hash.
 export const JUICESCAN_URL =
-  "https://bafybeih56xa2bf73q6rebl7crzkivm7fn77mmesotn5wjgk3c5hzdz2hhy.eth.sucks/";
+  "https://bafybeibenftyemfjgdz4pnl5pxzhr5la4gwfnk6eegxnsl2ervw5ijnape.eth.sucks/";
 
 // WIP scope includes maintainer-designated projects; deployment alone is not readiness.
 const workInProgress: readonly (DirectoryNode & {
