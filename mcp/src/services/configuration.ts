@@ -333,91 +333,15 @@ export class ConfigurationService {
             ],
             blockNumber,
           });
-    const terminalContexts = await Promise.all(
-      terminals.map(async (terminal) => {
-        const contexts = await client.readContract({
-          address: terminal,
-          abi: jbMultiTerminalAbi,
-          functionName: 'accountingContextsOf',
-          args: [projectId],
-          blockNumber,
-        });
-        if (contexts.length > 32)
-          throw new DomainError(
-            'CONFIGURATION_TOO_LARGE',
-            'More than 32 token contexts in a terminal require a scoped configuration review.',
-          );
-        return { terminal, contexts };
-      }),
+    const { terminalContexts, splitGroups, fundAccessLimitGroups } = await this.rulesetTables(
+      client,
+      project.chainId,
+      projectId,
+      BigInt(current[0].id),
+      blockNumber,
+      terminals,
+      rulesetConfigurations,
     );
-    const contextPairs = terminalContexts.flatMap(({ terminal, contexts }) =>
-      contexts.map((context) => ({ terminal, token: context.token })),
-    );
-    const pairs = new Map(
-      contextPairs.map((pair) => [`${pair.terminal}:${pair.token}`.toLowerCase(), pair]),
-    );
-    for (const config of rulesetConfigurations)
-      for (const group of config.fundAccessLimitGroups)
-        pairs.set(`${group.terminal}:${group.token}`.toLowerCase(), {
-          terminal: group.terminal,
-          token: group.token,
-        });
-    if (pairs.size > 128)
-      throw new DomainError(
-        'CONFIGURATION_TOO_LARGE',
-        'More than 128 terminal/token pairs require a scoped configuration review.',
-      );
-    const groupIds = new Set([
-      '1',
-      ...contextPairs.map((pair) => BigInt(pair.token).toString()),
-      ...rulesetConfigurations.flatMap((config) =>
-        config.splitGroups.map((group) => group.groupId),
-      ),
-    ]);
-    const [splitGroups, fundAccessLimitGroups] = await Promise.all([
-      Promise.all(
-        [...groupIds].map(async (groupId) => {
-          const [splits, fallbackSplits] = await Promise.all([
-            client.readContract({
-              address: v6Address('JBSplits', project.chainId),
-              abi: jbSplitsAbi,
-              functionName: 'splitsOf',
-              args: [projectId, BigInt(current[0].id), BigInt(groupId)],
-              blockNumber,
-            }),
-            client.readContract({
-              address: v6Address('JBSplits', project.chainId),
-              abi: jbSplitsAbi,
-              functionName: 'splitsOf',
-              args: [projectId, 0n, BigInt(groupId)],
-              blockNumber,
-            }),
-          ]);
-          return { groupId, splits, fallbackSplits };
-        }),
-      ),
-      Promise.all(
-        [...pairs.values()].map(async (pair) => {
-          const [payoutLimits, surplusAllowances] = await Promise.all([
-            client.readContract({
-              address: v6Address('JBFundAccessLimits', project.chainId),
-              abi: jbFundAccessLimitsAbi,
-              functionName: 'payoutLimitsOf',
-              args: [projectId, BigInt(current[0].id), pair.terminal, pair.token],
-              blockNumber,
-            }),
-            client.readContract({
-              address: v6Address('JBFundAccessLimits', project.chainId),
-              abi: jbFundAccessLimitsAbi,
-              functionName: 'surplusAllowancesOf',
-              args: [projectId, BigInt(current[0].id), pair.terminal, pair.token],
-              blockNumber,
-            }),
-          ]);
-          return { ...pair, payoutLimits, surplusAllowances };
-        }),
-      ),
-    ]);
     const lockChanges = rulesetConfigurations.map((config, configurationIndex) => {
       const proposed = toRulesetConfig(config);
       return {
@@ -533,6 +457,102 @@ export class ConfigurationService {
       evidence: [evidence],
       warnings,
     };
+  }
+
+  /** Each terminal's accounting contexts, and the split tables and fund access limits stored for one ruleset. */
+  private async rulesetTables(
+    client: PublicClient,
+    chainId: ChainId,
+    projectId: bigint,
+    rulesetId: bigint,
+    blockNumber: bigint,
+    terminals: readonly Address[],
+    proposed: readonly RulesetConfigInput[],
+  ) {
+    const terminalContexts = await Promise.all(
+      terminals.map(async (terminal) => {
+        const contexts = await client.readContract({
+          address: terminal,
+          abi: jbMultiTerminalAbi,
+          functionName: 'accountingContextsOf',
+          args: [projectId],
+          blockNumber,
+        });
+        if (contexts.length > 32)
+          throw new DomainError(
+            'CONFIGURATION_TOO_LARGE',
+            'More than 32 token contexts in a terminal require a scoped configuration review.',
+          );
+        return { terminal, contexts };
+      }),
+    );
+    const contextPairs = terminalContexts.flatMap(({ terminal, contexts }) =>
+      contexts.map((context) => ({ terminal, token: context.token })),
+    );
+    const pairs = new Map(
+      contextPairs.map((pair) => [`${pair.terminal}:${pair.token}`.toLowerCase(), pair]),
+    );
+    for (const config of proposed)
+      for (const group of config.fundAccessLimitGroups)
+        pairs.set(`${group.terminal}:${group.token}`.toLowerCase(), {
+          terminal: group.terminal,
+          token: group.token,
+        });
+    if (pairs.size > 128)
+      throw new DomainError(
+        'CONFIGURATION_TOO_LARGE',
+        'More than 128 terminal/token pairs require a scoped configuration review.',
+      );
+    const groupIds = new Set([
+      '1',
+      ...contextPairs.map((pair) => BigInt(pair.token).toString()),
+      ...proposed.flatMap((config) => config.splitGroups.map((group) => group.groupId)),
+    ]);
+    const [splitGroups, fundAccessLimitGroups] = await Promise.all([
+      Promise.all(
+        [...groupIds].map(async (groupId) => {
+          const [splits, fallbackSplits] = await Promise.all([
+            client.readContract({
+              address: v6Address('JBSplits', chainId),
+              abi: jbSplitsAbi,
+              functionName: 'splitsOf',
+              args: [projectId, rulesetId, BigInt(groupId)],
+              blockNumber,
+            }),
+            client.readContract({
+              address: v6Address('JBSplits', chainId),
+              abi: jbSplitsAbi,
+              functionName: 'splitsOf',
+              args: [projectId, 0n, BigInt(groupId)],
+              blockNumber,
+            }),
+          ]);
+          return { groupId, splits, fallbackSplits };
+        }),
+      ),
+      Promise.all(
+        [...pairs.values()].map(async (pair) => {
+          const [payoutLimits, surplusAllowances] = await Promise.all([
+            client.readContract({
+              address: v6Address('JBFundAccessLimits', chainId),
+              abi: jbFundAccessLimitsAbi,
+              functionName: 'payoutLimitsOf',
+              args: [projectId, rulesetId, pair.terminal, pair.token],
+              blockNumber,
+            }),
+            client.readContract({
+              address: v6Address('JBFundAccessLimits', chainId),
+              abi: jbFundAccessLimitsAbi,
+              functionName: 'surplusAllowancesOf',
+              args: [projectId, rulesetId, pair.terminal, pair.token],
+              blockNumber,
+            }),
+          ]);
+          return { ...pair, payoutLimits, surplusAllowances };
+        }),
+      ),
+    ]);
+    return { terminalContexts, splitGroups, fundAccessLimitGroups };
   }
 
   async prepareRulesetChange(raw: z.input<typeof prepareRulesetChangeSchema>): Promise<PlanDraft> {
