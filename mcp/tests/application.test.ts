@@ -364,7 +364,12 @@ describe('transport-independent protocol operations', () => {
     const capture = new DomainError('TEST_CAPTURE', 'Only record the validated service input.');
     const quote = vi.spyOn(services.payments, 'quotePay').mockRejectedValue(capture);
     await expect(operations.execute('quote_pay', PAY_INPUT)).rejects.toBe(capture);
-    expect(quote).toHaveBeenCalledWith({ ...PAY_INPUT, project: PROJECT, slippageBps: 100 });
+    expect(quote).toHaveBeenCalledWith({
+      ...PAY_INPUT,
+      project: PROJECT,
+      slippageBps: 100,
+      skipSplits: false,
+    });
     expect(quote.mock.calls[0]?.[0].amount).toBe('9007199254740995');
     expect(quote.mock.calls[0]?.[0].project.projectId).toBe('9007199254740993');
   });
@@ -521,7 +526,12 @@ describe('transport-independent protocol operations', () => {
     const seal = vi.spyOn(services.plans, 'seal');
     const simulate = vi.spyOn(services.plans, 'simulate');
     const result = await operations.prepare('prepare_pay', PAY_INPUT);
-    expect(prepare).toHaveBeenCalledWith({ ...PAY_INPUT, project: PROJECT, slippageBps: 100 });
+    expect(prepare).toHaveBeenCalledWith({
+      ...PAY_INPUT,
+      project: PROJECT,
+      slippageBps: 100,
+      skipSplits: false,
+    });
     expect(result).toMatchObject({
       operation: 'pay',
       account: ACCOUNT,

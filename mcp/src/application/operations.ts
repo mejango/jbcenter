@@ -105,6 +105,12 @@ const payShape = {
       "Explicit minimum project tokens for the beneficiary, in 18-decimal base units, replacing beneficiaryTokenCount less slippageBps. To accept 2% below the fill, take the quote's simulatedBeneficiaryTokenCount less 2%. A warning names a figure above the simulated fill.",
     ),
   metadata: hexSchema.optional(),
+  skipSplits: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Buyback 1.4 only. True sends the tokens the hook buys from the pool straight to the beneficiary, skipping the project's reserved split; the hook's TWAP floor still applies. Bought tokens already exist: nothing is issued for that part and the split gets none of it. Issuance (the hook passes, or leftover input) still pays the split. Refused with metadata, without a buyback hook, or on buyback 1.1.1.",
+    ),
 };
 const cashOutShape = {
   project: projectSchema,

@@ -7,6 +7,10 @@ import {
 } from '@bananapus/nana-sdk-core/v6';
 import {
   ContractFunctionRevertedError,
+  concat,
+  keccak256,
+  pad,
+  toHex,
   decodeFunctionData,
   encodeErrorResult,
   encodeAbiParameters,
@@ -798,7 +802,7 @@ describe('payment quotes and approval plans', () => {
     });
   });
 
-  it('refuses custom controllers, unknown active hooks, historical buyback formats, and unmodeled opt-outs', async () => {
+  it('refuses custom controllers, unknown active hooks, and historical buyback formats', async () => {
     await expect(
       fixture({ customController: custom }).service.preparePay(payInput),
     ).rejects.toMatchObject({ code: 'UNSUPPORTED_CONFIGURATION' });
@@ -808,9 +812,13 @@ describe('payment quotes and approval plans', () => {
     await expect(
       fixture({ dataHook: registry, resolvedBuyback: custom }).service.preparePay(payInput),
     ).rejects.toMatchObject({ code: 'UNSUPPORTED_CONFIGURATION' });
-    await expect(
+  });
+
+  it('skipSplits sends the (0, 0, true) buyback entry and quotes the whole swap output for the beneficiary', async () => {
+    const skipping = (options: Parameters<typeof fixture>[0] = {}) =>
       fixture({
         dataHook: registry,
+        beneficiaryCount: 0n,
         payHooks: [
           {
             hook: buybackHook,
@@ -819,8 +827,105 @@ describe('payment quotes and approval plans', () => {
             metadata: payHookMetadata({ skipSplits: true }),
           },
         ],
-      }).service.preparePay(payInput),
-    ).rejects.toMatchObject({ code: 'UNSUPPORTED_CONFIGURATION' });
+        ...options,
+      });
+    // JBMetadataResolver layout: reserved word, one (id, offset 2) table word, the 3-word payload.
+    const id = (BigInt(buybackHook) ^ BigInt(keccak256(toHex('pay')).slice(0, 42)))
+      .toString(16)
+      .padStart(40, '0')
+      .slice(0, 8);
+    const expected = concat([
+      pad('0x', { size: 32 }),
+      pad(`0x${id}02`, { dir: 'right', size: 32 }),
+      encodeAbiParameters(parseAbiParameters('uint256,uint256,bool'), [0n, 0n, true]),
+    ]);
+    const direct = skipping();
+    const plan = await direct.service.preparePay({ ...payInput, skipSplits: true });
+    const payArgs = decodeFunctionData({
+      abi: jbMultiTerminalAbi,
+      data: plan.calls[0]!.data,
+    }).args!;
+    expect(payArgs[6]).toBe(expected);
+    expect(
+      direct.readContract.mock.calls.find(
+        ([request]) => request.functionName === 'previewPayFor',
+      )?.[0].args?.[4],
+    ).toBe(expected);
+    expect((direct.simulateContract.mock.calls[0]![0] as Request).args?.[6]).toBe(expected);
+    // The hook's own preview splits its floor (250 / 50); skipping, all 300 are the payer's.
+    expect(plan.summary).toMatchObject({
+      beneficiaryTokenCount: '300',
+      reservedTokenCount: '0',
+      minimumBeneficiaryTokenCount: '297',
+      metadata: expected,
+      buybackHook: { address: buybackHook, version: '1.4', skipSplits: true },
+      tokenCounts: { minimumBeneficiaryTokenCount: expect.stringContaining('whole swap output') },
+    });
+    expect(payArgs[4]).toBe(297n);
+    expect(plan.warnings.join(' ')).toContain('Nothing is issued for that part');
+
+    // The router registry forwards the same bytes to the destination terminal.
+    const registryTerminal = v6Address('JBRouterTerminalRegistry', project.chainId);
+    const routed = skipping({ primaryTerminal: registryTerminal, beneficiaryCount: 832n });
+    const routedPlan = await routed.service.preparePay({ ...payInput, skipSplits: true });
+    expect(routedPlan.calls[0]?.to).toBe(registryTerminal);
+    expect(
+      decodeFunctionData({ abi: jbMultiTerminalAbi, data: routedPlan.calls[0]!.data }).args?.[6],
+    ).toBe(expected);
+    expect(routedPlan.summary).toMatchObject({
+      beneficiaryTokenCount: '300',
+      reservedTokenCount: '0',
+      rawTerminalPreview: { semantics: 'router-normalized' },
+    });
+
+    // A caller-encoded skip entry in raw metadata settles the same way, so it is quoted the same way.
+    const raw = await skipping().service.quotePay({ ...payInput, metadata: expected });
+    expect(raw).toMatchObject({ beneficiaryTokenCount: '300', reservedTokenCount: '0' });
+
+    // Without skipSplits nothing is added and the split preview stands.
+    const plain = fixture({
+      dataHook: registry,
+      beneficiaryCount: 0n,
+      payHooks: [{ hook: buybackHook, noop: false, amount: 100n, metadata: payHookMetadata() }],
+    });
+    expect(await plain.service.quotePay(payInput)).toMatchObject({
+      metadata: '0x',
+      beneficiaryTokenCount: '250',
+      reservedTokenCount: '50',
+      buybackHook: { skipSplits: false },
+    });
+  });
+
+  it('refuses skipSplits it cannot carry with named non-retryable errors, and says when it has no effect', async () => {
+    const refusal = (code: string) => ({ code, retryable: false });
+    await expect(
+      fixture({ dataHook: registry }).service.quotePay({
+        ...payInput,
+        skipSplits: true,
+        metadata: '0x1234',
+      }),
+    ).rejects.toMatchObject(refusal('SKIP_SPLITS_WITH_METADATA'));
+    await expect(
+      fixture().service.quotePay({ ...payInput, skipSplits: true }),
+    ).rejects.toMatchObject(refusal('SKIP_SPLITS_WITHOUT_BUYBACK'));
+    await expect(
+      fixture({ dataHook: registry, resolvedBuyback: zeroAddress }).service.quotePay({
+        ...payInput,
+        skipSplits: true,
+      }),
+    ).rejects.toMatchObject(refusal('SKIP_SPLITS_WITHOUT_BUYBACK'));
+    await expect(
+      fixture({
+        dataHook: registry,
+        resolvedBuyback: '0x77bee1ad2ac0ace98a9b5b58d75685c8b4d94948',
+      }).service.quotePay({ ...payInput, skipSplits: true }),
+    ).rejects.toMatchObject(refusal('SKIP_SPLITS_UNSUPPORTED_BUYBACK'));
+    const issuance = (await fixture({
+      dataHook: registry,
+      payHooks: [{ hook: buybackHook, noop: true, amount: 0n, metadata: payHookMetadata() }],
+    }).service.quotePay({ ...payInput, skipSplits: true })) as { warnings: string[] };
+    expect(issuance).toMatchObject({ beneficiaryTokenCount: '101', reservedTokenCount: '10' });
+    expect(issuance.warnings.join(' ')).toContain('skipSplits has no effect at this block');
   });
 
   it('checks registry forwarding targets even when the outer call goes directly to the canonical router', async () => {
