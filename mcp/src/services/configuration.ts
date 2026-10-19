@@ -25,8 +25,6 @@ import type { z } from 'zod';
 import { DomainError } from '../domain/errors.js';
 import { jsonSafe } from '../domain/json.js';
 import {
-  modelEconomics,
-  modelEconomicsSchema,
   prepareLaunchSchema,
   prepareRulesetChangeSchema,
   previewRulesetChangeSchema,
@@ -35,6 +33,7 @@ import {
   type PreviewRulesetChangeInput,
   type RulesetConfigInput,
 } from '../domain/rulesets.js';
+import { modelEconomics, modelEconomicsSchema } from '../domain/economics.js';
 import type { ChainId, PlanDraft, PreparedCall, RpcProvider } from '../domain/types.js';
 import { canonicalDeadline } from './contracts.js';
 

@@ -26,11 +26,11 @@ import {
   uintSchema,
 } from '../domain/schemas.js';
 import {
-  modelEconomicsSchema,
   prepareLaunchSchema,
   prepareRulesetChangeSchema,
   previewRulesetChangeSchema,
 } from '../domain/rulesets.js';
+import { modelEconomicsSchema } from '../domain/economics.js';
 import { DomainError } from '../domain/errors.js';
 import type { PlanDraft } from '../domain/types.js';
 import { INDEXED_VALUE_SEMANTICS } from '../adapters/bendystraw.js';
