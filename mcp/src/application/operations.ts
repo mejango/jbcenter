@@ -62,6 +62,7 @@ import {
   prepareRouterTerminalSchema,
 } from '../domain/routing.js';
 import { integrationInputSchema, referenceInputSchema } from '../services/development.js';
+import { UNITS } from '../domain/units.js';
 
 const networkSchema = z.enum(['mainnet', 'testnet']).default('mainnet');
 const inferredNetworkSchema = z
@@ -87,7 +88,7 @@ const payShape = {
     .optional(),
   project: projectSchema,
   account: addressSchema,
-  token: addressSchema,
+  token: addressSchema.describe(UNITS.token),
   amount: positiveUintSchema.describe(
     'Input asset amount in its smallest units, as an exact integer string.',
   ),
@@ -99,7 +100,7 @@ const cashOutShape = {
   project: projectSchema,
   holder: addressSchema,
   cashOutCount: positiveUintSchema.describe('Project token count in 18-decimal base units.'),
-  tokenToReclaim: addressSchema,
+  tokenToReclaim: addressSchema.describe(UNITS.token),
   beneficiary: addressSchema,
   account: addressSchema.optional(),
   slippageBps: slippageSchema,
@@ -108,11 +109,11 @@ const cashOutShape = {
 const payoutShape = {
   project: projectSchema,
   account: addressSchema,
-  token: addressSchema,
+  token: addressSchema.describe(UNITS.token),
   amount: positiveUintSchema.describe(
     'Payout amount in accounting token decimals, denominated in currency.',
   ),
-  currency: z.number().int().min(1).max(4294967295),
+  currency: z.number().int().min(1).max(4294967295).describe(UNITS.payoutCurrency),
   slippageBps: slippageSchema,
   terminal: addressSchema.optional(),
 };
@@ -309,7 +310,11 @@ function definitions(s: Services): ProtocolOperation[] {
         project: projectSchema,
         operator: addressSchema,
         account: addressSchema,
-        permissionIds: z.array(z.number().int().min(1).max(255)).min(1).max(32),
+        permissionIds: z
+          .array(z.number().int().min(1).max(255))
+          .min(1)
+          .max(32)
+          .describe(UNITS.permissionIds),
       },
       async ({ project, ...options }) => s.projects.getPermissions(project, options),
     ),
@@ -505,9 +510,16 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     operationWithSchema(
       'get_revnet',
-      'Read verified revnet stage rules, immutable deployment configuration commitment, cash-out delay, NFT hook and optional operator status. A project is not assumed to be a revnet from metadata.',
+      'Read verified revnet stage rules, immutable deployment configuration commitment, cash-out delay, NFT hook and current operator. The operator comes from indexed candidates checked on chain; pass operator to check one address. A project is not assumed to be a revnet from metadata.',
       getRevnetSchema,
-      (input) => s.products.getRevnet(input),
+      (input) =>
+        s.products.getRevnet(input, (owner) =>
+          s.bendystraw.getPermissionOperators({
+            chainId: input.project.chainId,
+            projectId: input.project.projectId,
+            account: owner,
+          }),
+        ),
     ),
     transactionWithSchema(
       s,

@@ -189,6 +189,31 @@ describe('Bendystraw V6 read boundary', () => {
     });
   });
 
+  it('lists permission-holder candidates for one account and project, and rejects rows outside it', async () => {
+    const owner = '0x2ba4705ad0332cdfb299b452068438bcba3faaf3';
+    const operator = '0xbb96a6d3d251dfda76f96d1650f9cfd53b41c8d1';
+    const row = { chainId: 8453, projectId: 6, version: 6, account: owner, operator };
+    const { client: bendy, request } = client({ data: { permissionHolders: page([row]) } });
+    expect(
+      await bendy.getPermissionOperators({ chainId: 8453, projectId: '6', account: owner }),
+    ).toEqual([operator]);
+    expect(body(request).variables).toEqual({
+      where: { AND: [{ version: 6 }, { chainId: 8453 }, { projectId: 6 }, { account: owner }] },
+      limit: 20,
+    });
+    for (const bad of [
+      { ...row, account: ADDRESS },
+      { ...row, projectId: 7 },
+    ])
+      await expect(
+        client({ data: { permissionHolders: page([bad]) } }).client.getPermissionOperators({
+          chainId: 8453,
+          projectId: 6,
+          account: owner,
+        }),
+      ).rejects.toMatchObject({ code: 'UPSTREAM_INVALID_RESPONSE' });
+  });
+
   it('preserves unknown indexer block status and uses the native JSON status route', async () => {
     const request = vi
       .fn<typeof fetchJson>()

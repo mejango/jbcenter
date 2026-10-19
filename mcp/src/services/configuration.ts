@@ -35,7 +35,8 @@ import {
   type PreviewRulesetChangeInput,
   type RulesetConfigInput,
 } from '../domain/rulesets.js';
-import type { PlanDraft, PreparedCall, RpcProvider } from '../domain/types.js';
+import type { ChainId, PlanDraft, PreparedCall, RpcProvider } from '../domain/types.js';
+import { canonicalDeadline } from './contracts.js';
 
 type StoredSplit = {
   percent: number;
@@ -73,7 +74,7 @@ export function changedLockedSplits(
   return changed;
 }
 
-function configurationWarnings(configurations: RulesetConfigInput[]): string[] {
+function configurationWarnings(chainId: ChainId, configurations: RulesetConfigInput[]): string[] {
   const warnings = [
     'This action configures one chain only. An omnichain project requires coordinated, separately reviewed chain actions; this call does not synchronize remote projects or payout budgets.',
     'A configured mustStartAtOrAfter is a lower bound. Queue selection, existing duration, approval hooks, and the execution block determine actual start times.',
@@ -104,10 +105,14 @@ function configurationWarnings(configurations: RulesetConfigInput[]): string[] {
       warnings.push(
         `Configuration ${i}: a data hook is configured. Enabled hook behavior and any embedded permissions require contract-specific review and simulation.`,
       );
-    if (config.approvalHook !== zeroAddress)
+    if (config.approvalHook !== zeroAddress) {
+      const deadline = canonicalDeadline(chainId, config.approvalHook);
       warnings.push(
-        `Configuration ${i}: a custom approval hook controls future changes. Its future decision and upgrade behavior are unknown.`,
+        deadline
+          ? `Configuration ${i}: the approval hook is the canonical ${deadline}. A later ruleset must be queued at least that long before it starts, or it fails approval and this ruleset continues.`
+          : `Configuration ${i}: a custom approval hook controls future changes. Its future decision and upgrade behavior are unknown.`,
       );
+    }
     if (
       config.splitGroups.some((group) => group.splits.some((split) => split.hook !== zeroAddress))
     )
@@ -334,7 +339,7 @@ export class ConfigurationService {
         }),
       };
     });
-    const warnings = configurationWarnings(rulesetConfigurations);
+    const warnings = configurationWarnings(project.chainId, rulesetConfigurations);
     if (
       lockChanges.some((config) =>
         config.groups.some((group) => group.removedOrWeakenedLockedSplits.length > 0),
@@ -496,7 +501,7 @@ export class ConfigurationService {
     });
     const data = encodeFunctionData(request);
     const decoded = decodeFunctionData({ abi: request.abi, data });
-    const warnings = configurationWarnings(input.rulesetConfigurations);
+    const warnings = configurationWarnings(input.chainId, input.rulesetConfigurations);
     warnings.push(
       'The creation fee is dynamic and must match exactly at execution. A stale fee can revert; refresh the prepared plan before signing.',
     );

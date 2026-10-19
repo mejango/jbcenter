@@ -40,6 +40,7 @@ import {
 } from 'viem';
 import { z } from 'zod';
 import { DomainError } from '../domain/errors.js';
+import { UNITS } from '../domain/units.js';
 import {
   addressSchema,
   chainIdSchema,
@@ -70,9 +71,9 @@ export const quoteLoanInputSchema = z
   .object({
     project: projectSchema,
     holder: nonzeroAddress,
-    token: nonzeroAddress,
+    token: nonzeroAddress.describe(UNITS.token),
     collateralCount: collateralSchema,
-    prepaidFeePercent: z.number().int().min(25).max(500),
+    prepaidFeePercent: z.number().int().min(25).max(500).describe(UNITS.prepaidFeePercent),
     beneficiary: nonzeroAddress,
   })
   .strict();
@@ -126,7 +127,7 @@ const proofSchema = z.tuple([
 ]);
 export const bridgeClaimSchema = z
   .object({
-    token: nonzeroAddress,
+    token: nonzeroAddress.describe(UNITS.token),
     leaf: z
       .object({
         index: uintSchema.refine(

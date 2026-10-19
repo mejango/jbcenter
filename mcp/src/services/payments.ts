@@ -4,6 +4,7 @@ import {
   jbDirectoryAbi,
   jbMultiTerminalAbi,
   jbOmnichainDeployerAbi,
+  jbTokensAbi,
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
 import {
@@ -28,7 +29,7 @@ import {
   type Hex,
   type PublicClient,
 } from 'viem';
-import { DomainError } from '../domain/errors.js';
+import { DomainError, revertOf } from '../domain/errors.js';
 import { jsonSafe } from '../domain/json.js';
 import { verify721Hook } from '../domain/products.js';
 import { resolveRouterTerminal } from '../domain/routing.js';
@@ -355,7 +356,26 @@ export class PaymentService {
   }
 
   async prepareCashOut(input: CashOutInput & { account: Address }): Promise<PlanDraft> {
-    const { quote, prepared } = await this.cashOut(input);
+    const { quote, prepared, client } = await this.cashOut(input);
+    // Credits plus claimed ERC-20 tokens: what the controller can burn from the holder.
+    const balance = await client.readContract({
+      address: v6Address('JBTokens', input.project.chainId),
+      abi: jbTokensAbi,
+      functionName: 'totalBalanceOf',
+      args: [input.holder, BigInt(input.project.projectId)],
+    });
+    if (balance < BigInt(quote.cashOutCount))
+      throw new DomainError(
+        'INSUFFICIENT_PROJECT_TOKENS',
+        `The holder has ${balance} project tokens (18 decimals) on this chain and the cash out needs ${quote.cashOutCount}. Lower cashOutCount or use another holder.`,
+        {
+          details: {
+            holder: input.holder,
+            balance: balance.toString(),
+            cashOutCount: quote.cashOutCount,
+          },
+        },
+      );
     if (prepared.route.expectedReturn === 0n || prepared.route.minimumReturn === 0n) {
       throw new DomainError(
         'NOTHING_TO_RECLAIM',
@@ -761,6 +781,7 @@ export class PaymentService {
     let reservedTokenCount = preview.reservedTokenCount;
     let quoteBasis: 'terminal-issuance-preview' | 'buyback-hook-indicative-output' =
       'terminal-issuance-preview';
+    let buybackVersion: '1.4' | '1.1.1' | undefined;
     const warnings = [
       'This quote follows the project terminal route. Direct market acquisition has not been compared, so this is not a best-price claim.',
       'A terminal payment can route funds into a buyback pool or hooks. The full payment is not necessarily retained in the treasury.',
@@ -811,10 +832,11 @@ export class PaymentService {
       beneficiaryTokenCount = decoded[11];
       reservedTokenCount = decoded[12];
       quoteBasis = 'buyback-hook-indicative-output';
+      buybackVersion = legacy111 ? '1.1.1' : '1.4';
       warnings.push(
         legacy111
           ? 'Buyback 1.1.1 output is indicative. A total swap failure can fall back to issuance; a successful swap below its oracle minimum reverts. The terminal also enforces the reviewed beneficiary minimum.'
-          : 'Buyback output is indicative. Buyback 1.4.0 pay quotes encode three words (amountToSwapWith, minimumSwapAmountOut, skipSplits); two-word quotes revert. A pool failure or swap below the TWAP floor falls back to issuance; the transaction reverts if the final beneficiary balance increase is below its reviewed minimum.',
+          : 'Buyback 1.4 output is indicative. Buyback 1.4 pay quotes encode three words (amountToSwapWith, minimumSwapAmountOut, skipSplits); two-word quotes revert. A pool failure or swap below the TWAP floor falls back to issuance; the transaction reverts if the final beneficiary balance increase is below its reviewed minimum.',
       );
     }
     const minimum = slippageFloor(beneficiaryTokenCount, slippage);
@@ -853,6 +875,29 @@ export class PaymentService {
         reservedTokenCount: preview.reservedTokenCount.toString(),
       },
       minimumBeneficiaryTokenCount: minimum.toString(),
+      ...(buybackVersion
+        ? {
+            buybackHook: {
+              address: context.buybackHook,
+              version: buybackVersion,
+              status: buybackVersion === '1.4' ? 'current' : 'retired, still serving this project',
+            },
+          }
+        : {}),
+      tokenCounts: {
+        beneficiaryTokenCount:
+          quoteBasis === 'buyback-hook-indicative-output'
+            ? "The payer's share of the buyback hook's own TWAP-based minimum swap output: a conservative floor, not a forecast. The minimum is computed from this count."
+            : "The terminal's issuance preview for the payer. The minimum is computed from this count.",
+        minimumBeneficiaryTokenCount:
+          'beneficiaryTokenCount less slippageBps. The payment reverts if the payer would receive fewer tokens.',
+        rawTerminalPreview:
+          'The unadjusted terminal or router preview, for diagnosis only. The minimum does not use it.',
+        simulation:
+          quoteBasis === 'buyback-hook-indicative-output'
+            ? "jb_prepare_pay preflight and jb_simulate_plan return the count at that block, swapping at the pool spot price. It can sit well above beneficiaryTokenCount, which already includes the hook's slippage allowance; only the minimum is enforced."
+            : 'jb_prepare_pay preflight and jb_simulate_plan return the count at that block. Only the minimum is enforced.',
+      },
       slippageBps: Number(slippage),
       metadata,
       hooks: jsonSafe(hooks),
@@ -985,7 +1030,7 @@ export class PaymentService {
       evidence: [snapshot.evidence],
       warnings,
     };
-    return { quote, prepared };
+    return { quote, prepared, client };
   }
 
   private async payout(input: PayoutInput) {
@@ -1014,15 +1059,26 @@ export class PaymentService {
       BigInt(input.currency),
       0n,
     ] as const;
-    const simulated = await client.simulateContract({
-      address: terminal,
-      abi: jbMultiTerminalAbi,
-      functionName: 'sendPayoutsOf',
-      args,
-      account: input.account,
-      blockNumber: BigInt(snapshot.evidence.blockNumber),
-      gas: 10_000_000n,
-    });
+    const simulated = await client
+      .simulateContract({
+        address: terminal,
+        abi: jbMultiTerminalAbi,
+        functionName: 'sendPayoutsOf',
+        args,
+        account: input.account,
+        blockNumber: BigInt(snapshot.evidence.blockNumber),
+        gas: 10_000_000n,
+      })
+      .catch((error: unknown) => {
+        const revert = revertOf(error);
+        if (revert?.errorName === 'JBTerminalStore_InadequateTerminalStoreBalance')
+          throw new DomainError(
+            'NOTHING_TO_PAY_OUT',
+            `Nothing to pay out: this payout needs ${revert.args?.[0]} token base units, and the project's balance in this terminal is ${revert.args?.[1]}. Lower the amount or wait for funds.`,
+            { details: revert },
+          );
+        throw error;
+      });
     const gross = simulated.result;
     const isCurrencyConversion = input.currency !== accounting.currency;
     const minimum = isCurrencyConversion ? slippageFloor(gross, slippage) : gross;
