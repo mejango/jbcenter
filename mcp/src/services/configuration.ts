@@ -30,8 +30,6 @@ import type { z } from 'zod';
 import { DomainError } from '../domain/errors.js';
 import { jsonSafe } from '../domain/json.js';
 import {
-  modelEconomics,
-  modelEconomicsSchema,
   prepareDeployErc20Schema,
   prepareLaunchSchema,
   prepareRulesetChangeSchema,
@@ -42,6 +40,7 @@ import {
   type PreviewRulesetChangeInput,
   type RulesetConfigInput,
 } from '../domain/rulesets.js';
+import { modelEconomics, modelEconomicsSchema, type LiveRevnet } from '../domain/economics.js';
 import type { ChainId, PlanDraft, PreparedCall, ProjectRef, RpcProvider } from '../domain/types.js';
 import { canonicalDeadline } from './contracts.js';
 
@@ -241,8 +240,17 @@ function controllerCall(
 export class ConfigurationService {
   constructor(private readonly rpc: RpcProvider) {}
 
-  modelEconomics(input: z.input<typeof modelEconomicsSchema>) {
-    return modelEconomics(input);
+  /** A revnet project is read through `readRevnet` (jb_get_revnet's reader) at one snapshot block. */
+  async modelEconomics(
+    input: z.input<typeof modelEconomicsSchema>,
+    readRevnet?: (project: ProjectRef) => Promise<unknown>,
+  ) {
+    const parsed = modelEconomicsSchema.parse(input);
+    const project = parsed.revnet && 'project' in parsed.revnet ? parsed.revnet.project : undefined;
+    if (project && !readRevnet)
+      throw new DomainError('UNSUPPORTED_SOURCE', 'No revnet reader is configured.');
+    const live = project ? ((await readRevnet!(project)) as LiveRevnet) : undefined;
+    return modelEconomics(input, live);
   }
 
   async previewRulesetChange(raw: z.input<typeof previewRulesetChangeSchema>) {

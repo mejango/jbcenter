@@ -203,6 +203,8 @@ function fixture(
     if (options.countRequests) consumeRequest();
     if (options.errorOn === request.functionName) throw new Error('RPC unavailable');
     switch (request.functionName) {
+      case 'CASH_OUT_DELAY':
+        return 604_800n;
       case 'controllerOf':
         return controller;
       case 'ownerOf':
@@ -378,7 +380,7 @@ function fixture(
   });
   const rpc: RpcProvider = { snapshot, client: () => client };
   return {
-    service: new ProductService(rpc),
+    service: new ProductService(rpc, 300),
     client,
     readContract,
     simulateContract,
@@ -865,6 +867,47 @@ describe('NFT tier management validation', () => {
 });
 
 describe('new revnet deployment', () => {
+  it('warns when the first stage can start before the deploy lands', async () => {
+    const warnings = async (startsAtOrAfter: string) =>
+      (
+        await fixture().service.prepareRevnetDeploy({
+          ...deploy,
+          config: {
+            ...deploy.config,
+            stageConfigurations: [{ ...stage, startsAtOrAfter }],
+          },
+        })
+      ).warnings.join(' ');
+    // Block time 1000, plan TTL 300, signing margin 180: anything before 1480 is too soon.
+    expect(await warnings('2000')).not.toContain('cash outs and loans');
+    expect(await warnings('1400')).toContain(
+      "inside this plan's expiry plus a 180-second signing margin. If the deploy lands after 1400, this chain blocks ordinary cash outs and loans for 604800 seconds (7 days)",
+    );
+    expect(await warnings('900')).toContain('started at 900, before this block');
+  });
+  it('suggests one start that every chain can be signed before', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(500_000);
+    try {
+      const f = fixture();
+      const result = await f.service.suggestRevnetStart({ chainIds: [8453, 10] });
+      // max(clock 500, block 1000) + 3600, rounded up to the minute, for any number of chains.
+      expect(result).toMatchObject({
+        startsAtOrAfter: '4620',
+        basis: { now: '1000', leadSeconds: 3600 },
+        cashOutDelaySeconds: { 8453: '604800', 10: '604800' },
+      });
+      expect(f.snapshot).toHaveBeenCalledTimes(2);
+      await expect(f.service.suggestRevnetStart({ chainIds: [8453] })).resolves.toMatchObject({
+        startsAtOrAfter: '4620',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    await expect(fixture().service.suggestRevnetStart({ chainIds: [8453, 8453] })).rejects.toThrow(
+      /unique/,
+    );
+  });
   it('reads each chain’s exact current creation fee and preserves complete immutable config', async () => {
     for (const [chainId, fee] of [
       [8453, 17n],
@@ -1275,7 +1318,7 @@ describe('omnichain project launches', () => {
       evidence: { ...get(chainId).evidence, chainId },
     }));
     const rpc: RpcProvider = { snapshot, client: (chainId) => get(chainId).client };
-    return { service: new ProductService(rpc), snapshot };
+    return { service: new ProductService(rpc, 300), snapshot };
   };
 
   it('prepares one step per chain with registry lanes, one salt and one commitment', async () => {

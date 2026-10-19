@@ -216,6 +216,46 @@ export const revConfigSchema = z
         });
     });
   });
+export const suggestRevnetStartSchema = z
+  .object({
+    chainIds: z
+      .array(chainIdSchema)
+      .min(1)
+      .max(8)
+      .refine((v) => new Set(v).size === v.length, 'Chain IDs must be unique.')
+      .describe('Every chain the revnet launches on.'),
+  })
+  .strict();
+
+/** Time to sign and land one chain's deploy after its plan expires; the prepare-time warning threshold. */
+export const REVNET_SIGNING_MARGIN_SECONDS = 180;
+
+/** Product choice for comfortable human review across every chain, not a contract fact. */
+export const REVNET_START_LEAD_SECONDS = 3600;
+
+/** One first-stage start for every chain: now + REVNET_START_LEAD_SECONDS, rounded up to the minute. */
+export function suggestedRevnetStart(now: bigint) {
+  const earliest = now + BigInt(REVNET_START_LEAD_SECONDS);
+  return ((earliest + 59n) / 60n) * 60n;
+}
+
+/**
+ * REVDeployer._computeCashOutDelayIfNeeded: a deploy landing after the first stage start
+ * (0 < startsAtOrAfter < block.timestamp) blocks ordinary cash outs and loans until deploy time + CASH_OUT_DELAY.
+ */
+export function revnetStartWarning(
+  start: bigint,
+  now: bigint,
+  planTtlSeconds: number,
+  cashOutDelay: bigint,
+) {
+  const delay = `${cashOutDelay} seconds (${Number(cashOutDelay) / 86_400} days)`;
+  if (start < now)
+    return `The first stage started at ${start}, before this block. Deployed now, this chain blocks ordinary cash outs and loans for ${delay}. That is expected when adding a chain to an existing revnet. For a new revnet, use jb_suggest_revnet_start.`;
+  if (start < now + BigInt(planTtlSeconds + REVNET_SIGNING_MARGIN_SECONDS))
+    return `The first stage starts at ${start}, inside this plan's expiry plus a ${REVNET_SIGNING_MARGIN_SECONDS}-second signing margin. If the deploy lands after ${start}, this chain blocks ordinary cash outs and loans for ${delay}. For one start that works on every chain, call jb_suggest_revnet_start.`;
+}
+
 export const revSuckerConfigSchema = z
   .object({
     salt: hashSchema,

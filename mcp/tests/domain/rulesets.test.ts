@@ -6,7 +6,6 @@ import {
   accountingContextSchema,
   cashOutCurve,
   decayedWeight,
-  modelEconomics,
   prepareLaunchSchema,
   rulesetConfigSchema,
   rulesetConfigurationsSchema,
@@ -14,6 +13,7 @@ import {
   terminalConfigurationsSchema,
   toRulesetConfig,
 } from '../../src/domain/rulesets.js';
+import { modelEconomics } from '../../src/domain/economics.js';
 
 const owner = '0x1111111111111111111111111111111111111111';
 const terminal = '0x2222222222222222222222222222222222222222';

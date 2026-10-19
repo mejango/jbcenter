@@ -80,7 +80,7 @@ function classification(
   if (INDEXED.has(id)) return { kind: 'read', sources: ['indexer'] };
   if (PLANS.has(id))
     return { kind: 'read', sources: id === 'inspect_plan' ? ['plan'] : ['plan', 'onchain'] };
-  if (id === 'model_economics') return { kind: 'read', sources: ['model'] };
+  if (id === 'model_economics') return { kind: 'read', sources: ['model', 'onchain'] };
   return { kind: id.startsWith('prepare_') ? 'prepare' : 'read', sources: ['onchain'] };
 }
 

@@ -26,13 +26,13 @@ import {
   uintSchema,
 } from '../domain/schemas.js';
 import {
-  modelEconomicsSchema,
   prepareDeployErc20Schema,
   prepareLaunchSchema,
   prepareRulesetChangeSchema,
   prepareSetProjectUriSchema,
   previewRulesetChangeSchema,
 } from '../domain/rulesets.js';
+import { modelEconomicsSchema } from '../domain/economics.js';
 import { DomainError } from '../domain/errors.js';
 import type { PlanDraft } from '../domain/types.js';
 import { INDEXED_VALUE_SEMANTICS } from '../adapters/bendystraw.js';
@@ -55,6 +55,7 @@ import {
   prepareAdjustTiersSchema,
   prepareOmnichainLaunchSchema,
   prepareRevnetDeploySchema,
+  suggestRevnetStartSchema,
   prepare721LaunchSchema,
 } from '../domain/products.js';
 import {
@@ -388,9 +389,10 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     operationWithSchema(
       'model_economics',
-      'Compute an explicit hypothetical issuance/cash-out scenario with integer arithmetic. Inputs and exclusions are reported; this is neither a forecast nor an executable live quote.',
+      'Compute an explicit hypothetical issuance/cash-out scenario with integer arithmetic. Give a core ruleset, or a revnet (a live project, or a stage config before launch). Revnets include the revnet cash-out fee; buyback effects are indicative. Neither a forecast nor an executable live quote.',
       modelEconomicsSchema,
-      async (input) => s.configuration.modelEconomics(input),
+      async (input) =>
+        s.configuration.modelEconomics(input, (project) => s.products.getRevnet({ project })),
     ),
     operationWithSchema(
       'preview_ruleset_change',
@@ -561,6 +563,12 @@ function definitions(s: Services): ProtocolOperation[] {
             account: owner,
           }),
         ),
+    ),
+    operationWithSchema(
+      'suggest_revnet_start',
+      'Pick one first-stage start time for a revnet launch on one or more chains: about one hour out, so every chain can be prepared, reviewed, signed and land before it. Call once before jb_prepare_revnet_deploy. A chain whose deploy lands after the start blocks cash outs and loans for REVDeployer.CASH_OUT_DELAY.',
+      suggestRevnetStartSchema,
+      (input) => s.products.suggestRevnetStart(input),
     ),
     transactionWithSchema(
       s,

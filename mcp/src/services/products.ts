@@ -55,6 +55,10 @@ import {
   prepareAutoIssueSchema,
   prepareOmnichainLaunchSchema,
   prepareRevnetDeploySchema,
+  REVNET_START_LEAD_SECONDS,
+  revnetStartWarning,
+  suggestedRevnetStart,
+  suggestRevnetStartSchema,
   toDeploy721Hook,
   toPayHookRuleset,
   toRevConfig,
@@ -130,7 +134,10 @@ function prepared(
 
 /** Product adapters retain core route semantics and derive product identity from canonical on-chain records. */
 export class ProductService {
-  constructor(private readonly rpc: RpcProvider) {}
+  constructor(
+    private readonly rpc: RpcProvider,
+    private readonly planTtlSeconds: number,
+  ) {}
 
   private async code(client: PublicClient, addresses: Address[]) {
     await Promise.all(
@@ -1045,7 +1052,20 @@ export class ProductService {
       v6Address('JBMultiTerminal', input.chainId),
       v6Address('REVLoans', input.chainId),
     ]);
-    const fee = await getProjectCreationFee(snapshot.client, input.chainId);
+    const [fee, cashOutDelay] = await Promise.all([
+      getProjectCreationFee(snapshot.client, input.chainId),
+      snapshot.client.readContract({
+        address: deployer,
+        abi: revDeployerAbi,
+        functionName: 'CASH_OUT_DELAY',
+      }),
+    ]);
+    const startWarning = revnetStartWarning(
+      BigInt(input.config.stageConfigurations[0]!.startsAtOrAfter),
+      BigInt(snapshot.evidence.timestamp),
+      this.planTtlSeconds,
+      cashOutDelay,
+    );
     const priceChecks = await this.pricingChecks(
       snapshot,
       input.chainId,
@@ -1130,6 +1150,7 @@ export class ProductService {
         'One chain is prepared per request. Repeat identical immutable config, salts, absolute stage times, all chains’ auto-issuance rows, and transaction sender on every target chain; project IDs can differ.',
         'Stage economics and initial accounting contexts are immutable. Local sucker creation does not establish remote deployment, bridge mapping readiness or cross-chain settlement.',
         'Creation fee is exact and specific to this chain and snapshot. Reprepare if it changes.',
+        ...(startWarning ? [startWarning] : []),
         ...(same(input.config.operator, zeroAddress)
           ? ['The operator is zero: operator powers are permanently relinquished at launch.']
           : []),
@@ -1142,6 +1163,42 @@ export class ProductService {
           ? 'The NFT store comes from tiered721Config. Collection supply and metadata configurations are per-chain.'
           : 'Without tiered721Config, the four-argument overload also deploys a default NFT store. Collection supply and metadata configurations are per-chain.',
       ],
+    };
+  }
+
+  /** One shared first-stage start for a multi-chain revnet launch, from each chain's latest block. */
+  async suggestRevnetStart(raw: z.input<typeof suggestRevnetStartSchema>) {
+    const input = suggestRevnetStartSchema.parse(raw);
+    const reads = await Promise.all(
+      input.chainIds.map(async (chainId) => {
+        const snapshot = await this.rpc.snapshot(chainId);
+        const cashOutDelay = await snapshot.client.readContract({
+          address: v6Address('REVDeployer', chainId),
+          abi: revDeployerAbi,
+          functionName: 'CASH_OUT_DELAY',
+        });
+        return { evidence: snapshot.evidence, cashOutDelay };
+      }),
+    );
+    const now = reads.reduce(
+      (latest, read) =>
+        BigInt(read.evidence.timestamp) > latest ? BigInt(read.evidence.timestamp) : latest,
+      BigInt(Math.floor(Date.now() / 1000)),
+    );
+    const start = suggestedRevnetStart(now);
+    return {
+      startsAtOrAfter: start.toString(),
+      signBy: new Date(Number(start) * 1000).toISOString(),
+      basis: {
+        now: now.toString(),
+        leadSeconds: REVNET_START_LEAD_SECONDS,
+      },
+      cashOutDelaySeconds: Object.fromEntries(
+        input.chainIds.map((chainId, i) => [chainId, reads[i]!.cashOutDelay.toString()]),
+      ),
+      rule: 'REVDeployer: a deploy that lands after the first stage start blocks ordinary cash outs and loans on that chain until deploy time + CASH_OUT_DELAY. A deploy at or before the start has no delay.',
+      next: 'Use this value as stageConfigurations[0].startsAtOrAfter on every chain, prepare every chain now with jb_prepare_revnet_deploy, and have all of them land before signBy. If signing slips past it, call again and re-prepare every chain: the start is part of the config hash.',
+      evidence: reads.map((read) => read.evidence),
     };
   }
 

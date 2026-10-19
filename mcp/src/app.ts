@@ -48,7 +48,7 @@ export function createServices(config: Config, dependencies: ServiceDependencies
     plans: new PlanService({ rpc, secret: config.planSecret, ttlSeconds: config.planTtlSeconds }),
     knowledge: new KnowledgeService(config.knowledgePath ? { path: config.knowledgePath } : {}),
     contracts: new ContractService(),
-    products: new ProductService(rpc),
+    products: new ProductService(rpc, config.planTtlSeconds),
     routing: new RoutingService(rpc),
     development: new DevelopmentService({ publicOrigin: config.publicOrigin }),
     metadata: new ProjectMetadataService({
