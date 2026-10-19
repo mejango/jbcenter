@@ -591,6 +591,14 @@ export class RoutingService {
         'POOL_PAIR_MISMATCH',
         "The buyback pool does not pair this token with the project's ERC-20.",
       );
+    const state = await this.poolState(snapshot, manager, key);
+    // An empty pool makes the quoter revert with UnexpectedRevertBytes; name the cause instead.
+    if (state.activeLiquidity === 0n)
+      throw new DomainError(
+        'NO_POOL_LIQUIDITY',
+        'The buyback pool has no active liquidity at this block, so a direct buy fills nothing. Pay the project through the terminal (jb_quote_pay) instead.',
+        { details: { poolId: state.poolId, activeLiquidity: '0' } },
+      );
     // A zero terminal preview makes the SDK return its route quote without picking a winner.
     const swap = await quoteDirectPaySwap({
       client,
@@ -607,7 +615,7 @@ export class RoutingService {
         'POOL_QUOTE_UNAVAILABLE',
         'The pool returned no tokens for this amount, or this chain has no supported Uniswap router.',
       );
-    return { hook, manager, projectToken, key, zeroForOne, swap };
+    return { hook, manager, projectToken, key, zeroForOne, swap, state };
   }
 
   /**
@@ -634,11 +642,11 @@ export class RoutingService {
         slippageBps: quote.slippageBps,
       };
     });
-    const { hook, manager, projectToken, key, zeroForOne, swap } = await this.poolBuy(
+    const { hook, projectToken, key, zeroForOne, swap, state } = await this.poolBuy(
       input,
       snapshot,
     );
-    const [state, terminal] = await Promise.all([this.poolState(snapshot, manager, key), pending]);
+    const terminal = await pending;
     const poolAmountIn =
       swap.inputRoute.kind === 'single-v4'
         ? BigInt(input.amount)

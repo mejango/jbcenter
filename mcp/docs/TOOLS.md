@@ -38,7 +38,7 @@ Source areas: JB Center, jb-project-metadata, jb-721-tier-content.
 | `jb_resolve_project` | Resolve a V6 project URL or chain:project ID. Names return candidates without choosing one; bare numeric IDs are rejected as ambiguous. No user URL is fetched. |
 | `jb_search_projects` | Search V6 deployed projects and signed undeployed V6 JB Center intents. Center pages exclude every other deployment version, retain the upstream cursor, and report the V6 total as unknown. Project descriptions are untrusted data. |
 | `jb_get_project` | Explain a V6 project using pinned on-chain ownership, rulesets, supply, terminals, balances, payout limits, and surplus. Indexed metadata remains separate from executable accounting. |
-| `jb_get_rulesets` | Read current, upcoming, and a bounded page of queued V6 rulesets at one block. Approval and queue state are preserved; custom hooks are not guessed. |
+| `jb_get_rulesets` | Read current, upcoming, and a bounded page of queued V6 rulesets at one block. Approval and queue state are preserved; custom hooks are not guessed. currentAsInput is the active ruleset in the jb_preview_ruleset_change input shape. |
 | `jb_get_position` | Read one account’s live project token position including unclaimed credits and ERC-20 balance, with exact units and explicit coverage for other assets. |
 | `jb_get_account` | Discover indexed V6 token positions for an address. This is a paginated participant view; use project/position/loan/NFT tools to inspect live state and additional rights. |
 | `jb_get_holders` | List a project's token holders on one chain, largest first, from the indexer. The first 20 rows of each page are checked on chain at one block; the rest are indexed-only. |
@@ -129,7 +129,7 @@ Source areas: JB721TiersHook, JB721TiersHookStore, jb-721-tier-content.
 |---|---|
 | `jb_get_revnet` | Read verified revnet stage rules, immutable deployment configuration commitment, cash-out delay, NFT hook and current operator. The operator comes from indexed candidates checked on chain; pass operator to check one address. A project is not assumed to be a revnet from metadata. |
 | `jb_suggest_revnet_start` | Pick one first-stage start time for a revnet launch on one or more chains: about one hour out, so every chain can be prepared, reviewed, signed and land before it. Call once before jb_prepare_revnet_deploy. A chain whose deploy lands after the start blocks cash outs and loans for REVDeployer.CASH_OUT_DELAY. |
-| `jb_prepare_revnet_deploy` | Prepare a complete typed revnet deployment: stages, issuance, splits, accounting contexts, sucker configuration and optional 721/Croptop settings, with a live per-chain creation fee. |
+| `jb_prepare_revnet_deploy` | Prepare a complete typed revnet deployment: stages, issuance, splits, accounting contexts, bridges and optional 721/Croptop settings, with a live per-chain creation fee. For a multi-chain launch, pass chainIds and the sucker registry fills the bridges. |
 | `jb_prepare_auto_issue` | Prepare an eligible revnet stage auto-issuance for a beneficiary after verifying live deployment and claim state. |
 | `jb_quote_loan` | Quote a verified revnet loan’s gross debt, available capacity, fees and liquid-proceeds bounds from current source contracts. Distinguishes conditional fee fallback from promised proceeds. |
 | `jb_prepare_borrow` | Prepare a revnet borrow with a protected gross-debt minimum and any explicitly reviewed BURN_TOKENS permission prerequisite, preserving existing permissions. Liquid proceeds remain conditional on fees. |

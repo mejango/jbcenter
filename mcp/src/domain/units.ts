@@ -37,7 +37,11 @@ export const UNITS = {
     'Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.',
   initialIssuance:
     'Tokens issued per one unit of baseCurrency at stage start, with 18 decimals: 1000000000000000000000 = 1,000 tokens.',
-  baseCurrency: `Currency that issuance is priced in: ${currencyIds}.`,
+  baseCurrency: `Currency that issuance is priced in: ${BASE_CURRENCY_ETH} = ETH, ${BASE_CURRENCY_USD} = USD. Use ${BASE_CURRENCY_ETH} for ETH, not ${NATIVE_TOKEN_CURRENCY_ID} (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.`,
+  extraMetadata:
+    'Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): the operator may deploy new suckers during this stage; every stage needs it when suckers are configured. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. 4 is usual for a multi-chain revnet, 0 for one chain.',
+  scopeCashOutsToLocalBalances:
+    "false: cash outs count every chain's supply and surplus (through the suckers). true: only this chain's.",
   currency: currencyId,
   payoutCurrency: `Currency that amount is in; it must match a payout limit currency. ${currencyId}`,
   accountingCurrency: `Usually uint32(uint160(token)); ${native}, currency ${NATIVE_TOKEN_CURRENCY_ID}.`,

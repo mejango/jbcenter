@@ -483,3 +483,71 @@ describe('project ERC-20 and URI preparation', () => {
     expect(text).toContain('jb_prepare_omnichain_launch');
   });
 });
+
+describe('current ruleset as preview input', () => {
+  const terminal = v6Address('JBMultiTerminal', 1);
+  const live = {
+    currentRulesetOf: [
+      { ...stored, weight: 987654321987654321987n, weightCutPercent: 50_000_000 },
+      { ...metadata, reservedPercent: 2000, cashOutTaxRate: 3000, baseCurrency: 2, holdFees: true },
+    ],
+    terminalsOf: [terminal],
+    accountingContextsOf: [{ token: NATIVE_TOKEN, decimals: 18, currency: 61166 }],
+    splitsOf: [
+      {
+        percent: 500_000_000,
+        projectId: 0n,
+        beneficiary: another,
+        preferAddToBalance: false,
+        lockedUntil: 0,
+        hook: zeroAddress,
+      },
+    ],
+    payoutLimitsOf: [{ amount: 2_000_000_000_000_000_000n, currency: 1 }],
+  };
+
+  it('returns the active ruleset in the exact input shape, so an unedited copy previews with no changes', async () => {
+    const { service } = mockRpc(live);
+    const project = { chainId: 1 as const, projectId: '7' };
+    const input = await service.currentRulesetInput(project, 12345n);
+    expect(input).toMatchObject({
+      mustStartAtOrAfter: '0',
+      duration: '86400',
+      weight: '987654321987654321987',
+      weightCutPercent: '50000000',
+      metadata: { reservedPercent: '2000', baseCurrency: '2', holdFees: true },
+      fundAccessLimitGroups: [
+        {
+          terminal,
+          token: NATIVE_TOKEN,
+          payoutLimits: [{ amount: '2000000000000000000', currency: '1' }],
+          surplusAllowances: [],
+        },
+      ],
+    });
+    expect(input!.splitGroups.map((group) => group.groupId)).toEqual(['1', '61166']);
+    const preview = await service.previewRulesetChange({
+      project,
+      account,
+      rulesetConfigurations: [input!],
+    });
+    expect(preview.economicChanges[0]!.changes).toEqual([]);
+    // Edit one field: only that field differs.
+    const edited = { ...input!, metadata: { ...input!.metadata, reservedPercent: '1000' } };
+    const changed = await service.previewRulesetChange({
+      project,
+      account,
+      rulesetConfigurations: [edited],
+    });
+    expect(changed.economicChanges[0]!.changes).toEqual([
+      { field: 'metadata.reservedPercent', current: '2000', proposed: '1000' },
+    ]);
+  });
+
+  it('returns null when no ruleset is active', async () => {
+    const { service } = mockRpc({ currentRulesetOf: [{ ...stored, id: 0 }, metadata] });
+    await expect(
+      service.currentRulesetInput({ chainId: 1, projectId: '7' }, 12345n),
+    ).resolves.toBeNull();
+  });
+});

@@ -178,7 +178,7 @@ export const revStageSchema = z
     issuanceCutFrequency: uint(32).describe(UNITS.issuanceCutFrequency),
     issuanceCutPercent: uint(32, 1_000_000_000n).describe(UNITS.issuanceCutPercent),
     cashOutTaxRate: uint(16, 9_999n).describe(UNITS.revnetCashOutTaxRate),
-    extraMetadata: uint(16, 16_383n),
+    extraMetadata: uint(16, 16_383n).describe(UNITS.extraMetadata),
   })
   .strict()
   .refine(
@@ -199,7 +199,7 @@ export const revConfigSchema = z
       .refine((v) => BigInt(v) > 0n)
       .describe(UNITS.baseCurrency),
     operator: addressSchema,
-    scopeCashOutsToLocalBalances: z.boolean(),
+    scopeCashOutsToLocalBalances: z.boolean().describe(UNITS.scopeCashOutsToLocalBalances),
     stageConfigurations: z.array(revStageSchema).min(1).max(16),
   })
   .strict()
@@ -256,6 +256,11 @@ export function revnetStartWarning(
     return `The first stage starts at ${start}, inside this plan's expiry plus a ${REVNET_SIGNING_MARGIN_SECONDS}-second signing margin. If the deploy lands after ${start}, this chain blocks ordinary cash outs and loans for ${delay}. For one start that works on every chain, call jb_suggest_revnet_start.`;
 }
 
+export const suckerBridgeSchema = z
+  .enum(['ccip', 'native', 'both'])
+  .describe(
+    'ccip links any chain pair. native links Ethereum with one L2 and maps native ETH only. both adds a native sucker where one exists.',
+  );
 export const revSuckerConfigSchema = z
   .object({
     salt: hashSchema,
@@ -340,7 +345,19 @@ export const prepareRevnetDeploySchema = z
     account: nonzero,
     config: revConfigSchema,
     accountingContexts: z.array(accountingContextSchema).min(1).max(16),
-    suckerConfig: revSuckerConfigSchema,
+    chainIds: suggestRevnetStartSchema.shape.chainIds
+      .optional()
+      .describe(
+        'Every chain the revnet launches on, including chainId. Instead of suckerConfig: the sucker registry fills the bridges to the other chains, salted with config.description.salt, mapping native ETH and USDC when accepted.',
+      ),
+    bridge: suckerBridgeSchema
+      .optional()
+      .describe('With chainIds. Default ccip. ' + suckerBridgeSchema.description),
+    suckerConfig: revSuckerConfigSchema
+      .optional()
+      .describe(
+        'Explicit bridges, instead of chainIds. Use { salt, deployerConfigurations: [] } for one chain.',
+      ),
     tiered721Config: revTieredConfigSchema.optional(),
     allowedPosts: z.array(revAllowedPostSchema).max(16).default([]),
   })
@@ -352,7 +369,32 @@ export const prepareRevnetDeploySchema = z
         path: ['allowedPosts'],
         message: 'Allowed posts require the explicit tiered 721 configuration.',
       });
-    if (value.suckerConfig.deployerConfigurations.length && value.suckerConfig.salt === zeroHash)
+    if (!value.chainIds === !value.suckerConfig)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['chainIds'],
+        message:
+          'Pass chainIds (every chain the revnet launches on) to fill the bridges from the registry, or an explicit suckerConfig, not both.',
+      });
+    if (value.chainIds && !value.chainIds.includes(value.chainId))
+      ctx.addIssue({
+        code: 'custom',
+        path: ['chainIds'],
+        message: 'chainIds must include chainId.',
+      });
+    if (value.bridge && !value.chainIds)
+      ctx.addIssue({ code: 'custom', path: ['bridge'], message: 'bridge needs chainIds.' });
+    const crossChain = value.suckerConfig
+      ? value.suckerConfig.deployerConfigurations.length > 0
+      : (value.chainIds?.length ?? 0) > 1;
+    if (crossChain && value.chainIds && value.config.description.salt === zeroHash)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['config', 'description', 'salt'],
+        message:
+          'A nonzero salt is required: with chainIds it also salts the suckers, and the deployer skips them when it is zero.',
+      });
+    if (value.suckerConfig?.deployerConfigurations.length && value.suckerConfig.salt === zeroHash)
       ctx.addIssue({
         code: 'custom',
         path: ['suckerConfig', 'salt'],
@@ -368,7 +410,7 @@ export const prepareRevnetDeploySchema = z
         path: ['accountingContexts'],
         message: 'Accounting tokens must be unique.',
       });
-    if (value.suckerConfig.deployerConfigurations.length)
+    if (crossChain)
       value.config.stageConfigurations.forEach((stage, i) => {
         if ((BigInt(stage.extraMetadata) & 4n) === 0n)
           ctx.addIssue({
@@ -448,12 +490,7 @@ export const prepareOmnichainLaunchSchema = z
       .describe(
         'One random salt shared by every chain. Suckers pair only with the same salt and signer.',
       ),
-    bridge: z
-      .enum(['ccip', 'native', 'both'])
-      .default('ccip')
-      .describe(
-        'ccip links any chain pair. native links Ethereum with one L2 and maps native ETH only. both adds a native sucker where one exists.',
-      ),
+    bridge: suckerBridgeSchema.default('ccip'),
     deployTiersHookConfig: deploy721HookSchema
       .optional()
       .describe(

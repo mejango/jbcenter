@@ -928,6 +928,23 @@ describe('direct pool-buy quote', () => {
     });
   });
 
+  it('names an empty pool instead of passing on the quoter revert', async () => {
+    const empty = fixture((request) =>
+      request.functionName === 'extsload' &&
+      request.args?.[0] !== uniswapV4PoolStateSlot(uniswapV4PoolId(key))
+        ? zeroHash
+        : pass,
+    );
+    const calls = withQuoters(empty);
+    await expect(
+      empty.service.quotePoolBuy(input, async () => terminalQuote),
+    ).rejects.toMatchObject({ code: 'NO_POOL_LIQUIDITY', retryable: false });
+    expect(calls).toHaveLength(0);
+    await expect(empty.service.preparePoolBuy(input)).rejects.toMatchObject({
+      code: 'NO_POOL_LIQUIDITY',
+    });
+  });
+
   it('refuses projects without a buyback pool or with a pool for another token', async () => {
     const noHook = fixture((request) => (request.functionName === 'hookOf' ? zeroAddress : pass));
     await expect(
