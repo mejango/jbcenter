@@ -51,7 +51,7 @@ import {
   prepareAdjustTiersSchema,
   prepareAutoIssueSchema,
   prepareRevnetDeploySchema,
-  REVNET_SIGNING_MARGIN_SECONDS,
+  REVNET_START_LEAD_SECONDS,
   revnetStartWarning,
   suggestedRevnetStart,
   suggestRevnetStartSchema,
@@ -1160,14 +1160,13 @@ export class ProductService {
         BigInt(read.evidence.timestamp) > latest ? BigInt(read.evidence.timestamp) : latest,
       BigInt(Math.floor(Date.now() / 1000)),
     );
-    const start = suggestedRevnetStart(now, this.planTtlSeconds, input.chainIds.length);
+    const start = suggestedRevnetStart(now);
     return {
       startsAtOrAfter: start.toString(),
       signBy: new Date(Number(start) * 1000).toISOString(),
       basis: {
         now: now.toString(),
-        planTtlSeconds: this.planTtlSeconds,
-        signingMarginSeconds: REVNET_SIGNING_MARGIN_SECONDS * input.chainIds.length,
+        leadSeconds: REVNET_START_LEAD_SECONDS,
       },
       cashOutDelaySeconds: Object.fromEntries(
         input.chainIds.map((chainId, i) => [chainId, reads[i]!.cashOutDelay.toString()]),

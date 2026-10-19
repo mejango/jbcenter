@@ -871,7 +871,7 @@ describe('new revnet deployment', () => {
           },
         })
       ).warnings.join(' ');
-    // Block time 1000, plan TTL 300, signing margin 180: anything before 1500 is too soon.
+    // Block time 1000, plan TTL 300, signing margin 180: anything before 1480 is too soon.
     expect(await warnings('2000')).not.toContain('cash outs and loans');
     expect(await warnings('1400')).toContain(
       "inside this plan's expiry plus a 180-second signing margin. If the deploy lands after 1400, this chain blocks ordinary cash outs and loans for 604800 seconds (7 days)",
@@ -884,13 +884,16 @@ describe('new revnet deployment', () => {
     try {
       const f = fixture();
       const result = await f.service.suggestRevnetStart({ chainIds: [8453, 10] });
-      // max(clock 500, block 1000) + TTL 300 + 2 chains x 180, rounded up to the minute.
+      // max(clock 500, block 1000) + 3600, rounded up to the minute, for any number of chains.
       expect(result).toMatchObject({
-        startsAtOrAfter: '1680',
-        basis: { now: '1000', planTtlSeconds: 300, signingMarginSeconds: 360 },
+        startsAtOrAfter: '4620',
+        basis: { now: '1000', leadSeconds: 3600 },
         cashOutDelaySeconds: { 8453: '604800', 10: '604800' },
       });
       expect(f.snapshot).toHaveBeenCalledTimes(2);
+      await expect(f.service.suggestRevnetStart({ chainIds: [8453] })).resolves.toMatchObject({
+        startsAtOrAfter: '4620',
+      });
     } finally {
       vi.useRealTimers();
     }

@@ -122,7 +122,7 @@ Source areas: JB721TiersHook, JB721TiersHookStore, jb-721-tier-content.
 | Tool | Behavior |
 |---|---|
 | `jb_get_revnet` | Read verified revnet stage rules, immutable deployment configuration commitment, cash-out delay, NFT hook and current operator. The operator comes from indexed candidates checked on chain; pass operator to check one address. A project is not assumed to be a revnet from metadata. |
-| `jb_suggest_revnet_start` | Pick one first-stage start time for a revnet launch on one or more chains, late enough for every chain to be prepared, signed and land before it. Call once before jb_prepare_revnet_deploy. A chain whose deploy lands after the start blocks cash outs and loans for REVDeployer.CASH_OUT_DELAY. |
+| `jb_suggest_revnet_start` | Pick one first-stage start time for a revnet launch on one or more chains: about one hour out, so every chain can be prepared, reviewed, signed and land before it. Call once before jb_prepare_revnet_deploy. A chain whose deploy lands after the start blocks cash outs and loans for REVDeployer.CASH_OUT_DELAY. |
 | `jb_prepare_revnet_deploy` | Prepare a complete typed revnet deployment: stages, issuance, splits, accounting contexts, sucker configuration and optional 721/Croptop settings, with a live per-chain creation fee. |
 | `jb_prepare_auto_issue` | Prepare an eligible revnet stage auto-issuance for a beneficiary after verifying live deployment and claim state. |
 | `jb_quote_loan` | Quote a verified revnet loan’s gross debt, available capacity, fees and liquid-proceeds bounds from current source contracts. Distinguishes conditional fee fallback from promised proceeds. |
