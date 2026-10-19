@@ -136,6 +136,7 @@ const areas = [
     title: 'Revnet economics, deployment and loans',
     tools: [
       'get_revnet',
+      'suggest_revnet_start',
       'prepare_revnet_deploy',
       'prepare_auto_issue',
       'quote_loan',
@@ -147,6 +148,7 @@ const areas = [
     limits: [
       'Loan debt, capacity, and liquid proceeds are distinct.',
       'Conditional fee fallback produces a proceeds range rather than a false exact prediction.',
+      'Model stages with jb_model_economics, passing revnet as a project or as the deploy config.',
     ],
   },
   {

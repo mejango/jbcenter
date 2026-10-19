@@ -4,7 +4,7 @@ Generated from the real MCP server with the official MCP client. Regenerate with
 
 For user goals, tool sequences, external handoffs and completion evidence, see the [user journeys](USER_JOURNEYS.md).
 
-61 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of a project logo and reviewed project or NFT metadata through the integrated Center backend. No tool signs or broadcasts transactions.
+62 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of a project logo and reviewed project or NFT metadata through the integrated Center backend. No tool signs or broadcasts transactions.
 
 `jb_pin_project_logo` uploads one PNG, JPEG, GIF, WebP or inert SVG of at most 1 MiB and returns its `ipfs://` logoUri. `jb_prepare_project_metadata` returns the exact canonical JSON, SHA256 and an expiring review token. `jb_pin_project_metadata` uploads only that reviewed document after explicit public-upload authorization. Both pins are public mutations; a review token is not user approval. `logoUri` must be `ipfs://` because the first-party webclients do not render HTTPS logos. The workflow creates new standard project metadata and does not merge existing documents or update project URIs on-chain.
 
@@ -122,6 +122,7 @@ Source areas: JB721TiersHook, JB721TiersHookStore, jb-721-tier-content.
 | Tool | Behavior |
 |---|---|
 | `jb_get_revnet` | Read verified revnet stage rules, immutable deployment configuration commitment, cash-out delay, NFT hook and current operator. The operator comes from indexed candidates checked on chain; pass operator to check one address. A project is not assumed to be a revnet from metadata. |
+| `jb_suggest_revnet_start` | Pick one first-stage start time for a revnet launch on one or more chains, late enough for every chain to be prepared, signed and land before it. Call once before jb_prepare_revnet_deploy. A chain whose deploy lands after the start blocks cash outs and loans for REVDeployer.CASH_OUT_DELAY. |
 | `jb_prepare_revnet_deploy` | Prepare a complete typed revnet deployment: stages, issuance, splits, accounting contexts, sucker configuration and optional 721/Croptop settings, with a live per-chain creation fee. |
 | `jb_prepare_auto_issue` | Prepare an eligible revnet stage auto-issuance for a beneficiary after verifying live deployment and claim state. |
 | `jb_quote_loan` | Quote a verified revnet loan’s gross debt, available capacity, fees and liquid-proceeds bounds from current source contracts. Distinguishes conditional fee fallback from promised proceeds. |
@@ -131,6 +132,7 @@ Source areas: JB721TiersHook, JB721TiersHookStore, jb-721-tier-content.
 
 - Loan debt, capacity, and liquid proceeds are distinct.
 - Conditional fee fallback produces a proceeds range rather than a false exact prediction.
+- Model stages with jb_model_economics, passing revnet as a project or as the deploy config.
 
 Source areas: REVDeployer, REVOwner, REVLoans, revnet-economics.
 

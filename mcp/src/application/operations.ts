@@ -52,6 +52,7 @@ import {
   prepareAutoIssueSchema,
   prepareAdjustTiersSchema,
   prepareRevnetDeploySchema,
+  suggestRevnetStartSchema,
   prepare721LaunchSchema,
 } from '../domain/products.js';
 import {
@@ -521,6 +522,12 @@ function definitions(s: Services): ProtocolOperation[] {
             account: owner,
           }),
         ),
+    ),
+    operationWithSchema(
+      'suggest_revnet_start',
+      'Pick one first-stage start time for a revnet launch on one or more chains, late enough for every chain to be prepared, signed and land before it. Call once before jb_prepare_revnet_deploy. A chain whose deploy lands after the start blocks cash outs and loans for REVDeployer.CASH_OUT_DELAY.',
+      suggestRevnetStartSchema,
+      (input) => s.products.suggestRevnetStart(input),
     ),
     transactionWithSchema(
       s,
