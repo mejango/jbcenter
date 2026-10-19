@@ -4,7 +4,7 @@ Generated from the real MCP server with the official MCP client. Regenerate with
 
 For user goals, tool sequences, external handoffs and completion evidence, see the [user journeys](USER_JOURNEYS.md).
 
-61 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of a project logo and reviewed project or NFT metadata through the integrated Center backend. No tool signs or broadcasts transactions.
+62 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of a project logo and reviewed project or NFT metadata through the integrated Center backend. No tool signs or broadcasts transactions.
 
 `jb_pin_project_logo` uploads one PNG, JPEG, GIF, WebP or inert SVG of at most 1 MiB and returns its `ipfs://` logoUri. `jb_prepare_project_metadata` returns the exact canonical JSON, SHA256 and an expiring review token. `jb_pin_project_metadata` uploads only that reviewed document after explicit public-upload authorization. Both pins are public mutations; a review token is not user approval. `logoUri` must be `ipfs://` because the first-party webclients do not render HTTPS logos. The workflow creates new standard project metadata and does not merge existing documents or update project URIs on-chain.
 
@@ -89,6 +89,7 @@ Source areas: JBRulesets, JBFundAccessLimits, JBSplits, JBController.
 | Tool | Behavior |
 |---|---|
 | `jb_get_routing` | Inspect the actual buyback/NFT/revnet hook composition, router project overrides, pool configuration, TWAP availability and token routes. Unknown oracle or custom-hook behavior remains explicit. |
+| `jb_quote_pool_buy` | Quote buying project tokens straight from the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. A direct swap skips issuance and reserved splits. |
 | `jb_prepare_buyback_pool` | Prepare registration of an existing Uniswap V4 buyback pool for a verified project hook. Validates pool identity, token pair, permissions and TWAP window. |
 | `jb_prepare_buyback_twap` | Prepare an authorized buyback TWAP-window change with exact contract bounds and current project hook resolution. |
 | `jb_prepare_buyback_hook` | Prepare a reviewed project buyback-registry override, with explicit target and authority checks. |

@@ -93,6 +93,7 @@ const areas = [
     title: 'Buyback hooks and router terminals',
     tools: [
       'get_routing',
+      'quote_pool_buy',
       'prepare_buyback_pool',
       'prepare_buyback_twap',
       'prepare_buyback_hook',
