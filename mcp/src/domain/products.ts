@@ -25,13 +25,12 @@ import {
   splitSchema,
   terminalConfigurationsSchema,
   toRulesetConfig,
+  uint,
 } from './rulesets.js';
 import { DomainError } from './errors.js';
 import { UNITS } from './units.js';
 import type { ProjectRef } from './types.js';
 
-const uint = (bits: number, max = (1n << BigInt(bits)) - 1n) =>
-  uintSchema.refine((value) => BigInt(value) <= max, `Must fit uint${bits} and be at most ${max}.`);
 const nonzero = addressSchema.refine(
   (value) => value !== zeroAddress,
   'A nonzero address is required.',
