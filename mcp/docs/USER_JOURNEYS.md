@@ -129,7 +129,7 @@ Completion requires matching cash-out evidence after wallet execution. Treasury 
 
 Use source references to establish the intended configuration, then call `jb_model_economics` with explicit scenarios. Specify whether a ruleset is initial or a successor, the contribution value already expressed in base currency at 18 decimals, completed cycles, and any independent hypothetical cash-out inputs.
 
-The output is a reproducible comparison using exact integer arithmetic and contract rounding. Successor weight `1` needs an explicit inherited weight; duration zero has no automatic cycles. The core model rejects enabled data hooks whose economics it cannot represent. It does not forecast demand, convert arbitrary assets, or establish an executable quote. The assistant still needs the user's choice before preparing a launch.
+The output is a reproducible comparison using exact integer arithmetic and contract rounding. Successor weight `1` needs an explicit inherited weight; duration zero has no automatic cycles. For a revnet, pass `revnet` instead: a live project (its current ruleset) or the deploy config and a stage index. Revnet cash outs include the revnet fee; buyback effects are indicative. Other enabled data hooks are rejected. It does not forecast demand, convert arbitrary assets, or establish an executable quote. The assistant still needs the user's choice before preparing a launch.
 
 ### Review and pin new project metadata
 
@@ -259,7 +259,7 @@ The stage ID is the deployment ruleset ID, not an array index or start timestamp
 
 > “Prepare these committed stages, accepted currencies, extensions, and recipients for deployment.”
 
-Use `jb_prepare_revnet_deploy` with complete typed configuration, accounting contexts, stage terms, auto-issuance rows, and the intended sucker/721/Croptop settings. Review fees, feed availability, absolute start times, salt choices, and any per-chain configuration before external execution.
+Call `jb_suggest_revnet_start` once with every target chain and use its start as the first stage's `startsAtOrAfter` everywhere. A chain whose deploy lands after that start blocks cash outs and loans for 7 days. Then use `jb_prepare_revnet_deploy` with complete typed configuration, accounting contexts, stage terms, auto-issuance rows, and the intended sucker/721/Croptop settings. Review fees, feed availability, absolute start times, salt choices, and any per-chain configuration before external execution.
 
 Each request prepares one chain. A multi-chain rollout repeats the required immutable configuration, salts, absolute stage times, sender, and all chains' auto-issuance rows consistently; project IDs can differ by chain. Local sucker deployment does not prove the remote project is ready. The current deployer overload creates a default NFT store when tiered configuration is omitted, and a non-ETH base requires explicit NFT pricing configuration. Existing-project revnet migration is outside this preparation path.
 
