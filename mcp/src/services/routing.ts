@@ -15,7 +15,12 @@ import {
 } from '@bananapus/nana-sdk-core';
 import {
   NATIVE_SWAP_BY_CHAIN,
+  buildDirectPaySwapTx,
+  buildPermit2ApproveTx,
+  permit2AllowanceNeedsRefresh,
   quoteDirectPaySwap,
+  readPermit2Allowance,
+  uniswapV4Deployment,
   uniswapV4PoolId,
   uniswapV4PoolStateSlot,
   uniswapV4SwapDirection,
@@ -26,6 +31,7 @@ import {
 } from '@bananapus/nana-sdk-core/v6';
 import {
   encodeFunctionData,
+  erc20Abi,
   isAddressEqual,
   numberToHex,
   parseAbi,
@@ -50,10 +56,12 @@ import type {
   BlockEvidence,
   Observation,
   PlanDraft,
+  PreparedCall,
   ProjectRef,
   RpcProvider,
   RpcSnapshot,
 } from '../domain/types.js';
+import { call } from './payments.js';
 import { deploymentAddress, deploymentAddresses, routerGatewayAbi } from './rollout.js';
 
 const NATIVE = '0x000000000000000000000000000000000000EEEe' as const;
@@ -104,6 +112,7 @@ export interface TerminalPayQuote {
   beneficiaryTokenCount: string;
   reservedTokenCount: string;
   minimumBeneficiaryTokenCount: string;
+  simulatedBeneficiaryTokenCount?: Observation<string>;
   slippageBps: number;
 }
 /** Output at the pool spot price, before fees and price movement. */
@@ -525,28 +534,15 @@ export class RoutingService {
   }
 
   /**
-   * Quote a direct buy from the project's buyback pool next to the terminal quote, at one block.
-   * Pools follow the SDK direct-swap routes: the payment token's own pool, or across its WETH/USDC V3 bridge.
+   * The direct pool buy for a payment at one block: the project's buyback pool for the payment token,
+   * or across the SDK's WETH/USDC V3 bridge, and the SDK quote of it with `slippageBps` taken off.
    */
-  async quotePoolBuy(
-    raw: z.input<typeof quotePoolBuySchema>,
-    quoteTerminal: (at: BlockEvidence) => Promise<TerminalPayQuote>,
+  private async poolBuy(
+    input: z.output<typeof quotePoolBuySchema>,
+    snapshot: Awaited<ReturnType<RoutingService['context']>>,
   ) {
-    const input = quotePoolBuySchema.parse(raw);
     const { chainId } = input.project;
-    const snapshot = await this.context(input.project);
     const { client, projectId } = snapshot;
-    const terminal = observe(async () => {
-      const quote = await quoteTerminal(snapshot.evidence);
-      return {
-        route: quote.route,
-        quoteBasis: quote.quoteBasis,
-        beneficiaryTokenCount: quote.beneficiaryTokenCount,
-        reservedTokenCount: quote.reservedTokenCount,
-        minimumBeneficiaryTokenCount: quote.minimumBeneficiaryTokenCount,
-        slippageBps: quote.slippageBps,
-      };
-    });
     const hook = (await resolveRoutingHooks(snapshot, input.project, snapshot.current)).buyback;
     if (!hook)
       throw new DomainError('NO_BUYBACK_POOL', 'This project has no buyback hook, so no pool.');
@@ -612,13 +608,45 @@ export class RoutingService {
       paymentToken: input.token,
       amount: BigInt(input.amount),
       payPreview: { beneficiaryTokenCount: 0n, reservedTokenCount: 0n },
-      slippageBps: 0n,
+      slippageBps: BigInt(input.slippageBps),
     });
     if (!swap)
       throw new DomainError(
         'POOL_QUOTE_UNAVAILABLE',
         'The pool returned no tokens for this amount, or this chain has no supported Uniswap router.',
       );
+    return { hook, manager, projectToken, key, zeroForOne, swap, state };
+  }
+
+  /**
+   * Quote a direct buy from the project's buyback pool next to the terminal quote, at one block.
+   * Pools follow the SDK direct-swap routes: the payment token's own pool, or across its WETH/USDC V3 bridge.
+   */
+  async quotePoolBuy(
+    raw: z.input<typeof quotePoolBuySchema>,
+    quoteTerminal: (at: BlockEvidence) => Promise<TerminalPayQuote>,
+  ) {
+    const input = quotePoolBuySchema.parse(raw);
+    const snapshot = await this.context(input.project);
+    const pending = observe(async () => {
+      const quote = await quoteTerminal(snapshot.evidence);
+      return {
+        route: quote.route,
+        quoteBasis: quote.quoteBasis,
+        beneficiaryTokenCount: quote.beneficiaryTokenCount,
+        reservedTokenCount: quote.reservedTokenCount,
+        minimumBeneficiaryTokenCount: quote.minimumBeneficiaryTokenCount,
+        ...(quote.simulatedBeneficiaryTokenCount
+          ? { simulatedBeneficiaryTokenCount: quote.simulatedBeneficiaryTokenCount }
+          : {}),
+        slippageBps: quote.slippageBps,
+      };
+    });
+    const { hook, projectToken, key, zeroForOne, swap, state } = await this.poolBuy(
+      input,
+      snapshot,
+    );
+    const terminal = await pending;
     const poolAmountIn =
       swap.inputRoute.kind === 'single-v4'
         ? BigInt(input.amount)
@@ -626,13 +654,18 @@ export class RoutingService {
     const spotTokenCount = spotOutput(poolAmountIn, state.sqrtPriceX96, zeroForOne);
     const warnings = [
       "A direct swap buys existing tokens from the pool. Nothing is issued, so no reserved tokens go to the project's splits (for a revnet, the operator split), and none of the payment reaches the treasury.",
-      "pool.tokenCount is the pool's exact-input output at this block, with no slippage allowance. terminal.beneficiaryTokenCount is the count the terminal minimum is built from; with a buyback hook it is a TWAP floor, and the fill is often higher. Neither is a best-price claim.",
-      'No tool prepares a direct swap. jb_prepare_pay prepares the terminal route.',
+      "pool.tokenCount is the pool's exact-input output at this block; pool.minimumTokenCount takes slippageBps off it. terminal.beneficiaryTokenCount is the count the terminal minimum is built from; with a buyback hook it is a TWAP floor, and terminal.simulatedBeneficiaryTokenCount is the fill at this block. Neither route is a best-price claim.",
+      'jb_prepare_pool_buy prepares this swap. jb_prepare_pay prepares the terminal route.',
     ];
     if (swap.inputRoute.kind !== 'single-v4')
       warnings.push(
         'This route first swaps through a Uniswap V3 ETH/USDC pool. priceImpactBps covers the V4 pool only.',
       );
+    if (swap.inputRoute.kind !== 'single-v4' && terminal.status === 'known')
+      if (terminal.value.route === 'router-terminal')
+        warnings.push(
+          "pool.inputRoute.quotedBridgeAmount is the V3 quoter's output at this block, from the best fee tier. The router terminal picks its own V3 pool and previews its conversion at that pool's 10-minute TWAP less its slippage buffer (at least 2%, or the pool fee plus 1%), so the amount behind its buyback count is a floor about 2% or more below this one. The router's actual swap fills at the market.",
+        );
     return jsonSafe({
       project: input.project,
       evidence: [snapshot.evidence],
@@ -648,6 +681,8 @@ export class RoutingService {
         inputRoute: swap.inputRoute,
         amountIn: poolAmountIn,
         tokenCount: swap.quotedTokenCount,
+        minimumTokenCount: swap.minimumTokenCount,
+        slippageBps: input.slippageBps,
         spotTokenCount,
         priceImpactBps:
           spotTokenCount === 0n
@@ -655,9 +690,135 @@ export class RoutingService {
             : ((spotTokenCount - swap.quotedTokenCount) * 10_000n) / spotTokenCount,
         priceImpact: 'Output shortfall against the pool spot price at this block, fees included.',
       },
-      terminal: await terminal,
+      terminal,
       warnings,
     });
+  }
+
+  /**
+   * Prepare the direct pool buy `quotePoolBuy` quotes, as one Universal Router call.
+   * ERC-20 input first approves Permit2 and authorizes the router there, for exactly this amount.
+   */
+  async preparePoolBuy(raw: z.input<typeof quotePoolBuySchema>): Promise<PlanDraft> {
+    const input = quotePoolBuySchema.parse(raw);
+    const { chainId } = input.project;
+    const snapshot = await this.context(input.project);
+    const { projectToken, key, swap } = await this.poolBuy(input, snapshot);
+    const amount = BigInt(input.amount);
+    // 15 minutes from the quote block: past the default plan lifetime, which binds first.
+    const deadline = BigInt(snapshot.evidence.timestamp) + 900n;
+    const swapTx = buildDirectPaySwapTx({
+      chainId,
+      quote: swap,
+      amount,
+      recipient: input.account,
+      deadline,
+    });
+    const calls: PreparedCall[] = [];
+    if (!same(input.token, NATIVE)) {
+      const permit2 = uniswapV4Deployment(chainId)!.permit2;
+      const [allowance, permitted] = await Promise.all([
+        snapshot.client.readContract({
+          address: input.token,
+          abi: erc20Abi,
+          functionName: 'allowance',
+          args: [input.account, permit2],
+        }),
+        readPermit2Allowance(snapshot.client, {
+          chainId,
+          owner: input.account,
+          token: input.token,
+        }),
+      ]);
+      if (allowance < amount)
+        calls.push(
+          call(
+            chainId,
+            input.token,
+            erc20Abi,
+            'approve',
+            [permit2, amount],
+            'Approve Permit2 for exactly this amount',
+          ),
+        );
+      if (
+        permit2AllowanceNeedsRefresh({
+          allowance: permitted,
+          amount,
+          now: Number(snapshot.evidence.timestamp),
+        })
+      ) {
+        const approval = buildPermit2ApproveTx({
+          chainId,
+          token: input.token,
+          amount,
+          // Past the swap deadline by the SDK's 30-minute refresh buffer, so it cannot lapse first.
+          expiration: Number(deadline) + 1800,
+        });
+        calls.push(
+          call(
+            chainId,
+            approval.address,
+            approval.abi,
+            approval.functionName,
+            approval.args,
+            'Let the Uniswap Universal Router spend exactly this amount through Permit2',
+            0n,
+            calls.length ? [calls.length - 1] : [],
+          ),
+        );
+      }
+    }
+    calls.push(
+      call(
+        chainId,
+        swapTx.address,
+        swapTx.abi,
+        swapTx.functionName,
+        swapTx.args,
+        "Buy project tokens from the project's buyback pool through the Uniswap Universal Router",
+        swapTx.value,
+        calls.length ? [calls.length - 1] : [],
+      ),
+    );
+    const warnings = [
+      "A direct swap buys existing tokens from the pool. Nothing is issued, so no reserved tokens go to the project's splits (for a revnet, the operator split), and none of the payment reaches the treasury.",
+      `The swap reverts if the account would receive fewer than minimumTokenCount project tokens, or after the deadline (${deadline}, unix seconds).`,
+    ];
+    if (swap.inputRoute.kind !== 'single-v4')
+      warnings.push(
+        'The V3 bridge leg has no minimum of its own. The final project-token minimum covers both legs.',
+      );
+    if (calls.length > 1)
+      warnings.push(
+        'The swap has not been simulated with artificial allowances. Check it before signing with jb_simulate_plan chained: true, or confirm each approval first.',
+      );
+    return {
+      operation: 'pool_buy',
+      account: input.account,
+      project: input.project,
+      calls,
+      evidence: [snapshot.evidence],
+      summary: jsonSafe({
+        payment: { token: input.token, amount: input.amount, unit: 'token-base-units' },
+        recipient: input.account,
+        projectToken,
+        projectTokenDecimals: 18,
+        poolKey: key,
+        inputRoute: swap.inputRoute,
+        quotedTokenCount: swap.quotedTokenCount,
+        minimumTokenCount: swap.minimumTokenCount,
+        slippageBps: input.slippageBps,
+        deadline,
+        router: swapTx.address,
+        tokenCounts: {
+          quotedTokenCount: "The pool's exact-input output at the quote block.",
+          minimumTokenCount:
+            'quotedTokenCount less slippageBps. The router reverts if the account would receive fewer project tokens.',
+        },
+      }),
+      warnings,
+    };
   }
 
   private async pool(

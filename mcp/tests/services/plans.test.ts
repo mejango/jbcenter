@@ -35,7 +35,12 @@ import {
   revLoansAbi,
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
-import { jbSuckerV6Abi, uniswapV4PoolId, v6Address } from '@bananapus/nana-sdk-core/v6';
+import {
+  jbSuckerV6Abi,
+  uniswapV4Deployment,
+  uniswapV4PoolId,
+  v6Address,
+} from '@bananapus/nana-sdk-core/v6';
 import { PlanService } from '../../src/services/plans.js';
 import { deploymentAddress, deploymentAddresses } from '../../src/services/rollout.js';
 import { canonicalJson } from '../../src/domain/json.js';
@@ -323,6 +328,41 @@ describe('direct transaction and canonical receipt verification', () => {
     expect(result.steps[0]!.status).toBe('mismatch');
     expect(result.transactionConfirmed).toBe(false);
     expect(result.outcomeVerified).toBe(false);
+  });
+
+  it('verifies a pool buy only by enough project tokens reaching the account', async () => {
+    const router = uniswapV4Deployment(1)!.universalRouter!;
+    const swap: PreparedCall = {
+      chainId: 1,
+      to: router,
+      data: '0x3593564c',
+      value: '100',
+      label: 'Buy from the pool',
+      decoded: { functionName: 'execute', args: [] },
+      dependsOn: [],
+    };
+    const { service, sealed, receipt } = setup({
+      ...draft([swap]),
+      operation: 'pool_buy',
+      summary: { projectToken: TOKEN, recipient: ACCOUNT, minimumTokenCount: '50' },
+    });
+    const params = { token: sealed.token, transactions: [{ step: 0, hash: HASH }] };
+    const transfer = (to: Address, value: bigint, token = TOKEN) =>
+      eventLog(
+        'event Transfer(address indexed from,address indexed to,uint256 value)',
+        { from: OTHER, to, value },
+        token,
+      );
+    receipt.logs = [transfer(ACCOUNT, 60n)];
+    const verified = await service.verify(params);
+    expect(verified.outcomeVerified).toBe(true);
+    expect(verified.steps[0]).toMatchObject({
+      outcome: [{ event: 'Transfer', emitter: TOKEN, args: { value: '60' } }],
+    });
+    receipt.logs = [transfer(ACCOUNT, 49n)];
+    expect((await service.verify(params)).outcomeVerified).toBe(false);
+    receipt.logs = [transfer(OTHER, 60n), transfer(ACCOUNT, 60n, OTHER)];
+    expect((await service.verify(params)).outcomeVerified).toBe(false);
   });
 
   it('distinguishes a pending transaction, an unavailable receipt, and a revert', async () => {

@@ -29,7 +29,7 @@ import {
   type Hex,
   type PublicClient,
 } from 'viem';
-import { DomainError, revertOf } from '../domain/errors.js';
+import { DomainError, publicError, revertOf } from '../domain/errors.js';
 import { jsonSafe } from '../domain/json.js';
 import { verify721Hook } from '../domain/products.js';
 import { resolveRouterTerminal } from '../domain/routing.js';
@@ -42,6 +42,7 @@ import type {
   RpcProvider,
   RpcSnapshot,
   BlockEvidence,
+  Observation,
 } from '../domain/types.js';
 
 export interface PayInput {
@@ -54,6 +55,8 @@ export interface PayInput {
   amount: string;
   beneficiary: Address;
   slippageBps?: number;
+  /** Explicit beneficiary minimum in 18-decimal base units; replaces the slippage-derived one. */
+  minReturnedTokens?: string;
   metadata?: Hex;
 }
 
@@ -153,7 +156,8 @@ function asAccount(
   });
 }
 
-function call(
+/** One plan step, its calldata decoded back from the same bytes. */
+export function call(
   chainId: ChainId,
   address: Address,
   abi: Abi,
@@ -711,6 +715,10 @@ export class PaymentService {
     }
     const amount = uint(input.amount, 'amount', verifiedNftHook === undefined);
     const slippage = bps(input.slippageBps);
+    const explicitMinimum =
+      input.minReturnedTokens === undefined
+        ? undefined
+        : uint(input.minReturnedTokens, 'minReturnedTokens');
     const requested = Date.now();
     // A head the caller read moments ago pins the quote without another read of it.
     const snapshot =
@@ -839,22 +847,60 @@ export class PaymentService {
           : 'Buyback 1.4 output is indicative. Buyback 1.4 pay quotes encode three words (amountToSwapWith, minimumSwapAmountOut, skipSplits); two-word quotes revert. A pool failure or swap below the TWAP floor falls back to issuance; the transaction reverts if the final beneficiary balance increase is below its reviewed minimum.',
       );
     }
-    const minimum = slippageFloor(beneficiaryTokenCount, slippage);
-    if (beneficiaryTokenCount === 0n)
+    const slippageMinimum = slippageFloor(beneficiaryTokenCount, slippage);
+    const minimum = explicitMinimum ?? slippageMinimum;
+    if (beneficiaryTokenCount === 0n && explicitMinimum === undefined)
       warnings.push(
         'The verified preview returns zero fungible project tokens for the beneficiary. The payment has a zero minimum and may still transfer funds.',
       );
-    const transaction = buildPayTx({
-      chainId: input.project.chainId,
-      terminal: terminal.address,
-      projectId: BigInt(input.project.projectId),
-      token: input.token,
-      amount,
-      beneficiary: input.beneficiary,
-      minReturnedTokens: minimum,
-      ...(input.memo === undefined ? {} : { memo: input.memo }),
-      metadata,
-    });
+    const payTx = (minReturnedTokens: bigint) =>
+      buildPayTx({
+        chainId: input.project.chainId,
+        terminal: terminal.address,
+        projectId: BigInt(input.project.projectId),
+        token: input.token,
+        amount,
+        beneficiary: input.beneficiary,
+        minReturnedTokens,
+        ...(input.memo === undefined ? {} : { memo: input.memo }),
+        metadata,
+      });
+    const transaction = payTx(minimum);
+    // A buyback fill differs from the hook's TWAP floor, and an explicit minimum is checked
+    // against it: run the payment with no minimum at the quote block to see what it returns.
+    let simulatedFill: Observation<string> | undefined;
+    if (quoteBasis === 'buyback-hook-indicative-output' || explicitMinimum !== undefined) {
+      try {
+        const { address, abi, functionName, args, value } = payTx(0n);
+        const { result } = await snapshot.client.simulateContract({
+          address,
+          abi,
+          functionName,
+          args,
+          value,
+          account: input.account,
+          blockNumber: BigInt(snapshot.evidence.blockNumber),
+          gas: 10_000_000n,
+        });
+        simulatedFill = { status: 'known', value: result.toString() };
+      } catch (error) {
+        simulatedFill = { status: 'unknown', error: publicError(error) };
+      }
+    }
+    if (explicitMinimum !== undefined) {
+      if (simulatedFill?.status === 'known' && explicitMinimum > BigInt(simulatedFill.value))
+        warnings.push(
+          `minReturnedTokens ${explicitMinimum} is above the simulated fill of ${simulatedFill.value} at this block. The payment reverts unless the price improves before it lands.`,
+        );
+      else if (simulatedFill?.status === 'unknown')
+        warnings.push(
+          'The payment could not be simulated at the quote block, so minReturnedTokens is not checked against a fill. Run jb_simulate_plan before signing.',
+        );
+      if (explicitMinimum < slippageMinimum)
+        warnings.push(
+          `minReturnedTokens ${explicitMinimum} is below the default minimum of ${slippageMinimum} (beneficiaryTokenCount less slippageBps), so it protects less.`,
+        );
+    }
     const quote = {
       operation: 'pay' as const,
       project: input.project,
@@ -875,6 +921,8 @@ export class PaymentService {
         reservedTokenCount: preview.reservedTokenCount.toString(),
       },
       minimumBeneficiaryTokenCount: minimum.toString(),
+      minimumBasis: explicitMinimum === undefined ? 'slippage' : 'explicit',
+      ...(simulatedFill ? { simulatedBeneficiaryTokenCount: simulatedFill } : {}),
       ...(buybackVersion
         ? {
             buybackHook: {
@@ -889,8 +937,21 @@ export class PaymentService {
           quoteBasis === 'buyback-hook-indicative-output'
             ? "The payer's share of the buyback hook's own TWAP-based minimum swap output: a conservative floor, not a forecast. The minimum is computed from this count."
             : "The terminal's issuance preview for the payer. The minimum is computed from this count.",
-        minimumBeneficiaryTokenCount:
-          'beneficiaryTokenCount less slippageBps. The payment reverts if the payer would receive fewer tokens.',
+        minimumBeneficiaryTokenCount: `${
+          explicitMinimum === undefined
+            ? 'beneficiaryTokenCount less slippageBps.'
+            : 'The caller-supplied minReturnedTokens; slippageBps is not used.'
+        } The terminal measures the beneficiary's project-token balance increase (credits plus ERC-20) across the whole payment and reverts below this figure.${
+          quoteBasis === 'buyback-hook-indicative-output'
+            ? " With the buyback hook that increase is the beneficiary's share after the reserved split, whether the hook swaps, mints leftover input, or falls back to issuance. The hook's own TWAP floor is a separate check on the swap."
+            : ''
+        }`,
+        ...(simulatedFill
+          ? {
+              simulatedBeneficiaryTokenCount:
+                'The beneficiary token count from running this payment with no minimum at the quote block: the fill at this price. To accept at most N% less, set minReturnedTokens to this count less N%.',
+            }
+          : {}),
         rawTerminalPreview:
           'The unadjusted terminal or router preview, for diagnosis only. The minimum does not use it.',
         simulation:

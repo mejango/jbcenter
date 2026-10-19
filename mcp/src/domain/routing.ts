@@ -5,7 +5,13 @@ import { isAddress, isAddressEqual, type Address, type PublicClient } from 'viem
 import { deploymentAddresses, routerGatewayAbi } from '../services/rollout.js';
 import { DomainError } from './errors.js';
 import { UNITS } from './units.js';
-import { addressSchema, hashSchema, positiveUintSchema, projectSchema } from './schemas.js';
+import {
+  addressSchema,
+  hashSchema,
+  positiveUintSchema,
+  projectSchema,
+  slippageSchema,
+} from './schemas.js';
 import type { ProjectRef } from './types.js';
 
 const terminalTokenSchema = addressSchema
@@ -82,6 +88,9 @@ export const quotePoolBuySchema = z
     token: terminalTokenSchema,
     amount: positiveUintSchema.describe(
       'Input amount in the token smallest units, as an exact integer string. 0.05 ETH = 50000000000000000.',
+    ),
+    slippageBps: slippageSchema.describe(
+      'Slippage in basis points, 0 to 1000, default 100 (1%). The pool minimum is the exact-input pool output less this; the terminal quote beside it uses the same figure.',
     ),
   })
   .strict();

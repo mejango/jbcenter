@@ -34,7 +34,7 @@ import {
   revLoansAbi,
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
-import { jbSuckerV6Abi, v6Address } from '@bananapus/nana-sdk-core/v6';
+import { jbSuckerV6Abi, uniswapV4Deployment, v6Address } from '@bananapus/nana-sdk-core/v6';
 import { DomainError, publicError, revertOf } from '../domain/errors.js';
 import { canonicalJson, jsonSafe } from '../domain/json.js';
 import {
@@ -1182,6 +1182,37 @@ export class PlanService {
           ? { verified: true, events }
           : unknown(
               'A launch requires matching JBProjects.Create and JBController.LaunchProject logs from canonical deployments, with the requested owner and URI.',
+            );
+      }
+      const router = uniswapV4Deployment(call.chainId)?.universalRouter;
+      if (plan.draft.operation === 'pool_buy' && router && same(call.to, router)) {
+        // The signed summary names the project ERC-20, recipient and minimum the swap committed to.
+        const { projectToken, recipient, minimumTokenCount } = plan.draft.summary as Record<
+          string,
+          string
+        >;
+        let received = 0n;
+        for (const log of sourceLogs) {
+          if (!same(log.address, projectToken as Address)) continue;
+          try {
+            const event = decodeEventLog({
+              abi: erc20Abi,
+              eventName: 'Transfer',
+              data: log.data,
+              topics: log.topics,
+              strict: true,
+            });
+            if (!same(event.args.to, recipient as Address)) continue;
+            received += event.args.value;
+            append(log, event.eventName, event.args);
+          } catch {
+            /* Other transfers are not this purchase. */
+          }
+        }
+        return received > 0n && received >= BigInt(minimumTokenCount!)
+          ? { verified: true, events }
+          : unknown(
+              'No transfer of at least the signed minimum of project tokens to the account was found in this receipt.',
             );
       }
       const extension = this.extensionEvidence(plan, call, sourceLogs);
