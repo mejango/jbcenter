@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   encodeAbiParameters,
   encodeEventTopics,
+  encodeErrorResult,
   encodeFunctionData,
   erc20Abi,
   getAddress,
@@ -184,6 +185,7 @@ function setup(planDraft = draft()) {
     })),
     call: vi.fn(async (_parameters: unknown) => ({ data: '0x' as Hex })),
     estimateGas: vi.fn(async (_parameters: unknown) => 100000n),
+    request: vi.fn(async (_arguments: unknown): Promise<unknown> => []),
   };
   const rpc: RpcProvider = {
     client: () => client as unknown as PublicClient,
@@ -586,7 +588,10 @@ describe('re-simulation and dependency verification', () => {
       confirmedTransactions: [{ step: 1, hash: HASH }],
     });
     expect(result.status).toBe('blocked');
-    expect(result.dependencies[0]).toMatchObject({ step: 0, status: 'pending' });
+    expect(result).toHaveProperty(
+      'dependencies.0',
+      expect.objectContaining({ step: 0, status: 'pending' }),
+    );
     expect(client.call).not.toHaveBeenCalled();
   });
 
@@ -624,6 +629,138 @@ describe('re-simulation and dependency verification', () => {
       return { data: '0x' };
     });
     expect((await service.simulate({ token: sealed.token })).status).toBe('unverified');
+  });
+
+  describe('chained mode', () => {
+    const twoSteps = () => draft([approval(), { ...payCall(), dependsOn: [0] }]);
+    const ok = { status: '0x1', gasUsed: '0x5208', returnData: '0x', logs: [] };
+    const revert = encodeErrorResult({
+      abi: jbMultiTerminalAbi,
+      errorName: 'JBMultiTerminal_FeeTerminalNotFound',
+    });
+
+    it('runs earlier unconfirmed steps in order in one block, as the exact sender, without overrides', async () => {
+      const { service, sealed, client } = setup(twoSteps());
+      client.request.mockResolvedValueOnce([{ calls: [ok, { ...ok, returnData: '0x01' }] }]);
+      const result = await service.simulate({ token: sealed.token, step: 1, chained: true });
+      expect(result).toMatchObject({
+        status: 'chained-simulated',
+        evidence,
+        steps: [
+          { step: 0, status: 'chained-simulated', gasUsed: '21000', returnData: '0x' },
+          { step: 1, status: 'chained-simulated', gasUsed: '21000', returnData: '0x01' },
+        ],
+      });
+      expect(client.request).toHaveBeenCalledExactlyOnceWith({
+        method: 'eth_simulateV1',
+        params: [
+          {
+            blockStateCalls: [
+              {
+                calls: [
+                  { from: ACCOUNT, to: TOKEN, data: approval().data, value: '0x0' },
+                  { from: ACCOUNT, to: getAddress(TERMINAL), data: payCall().data, value: '0x0' },
+                ],
+              },
+            ],
+            validation: false,
+          },
+          'latest',
+        ],
+      });
+      expect(client.call).not.toHaveBeenCalled();
+    });
+
+    it('chains only this chain’s steps up to the requested one', async () => {
+      const remote = { ...approval(), chainId: 10 as const };
+      const { service, sealed, client } = setup({
+        ...draft([approval(), remote, { ...payCall(), dependsOn: [0] }, approval()]),
+        evidence: [
+          { ...evidence, blockNumber: '99' },
+          { ...evidence, chainId: 10, blockNumber: '99' },
+        ],
+      });
+      client.request.mockResolvedValueOnce([{ calls: [ok, ok] }]);
+      const result = await service.simulate({ token: sealed.token, step: 2, chained: true });
+      expect(result).toHaveProperty('steps', [
+        expect.objectContaining({ step: 0 }),
+        expect.objectContaining({ step: 2 }),
+      ]);
+    });
+
+    it('names the reverting step and never reports success', async () => {
+      const { service, sealed, client } = setup(twoSteps());
+      client.request.mockResolvedValueOnce([
+        { calls: [ok, { ...ok, status: '0x0', error: { code: 3, data: revert } }] },
+      ]);
+      const result = await service.simulate({ token: sealed.token, step: 1, chained: true });
+      expect(result).toMatchObject({
+        status: 'unverified',
+        steps: [{ status: 'chained-simulated' }, { status: 'reverted' }],
+        error: {
+          step: 1,
+          code: 'CALL_REVERTED',
+          details: { selector: revert.slice(0, 10) },
+        },
+      });
+    });
+
+    it('falls back to the standard rule with a reason when the RPC rejects eth_simulateV1', async () => {
+      const { service, sealed, client } = setup(twoSteps());
+      client.request.mockRejectedValueOnce(Object.assign(new Error('x'), { code: -32601 }));
+      const result = await service.simulate({ token: sealed.token, step: 1, chained: true });
+      expect(result.status).toBe('blocked');
+      expect(result).toHaveProperty('chained.available', false);
+      expect(result).toHaveProperty('chained.reason', expect.stringContaining('eth_simulateV1'));
+    });
+
+    it('falls back when a required step is on another chain', async () => {
+      const { service, sealed, client } = setup({
+        ...draft([
+          { ...approval(), chainId: 10 },
+          { ...payCall(), dependsOn: [0] },
+        ]),
+        evidence: [
+          { ...evidence, blockNumber: '99' },
+          { ...evidence, chainId: 10, blockNumber: '99' },
+        ],
+      });
+      const result = await service.simulate({ token: sealed.token, step: 1, chained: true });
+      expect(result.status).toBe('blocked');
+      expect(result).toHaveProperty('chained.reason', expect.stringContaining('another chain'));
+      expect(client.request).not.toHaveBeenCalled();
+    });
+
+    it('keeps expiry and response checks, and refuses confirmed references', async () => {
+      const { service, sealed, client, setNow } = setup(twoSteps());
+      await expect(
+        service.simulate({
+          token: sealed.token,
+          step: 1,
+          chained: true,
+          confirmedTransactions: [{ step: 0, hash: HASH }],
+        }),
+      ).rejects.toThrow('Chained mode');
+      client.request.mockResolvedValueOnce([{ calls: [ok] }]);
+      expect(
+        await service.simulate({ token: sealed.token, step: 1, chained: true }),
+      ).toHaveProperty('error.code', 'RPC_INVALID_RESPONSE');
+      client.request.mockImplementationOnce(async () => {
+        setNow(NOW + 60_000);
+        return [{ calls: [ok, ok] }];
+      });
+      expect(
+        await service.simulate({ token: sealed.token, step: 1, chained: true }),
+      ).toHaveProperty('error.code', 'PLAN_EXPIRED');
+    });
+
+    it('tells a blocked caller the chained mode exists', async () => {
+      const { service, sealed } = setup(twoSteps());
+      expect(await service.simulate({ token: sealed.token, step: 1 })).toHaveProperty(
+        'reason',
+        expect.stringContaining('chained: true'),
+      );
+    });
   });
 
   it('reports execution reverts without claiming simulation success', async () => {

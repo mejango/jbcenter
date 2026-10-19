@@ -13,7 +13,7 @@ The deployment endpoint is **https://juicebox.center/mcp**. This package lives i
 - Exact project and NFT metadata review and explicitly approved public JSON pinning through the integrated Center backend, returning a CID and URI for a separate V6 launch or tier configuration.
 - Local stdio and stateless Streamable HTTP transports, bounded requests, cancellation, Docker packaging and CI.
 
-The **64 tools across ten capability families** compose into [27 user journeys](docs/USER_JOURNEYS.md) for contributors, creators, operators, revnet participants, omnichain users, and developers, including tool sequences and what establishes completion.
+The **66 tools across ten capability families** compose into [27 user journeys](docs/USER_JOURNEYS.md) for contributors, creators, operators, revnet participants, omnichain users, and developers, including tool sequences and what establishes completion.
 
 Start with `jb_list_capabilities` in an MCP client. It groups the tools and reports their coverage limits. The generated [tool catalog](docs/TOOLS.md), [architecture](docs/ARCHITECTURE.md), [source provenance](docs/SOURCES.md), and [webclient guide](docs/WEBCLIENTS.md) describe the implementation in more detail.
 
@@ -84,7 +84,7 @@ This configuration identifies the deployment endpoint; building the package does
 1. Resolve an unambiguous V6 `{chainId, projectId}` and establish account, beneficiary, asset and exact base-unit amount.
 2. Read/quote, then call the relevant `jb_prepare_*` tool. Preparation returns a reviewed plan and the first step's preflight status.
 3. Review the exact decoded calldata, full addresses, native value, output protections, fees and prerequisites. The plan token authenticates this server's prepared payload; it is not user approval.
-4. Use `jb_simulate_plan` immediately before signing each step in an external wallet. Prerequisites need matching confirmed transactions; simulated allowance overrides are never substituted for them.
+4. Use `jb_simulate_plan` immediately before signing each step in an external wallet. Prerequisites need matching confirmed transactions; simulated allowance overrides are never substituted for them. Before any step is signed, `chained: true` runs the chain's steps up to the requested one in order in one `eth_simulateV1` block and reports them as `chained-simulated`.
 5. Use `jb_verify_plan` with step indices and transaction hashes. Pending, reverted, mismatched, confirmed and unverified outcomes remain distinct. A confirmed outer Safe/Relayr transaction is not proof of the intended inner action.
 
 The MCP has no wallet key and does not sign or broadcast. It can store a Center intent the user already signed, and request Center-funded execution of that intent's committed calls; both are Center-side publications, not wallet actions, and neither spends the user's funds. The integrated metadata tools can publish an explicitly approved new metadata document to IPFS. Client applications handle wallet execution. MCP development tools include the relevant reference implementations.

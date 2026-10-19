@@ -63,6 +63,7 @@ import {
   prepareBuybackTwapSchema,
   prepareBuybackHookSchema,
   prepareRouterTerminalSchema,
+  quotePoolBuySchema,
 } from '../domain/routing.js';
 import { integrationInputSchema, referenceInputSchema } from '../services/development.js';
 import { UNITS } from '../domain/units.js';
@@ -292,6 +293,13 @@ function definitions(s: Services): ProtocolOperation[] {
       }),
     ),
     defineOperation(
+      'get_holders',
+      "List a project's token holders on one chain, largest first, from the indexer. The first 20 rows of each page are checked on chain at one block; the rest are indexed-only.",
+      { project: projectSchema, ...pageSchema },
+      async ({ project, ...page }) =>
+        s.projects.getHolders(project, () => s.bendystraw.getHolders({ ...project, ...page })),
+    ),
+    defineOperation(
       'get_activity',
       'Read a page of V6 project activity, retaining payment, cash-out, payout, split, and bridge event evidence. Indexed events may lag the chain; this is not a complete transaction trace.',
       { project: projectSchema, ...pageSchema },
@@ -471,6 +479,15 @@ function definitions(s: Services): ProtocolOperation[] {
       routingSchema,
       (input) => s.routing.getRouting(input),
     ),
+    operationWithSchema(
+      'quote_pool_buy',
+      "Quote buying project tokens straight from the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. A direct swap skips issuance and reserved splits.",
+      quotePoolBuySchema,
+      (input) =>
+        s.routing.quotePoolBuy(input, (at) =>
+          s.payments.quotePay({ ...input, beneficiary: input.account }, at),
+        ),
+    ),
     transactionWithSchema(
       s,
       'prepare_buyback_pool',
@@ -595,11 +612,17 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     defineOperation(
       'simulate_plan',
-      'Re-simulate an unexpired plan step as the exact sender. Required prior transactions must match the plan and have canonical confirmations; no simulated allowances are fabricated.',
+      'Re-simulate an unexpired plan step as the exact sender. Required prior transactions must match the plan and have canonical confirmations; no simulated allowances are fabricated. chained: true runs this chain’s steps 0..step in order in one block before any is signed; results are chained-simulated, not simulated.',
       {
         token: tokenSchema,
         step: z.number().int().min(0).max(31).default(0),
         confirmedTransactions: referencesSchema.default([]),
+        chained: z
+          .boolean()
+          .default(false)
+          .describe(
+            'Simulate earlier unconfirmed steps with this one. Omit confirmedTransactions.',
+          ),
       },
       (input) => s.plans.simulate(input),
     ),

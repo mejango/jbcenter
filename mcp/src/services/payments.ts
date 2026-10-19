@@ -253,8 +253,8 @@ export class PaymentService {
     return reading;
   }
 
-  async quotePay(input: PayInput) {
-    return (await this.pay(input)).quote;
+  async quotePay(input: PayInput, at?: BlockEvidence) {
+    return (await this.pay(input, undefined, at)).quote;
   }
 
   async preparePay(input: PayInput, at?: BlockEvidence): Promise<PlanDraft> {
@@ -344,7 +344,7 @@ export class PaymentService {
         ...quote.warnings,
         ...(calls.length > 1
           ? [
-              'Confirm each approval and verify its resulting allowance before simulating the dependent step. The payment has not been simulated with artificial balances or allowances.',
+              'The payment has not been simulated with artificial balances or allowances. Check it before signing with jb_simulate_plan chained: true, or confirm each approval first.',
             ]
           : []),
       ],
