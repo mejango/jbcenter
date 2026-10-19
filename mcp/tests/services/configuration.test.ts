@@ -54,6 +54,7 @@ function mockRpc(overrides: Record<string, unknown> = {}, chainId: ChainId = 1) 
       surplusAllowancesOf: [],
       creationFee: 123456789n,
       accountingContextsOf: [],
+      tokenOf: zeroAddress,
       ...overrides,
     };
     const value = values[request.functionName];
@@ -364,5 +365,87 @@ describe('split-lock continuity comparison', () => {
       locked,
     ]);
     expect(changedLockedSplits([locked], [], 3000n)).toEqual([]);
+  });
+});
+
+describe('project ERC-20 and URI preparation', () => {
+  const project = { chainId: 1 as const, projectId: '7' };
+  const erc20 = { project, account, name: 'Lattice', symbol: 'LATT' };
+
+  it('prepares deployERC20For for the owner with the salt and names the follow-up', async () => {
+    const plan = await mockRpc().service.prepareDeployErc20({
+      ...erc20,
+      salt: `0x${'cd'.repeat(32)}`,
+    });
+    const decoded = decodeFunctionData({ abi: jbControllerAbi, data: plan.calls[0]!.data });
+    expect(plan.calls[0]!.to).toBe(v6Address('JBController', 1));
+    expect(decoded.functionName).toBe('deployERC20For');
+    expect(decoded.args).toEqual([7n, 'Lattice', 'LATT', `0x${'cd'.repeat(32)}`]);
+    expect(plan.summary).toMatchObject({
+      permission: { required: 'DEPLOY_ERC20', id: 8, authorizedByOwner: true },
+    });
+  });
+
+  it('accepts a DEPLOY_ERC20 holder and refuses everyone else or a second token', async () => {
+    const holder = mockRpc({ ownerOf: another, hasPermissions: true });
+    const plan = await holder.service.prepareDeployErc20(erc20);
+    expect(plan.summary).toMatchObject({ permission: { authorizedByPermission: true } });
+    const request = holder.readContract.mock.calls.find(
+      ([call]) => call.functionName === 'hasPermissions',
+    )![0] as unknown as { args: unknown[] };
+    expect(request.args).toEqual([account, another, 7n, [8n], true, true]);
+    await expect(
+      mockRpc({ ownerOf: another }).service.prepareDeployErc20(erc20),
+    ).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    await expect(
+      mockRpc({ tokenOf: another }).service.prepareDeployErc20(erc20),
+    ).rejects.toMatchObject({ code: 'PROJECT_ALREADY_HAS_ERC20' });
+    await expect(mockRpc().service.prepareDeployErc20({ ...erc20, symbol: '' })).rejects.toThrow();
+  });
+
+  it('prepares setUriOf for the owner and warns on a non-IPFS URI', async () => {
+    const plan = await mockRpc().service.prepareSetProjectUri({
+      project,
+      account,
+      uri: 'https://example.com/x.json',
+    });
+    const decoded = decodeFunctionData({ abi: jbControllerAbi, data: plan.calls[0]!.data });
+    expect(decoded.functionName).toBe('setUriOf');
+    expect(decoded.args).toEqual([7n, 'https://example.com/x.json']);
+    expect(plan.summary).toMatchObject({ permission: { required: 'SET_PROJECT_URI', id: 7 } });
+    expect(plan.warnings.join(' ')).toContain('ipfs://');
+  });
+
+  it('routes a revnet URI change through its operator', async () => {
+    const revOwner = v6Address('REVOwner', 1);
+    const operator = mockRpc({ ownerOf: revOwner, hasPermissions: true });
+    const plan = await operator.service.prepareSetProjectUri({ project, account, uri: 'ipfs://x' });
+    expect(plan.summary).toMatchObject({ owner: revOwner });
+    await expect(
+      mockRpc({ ownerOf: revOwner }).service.prepareSetProjectUri({
+        project,
+        account,
+        uri: 'ipfs://x',
+      }),
+    ).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED',
+      message: expect.stringContaining('operator'),
+    });
+  });
+
+  it('tells a launch with no URI how to name it and add an ERC-20 later', async () => {
+    const plan = await mockRpc().service.prepareLaunch({
+      chainId: 1,
+      account,
+      owner: account,
+      composition: 'core',
+      projectUri: '',
+      rulesetConfigurations: [configuration()],
+      terminalConfigurations: [],
+    });
+    const text = plan.warnings.join(' ');
+    expect(text).toContain('jb_prepare_set_project_uri');
+    expect(text).toContain('jb_prepare_deploy_erc20');
+    expect(text).toContain('jb_prepare_omnichain_launch');
   });
 });

@@ -25,9 +25,12 @@ import {
   jbBuybackHookRegistryAbi,
   jbControllerAbi,
   jbMultiTerminalAbi,
+  jbOmnichainDeployerAbi,
   jbPermissionsAbi,
   jbProjectsAbi,
   jbRouterTerminalRegistryAbi,
+  jbSuckerRegistryAbi,
+  jbTokensAbi,
   revDeployerAbi,
   revLoansAbi,
   revOwnerAbi,
@@ -1570,6 +1573,144 @@ describe('extension receipt evidence', () => {
     const { service, sealed, receipt } = setup(draft([{ ...payCall(), to: OTHER }]));
     const router = deploymentAddress('JBRouterTerminal', 1)!;
     receipt.logs = [payLog({ caller: router, payer: router })];
+    expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
+  });
+});
+
+describe('ERC-20, project URI and omnichain launch evidence', () => {
+  const planFor = (
+    to: Address,
+    abi: Abi,
+    functionName: string,
+    args: readonly unknown[],
+    operation: string,
+  ): PlanDraft => ({
+    ...draft([
+      {
+        chainId: 1,
+        to,
+        data: encodeFunctionData({ abi, functionName, args }),
+        value: '0',
+        label: functionName,
+        decoded: { functionName, args },
+        dependsOn: [],
+      },
+    ]),
+    operation,
+  });
+  const params = (token: string) => ({ token, transactions: [{ step: 0, hash: HASH }] });
+
+  it('verifies deployERC20For from the controller and token events', async () => {
+    const plan = planFor(
+      CONTROLLER,
+      jbControllerAbi,
+      'deployERC20For',
+      [7n, 'Lattice', 'LATT', HASH2],
+      'deploy_erc20',
+    );
+    const { service, sealed, receipt } = setup(plan);
+    const tokens = v6Address('JBTokens', 1);
+    const controllerEvent = abiLog(
+      jbControllerAbi,
+      'DeployERC20',
+      { projectId: 7n, deployer: ACCOUNT, salt: HASH2, saltHash: HASH, caller: ACCOUNT },
+      CONTROLLER,
+    );
+    const tokenEvent = (symbol: string) =>
+      abiLog(
+        jbTokensAbi,
+        'DeployERC20',
+        { projectId: 7n, token: TOKEN, name: 'Lattice', symbol, salt: HASH, caller: CONTROLLER },
+        tokens,
+        1,
+      );
+    receipt.logs = [controllerEvent, tokenEvent('LATT')];
+    expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(true);
+    receipt.logs = [controllerEvent, tokenEvent('OTHER')];
+    expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
+  });
+
+  it('verifies setUriOf only with the exact SetUri event', async () => {
+    const plan = planFor(
+      CONTROLLER,
+      jbControllerAbi,
+      'setUriOf',
+      [7n, 'ipfs://new'],
+      'set_project_uri',
+    );
+    const { service, sealed, receipt } = setup(plan);
+    const setUri = (uri: string) =>
+      abiLog(jbControllerAbi, 'SetUri', { projectId: 7n, uri, caller: ACCOUNT }, CONTROLLER);
+    receipt.logs = [setUri('ipfs://new')];
+    expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(true);
+    receipt.logs = [setUri('ipfs://old')];
+    expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
+  });
+
+  it('verifies an omnichain launch: project, NFT hook, rulesets, local suckers and owner', async () => {
+    const deployer = v6Address('JBOmnichainDeployer', 1);
+    const registry = v6Address('JBSuckerRegistry', 1);
+    const lane = {
+      deployer: OTHER,
+      peer: zeroHash,
+      mappings: [{ localToken: NATIVE_TOKEN, minGas: 200_000, remoteToken: zeroHash }],
+    };
+    const plan = planFor(
+      deployer,
+      jbOmnichainDeployerAbi,
+      'launchProjectFor',
+      [
+        ACCOUNT,
+        'ipfs://project',
+        [],
+        [],
+        'launch',
+        { deployerConfigurations: [lane], salt: HASH2 },
+      ],
+      'omnichain_launch',
+    );
+    delete plan.project;
+    const { service, sealed, receipt } = setup(plan);
+    const suckerLog = (configuration: typeof lane) =>
+      abiLog(
+        jbSuckerRegistryAbi,
+        'SuckerDeployedFor',
+        { projectId: 12n, sucker: TOKEN, configuration, caller: deployer },
+        registry,
+        3,
+      );
+    receipt.logs = [
+      abiLog(
+        jbProjectsAbi,
+        'Create',
+        { projectId: 12n, owner: deployer, caller: deployer },
+        PROJECTS,
+      ),
+      abiLog(
+        jb721TiersHookDeployerAbi,
+        'HookDeployed',
+        { projectId: 12n, hook: TOKEN, caller: deployer },
+        v6Address('JB721TiersHookDeployer', 1),
+        1,
+      ),
+      abiLog(
+        jbControllerAbi,
+        'LaunchRulesets',
+        {
+          rulesetId: 100n,
+          projectId: 12n,
+          projectUri: 'ipfs://project',
+          memo: 'launch',
+          caller: deployer,
+        },
+        CONTROLLER,
+        2,
+      ),
+      suckerLog(lane),
+      abiLog(jbProjectsAbi, 'Transfer', { from: deployer, to: ACCOUNT, tokenId: 12n }, PROJECTS, 4),
+    ];
+    expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(true);
+    receipt.logs[3] = suckerLog({ ...lane, deployer: TOKEN });
     expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
   });
 });

@@ -24,10 +24,12 @@ import {
   jbBuybackHookRegistryAbi,
   jbControllerAbi,
   jbMultiTerminalAbi,
+  jbOmnichainDeployerAbi,
   jbPermissionsAbi,
   jbProjectsAbi,
   jbRouterTerminalRegistryAbi,
   jbSuckerRegistryAbi,
+  jbTokensAbi,
   revDeployerAbi,
   revLoansAbi,
   revOwnerAbi,
@@ -1129,6 +1131,8 @@ export class PlanService {
                 'The canonical QueueRulesets event is absent or does not match the project/caller/memo.',
               );
         }
+        if (decoded.functionName === 'deployERC20For' || decoded.functionName === 'setUriOf')
+          return this.extensionEvidence(plan, call, sourceLogs)!;
         if (decoded.functionName !== 'launchProjectFor')
           return unknown('Semantic verification is not implemented for this controller function.');
         const [owner, projectUri] = decoded.args;
@@ -1274,6 +1278,109 @@ export class PlanService {
     });
     const fromCaller = (args: Record<string, unknown>) => same(args.caller, plan.draft.account);
 
+    if (same(call.to, v6Address('JBController', call.chainId))) {
+      const decoded = decodeFunctionData({ abi: jbControllerAbi, data: call.data });
+      if (decoded.functionName === 'deployERC20For') {
+        const [projectId, name, symbol, salt] = decoded.args;
+        const deployed =
+          projectMatches(projectId) &&
+          matching(
+            jbControllerAbi,
+            'DeployERC20',
+            call.to,
+            (args) => fromCaller(args) && args.projectId === projectId && args.salt === salt,
+          ).length === 1 &&
+          matching(
+            jbTokensAbi,
+            'DeployERC20',
+            v6Address('JBTokens', call.chainId),
+            (args) =>
+              args.projectId === projectId &&
+              args.name === name &&
+              args.symbol === symbol &&
+              same(args.caller, call.to),
+          ).length === 1;
+        return done(deployed, deployed ? 'The project ERC-20 was deployed.' : undefined);
+      }
+      if (decoded.functionName === 'setUriOf') {
+        const [projectId, uri] = decoded.args;
+        return done(
+          projectMatches(projectId) &&
+            matching(
+              jbControllerAbi,
+              'SetUri',
+              call.to,
+              (args) => fromCaller(args) && args.projectId === projectId && args.uri === uri,
+            ).length === 1,
+        );
+      }
+      return done(false);
+    }
+    if (same(call.to, v6Address('JBOmnichainDeployer', call.chainId))) {
+      const decoded = decodeFunctionData({ abi: jbOmnichainDeployerAbi, data: call.data });
+      if (decoded.functionName !== 'launchProjectFor') return done(false);
+      const args = decoded.args as readonly unknown[];
+      const owner = args[0] as Address;
+      const projectUri = args[1] as string;
+      const memo = args[args.length - 2] as string;
+      const expectedSuckers = (
+        args[args.length - 1] as { deployerConfigurations: readonly unknown[] }
+      ).deployerConfigurations;
+      const created = matching(
+        jbProjectsAbi,
+        'Create',
+        v6Address('JBProjects', call.chainId),
+        (event) => same(event.owner, call.to) && same(event.caller, call.to),
+      );
+      const ids = new Set(
+        created.map((event) => (event.args as Record<string, unknown>).projectId),
+      );
+      const hooks = matching(
+        jb721TiersHookDeployerAbi,
+        'HookDeployed',
+        v6Address('JB721TiersHookDeployer', call.chainId),
+        (event) => ids.has(String(event.projectId)) && same(event.caller, call.to),
+      );
+      const rulesets = matching(
+        jbControllerAbi,
+        'LaunchRulesets',
+        v6Address('JBController', call.chainId),
+        (event) =>
+          ids.has(String(event.projectId)) &&
+          same(event.caller, call.to) &&
+          event.projectUri === projectUri &&
+          event.memo === memo,
+      );
+      const suckers = matching(
+        jbSuckerRegistryAbi,
+        'SuckerDeployedFor',
+        v6Address('JBSuckerRegistry', call.chainId),
+        (event) => ids.has(String(event.projectId)) && same(event.caller, call.to),
+      );
+      const ownership = matching(
+        jbProjectsAbi,
+        'Transfer',
+        v6Address('JBProjects', call.chainId),
+        (event) =>
+          ids.has(String(event.tokenId)) && same(event.from, call.to) && same(event.to, owner),
+      );
+      const actual = suckers
+        .map((event) => canonicalJson((event.args as Record<string, unknown>).configuration))
+        .sort();
+      const expected = expectedSuckers.map((item) => canonicalJson(jsonSafe(item))).sort();
+      const verified =
+        created.length === 1 &&
+        hooks.length === 1 &&
+        rulesets.length === 1 &&
+        ownership.length === 1 &&
+        equalData(actual, expected);
+      return done(
+        verified,
+        verified
+          ? 'The project, its NFT collection, its rulesets and the requested local suckers were created on this chain, and the owner received the project. The remote chains need their own verification.'
+          : 'Project creation, NFT collection, rulesets, local suckers or the owner transfer were not all verified.',
+      );
+    }
     if (same(call.to, v6Address('JBPermissions', call.chainId))) {
       const decoded = decodeFunctionData({ abi: jbPermissionsAbi, data: call.data });
       if (decoded.functionName !== 'setPermissionsFor') return done(false);

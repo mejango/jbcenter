@@ -27,8 +27,10 @@ import {
 } from '../domain/schemas.js';
 import {
   modelEconomicsSchema,
+  prepareDeployErc20Schema,
   prepareLaunchSchema,
   prepareRulesetChangeSchema,
+  prepareSetProjectUriSchema,
   previewRulesetChangeSchema,
 } from '../domain/rulesets.js';
 import { DomainError } from '../domain/errors.js';
@@ -51,6 +53,7 @@ import {
   getRevnetSchema,
   prepareAutoIssueSchema,
   prepareAdjustTiersSchema,
+  prepareOmnichainLaunchSchema,
   prepareRevnetDeploySchema,
   prepare721LaunchSchema,
 } from '../domain/products.js';
@@ -405,9 +408,30 @@ function definitions(s: Services): ProtocolOperation[] {
     transactionWithSchema(
       s,
       'prepare_launch',
-      'Prepare a standard core V6 project launch using complete typed configuration and a chain-specific live creation fee. Explicit core composition does not attach NFT/revnet/omnichain extensions.',
+      'Prepare a standard core V6 project launch on one chain using complete typed configuration and a chain-specific live creation fee. Explicit core composition does not attach NFT/revnet/omnichain extensions. To link chains as one project, use jb_prepare_omnichain_launch.',
       prepareLaunchSchema,
       async (input) => s.configuration.prepareLaunch(input),
+    ),
+    transactionWithSchema(
+      s,
+      'prepare_omnichain_launch',
+      'Prepare one project linked across chains: JBOmnichainDeployer.launchProjectFor on each chain, with suckers from the registry, one salt and one signer. Returns one plan with one step per chain and a commitment hash shared by every step.',
+      prepareOmnichainLaunchSchema,
+      async (input) => s.products.prepareOmnichainLaunch(input),
+    ),
+    transactionWithSchema(
+      s,
+      'prepare_deploy_erc20',
+      'Prepare JBController.deployERC20For: give a project its ERC-20 name and ticker. Checks the signer is the owner or holds DEPLOY_ERC20, and that the project has no ERC-20 yet.',
+      prepareDeployErc20Schema,
+      async (input) => s.configuration.prepareDeployErc20(input),
+    ),
+    transactionWithSchema(
+      s,
+      'prepare_set_project_uri',
+      'Prepare JBController.setUriOf with a metadata URI the user already pinned. Checks the signer is the owner or holds SET_PROJECT_URI; for a revnet that is its operator.',
+      prepareSetProjectUriSchema,
+      async (input) => s.configuration.prepareSetProjectUri(input),
     ),
     operationWithSchema(
       'quote_loan',

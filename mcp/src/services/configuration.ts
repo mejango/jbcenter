@@ -7,10 +7,13 @@ import {
   jbProjectsAbi,
   jbRulesetsAbi,
   jbSplitsAbi,
+  jbTokensAbi,
 } from '@bananapus/nana-sdk-core';
 import {
+  buildDeployErc20Tx,
   buildLaunchProjectTx,
   buildQueueRulesetsTx,
+  hasPermissions,
   JBPermissionIdsV6,
   v6Address,
 } from '@bananapus/nana-sdk-core/v6';
@@ -19,7 +22,9 @@ import {
   encodeFunctionData,
   isAddressEqual,
   zeroAddress,
+  type Abi,
   type Address,
+  type PublicClient,
 } from 'viem';
 import type { z } from 'zod';
 import { DomainError } from '../domain/errors.js';
@@ -27,15 +32,17 @@ import { jsonSafe } from '../domain/json.js';
 import {
   modelEconomics,
   modelEconomicsSchema,
+  prepareDeployErc20Schema,
   prepareLaunchSchema,
   prepareRulesetChangeSchema,
+  prepareSetProjectUriSchema,
   previewRulesetChangeSchema,
   toRulesetConfig,
   toTerminalConfig,
   type PreviewRulesetChangeInput,
   type RulesetConfigInput,
 } from '../domain/rulesets.js';
-import type { ChainId, PlanDraft, PreparedCall, RpcProvider } from '../domain/types.js';
+import type { ChainId, PlanDraft, PreparedCall, ProjectRef, RpcProvider } from '../domain/types.js';
 import { canonicalDeadline } from './contracts.js';
 
 type StoredSplit = {
@@ -74,7 +81,10 @@ export function changedLockedSplits(
   return changed;
 }
 
-function configurationWarnings(chainId: ChainId, configurations: RulesetConfigInput[]): string[] {
+export function configurationWarnings(
+  chainId: ChainId,
+  configurations: RulesetConfigInput[],
+): string[] {
   const warnings = [
     'This action configures one chain only. An omnichain project requires coordinated, separately reviewed chain actions; this call does not synchronize remote projects or payout budgets.',
     'A configured mustStartAtOrAfter is a lower bound. Queue selection, existing duration, approval hooks, and the execution block determine actual start times.',
@@ -123,6 +133,111 @@ function configurationWarnings(chainId: ChainId, configurations: RulesetConfigIn
   return warnings;
 }
 
+/** Launch warnings that name the follow-up tools for an ERC-20 and a project URI. */
+export function launchFollowUps(projectUri: string): string[] {
+  return [
+    projectUri === ''
+      ? 'projectUri is empty, so the project has no name. After launch, set a pinned URI with jb_prepare_set_project_uri.'
+      : 'To change the name later, pin new metadata and use jb_prepare_set_project_uri.',
+    'No ERC-20 is deployed. For a token name and ticker, use jb_prepare_deploy_erc20 after launch.',
+  ];
+}
+
+/** The project's owner, after checking it uses the canonical V6 controller. */
+async function canonicalProject(client: PublicClient, project: ProjectRef, blockNumber: bigint) {
+  const projectId = BigInt(project.projectId);
+  const controller = v6Address('JBController', project.chainId);
+  const [currentController, owner] = await Promise.all([
+    client.readContract({
+      address: v6Address('JBDirectory', project.chainId),
+      abi: jbDirectoryAbi,
+      functionName: 'controllerOf',
+      args: [projectId],
+      blockNumber,
+    }),
+    client.readContract({
+      address: v6Address('JBProjects', project.chainId),
+      abi: jbProjectsAbi,
+      functionName: 'ownerOf',
+      args: [projectId],
+      blockNumber,
+    }),
+  ]);
+  if (!isAddressEqual(currentController, controller))
+    throw new DomainError(
+      'UNSUPPORTED_CONTROLLER',
+      'This project does not use the canonical V6 controller. Preparing canonical calldata would be incorrect.',
+      { details: { currentController, canonicalController: controller } },
+    );
+  return { controller, owner };
+}
+
+/** Owner or holder of the named owner-granted permission, read at the snapshot block. */
+async function projectAuthority(
+  client: PublicClient,
+  project: ProjectRef,
+  account: Address,
+  blockNumber: bigint,
+  permission: 'DEPLOY_ERC20' | 'SET_PROJECT_URI',
+) {
+  const { controller, owner } = await canonicalProject(client, project, blockNumber);
+  const authorizedByOwner = isAddressEqual(owner, account);
+  const authorizedByPermission =
+    !authorizedByOwner &&
+    (await hasPermissions(client, {
+      chainId: project.chainId,
+      operator: account,
+      account: owner,
+      projectId: BigInt(project.projectId),
+      permissionIds: [JBPermissionIdsV6[permission]],
+      includeRoot: true,
+      includeWildcardProjectId: true,
+    }));
+  const revnet = [
+    v6Address('REVOwner', project.chainId),
+    v6Address('REVDeployer', project.chainId),
+  ].some((address) => isAddressEqual(owner, address));
+  const result = {
+    controller,
+    owner,
+    permission: {
+      required: permission,
+      id: JBPermissionIdsV6[permission],
+      authorized: authorizedByOwner || authorizedByPermission,
+      authorizedByOwner,
+      authorizedByPermission,
+      scope: 'Observed at this block; must remain valid at execution.',
+    },
+  };
+  if (!result.permission.authorized)
+    throw new DomainError(
+      'PERMISSION_DENIED',
+      revnet
+        ? `This is a revnet. Only its operator can do this (it holds ${permission} from REVOwner); jb_get_revnet names the operator.`
+        : `The account is neither the project owner nor holds ${permission} (${JBPermissionIdsV6[permission]}) from the owner.`,
+      { details: { owner, ...result.permission } },
+    );
+  return result;
+}
+
+function controllerCall(
+  chainId: ChainId,
+  request: { address: Address; abi: Abi; functionName: string; args: readonly unknown[] },
+  label: string,
+): PreparedCall {
+  const data = encodeFunctionData(request);
+  const decoded = decodeFunctionData({ abi: request.abi, data });
+  return {
+    chainId,
+    to: request.address,
+    data,
+    value: '0',
+    label,
+    decoded: { functionName: decoded.functionName, args: jsonSafe(decoded.args) },
+    dependsOn: [],
+  };
+}
+
 export class ConfigurationService {
   constructor(private readonly rpc: RpcProvider) {}
 
@@ -139,30 +254,8 @@ export class ConfigurationService {
     const projectId = BigInt(project.projectId);
     const { client, evidence } = await this.rpc.snapshot(project.chainId);
     const blockNumber = BigInt(evidence.blockNumber);
-    const controller = v6Address('JBController', project.chainId);
     const directory = v6Address('JBDirectory', project.chainId);
-    const [currentController, owner] = await Promise.all([
-      client.readContract({
-        address: directory,
-        abi: jbDirectoryAbi,
-        functionName: 'controllerOf',
-        args: [projectId],
-        blockNumber,
-      }),
-      client.readContract({
-        address: v6Address('JBProjects', project.chainId),
-        abi: jbProjectsAbi,
-        functionName: 'ownerOf',
-        args: [projectId],
-        blockNumber,
-      }),
-    ]);
-    if (!isAddressEqual(currentController, controller))
-      throw new DomainError(
-        'UNSUPPORTED_CONTROLLER',
-        'This project does not use the canonical V6 controller. Preparing canonical calldata would be incorrect.',
-        { details: { currentController, canonicalController: controller } },
-      );
+    const { controller, owner } = await canonicalProject(client, project, blockNumber);
 
     const [current, upcoming, latest, latestApprovalStatus, omnichainOperator, terminals] =
       await Promise.all([
@@ -506,7 +599,8 @@ export class ConfigurationService {
       'The creation fee is dynamic and must match exactly at execution. A stale fee can revert; refresh the prepared plan before signing.',
     );
     warnings.push(
-      'This explicitly selected core composition does not deploy an NFT hook, revnet, token contract, sucker pair, or omnichain project. Future NFT support depends on configured permissions and an actual attached hook; it is not guaranteed.',
+      'This core launch has no NFT hook and no suckers. To link chains as one project, use jb_prepare_omnichain_launch.',
+      ...launchFollowUps(input.projectUri),
     );
     if (!isAddressEqual(input.owner, input.account))
       warnings.push(
@@ -550,6 +644,89 @@ export class ConfigurationService {
         projectIdResolution:
           'Read canonical JBController.LaunchProject / JBProjects.Create logs after a successful receipt; do not predict the next ID.',
       },
+      warnings,
+    };
+  }
+
+  async prepareDeployErc20(raw: z.input<typeof prepareDeployErc20Schema>): Promise<PlanDraft> {
+    const input = prepareDeployErc20Schema.parse(raw);
+    const { project, account } = input;
+    const { client, evidence } = await this.rpc.snapshot(project.chainId);
+    const blockNumber = BigInt(evidence.blockNumber);
+    const [authority, existing] = await Promise.all([
+      projectAuthority(client, project, account, blockNumber, 'DEPLOY_ERC20'),
+      client.readContract({
+        address: v6Address('JBTokens', project.chainId),
+        abi: jbTokensAbi,
+        functionName: 'tokenOf',
+        args: [BigInt(project.projectId)],
+        blockNumber,
+      }),
+    ]);
+    if (!isAddressEqual(existing, zeroAddress))
+      throw new DomainError(
+        'PROJECT_ALREADY_HAS_ERC20',
+        `This project already has an ERC-20 at ${existing}. A project can have only one.`,
+        { details: { token: existing } },
+      );
+    const request = buildDeployErc20Tx({
+      chainId: project.chainId,
+      projectId: BigInt(project.projectId),
+      name: input.name,
+      symbol: input.symbol,
+      salt: input.salt,
+    });
+    return {
+      operation: 'deploy_erc20',
+      account,
+      project,
+      calls: [controllerCall(project.chainId, request, `Deploy the ${input.symbol} ERC-20`)],
+      evidence: [evidence],
+      summary: { ...authority, name: input.name, symbol: input.symbol, salt: input.salt },
+      warnings: [
+        'This chain only. Repeat on each chain of an omnichain project; the same nonzero salt and signer give the same token address on every chain.',
+        'Holders keep their credits; each holder claims ERC-20s separately.',
+      ],
+    };
+  }
+
+  async prepareSetProjectUri(raw: z.input<typeof prepareSetProjectUriSchema>): Promise<PlanDraft> {
+    const input = prepareSetProjectUriSchema.parse(raw);
+    const { project, account } = input;
+    const { client, evidence } = await this.rpc.snapshot(project.chainId);
+    const authority = await projectAuthority(
+      client,
+      project,
+      account,
+      BigInt(evidence.blockNumber),
+      'SET_PROJECT_URI',
+    );
+    const controller = v6Address('JBController', project.chainId);
+    const warnings = [
+      'This chain only. Repeat on each chain of an omnichain project.',
+      'The URI replaces the current one. Its content is not fetched or checked.',
+    ];
+    if (input.uri === '') warnings.push('The URI is empty: the project will have no name.');
+    else if (!input.uri.startsWith('ipfs://'))
+      warnings.push('Juicebox clients read ipfs:// URIs. Other schemes may not show a name.');
+    return {
+      operation: 'set_project_uri',
+      account,
+      project,
+      calls: [
+        controllerCall(
+          project.chainId,
+          {
+            address: controller,
+            abi: jbControllerAbi,
+            functionName: 'setUriOf',
+            args: [BigInt(project.projectId), input.uri],
+          },
+          'Set the project metadata URI',
+        ),
+      ],
+      evidence: [evidence],
+      summary: { ...authority, uri: input.uri },
       warnings,
     };
   }
