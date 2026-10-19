@@ -38,7 +38,7 @@ export const rulesetMetadataSchema = z
     allowAddPriceFeed: z.boolean(),
     ownerMustSendPayouts: z.boolean(),
     holdFees: z.boolean(),
-    scopeCashOutsToLocalBalances: z.boolean(),
+    scopeCashOutsToLocalBalances: z.boolean().describe(UNITS.scopeCashOutsToLocalBalances),
     useDataHookForPay: z.boolean(),
     useDataHookForCashOut: z.boolean(),
     dataHook: addressSchema,

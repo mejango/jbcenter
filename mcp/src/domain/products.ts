@@ -178,7 +178,7 @@ export const revStageSchema = z
     issuanceCutFrequency: uint(32).describe(UNITS.issuanceCutFrequency),
     issuanceCutPercent: uint(32, 1_000_000_000n).describe(UNITS.issuanceCutPercent),
     cashOutTaxRate: uint(16, 9_999n).describe(UNITS.revnetCashOutTaxRate),
-    extraMetadata: uint(16, 16_383n),
+    extraMetadata: uint(16, 16_383n).describe(UNITS.extraMetadata),
   })
   .strict()
   .refine(
@@ -199,7 +199,7 @@ export const revConfigSchema = z
       .refine((v) => BigInt(v) > 0n)
       .describe(UNITS.baseCurrency),
     operator: addressSchema,
-    scopeCashOutsToLocalBalances: z.boolean(),
+    scopeCashOutsToLocalBalances: z.boolean().describe(UNITS.scopeCashOutsToLocalBalances),
     stageConfigurations: z.array(revStageSchema).min(1).max(16),
   })
   .strict()

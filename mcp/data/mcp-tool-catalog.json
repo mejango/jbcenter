@@ -4629,7 +4629,7 @@
                     "pattern": "^(0|[1-9][0-9]*)$"
                   },
                   "baseCurrency": {
-                    "description": "Currency that issuance is priced in: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
+                    "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.",
                     "type": "string",
                     "maxLength": 78,
                     "pattern": "^(0|[1-9][0-9]*)$"
@@ -4668,7 +4668,8 @@
                     "type": "boolean"
                   },
                   "scopeCashOutsToLocalBalances": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "description": "false: cash outs count every chain's supply and surplus (through the suckers). true: only this chain's."
                   },
                   "useDataHookForPay": {
                     "type": "boolean"
@@ -4980,13 +4981,14 @@
                         "type": "string",
                         "maxLength": 78,
                         "pattern": "^(0|[1-9][0-9]*)$",
-                        "description": "Currency that issuance is priced in: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD."
+                        "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it."
                       },
                       "operator": {
                         "type": "string"
                       },
                       "scopeCashOutsToLocalBalances": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "false: cash outs count every chain's supply and surplus (through the suckers). true: only this chain's."
                       },
                       "stageConfigurations": {
                         "minItems": 1,
@@ -5104,7 +5106,8 @@
                             "extraMetadata": {
                               "type": "string",
                               "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "description": "Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): the operator may deploy new suckers during this stage; every stage needs it when suckers are configured. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. 4 is usual for a multi-chain revnet, 0 for one chain."
                             }
                           },
                           "required": [
@@ -5461,7 +5464,7 @@
                       "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "baseCurrency": {
-                      "description": "Currency that issuance is priced in: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
+                      "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
@@ -5500,7 +5503,8 @@
                       "type": "boolean"
                     },
                     "scopeCashOutsToLocalBalances": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "description": "false: cash outs count every chain's supply and surplus (through the suckers). true: only this chain's."
                     },
                     "useDataHookForPay": {
                       "type": "boolean"
@@ -5945,7 +5949,7 @@
                       "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "baseCurrency": {
-                      "description": "Currency that issuance is priced in: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
+                      "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
@@ -5984,7 +5988,8 @@
                       "type": "boolean"
                     },
                     "scopeCashOutsToLocalBalances": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "description": "false: cash outs count every chain's supply and surplus (through the suckers). true: only this chain's."
                     },
                     "useDataHookForPay": {
                       "type": "boolean"
@@ -6426,7 +6431,7 @@
                       "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "baseCurrency": {
-                      "description": "Currency that issuance is priced in: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
+                      "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
@@ -6465,7 +6470,8 @@
                       "type": "boolean"
                     },
                     "scopeCashOutsToLocalBalances": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "description": "false: cash outs count every chain's supply and surplus (through the suckers). true: only this chain's."
                     },
                     "useDataHookForPay": {
                       "type": "boolean"
@@ -6961,7 +6967,7 @@
                       "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "baseCurrency": {
-                      "description": "Currency that issuance is priced in: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
+                      "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
@@ -7000,7 +7006,8 @@
                       "type": "boolean"
                     },
                     "scopeCashOutsToLocalBalances": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "description": "false: cash outs count every chain's supply and surplus (through the suckers). true: only this chain's."
                     },
                     "useDataHookForPay": {
                       "type": "boolean"
@@ -12251,7 +12258,7 @@
                       "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "baseCurrency": {
-                      "description": "Currency that issuance is priced in: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
+                      "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
@@ -12290,7 +12297,8 @@
                       "type": "boolean"
                     },
                     "scopeCashOutsToLocalBalances": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "description": "false: cash outs count every chain's supply and surplus (through the suckers). true: only this chain's."
                     },
                     "useDataHookForCashOut": {
                       "type": "boolean"
@@ -13154,13 +13162,14 @@
                 "type": "string",
                 "maxLength": 78,
                 "pattern": "^(0|[1-9][0-9]*)$",
-                "description": "Currency that issuance is priced in: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD."
+                "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it."
               },
               "operator": {
                 "type": "string"
               },
               "scopeCashOutsToLocalBalances": {
-                "type": "boolean"
+                "type": "boolean",
+                "description": "false: cash outs count every chain's supply and surplus (through the suckers). true: only this chain's."
               },
               "stageConfigurations": {
                 "minItems": 1,
@@ -13278,7 +13287,8 @@
                     "extraMetadata": {
                       "type": "string",
                       "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "description": "Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): the operator may deploy new suckers during this stage; every stage needs it when suckers are configured. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. 4 is usual for a multi-chain revnet, 0 for one chain."
                     }
                   },
                   "required": [

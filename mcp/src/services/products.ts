@@ -17,6 +17,8 @@ import {
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
 import {
+  BASE_CURRENCY_ETH,
+  NATIVE_TOKEN_CURRENCY_ID,
   build721PayMetadata,
   buildAutoIssueTx,
   buildDeployRevnetTx,
@@ -1095,10 +1097,12 @@ export class ProductService {
         );
     }
     // Four-argument deployFor synthesizes an 18-decimal baseline shop. Require explicit pricing for other bases.
-    if (!input.tiered721Config && input.config.baseCurrency !== '1')
+    if (!input.tiered721Config && input.config.baseCurrency !== String(BASE_CURRENCY_ETH))
       fail(
         'EXPLICIT_NFT_PRICING_REQUIRED',
-        'Use the six-argument deployment with explicit tiered721Config pricing for a non-ETH base currency. The default store hardcodes 18 decimals.',
+        input.config.baseCurrency === String(NATIVE_TOKEN_CURRENCY_ID)
+          ? `Use baseCurrency ${BASE_CURRENCY_ETH} for ETH. ${NATIVE_TOKEN_CURRENCY_ID} is native ETH's accounting currency, not its issuance currency.`
+          : `Without tiered721Config, baseCurrency must be ${BASE_CURRENCY_ETH} (ETH): the default NFT store prices in baseCurrency with 18 decimals. For another base currency, pass tiered721Config with explicit pricing.`,
       );
     if (input.tiered721Config) {
       const baseline = input.tiered721Config.baseline721HookConfiguration;

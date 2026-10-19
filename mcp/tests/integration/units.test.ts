@@ -29,6 +29,8 @@ const SCALED = new Set([
   'terminalToken',
   'price',
   'permissionIds',
+  'extraMetadata',
+  'scopeCashOutsToLocalBalances',
 ]);
 
 function undescribed(schema: unknown, path: string, out: string[]): void {

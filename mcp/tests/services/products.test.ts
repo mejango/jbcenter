@@ -975,7 +975,13 @@ describe('new revnet deployment', () => {
         ...deploy,
         config: { ...deploy.config, baseCurrency: '2' },
       }),
-    ).rejects.toThrow('explicit tiered721Config');
+    ).rejects.toThrow('pass tiered721Config with explicit pricing');
+    await expect(
+      fixture().service.prepareRevnetDeploy({
+        ...deploy,
+        config: { ...deploy.config, baseCurrency: '61166' },
+      }),
+    ).rejects.toThrow('Use baseCurrency 1 for ETH.');
     await expect(fixture({ normalized: 0n }).service.prepareRevnetDeploy(deploy)).rejects.toThrow(
       'nonzero base-currency',
     );
