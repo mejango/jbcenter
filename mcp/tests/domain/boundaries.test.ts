@@ -46,4 +46,19 @@ describe('public boundaries', () => {
     expect(() => new ContractService().get('constructor')).toThrow('supported V6 ABI registry');
     expect(() => new ContractService().get('__proto__')).toThrow('supported V6 ABI registry');
   });
+  it('knows the canonical JBDeadline hooks and CCIP sucker deployers, and lists names on a miss', () => {
+    const contracts = new ContractService();
+    expect(contracts.get('JBDeadline3Days', 1, 'DURATION')).toMatchObject({
+      address: '0xcda708c98fbdd15a7ff7f0c5c50f9371ca52c78f',
+      abi: [{ name: 'DURATION' }],
+    });
+    // Same addresses as nana-suckers-v6 deployments/base/JBCCIPSuckerDeployer__{OP,ETH}.json.
+    expect(contracts.get('JBCCIPSuckerDeployer', 8453)).toMatchObject({
+      addressByPeerChainId: {
+        '1': '0x3955fec11fe15f0be4dfa2b0153feef55d55e1ee',
+        '10': '0x8f6f0a70939997310309d7ab66b1b199faafe7f0',
+      },
+    });
+    expect(() => contracts.get('JBDeadline')).toThrow(/Known names: .*JBDeadline3Days/);
+  });
 });

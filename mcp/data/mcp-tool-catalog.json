@@ -2458,7 +2458,8 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 255
-            }
+            },
+            "description": "JBPermissionIds: 1 ROOT, 2 QUEUE_RULESETS, 3 LAUNCH_RULESETS, 4 CASH_OUT_TOKENS, 5 SEND_PAYOUTS, 6 MIGRATE_TERMINAL, 7 SET_PROJECT_URI, 8 DEPLOY_ERC20, 9 SET_TOKEN, 10 MINT_TOKENS, 11 BURN_TOKENS, 12 CLAIM_TOKENS, 13 TRANSFER_CREDITS, 14 SET_CONTROLLER, 15 SET_TERMINALS, 16 ADD_TERMINALS, 17 SET_PRIMARY_TERMINAL, 18 USE_ALLOWANCE, 19 SET_SPLIT_GROUPS, 20 ADD_PRICE_FEED, 21 ADD_ACCOUNTING_CONTEXTS, 22 SET_TOKEN_METADATA, 23 SIGN_FOR_ERC20, 24 ADJUST_721_TIERS, 25 SET_721_METADATA, 26 MINT_721, 27 SET_721_DISCOUNT_PERCENT, 28 SET_BUYBACK_TWAP, 29 SET_BUYBACK_POOL, 30 SET_BUYBACK_HOOK, 31 SET_ROUTER_TERMINAL, 32 MAP_SUCKER_TOKEN, 33 DEPLOY_SUCKERS, 34 SET_SUCKER_PEER, 35 SUCKER_SAFETY, 36 SET_SUCKER_DEPRECATION, 37 OPEN_LOAN, 38 REALLOCATE_LOAN, 39 REPAY_LOAN."
           }
         },
         "required": [
@@ -3037,6 +3038,7 @@
             "type": "string"
           },
           "token": {
+            "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
             "type": "string"
           },
           "amount": {
@@ -3270,6 +3272,7 @@
             "type": "string"
           },
           "token": {
+            "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
             "type": "string"
           },
           "amount": {
@@ -3506,6 +3509,7 @@
             "description": "Project token count in 18-decimal base units."
           },
           "tokenToReclaim": {
+            "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
             "type": "string"
           },
           "beneficiary": {
@@ -3737,6 +3741,7 @@
             "description": "Project token count in 18-decimal base units."
           },
           "tokenToReclaim": {
+            "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
             "type": "string"
           },
           "beneficiary": {
@@ -3963,6 +3968,7 @@
             "type": "string"
           },
           "token": {
+            "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
             "type": "string"
           },
           "amount": {
@@ -3974,7 +3980,8 @@
           "currency": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 4294967295
+            "maximum": 4294967295,
+            "description": "Currency that amount is in; it must match a payout limit currency. JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD."
           },
           "slippageBps": {
             "default": 100,
@@ -4193,6 +4200,7 @@
             "type": "string"
           },
           "token": {
+            "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
             "type": "string"
           },
           "amount": {
@@ -4204,7 +4212,8 @@
           "currency": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 4294967295
+            "maximum": 4294967295,
+            "description": "Currency that amount is in; it must match a payout limit currency. JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD."
           },
           "slippageBps": {
             "default": 100,
@@ -4379,12 +4388,13 @@
                 "pattern": "^(0|[1-9][0-9]*)$"
               },
               "weight": {
-                "description": "18-decimal issuance weight. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
+                "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
                 "type": "string",
                 "maxLength": 78,
                 "pattern": "^(0|[1-9][0-9]*)$"
               },
               "weightCutPercent": {
+                "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
                 "type": "string",
                 "maxLength": 78,
                 "pattern": "^(0|[1-9][0-9]*)$"
@@ -4397,16 +4407,19 @@
                 "type": "object",
                 "properties": {
                   "reservedPercent": {
+                    "description": "Share of new tokens reserved for splits, out of 10,000. 2500 = 25%.",
                     "type": "string",
                     "maxLength": 78,
                     "pattern": "^(0|[1-9][0-9]*)$"
                   },
                   "cashOutTaxRate": {
+                    "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
                     "type": "string",
                     "maxLength": 78,
                     "pattern": "^(0|[1-9][0-9]*)$"
                   },
                   "baseCurrency": {
+                    "description": "Currency that issuance is priced in: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
                     "type": "string",
                     "maxLength": 78,
                     "pattern": "^(0|[1-9][0-9]*)$"
@@ -4494,7 +4507,8 @@
                     "groupId": {
                       "type": "string",
                       "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
                     },
                     "splits": {
                       "maxItems": 32,
@@ -4503,6 +4517,7 @@
                         "type": "object",
                         "properties": {
                           "percent": {
+                            "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
                             "type": "string",
                             "maxLength": 78,
                             "pattern": "^(0|[1-9][0-9]*)$"
@@ -4556,6 +4571,7 @@
                       "type": "string"
                     },
                     "token": {
+                      "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
                       "type": "string"
                     },
                     "payoutLimits": {
@@ -4570,6 +4586,7 @@
                             "pattern": "^(0|[1-9][0-9]*)$"
                           },
                           "currency": {
+                            "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
                             "type": "string",
                             "maxLength": 78,
                             "pattern": "^(0|[1-9][0-9]*)$"
@@ -4594,6 +4611,7 @@
                             "pattern": "^(0|[1-9][0-9]*)$"
                           },
                           "currency": {
+                            "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
                             "type": "string",
                             "maxLength": 78,
                             "pattern": "^(0|[1-9][0-9]*)$"
@@ -4926,12 +4944,13 @@
                   "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "weight": {
-                  "description": "18-decimal issuance weight. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
+                  "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
                   "type": "string",
                   "maxLength": 78,
                   "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "weightCutPercent": {
+                  "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
                   "type": "string",
                   "maxLength": 78,
                   "pattern": "^(0|[1-9][0-9]*)$"
@@ -4944,16 +4963,19 @@
                   "type": "object",
                   "properties": {
                     "reservedPercent": {
+                      "description": "Share of new tokens reserved for splits, out of 10,000. 2500 = 25%.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "cashOutTaxRate": {
+                      "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "baseCurrency": {
+                      "description": "Currency that issuance is priced in: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
@@ -5041,7 +5063,8 @@
                       "groupId": {
                         "type": "string",
                         "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
                       },
                       "splits": {
                         "maxItems": 32,
@@ -5050,6 +5073,7 @@
                           "type": "object",
                           "properties": {
                             "percent": {
+                              "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
                               "type": "string",
                               "maxLength": 78,
                               "pattern": "^(0|[1-9][0-9]*)$"
@@ -5103,6 +5127,7 @@
                         "type": "string"
                       },
                       "token": {
+                        "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
                         "type": "string"
                       },
                       "payoutLimits": {
@@ -5117,6 +5142,7 @@
                               "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
+                              "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
                               "type": "string",
                               "maxLength": 78,
                               "pattern": "^(0|[1-9][0-9]*)$"
@@ -5141,6 +5167,7 @@
                               "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
+                              "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
                               "type": "string",
                               "maxLength": 78,
                               "pattern": "^(0|[1-9][0-9]*)$"
@@ -5401,12 +5428,13 @@
                   "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "weight": {
-                  "description": "18-decimal issuance weight. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
+                  "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
                   "type": "string",
                   "maxLength": 78,
                   "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "weightCutPercent": {
+                  "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
                   "type": "string",
                   "maxLength": 78,
                   "pattern": "^(0|[1-9][0-9]*)$"
@@ -5419,16 +5447,19 @@
                   "type": "object",
                   "properties": {
                     "reservedPercent": {
+                      "description": "Share of new tokens reserved for splits, out of 10,000. 2500 = 25%.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "cashOutTaxRate": {
+                      "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "baseCurrency": {
+                      "description": "Currency that issuance is priced in: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
@@ -5516,7 +5547,8 @@
                       "groupId": {
                         "type": "string",
                         "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
                       },
                       "splits": {
                         "maxItems": 32,
@@ -5525,6 +5557,7 @@
                           "type": "object",
                           "properties": {
                             "percent": {
+                              "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
                               "type": "string",
                               "maxLength": 78,
                               "pattern": "^(0|[1-9][0-9]*)$"
@@ -5578,6 +5611,7 @@
                         "type": "string"
                       },
                       "token": {
+                        "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
                         "type": "string"
                       },
                       "payoutLimits": {
@@ -5592,6 +5626,7 @@
                               "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
+                              "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
                               "type": "string",
                               "maxLength": 78,
                               "pattern": "^(0|[1-9][0-9]*)$"
@@ -5616,6 +5651,7 @@
                               "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
+                              "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
                               "type": "string",
                               "maxLength": 78,
                               "pattern": "^(0|[1-9][0-9]*)$"
@@ -5873,12 +5909,13 @@
                   "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "weight": {
-                  "description": "18-decimal issuance weight. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
+                  "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
                   "type": "string",
                   "maxLength": 78,
                   "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "weightCutPercent": {
+                  "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
                   "type": "string",
                   "maxLength": 78,
                   "pattern": "^(0|[1-9][0-9]*)$"
@@ -5891,16 +5928,19 @@
                   "type": "object",
                   "properties": {
                     "reservedPercent": {
+                      "description": "Share of new tokens reserved for splits, out of 10,000. 2500 = 25%.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "cashOutTaxRate": {
+                      "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "baseCurrency": {
+                      "description": "Currency that issuance is priced in: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
@@ -5988,7 +6028,8 @@
                       "groupId": {
                         "type": "string",
                         "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
                       },
                       "splits": {
                         "maxItems": 32,
@@ -5997,6 +6038,7 @@
                           "type": "object",
                           "properties": {
                             "percent": {
+                              "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
                               "type": "string",
                               "maxLength": 78,
                               "pattern": "^(0|[1-9][0-9]*)$"
@@ -6050,6 +6092,7 @@
                         "type": "string"
                       },
                       "token": {
+                        "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
                         "type": "string"
                       },
                       "payoutLimits": {
@@ -6064,6 +6107,7 @@
                               "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
+                              "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
                               "type": "string",
                               "maxLength": 78,
                               "pattern": "^(0|[1-9][0-9]*)$"
@@ -6088,6 +6132,7 @@
                               "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
+                              "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
                               "type": "string",
                               "maxLength": 78,
                               "pattern": "^(0|[1-9][0-9]*)$"
@@ -6140,14 +6185,17 @@
                     "type": "object",
                     "properties": {
                       "token": {
+                        "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
                         "type": "string"
                       },
                       "decimals": {
+                        "description": "Token decimals. Native ETH uses 18.",
                         "type": "string",
                         "maxLength": 78,
                         "pattern": "^(0|[1-9][0-9]*)$"
                       },
                       "currency": {
+                        "description": "Usually uint32(uint160(token)); native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166.",
                         "type": "string",
                         "maxLength": 78,
                         "pattern": "^(0|[1-9][0-9]*)$"
@@ -6382,6 +6430,7 @@
             "type": "string"
           },
           "token": {
+            "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
             "type": "string"
           },
           "collateralCount": {
@@ -6392,7 +6441,8 @@
           "prepaidFeePercent": {
             "type": "integer",
             "minimum": 25,
-            "maximum": 500
+            "maximum": 500,
+            "description": "Fee prepaid at borrow time, out of 1,000. Allowed 25 (2.5%) to 500 (50%)."
           },
           "beneficiary": {
             "type": "string"
@@ -6605,6 +6655,7 @@
             "type": "string"
           },
           "token": {
+            "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
             "type": "string"
           },
           "collateralCount": {
@@ -6615,7 +6666,8 @@
           "prepaidFeePercent": {
             "type": "integer",
             "minimum": 25,
-            "maximum": 500
+            "maximum": 500,
+            "description": "Fee prepaid at borrow time, out of 1,000. Allowed 25 (2.5%) to 500 (50%)."
           },
           "beneficiary": {
             "type": "string"
@@ -7235,6 +7287,7 @@
             "type": "object",
             "properties": {
               "token": {
+                "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
                 "type": "string"
               },
               "leaf": {
@@ -7838,6 +7891,7 @@
             "maxItems": 8,
             "type": "array",
             "items": {
+              "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
               "type": "string"
             }
           },
@@ -7849,9 +7903,11 @@
               "type": "object",
               "properties": {
                 "tokenIn": {
+                  "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
                   "type": "string"
                 },
                 "tokenOut": {
+                  "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
                   "type": "string"
                 }
               },
@@ -8074,6 +8130,7 @@
             "type": "string"
           },
           "terminalToken": {
+            "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
             "type": "string"
           },
           "fee": {
@@ -8301,6 +8358,7 @@
             "type": "string"
           },
           "terminalToken": {
+            "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
             "type": "string"
           },
           "twapWindowSeconds": {
@@ -9153,6 +9211,7 @@
             "type": "string"
           },
           "token": {
+            "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
             "type": "string"
           },
           "amount": {
@@ -9393,6 +9452,7 @@
             "type": "string"
           },
           "token": {
+            "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
             "type": "string"
           },
           "amount": {
@@ -9641,7 +9701,8 @@
                 "price": {
                   "type": "string",
                   "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "pattern": "^(0|[1-9][0-9]*)$",
+                  "description": "Tier price in the tiers currency, with the tiers decimals."
                 },
                 "initialSupply": {
                   "type": "string",
@@ -9673,7 +9734,8 @@
                 "discountPercent": {
                   "type": "string",
                   "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "pattern": "^(0|[1-9][0-9]*)$",
+                  "description": "Tier price discount, out of 200. 200 = free."
                 },
                 "flags": {
                   "type": "object",
@@ -9714,7 +9776,8 @@
                 "splitPercent": {
                   "type": "string",
                   "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "pattern": "^(0|[1-9][0-9]*)$",
+                  "description": "Share of the tier price sent to the tier's splits, out of 1,000,000,000."
                 },
                 "splits": {
                   "maxItems": 32,
@@ -9723,6 +9786,7 @@
                     "type": "object",
                     "properties": {
                       "percent": {
+                        "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
                         "type": "string",
                         "maxLength": 78,
                         "pattern": "^(0|[1-9][0-9]*)$"
@@ -10008,7 +10072,8 @@
                         "price": {
                           "type": "string",
                           "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$"
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "description": "Tier price in the tiers currency, with the tiers decimals."
                         },
                         "initialSupply": {
                           "type": "string",
@@ -10040,7 +10105,8 @@
                         "discountPercent": {
                           "type": "string",
                           "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$"
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "description": "Tier price discount, out of 200. 200 = free."
                         },
                         "flags": {
                           "type": "object",
@@ -10081,7 +10147,8 @@
                         "splitPercent": {
                           "type": "string",
                           "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$"
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "description": "Share of the tier price sent to the tier's splits, out of 1,000,000,000."
                         },
                         "splits": {
                           "maxItems": 32,
@@ -10090,6 +10157,7 @@
                             "type": "object",
                             "properties": {
                               "percent": {
+                                "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
                                 "type": "string",
                                 "maxLength": 78,
                                 "pattern": "^(0|[1-9][0-9]*)$"
@@ -10145,12 +10213,14 @@
                   "currency": {
                     "type": "string",
                     "maxLength": 78,
-                    "pattern": "^(0|[1-9][0-9]*)$"
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD."
                   },
                   "decimals": {
                     "type": "string",
                     "maxLength": 78,
-                    "pattern": "^(0|[1-9][0-9]*)$"
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "description": "Decimals of tier prices."
                   }
                 },
                 "required": [
@@ -10224,12 +10294,13 @@
                   "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "weight": {
-                  "description": "18-decimal issuance weight. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
+                  "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
                   "type": "string",
                   "maxLength": 78,
                   "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "weightCutPercent": {
+                  "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
                   "type": "string",
                   "maxLength": 78,
                   "pattern": "^(0|[1-9][0-9]*)$"
@@ -10242,16 +10313,19 @@
                   "type": "object",
                   "properties": {
                     "reservedPercent": {
+                      "description": "Share of new tokens reserved for splits, out of 10,000. 2500 = 25%.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "cashOutTaxRate": {
+                      "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "baseCurrency": {
+                      "description": "Currency that issuance is priced in: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
                       "type": "string",
                       "maxLength": 78,
                       "pattern": "^(0|[1-9][0-9]*)$"
@@ -10331,7 +10405,8 @@
                       "groupId": {
                         "type": "string",
                         "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
                       },
                       "splits": {
                         "maxItems": 32,
@@ -10340,6 +10415,7 @@
                           "type": "object",
                           "properties": {
                             "percent": {
+                              "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
                               "type": "string",
                               "maxLength": 78,
                               "pattern": "^(0|[1-9][0-9]*)$"
@@ -10393,6 +10469,7 @@
                         "type": "string"
                       },
                       "token": {
+                        "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
                         "type": "string"
                       },
                       "payoutLimits": {
@@ -10407,6 +10484,7 @@
                               "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
+                              "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
                               "type": "string",
                               "maxLength": 78,
                               "pattern": "^(0|[1-9][0-9]*)$"
@@ -10431,6 +10509,7 @@
                               "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
+                              "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
                               "type": "string",
                               "maxLength": 78,
                               "pattern": "^(0|[1-9][0-9]*)$"
@@ -10483,14 +10562,17 @@
                     "type": "object",
                     "properties": {
                       "token": {
+                        "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
                         "type": "string"
                       },
                       "decimals": {
+                        "description": "Token decimals. Native ETH uses 18.",
                         "type": "string",
                         "maxLength": 78,
                         "pattern": "^(0|[1-9][0-9]*)$"
                       },
                       "currency": {
+                        "description": "Usually uint32(uint160(token)); native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166.",
                         "type": "string",
                         "maxLength": 78,
                         "pattern": "^(0|[1-9][0-9]*)$"
@@ -10667,7 +10749,7 @@
     },
     {
       "name": "jb_get_revnet",
-      "description": "Read verified revnet stage rules, immutable deployment configuration commitment, cash-out delay, NFT hook and optional operator status. A project is not assumed to be a revnet from metadata.",
+      "description": "Read verified revnet stage rules, immutable deployment configuration commitment, cash-out delay, NFT hook and current operator. The operator comes from indexed candidates checked on chain; pass operator to check one address. A project is not assumed to be a revnet from metadata.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -10960,7 +11042,8 @@
               "baseCurrency": {
                 "type": "string",
                 "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "description": "Currency that issuance is priced in: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD."
               },
               "operator": {
                 "type": "string"
@@ -11011,7 +11094,8 @@
                     "splitPercent": {
                       "type": "string",
                       "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "description": "Share of new tokens sent to this stage's splits, out of 10,000. 2000 = 20%."
                     },
                     "splits": {
                       "maxItems": 32,
@@ -11020,6 +11104,7 @@
                         "type": "object",
                         "properties": {
                           "percent": {
+                            "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
                             "type": "string",
                             "maxLength": 78,
                             "pattern": "^(0|[1-9][0-9]*)$"
@@ -11058,22 +11143,26 @@
                     "initialIssuance": {
                       "type": "string",
                       "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "description": "Tokens issued per one unit of baseCurrency at stage start, with 18 decimals: 1000000000000000000000 = 1,000 tokens."
                     },
                     "issuanceCutFrequency": {
                       "type": "string",
                       "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "description": "Seconds between issuance cuts."
                     },
                     "issuanceCutPercent": {
                       "type": "string",
                       "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "description": "Issuance cut applied every issuanceCutFrequency, out of 1,000,000,000. 0 = no cut."
                     },
                     "cashOutTaxRate": {
                       "type": "string",
                       "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "description": "Cash-out tax out of 10,000, at most 9,999. 0 = no tax."
                     },
                     "extraMetadata": {
                       "type": "string",
@@ -11113,14 +11202,17 @@
               "type": "object",
               "properties": {
                 "token": {
+                  "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
                   "type": "string"
                 },
                 "decimals": {
+                  "description": "Token decimals. Native ETH uses 18.",
                   "type": "string",
                   "maxLength": 78,
                   "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "currency": {
+                  "description": "Usually uint32(uint160(token)); native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166.",
                   "type": "string",
                   "maxLength": 78,
                   "pattern": "^(0|[1-9][0-9]*)$"
@@ -11237,7 +11329,8 @@
                             "price": {
                               "type": "string",
                               "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "description": "Tier price in the tiers currency, with the tiers decimals."
                             },
                             "initialSupply": {
                               "type": "string",
@@ -11269,7 +11362,8 @@
                             "discountPercent": {
                               "type": "string",
                               "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "description": "Tier price discount, out of 200. 200 = free."
                             },
                             "flags": {
                               "type": "object",
@@ -11310,7 +11404,8 @@
                             "splitPercent": {
                               "type": "string",
                               "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "description": "Share of the tier price sent to the tier's splits, out of 1,000,000,000."
                             },
                             "splits": {
                               "maxItems": 32,
@@ -11319,6 +11414,7 @@
                                 "type": "object",
                                 "properties": {
                                   "percent": {
+                                    "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
                                     "type": "string",
                                     "maxLength": 78,
                                     "pattern": "^(0|[1-9][0-9]*)$"
@@ -11374,12 +11470,14 @@
                       "currency": {
                         "type": "string",
                         "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD."
                       },
                       "decimals": {
                         "type": "string",
                         "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "description": "Decimals of tier prices."
                       }
                     },
                     "required": [
@@ -11482,7 +11580,8 @@
                 "maximumSplitPercent": {
                   "type": "string",
                   "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "pattern": "^(0|[1-9][0-9]*)$",
+                  "description": "Largest tier split a poster may set, out of 1,000,000,000."
                 },
                 "allowedAddresses": {
                   "maxItems": 32,
@@ -14951,7 +15050,7 @@
           "Quotes do not claim globally optimal market routing.",
           "Custom hooks, partial swaps and nested forwarding require their own supported adapters.",
           "A recorded gateway forwards into ROUTER. Failed protocol-fee or protocol-payer calls can remain in gateway custody; transaction confirmation does not prove payment settlement or forgiveness.",
-          "Buyback 1.4 pay metadata has three words: amountToSwapWith, minimumSwapAmountOut and skipSplits. Two-word pay entries revert; a derived TWAP-floor miss falls back to minting while explicit settlement minima still apply.",
+          "The current buyback hook (1.4) takes three-word pay metadata: amountToSwapWith, minimumSwapAmountOut and skipSplits. Two-word pay entries revert on it; a derived TWAP-floor miss falls back to minting while explicit settlement minima still apply. Some projects still use the retired 1.1.1 hook; jb_quote_pay names the version in buybackHook.",
           "USDC/native and USDC/ETH prices use the live project/default JBPrices feed selection. A ratio-feed deployment record does not establish registration, current price or mixed-balance cash-out output."
         ]
       },
@@ -15070,7 +15169,7 @@
         "tools": [
           {
             "name": "jb_get_revnet",
-            "description": "Read verified revnet stage rules, immutable deployment configuration commitment, cash-out delay, NFT hook and optional operator status. A project is not assumed to be a revnet from metadata."
+            "description": "Read verified revnet stage rules, immutable deployment configuration commitment, cash-out delay, NFT hook and current operator. The operator comes from indexed candidates checked on chain; pass operator to check one address. A project is not assumed to be a revnet from metadata."
           },
           {
             "name": "jb_prepare_revnet_deploy",

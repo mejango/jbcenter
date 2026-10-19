@@ -44,6 +44,7 @@ const resolverRuntime =
 
 const account = '0x1111111111111111111111111111111111111111' as const;
 const beneficiary = '0x2222222222222222222222222222222222222222' as const;
+const rotatedOperator = '0x7777777777777777777777777777777777777777' as const;
 const hook = '0x3333333333333333333333333333333333333333' as const;
 const project = { chainId: 8453, projectId: '12', version: 6 } as const;
 const hash = `0x${'ab'.repeat(32)}` as Hex;
@@ -298,7 +299,8 @@ function fixture(
       case 'deployer':
         return v6Address('REVDeployer', chainId);
       case 'isOperatorOf':
-        return true;
+        // A rotated-away operator keeps an indexed row but no longer holds the permissions.
+        return request.args?.[1] !== rotatedOperator;
       case 'amountToAutoIssue':
         return options.amountToIssue ?? 150n;
       case 'hasPermissions':
@@ -716,6 +718,39 @@ describe('revnet reads and auto-issuance', () => {
     expect((await f.service.getRevnet({ project })).operator).toMatchObject({ status: 'unknown' });
     await expect(fixture().service.getRevnet({ project })).rejects.toThrow('No canonical revnet');
   });
+  it('names the current operator from indexed candidates proven by isOperatorOf at the block', async () => {
+    const f = fixture({ revnet: true });
+    const owners: string[] = [];
+    const revnet = await f.service.getRevnet({ project }, async (owner) => {
+      owners.push(owner);
+      return [rotatedOperator, account];
+    });
+    expect(owners).toEqual([v6Address('REVOwner', project.chainId)]);
+    expect(revnet.operator).toEqual({
+      status: 'verified',
+      address: account,
+      source: 'Indexed candidates, each checked with REVOwner.isOperatorOf at this block.',
+    });
+    expect(
+      f.readContract.mock.calls
+        .filter(([request]) => request.functionName === 'isOperatorOf')
+        .map(([request]) => request.args),
+    ).toEqual([
+      [12n, rotatedOperator],
+      [12n, account],
+    ]);
+    // Only stale rows, or an index failure: still unknown, never a guessed operator.
+    expect(
+      (await f.service.getRevnet({ project }, async () => [rotatedOperator])).operator,
+    ).toMatchObject({ status: 'unknown' });
+    expect(
+      (
+        await f.service.getRevnet({ project }, async () => {
+          throw new Error('indexer down');
+        })
+      ).operator,
+    ).toMatchObject({ status: 'unknown', error: { code: 'UPSTREAM_FAILURE' } });
+  });
   it('encodes the ruleset stage ID and verifies pending claim/start before preparing', async () => {
     const input = { project, account, beneficiary, stageId: '3' };
     const plan = await fixture({ revnet: true }).service.prepareAutoIssue(input);
@@ -836,6 +871,8 @@ describe('new revnet deployment', () => {
       expect(plan.calls[0]!.chainId).toBe(chainId);
       const decoded = decodeFunctionData({ abi: revDeployerAbi, data: plan.calls[0]!.data });
       expect(decoded.functionName).toBe('deployFor');
+      expect(decoded.args).toHaveLength(4);
+      expect(plan.warnings.join(' ')).toContain('four-argument overload');
       expect(decoded.args?.[0]).toBe(0n);
       expect(decoded.args?.[1]).toMatchObject({
         baseCurrency: 1,
@@ -931,6 +968,7 @@ describe('new revnet deployment', () => {
     });
     const decoded = decodeFunctionData({ abi: revDeployerAbi, data: plan.calls[0]!.data });
     expect(decoded.args).toHaveLength(6);
+    expect(plan.warnings.join(' ')).not.toContain('four-argument');
     expect(decoded.args?.[4]).toMatchObject({
       baseline721HookConfiguration: {
         tiersConfig: { currency: 2, decimals: 6, tiers: [{ discountPercent: 25 }] },

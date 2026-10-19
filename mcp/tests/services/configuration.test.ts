@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { decodeFunctionData, zeroAddress, type Address, type PublicClient } from 'viem';
-import { jbControllerAbi, NATIVE_TOKEN } from '@bananapus/nana-sdk-core';
+import { decodeFunctionData, getAddress, zeroAddress, type Address, type PublicClient } from 'viem';
+import { jbContractAddress, jbControllerAbi, NATIVE_TOKEN } from '@bananapus/nana-sdk-core';
 import { buildRulesetMetadata, v6Address } from '@bananapus/nana-sdk-core/v6';
 import { ConfigurationService, changedLockedSplits } from '../../src/services/configuration.js';
 import type { ChainId, RpcProvider } from '../../src/domain/types.js';
@@ -108,6 +108,25 @@ describe('configuration planning', () => {
       address: v6Address('JBController', 1),
       blockNumber: 12345n,
     });
+  });
+
+  it('names the canonical JBDeadline hooks and keeps any other approval hook unknown', async () => {
+    const launch = (approvalHook: Address) =>
+      mockRpc().service.prepareLaunch({
+        chainId: 1,
+        account,
+        owner: another,
+        composition: 'core',
+        projectUri: '',
+        rulesetConfigurations: [{ ...configuration(), approvalHook }],
+        terminalConfigurations: [],
+      });
+    const deadline = (
+      await launch(getAddress(jbContractAddress['6'].JBDeadline3Days[1]))
+    ).warnings.join(' ');
+    expect(deadline).toContain('the approval hook is the canonical JBDeadline3Days');
+    expect(deadline).not.toContain('custom approval hook');
+    expect((await launch(another)).warnings.join(' ')).toContain('custom approval hook');
   });
 
   it('uses independent live creation fees and independent chain payout budgets', async () => {

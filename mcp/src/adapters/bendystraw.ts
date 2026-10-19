@@ -244,6 +244,11 @@ export const BENDYSTRAW_OPERATIONS = {
       ${PAGE_FIELDS}
     }
   }`,
+  getPermissionHolders: `query McpPermissionHolders($where: permissionHolderFilter!, $limit: Int!) {
+    permissionHolders(where: $where, limit: $limit) {
+      items { ${EVENT_IDENTITY} account operator } ${PAGE_FIELDS}
+    }
+  }`,
   getSuckerGroup: `query McpSuckerGroup($groupWhere: suckerGroupFilter!, $projectWhere: projectFilter!) {
     suckerGroups(where: $groupWhere, limit: 1) {
       items { id version addresses createdAt paymentsCount contributorsCount volumeUsd balanceUsd tokenSupply reservedTokenSupply }
@@ -513,6 +518,56 @@ export class BendystrawClient {
       coverage:
         'Paginated V6 indexed fungible-token participants only. Does not enumerate project ownership, permissions, NFTs, loans, or bridge claims; use the corresponding contract reads. An empty indexer page is not proof of an empty wallet.',
     };
+  }
+
+  /**
+   * Indexed operators that ever held permissions from `account` on one project. Candidates only:
+   * rows can be stale or incomplete, so callers must verify each one on chain.
+   */
+  async getPermissionOperators(
+    args: ProjectRefInput & { account: string; limit?: number },
+  ): Promise<string[]> {
+    const ref = projectRef(args);
+    const network = this.network(ref);
+    const account = input(address, args.account).toLowerCase();
+    const limit = input(positiveInteger.max(100), args.limit ?? 20);
+    const data = await this.graphql(
+      'getPermissionHolders',
+      {
+        where: {
+          AND: [
+            { version: 6 },
+            { chainId: ref.chainId },
+            { projectId: ref.projectId },
+            { account },
+          ],
+        },
+        limit,
+      },
+      network,
+    );
+    const page = response(
+      pageSchema(
+        z.object({
+          chainId: positiveInteger,
+          projectId: positiveInteger,
+          version: z.literal(6),
+          account: address,
+          operator: address,
+        }),
+      ),
+      data.permissionHolders,
+    );
+    this.checkRows(page.items, network, ref.chainId, ref.projectId);
+    if (
+      page.items.length > limit ||
+      page.items.some((row) => row.account.toLowerCase() !== account)
+    )
+      throw new DomainError(
+        'UPSTREAM_INVALID_RESPONSE',
+        'Bendystraw returned permission holders outside the requested account.',
+      );
+    return page.items.map((row) => row.operator);
   }
 
   async getSuckerGroup(args: {

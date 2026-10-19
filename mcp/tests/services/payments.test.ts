@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import { NATIVE_TOKEN, jbMultiTerminalAbi } from '@bananapus/nana-sdk-core';
+import { NATIVE_TOKEN, jbMultiTerminalAbi, jbTerminalStoreAbi } from '@bananapus/nana-sdk-core';
 import {
   build721PayMetadata,
   buildBuybackCashOutMetadata,
   v6Address,
 } from '@bananapus/nana-sdk-core/v6';
 import {
+  ContractFunctionRevertedError,
   decodeFunctionData,
+  encodeErrorResult,
   encodeAbiParameters,
   erc20Abi,
   getAddress,
@@ -23,6 +25,7 @@ import {
   type PayoutInput,
 } from '../../src/services/payments.js';
 import { deploymentAddress } from '../../src/services/rollout.js';
+import { publicError } from '../../src/domain/errors.js';
 import type { BlockEvidence, RpcProvider } from '../../src/domain/types.js';
 
 const project = { chainId: 8453, projectId: '12', version: 6 } as const;
@@ -96,6 +99,8 @@ function fixture(
     beneficiaryIsFeeless?: boolean;
     cashPreview?: (metadata: Hex) => readonly unknown[];
     grossPayout?: bigint;
+    payoutRevert?: Error;
+    holderBalance?: bigint;
     resolvedBuyback?: Address;
     customController?: Address;
     errorOn?: string;
@@ -177,13 +182,16 @@ function fixture(
         );
       case 'feeFreeSurplusOf':
         return options.feeFreeSurplus ?? 0n;
+      case 'totalBalanceOf':
+        return options.holderBalance ?? 10n ** 30n;
       default:
         throw new Error(`Unexpected read ${request.functionName}`);
     }
   });
-  const simulateContract = vi.fn(async (_request: Request) => ({
-    result: options.grossPayout ?? 101n,
-  }));
+  const simulateContract = vi.fn(async (_request: Request) => {
+    if (options.payoutRevert) throw options.payoutRevert;
+    return { result: options.grossPayout ?? 101n };
+  });
   const getBytecode = vi.fn(async ({ address }: { address: Address }) => {
     if (address === nftImplementation) return '0x6000';
     return address === options.nftClone || address === options.tieredHook ? nftCloneCode : '0x';
@@ -627,11 +635,22 @@ describe('payment quotes and approval plans', () => {
       beneficiaryTokenCount: '250',
       minimumBeneficiaryTokenCount: '247',
       rawTerminalPreview: { semantics: 'issuance', beneficiaryTokenCount: '0' },
+      buybackHook: { address: buybackHook, version: '1.4', status: 'current' },
+      tokenCounts: {
+        beneficiaryTokenCount: expect.stringContaining('The minimum is computed from this count.'),
+        rawTerminalPreview: expect.stringContaining('The minimum does not use it.'),
+        simulation: expect.stringContaining('pool spot price'),
+      },
     });
     expect(
       decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.[4],
     ).toBe(247n);
     expect(plan.warnings.join(' ')).toContain('falls back');
+    const plain = (await fixture().service.quotePay(payInput)) as Record<string, unknown>;
+    expect(plain.buybackHook).toBeUndefined();
+    expect(plain.tokenCounts).toMatchObject({
+      beneficiaryTokenCount: expect.stringContaining("terminal's issuance preview"),
+    });
   });
 
   it('supports the recorded 1.1.1 hook without accepting another generation or a partial buyback', async () => {
@@ -653,6 +672,7 @@ describe('payment quotes and approval plans', () => {
       decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.slice(4),
     ).toEqual([247n, 'beep:demo', '0x']);
     expect(plan.warnings.join(' ')).toContain('1.1.1');
+    expect(plan.summary).toMatchObject({ buybackHook: { address: legacy, version: '1.1.1' } });
     await expect(
       legacyFixture(metadata, buybackHook).service.preparePay(payInput),
     ).rejects.toMatchObject({ code: 'UNSUPPORTED_CONFIGURATION' });
@@ -916,6 +936,25 @@ describe('cash-out quotes', () => {
       fixture({ registered: false }).service.prepareCashOut(cashInput),
     ).rejects.toMatchObject({ code: 'TERMINAL_NOT_REGISTERED' });
   });
+
+  it('refuses a cash out the holder cannot cover with a named, non-retryable error', async () => {
+    const { service, readContract } = fixture({ holderBalance: 99n });
+    await expect(service.prepareCashOut(cashInput)).rejects.toMatchObject({
+      code: 'INSUFFICIENT_PROJECT_TOKENS',
+      retryable: false,
+      details: { balance: '99', cashOutCount: '100' },
+    });
+    expect(readContract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        functionName: 'totalBalanceOf',
+        address: v6Address('JBTokens', project.chainId),
+        args: [account, 12n],
+      }),
+    );
+    await expect(
+      fixture({ holderBalance: 100n }).service.prepareCashOut(cashInput),
+    ).resolves.toMatchObject({ operation: 'cash_out' });
+  });
 });
 
 describe('payout quotes', () => {
@@ -956,5 +995,42 @@ describe('payout quotes', () => {
     await expect(
       fixture({ grossPayout: 0n }).service.preparePayout(payoutInput),
     ).rejects.toMatchObject({ code: 'NOTHING_TO_PAY_OUT' });
+  });
+
+  it('names an empty terminal balance instead of a retryable upstream failure', async () => {
+    // The live base:17 revert: sendPayoutsOf(17, USDC, 1e6, ...) with a zero balance.
+    const data = encodeErrorResult({
+      abi: jbTerminalStoreAbi,
+      errorName: 'JBTerminalStore_InadequateTerminalStoreBalance',
+      args: [1_000_000n, 0n],
+    });
+    const payoutRevert = new ContractFunctionRevertedError({
+      abi: jbMultiTerminalAbi,
+      data,
+      functionName: 'sendPayoutsOf',
+    });
+    for (const call of ['quotePayout', 'preparePayout'] as const)
+      await expect(fixture({ payoutRevert }).service[call](payoutInput)).rejects.toMatchObject({
+        code: 'NOTHING_TO_PAY_OUT',
+        retryable: false,
+        message: expect.stringContaining('balance in this terminal is 0'),
+      });
+    const other = new ContractFunctionRevertedError({
+      abi: jbMultiTerminalAbi,
+      data: encodeErrorResult({
+        abi: jbTerminalStoreAbi,
+        errorName: 'JBTerminalStore_RulesetNotFound',
+        args: [12n],
+      }),
+      functionName: 'sendPayoutsOf',
+    });
+    const error = await fixture({ payoutRevert: other })
+      .service.quotePayout(payoutInput)
+      .catch((e: unknown) => e);
+    expect(publicError(error)).toMatchObject({
+      code: 'CALL_REVERTED',
+      retryable: false,
+      details: { errorName: 'JBTerminalStore_RulesetNotFound', args: ['12'] },
+    });
   });
 });

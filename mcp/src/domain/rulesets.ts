@@ -4,6 +4,7 @@ import { NATIVE_TOKEN } from '@bananapus/nana-sdk-core';
 import type { JBRulesetConfig, JBTerminalConfig } from '@bananapus/nana-sdk-core/v6';
 import { addressSchema, chainIdSchema, projectSchema, uintSchema } from './schemas.js';
 import { DomainError } from './errors.js';
+import { UNITS } from './units.js';
 
 /** Wire integers remain decimal strings; only these converters construct ABI integers. */
 const uint = (bits: number, max = (1n << BigInt(bits)) - 1n) =>
@@ -23,9 +24,9 @@ const maxEntries = 32;
 
 export const rulesetMetadataSchema = z
   .object({
-    reservedPercent: rate,
-    cashOutTaxRate: rate,
-    baseCurrency: uint(32),
+    reservedPercent: rate.describe(UNITS.reservedPercent),
+    cashOutTaxRate: rate.describe(UNITS.cashOutTaxRate),
+    baseCurrency: uint(32).describe(UNITS.baseCurrency),
     pausePay: z.boolean(),
     pauseCreditTransfers: z.boolean(),
     allowOwnerMinting: z.boolean(),
@@ -60,7 +61,9 @@ export const rulesetMetadataSchema = z
 
 export const splitSchema = z
   .object({
-    percent: percent.refine((value) => BigInt(value) > 0n, 'Split percent must be positive.'),
+    percent: percent
+      .refine((value) => BigInt(value) > 0n, 'Split percent must be positive.')
+      .describe(UNITS.splitPercent),
     projectId: uint(64),
     beneficiary: addressSchema,
     preferAddToBalance: z.boolean(),
@@ -84,7 +87,7 @@ export const splitSchema = z
 
 export const splitGroupSchema = z
   .object({
-    groupId: uintSchema,
+    groupId: uintSchema.describe(UNITS.groupId),
     splits: z.array(splitSchema).max(maxEntries),
   })
   .strict()
@@ -98,7 +101,9 @@ export const splitGroupSchema = z
     }
   });
 
-export const currencyAmountSchema = z.object({ amount: uint(224), currency: uint(32) }).strict();
+export const currencyAmountSchema = z
+  .object({ amount: uint(224), currency: uint(32).describe(UNITS.currency) })
+  .strict();
 const currencyAmountsSchema = z
   .array(currencyAmountSchema)
   .max(maxEntries)
@@ -118,7 +123,7 @@ const currencyAmountsSchema = z
 export const fundAccessLimitGroupSchema = z
   .object({
     terminal: nonzeroAddress,
-    token: nonzeroAddress,
+    token: nonzeroAddress.describe(UNITS.token),
     payoutLimits: currencyAmountsSchema,
     surplusAllowances: currencyAmountsSchema,
   })
@@ -139,10 +144,8 @@ export const rulesetConfigSchema = z
       'Unix seconds. A lower bound, not a promised start; 0 asks the contract to resolve timing.',
     ),
     duration: uint(32).describe('Seconds per cycle. Zero has no automatic cycles.'),
-    weight: uint(112).describe(
-      '18-decimal issuance weight. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.',
-    ),
-    weightCutPercent: percent,
+    weight: uint(112).describe(UNITS.weight),
+    weightCutPercent: percent.describe(UNITS.weightCutPercent),
     approvalHook: addressSchema.describe('Gates the next ruleset, not this ruleset.'),
     metadata: rulesetMetadataSchema,
     splitGroups: z.array(splitGroupSchema).max(maxEntries),
@@ -174,13 +177,12 @@ export const rulesetConfigSchema = z
 export const rulesetConfigurationsSchema = z.array(rulesetConfigSchema).min(1).max(16);
 export const accountingContextSchema = z
   .object({
-    token: nonzeroAddress,
+    token: nonzeroAddress.describe(UNITS.token),
     // JBTerminalStore enforces the narrower range in addition to the uint8 ABI width.
-    decimals: uint(8, 36n),
-    currency: uint(32).refine(
-      (value) => BigInt(value) > 0n,
-      'Accounting currency must be nonzero.',
-    ),
+    decimals: uint(8, 36n).describe(UNITS.decimals),
+    currency: uint(32)
+      .refine((value) => BigInt(value) > 0n, 'Accounting currency must be nonzero.')
+      .describe(UNITS.accountingCurrency),
   })
   .strict()
   .superRefine((value, ctx) => {

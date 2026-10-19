@@ -69,7 +69,7 @@ const areas = [
       'Quotes do not claim globally optimal market routing.',
       'Custom hooks, partial swaps and nested forwarding require their own supported adapters.',
       'A recorded gateway forwards into ROUTER. Failed protocol-fee or protocol-payer calls can remain in gateway custody; transaction confirmation does not prove payment settlement or forgiveness.',
-      'Buyback 1.4 pay metadata has three words: amountToSwapWith, minimumSwapAmountOut and skipSplits. Two-word pay entries revert; a derived TWAP-floor miss falls back to minting while explicit settlement minima still apply.',
+      'The current buyback hook (1.4) takes three-word pay metadata: amountToSwapWith, minimumSwapAmountOut and skipSplits. Two-word pay entries revert on it; a derived TWAP-floor miss falls back to minting while explicit settlement minima still apply. Some projects still use the retired 1.1.1 hook; jb_quote_pay names the version in buybackHook.',
       'USDC/native and USDC/ETH prices use the live project/default JBPrices feed selection. A ratio-feed deployment record does not establish registration, current price or mixed-balance cash-out output.',
     ],
   },

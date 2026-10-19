@@ -4,13 +4,16 @@ import { v6Address } from '@bananapus/nana-sdk-core/v6';
 import { isAddress, isAddressEqual, type Address, type PublicClient } from 'viem';
 import { deploymentAddresses, routerGatewayAbi } from '../services/rollout.js';
 import { DomainError } from './errors.js';
+import { UNITS } from './units.js';
 import { addressSchema, hashSchema, projectSchema } from './schemas.js';
 import type { ProjectRef } from './types.js';
 
-const terminalTokenSchema = addressSchema.refine(
-  (value) => BigInt(value) !== 0n,
-  'Use the Juicebox native-token sentinel, not address(0).',
-);
+const terminalTokenSchema = addressSchema
+  .refine(
+    (value) => BigInt(value) !== 0n,
+    'Use the Juicebox native-token sentinel, not address(0).',
+  )
+  .describe(UNITS.token);
 export const routingSchema = z
   .object({
     project: projectSchema,

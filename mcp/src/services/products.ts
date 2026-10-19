@@ -30,6 +30,7 @@ import {
   decodeFunctionData,
   encodeFunctionData,
   erc20Abi,
+  getAddress,
   getContractAddress,
   keccak256,
   parseAbi,
@@ -40,7 +41,7 @@ import {
   type Hex,
   type PublicClient,
 } from 'viem';
-import { DomainError } from '../domain/errors.js';
+import { DomainError, publicError } from '../domain/errors.js';
 import { jsonSafe } from '../domain/json.js';
 import {
   get721ShopSchema,
@@ -595,7 +596,14 @@ export class ProductService {
     };
   }
 
-  async getRevnet(raw: z.input<typeof getRevnetSchema>) {
+  /**
+   * REVOwner has no operator getter: the operator is whoever holds the full operator permission set.
+   * `findCandidates` lists addresses an index saw holding REVOwner permissions; each is proven here.
+   */
+  async getRevnet(
+    raw: z.input<typeof getRevnetSchema>,
+    findCandidates?: (owner: Address) => Promise<readonly string[]>,
+  ) {
     const input = getRevnetSchema.parse(raw);
     const snapshot = await this.rpc.snapshot(input.project.chainId);
     const context = await this.context(snapshot, input.project);
@@ -674,11 +682,7 @@ export class ProductService {
       },
       operator: input.operator
         ? { candidate: input.operator, isOperator: operator }
-        : {
-            status: 'unknown',
-            reason:
-              'REVOwner exposes an operator predicate, not an enumerable current-operator getter. Supply an operator candidate or inspect ReplaceOperator history.',
-          },
+        : await this.findOperator(snapshot.client, context.owner, input.project, findCandidates),
       cashOutDelay: {
         until: String(cashOutDelay),
         active: cashOutDelay > BigInt(snapshot.evidence.timestamp),
@@ -703,6 +707,55 @@ export class ProductService {
       },
       evidence: [snapshot.evidence],
       sources,
+    };
+  }
+
+  private async findOperator(
+    client: PublicClient,
+    owner: Address,
+    project: ProjectRef,
+    findCandidates?: (owner: Address) => Promise<readonly string[]>,
+  ) {
+    const unknown = (reason: string, error?: ReturnType<typeof publicError>) => ({
+      status: 'unknown' as const,
+      reason,
+      ...(error ? { error } : {}),
+    });
+    if (!findCandidates)
+      return unknown(
+        'No indexer is configured to list candidates. Supply an operator candidate to check one address.',
+      );
+    let candidates: Address[];
+    try {
+      candidates = [
+        ...new Set((await findCandidates(owner)).map((item) => getAddress(item))),
+      ].filter((item) => item !== zeroAddress);
+    } catch (error) {
+      return unknown(
+        'The indexer could not list operator candidates. Supply an operator candidate to check one address.',
+        publicError(error),
+      );
+    }
+    const checks = await Promise.all(
+      candidates.map((candidate) =>
+        client.readContract({
+          address: owner,
+          abi: revOwnerAbi,
+          functionName: 'isOperatorOf',
+          args: [BigInt(project.projectId), candidate],
+        }),
+      ),
+    );
+    const verified = candidates.filter((_, i) => checks[i]);
+    if (!verified.length)
+      return unknown(
+        'No indexed candidate holds the operator permissions at this block. The role may have been relinquished, or the index may be behind. Supply an operator candidate to check one address.',
+      );
+    return {
+      status: 'verified' as const,
+      address: verified[0]!,
+      ...(verified.length > 1 ? { alsoVerified: verified.slice(1) } : {}),
+      source: 'Indexed candidates, each checked with REVOwner.isOperatorOf at this block.',
     };
   }
 
@@ -1060,7 +1113,9 @@ export class ProductService {
         ...(same(input.config.operator, zeroAddress)
           ? ['The operator is zero: operator powers are permanently relinquished at launch.']
           : []),
-        'The four-argument overload also deploys a default NFT store. Collection supply and metadata configurations are per-chain.',
+        input.tiered721Config
+          ? 'The NFT store comes from tiered721Config. Collection supply and metadata configurations are per-chain.'
+          : 'Without tiered721Config, the four-argument overload also deploys a default NFT store. Collection supply and metadata configurations are per-chain.',
       ],
     };
   }

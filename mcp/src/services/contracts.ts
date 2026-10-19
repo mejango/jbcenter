@@ -1,12 +1,35 @@
 import * as sdk from '@bananapus/nana-sdk-core';
 import { jbSuckerV6Abi } from '@bananapus/nana-sdk-core/v6';
-import { decodeFunctionData, type Abi, type Hex } from 'viem';
+import { decodeFunctionData, isAddressEqual, type Abi, type Address, type Hex } from 'viem';
 import { DomainError } from '../domain/errors.js';
 import { jsonSafe } from '../domain/json.js';
 import type { ChainId } from '../domain/types.js';
 import { deploymentAddress, rollout, routerGatewayAbi, ratioPriceFeedAbi } from './rollout.js';
 
+/** Canonical JBDeadline approval hooks, one per duration. Addresses come from the SDK registry. */
+const DEADLINES: Record<string, Abi> = {
+  JBDeadline3Hours: sdk.jbDeadline3HoursAbi,
+  JBDeadline1Day: sdk.jbDeadline1DayAbi,
+  JBDeadline3Days: sdk.jbDeadline3DaysAbi,
+  JBDeadline7Days: sdk.jbDeadline7DaysAbi,
+};
+
+export function canonicalDeadline(chainId: ChainId, hook: Address): string | undefined {
+  return Object.keys(DEADLINES).find((name) => {
+    const address = deploymentAddress(name, chainId);
+    return address !== undefined && isAddressEqual(address, hook);
+  });
+}
+
+/** One CCIP sucker deployer per lane: chain ID -> peer chain ID -> deployer. */
+const CCIP_DEPLOYERS =
+  (sdk.CCIP_SUCKER_DEPLOYER_ADDRESSES as Record<string, Record<string, Record<string, string>>>)[
+    '6'
+  ] ?? {};
+
 const ABI_REGISTRY: Record<string, Abi> = {
+  ...DEADLINES,
+  JBCCIPSuckerDeployer: sdk.jbccipSuckerDeployerAbi,
   JBProjects: sdk.jbProjectsAbi,
   JBDirectory: sdk.jbDirectoryAbi,
   JBController: sdk.jbControllerAbi,
@@ -53,9 +76,11 @@ export class ContractService {
                 item.address,
               ]),
             )
-          : ((sdk.jbContractAddress['6'] as Record<string, Partial<Record<ChainId, string>>>)[
-              name
-            ] ?? {}),
+          : name === 'JBCCIPSuckerDeployer'
+            ? CCIP_DEPLOYERS
+            : ((sdk.jbContractAddress['6'] as Record<string, Partial<Record<ChainId, string>>>)[
+                name
+              ] ?? {}),
         ...(rollout.contracts[name]
           ? {
               generations: rollout.contracts[name]!.deployments,
@@ -65,9 +90,11 @@ export class ContractService {
         identity:
           name === 'JBSucker'
             ? 'project-instance'
-            : rollout.contracts[name]
-              ? 'deployment-records'
-              : 'sdk-deployment-registry',
+            : name === 'JBCCIPSuckerDeployer'
+              ? 'sdk-deployment-registry-by-peer-chain'
+              : rollout.contracts[name]
+                ? 'deployment-records'
+                : 'sdk-deployment-registry',
       })),
       warning:
         'Deployment records describe executed deployments per chain. Mainnet proposals are not active deployments. Retired implementations remain available for history and projects that have not migrated. Resolve registry -> gateway -> ROUTER and hookOf on-chain; an address is provenance, not a bytecode safety audit.',
@@ -90,7 +117,9 @@ export class ContractService {
       source: rollout.contracts[name] ? rollout.source : '@bananapus/nana-sdk-core@2.4.0',
       ...(chainId === undefined
         ? {}
-        : { chainId, address: deploymentAddress(name, chainId) ?? null }),
+        : name === 'JBCCIPSuckerDeployer'
+          ? { chainId, addressByPeerChainId: CCIP_DEPLOYERS[chainId] ?? {} }
+          : { chainId, address: deploymentAddress(name, chainId) ?? null }),
       ...(rollout.contracts[name]
         ? {
             generations: rollout.contracts[name]!.deployments.filter(
@@ -126,7 +155,7 @@ export class ContractService {
     if (!Object.hasOwn(ABI_REGISTRY, name))
       throw new DomainError(
         'CONTRACT_NOT_FOUND',
-        'This contract is not in the supported V6 ABI registry.',
+        `This contract is not in the supported V6 ABI registry. Known names: ${Object.keys(ABI_REGISTRY).join(', ')}.`,
       );
     return ABI_REGISTRY[name]!;
   }

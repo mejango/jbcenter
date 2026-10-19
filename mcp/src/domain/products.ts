@@ -25,6 +25,7 @@ import {
   toRulesetConfig,
 } from './rulesets.js';
 import { DomainError } from './errors.js';
+import { UNITS } from './units.js';
 import type { ProjectRef } from './types.js';
 
 const uint = (bits: number, max = (1n << BigInt(bits)) - 1n) =>
@@ -42,14 +43,14 @@ const splits = z
   );
 export const tierConfigSchema = z
   .object({
-    price: uint(104),
+    price: uint(104).describe(UNITS.tierPrice),
     initialSupply: uint(32, 999_999_999n).refine((v) => BigInt(v) > 0n),
     votingUnits: uint(32),
     reserveFrequency: uint(16),
     reserveBeneficiary: addressSchema,
     encodedIpfsUri: hashSchema,
     category: uint(24),
-    discountPercent: uint(8, 200n),
+    discountPercent: uint(8, 200n).describe(UNITS.discountPercent),
     flags: z
       .object({
         allowOwnerMint: z.boolean(),
@@ -61,7 +62,7 @@ export const tierConfigSchema = z
         cantBuyWithCredits: z.boolean(),
       })
       .strict(),
-    splitPercent: uint(32, 1_000_000_000n),
+    splitPercent: uint(32, 1_000_000_000n).describe(UNITS.tierSplitPercent),
     splits,
   })
   .strict()
@@ -107,7 +108,7 @@ export const pay721Schema = z
   .object({
     project: projectSchema,
     account: nonzero,
-    token: nonzero,
+    token: nonzero.describe(UNITS.token),
     amount: uintSchema.describe(
       'Fresh payment amount in the token’s smallest units. Use 0 for free tiers or eligible NFT-credit purchases.',
     ),
@@ -169,12 +170,12 @@ export const revStageSchema = z
           .strict(),
       )
       .max(32),
-    splitPercent: uint(16, 10_000n),
+    splitPercent: uint(16, 10_000n).describe(UNITS.revnetSplitPercent),
     splits,
-    initialIssuance: uint(112),
-    issuanceCutFrequency: uint(32),
-    issuanceCutPercent: uint(32, 1_000_000_000n),
-    cashOutTaxRate: uint(16, 9_999n),
+    initialIssuance: uint(112).describe(UNITS.initialIssuance),
+    issuanceCutFrequency: uint(32).describe(UNITS.issuanceCutFrequency),
+    issuanceCutPercent: uint(32, 1_000_000_000n).describe(UNITS.issuanceCutPercent),
+    cashOutTaxRate: uint(16, 9_999n).describe(UNITS.revnetCashOutTaxRate),
     extraMetadata: uint(16, 16_383n),
   })
   .strict()
@@ -192,7 +193,9 @@ export const revConfigSchema = z
         salt: hashSchema,
       })
       .strict(),
-    baseCurrency: uint(32).refine((v) => BigInt(v) > 0n),
+    baseCurrency: uint(32)
+      .refine((v) => BigInt(v) > 0n)
+      .describe(UNITS.baseCurrency),
     operator: addressSchema,
     scopeCashOutsToLocalBalances: z.boolean(),
     stageConfigurations: z.array(revStageSchema).min(1).max(16),
@@ -246,8 +249,10 @@ export const revTieredConfigSchema = z
         tiersConfig: z
           .object({
             tiers: tiersConfigArraySchema,
-            currency: uint(32).refine((v) => BigInt(v) > 0n),
-            decimals: uint(8, 18n),
+            currency: uint(32)
+              .refine((v) => BigInt(v) > 0n)
+              .describe(UNITS.currency),
+            decimals: uint(8, 18n).describe('Decimals of tier prices.'),
           })
           .strict(),
         flags: z
@@ -278,7 +283,7 @@ export const revAllowedPostSchema = z
     maximumTotalSupply: uint(32).describe(
       '0 means unlimited; actual minted NFT tiers remain subject to the store supply cap.',
     ),
-    maximumSplitPercent: uint(32, 1_000_000_000n),
+    maximumSplitPercent: uint(32, 1_000_000_000n).describe(UNITS.maximumSplitPercent),
     allowedAddresses: z.array(nonzero).max(32),
   })
   .strict()

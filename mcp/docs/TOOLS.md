@@ -65,7 +65,7 @@ Source areas: JBController, JBTerminalStore, Bendystraw, JB Center.
 - Quotes do not claim globally optimal market routing.
 - Custom hooks, partial swaps and nested forwarding require their own supported adapters.
 - A recorded gateway forwards into ROUTER. Failed protocol-fee or protocol-payer calls can remain in gateway custody; transaction confirmation does not prove payment settlement or forgiveness.
-- Buyback 1.4 pay metadata has three words: amountToSwapWith, minimumSwapAmountOut and skipSplits. Two-word pay entries revert; a derived TWAP-floor miss falls back to minting while explicit settlement minima still apply.
+- The current buyback hook (1.4) takes three-word pay metadata: amountToSwapWith, minimumSwapAmountOut and skipSplits. Two-word pay entries revert on it; a derived TWAP-floor miss falls back to minting while explicit settlement minima still apply. Some projects still use the retired 1.1.1 hook; jb_quote_pay names the version in buybackHook.
 - USDC/native and USDC/ETH prices use the live project/default JBPrices feed selection. A ratio-feed deployment record does not establish registration, current price or mixed-balance cash-out output.
 
 Source areas: JBMultiTerminal, JBBuybackHook, JBRouterTerminalRegistry, JBRouterTerminalGateway, JBRouterTerminal, JBRatioPriceFeed, jb-tx-safety.
@@ -121,7 +121,7 @@ Source areas: JB721TiersHook, JB721TiersHookStore, jb-721-tier-content.
 
 | Tool | Behavior |
 |---|---|
-| `jb_get_revnet` | Read verified revnet stage rules, immutable deployment configuration commitment, cash-out delay, NFT hook and optional operator status. A project is not assumed to be a revnet from metadata. |
+| `jb_get_revnet` | Read verified revnet stage rules, immutable deployment configuration commitment, cash-out delay, NFT hook and current operator. The operator comes from indexed candidates checked on chain; pass operator to check one address. A project is not assumed to be a revnet from metadata. |
 | `jb_prepare_revnet_deploy` | Prepare a complete typed revnet deployment: stages, issuance, splits, accounting contexts, sucker configuration and optional 721/Croptop settings, with a live per-chain creation fee. |
 | `jb_prepare_auto_issue` | Prepare an eligible revnet stage auto-issuance for a beneficiary after verifying live deployment and claim state. |
 | `jb_quote_loan` | Quote a verified revnet loan’s gross debt, available capacity, fees and liquid-proceeds bounds from current source contracts. Distinguishes conditional fee fallback from promised proceeds. |
