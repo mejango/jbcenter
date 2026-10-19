@@ -588,11 +588,17 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     defineOperation(
       'simulate_plan',
-      'Re-simulate an unexpired plan step as the exact sender. Required prior transactions must match the plan and have canonical confirmations; no simulated allowances are fabricated.',
+      'Re-simulate an unexpired plan step as the exact sender. Required prior transactions must match the plan and have canonical confirmations; no simulated allowances are fabricated. chained: true runs this chain’s steps 0..step in order in one block before any is signed; results are chained-simulated, not simulated.',
       {
         token: tokenSchema,
         step: z.number().int().min(0).max(31).default(0),
         confirmedTransactions: referencesSchema.default([]),
+        chained: z
+          .boolean()
+          .default(false)
+          .describe(
+            'Simulate earlier unconfirmed steps with this one. Omit confirmedTransactions.',
+          ),
       },
       (input) => s.plans.simulate(input),
     ),

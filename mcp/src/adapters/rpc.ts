@@ -49,6 +49,7 @@ const READ_METHODS = new Set([
   'eth_gasPrice',
   'eth_maxPriorityFeePerGas',
   'eth_feeHistory',
+  'eth_simulateV1',
 ]);
 
 /** Replace implicit latest with one observed block for every nested SDK eth_call. */
@@ -62,7 +63,9 @@ export function pinRpcParameters(
   const index =
     method === 'eth_getStorageAt'
       ? 2
-      : ['eth_call', 'eth_getBalance', 'eth_getCode', 'eth_estimateGas'].includes(method)
+      : ['eth_call', 'eth_getBalance', 'eth_getCode', 'eth_estimateGas', 'eth_simulateV1'].includes(
+            method,
+          )
         ? 1
         : method === 'eth_getBlockByNumber'
           ? 0
@@ -137,6 +140,26 @@ export class RpcPool implements RpcProvider {
                 ...call,
                 gas: numberToHex(requested > 30_000_000n ? 30_000_000n : requested),
               };
+            }
+            if (method === 'eth_simulateV1') {
+              // One block of exact calls on real state: no state, block or gas overrides.
+              const options = parameters[0] as { blockStateCalls?: unknown } | undefined;
+              const blocks = options?.blockStateCalls;
+              const block = Array.isArray(blocks) && blocks.length === 1 ? blocks[0] : undefined;
+              if (
+                typeof block !== 'object' ||
+                block === null ||
+                Object.keys(block).some((key) => key !== 'calls') ||
+                !Array.isArray((block as { calls?: unknown }).calls) ||
+                (block as { calls: unknown[] }).calls.length > 16 ||
+                (block as { calls: unknown[] }).calls.some(
+                  (call) => typeof call !== 'object' || call === null || 'gas' in call,
+                )
+              )
+                throw new DomainError(
+                  'RPC_INVALID_CALL',
+                  'Simulate one block of at most 16 calls, without overrides.',
+                );
             }
             if (method === 'eth_getLogs') {
               const filter = parameters[0] as

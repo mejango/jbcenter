@@ -82,6 +82,33 @@ describe('RPC snapshots', () => {
     ).rejects.toThrow();
     expect(fetcher).not.toHaveBeenCalled();
   });
+  it('pins eth_simulateV1 to the snapshot block and refuses overrides', async () => {
+    const { pool, calls } = fixture();
+    const snapshot = await pool.snapshot(1);
+    const call = { from: address, to: address, data: '0x', value: '0x0' };
+    const simulate = (block: object) =>
+      snapshot.client.request({
+        method: 'eth_simulateV1',
+        params: [{ blockStateCalls: [block], validation: false }, 'latest'],
+      } as never);
+    await simulate({ calls: [call] });
+    expect(calls.find((item) => item.method === 'eth_simulateV1')!.params[1]).toBe('0xa');
+    const sent = calls.length;
+    for (const block of [
+      { calls: [call], stateOverrides: { [address]: { balance: '0x1' } } },
+      { calls: [call], blockOverrides: { time: '0x1' } },
+      { calls: [{ ...call, gas: '0xffffffffff' }] },
+      { calls: Array(17).fill(call) },
+    ])
+      await expect(simulate(block)).rejects.toMatchObject({ cause: { code: 'RPC_INVALID_CALL' } });
+    await expect(
+      snapshot.client.request({
+        method: 'eth_simulateV1',
+        params: [{ blockStateCalls: [{ calls: [call] }, { calls: [call] }] }, 'latest'],
+      } as never),
+    ).rejects.toMatchObject({ cause: { code: 'RPC_INVALID_CALL' } });
+    expect(calls.length).toBe(sent);
+  });
   it('rejects a mismatched RPC response id', async () => {
     const pool = new RpcPool({ 1: 'https://rpc.example' }, async () => ({
       jsonrpc: '2.0',
