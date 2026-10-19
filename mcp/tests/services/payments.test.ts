@@ -261,6 +261,22 @@ describe('payment quotes and approval plans', () => {
     expect(f.snapshot).not.toHaveBeenCalled();
     expect(plan.evidence).toEqual([at]);
   });
+  it('quotes at a caller-supplied block, so a pool quote and the terminal quote share one block', async () => {
+    const f = fixture();
+    const { client } = await f.snapshot();
+    f.snapshot.mockClear();
+    const at: BlockEvidence = {
+      ...evidence,
+      blockNumber: '457',
+      blockHash: `0x${'ce'.repeat(32)}`,
+    };
+    const snapshotAt = vi.fn(() => ({ client, evidence: at }));
+    const service = new PaymentService({ snapshot: f.snapshot, snapshotAt, client: () => client });
+    const quote = await service.quotePay(payInput, at);
+    expect(snapshotAt).toHaveBeenCalledWith(project.chainId, at);
+    expect(f.snapshot).not.toHaveBeenCalled();
+    expect(quote.evidence).toEqual([at]);
+  });
   it('reads the project context and terminal together, keeps them for minutes, and drops them when the live preview disagrees', async () => {
     const f = fixture();
     const names = () => f.readContract.mock.calls.map(([request]) => request.functionName);

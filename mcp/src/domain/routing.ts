@@ -5,7 +5,7 @@ import { isAddress, isAddressEqual, type Address, type PublicClient } from 'viem
 import { deploymentAddresses, routerGatewayAbi } from '../services/rollout.js';
 import { DomainError } from './errors.js';
 import { UNITS } from './units.js';
-import { addressSchema, hashSchema, projectSchema } from './schemas.js';
+import { addressSchema, hashSchema, positiveUintSchema, projectSchema } from './schemas.js';
 import type { ProjectRef } from './types.js';
 
 const terminalTokenSchema = addressSchema
@@ -73,6 +73,17 @@ export const prepareBuybackTwapSchema = z
 export const prepareBuybackHookSchema = z.object({ ...action, hook: addressSchema }).strict();
 export const prepareRouterTerminalSchema = z
   .object({ ...action, terminal: addressSchema })
+  .strict();
+
+export const quotePoolBuySchema = z
+  .object({
+    project: projectSchema,
+    account: addressSchema.describe('Payer for the terminal quote. It also receives the tokens.'),
+    token: terminalTokenSchema,
+    amount: positiveUintSchema.describe(
+      'Input amount in the token smallest units, as an exact integer string. 0.05 ETH = 50000000000000000.',
+    ),
+  })
   .strict();
 
 export type RoutingInput = z.input<typeof routingSchema>;

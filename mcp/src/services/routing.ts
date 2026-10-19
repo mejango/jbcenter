@@ -14,8 +14,11 @@ import {
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
 import {
+  NATIVE_SWAP_BY_CHAIN,
+  quoteDirectPaySwap,
   uniswapV4PoolId,
   uniswapV4PoolStateSlot,
+  uniswapV4SwapDirection,
   uniswapV4SqrtPriceX96FromSlot0,
   v6Address,
   type JBRulesetWithMetadata,
@@ -39,10 +42,12 @@ import {
   prepareBuybackPoolSchema,
   prepareBuybackTwapSchema,
   prepareRouterTerminalSchema,
+  quotePoolBuySchema,
   resolveRouterTerminal,
   routingSchema,
 } from '../domain/routing.js';
 import type {
+  BlockEvidence,
   Observation,
   PlanDraft,
   ProjectRef,
@@ -90,6 +95,22 @@ function bound<T>(items: readonly T[], max: number, label: string): readonly T[]
       `${label} exceeds ${max}; request narrower routing context.`,
     );
   return items;
+}
+
+/** The terminal quote fields shown next to a pool quote. */
+export interface TerminalPayQuote {
+  route: string;
+  quoteBasis: string;
+  beneficiaryTokenCount: string;
+  reservedTokenCount: string;
+  minimumBeneficiaryTokenCount: string;
+  slippageBps: number;
+}
+/** Output at the pool spot price, before fees and price movement. */
+function spotOutput(amountIn: bigint, sqrtPriceX96: bigint, zeroForOne: boolean): bigint {
+  const priceX192 = sqrtPriceX96 * sqrtPriceX96;
+  if (priceX192 === 0n) return 0n;
+  return zeroForOne ? (amountIn * priceX192) >> 192n : (amountIn << 192n) / priceX192;
 }
 
 export interface ResolvedRoutingHooks {
@@ -500,6 +521,137 @@ export class RoutingService {
         slippageConfiguration:
           'V6 has no setDefaultSlippageToleranceOf. Buyback tolerance is derived from amount, liquidity, and fees; explicit minima are supplied in transaction metadata.',
       },
+    });
+  }
+
+  /**
+   * Quote a direct buy from the project's buyback pool next to the terminal quote, at one block.
+   * Pools follow the SDK direct-swap routes: the payment token's own pool, or across its WETH/USDC V3 bridge.
+   */
+  async quotePoolBuy(
+    raw: z.input<typeof quotePoolBuySchema>,
+    quoteTerminal: (at: BlockEvidence) => Promise<TerminalPayQuote>,
+  ) {
+    const input = quotePoolBuySchema.parse(raw);
+    const { chainId } = input.project;
+    const snapshot = await this.context(input.project);
+    const { client, projectId } = snapshot;
+    const terminal = observe(async () => {
+      const quote = await quoteTerminal(snapshot.evidence);
+      return {
+        route: quote.route,
+        quoteBasis: quote.quoteBasis,
+        beneficiaryTokenCount: quote.beneficiaryTokenCount,
+        reservedTokenCount: quote.reservedTokenCount,
+        minimumBeneficiaryTokenCount: quote.minimumBeneficiaryTokenCount,
+        slippageBps: quote.slippageBps,
+      };
+    });
+    const hook = (await resolveRoutingHooks(snapshot, input.project, snapshot.current)).buyback;
+    if (!hook)
+      throw new DomainError('NO_BUYBACK_POOL', 'This project has no buyback hook, so no pool.');
+    if (!recordedBuyback(hook, chainId))
+      throw new DomainError(
+        'UNSUPPORTED_BUYBACK_IMPLEMENTATION',
+        'The project uses a custom buyback hook. Its pool is not read.',
+      );
+    const bridge = NATIVE_SWAP_BY_CHAIN[chainId];
+    const poolTokens: Address[] = [input.token];
+    if (bridge && same(input.token, NATIVE)) poolTokens.push(bridge.bridgeToken);
+    if (bridge && same(input.token, bridge.bridgeToken)) poolTokens.push(NATIVE);
+    const [manager, projectToken, keys] = await Promise.all([
+      client.readContract({ address: hook, abi: jbBuybackHookAbi, functionName: 'poolManager' }),
+      client.readContract({
+        address: v6Address('JBTokens', chainId),
+        abi: jbTokensAbi,
+        functionName: 'tokenOf',
+        args: [projectId],
+      }),
+      Promise.all(
+        poolTokens.map((token) =>
+          client.readContract({
+            address: hook,
+            abi: jbBuybackHookAbi,
+            functionName: 'poolKeyOf',
+            args: [projectId, normalized(token)],
+          }),
+        ),
+      ),
+    ]);
+    const index = keys.findIndex(configured);
+    if (index < 0)
+      throw new DomainError(
+        'NO_BUYBACK_POOL',
+        'The buyback hook has no pool for this token, and none across the ETH/USDC bridge.',
+      );
+    const key = keys[index]!;
+    const zeroForOne = uniswapV4SwapDirection({
+      poolKey: key,
+      tokenIn: poolTokens[index]!,
+      tokenOut: projectToken,
+    });
+    if (zeroForOne === null)
+      throw new DomainError(
+        'POOL_PAIR_MISMATCH',
+        "The buyback pool does not pair this token with the project's ERC-20.",
+      );
+    const [state, swap] = await Promise.all([
+      this.poolState(snapshot, manager, key),
+      // A zero terminal preview makes the SDK return its route quote without picking a winner.
+      quoteDirectPaySwap({
+        client,
+        chainId,
+        poolKey: key,
+        pairIsCurrency0: zeroForOne,
+        paymentToken: input.token,
+        amount: BigInt(input.amount),
+        payPreview: { beneficiaryTokenCount: 0n, reservedTokenCount: 0n },
+        slippageBps: 0n,
+      }),
+    ]);
+    if (!swap)
+      throw new DomainError(
+        'POOL_QUOTE_UNAVAILABLE',
+        'The pool returned no tokens for this amount, or this chain has no supported Uniswap router.',
+      );
+    const poolAmountIn =
+      swap.inputRoute.kind === 'single-v4'
+        ? BigInt(input.amount)
+        : swap.inputRoute.quotedBridgeAmount;
+    const spotTokenCount = spotOutput(poolAmountIn, state.sqrtPriceX96, zeroForOne);
+    const warnings = [
+      "A direct swap buys existing tokens from the pool. Nothing is issued, so no reserved tokens go to the project's splits (for a revnet, the operator split), and none of the payment reaches the treasury.",
+      "pool.tokenCount is the pool's exact-input output at this block, with no slippage allowance. terminal.beneficiaryTokenCount is the count the terminal minimum is built from; with a buyback hook it is a TWAP floor, and the fill is often higher. Neither is a best-price claim.",
+      'No tool prepares a direct swap. jb_prepare_pay prepares the terminal route.',
+    ];
+    if (swap.inputRoute.kind !== 'single-v4')
+      warnings.push(
+        'This route first swaps through a Uniswap V3 ETH/USDC pool. priceImpactBps covers the V4 pool only.',
+      );
+    return jsonSafe({
+      project: input.project,
+      evidence: [snapshot.evidence],
+      payment: { token: input.token, amount: input.amount, unit: 'token-base-units' },
+      projectToken,
+      projectTokenDecimals: 18,
+      pool: {
+        buybackHook: hook,
+        key,
+        poolId: state.poolId,
+        sqrtPriceX96: state.sqrtPriceX96,
+        activeLiquidity: state.activeLiquidity,
+        inputRoute: swap.inputRoute,
+        amountIn: poolAmountIn,
+        tokenCount: swap.quotedTokenCount,
+        spotTokenCount,
+        priceImpactBps:
+          spotTokenCount === 0n
+            ? null
+            : ((spotTokenCount - swap.quotedTokenCount) * 10_000n) / spotTokenCount,
+        priceImpact: 'Output shortfall against the pool spot price at this block, fees included.',
+      },
+      terminal: await terminal,
+      warnings,
     });
   }
 
