@@ -34,6 +34,7 @@ const areas = [
       'get_rulesets',
       'get_position',
       'get_account',
+      'get_holders',
       'get_activity',
       'get_indexer_status',
       'get_permissions',

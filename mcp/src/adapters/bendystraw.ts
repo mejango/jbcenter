@@ -244,6 +244,12 @@ export const BENDYSTRAW_OPERATIONS = {
       ${PAGE_FIELDS}
     }
   }`,
+  getHolders: `query McpHolders($where: participantFilter!, $limit: Int!, $after: String) {
+    participants(where: $where, orderBy: "balance", orderDirection: "desc", limit: $limit, after: $after) {
+      items { ${EVENT_IDENTITY} address suckerGroupId createdAt balance creditBalance erc20Balance volume volumeUsd paymentsCount lastPaidTimestamp }
+      ${PAGE_FIELDS}
+    }
+  }`,
   getPermissionHolders: `query McpPermissionHolders($where: permissionHolderFilter!, $limit: Int!) {
     permissionHolders(where: $where, limit: $limit) {
       items { ${EVENT_IDENTITY} account operator } ${PAGE_FIELDS}
@@ -518,6 +524,38 @@ export class BendystrawClient {
       coverage:
         'Paginated V6 indexed fungible-token participants only. Does not enumerate project ownership, permissions, NFTs, loans, or bridge claims; use the corresponding contract reads. An empty indexer page is not proof of an empty wallet.',
     };
+  }
+
+  /** One project's indexed holders on one chain, largest balance (credits plus ERC-20) first. */
+  async getHolders(
+    args: ProjectRefInput & IndexedPageInput,
+  ): Promise<IndexedPage<IndexedParticipant>> {
+    const ref = projectRef(args);
+    const network = this.network(ref);
+    const page = pageArguments(args);
+    const data = await this.graphql(
+      'getHolders',
+      {
+        where: {
+          AND: [
+            { version: 6 },
+            { chainId: ref.chainId },
+            { projectId: ref.projectId },
+            { balance_gt: '0' },
+          ],
+        },
+        ...page,
+      },
+      network,
+    );
+    const holders = response(pageSchema(participantSchema), data.participants);
+    this.checkRows(holders.items, network, ref.chainId, ref.projectId);
+    if (holders.items.length > page.limit)
+      throw new DomainError(
+        'UPSTREAM_INVALID_RESPONSE',
+        'Bendystraw exceeded the requested page size.',
+      );
+    return holders;
   }
 
   /**

@@ -290,6 +290,13 @@ function definitions(s: Services): ProtocolOperation[] {
       }),
     ),
     defineOperation(
+      'get_holders',
+      "List a project's token holders on one chain, largest first, from the indexer. The first 20 rows of each page are checked on chain at one block; the rest are indexed-only.",
+      { project: projectSchema, ...pageSchema },
+      async ({ project, ...page }) =>
+        s.projects.getHolders(project, () => s.bendystraw.getHolders({ ...project, ...page })),
+    ),
+    defineOperation(
       'get_activity',
       'Read a page of V6 project activity, retaining payment, cash-out, payout, split, and bridge event evidence. Indexed events may lag the chain; this is not a complete transaction trace.',
       { project: projectSchema, ...pageSchema },

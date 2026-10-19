@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { pad, zeroAddress, zeroHash, type Address, type PublicClient } from 'viem';
+import { getAddress, pad, zeroAddress, zeroHash, type Address, type PublicClient } from 'viem';
 import { v6Address } from '@bananapus/nana-sdk-core/v6';
 import { ProjectService } from '../../src/services/projects.js';
 import type { ProjectRef, RpcProvider } from '../../src/domain/types.js';
@@ -330,6 +330,46 @@ describe('ProjectService project intelligence', () => {
     expect(result.erc20Balance).toEqual({ status: 'known', value: '0' });
     expect(result.credits).toEqual({ status: 'known', value: '7000000000000000000' });
     expect(reads.some((read) => read.functionName === 'balanceOf')).toBe(false);
+  });
+
+  it('verifies the first holder rows on chain and labels the rest indexed-only', async () => {
+    const row = (n: number, balance: string) => ({
+      address: `0x${n.toString(16).padStart(40, '0')}`,
+      balance,
+      creditBalance: '0',
+      erc20Balance: balance,
+    });
+    const items = Array.from({ length: 22 }, (_, i) => row(i + 1, '10000000000000000000'));
+    items[1] = row(2, '99');
+    const pageInfo = { endCursor: 'next', hasNextPage: true };
+    const { service, reads } = fixture((request) =>
+      request.functionName === 'totalBalanceOf' &&
+      request.args?.[0] === getAddress(row(3, '0').address)
+        ? Promise.reject(new Error('rpc down'))
+        : passthrough,
+    );
+    const result = await service.getHolders(ref, async () => ({ items, totalCount: 40, pageInfo }));
+    const holders = result.holders as { holder: string; balance: Record<string, unknown> }[];
+    expect(holders).toHaveLength(22);
+    expect(holders[0]).toMatchObject({
+      holder: getAddress(items[0]!.address),
+      indexed: { balance: '10000000000000000000' },
+      balance: { status: 'verified', value: '10000000000000000000', matchesIndex: true },
+    });
+    expect(holders[1]!.balance).toMatchObject({ status: 'verified', matchesIndex: false });
+    expect(holders[2]!.balance).toMatchObject({ status: 'unknown' });
+    expect(holders[19]!.balance.status).toBe('verified');
+    expect(holders[20]!.balance).toEqual({ status: 'indexed-only' });
+    expect(reads.filter((read) => read.functionName === 'totalBalanceOf')).toHaveLength(20);
+    expect(reads.find((read) => read.functionName === 'totalBalanceOf')).toMatchObject({
+      address: tokenStore,
+      args: [getAddress(items[0]!.address), 42n],
+    });
+    expect(result).toMatchObject({
+      totalCount: 40,
+      pageInfo,
+      evidence: [{ blockNumber: expect.any(String) }],
+    });
   });
 
   it('paginates by basedOnId rather than arithmetic on timestamp IDs', async () => {

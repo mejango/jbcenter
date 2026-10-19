@@ -83,7 +83,7 @@ The result is an explanation of ownership, current and queued economic rules, is
 
 > “Which Juicebox positions does this address have, and what does it hold in this project now?”
 
-Page through `jb_get_account` to discover indexed participant positions, then use `jb_get_position` and `jb_get_project` for each selected project. The live position distinguishes ERC-20 tokens from unclaimed project credits. Inspect a known loan separately with `jb_get_loan`.
+Page through `jb_get_account` to discover indexed participant positions, then use `jb_get_position` and `jb_get_project` for each selected project. The live position distinguishes ERC-20 tokens from unclaimed project credits. Inspect a known loan separately with `jb_get_loan`. To find who holds a project's tokens, page through `jb_get_holders`: rows come from the index, largest first, and the first 20 per page are checked on chain.
 
 This produces scoped holdings with exact units and freshness. It is not exhaustive NFT or loan enumeration, a complete wallet net worth calculation, or a current USD portfolio valuation. A known project can be inspected directly even when indexed account discovery is unavailable.
 
