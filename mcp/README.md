@@ -13,7 +13,7 @@ The deployment endpoint is **https://juicebox.center/mcp**. This package lives i
 - Exact project and NFT metadata review and explicitly approved public JSON pinning through the integrated Center backend, returning a CID and URI for a separate V6 launch or tier configuration.
 - Local stdio and stateless Streamable HTTP transports, bounded requests, cancellation, Docker packaging and CI.
 
-The **62 tools across ten capability families** compose into [27 user journeys](docs/USER_JOURNEYS.md) for contributors, creators, operators, revnet participants, omnichain users, and developers, including tool sequences and what establishes completion.
+The **67 tools across ten capability families** compose into [27 user journeys](docs/USER_JOURNEYS.md) for contributors, creators, operators, revnet participants, omnichain users, and developers, including tool sequences and what establishes completion.
 
 Start with `jb_list_capabilities` in an MCP client. It groups the tools and reports their coverage limits. The generated [tool catalog](docs/TOOLS.md), [architecture](docs/ARCHITECTURE.md), [source provenance](docs/SOURCES.md), and [webclient guide](docs/WEBCLIENTS.md) describe the implementation in more detail.
 
@@ -84,7 +84,7 @@ This configuration identifies the deployment endpoint; building the package does
 1. Resolve an unambiguous V6 `{chainId, projectId}` and establish account, beneficiary, asset and exact base-unit amount.
 2. Read/quote, then call the relevant `jb_prepare_*` tool. Preparation returns a reviewed plan and the first step's preflight status.
 3. Review the exact decoded calldata, full addresses, native value, output protections, fees and prerequisites. The plan token authenticates this server's prepared payload; it is not user approval.
-4. Use `jb_simulate_plan` immediately before signing each step in an external wallet. Prerequisites need matching confirmed transactions; simulated allowance overrides are never substituted for them.
+4. Use `jb_simulate_plan` immediately before signing each step in an external wallet. Prerequisites need matching confirmed transactions; simulated allowance overrides are never substituted for them. Before any step is signed, `chained: true` runs the chain's steps up to the requested one in order in one `eth_simulateV1` block and reports them as `chained-simulated`.
 5. Use `jb_verify_plan` with step indices and transaction hashes. Pending, reverted, mismatched, confirmed and unverified outcomes remain distinct. A confirmed outer Safe/Relayr transaction is not proof of the intended inner action.
 
 The MCP has no wallet key and does not sign or broadcast. It can store a Center intent the user already signed, and request Center-funded execution of that intent's committed calls; both are Center-side publications, not wallet actions, and neither spends the user's funds. The integrated metadata tools can publish an explicitly approved new metadata document to IPFS. Client applications handle wallet execution. MCP development tools include the relevant reference implementations.
@@ -97,7 +97,7 @@ Plan expiry is enforced by this service, not universally by the destination cont
 2. Call `jb_prepare_project_metadata` with `version: 6` and a complete `metadata` object containing `name`, `description`, and optional `logoUri`/`infoUri`. Omit unavailable URLs; an `ipfs://<IMAGE_CID>` placeholder is invalid.
 3. Review the returned exact canonical JSON, SHA256, UTF-8 size and expiry with the user. Explain that the upload is public and removal cannot be guaranteed. Preparation produces no upload, and the review token is not user approval.
 4. Only after explicit approval of that document, call `jb_pin_project_metadata` with its token and `confirmPublicUpload: true`. The token is bound to the server and expires after ten minutes by default; changes require a new review.
-5. Use the returned `metadataUri` in `jb_prepare_launch.projectUri`, `jb_prepare_721_launch.projectUri`, or `jb_prepare_revnet_deploy.config.description.uri`, then follow the separate transaction workflow.
+5. Use the returned `metadataUri` in `jb_prepare_launch.projectUri`, `jb_prepare_721_launch.projectUri`, `jb_prepare_omnichain_launch.projectUri`, `jb_prepare_revnet_deploy.config.description.uri`, or `jb_prepare_set_project_uri.uri` for an existing project, then follow the separate transaction workflow.
 
 The 64 KiB JSON limit applies to the complete canonical UTF-8 document. This workflow creates new standard metadata; it does not merge or preserve an existing document's fields, update an existing project's URI, or fetch linked content. A logo is pinned separately by `jb_pin_project_logo` (1 MiB, same anonymous pin budget) or already has a real canonical IPFS CID. The receipt acknowledges the primary upload and queued redundancy; it does not claim retrieval or linked-content availability was verified. If publication returns `METADATA_PUBLICATION_UNVERIFIED`, content may already be public: inspect backend status before deliberately retrying. See the [metadata journey](docs/USER_JOURNEYS.md#review-and-pin-new-project-metadata).
 

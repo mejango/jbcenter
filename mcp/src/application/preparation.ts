@@ -21,7 +21,7 @@ export async function preparePlan(services: Services, draft: PlanDraft) {
       broadcastByServer: false,
       freshSimulationRequiredBeforeSigning: true,
       steps: draft.calls.length,
-      note: 'Review each step. Confirm prerequisite transactions before simulating dependent steps. Expiry is enforced by this service; the wallet must also refuse an expired plan. No wallet signature or transaction has been submitted.',
+      note: 'Review each step. To check a dependent step before signing, call jb_simulate_plan with chained: true; otherwise confirm prerequisite transactions first. Expiry is enforced by this service; the wallet must also refuse an expired plan. No wallet signature or transaction has been submitted.',
     },
   };
 }

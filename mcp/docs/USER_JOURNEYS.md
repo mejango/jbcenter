@@ -1,6 +1,6 @@
 # User journeys
 
-The Juicebox MCP helps people understand projects, contribute, publish reviewed project and NFT metadata, operate treasuries and shops, manage revnet positions, reconcile cross-chain activity, and build applications. Its 61 V6-only tools across ten capability families combine into the 27 journeys below. The [tool catalog](TOOLS.md) supplies exact API descriptions and schemas; this guide explains the user goals, sequence of work, and expected outcomes.
+The Juicebox MCP helps people understand projects, contribute, publish reviewed project and NFT metadata, operate treasuries and shops, manage revnet positions, reconcile cross-chain activity, and build applications. Its 64 V6-only tools across ten capability families combine into the 27 journeys below. The [tool catalog](TOOLS.md) supplies exact API descriptions and schemas; this guide explains the user goals, sequence of work, and expected outcomes.
 
 These journeys describe the implemented V6 service. A natural-language request is a starting point for an assistant, not a complete transaction instruction: the assistant still needs the user's intended project, chain, account, asset, amount, beneficiary, and terms where relevant.
 
@@ -83,7 +83,7 @@ The result is an explanation of ownership, current and queued economic rules, is
 
 > “Which Juicebox positions does this address have, and what does it hold in this project now?”
 
-Page through `jb_get_account` to discover indexed participant positions, then use `jb_get_position` and `jb_get_project` for each selected project. The live position distinguishes ERC-20 tokens from unclaimed project credits. Inspect a known loan separately with `jb_get_loan`.
+Page through `jb_get_account` to discover indexed participant positions, then use `jb_get_position` and `jb_get_project` for each selected project. The live position distinguishes ERC-20 tokens from unclaimed project credits. Inspect a known loan separately with `jb_get_loan`. To find who holds a project's tokens, page through `jb_get_holders`: rows come from the index, largest first, and the first 20 per page are checked on chain.
 
 This produces scoped holdings with exact units and freshness. It is not exhaustive NFT or loan enumeration, a complete wallet net worth calculation, or a current USD portfolio valuation. A known project can be inspected directly even when indexed account discovery is unavailable.
 
@@ -101,7 +101,7 @@ The outcome is an evidence-based explanation of the available observations. Acti
 
 > “Explain what contributing this amount would do before I sign.”
 
-Inspect the project and its routing, establish the actual payer and beneficiary, then call `jb_quote_pay`. Explain how the supported route allocates funds between treasury funding and market acquisition, how beneficiary and reserved token outputs differ, and which outputs are protected. Use `jb_prepare_pay` when the intended payment is established, then follow the shared review/simulation/wallet/verification flow.
+Inspect the project and its routing, establish the actual payer and beneficiary, then call `jb_quote_pay`. Explain how the supported route allocates funds between treasury funding and market acquisition, how beneficiary and reserved token outputs differ, and which outputs are protected. To compare buying straight from the project's buyback pool, call `jb_quote_pool_buy`: it returns the pool output and the terminal count at one block. A direct swap skips issuance and reserved splits, and no tool prepares it. Use `jb_prepare_pay` when the intended payment is established, then follow the shared review/simulation/wallet/verification flow.
 
 A successful journey produces verified payment evidence for the selected route. ERC-20 funding can require separate allowance steps. The quote does not prove an unqueried route is better or worse; unsupported partial buyback execution and custom compositions are reported explicitly.
 
@@ -149,7 +149,7 @@ Call `jb_prepare_project_metadata` with `version: 6` and the complete new metada
 
 Show the user the returned `review.metadata` and exact canonical `review.jsonText`, its SHA256, UTF-8 size, and review expiry. Explain that publication is public and may be permanent. Preparation performs no upload. Only after the user explicitly approves that exact public document, call `jb_pin_project_metadata` with the unmodified review token and `confirmPublicUpload: true`. The token authenticates the review and expires after ten minutes by default; it does not establish approval. Edited content or an expired token requires a new review.
 
-The integrated Center backend pins the exact canonical JSON bytes and returns `metadataUri`, the CID, content SHA256, and primary-upload/queued-redundancy status. Use the URI as `projectUri` in `jb_prepare_launch` or `jb_prepare_721_launch`, or as `config.description.uri` in `jb_prepare_revnet_deploy`. Finish the selected launch's complete typed inputs and separate transaction review. Pinning needs no wallet and has not launched or changed a project.
+The integrated Center backend pins the exact canonical JSON bytes and returns `metadataUri`, the CID, content SHA256, and primary-upload/queued-redundancy status. Use the URI as `projectUri` in `jb_prepare_launch`, `jb_prepare_721_launch` or `jb_prepare_omnichain_launch`, as `config.description.uri` in `jb_prepare_revnet_deploy`, or as `uri` in `jb_prepare_set_project_uri` for an existing project. Finish the selected launch's complete typed inputs and separate transaction review. Pinning needs no wallet and has not launched or changed a project.
 
 This journey handles a new standard document of at most 64 KiB of canonical UTF-8 JSON. It does not fetch images or check linked-content availability, preserve custom fields from existing metadata, merge an existing document, or prepare an existing-project URI update. In a standalone server without the pinning callback, preparation explains the missing backend; prepare the same document through `https://juicebox.center/mcp` before seeking approval there. Tokens are not assumed portable between servers. A `METADATA_PUBLICATION_UNVERIFIED` result means content may already be public; inspect backend status before deliberately retrying. A queued redundancy receipt does not prove content was fetched back or that every replica is available.
 
@@ -193,7 +193,11 @@ For a static V6 721 tier, a compatible DAG-PB CID with a SHA2-256 32-byte digest
 
 Establish the owner, chain, complete rulesets, split groups, fund-access limits, terminal accounting contexts, and metadata URI. Use `jb_prepare_launch` with the explicit `core` composition. The tool checks the live per-chain creation fee and constructs the reviewed launch call.
 
-The wallet executes the plan; verification derives the deployed project identity from matching launch evidence. Obtain a metadata URI through the [reviewed metadata journey](#review-and-pin-new-project-metadata) or an existing publication integration before preparation. This journey creates a core project; use the separate NFT or revnet launch journey for those compositions. There is no generic atomic multi-chain core launch tool.
+The wallet executes the plan; verification derives the deployed project identity from matching launch evidence. Obtain a metadata URI through the [reviewed metadata journey](#review-and-pin-new-project-metadata) or an existing publication integration before preparation. This journey creates a core project on one chain; use the separate NFT or revnet launch journey for those compositions.
+
+For one project linked across chains, use `jb_prepare_omnichain_launch` with the chain set, one salt and one signer. It builds `JBOmnichainDeployer.launchProjectFor` for every chain, with sucker deployers from the registry, and returns one plan with one step per chain and a commitment hash shared by every step. A chain set without a sucker lane (for example a mainnet with a testnet) is refused with `SUCKER_LANE_UNAVAILABLE`. Simulate and verify every step.
+
+After any launch, `jb_prepare_deploy_erc20` gives the project its ERC-20 name and ticker, and `jb_prepare_set_project_uri` sets a pinned metadata URI. Both check the signer's permission (`DEPLOY_ERC20`, `SET_PROJECT_URI`) and act on one chain.
 
 ### Launch a project with an NFT shop
 
@@ -328,7 +332,7 @@ Center's [project intents guide](https://juicebox.center/api/docs/project-intent
 
 > “Was the transaction I submitted the one we reviewed, and did the intended operation happen?”
 
-Retain the plan token and each submitted hash with its zero-based step index. `jb_inspect_plan` authenticates the reviewed calls. Before signing a step, use `jb_simulate_plan`; provide matching confirmed prerequisite hashes in `confirmedTransactions` for dependent steps. The wallet signs and submits the exact account, chain, destination, calldata, and native value. Use `jb_verify_plan` with the indexed hashes afterward.
+Retain the plan token and each submitted hash with its zero-based step index. `jb_inspect_plan` authenticates the reviewed calls. Before signing a step, use `jb_simulate_plan`; provide matching confirmed prerequisite hashes in `confirmedTransactions` for dependent steps, or pass `chained: true` before any step is signed to run earlier steps with it in one simulated block (`chained-simulated`, dependencies unconfirmed). The wallet signs and submits the exact account, chain, destination, calldata, and native value. Use `jb_verify_plan` with the indexed hashes afterward.
 
 The result separates transaction confirmation from supported semantic outcome verification. Pending, reverted, mismatched, partial, and unverified outcomes need different handling. Do not submit a dependent payment merely because its allowance step simulated: its real prerequisite must confirm. Changes to account, chain, terms, quote assumptions, or plan expiry require renewed preparation and review. Expired plans remain available for authenticated historical inspection and receipt verification while the server retains the plan-authentication secret.
 

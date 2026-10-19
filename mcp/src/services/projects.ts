@@ -31,6 +31,8 @@ const MAX_CONTEXTS = 32;
 const MAX_SUCKERS = 32;
 const MAX_LOG_BLOCKS = 2_000n;
 const MAX_LOG_RESULTS = 500;
+/** Holder rows checked on chain per page; the rest of a page stays indexed-only. */
+const VERIFIED_HOLDERS = 20;
 const approvalStatuses = [
   'empty',
   'upcoming',
@@ -51,6 +53,17 @@ const suckerAccountingAbi = parseAbi([
   'function GATEWAYROUTER() view returns (address)',
 ]);
 
+/** The indexed holder page this service verifies; ordered largest balance first. */
+export interface IndexedHolderPage {
+  items: readonly {
+    address: string;
+    balance: string;
+    creditBalance: string;
+    erc20Balance: string;
+  }[];
+  totalCount: number;
+  pageInfo: { endCursor: string | null; hasNextPage: boolean };
+}
 type Json<T> = T extends bigint
   ? string
   : T extends readonly (infer U)[]
@@ -581,6 +594,59 @@ export class ProjectService {
       ),
       coverage:
         'Local chain token balance includes internal credits and claimed ERC-20 tokens. No global position, cash-out entitlement, NFT inventory or loan inventory is inferred.',
+    });
+  }
+
+  /** Indexed holders by balance, the first rows checked with JBTokens.totalBalanceOf at one block. */
+  async getHolders(ref: ProjectRef, listHolders: () => Promise<IndexedHolderPage>) {
+    const [context, page] = await Promise.all([this.context(ref), listHolders()]);
+    const { client, projectId } = context;
+    const tokenStore = await client.readContract({
+      address: requireController(context.controller, ref),
+      abi: jbControllerAbi,
+      functionName: 'TOKENS',
+    });
+    const holders = await Promise.all(
+      page.items.map(async (item, index) => {
+        const holder = address(item.address as Address);
+        const indexed = {
+          balance: item.balance,
+          credits: item.creditBalance,
+          erc20Balance: item.erc20Balance,
+        };
+        if (index >= VERIFIED_HOLDERS)
+          return { holder, indexed, balance: { status: 'indexed-only' } };
+        const balance = await observe(() =>
+          client.readContract({
+            address: tokenStore,
+            abi: jbTokensAbi,
+            functionName: 'totalBalanceOf',
+            args: [holder, projectId],
+          }),
+        );
+        return {
+          holder,
+          indexed,
+          balance:
+            balance.status === 'known'
+              ? {
+                  status: 'verified',
+                  value: balance.value,
+                  matchesIndex: balance.value === BigInt(item.balance),
+                }
+              : balance,
+        };
+      }),
+    );
+    return json({
+      project: { ...ref, version: 6 as const },
+      evidence: [context.evidence],
+      tokenStore,
+      decimals: 18,
+      holders,
+      totalCount: page.totalCount,
+      pageInfo: page.pageInfo,
+      coverage: `Order and rows come from the indexer, which can lag. The first ${VERIFIED_HOLDERS} rows of each page are verified with JBTokens.totalBalanceOf (credits plus ERC-20) at this block; later rows are indexed-only. This chain only. Holders can be contracts such as pools and suckers.`,
     });
   }
 

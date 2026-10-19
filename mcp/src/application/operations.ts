@@ -26,8 +26,10 @@ import {
   uintSchema,
 } from '../domain/schemas.js';
 import {
+  prepareDeployErc20Schema,
   prepareLaunchSchema,
   prepareRulesetChangeSchema,
+  prepareSetProjectUriSchema,
   previewRulesetChangeSchema,
 } from '../domain/rulesets.js';
 import { modelEconomicsSchema } from '../domain/economics.js';
@@ -51,6 +53,7 @@ import {
   getRevnetSchema,
   prepareAutoIssueSchema,
   prepareAdjustTiersSchema,
+  prepareOmnichainLaunchSchema,
   prepareRevnetDeploySchema,
   suggestRevnetStartSchema,
   prepare721LaunchSchema,
@@ -61,6 +64,7 @@ import {
   prepareBuybackTwapSchema,
   prepareBuybackHookSchema,
   prepareRouterTerminalSchema,
+  quotePoolBuySchema,
 } from '../domain/routing.js';
 import { integrationInputSchema, referenceInputSchema } from '../services/development.js';
 import { UNITS } from '../domain/units.js';
@@ -290,6 +294,13 @@ function definitions(s: Services): ProtocolOperation[] {
       }),
     ),
     defineOperation(
+      'get_holders',
+      "List a project's token holders on one chain, largest first, from the indexer. The first 20 rows of each page are checked on chain at one block; the rest are indexed-only.",
+      { project: projectSchema, ...pageSchema },
+      async ({ project, ...page }) =>
+        s.projects.getHolders(project, () => s.bendystraw.getHolders({ ...project, ...page })),
+    ),
+    defineOperation(
       'get_activity',
       'Read a page of V6 project activity, retaining payment, cash-out, payout, split, and bridge event evidence. Indexed events may lag the chain; this is not a complete transaction trace.',
       { project: projectSchema, ...pageSchema },
@@ -399,9 +410,30 @@ function definitions(s: Services): ProtocolOperation[] {
     transactionWithSchema(
       s,
       'prepare_launch',
-      'Prepare a standard core V6 project launch using complete typed configuration and a chain-specific live creation fee. Explicit core composition does not attach NFT/revnet/omnichain extensions.',
+      'Prepare a standard core V6 project launch on one chain using complete typed configuration and a chain-specific live creation fee. Explicit core composition does not attach NFT/revnet/omnichain extensions. To link chains as one project, use jb_prepare_omnichain_launch.',
       prepareLaunchSchema,
       async (input) => s.configuration.prepareLaunch(input),
+    ),
+    transactionWithSchema(
+      s,
+      'prepare_omnichain_launch',
+      'Prepare one project linked across chains: JBOmnichainDeployer.launchProjectFor on each chain, with suckers from the registry, one salt and one signer. Returns one plan with one step per chain and a commitment hash shared by every step.',
+      prepareOmnichainLaunchSchema,
+      async (input) => s.products.prepareOmnichainLaunch(input),
+    ),
+    transactionWithSchema(
+      s,
+      'prepare_deploy_erc20',
+      'Prepare JBController.deployERC20For: give a project its ERC-20 name and ticker. Checks the signer is the owner or holds DEPLOY_ERC20, and that the project has no ERC-20 yet.',
+      prepareDeployErc20Schema,
+      async (input) => s.configuration.prepareDeployErc20(input),
+    ),
+    transactionWithSchema(
+      s,
+      'prepare_set_project_uri',
+      'Prepare JBController.setUriOf with a metadata URI the user already pinned. Checks the signer is the owner or holds SET_PROJECT_URI; for a revnet that is its operator.',
+      prepareSetProjectUriSchema,
+      async (input) => s.configuration.prepareSetProjectUri(input),
     ),
     operationWithSchema(
       'quote_loan',
@@ -448,6 +480,15 @@ function definitions(s: Services): ProtocolOperation[] {
       'Inspect the actual buyback/NFT/revnet hook composition, router project overrides, pool configuration, TWAP availability and token routes. Unknown oracle or custom-hook behavior remains explicit.',
       routingSchema,
       (input) => s.routing.getRouting(input),
+    ),
+    operationWithSchema(
+      'quote_pool_buy',
+      "Quote buying project tokens straight from the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. A direct swap skips issuance and reserved splits.",
+      quotePoolBuySchema,
+      (input) =>
+        s.routing.quotePoolBuy(input, (at) =>
+          s.payments.quotePay({ ...input, beneficiary: input.account }, at),
+        ),
     ),
     transactionWithSchema(
       s,
@@ -579,11 +620,17 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     defineOperation(
       'simulate_plan',
-      'Re-simulate an unexpired plan step as the exact sender. Required prior transactions must match the plan and have canonical confirmations; no simulated allowances are fabricated.',
+      'Re-simulate an unexpired plan step as the exact sender. Required prior transactions must match the plan and have canonical confirmations; no simulated allowances are fabricated. chained: true runs this chain’s steps 0..step in order in one block before any is signed; results are chained-simulated, not simulated.',
       {
         token: tokenSchema,
         step: z.number().int().min(0).max(31).default(0),
         confirmedTransactions: referencesSchema.default([]),
+        chained: z
+          .boolean()
+          .default(false)
+          .describe(
+            'Simulate earlier unconfirmed steps with this one. Omit confirmedTransactions.',
+          ),
       },
       (input) => s.plans.simulate(input),
     ),

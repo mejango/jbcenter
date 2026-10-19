@@ -34,6 +34,7 @@ const areas = [
       'get_rulesets',
       'get_position',
       'get_account',
+      'get_holders',
       'get_activity',
       'get_indexer_status',
       'get_permissions',
@@ -81,10 +82,13 @@ const areas = [
       'preview_ruleset_change',
       'prepare_ruleset_change',
       'prepare_launch',
+      'prepare_deploy_erc20',
+      'prepare_set_project_uri',
     ],
     references: ['JBRulesets', 'JBFundAccessLimits', 'JBSplits', 'JBController'],
     limits: [
       'Core launch is an explicit composition. NFT and revnet launch semantics are separate.',
+      'After a launch, jb_prepare_deploy_erc20 adds the ERC-20 and jb_prepare_set_project_uri sets the name. Each acts on one chain.',
       'Scenarios report assumptions; future approval-hook outcomes are not predicted.',
     ],
   },
@@ -93,6 +97,7 @@ const areas = [
     title: 'Buyback hooks and router terminals',
     tools: [
       'get_routing',
+      'quote_pool_buy',
       'prepare_buyback_pool',
       'prepare_buyback_twap',
       'prepare_buyback_hook',
@@ -157,6 +162,7 @@ const areas = [
     tools: [
       'get_bridges',
       'get_omnichain_group',
+      'prepare_omnichain_launch',
       'prepare_bridge_claim',
       'prepare_accounting_sync',
     ],
@@ -164,6 +170,7 @@ const areas = [
     limits: [
       'Cross-chain reads report independent blocks.',
       'Accounting synchronization is separate from token bridging and claim settlement.',
+      'jb_prepare_omnichain_launch links chains the SDK registry has sucker deployers for: all mainnets or all testnets. Native or same-address accounting tokens only.',
     ],
   },
   {

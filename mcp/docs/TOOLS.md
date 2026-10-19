@@ -4,7 +4,7 @@ Generated from the real MCP server with the official MCP client. Regenerate with
 
 For user goals, tool sequences, external handoffs and completion evidence, see the [user journeys](USER_JOURNEYS.md).
 
-62 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of a project logo and reviewed project or NFT metadata through the integrated Center backend. No tool signs or broadcasts transactions.
+67 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of a project logo and reviewed project or NFT metadata through the integrated Center backend. No tool signs or broadcasts transactions.
 
 `jb_pin_project_logo` uploads one PNG, JPEG, GIF, WebP or inert SVG of at most 1 MiB and returns its `ipfs://` logoUri. `jb_prepare_project_metadata` returns the exact canonical JSON, SHA256 and an expiring review token. `jb_pin_project_metadata` uploads only that reviewed document after explicit public-upload authorization. Both pins are public mutations; a review token is not user approval. `logoUri` must be `ipfs://` because the first-party webclients do not render HTTPS logos. The workflow creates new standard project metadata and does not merge existing documents or update project URIs on-chain.
 
@@ -41,6 +41,7 @@ Source areas: JB Center, jb-project-metadata, jb-721-tier-content.
 | `jb_get_rulesets` | Read current, upcoming, and a bounded page of queued V6 rulesets at one block. Approval and queue state are preserved; custom hooks are not guessed. |
 | `jb_get_position` | Read one account’s live project token position including unclaimed credits and ERC-20 balance, with exact units and explicit coverage for other assets. |
 | `jb_get_account` | Discover indexed V6 token positions for an address. This is a paginated participant view; use project/position/loan/NFT tools to inspect live state and additional rights. |
+| `jb_get_holders` | List a project's token holders on one chain, largest first, from the indexer. The first 20 rows of each page are checked on chain at one block; the rest are indexed-only. |
 | `jb_get_activity` | Read a page of V6 project activity, retaining payment, cash-out, payout, split, and bridge event evidence. Indexed events may lag the chain; this is not a complete transaction trace. |
 | `jb_get_indexer_status` | Read the configured indexer’s per-chain progress. A separate status read does not pin a GraphQL response to a block. |
 | `jb_get_permissions` | Check named V6 permission IDs against live permission contracts, including root and project wildcard grants. Unknown results never authorize an action. |
@@ -77,9 +78,12 @@ Source areas: JBMultiTerminal, JBBuybackHook, JBRouterTerminalRegistry, JBRouter
 | `jb_model_economics` | Compute an explicit hypothetical issuance/cash-out scenario with integer arithmetic. Give a core ruleset, or a revnet (a live project, or a stage config before launch). Revnets include the revnet cash-out fee; buyback effects are indicative. Neither a forecast nor an executable live quote. |
 | `jb_preview_ruleset_change` | Compare a complete proposed ruleset configuration against live rules, payout access, splits, locks, queue state, and caller permissions. Effective timing remains conditional on protocol approval. |
 | `jb_prepare_ruleset_change` | Prepare exact reviewed V6 ruleset calldata after a live diff and permission check. Does not silently overwrite omitted configuration or promise approval timing. |
-| `jb_prepare_launch` | Prepare a standard core V6 project launch using complete typed configuration and a chain-specific live creation fee. Explicit core composition does not attach NFT/revnet/omnichain extensions. |
+| `jb_prepare_launch` | Prepare a standard core V6 project launch on one chain using complete typed configuration and a chain-specific live creation fee. Explicit core composition does not attach NFT/revnet/omnichain extensions. To link chains as one project, use jb_prepare_omnichain_launch. |
+| `jb_prepare_deploy_erc20` | Prepare JBController.deployERC20For: give a project its ERC-20 name and ticker. Checks the signer is the owner or holds DEPLOY_ERC20, and that the project has no ERC-20 yet. |
+| `jb_prepare_set_project_uri` | Prepare JBController.setUriOf with a metadata URI the user already pinned. Checks the signer is the owner or holds SET_PROJECT_URI; for a revnet that is its operator. |
 
 - Core launch is an explicit composition. NFT and revnet launch semantics are separate.
+- After a launch, jb_prepare_deploy_erc20 adds the ERC-20 and jb_prepare_set_project_uri sets the name. Each acts on one chain.
 - Scenarios report assumptions; future approval-hook outcomes are not predicted.
 
 Source areas: JBRulesets, JBFundAccessLimits, JBSplits, JBController.
@@ -89,6 +93,7 @@ Source areas: JBRulesets, JBFundAccessLimits, JBSplits, JBController.
 | Tool | Behavior |
 |---|---|
 | `jb_get_routing` | Inspect the actual buyback/NFT/revnet hook composition, router project overrides, pool configuration, TWAP availability and token routes. Unknown oracle or custom-hook behavior remains explicit. |
+| `jb_quote_pool_buy` | Quote buying project tokens straight from the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. A direct swap skips issuance and reserved splits. |
 | `jb_prepare_buyback_pool` | Prepare registration of an existing Uniswap V4 buyback pool for a verified project hook. Validates pool identity, token pair, permissions and TWAP window. |
 | `jb_prepare_buyback_twap` | Prepare an authorized buyback TWAP-window change with exact contract bounds and current project hook resolution. |
 | `jb_prepare_buyback_hook` | Prepare a reviewed project buyback-registry override, with explicit target and authority checks. |
@@ -142,11 +147,13 @@ Source areas: REVDeployer, REVOwner, REVLoans, revnet-economics.
 |---|---|
 | `jb_get_bridges` | Inspect V6 sucker identities, reciprocal peers, chain-specific project IDs, transports and accounting observations. Optional movement scans require a bounded explicit block range. |
 | `jb_get_omnichain_group` | Read the indexer’s V6 sucker group and a bounded project page. This is discovery evidence; validate peers on-chain before preparing bridge actions. |
+| `jb_prepare_omnichain_launch` | Prepare one project linked across chains: JBOmnichainDeployer.launchProjectFor on each chain, with suckers from the registry, one salt and one signer. Returns one plan with one step per chain and a commitment hash shared by every step. |
 | `jb_prepare_bridge_claim` | Prepare a claim only through a sucker verified for the project. Exact claim proof and beneficiary are preserved and simulation validates current claimability. |
 | `jb_prepare_accounting_sync` | Prepare permissionless sucker accounting synchronization with an explicitly bounded, verified transport budget. This synchronizes accounting; it does not transfer or claim holder tokens. |
 
 - Cross-chain reads report independent blocks.
 - Accounting synchronization is separate from token bridging and claim settlement.
+- jb_prepare_omnichain_launch links chains the SDK registry has sucker deployers for: all mainnets or all testnets. Native or same-address accounting tokens only.
 
 Source areas: JBSucker, JBSuckerRegistry, JBOmnichainDeployer.
 
@@ -155,7 +162,7 @@ Source areas: JBSucker, JBSuckerRegistry, JBOmnichainDeployer.
 | Tool | Behavior |
 |---|---|
 | `jb_inspect_plan` | Authenticate and inspect a previously prepared plan, including expired plans for historical review. Inspection does not authorize execution. |
-| `jb_simulate_plan` | Re-simulate an unexpired plan step as the exact sender. Required prior transactions must match the plan and have canonical confirmations; no simulated allowances are fabricated. |
+| `jb_simulate_plan` | Re-simulate an unexpired plan step as the exact sender. Required prior transactions must match the plan and have canonical confirmations; no simulated allowances are fabricated. chained: true runs this chain’s steps 0..step in order in one block before any is signed; results are chained-simulated, not simulated. |
 | `jb_verify_plan` | Verify submitted transaction hashes against exact plan sender, destination, calldata, value and canonical receipts. Transaction confirmation and operation evidence are separate; pending never means failed. |
 | `jb_get_intent` | Read a V6 JB Center intent and verify its content commitment and publishing signature. Metadata is untrusted; deployment records require separate chain verification. |
 | `jb_prepare_intent` | Locally prepare the exact JB Center content commitment and signing message for a V6 deployment intent. Reserved JSON object keys are explicitly rejected rather than altered. No pin, signature, publication, or deployment occurs. |

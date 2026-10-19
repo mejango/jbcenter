@@ -2026,6 +2026,215 @@
       }
     },
     {
+      "name": "jb_get_holders",
+      "description": "List a project's token holders on one chain, largest first, from the indexer. The first 20 rows of each page are checked on chain at one block; the rest are indexed-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "object",
+            "properties": {
+              "chainId": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 1
+                  },
+                  {
+                    "type": "number",
+                    "const": 10
+                  },
+                  {
+                    "type": "number",
+                    "const": 8453
+                  },
+                  {
+                    "type": "number",
+                    "const": 42161
+                  },
+                  {
+                    "type": "number",
+                    "const": 11155111
+                  },
+                  {
+                    "type": "number",
+                    "const": 11155420
+                  },
+                  {
+                    "type": "number",
+                    "const": 84532
+                  },
+                  {
+                    "type": "number",
+                    "const": 421614
+                  }
+                ]
+              },
+              "projectId": {
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
+              },
+              "version": {
+                "default": 6,
+                "type": "number",
+                "const": 6
+              }
+            },
+            "required": [
+              "chainId",
+              "projectId"
+            ],
+            "additionalProperties": false
+          },
+          "limit": {
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1024
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "const": 1
+          },
+          "observedAt": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/__schema0"
+              }
+            ]
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "details": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/__schema1"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "retryable"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "observedAt",
+          "ok"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "definitions": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/definitions/__schema0"
+                }
+              }
+            ]
+          },
+          "__schema1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/__schema1"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/definitions/__schema1"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "jb_get_activity",
       "description": "Read a page of V6 project activity, retaining payment, cash-out, payout, split, and bridge event evidence. Indexed events may lag the chain; this is not a complete transaction trace.",
       "inputSchema": {
@@ -6110,7 +6319,7 @@
     },
     {
       "name": "jb_prepare_launch",
-      "description": "Prepare a standard core V6 project launch using complete typed configuration and a chain-specific live creation fee. Explicit core composition does not attach NFT/revnet/omnichain extensions.",
+      "description": "Prepare a standard core V6 project launch on one chain using complete typed configuration and a chain-specific live creation fee. Explicit core composition does not attach NFT/revnet/omnichain extensions. To link chains as one project, use jb_prepare_omnichain_launch.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -6507,6 +6716,1230 @@
           "projectUri",
           "rulesetConfigurations",
           "terminalConfigurations"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "const": 1
+          },
+          "observedAt": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/__schema0"
+              }
+            ]
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "details": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/__schema1"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "retryable"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "observedAt",
+          "ok"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "definitions": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/definitions/__schema0"
+                }
+              }
+            ]
+          },
+          "__schema1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/__schema1"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/definitions/__schema1"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "jb_prepare_omnichain_launch",
+      "description": "Prepare one project linked across chains: JBOmnichainDeployer.launchProjectFor on each chain, with suckers from the registry, one salt and one signer. Returns one plan with one step per chain and a commitment hash shared by every step.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chainIds": {
+            "minItems": 2,
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "const": 1
+                },
+                {
+                  "type": "number",
+                  "const": 10
+                },
+                {
+                  "type": "number",
+                  "const": 8453
+                },
+                {
+                  "type": "number",
+                  "const": 42161
+                },
+                {
+                  "type": "number",
+                  "const": 11155111
+                },
+                {
+                  "type": "number",
+                  "const": 11155420
+                },
+                {
+                  "type": "number",
+                  "const": 84532
+                },
+                {
+                  "type": "number",
+                  "const": 421614
+                }
+              ]
+            },
+            "description": "Every chain the project launches on, all mainnets or all testnets."
+          },
+          "account": {
+            "description": "The one address that signs on every chain.",
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "projectUri": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "Pinned metadata URI (ipfs://<cid>), or empty to set it later."
+          },
+          "rulesetConfigurations": {
+            "minItems": 1,
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "mustStartAtOrAfter": {
+                  "description": "Unix seconds. A lower bound, not a promised start; 0 asks the contract to resolve timing.",
+                  "type": "string",
+                  "maxLength": 78,
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "duration": {
+                  "description": "Seconds per cycle. Zero has no automatic cycles.",
+                  "type": "string",
+                  "maxLength": 78,
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "weight": {
+                  "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
+                  "type": "string",
+                  "maxLength": 78,
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "weightCutPercent": {
+                  "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
+                  "type": "string",
+                  "maxLength": 78,
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "approvalHook": {
+                  "description": "Gates the next ruleset, not this ruleset.",
+                  "type": "string"
+                },
+                "metadata": {
+                  "type": "object",
+                  "properties": {
+                    "reservedPercent": {
+                      "description": "Share of new tokens reserved for splits, out of 10,000. 2500 = 25%.",
+                      "type": "string",
+                      "maxLength": 78,
+                      "pattern": "^(0|[1-9][0-9]*)$"
+                    },
+                    "cashOutTaxRate": {
+                      "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
+                      "type": "string",
+                      "maxLength": 78,
+                      "pattern": "^(0|[1-9][0-9]*)$"
+                    },
+                    "baseCurrency": {
+                      "description": "Currency that issuance is priced in: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
+                      "type": "string",
+                      "maxLength": 78,
+                      "pattern": "^(0|[1-9][0-9]*)$"
+                    },
+                    "pausePay": {
+                      "type": "boolean"
+                    },
+                    "pauseCreditTransfers": {
+                      "type": "boolean"
+                    },
+                    "allowOwnerMinting": {
+                      "type": "boolean"
+                    },
+                    "allowSetCustomToken": {
+                      "type": "boolean"
+                    },
+                    "allowTerminalMigration": {
+                      "type": "boolean"
+                    },
+                    "allowSetTerminals": {
+                      "type": "boolean"
+                    },
+                    "allowSetController": {
+                      "type": "boolean"
+                    },
+                    "allowAddAccountingContext": {
+                      "type": "boolean"
+                    },
+                    "allowAddPriceFeed": {
+                      "type": "boolean"
+                    },
+                    "ownerMustSendPayouts": {
+                      "type": "boolean"
+                    },
+                    "holdFees": {
+                      "type": "boolean"
+                    },
+                    "scopeCashOutsToLocalBalances": {
+                      "type": "boolean"
+                    },
+                    "useDataHookForPay": {
+                      "type": "boolean"
+                    },
+                    "useDataHookForCashOut": {
+                      "type": "boolean"
+                    },
+                    "dataHook": {
+                      "type": "string"
+                    },
+                    "metadata": {
+                      "type": "string",
+                      "maxLength": 78,
+                      "pattern": "^(0|[1-9][0-9]*)$"
+                    }
+                  },
+                  "required": [
+                    "reservedPercent",
+                    "cashOutTaxRate",
+                    "baseCurrency",
+                    "pausePay",
+                    "pauseCreditTransfers",
+                    "allowOwnerMinting",
+                    "allowSetCustomToken",
+                    "allowTerminalMigration",
+                    "allowSetTerminals",
+                    "allowSetController",
+                    "allowAddAccountingContext",
+                    "allowAddPriceFeed",
+                    "ownerMustSendPayouts",
+                    "holdFees",
+                    "scopeCashOutsToLocalBalances",
+                    "useDataHookForPay",
+                    "useDataHookForCashOut",
+                    "dataHook",
+                    "metadata"
+                  ],
+                  "additionalProperties": false
+                },
+                "splitGroups": {
+                  "maxItems": 32,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "groupId": {
+                        "type": "string",
+                        "maxLength": 78,
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
+                      },
+                      "splits": {
+                        "maxItems": 32,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "percent": {
+                              "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
+                            },
+                            "projectId": {
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
+                            },
+                            "beneficiary": {
+                              "type": "string"
+                            },
+                            "preferAddToBalance": {
+                              "type": "boolean"
+                            },
+                            "lockedUntil": {
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
+                            },
+                            "hook": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "percent",
+                            "projectId",
+                            "beneficiary",
+                            "preferAddToBalance",
+                            "lockedUntil",
+                            "hook"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "groupId",
+                      "splits"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "fundAccessLimitGroups": {
+                  "maxItems": 32,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "terminal": {
+                        "type": "string"
+                      },
+                      "token": {
+                        "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
+                        "type": "string"
+                      },
+                      "payoutLimits": {
+                        "maxItems": 32,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "amount": {
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
+                            },
+                            "currency": {
+                              "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
+                            }
+                          },
+                          "required": [
+                            "amount",
+                            "currency"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "surplusAllowances": {
+                        "maxItems": 32,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "amount": {
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
+                            },
+                            "currency": {
+                              "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
+                            }
+                          },
+                          "required": [
+                            "amount",
+                            "currency"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "terminal",
+                      "token",
+                      "payoutLimits",
+                      "surplusAllowances"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "mustStartAtOrAfter",
+                "duration",
+                "weight",
+                "weightCutPercent",
+                "approvalHook",
+                "metadata",
+                "splitGroups",
+                "fundAccessLimitGroups"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "terminalConfigurations": {
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "terminal": {
+                  "type": "string"
+                },
+                "accountingContextsToAccept": {
+                  "maxItems": 32,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "token": {
+                        "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
+                        "type": "string"
+                      },
+                      "decimals": {
+                        "description": "Token decimals. Native ETH uses 18.",
+                        "type": "string",
+                        "maxLength": 78,
+                        "pattern": "^(0|[1-9][0-9]*)$"
+                      },
+                      "currency": {
+                        "description": "Usually uint32(uint160(token)); native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166.",
+                        "type": "string",
+                        "maxLength": 78,
+                        "pattern": "^(0|[1-9][0-9]*)$"
+                      }
+                    },
+                    "required": [
+                      "token",
+                      "decimals",
+                      "currency"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "terminal",
+                "accountingContextsToAccept"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "memo": {
+            "default": "",
+            "type": "string",
+            "maxLength": 4096
+          },
+          "salt": {
+            "description": "One random salt shared by every chain. Suckers pair only with the same salt and signer.",
+            "type": "string",
+            "pattern": "^0x[a-fA-F0-9]{64}$"
+          },
+          "bridge": {
+            "default": "ccip",
+            "description": "ccip links any chain pair. native links Ethereum with one L2 and maps native ETH only. both adds a native sucker where one exists.",
+            "type": "string",
+            "enum": [
+              "ccip",
+              "native",
+              "both"
+            ]
+          },
+          "deployTiersHookConfig": {
+            "description": "NFT tiers collection. Omitted: an empty collection priced in the first baseCurrency.",
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "symbol": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32
+              },
+              "baseUri": {
+                "type": "string",
+                "maxLength": 4096
+              },
+              "tokenUriResolver": {
+                "type": "string"
+              },
+              "contractUri": {
+                "type": "string",
+                "maxLength": 4096
+              },
+              "tiersConfig": {
+                "type": "object",
+                "properties": {
+                  "tiers": {
+                    "maxItems": 32,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "price": {
+                          "type": "string",
+                          "maxLength": 78,
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "description": "Tier price in the tiers currency, with the tiers decimals."
+                        },
+                        "initialSupply": {
+                          "type": "string",
+                          "maxLength": 78,
+                          "pattern": "^(0|[1-9][0-9]*)$"
+                        },
+                        "votingUnits": {
+                          "type": "string",
+                          "maxLength": 78,
+                          "pattern": "^(0|[1-9][0-9]*)$"
+                        },
+                        "reserveFrequency": {
+                          "type": "string",
+                          "maxLength": 78,
+                          "pattern": "^(0|[1-9][0-9]*)$"
+                        },
+                        "reserveBeneficiary": {
+                          "type": "string"
+                        },
+                        "encodedIpfsUri": {
+                          "type": "string",
+                          "pattern": "^0x[a-fA-F0-9]{64}$"
+                        },
+                        "category": {
+                          "type": "string",
+                          "maxLength": 78,
+                          "pattern": "^(0|[1-9][0-9]*)$"
+                        },
+                        "discountPercent": {
+                          "type": "string",
+                          "maxLength": 78,
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "description": "Tier price discount, out of 200. 200 = free."
+                        },
+                        "flags": {
+                          "type": "object",
+                          "properties": {
+                            "allowOwnerMint": {
+                              "type": "boolean"
+                            },
+                            "useReserveBeneficiaryAsDefault": {
+                              "type": "boolean"
+                            },
+                            "transfersPausable": {
+                              "type": "boolean"
+                            },
+                            "useVotingUnits": {
+                              "type": "boolean"
+                            },
+                            "cantBeRemoved": {
+                              "type": "boolean"
+                            },
+                            "cantIncreaseDiscountPercent": {
+                              "type": "boolean"
+                            },
+                            "cantBuyWithCredits": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "allowOwnerMint",
+                            "useReserveBeneficiaryAsDefault",
+                            "transfersPausable",
+                            "useVotingUnits",
+                            "cantBeRemoved",
+                            "cantIncreaseDiscountPercent",
+                            "cantBuyWithCredits"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "splitPercent": {
+                          "type": "string",
+                          "maxLength": 78,
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "description": "Share of the tier price sent to the tier's splits, out of 1,000,000,000."
+                        },
+                        "splits": {
+                          "maxItems": 32,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "percent": {
+                                "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
+                                "type": "string",
+                                "maxLength": 78,
+                                "pattern": "^(0|[1-9][0-9]*)$"
+                              },
+                              "projectId": {
+                                "type": "string",
+                                "maxLength": 78,
+                                "pattern": "^(0|[1-9][0-9]*)$"
+                              },
+                              "beneficiary": {
+                                "type": "string"
+                              },
+                              "preferAddToBalance": {
+                                "type": "boolean"
+                              },
+                              "lockedUntil": {
+                                "type": "string",
+                                "maxLength": 78,
+                                "pattern": "^(0|[1-9][0-9]*)$"
+                              },
+                              "hook": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "percent",
+                              "projectId",
+                              "beneficiary",
+                              "preferAddToBalance",
+                              "lockedUntil",
+                              "hook"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "price",
+                        "initialSupply",
+                        "votingUnits",
+                        "reserveFrequency",
+                        "reserveBeneficiary",
+                        "encodedIpfsUri",
+                        "category",
+                        "discountPercent",
+                        "flags",
+                        "splitPercent",
+                        "splits"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "currency": {
+                    "type": "string",
+                    "maxLength": 78,
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD."
+                  },
+                  "decimals": {
+                    "type": "string",
+                    "maxLength": 78,
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "description": "Decimals of tier prices."
+                  }
+                },
+                "required": [
+                  "tiers",
+                  "currency",
+                  "decimals"
+                ],
+                "additionalProperties": false
+              },
+              "flags": {
+                "type": "object",
+                "properties": {
+                  "noNewTiersWithReserves": {
+                    "type": "boolean"
+                  },
+                  "noNewTiersWithVotes": {
+                    "type": "boolean"
+                  },
+                  "noNewTiersWithOwnerMinting": {
+                    "type": "boolean"
+                  },
+                  "preventOverspending": {
+                    "type": "boolean"
+                  },
+                  "issueTokensForSplits": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "noNewTiersWithReserves",
+                  "noNewTiersWithVotes",
+                  "noNewTiersWithOwnerMinting",
+                  "preventOverspending",
+                  "issueTokensForSplits"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "name",
+              "symbol",
+              "baseUri",
+              "tokenUriResolver",
+              "contractUri",
+              "tiersConfig",
+              "flags"
+            ],
+            "additionalProperties": false
+          },
+          "useDataHookForCashOut": {
+            "default": false,
+            "description": "Let NFTs cash out for surplus. Needs deployTiersHookConfig.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "chainIds",
+          "account",
+          "owner",
+          "projectUri",
+          "rulesetConfigurations",
+          "terminalConfigurations",
+          "salt"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "const": 1
+          },
+          "observedAt": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/__schema0"
+              }
+            ]
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "details": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/__schema1"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "retryable"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "observedAt",
+          "ok"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "definitions": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/definitions/__schema0"
+                }
+              }
+            ]
+          },
+          "__schema1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/__schema1"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/definitions/__schema1"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "jb_prepare_deploy_erc20",
+      "description": "Prepare JBController.deployERC20For: give a project its ERC-20 name and ticker. Checks the signer is the owner or holds DEPLOY_ERC20, and that the project has no ERC-20 yet.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "object",
+            "properties": {
+              "chainId": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 1
+                  },
+                  {
+                    "type": "number",
+                    "const": 10
+                  },
+                  {
+                    "type": "number",
+                    "const": 8453
+                  },
+                  {
+                    "type": "number",
+                    "const": 42161
+                  },
+                  {
+                    "type": "number",
+                    "const": 11155111
+                  },
+                  {
+                    "type": "number",
+                    "const": 11155420
+                  },
+                  {
+                    "type": "number",
+                    "const": 84532
+                  },
+                  {
+                    "type": "number",
+                    "const": 421614
+                  }
+                ]
+              },
+              "projectId": {
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
+              },
+              "version": {
+                "default": 6,
+                "type": "number",
+                "const": 6
+              }
+            },
+            "required": [
+              "chainId",
+              "projectId"
+            ],
+            "additionalProperties": false
+          },
+          "account": {
+            "description": "The address that will sign.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "ERC-20 name, such as \"Lattice\"."
+          },
+          "symbol": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "ERC-20 symbol (ticker), such as \"LATT\"."
+          },
+          "salt": {
+            "description": "Zero for a one-off address. A nonzero salt gives a deterministic address from this salt and the signer; use the same salt and signer on every chain to get the same token address.",
+            "type": "string",
+            "pattern": "^0x[a-fA-F0-9]{64}$"
+          }
+        },
+        "required": [
+          "project",
+          "account",
+          "name",
+          "symbol"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "const": 1
+          },
+          "observedAt": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/__schema0"
+              }
+            ]
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "details": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/__schema1"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "retryable"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "observedAt",
+          "ok"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "definitions": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/definitions/__schema0"
+                }
+              }
+            ]
+          },
+          "__schema1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/__schema1"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/definitions/__schema1"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "jb_prepare_set_project_uri",
+      "description": "Prepare JBController.setUriOf with a metadata URI the user already pinned. Checks the signer is the owner or holds SET_PROJECT_URI; for a revnet that is its operator.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "object",
+            "properties": {
+              "chainId": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 1
+                  },
+                  {
+                    "type": "number",
+                    "const": 10
+                  },
+                  {
+                    "type": "number",
+                    "const": 8453
+                  },
+                  {
+                    "type": "number",
+                    "const": 42161
+                  },
+                  {
+                    "type": "number",
+                    "const": 11155111
+                  },
+                  {
+                    "type": "number",
+                    "const": 11155420
+                  },
+                  {
+                    "type": "number",
+                    "const": 84532
+                  },
+                  {
+                    "type": "number",
+                    "const": 421614
+                  }
+                ]
+              },
+              "projectId": {
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
+              },
+              "version": {
+                "default": 6,
+                "type": "number",
+                "const": 6
+              }
+            },
+            "required": [
+              "chainId",
+              "projectId"
+            ],
+            "additionalProperties": false
+          },
+          "account": {
+            "description": "The address that will sign.",
+            "type": "string"
+          },
+          "uri": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "Metadata URI the user already pinned, as ipfs://<cid> (jb_pin_project_metadata returns one). Not fetched."
+          }
+        },
+        "required": [
+          "project",
+          "account",
+          "uri"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false
@@ -8207,6 +9640,222 @@
         },
         "required": [
           "project"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "const": 1
+          },
+          "observedAt": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/__schema0"
+              }
+            ]
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "details": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/__schema1"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "retryable"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "observedAt",
+          "ok"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "definitions": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/definitions/__schema0"
+                }
+              }
+            ]
+          },
+          "__schema1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/__schema1"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/definitions/__schema1"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "jb_quote_pool_buy",
+      "description": "Quote buying project tokens straight from the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. A direct swap skips issuance and reserved splits.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "object",
+            "properties": {
+              "chainId": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 1
+                  },
+                  {
+                    "type": "number",
+                    "const": 10
+                  },
+                  {
+                    "type": "number",
+                    "const": 8453
+                  },
+                  {
+                    "type": "number",
+                    "const": 42161
+                  },
+                  {
+                    "type": "number",
+                    "const": 11155111
+                  },
+                  {
+                    "type": "number",
+                    "const": 11155420
+                  },
+                  {
+                    "type": "number",
+                    "const": 84532
+                  },
+                  {
+                    "type": "number",
+                    "const": 421614
+                  }
+                ]
+              },
+              "projectId": {
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
+              },
+              "version": {
+                "default": 6,
+                "type": "number",
+                "const": 6
+              }
+            },
+            "required": [
+              "chainId",
+              "projectId"
+            ],
+            "additionalProperties": false
+          },
+          "account": {
+            "description": "Payer for the terminal quote. It also receives the tokens.",
+            "type": "string"
+          },
+          "token": {
+            "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Input amount in the token smallest units, as an exact integer string. 0.05 ETH = 50000000000000000."
+          }
+        },
+        "required": [
+          "project",
+          "account",
+          "token",
+          "amount"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false
@@ -13105,7 +14754,7 @@
     },
     {
       "name": "jb_simulate_plan",
-      "description": "Re-simulate an unexpired plan step as the exact sender. Required prior transactions must match the plan and have canonical confirmations; no simulated allowances are fabricated.",
+      "description": "Re-simulate an unexpired plan step as the exact sender. Required prior transactions must match the plan and have canonical confirmations; no simulated allowances are fabricated. chained: true runs this chain’s steps 0..step in order in one block before any is signed; results are chained-simulated, not simulated.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -13142,6 +14791,11 @@
               ],
               "additionalProperties": false
             }
+          },
+          "chained": {
+            "default": false,
+            "description": "Simulate earlier unconfirmed steps with this one. Omit confirmedTransactions.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -15446,6 +17100,10 @@
             "description": "Discover indexed V6 token positions for an address. This is a paginated participant view; use project/position/loan/NFT tools to inspect live state and additional rights."
           },
           {
+            "name": "jb_get_holders",
+            "description": "List a project's token holders on one chain, largest first, from the indexer. The first 20 rows of each page are checked on chain at one block; the rest are indexed-only."
+          },
+          {
             "name": "jb_get_activity",
             "description": "Read a page of V6 project activity, retaining payment, cash-out, payout, split, and bridge event evidence. Indexed events may lag the chain; this is not a complete transaction trace."
           },
@@ -15534,7 +17192,15 @@
           },
           {
             "name": "jb_prepare_launch",
-            "description": "Prepare a standard core V6 project launch using complete typed configuration and a chain-specific live creation fee. Explicit core composition does not attach NFT/revnet/omnichain extensions."
+            "description": "Prepare a standard core V6 project launch on one chain using complete typed configuration and a chain-specific live creation fee. Explicit core composition does not attach NFT/revnet/omnichain extensions. To link chains as one project, use jb_prepare_omnichain_launch."
+          },
+          {
+            "name": "jb_prepare_deploy_erc20",
+            "description": "Prepare JBController.deployERC20For: give a project its ERC-20 name and ticker. Checks the signer is the owner or holds DEPLOY_ERC20, and that the project has no ERC-20 yet."
+          },
+          {
+            "name": "jb_prepare_set_project_uri",
+            "description": "Prepare JBController.setUriOf with a metadata URI the user already pinned. Checks the signer is the owner or holds SET_PROJECT_URI; for a revnet that is its operator."
           }
         ],
         "references": [
@@ -15545,6 +17211,7 @@
         ],
         "limits": [
           "Core launch is an explicit composition. NFT and revnet launch semantics are separate.",
+          "After a launch, jb_prepare_deploy_erc20 adds the ERC-20 and jb_prepare_set_project_uri sets the name. Each acts on one chain.",
           "Scenarios report assumptions; future approval-hook outcomes are not predicted."
         ]
       },
@@ -15555,6 +17222,10 @@
           {
             "name": "jb_get_routing",
             "description": "Inspect the actual buyback/NFT/revnet hook composition, router project overrides, pool configuration, TWAP availability and token routes. Unknown oracle or custom-hook behavior remains explicit."
+          },
+          {
+            "name": "jb_quote_pool_buy",
+            "description": "Quote buying project tokens straight from the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. A direct swap skips issuance and reserved splits."
           },
           {
             "name": "jb_prepare_buyback_pool",
@@ -15687,6 +17358,10 @@
             "description": "Read the indexer’s V6 sucker group and a bounded project page. This is discovery evidence; validate peers on-chain before preparing bridge actions."
           },
           {
+            "name": "jb_prepare_omnichain_launch",
+            "description": "Prepare one project linked across chains: JBOmnichainDeployer.launchProjectFor on each chain, with suckers from the registry, one salt and one signer. Returns one plan with one step per chain and a commitment hash shared by every step."
+          },
+          {
             "name": "jb_prepare_bridge_claim",
             "description": "Prepare a claim only through a sucker verified for the project. Exact claim proof and beneficiary are preserved and simulation validates current claimability."
           },
@@ -15702,7 +17377,8 @@
         ],
         "limits": [
           "Cross-chain reads report independent blocks.",
-          "Accounting synchronization is separate from token bridging and claim settlement."
+          "Accounting synchronization is separate from token bridging and claim settlement.",
+          "jb_prepare_omnichain_launch links chains the SDK registry has sucker deployers for: all mainnets or all testnets. Native or same-address accounting tokens only."
         ]
       },
       {
@@ -15715,7 +17391,7 @@
           },
           {
             "name": "jb_simulate_plan",
-            "description": "Re-simulate an unexpired plan step as the exact sender. Required prior transactions must match the plan and have canonical confirmations; no simulated allowances are fabricated."
+            "description": "Re-simulate an unexpired plan step as the exact sender. Required prior transactions must match the plan and have canonical confirmations; no simulated allowances are fabricated. chained: true runs this chain’s steps 0..step in order in one block before any is signed; results are chained-simulated, not simulated."
           },
           {
             "name": "jb_verify_plan",

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  MappableAsset,
   NATIVE_TOKEN,
   jb721TiersHookAbi,
   jb721TiersHookProjectDeployerAbi,
@@ -19,6 +20,7 @@ import {
   build721PayMetadata,
   buildAutoIssueTx,
   buildDeployRevnetTx,
+  buildOmnichainLaunchProjectTx,
   effectiveTierPrice,
   getAllRulesets,
   getCurrentRuleset,
@@ -34,6 +36,7 @@ import {
   getContractAddress,
   keccak256,
   parseAbi,
+  stringToHex,
   zeroAddress,
   zeroHash,
   type Abi,
@@ -42,7 +45,7 @@ import {
   type PublicClient,
 } from 'viem';
 import { DomainError, publicError } from '../domain/errors.js';
-import { jsonSafe } from '../domain/json.js';
+import { canonicalJson, jsonSafe } from '../domain/json.js';
 import {
   get721ShopSchema,
   getRevnetSchema,
@@ -50,6 +53,7 @@ import {
   prepare721LaunchSchema,
   prepareAdjustTiersSchema,
   prepareAutoIssueSchema,
+  prepareOmnichainLaunchSchema,
   prepareRevnetDeploySchema,
   REVNET_START_LEAD_SECONDS,
   revnetStartWarning,
@@ -64,7 +68,7 @@ import {
   verify721Hook,
   type tierConfigSchema,
 } from '../domain/products.js';
-import { toTerminalConfig } from '../domain/rulesets.js';
+import { toRulesetConfig, toTerminalConfig } from '../domain/rulesets.js';
 import { resolveRouterTerminal } from '../domain/routing.js';
 import type {
   ChainId,
@@ -74,6 +78,7 @@ import type {
   RpcProvider,
   RpcSnapshot,
 } from '../domain/types.js';
+import { configurationWarnings, launchFollowUps } from './configuration.js';
 import { PaymentService } from './payments.js';
 import { deploymentAddresses } from './rollout.js';
 
@@ -145,6 +150,25 @@ export class ProductService {
           );
       }),
     );
+  }
+
+  /** Each sucker deployer must have code and be allowed by the canonical registry. */
+  private async requireSuckerDeployers(
+    client: PublicClient,
+    chainId: ChainId,
+    deployers: readonly Address[],
+  ) {
+    for (const deployer of deployers) {
+      await this.code(client, [deployer]);
+      const allowed = await client.readContract({
+        address: v6Address('JBSuckerRegistry', chainId),
+        abi: jbSuckerRegistryAbi,
+        functionName: 'suckerDeployerIsAllowed',
+        args: [deployer],
+      });
+      if (!allowed)
+        fail('SUCKER_DEPLOYER_NOT_ALLOWED', 'The sucker registry has not allowed this deployer.');
+    }
   }
 
   private async context(snapshot: RpcSnapshot, project: ProjectRef) {
@@ -1053,16 +1077,12 @@ export class ProductService {
           : []),
       ],
     );
+    await this.requireSuckerDeployers(
+      snapshot.client,
+      input.chainId,
+      input.suckerConfig.deployerConfigurations.map((config) => config.deployer),
+    );
     for (const config of input.suckerConfig.deployerConfigurations) {
-      await this.code(snapshot.client, [config.deployer]);
-      const allowed = await snapshot.client.readContract({
-        address: v6Address('JBSuckerRegistry', input.chainId),
-        abi: jbSuckerRegistryAbi,
-        functionName: 'suckerDeployerIsAllowed',
-        args: [config.deployer],
-      });
-      if (!allowed)
-        fail('SUCKER_DEPLOYER_NOT_ALLOWED', 'The sucker registry has not allowed this deployer.');
       if (
         config.mappings.some(
           (mapping) =>
@@ -1134,6 +1154,11 @@ export class ProductService {
         ...(same(input.config.operator, zeroAddress)
           ? ['The operator is zero: operator powers are permanently relinquished at launch.']
           : []),
+        ...(input.config.description.uri === ''
+          ? [
+              'description.uri is empty, so the revnet has no name. After launch, the operator can set a pinned URI with jb_prepare_set_project_uri.',
+            ]
+          : []),
         input.tiered721Config
           ? 'The NFT store comes from tiered721Config. Collection supply and metadata configurations are per-chain.'
           : 'Without tiered721Config, the four-argument overload also deploys a default NFT store. Collection supply and metadata configurations are per-chain.',
@@ -1174,6 +1199,171 @@ export class ProductService {
       rule: 'REVDeployer: a deploy that lands after the first stage start blocks ordinary cash outs and loans on that chain until deploy time + CASH_OUT_DELAY. A deploy at or before the start has no delay.',
       next: 'Use this value as stageConfigurations[0].startsAtOrAfter on every chain, prepare every chain now with jb_prepare_revnet_deploy, and have all of them land before signBy. If signing slips past it, call again and re-prepare every chain: the start is part of the config hash.',
       evidence: reads.map((read) => read.evidence),
+    };
+  }
+
+  async prepareOmnichainLaunch(
+    raw: z.input<typeof prepareOmnichainLaunchSchema>,
+  ): Promise<PlanDraft> {
+    const input = prepareOmnichainLaunchSchema.parse(raw);
+    const contexts = input.terminalConfigurations.flatMap((t) => t.accountingContextsToAccept);
+    // Same asset choice as juicebox.money: map native ETH when accepted; other terminal tokens stay local.
+    const assets = contexts.some((c) => same(c.token, NATIVE_TOKEN)) ? [MappableAsset.NATIVE] : [];
+    const deploy721Config = input.deployTiersHookConfig && {
+      deployTiersHookConfig: toDeploy721Hook(input.deployTiersHookConfig),
+      useDataHookForCashOut: input.useDataHookForCashOut,
+      salt: input.salt,
+    };
+    if (input.deployTiersHookConfig)
+      this.validateInitialTiers(input.deployTiersHookConfig.tiersConfig.tiers);
+    // Lanes come from the SDK registry before any read, so an unlinkable chain set fails fast.
+    const requests = input.chainIds.map((chainId) => {
+      try {
+        return buildOmnichainLaunchProjectTx({
+          chainId,
+          chainIds: input.chainIds,
+          owner: input.owner,
+          projectUri: input.projectUri,
+          rulesetConfigurations: input.rulesetConfigurations.map(toRulesetConfig),
+          terminalConfigurations: input.terminalConfigurations.map(toTerminalConfig),
+          memo: input.memo,
+          creationFee: 0n,
+          salt: input.salt,
+          assets,
+          bridge: input.bridge,
+          ...(deploy721Config ? { deploy721Config } : {}),
+        });
+      } catch (error) {
+        throw new DomainError(
+          'SUCKER_LANE_UNAVAILABLE',
+          `Chains ${input.chainIds.join(', ')} cannot be linked with bridge "${input.bridge}": ${(error as Error).message}.`,
+          { details: { chainId, chainIds: input.chainIds, bridge: input.bridge } },
+        );
+      }
+    });
+    const tokens = contexts.map((c) => c.token).filter((token) => !same(token, NATIVE_TOKEN));
+    const chains = await Promise.all(
+      requests.map(async (request) => {
+        const { chainId } = request;
+        const snapshot = await this.rpc.snapshot(chainId);
+        const deployer = v6Address('JBOmnichainDeployer', chainId);
+        await this.code(snapshot.client, [
+          deployer,
+          v6Address('JBProjects', chainId),
+          v6Address('JBController', chainId),
+          v6Address('JBSuckerRegistry', chainId),
+          v6Address('JB721TiersHookDeployer', chainId),
+          ...input.terminalConfigurations.map((t) => t.terminal),
+          ...tokens,
+          ...(input.deployTiersHookConfig &&
+          !same(input.deployTiersHookConfig.tokenUriResolver, zeroAddress)
+            ? [input.deployTiersHookConfig.tokenUriResolver]
+            : []),
+        ]);
+        const [registry, controller, fee] = await Promise.all([
+          snapshot.client.readContract({
+            address: deployer,
+            abi: jbOmnichainDeployerAbi,
+            functionName: 'SUCKER_REGISTRY',
+          }),
+          snapshot.client.readContract({
+            address: deployer,
+            abi: jbOmnichainDeployerAbi,
+            functionName: 'CONTROLLER',
+          }),
+          getProjectCreationFee(snapshot.client, chainId),
+        ]);
+        if (
+          !same(registry, v6Address('JBSuckerRegistry', chainId)) ||
+          !same(controller, v6Address('JBController', chainId))
+        )
+          fail(
+            'INVALID_OMNICHAIN_DEPLOYER',
+            `The omnichain deployer on chain ${chainId} does not use the canonical controller and sucker registry.`,
+          );
+        const suckers = request.args[request.args.length - 1] as {
+          deployerConfigurations: readonly { deployer: Address }[];
+        };
+        await this.requireSuckerDeployers(
+          snapshot.client,
+          chainId,
+          suckers.deployerConfigurations.map((config) => config.deployer),
+        );
+        const pricingChecks = await this.pricingChecks(snapshot, chainId, contexts, [
+          ...input.rulesetConfigurations.map((r) => r.metadata.baseCurrency),
+          ...(input.deployTiersHookConfig
+            ? [input.deployTiersHookConfig.tiersConfig.currency]
+            : []),
+        ]);
+        const call = prepared(
+          chainId,
+          deployer,
+          jbOmnichainDeployerAbi,
+          'launchProjectFor',
+          request.args,
+          `Launch the linked project on chain ${chainId}`,
+          fee,
+        );
+        return { snapshot, call, fee, pricingChecks, lanes: suckers.deployerConfigurations };
+      }),
+    );
+    // Every argument but the per-lane sucker deployers must match, so one hash covers all chains.
+    const commitments = chains.map(({ call }) => {
+      const args = call.decoded.args as unknown[];
+      const suckers = args[args.length - 1] as { salt: string };
+      return keccak256(
+        stringToHex(
+          canonicalJson({ account: input.account, args: [...args.slice(0, -1), suckers.salt] }),
+        ),
+      );
+    });
+    if (new Set(commitments).size !== 1)
+      fail('OMNICHAIN_MISMATCH', 'The prepared chains do not share identical launch arguments.');
+    const warnings = configurationWarnings(input.chainIds[0]!, input.rulesetConfigurations).filter(
+      (warning) => !warning.startsWith('This action configures one chain only.'),
+    );
+    warnings.unshift(
+      'Sign every step from the same account. Each step is one chain; project IDs can differ by chain.',
+    );
+    if (input.rulesetConfigurations[0]!.mustStartAtOrAfter === '0')
+      warnings.push(
+        'mustStartAtOrAfter is 0, so each chain starts when its step executes. Set one absolute start to align cycles.',
+      );
+    warnings.push(
+      'JBOmnichainDeployer becomes each ruleset’s data hook and always deploys an NFT collection. A dataHook you set runs behind it. Queue later rulesets through JBOmnichainDeployer.queueRulesetsOf to keep this wiring.',
+      'Local suckers do not prove the remote side launched. Verify every chain.',
+      'Creation fees are exact per chain and block. Reprepare if one changes.',
+      ...launchFollowUps(input.projectUri),
+    );
+    if (!same(input.owner, input.account))
+      warnings.push('The signer is not the owner. Naming an owner is not proof the owner agreed.');
+    return {
+      operation: 'omnichain_launch',
+      account: input.account,
+      calls: chains.map(({ call }) => call),
+      evidence: chains.map(({ snapshot }) => snapshot.evidence),
+      summary: {
+        operation: 'omnichain_launch',
+        commitment: {
+          hash: commitments[0],
+          covers:
+            'keccak256 of canonical JSON {account, args}: every launchProjectFor argument, with the sucker configuration reduced to its salt. Identical on every step.',
+        },
+        account: input.account,
+        owner: input.owner,
+        salt: input.salt,
+        bridge: input.bridge,
+        chains: chains.map(({ call, fee, pricingChecks, lanes }, step) => ({
+          step,
+          chainId: call.chainId,
+          creationFee: String(fee),
+          suckerDeployers: jsonSafe(lanes),
+          pricingChecks,
+        })),
+        projectIdResolution:
+          'Read JBProjects.Create logs after each receipt; IDs are not predicted and can differ by chain.',
+      },
+      warnings,
     };
   }
 
@@ -1296,6 +1486,7 @@ export class ProductService {
         'The project deployer always enables its new hook for payments; useDataHookForCashOut controls NFT-based cash-out behavior independently.',
         'Project owner powers are exactly the reviewed ruleset flags. Future ruleset changes may replace the active NFT hook.',
         'Creation fee and default price feeds are block-specific observations; reprepare if they change.',
+        ...launchFollowUps(input.projectUri),
       ],
     };
   }

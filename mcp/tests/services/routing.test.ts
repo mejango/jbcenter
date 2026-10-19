@@ -5,19 +5,26 @@ import {
   jbRouterTerminalRegistryAbi,
 } from '@bananapus/nana-sdk-core';
 import {
+  NATIVE_SWAP_BY_CHAIN,
+  uniswapV4Deployment,
   uniswapV4PoolId,
   uniswapV4PoolStateSlot,
   v6Address,
   type JBRulesetWithMetadata,
 } from '@bananapus/nana-sdk-core/v6';
 import {
+  decodeAbiParameters,
   decodeFunctionData,
+  encodeAbiParameters,
   numberToHex,
+  parseAbiParameters,
   zeroAddress,
   zeroHash,
   type Address,
+  type Hex,
   type PublicClient,
 } from 'viem';
+import { DomainError } from '../../src/domain/errors.js';
 import { RoutingService, resolveRoutingHooks } from '../../src/services/routing.js';
 import { resolveRouterTerminal, routingSchema } from '../../src/domain/routing.js';
 import { deploymentAddress, deploymentAddresses } from '../../src/services/rollout.js';
@@ -763,5 +770,136 @@ describe('routing configuration plans', () => {
       meaning:
         'Clears the project override. The effective cohort fallback is unverified and may be zero; continued buyback routing is unknown.',
     });
+  });
+});
+
+describe('direct pool-buy quote', () => {
+  const evidence = {
+    chainId: 1,
+    blockNumber: '20000000',
+    blockHash: zeroHash,
+    timestamp: '1700000100',
+    source: 'rpc',
+  } as const;
+  const usdc = NATIVE_SWAP_BY_CHAIN[1]!.bridgeToken;
+  const terminalQuote = {
+    route: 'multi-terminal',
+    quoteBasis: 'terminal-issuance-preview',
+    beneficiaryTokenCount: '900000000000000000',
+    reservedTokenCount: '100000000000000000',
+    minimumBeneficiaryTokenCount: '891000000000000000',
+    slippageBps: 100,
+  };
+  const input = { project, account: owner, token: native, amount: '1000000000000000000' };
+  // V4 quoter: exact input in, 97% out. V3 bridge quoter: 2,000 USDC per ETH.
+  function withQuoters(service: ReturnType<typeof fixture>) {
+    const calls: { to: Address; data: Hex }[] = [];
+    (service.snapshot.client as unknown as { call: unknown }).call = vi.fn(
+      async (request: { to: Address; data: Hex }) => {
+        calls.push(request);
+        if (request.to.toLowerCase() === NATIVE_SWAP_BY_CHAIN[1]!.v3Quoter.toLowerCase())
+          return {
+            data: encodeAbiParameters(parseAbiParameters('uint256, uint160, uint32, uint256'), [
+              2_000_000_000n,
+              0n,
+              0,
+              0n,
+            ]),
+          };
+        const amount = (
+          decodeAbiParameters(
+            parseAbiParameters('((address,address,uint24,int24,address),bool,uint128,bytes)'),
+            `0x${request.data.slice(10)}`,
+          )[0] as readonly unknown[]
+        )[2] as bigint;
+        return {
+          data: encodeAbiParameters(parseAbiParameters('uint256, uint256'), [
+            (amount * 97n) / 100n,
+            0n,
+          ]),
+        };
+      },
+    );
+    return calls;
+  }
+
+  it('quotes the pool next to the terminal quote at the same block and says splits are skipped', async () => {
+    const routing = fixture();
+    const calls = withQuoters(routing);
+    const quoteTerminal = vi.fn(async () => terminalQuote);
+    const result = await routing.service.quotePoolBuy(input, quoteTerminal);
+    expect(quoteTerminal).toHaveBeenCalledWith(evidence);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.to.toLowerCase()).toBe(uniswapV4Deployment(1)!.quoter!.toLowerCase());
+    expect(result).toMatchObject({
+      evidence: [evidence],
+      projectToken,
+      pool: {
+        key,
+        inputRoute: { kind: 'single-v4' },
+        amountIn: '1000000000000000000',
+        tokenCount: '970000000000000000',
+        spotTokenCount: '1000000000000000000',
+        priceImpactBps: '300',
+      },
+      terminal: { status: 'known', value: terminalQuote },
+    });
+    const { warnings } = result as { warnings: string[] };
+    expect(warnings[0]).toContain('no reserved tokens');
+    expect(warnings.join(' ')).toContain('Neither is a best-price claim');
+  });
+
+  it('crosses the ETH/USDC bridge when only the USDC pool exists', async () => {
+    const usdcKey = { ...key, currency0: projectToken, currency1: usdc };
+    const routing = fixture((request) =>
+      request.functionName === 'poolKeyOf'
+        ? request.args?.[1] === zeroAddress
+          ? emptyKey
+          : usdcKey
+        : request.functionName === 'extsload' &&
+            request.args?.[0] === uniswapV4PoolStateSlot(uniswapV4PoolId(usdcKey))
+          ? numberToHex(1n << 96n, { size: 32 })
+          : pass,
+    );
+    withQuoters(routing);
+    const result = await routing.service.quotePoolBuy(input, async () => terminalQuote);
+    expect(result).toMatchObject({
+      pool: {
+        key: usdcKey,
+        inputRoute: { kind: 'native-v3-v4', quotedBridgeAmount: '2000000000' },
+        amountIn: '2000000000',
+        tokenCount: '1940000000',
+      },
+    });
+    expect((result as { warnings: string[] }).warnings.join(' ')).toContain(
+      'Uniswap V3 ETH/USDC pool',
+    );
+  });
+
+  it('keeps the pool quote when the terminal quote fails', async () => {
+    const routing = fixture();
+    withQuoters(routing);
+    const result = await routing.service.quotePoolBuy(input, async () => {
+      throw new DomainError('UNSUPPORTED_COMPOSITION', 'Unrecognized hook.');
+    });
+    expect(result).toMatchObject({
+      pool: { tokenCount: '970000000000000000' },
+      terminal: { status: 'unknown', error: { code: 'UNSUPPORTED_COMPOSITION' } },
+    });
+  });
+
+  it('refuses projects without a buyback pool or with a pool for another token', async () => {
+    const noHook = fixture((request) => (request.functionName === 'hookOf' ? zeroAddress : pass));
+    await expect(
+      noHook.service.quotePoolBuy(input, async () => terminalQuote),
+    ).rejects.toMatchObject({ code: 'NO_BUYBACK_POOL' });
+    const noPool = fixture((request) => (request.functionName === 'poolKeyOf' ? emptyKey : pass));
+    await expect(
+      noPool.service.quotePoolBuy(input, async () => terminalQuote),
+    ).rejects.toMatchObject({ code: 'NO_BUYBACK_POOL' });
+    const otherToken = fixture((request) => (request.functionName === 'tokenOf' ? custom : pass));
+    await expect(
+      otherToken.service.quotePoolBuy(input, async () => terminalQuote),
+    ).rejects.toMatchObject({ code: 'POOL_PAIR_MISMATCH' });
   });
 });

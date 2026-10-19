@@ -6,6 +6,7 @@ import {
   encodeAbiParameters,
   erc20Abi,
   keccak256,
+  numberToHex,
   parseAbi,
   toFunctionSelector,
   zeroAddress,
@@ -23,16 +24,18 @@ import {
   jbBuybackHookRegistryAbi,
   jbControllerAbi,
   jbMultiTerminalAbi,
+  jbOmnichainDeployerAbi,
   jbPermissionsAbi,
   jbProjectsAbi,
   jbRouterTerminalRegistryAbi,
   jbSuckerRegistryAbi,
+  jbTokensAbi,
   revDeployerAbi,
   revLoansAbi,
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
 import { jbSuckerV6Abi, v6Address } from '@bananapus/nana-sdk-core/v6';
-import { DomainError, publicError } from '../domain/errors.js';
+import { DomainError, publicError, revertOf } from '../domain/errors.js';
 import { canonicalJson, jsonSafe } from '../domain/json.js';
 import {
   addressSchema,
@@ -42,7 +45,13 @@ import {
   projectSchema,
   uintSchema,
 } from '../domain/schemas.js';
-import type { BlockEvidence, PlanDraft, PreparedCall, RpcProvider } from '../domain/types.js';
+import type {
+  BlockEvidence,
+  PlanDraft,
+  PreparedCall,
+  RpcProvider,
+  RpcSnapshot,
+} from '../domain/types.js';
 import { deploymentAddress, deploymentAddresses } from './rollout.js';
 
 // Fit token + review in MCP result limits, and token + references in the HTTP request limit.
@@ -167,8 +176,15 @@ const simulateSchema = z
       .max(MAX_CALLS - 1)
       .default(0),
     confirmedTransactions: z.array(transactionSchema).max(MAX_CALLS).default([]),
+    chained: z.boolean().default(false),
   })
   .strict();
+const chainedCallSchema = z.object({
+  status: z.enum(['0x0', '0x1']),
+  gasUsed: z.string().regex(/^0x[0-9a-f]+$/i),
+  returnData: hexSchema,
+  error: z.object({ data: z.unknown().optional() }).passthrough().optional(),
+});
 
 export interface PlanEnvelope {
   version: 1;
@@ -278,6 +294,21 @@ export function normalizePlanDraft(draft: PlanDraft): PlanDraft {
   if (Buffer.byteLength(canonicalJson(normalized)) > MAX_PAYLOAD_BYTES)
     throw new DomainError('INVALID_PLAN', 'Plan exceeds the maximum payload size.');
   return freeze(normalized);
+}
+
+/** Every step `step` transitively depends on, ascending. */
+function requiredSteps(draft: PlanDraft, step: number): number[] {
+  const required = new Set<number>();
+  const visit = (index: number) => {
+    for (const dependency of draft.calls[index]!.dependsOn) {
+      if (!required.has(dependency)) {
+        required.add(dependency);
+        visit(dependency);
+      }
+    }
+  };
+  visit(step);
+  return [...required].sort((a, b) => a - b);
 }
 
 /** Stateless, authenticated transaction plans. This service never signs or broadcasts transactions. */
@@ -397,28 +428,31 @@ export class PlanService {
     token: string;
     step?: number;
     confirmedTransactions?: TransactionReference[];
+    chained?: boolean;
   }) {
-    const { token, step, confirmedTransactions } = parse(simulateSchema, input);
+    const { token, step, confirmedTransactions, chained } = parse(simulateSchema, input);
     const plan = this.inspect(token);
     this.validateReferences(plan, confirmedTransactions);
     const call = plan.draft.calls[step];
     if (!call)
       throw new DomainError('INVALID_PLAN_STEP', 'The requested step is not in this plan.');
-    const required = new Set<number>();
-    const addDependencies = (index: number) => {
-      for (const dependency of plan.draft.calls[index]!.dependsOn) {
-        if (!required.has(dependency)) {
-          required.add(dependency);
-          addDependencies(dependency);
-        }
-      }
-    };
-    addDependencies(step);
+    let fallback: { chained: { available: false; reason: string } } | undefined;
+    if (chained) {
+      if (confirmedTransactions.length)
+        throw new DomainError(
+          'INVALID_PLAN_TRANSACTIONS',
+          'Chained mode is for unconfirmed steps. Omit confirmedTransactions, or drop chained once steps confirm.',
+        );
+      const result = await this.simulateChained(token, plan, step);
+      if (result.status) return { contentHash: plan.contentHash, step, ...result };
+      fallback = { chained: { available: false, reason: result.reason } };
+    }
+    const required = requiredSteps(plan.draft, step);
     const references = new Map(
       confirmedTransactions.map((reference) => [reference.step, reference.hash]),
     );
     const dependencies: StepVerification[] = [];
-    for (const dependency of [...required].sort((a, b) => a - b)) {
+    for (const dependency of required) {
       const hash = references.get(dependency);
       dependencies.push(
         hash
@@ -439,7 +473,8 @@ export class PlanService {
         status: 'blocked' as const,
         dependencies,
         reason:
-          'Required prior steps must match the signed plan and have at least two canonical block confirmations. No allowance or state overrides are applied.',
+          'Required prior steps must match the signed plan and have at least two canonical block confirmations. No allowance or state overrides are applied. To check this step before signing earlier steps, call again with chained: true.',
+        ...fallback,
       };
     }
     try {
@@ -503,6 +538,7 @@ export class PlanService {
         dependencies,
         warning:
           'Simulation is a block-specific observation, not an execution guarantee. Your wallet must review the exact signed calls and enforce the plan expiry.',
+        ...fallback,
       };
     } catch (error) {
       return {
@@ -510,6 +546,138 @@ export class PlanService {
         step,
         status: 'unverified' as const,
         dependencies,
+        error: publicError(error),
+        ...fallback,
+      };
+    }
+  }
+
+  /**
+   * Run this chain's steps 0..step in order in one simulated block on real state, from the plan
+   * account, with no overrides. Earlier steps are unconfirmed, so nothing here is `simulated`.
+   * Returns a bare reason when chaining is unavailable and the caller should fall back.
+   */
+  private async simulateChained(token: string, plan: PlanEnvelope, step: number) {
+    const target = plan.draft.calls[step]!;
+    const indexes = plan.draft.calls
+      .map((call, index) => (index <= step && call.chainId === target.chainId ? index : -1))
+      .filter((index) => index >= 0);
+    if (
+      requiredSteps(plan.draft, step).some(
+        (index) => plan.draft.calls[index]!.chainId !== target.chainId,
+      )
+    )
+      return {
+        status: undefined,
+        reason: 'A required step is on another chain; it cannot be chained.',
+      };
+    if (indexes.length > 16)
+      return {
+        status: undefined,
+        reason: 'More than 16 steps on this chain; chaining is limited to 16.',
+      };
+    let snapshot: RpcSnapshot;
+    let raw: unknown;
+    try {
+      snapshot = await this.rpc.snapshot(target.chainId);
+      if (
+        snapshot.evidence.chainId !== target.chainId ||
+        (await snapshot.client.getChainId()) !== target.chainId
+      )
+        throw new DomainError('RPC_CHAIN_MISMATCH', 'RPC chain does not match the signed plan.');
+    } catch (error) {
+      return { status: 'unverified' as const, error: publicError(error) };
+    }
+    try {
+      raw = await snapshot.client.request({
+        method: 'eth_simulateV1',
+        params: [
+          {
+            blockStateCalls: [
+              {
+                calls: indexes.map((index) => {
+                  const call = plan.draft.calls[index]!;
+                  return {
+                    from: plan.draft.account,
+                    to: call.to,
+                    data: call.data,
+                    value: numberToHex(BigInt(call.value)),
+                  };
+                }),
+              },
+            ],
+            validation: false,
+          },
+          'latest',
+        ],
+      } as never);
+    } catch (error) {
+      return {
+        status: undefined,
+        reason: `The RPC does not support or rejected eth_simulateV1 (${publicError(error).code}). Showing the standard simulation.`,
+      };
+    }
+    try {
+      const block = Array.isArray(raw) && raw.length === 1 ? (raw[0] as { calls?: unknown }) : {};
+      const results = z.array(chainedCallSchema).length(indexes.length).safeParse(block.calls);
+      if (!results.success)
+        throw new DomainError(
+          'RPC_INVALID_RESPONSE',
+          'The RPC returned an invalid eth_simulateV1 response.',
+        );
+      const canonical = await snapshot.client.getBlock({
+        blockNumber: BigInt(snapshot.evidence.blockNumber),
+      });
+      if (!same(canonical.hash, snapshot.evidence.blockHash))
+        throw new DomainError(
+          'CHAIN_REORG',
+          'The simulation block changed. Retry the simulation.',
+          { retryable: true },
+        );
+      this.inspect(token); // Do not return a valid simulation after a plan expired during RPC calls.
+      const steps = results.data.map((result, position) => {
+        const gasUsed = BigInt(result.gasUsed);
+        const reverted = result.status === '0x0';
+        const revert = { code: 3, data: result.error?.data };
+        const error = reverted
+          ? publicError(
+              revertOf(revert)
+                ? revert
+                : new DomainError('CALL_REVERTED', 'This step reverts at this block.'),
+            )
+          : gasUsed > MAX_GAS
+            ? publicError(
+                new DomainError(
+                  'GAS_LIMIT_EXCEEDED',
+                  'Gas used exceeds this service’s simulation limit.',
+                ),
+              )
+            : undefined;
+        return {
+          step: indexes[position]!,
+          status: reverted
+            ? ('reverted' as const)
+            : error
+              ? ('unverified' as const)
+              : ('chained-simulated' as const),
+          gasUsed: gasUsed.toString(),
+          returnData: result.returnData,
+          ...(error ? { error } : {}),
+        };
+      });
+      const failed = steps.find((item) => item.error);
+      return {
+        status: failed ? ('unverified' as const) : ('chained-simulated' as const),
+        evidence: snapshot.evidence,
+        steps,
+        ...(failed ? { error: { ...failed.error!, step: failed.step } } : {}),
+        warning:
+          'Earlier steps ran unconfirmed in the same simulated block. Sign in order; gasUsed is not a gas limit. This is a block-specific observation, not an execution guarantee.',
+      };
+    } catch (error) {
+      return {
+        status: 'unverified' as const,
+        evidence: snapshot.evidence,
         error: publicError(error),
       };
     }
@@ -963,6 +1131,8 @@ export class PlanService {
                 'The canonical QueueRulesets event is absent or does not match the project/caller/memo.',
               );
         }
+        if (decoded.functionName === 'deployERC20For' || decoded.functionName === 'setUriOf')
+          return this.extensionEvidence(plan, call, sourceLogs)!;
         if (decoded.functionName !== 'launchProjectFor')
           return unknown('Semantic verification is not implemented for this controller function.');
         const [owner, projectUri] = decoded.args;
@@ -1108,6 +1278,109 @@ export class PlanService {
     });
     const fromCaller = (args: Record<string, unknown>) => same(args.caller, plan.draft.account);
 
+    if (same(call.to, v6Address('JBController', call.chainId))) {
+      const decoded = decodeFunctionData({ abi: jbControllerAbi, data: call.data });
+      if (decoded.functionName === 'deployERC20For') {
+        const [projectId, name, symbol, salt] = decoded.args;
+        const deployed =
+          projectMatches(projectId) &&
+          matching(
+            jbControllerAbi,
+            'DeployERC20',
+            call.to,
+            (args) => fromCaller(args) && args.projectId === projectId && args.salt === salt,
+          ).length === 1 &&
+          matching(
+            jbTokensAbi,
+            'DeployERC20',
+            v6Address('JBTokens', call.chainId),
+            (args) =>
+              args.projectId === projectId &&
+              args.name === name &&
+              args.symbol === symbol &&
+              same(args.caller, call.to),
+          ).length === 1;
+        return done(deployed, deployed ? 'The project ERC-20 was deployed.' : undefined);
+      }
+      if (decoded.functionName === 'setUriOf') {
+        const [projectId, uri] = decoded.args;
+        return done(
+          projectMatches(projectId) &&
+            matching(
+              jbControllerAbi,
+              'SetUri',
+              call.to,
+              (args) => fromCaller(args) && args.projectId === projectId && args.uri === uri,
+            ).length === 1,
+        );
+      }
+      return done(false);
+    }
+    if (same(call.to, v6Address('JBOmnichainDeployer', call.chainId))) {
+      const decoded = decodeFunctionData({ abi: jbOmnichainDeployerAbi, data: call.data });
+      if (decoded.functionName !== 'launchProjectFor') return done(false);
+      const args = decoded.args as readonly unknown[];
+      const owner = args[0] as Address;
+      const projectUri = args[1] as string;
+      const memo = args[args.length - 2] as string;
+      const expectedSuckers = (
+        args[args.length - 1] as { deployerConfigurations: readonly unknown[] }
+      ).deployerConfigurations;
+      const created = matching(
+        jbProjectsAbi,
+        'Create',
+        v6Address('JBProjects', call.chainId),
+        (event) => same(event.owner, call.to) && same(event.caller, call.to),
+      );
+      const ids = new Set(
+        created.map((event) => (event.args as Record<string, unknown>).projectId),
+      );
+      const hooks = matching(
+        jb721TiersHookDeployerAbi,
+        'HookDeployed',
+        v6Address('JB721TiersHookDeployer', call.chainId),
+        (event) => ids.has(String(event.projectId)) && same(event.caller, call.to),
+      );
+      const rulesets = matching(
+        jbControllerAbi,
+        'LaunchRulesets',
+        v6Address('JBController', call.chainId),
+        (event) =>
+          ids.has(String(event.projectId)) &&
+          same(event.caller, call.to) &&
+          event.projectUri === projectUri &&
+          event.memo === memo,
+      );
+      const suckers = matching(
+        jbSuckerRegistryAbi,
+        'SuckerDeployedFor',
+        v6Address('JBSuckerRegistry', call.chainId),
+        (event) => ids.has(String(event.projectId)) && same(event.caller, call.to),
+      );
+      const ownership = matching(
+        jbProjectsAbi,
+        'Transfer',
+        v6Address('JBProjects', call.chainId),
+        (event) =>
+          ids.has(String(event.tokenId)) && same(event.from, call.to) && same(event.to, owner),
+      );
+      const actual = suckers
+        .map((event) => canonicalJson((event.args as Record<string, unknown>).configuration))
+        .sort();
+      const expected = expectedSuckers.map((item) => canonicalJson(jsonSafe(item))).sort();
+      const verified =
+        created.length === 1 &&
+        hooks.length === 1 &&
+        rulesets.length === 1 &&
+        ownership.length === 1 &&
+        equalData(actual, expected);
+      return done(
+        verified,
+        verified
+          ? 'The project, its NFT collection, its rulesets and the requested local suckers were created on this chain, and the owner received the project. The remote chains need their own verification.'
+          : 'Project creation, NFT collection, rulesets, local suckers or the owner transfer were not all verified.',
+      );
+    }
     if (same(call.to, v6Address('JBPermissions', call.chainId))) {
       const decoded = decodeFunctionData({ abi: jbPermissionsAbi, data: call.data });
       if (decoded.functionName !== 'setPermissionsFor') return done(false);

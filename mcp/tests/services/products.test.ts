@@ -6,6 +6,7 @@ import {
   jb721TiersHookAbi,
   jb721TiersHookProjectDeployerAbi,
   jbMultiTerminalAbi,
+  jbOmnichainDeployerAbi,
   revDeployerAbi,
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
@@ -174,6 +175,8 @@ function fixture(
     paymentTokenCount?: bigint;
     reservedTokenCount?: bigint;
     countRequests?: boolean;
+    registry?: Address;
+    deployerNotAllowed?: boolean;
   } = {},
 ) {
   const chainId = options.chainId ?? project.chainId;
@@ -316,7 +319,11 @@ function fixture(
       case 'decimals':
         return options.decimals ?? 18;
       case 'suckerDeployerIsAllowed':
-        return true;
+        return !options.deployerNotAllowed;
+      case 'SUCKER_REGISTRY':
+        return options.registry ?? v6Address('JBSuckerRegistry', chainId);
+      case 'CONTROLLER':
+        return controller;
       default:
         throw new Error(`Unexpected read ${request.functionName}`);
     }
@@ -1260,5 +1267,131 @@ describe('standard project launches with attached 721 tiers', () => {
         rulesetConfigurations: [{ ...launch.rulesetConfigurations[0], duration: 'abc' }],
       }),
     ).not.toThrow();
+  });
+});
+
+describe('omnichain project launches', () => {
+  const { dataHook: _d, useDataHookForPay: _p, ...sdkMetadata } = buildRulesetMetadata();
+  const launch = {
+    chainIds: [1, 8453] as ChainId[],
+    account,
+    owner: beneficiary,
+    projectUri: '',
+    salt: hash,
+    rulesetConfigurations: [
+      {
+        mustStartAtOrAfter: '0',
+        duration: '0',
+        weight: '1000000000000000000000',
+        weightCutPercent: '0',
+        approvalHook: zeroAddress,
+        metadata: {
+          ...sdkMetadata,
+          dataHook: zeroAddress,
+          useDataHookForPay: false,
+          reservedPercent: '0',
+          cashOutTaxRate: '0',
+          baseCurrency: '1',
+          metadata: '0',
+        },
+        splitGroups: [],
+        fundAccessLimitGroups: [],
+      },
+    ],
+    terminalConfigurations: [
+      {
+        terminal: v6Address('JBMultiTerminal', 1),
+        accountingContextsToAccept: [{ token: NATIVE_TOKEN, decimals: '18', currency: '61166' }],
+      },
+    ],
+  };
+  // One provider serving each chain its own snapshot, as production does.
+  const multichain = (options: Parameters<typeof fixture>[0] = {}) => {
+    const byChain = new Map<ChainId, ReturnType<typeof fixture>>();
+    const get = (chainId: ChainId) => {
+      if (!byChain.has(chainId))
+        byChain.set(chainId, fixture({ ...options, chainId, fee: BigInt(chainId) }));
+      return byChain.get(chainId)!;
+    };
+    const snapshot = vi.fn(async (chainId: ChainId) => ({
+      client: get(chainId).client,
+      evidence: { ...get(chainId).evidence, chainId },
+    }));
+    const rpc: RpcProvider = { snapshot, client: (chainId) => get(chainId).client };
+    return { service: new ProductService(rpc, 300), snapshot };
+  };
+
+  it('prepares one step per chain with registry lanes, one salt and one commitment', async () => {
+    const plan = await multichain().service.prepareOmnichainLaunch(launch);
+    expect(plan.operation).toBe('omnichain_launch');
+    expect(plan.calls.map((call) => call.chainId)).toEqual([1, 8453]);
+    expect(plan.evidence.map((item) => item.chainId)).toEqual([1, 8453]);
+    for (const call of plan.calls) {
+      expect(call.to).toBe(v6Address('JBOmnichainDeployer', call.chainId));
+      expect(call.value).toBe(String(call.chainId));
+      const decoded = decodeFunctionData({ abi: jbOmnichainDeployerAbi, data: call.data });
+      if (decoded.functionName !== 'launchProjectFor' || decoded.args.length !== 6)
+        throw new Error('Expected the six-argument launch');
+      const suckers = decoded.args[5];
+      expect(suckers.salt).toBe(hash);
+      expect(suckers.deployerConfigurations).toHaveLength(1);
+      // The CCIP lane deployer is the same address on both ends, so the peers pair.
+      expect(suckers.deployerConfigurations[0]!.deployer.toLowerCase()).toBe(
+        '0x3955fec11fe15f0be4dfa2b0153feef55d55e1ee',
+      );
+      expect(suckers.deployerConfigurations[0]!.mappings[0]!.localToken).toBe(NATIVE_TOKEN);
+    }
+    const summary = plan.summary as { commitment: { hash: string }; chains: unknown[] };
+    expect(summary.commitment.hash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(summary.chains).toHaveLength(2);
+    const text = plan.warnings.join(' ');
+    expect(text).toContain('jb_prepare_set_project_uri');
+    expect(text).toContain('jb_prepare_deploy_erc20');
+    expect(text).toContain('one absolute start');
+  });
+
+  it('uses the seven-argument launch with the shared salt when tiers are given', async () => {
+    const plan = await multichain().service.prepareOmnichainLaunch({
+      ...launch,
+      deployTiersHookConfig: {
+        name: 'Shop',
+        symbol: 'SHOP',
+        baseUri: 'ipfs://',
+        tokenUriResolver: zeroAddress,
+        contractUri: 'ipfs://shop',
+        tiersConfig: { tiers: [tierConfig], currency: '61166', decimals: '18' },
+        flags: collectionFlags,
+      },
+    });
+    const decoded = decodeFunctionData({ abi: jbOmnichainDeployerAbi, data: plan.calls[1]!.data });
+    if (decoded.functionName !== 'launchProjectFor' || decoded.args.length !== 7)
+      throw new Error('Expected the seven-argument launch');
+    expect(decoded.args[2]).toMatchObject({ salt: hash, useDataHookForCashOut: false });
+  });
+
+  it('refuses chain sets without a sucker lane before reading any chain', async () => {
+    const mixed = multichain();
+    await expect(
+      mixed.service.prepareOmnichainLaunch({ ...launch, chainIds: [1, 84532] }),
+    ).rejects.toMatchObject({ code: 'SUCKER_LANE_UNAVAILABLE' });
+    await expect(
+      mixed.service.prepareOmnichainLaunch({ ...launch, chainIds: [8453, 10], bridge: 'native' }),
+    ).rejects.toMatchObject({ code: 'SUCKER_LANE_UNAVAILABLE' });
+    expect(mixed.snapshot).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unallowed deployer, a non-canonical omnichain deployer and a zero salt', async () => {
+    await expect(
+      multichain({ deployerNotAllowed: true }).service.prepareOmnichainLaunch(launch),
+    ).rejects.toMatchObject({ code: 'SUCKER_DEPLOYER_NOT_ALLOWED' });
+    await expect(
+      multichain({ registry: beneficiary }).service.prepareOmnichainLaunch(launch),
+    ).rejects.toMatchObject({ code: 'INVALID_OMNICHAIN_DEPLOYER' });
+    await expect(
+      multichain().service.prepareOmnichainLaunch({ ...launch, salt: zeroHash }),
+    ).rejects.toThrow('zero skips suckers');
+    await expect(
+      multichain().service.prepareOmnichainLaunch({ ...launch, useDataHookForCashOut: true }),
+    ).rejects.toThrow('needs deployTiersHookConfig');
   });
 });

@@ -214,6 +214,43 @@ describe('Bendystraw V6 read boundary', () => {
       ).rejects.toMatchObject({ code: 'UPSTREAM_INVALID_RESPONSE' });
   });
 
+  it('lists one project holders by balance on one chain, and rejects rows outside it', async () => {
+    const holder = {
+      chainId: 8453,
+      projectId: 7,
+      version: 6,
+      address: ADDRESS,
+      suckerGroupId: 'group-7',
+      createdAt: 1_700_000_000,
+      balance: '5',
+      creditBalance: '2',
+      erc20Balance: '3',
+      volume: '0',
+      volumeUsd: '0',
+      paymentsCount: 0,
+      lastPaidTimestamp: 0,
+    };
+    const { client: bendy, request } = client({ data: { participants: page([holder], true) } });
+    expect(
+      await bendy.getHolders({ chainId: 8453, projectId: '7', limit: 5, cursor: 'c' }),
+    ).toMatchObject({ items: [holder], pageInfo: { hasNextPage: true } });
+    expect(body(request).query).toBe(BENDYSTRAW_OPERATIONS.getHolders);
+    expect(body(request).query).toContain('orderBy: "balance", orderDirection: "desc"');
+    expect(body(request).variables).toEqual({
+      where: {
+        AND: [{ version: 6 }, { chainId: 8453 }, { projectId: 7 }, { balance_gt: '0' }],
+      },
+      limit: 5,
+      after: 'c',
+    });
+    await expect(
+      client({ data: { participants: page([{ ...holder, projectId: 8 }]) } }).client.getHolders({
+        chainId: 8453,
+        projectId: 7,
+      }),
+    ).rejects.toMatchObject({ code: 'UPSTREAM_INVALID_RESPONSE' });
+  });
+
   it('preserves unknown indexer block status and uses the native JSON status route', async () => {
     const request = vi
       .fn<typeof fetchJson>()
