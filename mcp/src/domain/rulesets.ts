@@ -353,6 +353,73 @@ export function toRulesetConfig(value: RulesetConfigInput): JBRulesetConfig {
     })),
   };
 }
+type Int = number | bigint;
+/**
+ * A stored ruleset as one rulesetConfigurations entry, the inverse of toRulesetConfig, so an agent can copy it,
+ * edit one field and preview. mustStartAtOrAfter is 0: the queue picks the start. Only non-empty split groups and
+ * terminal/token pairs with limits are listed, exactly as stored.
+ */
+export function toRulesetInput(
+  ruleset: { duration: Int; weight: Int; weightCutPercent: Int; approvalHook: string },
+  metadata: Record<keyof RulesetConfigInput['metadata'], Int | boolean | string>,
+  splitGroups: readonly {
+    groupId: string;
+    splits: readonly {
+      percent: Int;
+      projectId: Int;
+      beneficiary: string;
+      preferAddToBalance: boolean;
+      lockedUntil: Int;
+      hook: string;
+    }[];
+  }[],
+  fundAccessLimitGroups: readonly {
+    terminal: string;
+    token: string;
+    payoutLimits: readonly { amount: Int; currency: Int }[];
+    surplusAllowances: readonly { amount: Int; currency: Int }[];
+  }[],
+): z.input<typeof rulesetConfigSchema> {
+  const amounts = (values: readonly { amount: Int; currency: Int }[]) =>
+    values.map((value) => ({ amount: String(value.amount), currency: String(value.currency) }));
+  return {
+    mustStartAtOrAfter: '0',
+    duration: String(ruleset.duration),
+    weight: String(ruleset.weight),
+    weightCutPercent: String(ruleset.weightCutPercent),
+    approvalHook: ruleset.approvalHook,
+    metadata: Object.fromEntries(
+      Object.keys(rulesetMetadataSchema.shape).map((key) => {
+        const value = metadata[key as keyof typeof metadata];
+        return [
+          key,
+          typeof value === 'boolean' || typeof value === 'string' ? value : String(value),
+        ];
+      }),
+    ) as z.input<typeof rulesetMetadataSchema>,
+    splitGroups: splitGroups
+      .filter((group) => group.splits.length > 0)
+      .map((group) => ({
+        groupId: group.groupId,
+        splits: group.splits.map((split) => ({
+          percent: String(split.percent),
+          projectId: String(split.projectId),
+          beneficiary: split.beneficiary,
+          preferAddToBalance: split.preferAddToBalance,
+          lockedUntil: String(split.lockedUntil),
+          hook: split.hook,
+        })),
+      })),
+    fundAccessLimitGroups: fundAccessLimitGroups
+      .filter((group) => group.payoutLimits.length + group.surplusAllowances.length > 0)
+      .map((group) => ({
+        terminal: group.terminal,
+        token: group.token,
+        payoutLimits: amounts(group.payoutLimits),
+        surplusAllowances: amounts(group.surplusAllowances),
+      })),
+  };
+}
 export function toTerminalConfig(value: z.output<typeof terminalConfigSchema>): JBTerminalConfig {
   return {
     terminal: value.terminal,

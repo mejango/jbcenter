@@ -265,13 +265,24 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     defineOperation(
       'get_rulesets',
-      'Read current, upcoming, and a bounded page of queued V6 rulesets at one block. Approval and queue state are preserved; custom hooks are not guessed.',
+      'Read current, upcoming, and a bounded page of queued V6 rulesets at one block. Approval and queue state are preserved; custom hooks are not guessed. currentAsInput is the active ruleset in the jb_preview_ruleset_change input shape.',
       {
         project: projectSchema,
         limit: z.number().int().min(1).max(50).default(10),
         startingId: uintSchema.optional(),
       },
-      async ({ project, ...page }) => s.projects.getRulesets(project, page),
+      async ({ project, ...page }) => {
+        const rulesets = await s.projects.getRulesets(project, page);
+        const blockNumber = BigInt(rulesets.evidence[0]!.blockNumber);
+        return {
+          ...rulesets,
+          currentAsInput: await observed(() =>
+            s.configuration.currentRulesetInput(project, blockNumber),
+          ),
+          currentAsInputUse:
+            'The active ruleset in the exact rulesetConfigurations shape, at the same block. Copy it, change only what should change, and pass it to jb_preview_ruleset_change. mustStartAtOrAfter is 0, so the queue picks the start; weight is the current cycle weight (1 inherits the decayed weight instead).',
+        };
+      },
     ),
     defineOperation(
       'get_position',

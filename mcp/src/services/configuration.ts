@@ -36,6 +36,7 @@ import {
   prepareSetProjectUriSchema,
   previewRulesetChangeSchema,
   toRulesetConfig,
+  toRulesetInput,
   toTerminalConfig,
   type PreviewRulesetChangeInput,
   type RulesetConfigInput,
@@ -457,6 +458,41 @@ export class ConfigurationService {
       evidence: [evidence],
       warnings,
     };
+  }
+
+  /** The active ruleset as one rulesetConfigurations entry, at a block. Null when no ruleset is active. */
+  async currentRulesetInput(project: ProjectRef, blockNumber?: bigint) {
+    const projectId = BigInt(project.projectId);
+    const { client, evidence } = await this.rpc.snapshot(project.chainId, blockNumber);
+    const at = BigInt(evidence.blockNumber);
+    const { controller } = await canonicalProject(client, project, at);
+    const [[ruleset, metadata], terminals] = await Promise.all([
+      client.readContract({
+        address: controller,
+        abi: jbControllerAbi,
+        functionName: 'currentRulesetOf',
+        args: [projectId],
+        blockNumber: at,
+      }),
+      client.readContract({
+        address: v6Address('JBDirectory', project.chainId),
+        abi: jbDirectoryAbi,
+        functionName: 'terminalsOf',
+        args: [projectId],
+        blockNumber: at,
+      }),
+    ]);
+    if (BigInt(ruleset.id) === 0n) return null;
+    const tables = await this.rulesetTables(
+      client,
+      project.chainId,
+      projectId,
+      BigInt(ruleset.id),
+      at,
+      terminals,
+      [],
+    );
+    return toRulesetInput(ruleset, metadata, tables.splitGroups, tables.fundAccessLimitGroups);
   }
 
   /** Each terminal's accounting contexts, and the split tables and fund access limits stored for one ruleset. */
