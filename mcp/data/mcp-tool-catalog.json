@@ -1259,9 +1259,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -1458,9 +1465,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -1481,9 +1495,16 @@
             "maximum": 50
           },
           "startingId": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           }
         },
         "required": [
@@ -1668,9 +1689,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -2071,9 +2099,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -2280,9 +2315,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -2637,9 +2679,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -2856,9 +2905,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -2876,14 +2932,28 @@
             "type": "string"
           },
           "fromBlock": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "toBlock": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           }
         },
         "required": [
@@ -3227,9 +3297,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -3251,10 +3328,17 @@
             "type": "string"
           },
           "amount": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$",
-            "description": "Input asset amount in its smallest units, as an exact integer string."
+            "description": "Input asset amount in its smallest units, as an exact integer string.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "beneficiary": {
             "type": "string"
@@ -3461,9 +3545,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -3485,10 +3576,17 @@
             "type": "string"
           },
           "amount": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$",
-            "description": "Input asset amount in its smallest units, as an exact integer string."
+            "description": "Input asset amount in its smallest units, as an exact integer string.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "beneficiary": {
             "type": "string"
@@ -3692,9 +3790,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -3712,10 +3817,17 @@
             "type": "string"
           },
           "cashOutCount": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$",
-            "description": "Project token count in 18-decimal base units."
+            "description": "Project token count in 18-decimal base units.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "tokenToReclaim": {
             "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
@@ -3924,9 +4036,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -3944,10 +4063,17 @@
             "type": "string"
           },
           "cashOutCount": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$",
-            "description": "Project token count in 18-decimal base units."
+            "description": "Project token count in 18-decimal base units.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "tokenToReclaim": {
             "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
@@ -4157,9 +4283,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -4181,10 +4314,17 @@
             "type": "string"
           },
           "amount": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$",
-            "description": "Payout amount in accounting token decimals, denominated in currency."
+            "description": "Payout amount in accounting token decimals, denominated in currency.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "currency": {
             "type": "integer",
@@ -4389,9 +4529,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -4413,10 +4560,17 @@
             "type": "string"
           },
           "amount": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$",
-            "description": "Payout amount in accounting token decimals, denominated in currency."
+            "description": "Payout amount in accounting token decimals, denominated in currency.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "currency": {
             "type": "integer",
@@ -4587,27 +4741,55 @@
             "properties": {
               "mustStartAtOrAfter": {
                 "description": "Unix seconds. A lower bound, not a promised start; 0 asks the contract to resolve timing.",
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "duration": {
                 "description": "Seconds per cycle. Zero has no automatic cycles.",
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "weight": {
                 "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "weightCutPercent": {
                 "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "approvalHook": {
                 "description": "Gates the next ruleset, not this ruleset.",
@@ -4618,21 +4800,42 @@
                 "properties": {
                   "reservedPercent": {
                     "description": "Share of new tokens reserved for splits, out of 10,000. 2500 = 25%.",
-                    "type": "string",
-                    "maxLength": 78,
-                    "pattern": "^(0|[1-9][0-9]*)$"
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "maxLength": 78
+                      }
+                    ]
                   },
                   "cashOutTaxRate": {
                     "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
-                    "type": "string",
-                    "maxLength": 78,
-                    "pattern": "^(0|[1-9][0-9]*)$"
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "maxLength": 78
+                      }
+                    ]
                   },
                   "baseCurrency": {
                     "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.",
-                    "type": "string",
-                    "maxLength": 78,
-                    "pattern": "^(0|[1-9][0-9]*)$"
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "maxLength": 78
+                      }
+                    ]
                   },
                   "pausePay": {
                     "type": "boolean"
@@ -4681,9 +4884,16 @@
                     "type": "string"
                   },
                   "metadata": {
-                    "type": "string",
-                    "maxLength": 78,
-                    "pattern": "^(0|[1-9][0-9]*)$"
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "maxLength": 78
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -4716,10 +4926,17 @@
                   "type": "object",
                   "properties": {
                     "groupId": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$",
-                      "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
+                      "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1.",
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "splits": {
                       "maxItems": 32,
@@ -4729,14 +4946,28 @@
                         "properties": {
                           "percent": {
                             "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
-                            "type": "string",
-                            "maxLength": 78,
-                            "pattern": "^(0|[1-9][0-9]*)$"
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$",
+                                "maxLength": 78
+                              }
+                            ]
                           },
                           "projectId": {
-                            "type": "string",
-                            "maxLength": 78,
-                            "pattern": "^(0|[1-9][0-9]*)$"
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$",
+                                "maxLength": 78
+                              }
+                            ]
                           },
                           "beneficiary": {
                             "type": "string"
@@ -4745,9 +4976,16 @@
                             "type": "boolean"
                           },
                           "lockedUntil": {
-                            "type": "string",
-                            "maxLength": 78,
-                            "pattern": "^(0|[1-9][0-9]*)$"
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$",
+                                "maxLength": 78
+                              }
+                            ]
                           },
                           "hook": {
                             "type": "string"
@@ -4792,15 +5030,29 @@
                         "type": "object",
                         "properties": {
                           "amount": {
-                            "type": "string",
-                            "maxLength": 78,
-                            "pattern": "^(0|[1-9][0-9]*)$"
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$",
+                                "maxLength": 78
+                              }
+                            ]
                           },
                           "currency": {
                             "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
-                            "type": "string",
-                            "maxLength": 78,
-                            "pattern": "^(0|[1-9][0-9]*)$"
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$",
+                                "maxLength": 78
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -4817,15 +5069,29 @@
                         "type": "object",
                         "properties": {
                           "amount": {
-                            "type": "string",
-                            "maxLength": 78,
-                            "pattern": "^(0|[1-9][0-9]*)$"
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$",
+                                "maxLength": 78
+                              }
+                            ]
                           },
                           "currency": {
                             "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
-                            "type": "string",
-                            "maxLength": 78,
-                            "pattern": "^(0|[1-9][0-9]*)$"
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$",
+                                "maxLength": 78
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -4868,9 +5134,16 @@
           },
           "inheritedWeight": {
             "description": "Explicit hypothetical already resolved starting weight, required for successor weight=1.",
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "revnet": {
             "description": "A revnet project or stage config. Give this or rulesetConfiguration, not both.",
@@ -4918,9 +5191,16 @@
                         ]
                       },
                       "projectId": {
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       },
                       "version": {
                         "default": 6,
@@ -4978,10 +5258,17 @@
                         "additionalProperties": false
                       },
                       "baseCurrency": {
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$",
-                        "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it."
+                        "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.",
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       },
                       "operator": {
                         "type": "string"
@@ -4998,9 +5285,16 @@
                           "type": "object",
                           "properties": {
                             "startsAtOrAfter": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "autoIssuances": {
                               "maxItems": 32,
@@ -5009,14 +5303,28 @@
                                 "type": "object",
                                 "properties": {
                                   "chainId": {
-                                    "type": "string",
-                                    "maxLength": 78,
-                                    "pattern": "^(0|[1-9][0-9]*)$"
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "pattern": "^(0|[1-9][0-9]*)$",
+                                        "maxLength": 78
+                                      }
+                                    ]
                                   },
                                   "count": {
-                                    "type": "string",
-                                    "maxLength": 78,
-                                    "pattern": "^(0|[1-9][0-9]*)$"
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "pattern": "^(0|[1-9][0-9]*)$",
+                                        "maxLength": 78
+                                      }
+                                    ]
                                   },
                                   "beneficiary": {
                                     "type": "string"
@@ -5031,10 +5339,17 @@
                               }
                             },
                             "splitPercent": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$",
-                              "description": "Share of new tokens sent to this stage's splits, out of 10,000. 2000 = 20%."
+                              "description": "Share of new tokens sent to this stage's splits, out of 10,000. 2000 = 20%.",
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "splits": {
                               "maxItems": 32,
@@ -5044,14 +5359,28 @@
                                 "properties": {
                                   "percent": {
                                     "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
-                                    "type": "string",
-                                    "maxLength": 78,
-                                    "pattern": "^(0|[1-9][0-9]*)$"
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "pattern": "^(0|[1-9][0-9]*)$",
+                                        "maxLength": 78
+                                      }
+                                    ]
                                   },
                                   "projectId": {
-                                    "type": "string",
-                                    "maxLength": 78,
-                                    "pattern": "^(0|[1-9][0-9]*)$"
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "pattern": "^(0|[1-9][0-9]*)$",
+                                        "maxLength": 78
+                                      }
+                                    ]
                                   },
                                   "beneficiary": {
                                     "type": "string"
@@ -5060,9 +5389,16 @@
                                     "type": "boolean"
                                   },
                                   "lockedUntil": {
-                                    "type": "string",
-                                    "maxLength": 78,
-                                    "pattern": "^(0|[1-9][0-9]*)$"
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "pattern": "^(0|[1-9][0-9]*)$",
+                                        "maxLength": 78
+                                      }
+                                    ]
                                   },
                                   "hook": {
                                     "type": "string"
@@ -5080,34 +5416,69 @@
                               }
                             },
                             "initialIssuance": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$",
-                              "description": "Tokens issued per one unit of baseCurrency at stage start, with 18 decimals: 1000000000000000000000 = 1,000 tokens."
+                              "description": "Tokens issued per one unit of baseCurrency at stage start, with 18 decimals: 1000000000000000000000 = 1,000 tokens.",
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "issuanceCutFrequency": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$",
-                              "description": "Seconds between issuance cuts."
+                              "description": "Seconds between issuance cuts.",
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "issuanceCutPercent": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$",
-                              "description": "Issuance cut applied every issuanceCutFrequency, out of 1,000,000,000. 0 = no cut."
+                              "description": "Issuance cut applied every issuanceCutFrequency, out of 1,000,000,000. 0 = no cut.",
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "cashOutTaxRate": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$",
-                              "description": "Cash-out tax out of 10,000, at most 9,999. 0 = no tax."
+                              "description": "Cash-out tax out of 10,000, at most 9,999. 0 = no tax.",
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "extraMetadata": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$",
-                              "description": "Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): the operator may deploy new suckers during this stage; every stage needs it when suckers are configured. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. 4 is usual for a multi-chain revnet, 0 for one chain."
+                              "description": "Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): the operator may deploy new suckers during this stage; every stage needs it when suckers are configured. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. 4 is usual for a multi-chain revnet, 0 for one chain.",
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -5170,29 +5541,57 @@
                   "maxLength": 160
                 },
                 "contributionInBaseCurrency18": {
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$",
-                  "description": "Hypothetical contribution denominated in the ruleset base currency, with 18 decimals; no price-feed conversion is assumed."
+                  "description": "Hypothetical contribution denominated in the ruleset base currency, with 18 decimals; no price-feed conversion is assumed.",
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "cashOut": {
                   "description": "Independent hypothetical pre-fee cash-out inputs; supply must include pending reserved tokens and is not automatically changed by contribution.",
                   "type": "object",
                   "properties": {
                     "surplusAtomic": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "cashOutCount": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "totalSupply": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -5394,9 +5793,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -5422,27 +5828,55 @@
               "properties": {
                 "mustStartAtOrAfter": {
                   "description": "Unix seconds. A lower bound, not a promised start; 0 asks the contract to resolve timing.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "duration": {
                   "description": "Seconds per cycle. Zero has no automatic cycles.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "weight": {
                   "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "weightCutPercent": {
                   "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "approvalHook": {
                   "description": "Gates the next ruleset, not this ruleset.",
@@ -5453,21 +5887,42 @@
                   "properties": {
                     "reservedPercent": {
                       "description": "Share of new tokens reserved for splits, out of 10,000. 2500 = 25%.",
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "cashOutTaxRate": {
                       "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "baseCurrency": {
                       "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.",
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "pausePay": {
                       "type": "boolean"
@@ -5516,9 +5971,16 @@
                       "type": "string"
                     },
                     "metadata": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -5551,10 +6013,17 @@
                     "type": "object",
                     "properties": {
                       "groupId": {
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$",
-                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
+                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1.",
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       },
                       "splits": {
                         "maxItems": 32,
@@ -5564,14 +6033,28 @@
                           "properties": {
                             "percent": {
                               "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "projectId": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "beneficiary": {
                               "type": "string"
@@ -5580,9 +6063,16 @@
                               "type": "boolean"
                             },
                             "lockedUntil": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "hook": {
                               "type": "string"
@@ -5627,15 +6117,29 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -5652,15 +6156,29 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -5879,9 +6397,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -5907,27 +6432,55 @@
               "properties": {
                 "mustStartAtOrAfter": {
                   "description": "Unix seconds. A lower bound, not a promised start; 0 asks the contract to resolve timing.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "duration": {
                   "description": "Seconds per cycle. Zero has no automatic cycles.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "weight": {
                   "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "weightCutPercent": {
                   "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "approvalHook": {
                   "description": "Gates the next ruleset, not this ruleset.",
@@ -5938,21 +6491,42 @@
                   "properties": {
                     "reservedPercent": {
                       "description": "Share of new tokens reserved for splits, out of 10,000. 2500 = 25%.",
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "cashOutTaxRate": {
                       "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "baseCurrency": {
                       "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.",
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "pausePay": {
                       "type": "boolean"
@@ -6001,9 +6575,16 @@
                       "type": "string"
                     },
                     "metadata": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -6036,10 +6617,17 @@
                     "type": "object",
                     "properties": {
                       "groupId": {
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$",
-                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
+                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1.",
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       },
                       "splits": {
                         "maxItems": 32,
@@ -6049,14 +6637,28 @@
                           "properties": {
                             "percent": {
                               "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "projectId": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "beneficiary": {
                               "type": "string"
@@ -6065,9 +6667,16 @@
                               "type": "boolean"
                             },
                             "lockedUntil": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "hook": {
                               "type": "string"
@@ -6112,15 +6721,29 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -6137,15 +6760,29 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -6389,27 +7026,55 @@
               "properties": {
                 "mustStartAtOrAfter": {
                   "description": "Unix seconds. A lower bound, not a promised start; 0 asks the contract to resolve timing.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "duration": {
                   "description": "Seconds per cycle. Zero has no automatic cycles.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "weight": {
                   "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "weightCutPercent": {
                   "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "approvalHook": {
                   "description": "Gates the next ruleset, not this ruleset.",
@@ -6420,21 +7085,42 @@
                   "properties": {
                     "reservedPercent": {
                       "description": "Share of new tokens reserved for splits, out of 10,000. 2500 = 25%.",
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "cashOutTaxRate": {
                       "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "baseCurrency": {
                       "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.",
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "pausePay": {
                       "type": "boolean"
@@ -6483,9 +7169,16 @@
                       "type": "string"
                     },
                     "metadata": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -6518,10 +7211,17 @@
                     "type": "object",
                     "properties": {
                       "groupId": {
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$",
-                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
+                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1.",
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       },
                       "splits": {
                         "maxItems": 32,
@@ -6531,14 +7231,28 @@
                           "properties": {
                             "percent": {
                               "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "projectId": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "beneficiary": {
                               "type": "string"
@@ -6547,9 +7261,16 @@
                               "type": "boolean"
                             },
                             "lockedUntil": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "hook": {
                               "type": "string"
@@ -6594,15 +7315,29 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -6619,15 +7354,29 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -6682,15 +7431,29 @@
                       },
                       "decimals": {
                         "description": "Token decimals. Native ETH uses 18.",
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       },
                       "currency": {
                         "description": "Usually uint32(uint160(token)); native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166.",
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       }
                     },
                     "required": [
@@ -6925,27 +7688,55 @@
               "properties": {
                 "mustStartAtOrAfter": {
                   "description": "Unix seconds. A lower bound, not a promised start; 0 asks the contract to resolve timing.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "duration": {
                   "description": "Seconds per cycle. Zero has no automatic cycles.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "weight": {
                   "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "weightCutPercent": {
                   "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "approvalHook": {
                   "description": "Gates the next ruleset, not this ruleset.",
@@ -6956,21 +7747,42 @@
                   "properties": {
                     "reservedPercent": {
                       "description": "Share of new tokens reserved for splits, out of 10,000. 2500 = 25%.",
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "cashOutTaxRate": {
                       "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "baseCurrency": {
                       "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.",
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "pausePay": {
                       "type": "boolean"
@@ -7019,9 +7831,16 @@
                       "type": "string"
                     },
                     "metadata": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -7054,10 +7873,17 @@
                     "type": "object",
                     "properties": {
                       "groupId": {
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$",
-                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
+                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1.",
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       },
                       "splits": {
                         "maxItems": 32,
@@ -7067,14 +7893,28 @@
                           "properties": {
                             "percent": {
                               "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "projectId": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "beneficiary": {
                               "type": "string"
@@ -7083,9 +7923,16 @@
                               "type": "boolean"
                             },
                             "lockedUntil": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "hook": {
                               "type": "string"
@@ -7130,15 +7977,29 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -7155,15 +8016,29 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -7218,15 +8093,29 @@
                       },
                       "decimals": {
                         "description": "Token decimals. Native ETH uses 18.",
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       },
                       "currency": {
                         "description": "Usually uint32(uint160(token)); native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166.",
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       }
                     },
                     "required": [
@@ -7300,25 +8189,53 @@
                       "type": "object",
                       "properties": {
                         "price": {
-                          "type": "string",
-                          "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$",
-                          "description": "Tier price in the tiers currency, with the tiers decimals."
+                          "description": "Tier price in the tiers currency, with the tiers decimals.",
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "maxLength": 78
+                            }
+                          ]
                         },
                         "initialSupply": {
-                          "type": "string",
-                          "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$"
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "maxLength": 78
+                            }
+                          ]
                         },
                         "votingUnits": {
-                          "type": "string",
-                          "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$"
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "maxLength": 78
+                            }
+                          ]
                         },
                         "reserveFrequency": {
-                          "type": "string",
-                          "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$"
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "maxLength": 78
+                            }
+                          ]
                         },
                         "reserveBeneficiary": {
                           "type": "string"
@@ -7328,15 +8245,29 @@
                           "pattern": "^0x[a-fA-F0-9]{64}$"
                         },
                         "category": {
-                          "type": "string",
-                          "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$"
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "maxLength": 78
+                            }
+                          ]
                         },
                         "discountPercent": {
-                          "type": "string",
-                          "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$",
-                          "description": "Tier price discount, out of 200. 200 = free."
+                          "description": "Tier price discount, out of 200. 200 = free.",
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "maxLength": 78
+                            }
+                          ]
                         },
                         "flags": {
                           "type": "object",
@@ -7375,10 +8306,17 @@
                           "additionalProperties": false
                         },
                         "splitPercent": {
-                          "type": "string",
-                          "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$",
-                          "description": "Share of the tier price sent to the tier's splits, out of 1,000,000,000."
+                          "description": "Share of the tier price sent to the tier's splits, out of 1,000,000,000.",
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "maxLength": 78
+                            }
+                          ]
                         },
                         "splits": {
                           "maxItems": 32,
@@ -7388,14 +8326,28 @@
                             "properties": {
                               "percent": {
                                 "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
-                                "type": "string",
-                                "maxLength": 78,
-                                "pattern": "^(0|[1-9][0-9]*)$"
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "pattern": "^(0|[1-9][0-9]*)$",
+                                    "maxLength": 78
+                                  }
+                                ]
                               },
                               "projectId": {
-                                "type": "string",
-                                "maxLength": 78,
-                                "pattern": "^(0|[1-9][0-9]*)$"
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "pattern": "^(0|[1-9][0-9]*)$",
+                                    "maxLength": 78
+                                  }
+                                ]
                               },
                               "beneficiary": {
                                 "type": "string"
@@ -7404,9 +8356,16 @@
                                 "type": "boolean"
                               },
                               "lockedUntil": {
-                                "type": "string",
-                                "maxLength": 78,
-                                "pattern": "^(0|[1-9][0-9]*)$"
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "pattern": "^(0|[1-9][0-9]*)$",
+                                    "maxLength": 78
+                                  }
+                                ]
                               },
                               "hook": {
                                 "type": "string"
@@ -7441,16 +8400,30 @@
                     }
                   },
                   "currency": {
-                    "type": "string",
-                    "maxLength": 78,
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD."
+                    "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "maxLength": 78
+                      }
+                    ]
                   },
                   "decimals": {
-                    "type": "string",
-                    "maxLength": 78,
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "description": "Decimals of tier prices."
+                    "description": "Decimals of tier prices.",
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "maxLength": 78
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -7694,9 +8667,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -7917,9 +8897,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -8127,9 +9114,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -8151,9 +9145,16 @@
             "type": "string"
           },
           "collateralCount": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "prepaidFeePercent": {
             "type": "integer",
@@ -8352,9 +9353,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -8376,9 +9384,16 @@
             "type": "string"
           },
           "collateralCount": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "prepaidFeePercent": {
             "type": "integer",
@@ -8585,9 +9600,16 @@
             ]
           },
           "loanId": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           }
         },
         "required": [
@@ -8770,22 +9792,43 @@
             ]
           },
           "loanId": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "account": {
             "type": "string"
           },
           "maxRepayBorrowAmount": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "collateralCountToReturn": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "beneficiary": {
             "type": "string"
@@ -8978,9 +10021,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -9011,23 +10061,44 @@
                 "type": "object",
                 "properties": {
                   "index": {
-                    "type": "string",
-                    "maxLength": 78,
-                    "pattern": "^(0|[1-9][0-9]*)$"
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "maxLength": 78
+                      }
+                    ]
                   },
                   "beneficiary": {
                     "type": "string",
                     "pattern": "^0x[a-fA-F0-9]{64}$"
                   },
                   "projectTokenCount": {
-                    "type": "string",
-                    "maxLength": 78,
-                    "pattern": "^(0|[1-9][0-9]*)$"
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "maxLength": 78
+                      }
+                    ]
                   },
                   "terminalTokenAmount": {
-                    "type": "string",
-                    "maxLength": 78,
-                    "pattern": "^(0|[1-9][0-9]*)$"
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "maxLength": 78
+                      }
+                    ]
                   },
                   "metadata": {
                     "type": "string",
@@ -9373,9 +10444,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -9396,10 +10474,17 @@
             "type": "string"
           },
           "maxTransportValue": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$",
-            "description": "Maximum native wei attached to the accounting message; gas is additional."
+            "description": "Maximum native wei attached to the accounting message; gas is additional.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           }
         },
         "required": [
@@ -9587,9 +10672,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -9827,9 +10919,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -9852,10 +10951,17 @@
             "type": "string"
           },
           "amount": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$",
-            "description": "Input amount in the token smallest units, as an exact integer string. 0.05 ETH = 50000000000000000."
+            "description": "Input amount in the token smallest units, as an exact integer string. 0.05 ETH = 50000000000000000.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           }
         },
         "required": [
@@ -10043,9 +11149,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -10271,9 +11384,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -10485,9 +11605,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -10692,9 +11819,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -10899,9 +12033,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -10916,10 +12057,16 @@
             "additionalProperties": false
           },
           "startingId": {
-            "default": "0",
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "size": {
             "default": 20,
@@ -10928,13 +12075,19 @@
             "maximum": 32
           },
           "categories": {
-            "default": [],
             "maxItems": 16,
             "type": "array",
             "items": {
-              "type": "string",
-              "maxLength": 78,
-              "pattern": "^(0|[1-9][0-9]*)$"
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$",
+                  "maxLength": 78
+                }
+              ]
             }
           },
           "includeResolvedUri": {
@@ -11124,9 +12277,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -11148,10 +12308,17 @@
             "type": "string"
           },
           "amount": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$",
-            "description": "Fresh payment amount in the token’s smallest units. Use 0 for free tiers or eligible NFT-credit purchases."
+            "description": "Fresh payment amount in the token’s smallest units. Use 0 for free tiers or eligible NFT-credit purchases.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "beneficiary": {
             "type": "string"
@@ -11161,9 +12328,16 @@
             "maxItems": 32,
             "type": "array",
             "items": {
-              "type": "string",
-              "maxLength": 78,
-              "pattern": "^(0|[1-9][0-9]*)$"
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$",
+                  "maxLength": 78
+                }
+              ]
             }
           },
           "slippageBps": {
@@ -11365,9 +12539,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -11389,10 +12570,17 @@
             "type": "string"
           },
           "amount": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$",
-            "description": "Fresh payment amount in the token’s smallest units. Use 0 for free tiers or eligible NFT-credit purchases."
+            "description": "Fresh payment amount in the token’s smallest units. Use 0 for free tiers or eligible NFT-credit purchases.",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "beneficiary": {
             "type": "string"
@@ -11402,9 +12590,16 @@
             "maxItems": 32,
             "type": "array",
             "items": {
-              "type": "string",
-              "maxLength": 78,
-              "pattern": "^(0|[1-9][0-9]*)$"
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$",
+                  "maxLength": 78
+                }
+              ]
             }
           },
           "slippageBps": {
@@ -11606,9 +12801,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -11632,25 +12834,53 @@
               "type": "object",
               "properties": {
                 "price": {
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$",
-                  "description": "Tier price in the tiers currency, with the tiers decimals."
+                  "description": "Tier price in the tiers currency, with the tiers decimals.",
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "initialSupply": {
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "votingUnits": {
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "reserveFrequency": {
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "reserveBeneficiary": {
                   "type": "string"
@@ -11660,15 +12890,29 @@
                   "pattern": "^0x[a-fA-F0-9]{64}$"
                 },
                 "category": {
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "discountPercent": {
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$",
-                  "description": "Tier price discount, out of 200. 200 = free."
+                  "description": "Tier price discount, out of 200. 200 = free.",
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "flags": {
                   "type": "object",
@@ -11707,10 +12951,17 @@
                   "additionalProperties": false
                 },
                 "splitPercent": {
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$",
-                  "description": "Share of the tier price sent to the tier's splits, out of 1,000,000,000."
+                  "description": "Share of the tier price sent to the tier's splits, out of 1,000,000,000.",
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "splits": {
                   "maxItems": 32,
@@ -11720,14 +12971,28 @@
                     "properties": {
                       "percent": {
                         "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       },
                       "projectId": {
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       },
                       "beneficiary": {
                         "type": "string"
@@ -11736,9 +13001,16 @@
                         "type": "boolean"
                       },
                       "lockedUntil": {
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       },
                       "hook": {
                         "type": "string"
@@ -11776,9 +13048,16 @@
             "maxItems": 32,
             "type": "array",
             "items": {
-              "type": "string",
-              "maxLength": 78,
-              "pattern": "^(0|[1-9][0-9]*)$"
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$",
+                  "maxLength": 78
+                }
+              ]
             }
           }
         },
@@ -12003,25 +13282,53 @@
                       "type": "object",
                       "properties": {
                         "price": {
-                          "type": "string",
-                          "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$",
-                          "description": "Tier price in the tiers currency, with the tiers decimals."
+                          "description": "Tier price in the tiers currency, with the tiers decimals.",
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "maxLength": 78
+                            }
+                          ]
                         },
                         "initialSupply": {
-                          "type": "string",
-                          "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$"
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "maxLength": 78
+                            }
+                          ]
                         },
                         "votingUnits": {
-                          "type": "string",
-                          "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$"
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "maxLength": 78
+                            }
+                          ]
                         },
                         "reserveFrequency": {
-                          "type": "string",
-                          "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$"
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "maxLength": 78
+                            }
+                          ]
                         },
                         "reserveBeneficiary": {
                           "type": "string"
@@ -12031,15 +13338,29 @@
                           "pattern": "^0x[a-fA-F0-9]{64}$"
                         },
                         "category": {
-                          "type": "string",
-                          "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$"
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "maxLength": 78
+                            }
+                          ]
                         },
                         "discountPercent": {
-                          "type": "string",
-                          "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$",
-                          "description": "Tier price discount, out of 200. 200 = free."
+                          "description": "Tier price discount, out of 200. 200 = free.",
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "maxLength": 78
+                            }
+                          ]
                         },
                         "flags": {
                           "type": "object",
@@ -12078,10 +13399,17 @@
                           "additionalProperties": false
                         },
                         "splitPercent": {
-                          "type": "string",
-                          "maxLength": 78,
-                          "pattern": "^(0|[1-9][0-9]*)$",
-                          "description": "Share of the tier price sent to the tier's splits, out of 1,000,000,000."
+                          "description": "Share of the tier price sent to the tier's splits, out of 1,000,000,000.",
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9][0-9]*)$",
+                              "maxLength": 78
+                            }
+                          ]
                         },
                         "splits": {
                           "maxItems": 32,
@@ -12091,14 +13419,28 @@
                             "properties": {
                               "percent": {
                                 "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
-                                "type": "string",
-                                "maxLength": 78,
-                                "pattern": "^(0|[1-9][0-9]*)$"
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "pattern": "^(0|[1-9][0-9]*)$",
+                                    "maxLength": 78
+                                  }
+                                ]
                               },
                               "projectId": {
-                                "type": "string",
-                                "maxLength": 78,
-                                "pattern": "^(0|[1-9][0-9]*)$"
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "pattern": "^(0|[1-9][0-9]*)$",
+                                    "maxLength": 78
+                                  }
+                                ]
                               },
                               "beneficiary": {
                                 "type": "string"
@@ -12107,9 +13449,16 @@
                                 "type": "boolean"
                               },
                               "lockedUntil": {
-                                "type": "string",
-                                "maxLength": 78,
-                                "pattern": "^(0|[1-9][0-9]*)$"
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "pattern": "^(0|[1-9][0-9]*)$",
+                                    "maxLength": 78
+                                  }
+                                ]
                               },
                               "hook": {
                                 "type": "string"
@@ -12144,16 +13493,30 @@
                     }
                   },
                   "currency": {
-                    "type": "string",
-                    "maxLength": 78,
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD."
+                    "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "maxLength": 78
+                      }
+                    ]
                   },
                   "decimals": {
-                    "type": "string",
-                    "maxLength": 78,
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "description": "Decimals of tier prices."
+                    "description": "Decimals of tier prices.",
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "maxLength": 78
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -12216,27 +13579,55 @@
               "properties": {
                 "mustStartAtOrAfter": {
                   "description": "Unix seconds. A lower bound, not a promised start; 0 asks the contract to resolve timing.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "duration": {
                   "description": "Seconds per cycle. Zero has no automatic cycles.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "weight": {
                   "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "weightCutPercent": {
                   "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "approvalHook": {
                   "description": "Gates the next ruleset, not this ruleset.",
@@ -12247,21 +13638,42 @@
                   "properties": {
                     "reservedPercent": {
                       "description": "Share of new tokens reserved for splits, out of 10,000. 2500 = 25%.",
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "cashOutTaxRate": {
                       "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "baseCurrency": {
                       "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.",
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "pausePay": {
                       "type": "boolean"
@@ -12304,9 +13716,16 @@
                       "type": "boolean"
                     },
                     "metadata": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -12337,10 +13756,17 @@
                     "type": "object",
                     "properties": {
                       "groupId": {
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$",
-                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
+                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1.",
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       },
                       "splits": {
                         "maxItems": 32,
@@ -12350,14 +13776,28 @@
                           "properties": {
                             "percent": {
                               "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "projectId": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "beneficiary": {
                               "type": "string"
@@ -12366,9 +13806,16 @@
                               "type": "boolean"
                             },
                             "lockedUntil": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "hook": {
                               "type": "string"
@@ -12413,15 +13860,29 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -12438,15 +13899,29 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -12501,15 +13976,29 @@
                       },
                       "decimals": {
                         "description": "Token decimals. Native ETH uses 18.",
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       },
                       "currency": {
                         "description": "Usually uint32(uint160(token)); native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166.",
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$"
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       }
                     },
                     "required": [
@@ -12727,9 +14216,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -12744,10 +14240,16 @@
             "additionalProperties": false
           },
           "startingId": {
-            "default": "0",
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "size": {
             "default": 16,
@@ -13159,10 +14661,17 @@
                 "additionalProperties": false
               },
               "baseCurrency": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it."
+                "description": "Currency that issuance is priced in: 1 = ETH, 2 = USD. Use 1 for ETH, not 61166 (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.",
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "operator": {
                 "type": "string"
@@ -13179,9 +14688,16 @@
                   "type": "object",
                   "properties": {
                     "startsAtOrAfter": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "autoIssuances": {
                       "maxItems": 32,
@@ -13190,14 +14706,28 @@
                         "type": "object",
                         "properties": {
                           "chainId": {
-                            "type": "string",
-                            "maxLength": 78,
-                            "pattern": "^(0|[1-9][0-9]*)$"
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$",
+                                "maxLength": 78
+                              }
+                            ]
                           },
                           "count": {
-                            "type": "string",
-                            "maxLength": 78,
-                            "pattern": "^(0|[1-9][0-9]*)$"
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$",
+                                "maxLength": 78
+                              }
+                            ]
                           },
                           "beneficiary": {
                             "type": "string"
@@ -13212,10 +14742,17 @@
                       }
                     },
                     "splitPercent": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$",
-                      "description": "Share of new tokens sent to this stage's splits, out of 10,000. 2000 = 20%."
+                      "description": "Share of new tokens sent to this stage's splits, out of 10,000. 2000 = 20%.",
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "splits": {
                       "maxItems": 32,
@@ -13225,14 +14762,28 @@
                         "properties": {
                           "percent": {
                             "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
-                            "type": "string",
-                            "maxLength": 78,
-                            "pattern": "^(0|[1-9][0-9]*)$"
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$",
+                                "maxLength": 78
+                              }
+                            ]
                           },
                           "projectId": {
-                            "type": "string",
-                            "maxLength": 78,
-                            "pattern": "^(0|[1-9][0-9]*)$"
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$",
+                                "maxLength": 78
+                              }
+                            ]
                           },
                           "beneficiary": {
                             "type": "string"
@@ -13241,9 +14792,16 @@
                             "type": "boolean"
                           },
                           "lockedUntil": {
-                            "type": "string",
-                            "maxLength": 78,
-                            "pattern": "^(0|[1-9][0-9]*)$"
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$",
+                                "maxLength": 78
+                              }
+                            ]
                           },
                           "hook": {
                             "type": "string"
@@ -13261,34 +14819,69 @@
                       }
                     },
                     "initialIssuance": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$",
-                      "description": "Tokens issued per one unit of baseCurrency at stage start, with 18 decimals: 1000000000000000000000 = 1,000 tokens."
+                      "description": "Tokens issued per one unit of baseCurrency at stage start, with 18 decimals: 1000000000000000000000 = 1,000 tokens.",
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "issuanceCutFrequency": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$",
-                      "description": "Seconds between issuance cuts."
+                      "description": "Seconds between issuance cuts.",
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "issuanceCutPercent": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$",
-                      "description": "Issuance cut applied every issuanceCutFrequency, out of 1,000,000,000. 0 = no cut."
+                      "description": "Issuance cut applied every issuanceCutFrequency, out of 1,000,000,000. 0 = no cut.",
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "cashOutTaxRate": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$",
-                      "description": "Cash-out tax out of 10,000, at most 9,999. 0 = no tax."
+                      "description": "Cash-out tax out of 10,000, at most 9,999. 0 = no tax.",
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     },
                     "extraMetadata": {
-                      "type": "string",
-                      "maxLength": 78,
-                      "pattern": "^(0|[1-9][0-9]*)$",
-                      "description": "Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): the operator may deploy new suckers during this stage; every stage needs it when suckers are configured. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. 4 is usual for a multi-chain revnet, 0 for one chain."
+                      "description": "Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): the operator may deploy new suckers during this stage; every stage needs it when suckers are configured. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. 4 is usual for a multi-chain revnet, 0 for one chain.",
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "maxLength": 78
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -13328,15 +14921,29 @@
                 },
                 "decimals": {
                   "description": "Token decimals. Native ETH uses 18.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "currency": {
                   "description": "Usually uint32(uint160(token)); native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166.",
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 }
               },
               "required": [
@@ -13378,9 +14985,16 @@
                             "type": "string"
                           },
                           "minGas": {
-                            "type": "string",
-                            "maxLength": 78,
-                            "pattern": "^(0|[1-9][0-9]*)$"
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$",
+                                "maxLength": 78
+                              }
+                            ]
                           },
                           "remoteToken": {
                             "type": "string",
@@ -13448,25 +15062,53 @@
                           "type": "object",
                           "properties": {
                             "price": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$",
-                              "description": "Tier price in the tiers currency, with the tiers decimals."
+                              "description": "Tier price in the tiers currency, with the tiers decimals.",
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "initialSupply": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "votingUnits": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "reserveFrequency": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "reserveBeneficiary": {
                               "type": "string"
@@ -13476,15 +15118,29 @@
                               "pattern": "^0x[a-fA-F0-9]{64}$"
                             },
                             "category": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$"
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "discountPercent": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$",
-                              "description": "Tier price discount, out of 200. 200 = free."
+                              "description": "Tier price discount, out of 200. 200 = free.",
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "flags": {
                               "type": "object",
@@ -13523,10 +15179,17 @@
                               "additionalProperties": false
                             },
                             "splitPercent": {
-                              "type": "string",
-                              "maxLength": 78,
-                              "pattern": "^(0|[1-9][0-9]*)$",
-                              "description": "Share of the tier price sent to the tier's splits, out of 1,000,000,000."
+                              "description": "Share of the tier price sent to the tier's splits, out of 1,000,000,000.",
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9][0-9]*)$",
+                                  "maxLength": 78
+                                }
+                              ]
                             },
                             "splits": {
                               "maxItems": 32,
@@ -13536,14 +15199,28 @@
                                 "properties": {
                                   "percent": {
                                     "description": "Share of the split group, out of 1,000,000,000. 500,000,000 = 50%.",
-                                    "type": "string",
-                                    "maxLength": 78,
-                                    "pattern": "^(0|[1-9][0-9]*)$"
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "pattern": "^(0|[1-9][0-9]*)$",
+                                        "maxLength": 78
+                                      }
+                                    ]
                                   },
                                   "projectId": {
-                                    "type": "string",
-                                    "maxLength": 78,
-                                    "pattern": "^(0|[1-9][0-9]*)$"
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "pattern": "^(0|[1-9][0-9]*)$",
+                                        "maxLength": 78
+                                      }
+                                    ]
                                   },
                                   "beneficiary": {
                                     "type": "string"
@@ -13552,9 +15229,16 @@
                                     "type": "boolean"
                                   },
                                   "lockedUntil": {
-                                    "type": "string",
-                                    "maxLength": 78,
-                                    "pattern": "^(0|[1-9][0-9]*)$"
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "pattern": "^(0|[1-9][0-9]*)$",
+                                        "maxLength": 78
+                                      }
+                                    ]
                                   },
                                   "hook": {
                                     "type": "string"
@@ -13589,16 +15273,30 @@
                         }
                       },
                       "currency": {
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$",
-                        "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD."
+                        "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       },
                       "decimals": {
-                        "type": "string",
-                        "maxLength": 78,
-                        "pattern": "^(0|[1-9][0-9]*)$",
-                        "description": "Decimals of tier prices."
+                        "description": "Decimals of tier prices.",
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "maxLength": 78
+                          }
+                        ]
                       }
                     },
                     "required": [
@@ -13678,31 +15376,66 @@
               "type": "object",
               "properties": {
                 "category": {
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "minimumPrice": {
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "minimumTotalSupply": {
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$"
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "maximumTotalSupply": {
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$",
-                  "description": "0 means unlimited; actual minted NFT tiers remain subject to the store supply cap."
+                  "description": "0 means unlimited; actual minted NFT tiers remain subject to the store supply cap.",
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "maximumSplitPercent": {
-                  "type": "string",
-                  "maxLength": 78,
-                  "pattern": "^(0|[1-9][0-9]*)$",
-                  "description": "Largest tier split a poster may set, out of 1,000,000,000."
+                  "description": "Largest tier split a poster may set, out of 1,000,000,000.",
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 78
+                    }
+                  ]
                 },
                 "allowedAddresses": {
                   "maxItems": 32,
@@ -13910,9 +15643,16 @@
                 ]
               },
               "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$",
+                    "maxLength": 78
+                  }
+                ]
               },
               "version": {
                 "default": 6,
@@ -13930,9 +15670,16 @@
             "type": "string"
           },
           "stageId": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78
+              }
+            ]
           },
           "beneficiary": {
             "type": "string"
