@@ -2,6 +2,8 @@ import { z } from 'zod';
 import {
   MappableAsset,
   NATIVE_TOKEN,
+  USDC_ADDRESSES,
+  parseSuckerDeployerConfig,
   jb721TiersHookAbi,
   jb721TiersHookProjectDeployerAbi,
   jb721TiersHookStoreAbi,
@@ -29,6 +31,7 @@ import {
   getProjectCreationFee,
   hasPermissions,
   v6Address,
+  type REVSuckerDeploymentConfig,
 } from '@bananapus/nana-sdk-core/v6';
 import {
   decodeFunctionData,
@@ -1096,12 +1099,13 @@ export class ProductService {
           : []),
       ],
     );
+    const suckerConfig = this.revnetSuckers(input);
     await this.requireSuckerDeployers(
       snapshot.client,
       input.chainId,
-      input.suckerConfig.deployerConfigurations.map((config) => config.deployer),
+      suckerConfig.deployerConfigurations.map((config) => config.deployer),
     );
-    for (const config of input.suckerConfig.deployerConfigurations) {
+    for (const config of suckerConfig.deployerConfigurations) {
       if (
         config.mappings.some(
           (mapping) =>
@@ -1135,7 +1139,7 @@ export class ProductService {
         decimals: Number(c.decimals),
         currency: Number(c.currency),
       })),
-      suckerConfig: toRevSucker(input.suckerConfig),
+      suckerConfig,
       creationFee: fee,
       ...(input.tiered721Config
         ? {
@@ -1166,7 +1170,13 @@ export class ProductService {
         ),
       ],
       evidence: [snapshot.evidence],
-      summary: { operation: 'revnet_deploy', ...input, creationFee: String(fee), priceChecks },
+      summary: {
+        operation: 'revnet_deploy',
+        ...input,
+        suckerConfig: jsonSafe(suckerConfig),
+        creationFee: String(fee),
+        priceChecks,
+      },
       warnings: [
         'One chain is prepared per request. Repeat identical immutable config, salts, absolute stage times, all chains’ auto-issuance rows, and transaction sender on every target chain; project IDs can differ.',
         'Stage economics and initial accounting contexts are immutable. Local sucker creation does not establish remote deployment, bridge mapping readiness or cross-chain settlement.',
@@ -1185,6 +1195,37 @@ export class ProductService {
           : 'Without tiered721Config, the four-argument overload also deploys a default NFT store. Collection supply and metadata configurations are per-chain.',
       ],
     };
+  }
+
+  /** Explicit suckerConfig, or the registry lanes to every other chain, mapping native ETH and USDC when accepted. */
+  private revnetSuckers(
+    input: z.output<typeof prepareRevnetDeploySchema>,
+  ): REVSuckerDeploymentConfig {
+    if (input.suckerConfig) return toRevSucker(input.suckerConfig);
+    const { chainId, chainIds = [chainId], bridge = 'ccip' } = input;
+    if (chainIds.length === 1) return { salt: zeroHash, deployerConfigurations: [] };
+    const accepts = (token: string | undefined) =>
+      !!token && input.accountingContexts.some((context) => same(context.token, token));
+    const assets = [
+      ...(accepts(NATIVE_TOKEN) ? [MappableAsset.NATIVE] : []),
+      ...(accepts(USDC_ADDRESSES[chainId]) ? [MappableAsset.USDC] : []),
+    ];
+    if (!assets.length)
+      fail(
+        'SUCKER_TOKEN_NOT_BRIDGEABLE',
+        'Registry suckers map native ETH and USDC, and this revnet accepts neither. Pass an explicit suckerConfig.',
+      );
+    return registryLanes(
+      chainId,
+      chainIds,
+      bridge,
+      () =>
+        parseSuckerDeployerConfig(chainId, chainIds, assets, {
+          salt: input.config.description.salt,
+          version: 6,
+          bridge,
+        }) as REVSuckerDeploymentConfig,
+    );
   }
 
   /** One shared first-stage start for a multi-chain revnet launch, from each chain's latest block. */

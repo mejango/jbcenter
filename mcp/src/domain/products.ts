@@ -345,7 +345,19 @@ export const prepareRevnetDeploySchema = z
     account: nonzero,
     config: revConfigSchema,
     accountingContexts: z.array(accountingContextSchema).min(1).max(16),
-    suckerConfig: revSuckerConfigSchema,
+    chainIds: suggestRevnetStartSchema.shape.chainIds
+      .optional()
+      .describe(
+        'Every chain the revnet launches on, including chainId. Instead of suckerConfig: the sucker registry fills the bridges to the other chains, salted with config.description.salt, mapping native ETH and USDC when accepted.',
+      ),
+    bridge: suckerBridgeSchema
+      .optional()
+      .describe('With chainIds. Default ccip. ' + suckerBridgeSchema.description),
+    suckerConfig: revSuckerConfigSchema
+      .optional()
+      .describe(
+        'Explicit bridges, instead of chainIds. Use { salt, deployerConfigurations: [] } for one chain.',
+      ),
     tiered721Config: revTieredConfigSchema.optional(),
     allowedPosts: z.array(revAllowedPostSchema).max(16).default([]),
   })
@@ -357,7 +369,32 @@ export const prepareRevnetDeploySchema = z
         path: ['allowedPosts'],
         message: 'Allowed posts require the explicit tiered 721 configuration.',
       });
-    if (value.suckerConfig.deployerConfigurations.length && value.suckerConfig.salt === zeroHash)
+    if (!value.chainIds === !value.suckerConfig)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['chainIds'],
+        message:
+          'Pass chainIds (every chain the revnet launches on) to fill the bridges from the registry, or an explicit suckerConfig, not both.',
+      });
+    if (value.chainIds && !value.chainIds.includes(value.chainId))
+      ctx.addIssue({
+        code: 'custom',
+        path: ['chainIds'],
+        message: 'chainIds must include chainId.',
+      });
+    if (value.bridge && !value.chainIds)
+      ctx.addIssue({ code: 'custom', path: ['bridge'], message: 'bridge needs chainIds.' });
+    const crossChain = value.suckerConfig
+      ? value.suckerConfig.deployerConfigurations.length > 0
+      : (value.chainIds?.length ?? 0) > 1;
+    if (crossChain && value.chainIds && value.config.description.salt === zeroHash)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['config', 'description', 'salt'],
+        message:
+          'A nonzero salt is required: with chainIds it also salts the suckers, and the deployer skips them when it is zero.',
+      });
+    if (value.suckerConfig?.deployerConfigurations.length && value.suckerConfig.salt === zeroHash)
       ctx.addIssue({
         code: 'custom',
         path: ['suckerConfig', 'salt'],
@@ -373,7 +410,7 @@ export const prepareRevnetDeploySchema = z
         path: ['accountingContexts'],
         message: 'Accounting tokens must be unique.',
       });
-    if (value.suckerConfig.deployerConfigurations.length)
+    if (crossChain)
       value.config.stageConfigurations.forEach((stage, i) => {
         if ((BigInt(stage.extraMetadata) & 4n) === 0n)
           ctx.addIssue({

@@ -14584,7 +14584,7 @@
     },
     {
       "name": "jb_prepare_revnet_deploy",
-      "description": "Prepare a complete typed revnet deployment: stages, issuance, splits, accounting contexts, sucker configuration and optional 721/Croptop settings, with a live per-chain creation fee.",
+      "description": "Prepare a complete typed revnet deployment: stages, issuance, splits, accounting contexts, bridges and optional 721/Croptop settings, with a live per-chain creation fee. For a multi-chain launch, pass chainIds and the sucker registry fills the bridges.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -14954,7 +14954,59 @@
               "additionalProperties": false
             }
           },
+          "chainIds": {
+            "description": "Every chain the revnet launches on, including chainId. Instead of suckerConfig: the sucker registry fills the bridges to the other chains, salted with config.description.salt, mapping native ETH and USDC when accepted.",
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "const": 1
+                },
+                {
+                  "type": "number",
+                  "const": 10
+                },
+                {
+                  "type": "number",
+                  "const": 8453
+                },
+                {
+                  "type": "number",
+                  "const": 42161
+                },
+                {
+                  "type": "number",
+                  "const": 11155111
+                },
+                {
+                  "type": "number",
+                  "const": 11155420
+                },
+                {
+                  "type": "number",
+                  "const": 84532
+                },
+                {
+                  "type": "number",
+                  "const": 421614
+                }
+              ]
+            }
+          },
+          "bridge": {
+            "description": "With chainIds. Default ccip. ccip links any chain pair. native links Ethereum with one L2 and maps native ETH only. both adds a native sucker where one exists.",
+            "type": "string",
+            "enum": [
+              "ccip",
+              "native",
+              "both"
+            ]
+          },
           "suckerConfig": {
+            "description": "Explicit bridges, instead of chainIds. Use { salt, deployerConfigurations: [] } for one chain.",
             "type": "object",
             "properties": {
               "salt": {
@@ -15461,8 +15513,7 @@
           "chainId",
           "account",
           "config",
-          "accountingContexts",
-          "suckerConfig"
+          "accountingContexts"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false
@@ -19067,7 +19118,7 @@
           },
           {
             "name": "jb_prepare_revnet_deploy",
-            "description": "Prepare a complete typed revnet deployment: stages, issuance, splits, accounting contexts, sucker configuration and optional 721/Croptop settings, with a live per-chain creation fee."
+            "description": "Prepare a complete typed revnet deployment: stages, issuance, splits, accounting contexts, bridges and optional 721/Croptop settings, with a live per-chain creation fee. For a multi-chain launch, pass chainIds and the sucker registry fills the bridges."
           },
           {
             "name": "jb_prepare_auto_issue",

@@ -584,7 +584,7 @@ function definitions(s: Services): ProtocolOperation[] {
     transactionWithSchema(
       s,
       'prepare_revnet_deploy',
-      'Prepare a complete typed revnet deployment: stages, issuance, splits, accounting contexts, sucker configuration and optional 721/Croptop settings, with a live per-chain creation fee.',
+      'Prepare a complete typed revnet deployment: stages, issuance, splits, accounting contexts, bridges and optional 721/Croptop settings, with a live per-chain creation fee. For a multi-chain launch, pass chainIds and the sucker registry fills the bridges.',
       prepareRevnetDeploySchema,
       async (input) => s.products.prepareRevnetDeploy(input),
     ),

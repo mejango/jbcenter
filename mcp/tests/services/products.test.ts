@@ -14,6 +14,7 @@ import { build721PayMetadata, buildRulesetMetadata, v6Address } from '@bananapus
 import {
   decodeFunctionData,
   getContractAddress,
+  pad,
   zeroAddress,
   zeroHash,
   type Address,
@@ -967,6 +968,64 @@ describe('new revnet deployment', () => {
           ],
         },
       }).success,
+    ).toBe(false);
+  });
+  it('fills the bridges from the registry when given chainIds, like the omnichain launch', async () => {
+    const { suckerConfig: _explicit, ...base } = deploy;
+    const plan = await fixture().service.prepareRevnetDeploy({ ...base, chainIds: [8453, 10] });
+    const decoded = decodeFunctionData({ abi: revDeployerAbi, data: plan.calls[0]!.data });
+    if (decoded.functionName !== 'deployFor' || decoded.args.length !== 4)
+      throw new Error('Expected the four-argument deploy');
+    const suckers = decoded.args[3];
+    // One salt for the token and the suckers, so every chain pairs.
+    expect(suckers.salt).toBe(hash);
+    expect(suckers.deployerConfigurations).toHaveLength(1);
+    expect(suckers.deployerConfigurations[0]!.deployer.toLowerCase()).toBe(
+      '0x8f6f0a70939997310309d7ab66b1b199faafe7f0',
+    );
+    expect(suckers.deployerConfigurations[0]!.mappings).toEqual([
+      { localToken: NATIVE_TOKEN, minGas: 200000, remoteToken: pad(NATIVE_TOKEN).toLowerCase() },
+    ]);
+    expect((plan.summary as { suckerConfig: unknown }).suckerConfig).toMatchObject({ salt: hash });
+    // The fixture reports 18 decimals for every token.
+    const usdc = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+    const withUsdc = await fixture().service.prepareRevnetDeploy({
+      ...base,
+      accountingContexts: [
+        ...base.accountingContexts,
+        { token: usdc, decimals: '18', currency: String(BigInt(usdc) & 0xffffffffn) },
+      ],
+      chainIds: [8453, 10],
+    });
+    const mapped = decodeFunctionData({ abi: revDeployerAbi, data: withUsdc.calls[0]!.data });
+    expect(
+      (mapped.args?.[3] as typeof suckers).deployerConfigurations[0]!.mappings.map(
+        (mapping) => mapping.localToken,
+      ),
+    ).toEqual([NATIVE_TOKEN, usdc]);
+    const single = await fixture().service.prepareRevnetDeploy({ ...base, chainIds: [8453] });
+    const one = decodeFunctionData({ abi: revDeployerAbi, data: single.calls[0]!.data });
+    expect(one.args?.[3]).toEqual({ salt: zeroHash, deployerConfigurations: [] });
+    await expect(
+      fixture().service.prepareRevnetDeploy({ ...base, chainIds: [8453, 84532] }),
+    ).rejects.toMatchObject({ code: 'SUCKER_LANE_UNAVAILABLE' });
+    const invalid = (patch: Record<string, unknown>) =>
+      prepareRevnetDeploySchema.safeParse({ ...base, ...patch }).success;
+    expect(invalid({})).toBe(false);
+    expect(invalid({ chainIds: [8453, 10], suckerConfig: deploy.suckerConfig })).toBe(false);
+    expect(invalid({ chainIds: [10, 1] })).toBe(false);
+    expect(invalid({ suckerConfig: deploy.suckerConfig, bridge: 'ccip' })).toBe(false);
+    expect(
+      invalid({
+        chainIds: [8453, 10],
+        config: { ...deploy.config, description: { ...deploy.config.description, salt: zeroHash } },
+      }),
+    ).toBe(false);
+    expect(
+      invalid({
+        chainIds: [8453, 10],
+        config: { ...deploy.config, stageConfigurations: [{ ...stage, extraMetadata: '0' }] },
+      }),
     ).toBe(false);
   });
   it('requires explicit non-ETH store pricing and detects missing price feeds', async () => {
