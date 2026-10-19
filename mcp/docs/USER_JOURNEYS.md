@@ -83,7 +83,7 @@ The result is an explanation of ownership, current and queued economic rules, is
 
 > “Which Juicebox positions does this address have, and what does it hold in this project now?”
 
-Page through `jb_get_account` to discover indexed participant positions, then use `jb_get_position` and `jb_get_project` for each selected project. The live position distinguishes ERC-20 tokens from unclaimed project credits. Inspect a known loan separately with `jb_get_loan`.
+Page through `jb_get_account` to discover indexed participant positions, then use `jb_get_position` and `jb_get_project` for each selected project. The live position distinguishes ERC-20 tokens from unclaimed project credits. Inspect a known loan separately with `jb_get_loan`. To find who holds a project's tokens, page through `jb_get_holders`: rows come from the index, largest first, and the first 20 per page are checked on chain.
 
 This produces scoped holdings with exact units and freshness. It is not exhaustive NFT or loan enumeration, a complete wallet net worth calculation, or a current USD portfolio valuation. A known project can be inspected directly even when indexed account discovery is unavailable.
 
@@ -101,7 +101,7 @@ The outcome is an evidence-based explanation of the available observations. Acti
 
 > “Explain what contributing this amount would do before I sign.”
 
-Inspect the project and its routing, establish the actual payer and beneficiary, then call `jb_quote_pay`. Explain how the supported route allocates funds between treasury funding and market acquisition, how beneficiary and reserved token outputs differ, and which outputs are protected. Use `jb_prepare_pay` when the intended payment is established, then follow the shared review/simulation/wallet/verification flow.
+Inspect the project and its routing, establish the actual payer and beneficiary, then call `jb_quote_pay`. Explain how the supported route allocates funds between treasury funding and market acquisition, how beneficiary and reserved token outputs differ, and which outputs are protected. To compare buying straight from the project's buyback pool, call `jb_quote_pool_buy`: it returns the pool output and the terminal count at one block. A direct swap skips issuance and reserved splits, and no tool prepares it. Use `jb_prepare_pay` when the intended payment is established, then follow the shared review/simulation/wallet/verification flow.
 
 A successful journey produces verified payment evidence for the selected route. ERC-20 funding can require separate allowance steps. The quote does not prove an unqueried route is better or worse; unsupported partial buyback execution and custom compositions are reported explicitly.
 

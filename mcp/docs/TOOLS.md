@@ -4,7 +4,7 @@ Generated from the real MCP server with the official MCP client. Regenerate with
 
 For user goals, tool sequences, external handoffs and completion evidence, see the [user journeys](USER_JOURNEYS.md).
 
-61 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of a project logo and reviewed project or NFT metadata through the integrated Center backend. No tool signs or broadcasts transactions.
+63 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of a project logo and reviewed project or NFT metadata through the integrated Center backend. No tool signs or broadcasts transactions.
 
 `jb_pin_project_logo` uploads one PNG, JPEG, GIF, WebP or inert SVG of at most 1 MiB and returns its `ipfs://` logoUri. `jb_prepare_project_metadata` returns the exact canonical JSON, SHA256 and an expiring review token. `jb_pin_project_metadata` uploads only that reviewed document after explicit public-upload authorization. Both pins are public mutations; a review token is not user approval. `logoUri` must be `ipfs://` because the first-party webclients do not render HTTPS logos. The workflow creates new standard project metadata and does not merge existing documents or update project URIs on-chain.
 
@@ -41,6 +41,7 @@ Source areas: JB Center, jb-project-metadata, jb-721-tier-content.
 | `jb_get_rulesets` | Read current, upcoming, and a bounded page of queued V6 rulesets at one block. Approval and queue state are preserved; custom hooks are not guessed. |
 | `jb_get_position` | Read one account’s live project token position including unclaimed credits and ERC-20 balance, with exact units and explicit coverage for other assets. |
 | `jb_get_account` | Discover indexed V6 token positions for an address. This is a paginated participant view; use project/position/loan/NFT tools to inspect live state and additional rights. |
+| `jb_get_holders` | List a project's token holders on one chain, largest first, from the indexer. The first 20 rows of each page are checked on chain at one block; the rest are indexed-only. |
 | `jb_get_activity` | Read a page of V6 project activity, retaining payment, cash-out, payout, split, and bridge event evidence. Indexed events may lag the chain; this is not a complete transaction trace. |
 | `jb_get_indexer_status` | Read the configured indexer’s per-chain progress. A separate status read does not pin a GraphQL response to a block. |
 | `jb_get_permissions` | Check named V6 permission IDs against live permission contracts, including root and project wildcard grants. Unknown results never authorize an action. |
@@ -89,6 +90,7 @@ Source areas: JBRulesets, JBFundAccessLimits, JBSplits, JBController.
 | Tool | Behavior |
 |---|---|
 | `jb_get_routing` | Inspect the actual buyback/NFT/revnet hook composition, router project overrides, pool configuration, TWAP availability and token routes. Unknown oracle or custom-hook behavior remains explicit. |
+| `jb_quote_pool_buy` | Quote buying project tokens straight from the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. A direct swap skips issuance and reserved splits. |
 | `jb_prepare_buyback_pool` | Prepare registration of an existing Uniswap V4 buyback pool for a verified project hook. Validates pool identity, token pair, permissions and TWAP window. |
 | `jb_prepare_buyback_twap` | Prepare an authorized buyback TWAP-window change with exact contract bounds and current project hook resolution. |
 | `jb_prepare_buyback_hook` | Prepare a reviewed project buyback-registry override, with explicit target and authority checks. |

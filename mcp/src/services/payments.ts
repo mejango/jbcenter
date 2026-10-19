@@ -253,8 +253,8 @@ export class PaymentService {
     return reading;
   }
 
-  async quotePay(input: PayInput) {
-    return (await this.pay(input)).quote;
+  async quotePay(input: PayInput, at?: BlockEvidence) {
+    return (await this.pay(input, undefined, at)).quote;
   }
 
   async preparePay(input: PayInput, at?: BlockEvidence): Promise<PlanDraft> {
