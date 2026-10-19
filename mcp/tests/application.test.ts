@@ -560,6 +560,7 @@ describe('transport-independent protocol operations', () => {
       call,
       estimateGas,
       getBlock: async () => ({ hash: BLOCK_HASH }),
+      request: async () => [{ calls: [{ status: '0x1', gasUsed: '0x5208', returnData: '0x' }] }],
     } as unknown as PublicClient;
     vi.spyOn(services.rpc, 'snapshot').mockResolvedValue({
       client,
@@ -571,8 +572,16 @@ describe('transport-independent protocol operations', () => {
     };
     expect(prepared).toMatchObject({
       preflight: { status: 'known', value: { status: 'simulated' } },
-      execution: { mode: 'external-wallet', broadcastByServer: false, steps: 1 },
+      execution: {
+        mode: 'external-wallet',
+        broadcastByServer: false,
+        steps: 1,
+        note: expect.stringContaining('chained: true'),
+      },
     });
+    expect(
+      await operations.execute('simulate_plan', { token: prepared.token, chained: true }),
+    ).toMatchObject({ status: 'chained-simulated', steps: [{ step: 0 }] });
     const expectedCall = {
       account: ACCOUNT,
       to: TERMINAL,

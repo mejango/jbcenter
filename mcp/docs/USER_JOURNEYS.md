@@ -328,7 +328,7 @@ Center's [project intents guide](https://juicebox.center/api/docs/project-intent
 
 > “Was the transaction I submitted the one we reviewed, and did the intended operation happen?”
 
-Retain the plan token and each submitted hash with its zero-based step index. `jb_inspect_plan` authenticates the reviewed calls. Before signing a step, use `jb_simulate_plan`; provide matching confirmed prerequisite hashes in `confirmedTransactions` for dependent steps. The wallet signs and submits the exact account, chain, destination, calldata, and native value. Use `jb_verify_plan` with the indexed hashes afterward.
+Retain the plan token and each submitted hash with its zero-based step index. `jb_inspect_plan` authenticates the reviewed calls. Before signing a step, use `jb_simulate_plan`; provide matching confirmed prerequisite hashes in `confirmedTransactions` for dependent steps, or pass `chained: true` before any step is signed to run earlier steps with it in one simulated block (`chained-simulated`, dependencies unconfirmed). The wallet signs and submits the exact account, chain, destination, calldata, and native value. Use `jb_verify_plan` with the indexed hashes afterward.
 
 The result separates transaction confirmation from supported semantic outcome verification. Pending, reverted, mismatched, partial, and unverified outcomes need different handling. Do not submit a dependent payment merely because its allowance step simulated: its real prerequisite must confirm. Changes to account, chain, terms, quote assumptions, or plan expiry require renewed preparation and review. Expired plans remain available for authenticated historical inspection and receipt verification while the server retains the plan-authentication secret.
 

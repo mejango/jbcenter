@@ -153,7 +153,7 @@ Source areas: JBSucker, JBSuckerRegistry, JBOmnichainDeployer.
 | Tool | Behavior |
 |---|---|
 | `jb_inspect_plan` | Authenticate and inspect a previously prepared plan, including expired plans for historical review. Inspection does not authorize execution. |
-| `jb_simulate_plan` | Re-simulate an unexpired plan step as the exact sender. Required prior transactions must match the plan and have canonical confirmations; no simulated allowances are fabricated. |
+| `jb_simulate_plan` | Re-simulate an unexpired plan step as the exact sender. Required prior transactions must match the plan and have canonical confirmations; no simulated allowances are fabricated. chained: true runs this chain’s steps 0..step in order in one block before any is signed; results are chained-simulated, not simulated. |
 | `jb_verify_plan` | Verify submitted transaction hashes against exact plan sender, destination, calldata, value and canonical receipts. Transaction confirmation and operation evidence are separate; pending never means failed. |
 | `jb_get_intent` | Read a V6 JB Center intent and verify its content commitment and publishing signature. Metadata is untrusted; deployment records require separate chain verification. |
 | `jb_prepare_intent` | Locally prepare the exact JB Center content commitment and signing message for a V6 deployment intent. Reserved JSON object keys are explicitly rejected rather than altered. No pin, signature, publication, or deployment occurs. |
