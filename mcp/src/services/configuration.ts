@@ -20,6 +20,7 @@ import {
   isAddressEqual,
   zeroAddress,
   type Address,
+  type PublicClient,
 } from 'viem';
 import type { z } from 'zod';
 import { DomainError } from '../domain/errors.js';
@@ -35,7 +36,7 @@ import {
   type PreviewRulesetChangeInput,
   type RulesetConfigInput,
 } from '../domain/rulesets.js';
-import type { ChainId, PlanDraft, PreparedCall, RpcProvider } from '../domain/types.js';
+import type { ChainId, PlanDraft, PreparedCall, ProjectRef, RpcProvider } from '../domain/types.js';
 import { canonicalDeadline } from './contracts.js';
 
 type StoredSplit = {
@@ -123,6 +124,35 @@ function configurationWarnings(chainId: ChainId, configurations: RulesetConfigIn
   return warnings;
 }
 
+/** The project's owner, after checking it uses the canonical V6 controller. */
+async function canonicalProject(client: PublicClient, project: ProjectRef, blockNumber: bigint) {
+  const projectId = BigInt(project.projectId);
+  const controller = v6Address('JBController', project.chainId);
+  const [currentController, owner] = await Promise.all([
+    client.readContract({
+      address: v6Address('JBDirectory', project.chainId),
+      abi: jbDirectoryAbi,
+      functionName: 'controllerOf',
+      args: [projectId],
+      blockNumber,
+    }),
+    client.readContract({
+      address: v6Address('JBProjects', project.chainId),
+      abi: jbProjectsAbi,
+      functionName: 'ownerOf',
+      args: [projectId],
+      blockNumber,
+    }),
+  ]);
+  if (!isAddressEqual(currentController, controller))
+    throw new DomainError(
+      'UNSUPPORTED_CONTROLLER',
+      'This project does not use the canonical V6 controller. Preparing canonical calldata would be incorrect.',
+      { details: { currentController, canonicalController: controller } },
+    );
+  return { controller, owner };
+}
+
 export class ConfigurationService {
   constructor(private readonly rpc: RpcProvider) {}
 
@@ -139,30 +169,8 @@ export class ConfigurationService {
     const projectId = BigInt(project.projectId);
     const { client, evidence } = await this.rpc.snapshot(project.chainId);
     const blockNumber = BigInt(evidence.blockNumber);
-    const controller = v6Address('JBController', project.chainId);
     const directory = v6Address('JBDirectory', project.chainId);
-    const [currentController, owner] = await Promise.all([
-      client.readContract({
-        address: directory,
-        abi: jbDirectoryAbi,
-        functionName: 'controllerOf',
-        args: [projectId],
-        blockNumber,
-      }),
-      client.readContract({
-        address: v6Address('JBProjects', project.chainId),
-        abi: jbProjectsAbi,
-        functionName: 'ownerOf',
-        args: [projectId],
-        blockNumber,
-      }),
-    ]);
-    if (!isAddressEqual(currentController, controller))
-      throw new DomainError(
-        'UNSUPPORTED_CONTROLLER',
-        'This project does not use the canonical V6 controller. Preparing canonical calldata would be incorrect.',
-        { details: { currentController, canonicalController: controller } },
-      );
+    const { controller, owner } = await canonicalProject(client, project, blockNumber);
 
     const [current, upcoming, latest, latestApprovalStatus, omnichainOperator, terminals] =
       await Promise.all([
