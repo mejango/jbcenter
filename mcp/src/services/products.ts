@@ -88,6 +88,23 @@ const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const fail = (code: string, message: string): never => {
   throw new DomainError(code, message);
 };
+/** Sucker lanes come from the SDK registry before any read, so an unlinkable chain set fails fast. */
+function registryLanes<T>(
+  chainId: ChainId,
+  chainIds: readonly ChainId[],
+  bridge: string,
+  build: () => T,
+): T {
+  try {
+    return build();
+  } catch (error) {
+    throw new DomainError(
+      'SUCKER_LANE_UNAVAILABLE',
+      `Chains ${chainIds.join(', ')} cannot be linked with bridge "${bridge}": ${(error as Error).message}.`,
+      { details: { chainId, chainIds, bridge } },
+    );
+  }
+}
 type Shop = Awaited<ReturnType<typeof verify721Hook>>;
 const sources = [
   'juice-sdk-v4/packages/core/src/v6/nft.ts',
@@ -1220,10 +1237,9 @@ export class ProductService {
     };
     if (input.deployTiersHookConfig)
       this.validateInitialTiers(input.deployTiersHookConfig.tiersConfig.tiers);
-    // Lanes come from the SDK registry before any read, so an unlinkable chain set fails fast.
-    const requests = input.chainIds.map((chainId) => {
-      try {
-        return buildOmnichainLaunchProjectTx({
+    const requests = input.chainIds.map((chainId) =>
+      registryLanes(chainId, input.chainIds, input.bridge, () =>
+        buildOmnichainLaunchProjectTx({
           chainId,
           chainIds: input.chainIds,
           owner: input.owner,
@@ -1236,15 +1252,9 @@ export class ProductService {
           assets,
           bridge: input.bridge,
           ...(deploy721Config ? { deploy721Config } : {}),
-        });
-      } catch (error) {
-        throw new DomainError(
-          'SUCKER_LANE_UNAVAILABLE',
-          `Chains ${input.chainIds.join(', ')} cannot be linked with bridge "${input.bridge}": ${(error as Error).message}.`,
-          { details: { chainId, chainIds: input.chainIds, bridge: input.bridge } },
-        );
-      }
-    });
+        }),
+      ),
+    );
     const tokens = contexts.map((c) => c.token).filter((token) => !same(token, NATIVE_TOKEN));
     const chains = await Promise.all(
       requests.map(async (request) => {

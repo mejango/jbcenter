@@ -256,6 +256,11 @@ export function revnetStartWarning(
     return `The first stage starts at ${start}, inside this plan's expiry plus a ${REVNET_SIGNING_MARGIN_SECONDS}-second signing margin. If the deploy lands after ${start}, this chain blocks ordinary cash outs and loans for ${delay}. For one start that works on every chain, call jb_suggest_revnet_start.`;
 }
 
+export const suckerBridgeSchema = z
+  .enum(['ccip', 'native', 'both'])
+  .describe(
+    'ccip links any chain pair. native links Ethereum with one L2 and maps native ETH only. both adds a native sucker where one exists.',
+  );
 export const revSuckerConfigSchema = z
   .object({
     salt: hashSchema,
@@ -448,12 +453,7 @@ export const prepareOmnichainLaunchSchema = z
       .describe(
         'One random salt shared by every chain. Suckers pair only with the same salt and signer.',
       ),
-    bridge: z
-      .enum(['ccip', 'native', 'both'])
-      .default('ccip')
-      .describe(
-        'ccip links any chain pair. native links Ethereum with one L2 and maps native ETH only. both adds a native sucker where one exists.',
-      ),
+    bridge: suckerBridgeSchema.default('ccip'),
     deployTiersHookConfig: deploy721HookSchema
       .optional()
       .describe(

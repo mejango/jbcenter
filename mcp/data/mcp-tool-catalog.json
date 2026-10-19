@@ -8146,13 +8146,13 @@
           },
           "bridge": {
             "default": "ccip",
-            "description": "ccip links any chain pair. native links Ethereum with one L2 and maps native ETH only. both adds a native sucker where one exists.",
             "type": "string",
             "enum": [
               "ccip",
               "native",
               "both"
-            ]
+            ],
+            "description": "ccip links any chain pair. native links Ethereum with one L2 and maps native ETH only. both adds a native sucker where one exists."
           },
           "deployTiersHookConfig": {
             "description": "NFT tiers collection. Omitted: an empty collection priced in the first baseCurrency.",
