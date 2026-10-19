@@ -366,3 +366,37 @@ describe('split-lock continuity comparison', () => {
     expect(changedLockedSplits([locked], [], 3000n)).toEqual([]);
   });
 });
+
+describe('revnet modeling source', () => {
+  const scenario = { label: 'one', contributionInBaseCurrency18: '1000000000000000000' };
+  const owner = v6Address('REVOwner', 8453);
+
+  it('reads a revnet project through the revnet reader, and nothing else', async () => {
+    const { service } = mockRpc();
+    const read = vi.fn(async () => ({
+      current: {
+        ruleset: { id: '5', start: '100', duration: '0', weight: '7', weightCutPercent: '0' },
+        metadata: {
+          reservedPercent: 0,
+          cashOutTaxRate: 0,
+          baseCurrency: 1,
+          pausePay: false,
+          dataHook: owner,
+        },
+      },
+      stages: [],
+      cashOutDelay: { until: '0', active: false },
+      evidence: [],
+    }));
+    const project = { chainId: 8453 as const, projectId: '6' };
+    const result = await service.modelEconomics(
+      { revnet: { project }, completedCycles: 0, scenarios: [scenario] },
+      read,
+    );
+    expect(read).toHaveBeenCalledWith({ ...project, version: 6 });
+    expect(result.effectiveWeight).toBe('7');
+    await expect(
+      service.modelEconomics({ revnet: { project }, completedCycles: 0, scenarios: [scenario] }),
+    ).rejects.toThrow(/reader/);
+  });
+});

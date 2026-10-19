@@ -377,9 +377,10 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     operationWithSchema(
       'model_economics',
-      'Compute an explicit hypothetical issuance/cash-out scenario with integer arithmetic. Inputs and exclusions are reported; this is neither a forecast nor an executable live quote.',
+      'Compute an explicit hypothetical issuance/cash-out scenario with integer arithmetic. Give a core ruleset, or a revnet (a live project, or a stage config before launch). Revnets include the revnet cash-out fee; buyback effects are indicative. Neither a forecast nor an executable live quote.',
       modelEconomicsSchema,
-      async (input) => s.configuration.modelEconomics(input),
+      async (input) =>
+        s.configuration.modelEconomics(input, (project) => s.products.getRevnet({ project })),
     ),
     operationWithSchema(
       'preview_ruleset_change',

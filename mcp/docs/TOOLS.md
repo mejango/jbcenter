@@ -74,7 +74,7 @@ Source areas: JBMultiTerminal, JBBuybackHook, JBRouterTerminalRegistry, JBRouter
 
 | Tool | Behavior |
 |---|---|
-| `jb_model_economics` | Compute an explicit hypothetical issuance/cash-out scenario with integer arithmetic. Inputs and exclusions are reported; this is neither a forecast nor an executable live quote. |
+| `jb_model_economics` | Compute an explicit hypothetical issuance/cash-out scenario with integer arithmetic. Give a core ruleset, or a revnet (a live project, or a stage config before launch). Revnets include the revnet cash-out fee; buyback effects are indicative. Neither a forecast nor an executable live quote. |
 | `jb_preview_ruleset_change` | Compare a complete proposed ruleset configuration against live rules, payout access, splits, locks, queue state, and caller permissions. Effective timing remains conditional on protocol approval. |
 | `jb_prepare_ruleset_change` | Prepare exact reviewed V6 ruleset calldata after a live diff and permission check. Does not silently overwrite omitted configuration or promise approval timing. |
 | `jb_prepare_launch` | Prepare a standard core V6 project launch using complete typed configuration and a chain-specific live creation fee. Explicit core composition does not attach NFT/revnet/omnichain extensions. |
