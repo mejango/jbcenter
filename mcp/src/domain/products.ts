@@ -18,6 +18,7 @@ import {
 } from './schemas.js';
 import {
   accountingContextSchema,
+  requireLimitsOnAcceptedContexts,
   rulesetConfigSchema,
   rulesetMetadataSchema,
   splitSchema,
@@ -383,25 +384,7 @@ export const prepare721LaunchSchema = z
     salt: hashSchema,
   })
   .strict()
-  .superRefine((value, ctx) => {
-    const accepted = new Set(
-      value.terminalConfigurations.flatMap((terminal) =>
-        terminal.accountingContextsToAccept.map((context) =>
-          `${terminal.terminal}:${context.token}`.toLowerCase(),
-        ),
-      ),
-    );
-    value.rulesetConfigurations.forEach((config, i) =>
-      config.fundAccessLimitGroups.forEach((group, j) => {
-        if (!accepted.has(`${group.terminal}:${group.token}`.toLowerCase()))
-          ctx.addIssue({
-            code: 'custom',
-            path: ['rulesetConfigurations', i, 'fundAccessLimitGroups', j],
-            message: 'Launch limits must reference an explicit accepted terminal/token context.',
-          });
-      }),
-    );
-  });
+  .superRefine(requireLimitsOnAcceptedContexts);
 export function toPayHookRuleset(value: z.output<typeof payHookRulesetSchema>) {
   const converted = toRulesetConfig({
     ...value,

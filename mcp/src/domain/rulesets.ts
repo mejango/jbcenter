@@ -233,6 +233,38 @@ export const previewRulesetChangeSchema = z
 export const prepareRulesetChangeSchema = previewRulesetChangeSchema.extend({
   memo: z.string().max(4096).optional(),
 });
+/** Launch fund access limits must name a terminal/token context the launch also accepts. */
+export function requireLimitsOnAcceptedContexts(
+  value: {
+    rulesetConfigurations: readonly {
+      fundAccessLimitGroups: readonly { terminal: string; token: string }[];
+    }[];
+    terminalConfigurations: readonly {
+      terminal: string;
+      accountingContextsToAccept: readonly { token: string }[];
+    }[];
+  },
+  ctx: z.RefinementCtx,
+) {
+  const accepted = new Set(
+    value.terminalConfigurations.flatMap((terminal) =>
+      terminal.accountingContextsToAccept.map((context) =>
+        `${terminal.terminal}:${context.token}`.toLowerCase(),
+      ),
+    ),
+  );
+  value.rulesetConfigurations.forEach((config, i) =>
+    config.fundAccessLimitGroups.forEach((group, j) => {
+      if (!accepted.has(`${group.terminal}:${group.token}`.toLowerCase()))
+        ctx.addIssue({
+          code: 'custom',
+          path: ['rulesetConfigurations', i, 'fundAccessLimitGroups', j],
+          message:
+            'A launch fund access limit must refer to an explicitly configured terminal/token context.',
+        });
+    }),
+  );
+}
 export const prepareLaunchSchema = z
   .object({
     chainId: chainIdSchema,
@@ -252,27 +284,7 @@ export const prepareLaunchSchema = z
     memo: z.string().max(4096).optional(),
   })
   .strict()
-  .superRefine((value, ctx) => {
-    const accepted = new Set(
-      value.terminalConfigurations.flatMap((terminal) =>
-        terminal.accountingContextsToAccept.map((context) =>
-          `${terminal.terminal}:${context.token}`.toLowerCase(),
-        ),
-      ),
-    );
-    value.rulesetConfigurations.forEach((config, i) =>
-      config.fundAccessLimitGroups.forEach((group, j) => {
-        if (!accepted.has(`${group.terminal}:${group.token}`.toLowerCase())) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['rulesetConfigurations', i, 'fundAccessLimitGroups', j],
-            message:
-              'A launch fund access limit must refer to an explicitly configured terminal/token context.',
-          });
-        }
-      }),
-    );
-  });
+  .superRefine(requireLimitsOnAcceptedContexts);
 
 export type RulesetConfigInput = z.output<typeof rulesetConfigSchema>;
 export type PreviewRulesetChangeInput = z.output<typeof previewRulesetChangeSchema>;

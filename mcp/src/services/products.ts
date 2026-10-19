@@ -140,6 +140,25 @@ export class ProductService {
     );
   }
 
+  /** Each sucker deployer must have code and be allowed by the canonical registry. */
+  private async requireSuckerDeployers(
+    client: PublicClient,
+    chainId: ChainId,
+    deployers: readonly Address[],
+  ) {
+    for (const deployer of deployers) {
+      await this.code(client, [deployer]);
+      const allowed = await client.readContract({
+        address: v6Address('JBSuckerRegistry', chainId),
+        abi: jbSuckerRegistryAbi,
+        functionName: 'suckerDeployerIsAllowed',
+        args: [deployer],
+      });
+      if (!allowed)
+        fail('SUCKER_DEPLOYER_NOT_ALLOWED', 'The sucker registry has not allowed this deployer.');
+    }
+  }
+
   private async context(snapshot: RpcSnapshot, project: ProjectRef) {
     const { client } = snapshot;
     await this.code(client, [
@@ -1033,16 +1052,12 @@ export class ProductService {
           : []),
       ],
     );
+    await this.requireSuckerDeployers(
+      snapshot.client,
+      input.chainId,
+      input.suckerConfig.deployerConfigurations.map((config) => config.deployer),
+    );
     for (const config of input.suckerConfig.deployerConfigurations) {
-      await this.code(snapshot.client, [config.deployer]);
-      const allowed = await snapshot.client.readContract({
-        address: v6Address('JBSuckerRegistry', input.chainId),
-        abi: jbSuckerRegistryAbi,
-        functionName: 'suckerDeployerIsAllowed',
-        args: [config.deployer],
-      });
-      if (!allowed)
-        fail('SUCKER_DEPLOYER_NOT_ALLOWED', 'The sucker registry has not allowed this deployer.');
       if (
         config.mappings.some(
           (mapping) =>
