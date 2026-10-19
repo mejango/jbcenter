@@ -280,6 +280,21 @@ export function normalizePlanDraft(draft: PlanDraft): PlanDraft {
   return freeze(normalized);
 }
 
+/** Every step `step` transitively depends on, ascending. */
+function requiredSteps(draft: PlanDraft, step: number): number[] {
+  const required = new Set<number>();
+  const visit = (index: number) => {
+    for (const dependency of draft.calls[index]!.dependsOn) {
+      if (!required.has(dependency)) {
+        required.add(dependency);
+        visit(dependency);
+      }
+    }
+  };
+  visit(step);
+  return [...required].sort((a, b) => a - b);
+}
+
 /** Stateless, authenticated transaction plans. This service never signs or broadcasts transactions. */
 export class PlanService {
   private readonly rpc: RpcProvider;
@@ -404,21 +419,12 @@ export class PlanService {
     const call = plan.draft.calls[step];
     if (!call)
       throw new DomainError('INVALID_PLAN_STEP', 'The requested step is not in this plan.');
-    const required = new Set<number>();
-    const addDependencies = (index: number) => {
-      for (const dependency of plan.draft.calls[index]!.dependsOn) {
-        if (!required.has(dependency)) {
-          required.add(dependency);
-          addDependencies(dependency);
-        }
-      }
-    };
-    addDependencies(step);
+    const required = requiredSteps(plan.draft, step);
     const references = new Map(
       confirmedTransactions.map((reference) => [reference.step, reference.hash]),
     );
     const dependencies: StepVerification[] = [];
-    for (const dependency of [...required].sort((a, b) => a - b)) {
+    for (const dependency of required) {
       const hash = references.get(dependency);
       dependencies.push(
         hash
