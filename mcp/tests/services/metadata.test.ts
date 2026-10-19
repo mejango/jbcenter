@@ -97,6 +97,11 @@ describe('V6 metadata review and public publication', () => {
         onchainTransactionSubmitted: false,
       },
     });
+    expect(result.launchInputs).toContainEqual({
+      tool: 'jb_prepare_set_project_uri',
+      field: 'uri',
+      value: `ipfs://${CID}`,
+    });
   });
 
   it('accepts equivalent key ordering without changing content commitment', () => {

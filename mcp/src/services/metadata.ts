@@ -360,7 +360,7 @@ export class ProjectMetadataService {
       warnings: [
         'This creates a new document containing only the displayed fields. It does not merge or preserve fields from an existing project metadata document.',
         'A logoUri references an already pinned image as ipfs://<cid>. Preparation does not fetch or pin it; pin a local image with jb_pin_project_logo first, or omit logoUri.',
-        'Pinning does not launch or edit a project on-chain. Use the returned metadataUri in a separately reviewed V6 launch. Existing-project URI updates are not prepared by this workflow.',
+        'Pinning does not launch or edit a project on-chain. Use the returned metadataUri in a reviewed V6 launch, or in jb_prepare_set_project_uri for an existing project.',
       ],
     };
   }
@@ -374,6 +374,8 @@ export class ProjectMetadataService {
       launchInputs: [
         { tool: 'jb_prepare_launch', field: 'projectUri', value: published.metadataUri },
         { tool: 'jb_prepare_721_launch', field: 'projectUri', value: published.metadataUri },
+        { tool: 'jb_prepare_omnichain_launch', field: 'projectUri', value: published.metadataUri },
+        { tool: 'jb_prepare_set_project_uri', field: 'uri', value: published.metadataUri },
         {
           tool: 'jb_prepare_revnet_deploy',
           field: 'config.description.uri',
@@ -381,7 +383,7 @@ export class ProjectMetadataService {
         },
       ],
       nextStep:
-        'Choose the intended V6 launch composition, use the indicated URI field, and complete its other typed inputs for a separate transaction review. Pinning itself has not changed any project. This workflow does not prepare existing-project URI updates.',
+        'Choose the intended V6 launch composition, or jb_prepare_set_project_uri for an existing project, and put the metadataUri in the indicated field for a separate transaction review. Pinning itself has not changed any project.',
     };
   }
 

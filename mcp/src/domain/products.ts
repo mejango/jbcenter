@@ -20,6 +20,7 @@ import {
   accountingContextSchema,
   requireLimitsOnAcceptedContexts,
   rulesetConfigSchema,
+  rulesetConfigurationsSchema,
   rulesetMetadataSchema,
   splitSchema,
   terminalConfigurationsSchema,
@@ -385,6 +386,50 @@ export const prepare721LaunchSchema = z
   })
   .strict()
   .superRefine(requireLimitsOnAcceptedContexts);
+export const prepareOmnichainLaunchSchema = z
+  .object({
+    chainIds: z
+      .array(chainIdSchema)
+      .min(2)
+      .max(4)
+      .refine((ids) => new Set(ids).size === ids.length, 'Chain IDs must be unique.')
+      .describe('Every chain the project launches on, all mainnets or all testnets.'),
+    account: nonzero.describe('The one address that signs on every chain.'),
+    owner: nonzero,
+    projectUri: z
+      .string()
+      .max(4096)
+      .describe('Pinned metadata URI (ipfs://<cid>), or empty to set it later.'),
+    rulesetConfigurations: rulesetConfigurationsSchema,
+    terminalConfigurations: terminalConfigurationsSchema,
+    memo: z.string().max(4096).default(''),
+    salt: hashSchema
+      .refine((value) => value !== zeroHash, 'A nonzero salt is required: zero skips suckers.')
+      .describe(
+        'One random salt shared by every chain. Suckers pair only with the same salt and signer.',
+      ),
+    bridge: z
+      .enum(['ccip', 'native', 'both'])
+      .default('ccip')
+      .describe(
+        'ccip links any chain pair. native links Ethereum with one L2 and maps native ETH only. both adds a native sucker where one exists.',
+      ),
+    deployTiersHookConfig: deploy721HookSchema
+      .optional()
+      .describe(
+        'NFT tiers collection. Omitted: an empty collection priced in the first baseCurrency.',
+      ),
+    useDataHookForCashOut: z
+      .boolean()
+      .default(false)
+      .describe('Let NFTs cash out for surplus. Needs deployTiersHookConfig.'),
+  })
+  .strict()
+  .superRefine(requireLimitsOnAcceptedContexts)
+  .refine((value) => !value.useDataHookForCashOut || value.deployTiersHookConfig, {
+    path: ['useDataHookForCashOut'],
+    message: 'useDataHookForCashOut needs deployTiersHookConfig.',
+  });
 export function toPayHookRuleset(value: z.output<typeof payHookRulesetSchema>) {
   const converted = toRulesetConfig({
     ...value,

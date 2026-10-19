@@ -4,7 +4,7 @@ Generated from the real MCP server with the official MCP client. Regenerate with
 
 For user goals, tool sequences, external handoffs and completion evidence, see the [user journeys](USER_JOURNEYS.md).
 
-61 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of a project logo and reviewed project or NFT metadata through the integrated Center backend. No tool signs or broadcasts transactions.
+64 V6-only tools are registered. They provide public reads, pure computations, unsigned plan preparation, receipt verification, and explicitly approved publication of a project logo and reviewed project or NFT metadata through the integrated Center backend. No tool signs or broadcasts transactions.
 
 `jb_pin_project_logo` uploads one PNG, JPEG, GIF, WebP or inert SVG of at most 1 MiB and returns its `ipfs://` logoUri. `jb_prepare_project_metadata` returns the exact canonical JSON, SHA256 and an expiring review token. `jb_pin_project_metadata` uploads only that reviewed document after explicit public-upload authorization. Both pins are public mutations; a review token is not user approval. `logoUri` must be `ipfs://` because the first-party webclients do not render HTTPS logos. The workflow creates new standard project metadata and does not merge existing documents or update project URIs on-chain.
 
@@ -77,9 +77,12 @@ Source areas: JBMultiTerminal, JBBuybackHook, JBRouterTerminalRegistry, JBRouter
 | `jb_model_economics` | Compute an explicit hypothetical issuance/cash-out scenario with integer arithmetic. Inputs and exclusions are reported; this is neither a forecast nor an executable live quote. |
 | `jb_preview_ruleset_change` | Compare a complete proposed ruleset configuration against live rules, payout access, splits, locks, queue state, and caller permissions. Effective timing remains conditional on protocol approval. |
 | `jb_prepare_ruleset_change` | Prepare exact reviewed V6 ruleset calldata after a live diff and permission check. Does not silently overwrite omitted configuration or promise approval timing. |
-| `jb_prepare_launch` | Prepare a standard core V6 project launch using complete typed configuration and a chain-specific live creation fee. Explicit core composition does not attach NFT/revnet/omnichain extensions. |
+| `jb_prepare_launch` | Prepare a standard core V6 project launch on one chain using complete typed configuration and a chain-specific live creation fee. Explicit core composition does not attach NFT/revnet/omnichain extensions. To link chains as one project, use jb_prepare_omnichain_launch. |
+| `jb_prepare_deploy_erc20` | Prepare JBController.deployERC20For: give a project its ERC-20 name and ticker. Checks the signer is the owner or holds DEPLOY_ERC20, and that the project has no ERC-20 yet. |
+| `jb_prepare_set_project_uri` | Prepare JBController.setUriOf with a metadata URI the user already pinned. Checks the signer is the owner or holds SET_PROJECT_URI; for a revnet that is its operator. |
 
 - Core launch is an explicit composition. NFT and revnet launch semantics are separate.
+- After a launch, jb_prepare_deploy_erc20 adds the ERC-20 and jb_prepare_set_project_uri sets the name. Each acts on one chain.
 - Scenarios report assumptions; future approval-hook outcomes are not predicted.
 
 Source areas: JBRulesets, JBFundAccessLimits, JBSplits, JBController.
@@ -140,11 +143,13 @@ Source areas: REVDeployer, REVOwner, REVLoans, revnet-economics.
 |---|---|
 | `jb_get_bridges` | Inspect V6 sucker identities, reciprocal peers, chain-specific project IDs, transports and accounting observations. Optional movement scans require a bounded explicit block range. |
 | `jb_get_omnichain_group` | Read the indexer’s V6 sucker group and a bounded project page. This is discovery evidence; validate peers on-chain before preparing bridge actions. |
+| `jb_prepare_omnichain_launch` | Prepare one project linked across chains: JBOmnichainDeployer.launchProjectFor on each chain, with suckers from the registry, one salt and one signer. Returns one plan with one step per chain and a commitment hash shared by every step. |
 | `jb_prepare_bridge_claim` | Prepare a claim only through a sucker verified for the project. Exact claim proof and beneficiary are preserved and simulation validates current claimability. |
 | `jb_prepare_accounting_sync` | Prepare permissionless sucker accounting synchronization with an explicitly bounded, verified transport budget. This synchronizes accounting; it does not transfer or claim holder tokens. |
 
 - Cross-chain reads report independent blocks.
 - Accounting synchronization is separate from token bridging and claim settlement.
+- jb_prepare_omnichain_launch links chains the SDK registry has sucker deployers for: all mainnets or all testnets. Native or same-address accounting tokens only.
 
 Source areas: JBSucker, JBSuckerRegistry, JBOmnichainDeployer.
 

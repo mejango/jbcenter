@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { zeroAddress } from 'viem';
+import { zeroAddress, zeroHash } from 'viem';
 import { NATIVE_TOKEN } from '@bananapus/nana-sdk-core';
 import type { JBRulesetConfig, JBTerminalConfig } from '@bananapus/nana-sdk-core/v6';
-import { addressSchema, chainIdSchema, projectSchema, uintSchema } from './schemas.js';
+import { addressSchema, chainIdSchema, hashSchema, projectSchema, uintSchema } from './schemas.js';
 import { DomainError } from './errors.js';
 import { UNITS } from './units.js';
 
@@ -285,6 +285,32 @@ export const prepareLaunchSchema = z
   })
   .strict()
   .superRefine(requireLimitsOnAcceptedContexts);
+
+export const prepareDeployErc20Schema = z
+  .object({
+    project: projectSchema,
+    account: nonzeroAddress.describe('The address that will sign.'),
+    name: z.string().min(1).max(256).describe('ERC-20 name, such as "Lattice".'),
+    symbol: z.string().min(1).max(64).describe('ERC-20 symbol (ticker), such as "LATT".'),
+    salt: hashSchema
+      .default(zeroHash)
+      .describe(
+        'Zero for a one-off address. A nonzero salt gives a deterministic address from this salt and the signer; use the same salt and signer on every chain to get the same token address.',
+      ),
+  })
+  .strict();
+export const prepareSetProjectUriSchema = z
+  .object({
+    project: projectSchema,
+    account: nonzeroAddress.describe('The address that will sign.'),
+    uri: z
+      .string()
+      .max(4096)
+      .describe(
+        'Metadata URI the user already pinned, as ipfs://<cid> (jb_pin_project_metadata returns one). Not fetched.',
+      ),
+  })
+  .strict();
 
 export type RulesetConfigInput = z.output<typeof rulesetConfigSchema>;
 export type PreviewRulesetChangeInput = z.output<typeof previewRulesetChangeSchema>;
