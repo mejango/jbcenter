@@ -113,6 +113,7 @@ function fixture(
     nftProjectId?: bigint;
     extraDataHook?: Address;
     extraPayEnabled?: boolean;
+    payFill?: bigint | Error;
   } = {},
 ) {
   const metadata = {
@@ -188,7 +189,11 @@ function fixture(
         throw new Error(`Unexpected read ${request.functionName}`);
     }
   });
-  const simulateContract = vi.fn(async (_request: Request) => {
+  const simulateContract = vi.fn(async (request: Request) => {
+    if (request.functionName === 'pay') {
+      if (options.payFill instanceof Error) throw options.payFill;
+      return { result: options.payFill ?? 600n };
+    }
     if (options.payoutRevert) throw options.payoutRevert;
     return { result: options.grossPayout ?? 101n };
   });
@@ -667,6 +672,81 @@ describe('payment quotes and approval plans', () => {
     expect(plain.tokenCounts).toMatchObject({
       beneficiaryTokenCount: expect.stringContaining("terminal's issuance preview"),
     });
+  });
+
+  it('simulates the buyback fill at the quote block, and only on that route', async () => {
+    const buyback = fixture({
+      dataHook: registry,
+      beneficiaryCount: 0n,
+      payHooks: [{ hook: buybackHook, noop: false, amount: 100n, metadata: payHookMetadata() }],
+    });
+    const quote = (await buyback.service.quotePay(payInput)) as Record<string, unknown>;
+    expect(quote).toMatchObject({
+      minimumBeneficiaryTokenCount: '247',
+      minimumBasis: 'slippage',
+      simulatedBeneficiaryTokenCount: { status: 'known', value: '600' },
+      tokenCounts: {
+        minimumBeneficiaryTokenCount: expect.stringContaining('share after the reserved split'),
+        simulatedBeneficiaryTokenCount: expect.stringContaining('less N%'),
+      },
+    });
+    const simulated = buyback.simulateContract.mock.calls[0]![0] as Request & {
+      args: readonly unknown[];
+      value: bigint;
+    };
+    expect(simulated).toMatchObject({
+      functionName: 'pay',
+      account,
+      blockNumber: 123n,
+      value: 100n,
+    });
+    expect(simulated.args[4]).toBe(0n);
+
+    const plain = fixture();
+    const issuance = (await plain.service.quotePay(payInput)) as Record<string, unknown>;
+    expect(issuance.simulatedBeneficiaryTokenCount).toBeUndefined();
+    expect(plain.simulateContract).not.toHaveBeenCalled();
+  });
+
+  it('encodes an explicit minReturnedTokens and warns when it is above the fill or below the default', async () => {
+    const buyback = (payFill?: bigint | Error) =>
+      fixture({
+        dataHook: registry,
+        beneficiaryCount: 0n,
+        payHooks: [{ hook: buybackHook, noop: false, amount: 100n, metadata: payHookMetadata() }],
+        payFill,
+      });
+    const minimumOf = (plan: { calls: { data: Hex }[] }) =>
+      decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.[4];
+
+    const within = await buyback().service.preparePay({ ...payInput, minReturnedTokens: '588' });
+    expect(minimumOf(within)).toBe(588n);
+    expect(within.summary).toMatchObject({
+      minimumBeneficiaryTokenCount: '588',
+      minimumBasis: 'explicit',
+      tokenCounts: {
+        minimumBeneficiaryTokenCount: expect.stringContaining('slippageBps is not used'),
+      },
+    });
+    expect(within.warnings.join(' ')).not.toContain('minReturnedTokens');
+
+    const above = await buyback().service.preparePay({ ...payInput, minReturnedTokens: '601' });
+    expect(minimumOf(above)).toBe(601n);
+    expect(above.warnings.join(' ')).toContain('above the simulated fill of 600');
+
+    const below = await buyback().service.preparePay({ ...payInput, minReturnedTokens: '100' });
+    expect(below.warnings.join(' ')).toContain('below the default minimum of 247');
+
+    const blind = await buyback(new Error('insufficient funds')).service.preparePay({
+      ...payInput,
+      minReturnedTokens: '588',
+    });
+    expect(blind.summary).toMatchObject({ simulatedBeneficiaryTokenCount: { status: 'unknown' } });
+    expect(blind.warnings.join(' ')).toContain('not checked against a fill');
+
+    await expect(
+      buyback().service.preparePay({ ...payInput, minReturnedTokens: '0' }),
+    ).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
   });
 
   it('supports the recorded 1.1.1 hook without accepting another generation or a partial buyback', async () => {

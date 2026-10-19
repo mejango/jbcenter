@@ -99,6 +99,11 @@ const payShape = {
   ),
   beneficiary: addressSchema,
   slippageBps: slippageSchema,
+  minReturnedTokens: positiveUintSchema
+    .optional()
+    .describe(
+      "Explicit minimum project tokens for the beneficiary, in 18-decimal base units, replacing beneficiaryTokenCount less slippageBps. To accept 2% below the fill, take the quote's simulatedBeneficiaryTokenCount less 2%. A warning names a figure above the simulated fill.",
+    ),
   metadata: hexSchema.optional(),
 };
 const cashOutShape = {
@@ -489,6 +494,13 @@ function definitions(s: Services): ProtocolOperation[] {
         s.routing.quotePoolBuy(input, (at) =>
           s.payments.quotePay({ ...input, beneficiary: input.account }, at),
         ),
+    ),
+    transactionWithSchema(
+      s,
+      'prepare_pool_buy',
+      "Prepare an authenticated unsigned direct buy from the project's buyback pool on the route jb_quote_pool_buy quotes, through the Uniswap Universal Router, with a project-token minimum of the pool output less slippageBps. Nothing is issued and no reserved split applies.",
+      quotePoolBuySchema,
+      async (input) => s.routing.preparePoolBuy(input),
     ),
     transactionWithSchema(
       s,
