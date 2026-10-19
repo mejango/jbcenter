@@ -57,7 +57,10 @@ describe('explicit V6 configuration schemas', () => {
       rulesetConfigSchema.safeParse({ ...configuration(), weight: (1n << 112n).toString() })
         .success,
     ).toBe(false);
-    expect(rulesetConfigSchema.safeParse({ ...configuration(), weight: 1000 }).success).toBe(false);
+    expect(rulesetConfigSchema.parse({ ...configuration(), weight: 1000 }).weight).toBe('1000');
+    expect(rulesetConfigSchema.safeParse({ ...configuration(), weight: 2 ** 60 }).success).toBe(
+      false,
+    );
   });
 
   it.each(['1.2', '-1', '1e18', '00', '', '9'.repeat(10000)])(

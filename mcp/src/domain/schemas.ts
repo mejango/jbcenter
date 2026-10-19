@@ -12,7 +12,8 @@ export const chainIdSchema = z.union([
   z.literal(84532),
   z.literal(421614),
 ]);
-export const uintSchema = z
+const UINT_PATTERN = '^(0|[1-9][0-9]*)$';
+const decimalUintSchema = z
   .string()
   .regex(/^(0|[1-9][0-9]*)$/, {
     message: 'Use a base-10 integer string, without decimals or exponents.',
@@ -23,6 +24,23 @@ export const uintSchema = z
     (value) => /^(0|[1-9][0-9]*)$/.test(value) && value.length <= 78 && BigInt(value) < 1n << 256n,
     { message: 'Must fit uint256.', abort: true },
   );
+/**
+ * A base-10 integer string, or a JSON number that is a safe non-negative integer (normalized to its string).
+ * Larger values must be strings: JSON numbers above 2^53 - 1 have already lost precision.
+ */
+export const uintSchema = z
+  .union([z.number(), z.string().meta({ pattern: UINT_PATTERN, maxLength: 78 })])
+  .transform((value, ctx) => {
+    if (typeof value === 'string') return value;
+    if (Number.isSafeInteger(value) && value >= 0) return String(value);
+    ctx.addIssue({
+      code: 'custom',
+      message:
+        'A JSON number must be a non-negative integer no larger than 9007199254740991 (2^53 - 1). Send larger or exact values as a base-10 string.',
+    });
+    return z.NEVER;
+  })
+  .pipe(decimalUintSchema);
 export const positiveUintSchema = uintSchema.refine(
   (value) => /^[1-9][0-9]*$/.test(value),
   'Must be positive.',

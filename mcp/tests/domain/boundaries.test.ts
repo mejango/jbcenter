@@ -12,6 +12,24 @@ describe('public boundaries', () => {
       expect(positiveUintSchema.safeParse(value).success).toBe(false);
     },
   );
+  it('accepts safe-integer JSON numbers as their exact strings and refuses lossy ones', () => {
+    expect(uintSchema.parse(0)).toBe('0');
+    expect(uintSchema.parse(86400)).toBe('86400');
+    expect(uintSchema.parse(Number.MAX_SAFE_INTEGER)).toBe('9007199254740991');
+    expect(uintSchema.parse('9007199254740993')).toBe('9007199254740993');
+    expect(positiveUintSchema.safeParse(0).success).toBe(false);
+    for (const value of [2 ** 53, 1e21, 1.5, -1]) {
+      const result = uintSchema.safeParse(value);
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0]?.message).toContain(
+        'Send larger or exact values as a base-10 string',
+      );
+    }
+    expect(uintSchema.safeParse(Number.NaN).success).toBe(false);
+    expect(uintSchema.safeParse('1.5').error?.issues[0]?.message).toContain(
+      'base-10 integer string',
+    );
+  });
   it('preserves V6 instead of inheriting the SDK legacy version default', () => {
     expect(resolveProjectIdentifier('eth:1')).toEqual({
       kind: 'project',
