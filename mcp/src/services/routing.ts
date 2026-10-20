@@ -41,7 +41,7 @@ import {
   type Hex,
 } from 'viem';
 import type { z } from 'zod';
-import { DomainError, publicError } from '../domain/errors.js';
+import { DomainError, publicError, revertOf } from '../domain/errors.js';
 import { jsonSafe } from '../domain/json.js';
 import {
   prepareBuybackHookSchema,
@@ -131,21 +131,39 @@ function eip1167(implementation: Address): string {
  * A recorded buyback hook only swaps in pools whose hook is its oracleHook, the protocol's JBUniswapV4Hook.
  * No hook is a plain pool; any other hook can change what a swap delivers.
  */
-function poolHookOf(hooks: Address, oracleHook: Address) {
-  const kind = same(hooks, zeroAddress)
-    ? ('none' as const)
-    : !same(oracleHook, zeroAddress) && same(hooks, oracleHook)
-      ? ('JBUniswapV4Hook' as const)
-      : ('unsupported' as const);
-  return { address: hooks, kind };
+function poolHookOf(
+  hooks: Address,
+  oracleHook: Address,
+  projectId: bigint,
+  inputProjectId: bigint,
+) {
+  if (same(hooks, zeroAddress)) return { address: hooks, kind: 'none' as const };
+  if (same(oracleHook, zeroAddress) || !same(hooks, oracleHook))
+    return { address: hooks, kind: 'unsupported' as const };
+  // JBUniswapV4Hook._beforeSwap picks the largest of these at swap time.
+  const routes = [
+    { route: 'pay' as const, projectId },
+    ...(inputProjectId ? [{ route: 'cashOut' as const, projectId: inputProjectId }] : []),
+    { route: 'pool' as const },
+  ];
+  return { address: hooks, kind: 'JBUniswapV4Hook' as const, routes };
 }
 
 /** What a buy through this pool does, by its hook. */
 function poolHookWarning(hook: ReturnType<typeof poolHookOf>): string {
   if (hook.kind === 'none')
     return "The pool has no hook, so the tokens come from its liquidity. Nothing is issued: no reserved tokens go to the project's splits (for a revnet, the operator split), and none of the payment reaches the project's balance.";
-  if (hook.kind === 'JBUniswapV4Hook')
-    return "The pool's hook is JBUniswapV4Hook. At swap time it compares the project terminal's preview for this payment with its own estimate of the pool output (TWAP, or the spot price while the TWAP is cold). When the terminal gives more, the hook pays the project instead: tokens are issued at the ruleset weight, the reserved percent goes to the project's splits (for a revnet, the operator split), and the payment goes to the project's balance. Otherwise the swap fills from pool liquidity. The quoter runs the hook, so pool.tokenCount follows whichever route it picks at this block.";
+  if (hook.kind === 'JBUniswapV4Hook') {
+    const cashOut = hook.routes.find((item) => item.route === 'cashOut');
+    return [
+      "The pool's hook is JBUniswapV4Hook (pool.hook.routes). At swap time it takes whichever gives the most output: paying",
+      `project ${hook.routes[0]!.projectId} through its primary terminal,`,
+      cashOut
+        ? `cashing out project ${cashOut.projectId}'s tokens, since the input currency is that project's registered ERC-20,`
+        : "(cashing out is not possible here: the input currency is not a project's registered ERC-20)",
+      "or pool liquidity. It compares terminal previews with its own estimate of the pool output (TWAP, or the spot price while the TWAP is cold). A terminal route's effects, such as issuance, reserved tokens, what reaches a project's balance and cash-out tax, follow that terminal's ruleset and hooks. The quoter runs the hook, so pool.tokenCount follows whichever route it picks at this block.",
+    ].join(' ');
+  }
   return `The pool's hook ${hook.address} is not the buyback hook's JBUniswapV4Hook. Its behavior is not read; it can change what the swap delivers. jb_prepare_pool_buy refuses this pool.`;
 }
 
@@ -624,14 +642,52 @@ export class RoutingService {
         'POOL_PAIR_MISMATCH',
         "The buyback pool does not pair this token with the project's ERC-20.",
       );
-    const [state, tokenCode] = await Promise.all([
+    // JBUniswapV4Hook can cash out the input instead when it is a project's registered ERC-20 (its own rule).
+    const inputCurrency = normalized(poolTokens[index]!);
+    const [state, tokenCode, inputProjectId] = await Promise.all([
       this.poolState(snapshot, manager, key),
       client.getCode({ address: projectToken }),
+      same(inputCurrency, zeroAddress)
+        ? 0n
+        : client
+            .readContract({
+              address: tokens,
+              abi: jbTokensAbi,
+              functionName: 'projectIdOf',
+              args: [inputCurrency],
+            })
+            .then(async (id) =>
+              id !== 0n &&
+              same(
+                await client.readContract({
+                  address: tokens,
+                  abi: jbTokensAbi,
+                  functionName: 'tokenOf',
+                  args: [id],
+                }),
+                inputCurrency,
+              )
+                ? id
+                : 0n,
+            ),
     ]);
+    // Only a revert of the V4 quoter call itself says the pool cannot fill; transport, bounds and bridge-leg
+    // failures keep their own errors.
+    const quoter = uniswapV4Deployment(chainId)?.quoter;
+    let quoterFailure: unknown;
+    const watched = Object.create(client, {
+      call: {
+        value: (args: Parameters<typeof client.call>[0]) =>
+          client.call(args).catch((error: unknown) => {
+            if (quoter && args.to && same(args.to, quoter)) quoterFailure = error;
+            throw error;
+          }),
+      },
+    }) as typeof client;
     // A zero terminal preview makes the SDK return its route quote without picking a winner.
     // The quoter decides executability: a swap can cross into initialized ticks, and the pool hook can fill it.
     const swap = await quoteDirectPaySwap({
-      client,
+      client: watched,
       chainId,
       poolKey: key,
       pairIsCurrency0: zeroForOne,
@@ -640,19 +696,19 @@ export class RoutingService {
       payPreview: { beneficiaryTokenCount: 0n, reservedTokenCount: 0n },
       slippageBps: BigInt(input.slippageBps),
     }).catch((error: unknown) => {
-      if (state.activeLiquidity !== 0n) throw error;
-      return null;
+      const revert = error === quoterFailure ? revertOf(error) : undefined;
+      if (revert && state.activeLiquidity === 0n)
+        throw new DomainError(
+          'NO_POOL_LIQUIDITY',
+          'The Uniswap V4 quoter reverted for this amount at this block, and the buyback pool has no liquidity at its current price. Pay the project through the terminal (jb_quote_pay) instead.',
+          { details: { poolId: state.poolId, activeLiquidity: '0', quoterRevert: revert } },
+        );
+      throw error;
     });
-    if (!swap && state.activeLiquidity === 0n)
-      throw new DomainError(
-        'NO_POOL_LIQUIDITY',
-        'The pool quoter returns no tokens for this amount at this block, and the buyback pool has no liquidity at its current price. Pay the project through the terminal (jb_quote_pay) instead.',
-        { details: { poolId: state.poolId, activeLiquidity: '0' } },
-      );
     if (!swap)
       throw new DomainError(
         'POOL_QUOTE_UNAVAILABLE',
-        'The pool returned no tokens for this amount, or this chain has no supported Uniswap router.',
+        'No pool route for this amount: the V3 bridge leg found no pool, the pool output is zero, or this chain has no supported Uniswap router.',
       );
     return {
       hook,
@@ -660,7 +716,7 @@ export class RoutingService {
       projectToken,
       // JBTokens deploys project ERC-20s as EIP-1167 clones of TOKEN; anything else was set as a custom token.
       canonicalToken: tokenCode?.toLowerCase() === eip1167(tokenImplementation),
-      poolHook: poolHookOf(key.hooks, oracleHook),
+      poolHook: poolHookOf(key.hooks, oracleHook, projectId, inputProjectId),
       key,
       zeroForOne,
       swap,

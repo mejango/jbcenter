@@ -45,11 +45,9 @@ import {
   addressSchema,
   chainIdSchema,
   hashSchema,
-  positiveSmallUintSchema,
   positiveUintSchema,
   projectSchema,
   slippageSchema,
-  smallUintSchema,
   uintSchema,
 } from '../domain/schemas.js';
 import type {
@@ -83,7 +81,7 @@ export const prepareBorrowInputSchema = quoteLoanInputSchema
   .extend({ account: nonzeroAddress, slippageBps: slippageSchema })
   .strict();
 export const getLoanInputSchema = z
-  .object({ chainId: chainIdSchema, loanId: positiveSmallUintSchema })
+  .object({ chainId: chainIdSchema, loanId: positiveUintSchema })
   .strict();
 export const prepareRepayInputSchema = getLoanInputSchema
   .extend({
@@ -132,7 +130,7 @@ export const bridgeClaimSchema = z
     token: nonzeroAddress.describe(UNITS.token),
     leaf: z
       .object({
-        index: smallUintSchema.refine(
+        index: uintSchema.refine(
           (value) => BigInt(value) < 1n << 32n,
           'Index must fit the depth-32 tree.',
         ),

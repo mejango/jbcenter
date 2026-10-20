@@ -23,7 +23,7 @@ import {
   positiveUintSchema,
   projectSchema,
   slippageSchema,
-  smallUintSchema,
+  uintSchema,
 } from '../domain/schemas.js';
 import {
   prepareDeployErc20Schema,
@@ -274,7 +274,7 @@ function definitions(s: Services): ProtocolOperation[] {
       {
         project: projectSchema,
         limit: z.number().int().min(1).max(50).default(10),
-        startingId: smallUintSchema.optional(),
+        startingId: uintSchema.optional(),
       },
       async ({ project, ...page }) => {
         const rulesets = await s.projects.getRulesets(project, page);
@@ -285,7 +285,7 @@ function definitions(s: Services): ProtocolOperation[] {
             s.configuration.currentRulesetInput(project, blockNumber),
           ),
           currentAsInputUse:
-            'currentAsInput.rulesetConfiguration is the active ruleset in the rulesetConfigurations shape, at the same block. It is not an exact copy: currentAsInput.coverage lists what it omits (split groups and terminal/token pairs that reads cannot enumerate) and which split groups inherit the fallback table. Copy it, change only what should change, and pass it to jb_preview_ruleset_change. mustStartAtOrAfter is 0, so the queue picks the start; weight is the current cycle weight (1 inherits the decayed weight instead).',
+            'currentAsInput.rulesetConfiguration is the active ruleset in the rulesetConfigurations shape, at the same block. It is not an exact copy: currentAsInput.coverage lists what it omits (split groups and terminal/token pairs that reads cannot enumerate) and, per split group, whether the table is stored or may be inherited from the fallback table (unknown groups are kept; remove one to inherit instead). Copy it, change only what should change, and pass it to jb_preview_ruleset_change. mustStartAtOrAfter is 0, so the queue picks the start; weight is the current cycle weight (1 inherits the decayed weight instead).',
         };
       },
     ),
@@ -352,8 +352,8 @@ function definitions(s: Services): ProtocolOperation[] {
       {
         project: projectSchema,
         holder: addressSchema.optional(),
-        fromBlock: smallUintSchema.optional(),
-        toBlock: smallUintSchema.optional(),
+        fromBlock: uintSchema.optional(),
+        toBlock: uintSchema.optional(),
       },
       async ({ project, ...options }) => s.projects.getBridgeStatus(project, options),
     ),

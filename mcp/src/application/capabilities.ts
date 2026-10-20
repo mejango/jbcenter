@@ -223,7 +223,7 @@ export function capabilityCatalog(tools: CapabilityEntry[], publicOrigin: string
     protocolVersion: 6,
     publicOrigin,
     amountEncoding:
-      'All asset amounts and uint256 identifiers are base-10 integer strings with explicit currency and decimal context. Amounts, weights and prices take strings only; small integer fields (ids, percents, durations, counts) also accept a JSON number up to 2^53 - 1.',
+      'All asset amounts and uint256 identifiers are base-10 integer strings with explicit currency and decimal context. Amounts, weights, prices and IDs take strings only; bounded fields (percents, durations, timestamps, chain IDs, small counts) also accept a JSON number up to 2^53 - 1.',
     execution:
       'V6 reads, pure models, unsigned authenticated transaction plans and receipt verification. Explicitly authorized logo and metadata publication is available through jb_pin_project_logo, jb_pin_project_metadata and jb_pin_nft_metadata when a publisher is configured. Already-signed project intents can be published and their sponsored deploy requested through jb_publish_intent and jb_deploy_intent. Blockchain signing/execution remain in the external wallet.',
     families: areas.map((area) => ({

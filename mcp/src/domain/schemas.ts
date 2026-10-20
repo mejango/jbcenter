@@ -14,7 +14,7 @@ export const chainIdSchema = z.union([
 ]);
 const UINT_PATTERN = '^(0|[1-9][0-9]*)$';
 const SEND_STRINGS =
-  'Send this value as a base-10 integer string. JSON numbers are accepted only for small integers (percents, ids, durations, counts); amounts and weights must be strings.';
+  'Send this value as a base-10 integer string. JSON numbers are accepted only for bounded fields (percents, durations, timestamps, chain IDs, small counts); amounts and IDs must be strings.';
 const decimalUintSchema = z
   .string({ error: (issue) => (issue.input === undefined ? undefined : SEND_STRINGS) })
   .meta({ pattern: UINT_PATTERN, maxLength: 78 })
@@ -33,8 +33,9 @@ const decimalUintSchema = z
  */
 export const uintSchema = decimalUintSchema;
 /**
- * A small integer field (percent, id, duration, count): a base-10 string, or a JSON number that is a safe
- * non-negative integer, normalized to its string. A fraction rounded away by JSON parsing cannot be detected.
+ * Only for fields bounded well inside 2^53 (percents, durations, timestamps, chain IDs, small counts), through
+ * rulesets.ts uint(): a base-10 string, or a safe non-negative integer JSON number normalized to its string.
+ * Amounts and identifiers with wider ranges take strings only.
  */
 export const smallUintSchema = z
   .union([z.number(), z.string().meta({ pattern: UINT_PATTERN, maxLength: 78 })])
@@ -51,7 +52,6 @@ export const smallUintSchema = z
   .pipe(decimalUintSchema);
 const positive = (value: string) => /^[1-9][0-9]*$/.test(value);
 export const positiveUintSchema = uintSchema.refine(positive, 'Must be positive.');
-export const positiveSmallUintSchema = smallUintSchema.refine(positive, 'Must be positive.');
 export const addressSchema = z
   .string()
   .refine((value) => isAddress(value, { strict: true }), 'Use a valid EVM address.')
@@ -68,7 +68,7 @@ export const hashSchema = z
 export const projectSchema = z
   .object({
     chainId: chainIdSchema,
-    projectId: positiveSmallUintSchema,
+    projectId: positiveUintSchema,
     version: z.literal(6).default(6),
   })
   .strict();

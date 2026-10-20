@@ -1259,16 +1259,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -1465,16 +1458,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -1495,16 +1481,9 @@
             "maximum": 50
           },
           "startingId": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$"
           }
         },
         "required": [
@@ -1689,16 +1668,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -2099,16 +2071,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -2315,16 +2280,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -2679,16 +2637,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -2905,16 +2856,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -2932,28 +2876,14 @@
             "type": "string"
           },
           "fromBlock": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$"
           },
           "toBlock": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$"
           }
         },
         "required": [
@@ -3297,16 +3227,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -3544,16 +3467,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -3788,16 +3704,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -4027,16 +3936,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -4267,16 +4169,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -4506,16 +4401,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -4889,17 +4777,10 @@
                   "type": "object",
                   "properties": {
                     "groupId": {
-                      "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1.",
-                      "anyOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^(0|[1-9][0-9]*)$",
-                          "maxLength": 78
-                        }
-                      ]
+                      "type": "string",
+                      "maxLength": 78,
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
                     },
                     "splits": {
                       "maxItems": 32,
@@ -4921,16 +4802,9 @@
                             ]
                           },
                           "projectId": {
-                            "anyOf": [
-                              {
-                                "type": "number"
-                              },
-                              {
-                                "type": "string",
-                                "pattern": "^(0|[1-9][0-9]*)$",
-                                "maxLength": 78
-                              }
-                            ]
+                            "type": "string",
+                            "maxLength": 78,
+                            "pattern": "^(0|[1-9][0-9]*)$"
                           },
                           "beneficiary": {
                             "type": "string"
@@ -5133,16 +5007,9 @@
                         ]
                       },
                       "projectId": {
-                        "anyOf": [
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "string",
-                            "pattern": "^(0|[1-9][0-9]*)$",
-                            "maxLength": 78
-                          }
-                        ]
+                        "type": "string",
+                        "maxLength": 78,
+                        "pattern": "^(0|[1-9][0-9]*)$"
                       },
                       "version": {
                         "default": 6,
@@ -5306,16 +5173,9 @@
                                     ]
                                   },
                                   "projectId": {
-                                    "anyOf": [
-                                      {
-                                        "type": "number"
-                                      },
-                                      {
-                                        "type": "string",
-                                        "pattern": "^(0|[1-9][0-9]*)$",
-                                        "maxLength": 78
-                                      }
-                                    ]
+                                    "type": "string",
+                                    "maxLength": 78,
+                                    "pattern": "^(0|[1-9][0-9]*)$"
                                   },
                                   "beneficiary": {
                                     "type": "string"
@@ -5693,16 +5553,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -5906,17 +5759,10 @@
                     "type": "object",
                     "properties": {
                       "groupId": {
-                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1.",
-                        "anyOf": [
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "string",
-                            "pattern": "^(0|[1-9][0-9]*)$",
-                            "maxLength": 78
-                          }
-                        ]
+                        "type": "string",
+                        "maxLength": 78,
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
                       },
                       "splits": {
                         "maxItems": 32,
@@ -5938,16 +5784,9 @@
                               ]
                             },
                             "projectId": {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "beneficiary": {
                               "type": "string"
@@ -6276,16 +6115,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -6489,17 +6321,10 @@
                     "type": "object",
                     "properties": {
                       "groupId": {
-                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1.",
-                        "anyOf": [
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "string",
-                            "pattern": "^(0|[1-9][0-9]*)$",
-                            "maxLength": 78
-                          }
-                        ]
+                        "type": "string",
+                        "maxLength": 78,
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
                       },
                       "splits": {
                         "maxItems": 32,
@@ -6521,16 +6346,9 @@
                               ]
                             },
                             "projectId": {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "beneficiary": {
                               "type": "string"
@@ -7062,17 +6880,10 @@
                     "type": "object",
                     "properties": {
                       "groupId": {
-                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1.",
-                        "anyOf": [
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "string",
-                            "pattern": "^(0|[1-9][0-9]*)$",
-                            "maxLength": 78
-                          }
-                        ]
+                        "type": "string",
+                        "maxLength": 78,
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
                       },
                       "splits": {
                         "maxItems": 32,
@@ -7094,16 +6905,9 @@
                               ]
                             },
                             "projectId": {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "beneficiary": {
                               "type": "string"
@@ -7703,17 +7507,10 @@
                     "type": "object",
                     "properties": {
                       "groupId": {
-                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1.",
-                        "anyOf": [
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "string",
-                            "pattern": "^(0|[1-9][0-9]*)$",
-                            "maxLength": 78
-                          }
-                        ]
+                        "type": "string",
+                        "maxLength": 78,
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
                       },
                       "splits": {
                         "maxItems": 32,
@@ -7735,16 +7532,9 @@
                               ]
                             },
                             "projectId": {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "beneficiary": {
                               "type": "string"
@@ -8147,16 +7937,9 @@
                                 ]
                               },
                               "projectId": {
-                                "anyOf": [
-                                  {
-                                    "type": "number"
-                                  },
-                                  {
-                                    "type": "string",
-                                    "pattern": "^(0|[1-9][0-9]*)$",
-                                    "maxLength": 78
-                                  }
-                                ]
+                                "type": "string",
+                                "maxLength": 78,
+                                "pattern": "^(0|[1-9][0-9]*)$"
                               },
                               "beneficiary": {
                                 "type": "string"
@@ -8476,16 +8259,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -8706,16 +8482,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -8923,16 +8692,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -9155,16 +8917,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -9395,16 +9150,9 @@
             ]
           },
           "loanId": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$"
           }
         },
         "required": [
@@ -9587,16 +9335,9 @@
             ]
           },
           "loanId": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$"
           },
           "account": {
             "type": "string"
@@ -9802,16 +9543,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -9842,16 +9576,9 @@
                 "type": "object",
                 "properties": {
                   "index": {
-                    "anyOf": [
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "^(0|[1-9][0-9]*)$",
-                        "maxLength": 78
-                      }
-                    ]
+                    "type": "string",
+                    "maxLength": 78,
+                    "pattern": "^(0|[1-9][0-9]*)$"
                   },
                   "beneficiary": {
                     "type": "string",
@@ -10211,16 +9938,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -10432,16 +10152,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -10679,16 +10392,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -10909,16 +10615,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -11139,16 +10838,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -11374,16 +11066,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -11595,16 +11280,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -11809,16 +11487,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -12023,16 +11694,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -12047,16 +11711,10 @@
             "additionalProperties": false
           },
           "startingId": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "default": "0",
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$"
           },
           "size": {
             "default": 20,
@@ -12267,16 +11925,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -12522,16 +12173,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -12777,16 +12421,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -12952,16 +12589,9 @@
                         ]
                       },
                       "projectId": {
-                        "anyOf": [
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "string",
-                            "pattern": "^(0|[1-9][0-9]*)$",
-                            "maxLength": 78
-                          }
-                        ]
+                        "type": "string",
+                        "maxLength": 78,
+                        "pattern": "^(0|[1-9][0-9]*)$"
                       },
                       "beneficiary": {
                         "type": "string"
@@ -13393,16 +13023,9 @@
                                 ]
                               },
                               "projectId": {
-                                "anyOf": [
-                                  {
-                                    "type": "number"
-                                  },
-                                  {
-                                    "type": "string",
-                                    "pattern": "^(0|[1-9][0-9]*)$",
-                                    "maxLength": 78
-                                  }
-                                ]
+                                "type": "string",
+                                "maxLength": 78,
+                                "pattern": "^(0|[1-9][0-9]*)$"
                               },
                               "beneficiary": {
                                 "type": "string"
@@ -13711,17 +13334,10 @@
                     "type": "object",
                     "properties": {
                       "groupId": {
-                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1.",
-                        "anyOf": [
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "string",
-                            "pattern": "^(0|[1-9][0-9]*)$",
-                            "maxLength": 78
-                          }
-                        ]
+                        "type": "string",
+                        "maxLength": 78,
+                        "pattern": "^(0|[1-9][0-9]*)$",
+                        "description": "Payout splits: uint256(uint160(token)) as a decimal string (native ETH is 0x000000000000000000000000000000000000EEEe, group 61166). Reserved token splits: 1."
                       },
                       "splits": {
                         "maxItems": 32,
@@ -13743,16 +13359,9 @@
                               ]
                             },
                             "projectId": {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "beneficiary": {
                               "type": "string"
@@ -14157,16 +13766,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -14181,16 +13783,10 @@
             "additionalProperties": false
           },
           "startingId": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "default": "0",
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$"
           },
           "size": {
             "default": 16,
@@ -14708,16 +14304,9 @@
                             ]
                           },
                           "projectId": {
-                            "anyOf": [
-                              {
-                                "type": "number"
-                              },
-                              {
-                                "type": "string",
-                                "pattern": "^(0|[1-9][0-9]*)$",
-                                "maxLength": 78
-                              }
-                            ]
+                            "type": "string",
+                            "maxLength": 78,
+                            "pattern": "^(0|[1-9][0-9]*)$"
                           },
                           "beneficiary": {
                             "type": "string"
@@ -15183,16 +14772,9 @@
                                     ]
                                   },
                                   "projectId": {
-                                    "anyOf": [
-                                      {
-                                        "type": "number"
-                                      },
-                                      {
-                                        "type": "string",
-                                        "pattern": "^(0|[1-9][0-9]*)$",
-                                        "maxLength": 78
-                                      }
-                                    ]
+                                    "type": "string",
+                                    "maxLength": 78,
+                                    "pattern": "^(0|[1-9][0-9]*)$"
                                   },
                                   "beneficiary": {
                                     "type": "string"
@@ -15607,16 +15189,9 @@
                 ]
               },
               "projectId": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "version": {
                 "default": 6,
@@ -15634,16 +15209,9 @@
             "type": "string"
           },
           "stageId": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$"
           },
           "beneficiary": {
             "type": "string"
@@ -18750,7 +18318,7 @@
     "version": "0.1.0",
     "protocolVersion": 6,
     "publicOrigin": "https://juicebox.center",
-    "amountEncoding": "All asset amounts and uint256 identifiers are base-10 integer strings with explicit currency and decimal context. Amounts, weights and prices take strings only; small integer fields (ids, percents, durations, counts) also accept a JSON number up to 2^53 - 1.",
+    "amountEncoding": "All asset amounts and uint256 identifiers are base-10 integer strings with explicit currency and decimal context. Amounts, weights, prices and IDs take strings only; bounded fields (percents, durations, timestamps, chain IDs, small counts) also accept a JSON number up to 2^53 - 1.",
     "execution": "V6 reads, pure models, unsigned authenticated transaction plans and receipt verification. Explicitly authorized logo and metadata publication is available through jb_pin_project_logo, jb_pin_project_metadata and jb_pin_nft_metadata when a publisher is configured. Already-signed project intents can be published and their sponsored deploy requested through jb_publish_intent and jb_deploy_intent. Blockchain signing/execution remain in the external wallet.",
     "families": [
       {

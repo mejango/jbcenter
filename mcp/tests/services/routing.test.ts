@@ -13,12 +13,16 @@ import {
   type JBRulesetWithMetadata,
 } from '@bananapus/nana-sdk-core/v6';
 import {
+  RpcRequestError,
+  TimeoutError,
   decodeAbiParameters,
   decodeFunctionData,
   encodeAbiParameters,
+  encodeEventTopics,
   getAddress,
   numberToHex,
   parseAbi,
+  parseAbiItem,
   parseAbiParameters,
   zeroAddress,
   zeroHash,
@@ -28,6 +32,7 @@ import {
 } from 'viem';
 import { DomainError } from '../../src/domain/errors.js';
 import { RoutingService, resolveRoutingHooks } from '../../src/services/routing.js';
+import { PlanService } from '../../src/services/plans.js';
 import { resolveRouterTerminal, routingSchema } from '../../src/domain/routing.js';
 import { deploymentAddress, deploymentAddresses } from '../../src/services/rollout.js';
 import type { ChainId, ProjectRef, RpcProvider, RpcSnapshot } from '../../src/domain/types.js';
@@ -180,6 +185,8 @@ function fixture(override: (request: Read) => unknown = () => pass, chainId: Cha
           return projectToken;
         case 'TOKEN':
           return tokenImplementation;
+        case 'projectIdOf':
+          return 0n;
         case 'primaryTerminalOf':
           return v6Address('JBMultiTerminal', 1);
         case 'extsload':
@@ -862,10 +869,15 @@ describe('direct pool-buy quote', () => {
       projectTokenIsJBERC20: true,
       pool: { hook: { address: oracle, kind: 'JBUniswapV4Hook' } },
     });
+    // Native input is no project's ERC-20, so the hook can pay project 42 or fill from the pool, not cash out.
+    expect((result as { pool: { hook: { routes: unknown } } }).pool.hook.routes).toEqual([
+      { route: 'pay', projectId: '42' },
+      { route: 'pool' },
+    ]);
     const { warnings } = result as { warnings: string[] };
-    expect(warnings[0]).toContain(
-      'When the terminal gives more, the hook pays the project instead',
-    );
+    expect(warnings[0]).toContain('paying project 42 through its primary terminal');
+    expect(warnings[0]).toContain('cashing out is not possible here');
+    expect(warnings[0]).toContain("follow that terminal's ruleset and hooks");
     expect(warnings.join(' ')).not.toContain('Nothing is issued');
     expect(warnings.join(' ')).toContain('Neither route is a best-price claim');
     expect(warnings.join(' ')).toContain('jb_prepare_pool_buy prepares this swap');
@@ -983,7 +995,38 @@ describe('direct pool-buy quote', () => {
     });
   });
 
-  it('lets the quoter decide, and names an empty pool only when the quoter also fails', async () => {
+  it("adds the hook's cash-out route only when the input currency is a project's registered ERC-20", async () => {
+    const usdcKey = { ...key, currency0: projectToken, currency1: usdc };
+    const registered = (tokenOfNine: Address) =>
+      fixture((request) => {
+        if (request.functionName === 'poolKeyOf')
+          return request.args?.[1] === zeroAddress ? emptyKey : usdcKey;
+        if (request.functionName === 'projectIdOf') return request.args?.[0] === usdc ? 9n : 0n;
+        if (request.functionName === 'tokenOf' && request.args?.[0] === 9n) return tokenOfNine;
+        return pass;
+      });
+    const cashOut = registered(usdc);
+    withQuoters(cashOut);
+    const result = (await cashOut.service.quotePoolBuy(input, async () => terminalQuote)) as {
+      pool: { hook: { routes: unknown } };
+      warnings: string[];
+    };
+    expect(result.pool.hook.routes).toEqual([
+      { route: 'pay', projectId: '42' },
+      { route: 'cashOut', projectId: '9' },
+      { route: 'pool' },
+    ]);
+    expect(result.warnings[0]).toContain("cashing out project 9's tokens");
+    // projectIdOf alone is not registration: the hook also requires tokenOf(id) to be that token.
+    const stale = registered(custom);
+    withQuoters(stale);
+    const notRegistered = (await stale.service.quotePoolBuy(input, async () => terminalQuote)) as {
+      pool: { hook: { routes: { route: string }[] } };
+    };
+    expect(notRegistered.pool.hook.routes.map((item) => item.route)).toEqual(['pay', 'pool']);
+  });
+
+  it('lets the quoter decide, and names an empty pool only when the V4 quoter itself reverts', async () => {
     const empty = () =>
       fixture((request) =>
         request.functionName === 'extsload' &&
@@ -991,13 +1034,21 @@ describe('direct pool-buy quote', () => {
           ? zeroHash
           : pass,
       );
-    const reverting = (service: ReturnType<typeof fixture>) => {
+    // What viem raises for an eth_call revert (code 3 with the UnexpectedRevertBytes selector), and for a timeout.
+    const failing = (service: ReturnType<typeof fixture>, error: () => Error) => {
       const quoter = vi.fn(async () => {
-        throw new Error('UnexpectedRevertBytes');
+        throw error();
       });
       (service.snapshot.client as unknown as { call: unknown }).call = quoter;
       return quoter;
     };
+    const revert = () =>
+      new RpcRequestError({
+        body: {},
+        url: 'http://rpc.invalid',
+        error: { code: 3, message: 'execution reverted', data: '0x6190b2b0' },
+      });
+    const reverting = (service: ReturnType<typeof fixture>) => failing(service, revert);
     // Zero in-range liquidity, but the swap can cross into initialized ticks: the quote stands.
     const crossing = empty();
     withQuoters(crossing);
@@ -1010,19 +1061,57 @@ describe('direct pool-buy quote', () => {
     const error = await dry.service
       .quotePoolBuy(input, async () => terminalQuote)
       .catch((caught: unknown) => caught);
-    expect(error).toMatchObject({ code: 'NO_POOL_LIQUIDITY', retryable: false });
+    expect(error).toMatchObject({
+      code: 'NO_POOL_LIQUIDITY',
+      retryable: false,
+      details: { quoterRevert: { selector: '0x6190b2b0' } },
+    });
     expect(quoter).toHaveBeenCalled();
     expect((error as Error).message).not.toContain('fills nothing');
     await expect(dry.service.preparePoolBuy(input)).rejects.toMatchObject({
       code: 'NO_POOL_LIQUIDITY',
     });
 
-    // With liquidity, a quoter failure is passed on rather than relabeled.
+    // With liquidity, a quoter revert is passed on rather than relabeled.
     const liquid = fixture();
     reverting(liquid);
     await expect(
       liquid.service.quotePoolBuy(input, async () => terminalQuote),
-    ).rejects.not.toMatchObject({ code: 'NO_POOL_LIQUIDITY' });
+    ).rejects.toBeInstanceOf(RpcRequestError);
+
+    // A timeout says nothing about the pool, even at zero liquidity.
+    const slow = empty();
+    failing(slow, () => new TimeoutError({ body: {}, url: 'http://rpc.invalid' }));
+    await expect(
+      slow.service.quotePoolBuy(input, async () => terminalQuote),
+    ).rejects.toBeInstanceOf(TimeoutError);
+
+    // The SDK rejects an amount past uint128 before calling the quoter.
+    const huge = empty();
+    const unreached = reverting(huge);
+    const tooLarge = await huge.service
+      .quotePoolBuy({ ...input, amount: (1n << 128n).toString() }, async () => terminalQuote)
+      .catch((caught: unknown) => caught);
+    expect(unreached).not.toHaveBeenCalled();
+    expect(tooLarge).not.toMatchObject({ code: 'NO_POOL_LIQUIDITY' });
+    expect((tooLarge as Error).message).toContain('uint128');
+
+    // A failed V3 bridge leg never reaches the V4 quoter: no route, not an empty pool.
+    const usdcKey = { ...key, currency0: projectToken, currency1: usdc };
+    const bridged = fixture((request) =>
+      request.functionName === 'poolKeyOf'
+        ? request.args?.[1] === zeroAddress
+          ? emptyKey
+          : usdcKey
+        : request.functionName === 'extsload' &&
+            request.args?.[0] !== uniswapV4PoolStateSlot(uniswapV4PoolId(usdcKey))
+          ? zeroHash
+          : pass,
+    );
+    reverting(bridged);
+    await expect(
+      bridged.service.quotePoolBuy(input, async () => terminalQuote),
+    ).rejects.toMatchObject({ code: 'POOL_QUOTE_UNAVAILABLE' });
   });
 
   it('refuses projects without a buyback pool or with a pool for another token', async () => {
@@ -1125,7 +1214,11 @@ describe('direct pool-buy preparation', () => {
       projectTokenIsJBERC20: true,
       poolHook: { kind: 'JBUniswapV4Hook' },
     });
-    expect(plan.warnings.join(' ')).toContain('the hook pays the project instead');
+    expect((plan.summary as { poolHook: { routes: unknown } }).poolHook.routes).toEqual([
+      { route: 'pay', projectId: '42' },
+      { route: 'pool' },
+    ]);
+    expect(plan.warnings[0]).toContain('paying project 42 through its primary terminal');
     expect(plan.warnings.join(' ')).toContain('The V3 bridge leg has no minimum of its own');
   });
 
@@ -1175,6 +1268,93 @@ describe('direct pool-buy preparation', () => {
       [usdc, [permit2, '5000000'], [0]],
       [router, expect.any(Array), [1]],
     ]);
+  });
+
+  it('verifies a prepared pool buy, whose bytecode-checked token flag reaches the verifier', async () => {
+    const routing = fixture();
+    quoting(routing);
+    const plan = await routing.service.preparePoolBuy(input);
+    expect(plan.summary).toMatchObject({ projectTokenIsJBERC20: true });
+    const swap = plan.calls[0]!;
+    const BLOCK = `0x${'1'.repeat(64)}` as Hex;
+    const HASH = `0x${'a'.repeat(64)}` as Hex;
+    const transfer = (from: Address, to: Address, value: bigint, logIndex: number) => {
+      const event = parseAbiItem(
+        'event Transfer(address indexed from, address indexed to, uint256 value)',
+      );
+      return {
+        address: projectToken,
+        data: encodeAbiParameters(parseAbiParameters('uint256'), [value]),
+        topics: encodeEventTopics({ abi: [event], eventName: 'Transfer', args: { from, to } }),
+        logIndex,
+        removed: false,
+        transactionHash: HASH,
+        transactionIndex: 0,
+        blockNumber: 20000001n,
+        blockHash: BLOCK,
+      };
+    };
+    const receipt = {
+      transactionHash: HASH,
+      from: owner,
+      to: swap.to,
+      blockNumber: 20000001n,
+      blockHash: BLOCK,
+      transactionIndex: 0,
+      status: 'success',
+      logs: [
+        transfer(
+          manager,
+          owner,
+          BigInt((plan.summary as { minimumTokenCount: string }).minimumTokenCount),
+          0,
+        ),
+      ],
+    };
+    const client = {
+      getChainId: vi.fn(async () => 1),
+      getTransaction: vi.fn(async () => ({
+        hash: HASH,
+        chainId: 1,
+        from: owner,
+        to: swap.to,
+        input: swap.data,
+        value: BigInt(swap.value),
+        blockNumber: 20000001n,
+        blockHash: BLOCK,
+      })),
+      getTransactionReceipt: vi.fn(async () => receipt),
+      // The quote block (zeroHash), the transaction block, and a later head.
+      getBlock: vi.fn(async (request: { blockNumber?: bigint }) => ({
+        number: request.blockNumber ?? 20000002n,
+        hash:
+          request.blockNumber === 20000000n
+            ? zeroHash
+            : request.blockNumber === 20000001n
+              ? BLOCK
+              : (`0x${'2'.repeat(64)}` as Hex),
+        timestamp: 1700000200n,
+      })),
+      getBytecode: vi.fn(async () => undefined),
+      request: vi.fn(async () => []),
+    } as unknown as PublicClient;
+    const plans = new PlanService({
+      rpc: {
+        client: () => client,
+        snapshot: async () => ({ client, evidence: plan.evidence[0]! }),
+      },
+      secret: 'test-secret-with-at-least-32-bytes-of-entropy',
+      now: () => 1700000100_000,
+      ttlSeconds: 60,
+    });
+    const params = {
+      token: plans.seal(plan).token,
+      transactions: [{ step: 0, hash: HASH }],
+    };
+    expect((await plans.verify(params)).outcomeVerified).toBe(true);
+    // Tokens sent straight back out are no purchase.
+    receipt.logs.push(transfer(owner, manager, 1n, 1));
+    expect((await plans.verify(params)).outcomeVerified).toBe(false);
   });
 
   it('refuses a custom project token or an unrecognized pool hook', async () => {

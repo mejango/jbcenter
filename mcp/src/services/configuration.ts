@@ -492,17 +492,22 @@ export class ConfigurationService {
       terminals,
       [],
     );
-    // splitsOf falls back to ruleset 0 when this ruleset stores no group, so equal tables read as inherited.
-    // Copying an inherited table would freeze today's fallback recipients into the new ruleset.
-    const inherits = (group: (typeof tables.splitGroups)[number]) =>
-      group.splits.length > 0 &&
-      JSON.stringify(jsonSafe(group.splits)) === JSON.stringify(jsonSafe(group.fallbackSplits));
-    const fallbackGroups = tables.splitGroups.filter(inherits).map((group) => group.groupId);
+    // splitsOf returns the fallback table (ruleset 0) when this ruleset stores none, so a table equal to a
+    // nonempty fallback may be stored or inherited; reads cannot tell. Keep it, which preserves the recipients.
+    const splitGroupProvenance = tables.splitGroups
+      .filter((group) => group.splits.length > 0)
+      .map((group) => ({
+        groupId: group.groupId,
+        provenance:
+          JSON.stringify(jsonSafe(group.splits)) === JSON.stringify(jsonSafe(group.fallbackSplits))
+            ? ('unknown' as const)
+            : ('stored' as const),
+      }));
     return {
       rulesetConfiguration: toRulesetInput(
         ruleset,
         metadata,
-        tables.splitGroups.filter((group) => !inherits(group)),
+        tables.splitGroups,
         tables.fundAccessLimitGroups,
       ),
       coverage: {
@@ -512,13 +517,13 @@ export class ConfigurationService {
           terminal,
           token,
         })),
-        fallbackSplitGroups: fallbackGroups,
+        splitGroupProvenance,
         notCovered: [
           'Split groups other than reserved tokens (1) and the payout groups of current accounting tokens, such as hook-defined group IDs: contract reads cannot enumerate them, so they are omitted and the new ruleset would not have them.',
           "Payout limits and surplus allowances for terminal/token pairs outside the current terminals' accounting contexts.",
         ],
-        fallbackUse:
-          'fallbackSplitGroups resolve from the fallback table (ruleset 0) or store an identical copy. They are left out of rulesetConfiguration so the new ruleset keeps inheriting; add them explicitly to freeze those recipients.',
+        provenanceUse:
+          "stored: this ruleset stores the table. unknown: the table equals the fallback table (ruleset 0), so it is either stored or inherited. Unknown groups are kept in rulesetConfiguration, which freezes today's recipients; choose: keep the group to preserve them, or remove it so the new ruleset inherits later fallback changes.",
       },
     };
   }

@@ -15,11 +15,11 @@ import { UNITS } from './units.js';
 
 /**
  * Wire integers remain decimal strings; only these converters construct ABI integers.
- * Fields up to 64 bits (percents, ids, durations, counts) also take a safe-integer JSON number; wider ones
- * (amounts, weights, prices) take strings only.
+ * Fields bounded at or below 2^48 - 1 (percents, durations, timestamps, chain IDs, small counts) also take a
+ * safe-integer JSON number; wider ones (amounts, weights, prices, IDs) take strings only.
  */
 export const uint = (bits: number, max = (1n << BigInt(bits)) - 1n) =>
-  (bits <= 64 ? smallUintSchema : uintSchema).pipe(
+  (max < 1n << 48n ? smallUintSchema : uintSchema).pipe(
     z.string().refine((value) => BigInt(value) <= max, {
       message: `Must fit uint${bits} and be at most ${max}.`,
       abort: true,
@@ -98,7 +98,7 @@ export const splitSchema = z
 
 export const splitGroupSchema = z
   .object({
-    groupId: smallUintSchema.describe(UNITS.groupId),
+    groupId: uintSchema.describe(UNITS.groupId),
     splits: z.array(splitSchema).max(maxEntries),
   })
   .strict()

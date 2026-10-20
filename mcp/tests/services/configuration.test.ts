@@ -504,13 +504,14 @@ describe('current ruleset as preview input', () => {
     ],
     terminalsOf: [terminal],
     accountingContextsOf: [{ token: NATIVE_TOKEN, decimals: 18, currency: 61166 }],
-    // Group 1 is stored for this ruleset. Group 61166 stores nothing, so splitsOf resolves the fallback table.
+    // Group 1 is stored, with an empty fallback. Group 61166 reads equal to its fallback: either an explicit table
+    // that matches the fallback, or none stored and splitsOf resolving ruleset 0. Both states read identically.
     splitsOf: ({ args }: { args: readonly bigint[] }) =>
       args[2] === 1n ? (args[1] === 0n ? [] : [reservedSplit]) : [fallbackSplit],
     payoutLimitsOf: [{ amount: 2_000_000_000_000_000_000n, currency: 1 }],
   };
 
-  it('returns the active ruleset in the input shape, keeps inherited splits inherited, and reports what it omits', async () => {
+  it('returns the active ruleset in the input shape, keeps an explicit table that equals the fallback, and reports what it omits', async () => {
     const { service } = mockRpc(live);
     const project = { chainId: 1 as const, projectId: '7' };
     const current = await service.currentRulesetInput(project, 12345n);
@@ -530,12 +531,24 @@ describe('current ruleset as preview input', () => {
         },
       ],
     });
-    // The inherited fallback group is not frozen into the copy.
-    expect(input.splitGroups.map((group) => group.groupId)).toEqual(['1']);
+    // Equality does not prove inheritance: the group stays, preserving today's recipients, and is marked unknown.
+    expect(input.splitGroups).toEqual([
+      expect.objectContaining({
+        groupId: '1',
+        splits: [expect.objectContaining({ beneficiary: another })],
+      }),
+      expect.objectContaining({
+        groupId: '61166',
+        splits: [expect.objectContaining({ beneficiary: account })],
+      }),
+    ]);
     expect(current!.coverage).toMatchObject({
       status: 'incomplete',
       splitGroupsRead: ['1', '61166'],
-      fallbackSplitGroups: ['61166'],
+      splitGroupProvenance: [
+        { groupId: '1', provenance: 'stored' },
+        { groupId: '61166', provenance: 'unknown' },
+      ],
       fundAccessLimitPairsRead: [{ terminal, token: NATIVE_TOKEN }],
     });
     expect(current!.coverage.notCovered.join(' ')).toContain('hook-defined group IDs');
@@ -550,7 +563,7 @@ describe('current ruleset as preview input', () => {
       {
         groups: [
           { groupId: '1', usesFallbackSplits: false },
-          { groupId: '61166', usesFallbackSplits: true },
+          { groupId: '61166', usesFallbackSplits: false },
         ],
       },
     ]);

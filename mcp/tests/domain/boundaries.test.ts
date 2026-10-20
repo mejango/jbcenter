@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  positiveSmallUintSchema,
   positiveUintSchema,
   projectSchema,
   smallUintSchema,
@@ -29,13 +28,17 @@ describe('public boundaries', () => {
     }
     expect(uintSchema.parse('9007199254740993')).toBe('9007199254740993');
   });
-  it('accepts safe-integer JSON numbers for small fields (ids, percents, durations, counts)', () => {
+  it('accepts safe-integer JSON numbers only for bounded fields, never for IDs', () => {
     expect(smallUintSchema.parse(0)).toBe('0');
     expect(smallUintSchema.parse(86400)).toBe('86400');
     expect(smallUintSchema.parse(Number.MAX_SAFE_INTEGER)).toBe('9007199254740991');
     expect(smallUintSchema.parse('9007199254740993')).toBe('9007199254740993');
-    expect(positiveSmallUintSchema.safeParse(0).success).toBe(false);
-    expect(projectSchema.parse({ chainId: 1, projectId: 7 }).projectId).toBe('7');
+    // IDs have ranges past 2^53, where JSON parsing has already rounded 9007199254740990.5 to an integer.
+    for (const projectId of [7, 9007199254740990.5])
+      expect(
+        projectSchema.safeParse({ chainId: 1, projectId }).error?.issues[0]?.message,
+      ).toContain('base-10 integer string');
+    expect(projectSchema.parse({ chainId: 1, projectId: '7' }).projectId).toBe('7');
     for (const value of [2 ** 53, 1e21, 1.5, -1]) {
       const result = smallUintSchema.safeParse(value);
       expect(result.success).toBe(false);

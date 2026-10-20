@@ -11,10 +11,9 @@ import {
   addressSchema,
   chainIdSchema,
   hashSchema,
-  positiveSmallUintSchema,
+  positiveUintSchema,
   projectSchema,
   slippageSchema,
-  smallUintSchema,
   uintSchema,
 } from './schemas.js';
 import {
@@ -93,7 +92,7 @@ export const tiersConfigArraySchema = z
 export const get721ShopSchema = z
   .object({
     project: projectSchema,
-    startingId: smallUintSchema.default('0'),
+    startingId: uintSchema.default('0'),
     size: z.number().int().min(1).max(32).default(20),
     categories: z
       .array(uint(24))
@@ -126,7 +125,7 @@ export const pay721Schema = z
 export const getRevnetSchema = z
   .object({
     project: projectSchema,
-    startingId: smallUintSchema.default('0'),
+    startingId: uintSchema.default('0'),
     size: z.number().int().min(1).max(32).default(16),
     operator: nonzero.optional(),
   })
@@ -135,7 +134,7 @@ export const prepareAutoIssueSchema = z
   .object({
     project: projectSchema,
     account: nonzero,
-    stageId: positiveSmallUintSchema,
+    stageId: positiveUintSchema,
     beneficiary: nonzero,
   })
   .strict();
