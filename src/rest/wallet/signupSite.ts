@@ -1,4 +1,5 @@
 import type { Hono, Context } from 'hono';
+import { mountAssets, type AssetNames } from '../web/assets.js';
 import { streamSSE } from 'hono/streaming';
 import type { Address, Hex } from 'viem';
 import { RestError } from '../core.js';
@@ -29,7 +30,8 @@ export interface WalletSignupSiteOptions {
 }
 function invalid(status = 400): never { throw new RestError(status, 'WALLET_SIGNUP_HTTP_INVALID', 'Reload the original signup and retry its current step.'); }
 /** Installed only by the dedicated wallet host. No trusted-app CORS grants signup access. */
-export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
+/** Returns the hashed names of the signup assets, for the wallet landing that also serves the signup page. */
+export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions): AssetNames {
   const base = options.basePath ?? '/wallet';
   const { signup, origin } = options;
   for (const path of [`${base}/create`, `${base}/signup/*`, `${base}/assets/wallet-signup.*`]) app.use(path, async (c, next) => {
@@ -65,14 +67,13 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
     kick((value as { view?: { phase?: string; walletAddress?: string | null } } | null)?.view);
     return c.body(serialize(value), 200, { 'Content-Type': 'application/json' });
   };
+  const assets = mountAssets(app, base, { 'wallet-signup.js': options.browserScript, 'wallet-signup.css': walletSignupCss() });
   app.get(`${base}/create`, async c => {
     // The signup for an app's intent may be framed by that app, when it is admitted to (see the wallet landing).
     const intentId = c.req.query('intent');
     if (intentId && options.framed) options.framed.framedBy(c, await options.framed.frameOrigin(intentId).catch(() => undefined));
-    return c.html(walletSignupPage({ base }));
+    return c.html(walletSignupPage({ base, assets }));
   });
-  app.get(`${base}/assets/wallet-signup.js`, c => c.body(options.browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
-  app.get(`${base}/assets/wallet-signup.css`, c => c.body(walletSignupCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
   // The view, pushed: on connect, on every phase change this process's worker or an action reports,
   // and re-read on a timer while creation or login preparation is under way (the worker may run in
   // another replica; the authority refresh always does). A 15 s ping keeps the socket known-live.
@@ -279,4 +280,5 @@ export function mountWalletSignup(app: Hono, options: WalletSignupSiteOptions) {
       return json(c, { view: await signup.status(resumed.flowToken), flowToken: resumed.flowToken, replayed: resumed.replayed });
     });
   }
+  return assets;
 }

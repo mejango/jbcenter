@@ -1,11 +1,12 @@
+import { assetHref, type AssetNames } from './assets.js';
 import { walletSignupCss } from './walletSignupPage.js';
 
 /** The page a second device opens from the link the account page showed. */
-export function walletDevicePage(options: { base?: string } = {}) {
+export function walletDevicePage(options: { base?: string; assets?: AssetNames } = {}) {
   const base = options.base ?? '/wallet';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="wallet-base" content="${base}"><link rel="icon" type="image/svg+xml" href="${base}/assets/favicon.svg"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="referrer" content="no-referrer"><title>Add this device | Juicebox</title>
-<link rel="stylesheet" href="${base}/assets/wallet-device.css"><script type="module" src="${base}/assets/wallet-device.js"></script></head>
+<link rel="stylesheet" href="${assetHref(base, 'wallet-device.css', options.assets)}"><script type="module" src="${assetHref(base, 'wallet-device.js', options.assets)}"></script></head>
 <body><main><a class="brand" href="${base || '/'}">JUICEBOX CENTER</a>
 <h1>Add this device</h1>
 <p id="device-intro">This device gets its own passkey for your account. The device you started from approves it.</p>

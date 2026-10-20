@@ -1,4 +1,5 @@
 import { walletSignupPage } from '../web/walletSignupPage.js';
+import { assetHref, mountAssets, type AssetNames } from '../web/assets.js';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Hex } from 'viem';
@@ -138,7 +139,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
       // "refused to connect"; the form's Origin header names the app, and the page holds nothing private.
       const framer = c.req.header('Origin');
       if (c.req.header('Sec-Fetch-Dest') === 'iframe' && framer && frameable.has(framer)) framedBy(c, framer);
-      return c.html('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connection unavailable</title><link rel="stylesheet" href="' + base + '/assets/wallet.css"></head><body><main><h1>Connection unavailable</h1><p>This connection expired or could not be verified. Return to the app and connect again.</p></main></body></html>', status as ContentfulStatusCode);
+      return c.html('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connection unavailable</title><link rel="stylesheet" href="' + assetHref(base, 'wallet.css', assets) + '"></head><body><main><h1>Connection unavailable</h1><p>This connection expired or could not be verified. Return to the app and connect again.</p></main></body></html>', status as ContentfulStatusCode);
     }
     // An expired app request names the app's public origin so the page can send the person back.
     const appOrigin = code === 'WALLET_HANDOFF_EXPIRED' && known ? (scalars(error)?.origin as unknown) : undefined;
@@ -227,9 +228,10 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     callback.searchParams.set('code', code.code); callback.searchParams.set('state', code.state); callback.searchParams.set('iss', code.issuer);
     emit('handoff_issue', 'ok'); return callback.href;
   };
+  let signupAssets: AssetNames | undefined;
   if (options.signup) {
     if (!options.signupBrowserScript) reject(503, 'WALLET_SIGNUP_UNAVAILABLE');
-    mountWalletSignup(app, { origin, signup: options.signup, browserScript: options.signupBrowserScript, basePath: base, refresh,
+    signupAssets = mountWalletSignup(app, { origin, signup: options.signup, browserScript: options.signupBrowserScript, basePath: base, refresh,
       framed: { frameOrigin: id => handoff.frameOrigin ? handoff.frameOrigin(id) : Promise.resolve(undefined), framedBy,
         intent: async id => (await framedIntent(id)).intent,
         issue: async (id, sessionId) => { const { intent, launchSignature } = await framedIntent(id); return issued(intent.id, sessionId, launchSignature); } } });
@@ -247,15 +249,15 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
   // redirects or repaints. App returns and stale cookies still get the landing page. An app return
   // may be framed by the app whose intent it carries, when that app is admitted to.
   const landing = async (c: Context) => {
-    if (options.signup && !readWalletCookie(c.req.raw, walletSessionCookie) && new URL(c.req.url).search === '') return c.html(walletSignupPage({ base }));
+    if (options.signup && !readWalletCookie(c.req.raw, walletSessionCookie) && new URL(c.req.url).search === '') return c.html(walletSignupPage({ base, ...(signupAssets ? { assets: signupAssets } : {}) }));
     const intentId = c.req.query('intent');
     if (intentId && handoff.frameOrigin && frameable.size) framedBy(c, await handoff.frameOrigin(intentId).catch(() => undefined));
-    return c.html(walletPage(!!options.signup, !!options.recovery, base));
+    return c.html(walletPage(!!options.signup, !!options.recovery, base, assets));
   };
   app.get(base || '/', landing);
   if (base) app.get(`${base}/`, landing);
-  app.get(`${base}/assets/wallet.js`, c => c.body(browserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' }));
-  app.get(`${base}/assets/wallet.css`, c => c.body(walletCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' }));
+  const assets = mountAssets(app, base, { 'wallet.js': browserScript, 'wallet.css': walletCss(),
+    ...(options.payments && options.paymentBrowserScript ? { 'wallet-payment.js': options.paymentBrowserScript, 'wallet-payment.css': walletPaymentCss() } : {}) });
   app.get(`${base}/assets/favicon.svg`, c => c.body(walletFavicon, 200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' }));
   app.get(`${base}/config`, async c => {
     const candidate = c.req.header('Origin');
@@ -322,17 +324,7 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     // or a page opened without one, keeps the default: no framing.
     const review = c.req.query('review');
     if (review && service.frameOrigin && frameable.size) framedBy(c, await service.frameOrigin(review).catch(() => undefined));
-    return c.html(walletPaymentPage(base));
-  });
-  app.get(`${base}/assets/wallet-payment.js`, c => {
-    payments();
-    if (!options.paymentBrowserScript) reject(503, 'WALLET_PAYMENTS_UNAVAILABLE');
-    return c.body(options.paymentBrowserScript, 200, { 'Content-Type': 'application/javascript; charset=utf-8' });
-  });
-  app.get(`${base}/assets/wallet-payment.css`, c => {
-    payments();
-    if (!options.paymentBrowserScript) reject(503, 'WALLET_PAYMENTS_UNAVAILABLE');
-    return c.body(walletPaymentCss(), 200, { 'Content-Type': 'text/css; charset=utf-8' });
+    return c.html(walletPaymentPage(base, assets));
   });
   const paymentSession = async (c: Context, mutate: boolean, fresh = false) => {
     if (mutate) central(c);
