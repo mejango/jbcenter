@@ -16,7 +16,7 @@ import { createContractOwnerVerifier } from "./contractOwner.js";
 import { getContractCatalog, type ContractCatalog } from "./contracts/catalog.js";
 import { RestError, type RestRpc } from "./core.js";
 import { restRequest } from "./context.js";
-import { apiDocsCss, apiDocsPage, apiReferencePages, buildRestOpenApi, docsAssetNames } from "./docs/index.js";
+import { apiDocsCss, apiDocsPage, apiReferencePages, apiSearchTerms, buildRestOpenApi, docsAssetNames } from "./docs/index.js";
 import {
   createTransactionDispatchAuthorizer,
   createSponsorshipDispatchAuthorizer,
@@ -694,6 +694,7 @@ export async function createRestRuntime(options: {
       audience: auth.audience,
       docsHtml: apiDocsPage(openapi, docsAssetNames(assets.docsScript ?? "")),
       apiReference: apiReferencePages(openapi, docsAssetNames(assets.docsScript ?? "")),
+      apiTerms: JSON.stringify(apiSearchTerms(openapi)),
       docsCss: apiDocsCss,
       ...assets,
     },

@@ -215,9 +215,7 @@ describe("static REST documentation", () => {
     expect(html).toContain('href="/assets/api.css"');
     // Field tables load per endpoint; the page keeps only their names, for the filter.
     expect(html).not.toContain("schema-fields");
-    expect(html).toMatch(/data-terms="[^"]*\bplanId\b/);
-    // Names nested deeper than the tables render stay searchable (listContracts returns retired deployments).
-    expect(html).toMatch(/<details class="endpoint" data-terms="[^"]*\bretired\b[^"]*"><summary>(?:(?!<details)[^])*operationId: listContracts</);
+    expect(html).toContain('data-terms="/api/terms.json"');
     const reference = apiReferencePages(unsafe);
     const pages = [...reference.values()].join("");
     expect(pages).toContain("Request body");

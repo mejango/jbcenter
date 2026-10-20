@@ -60,6 +60,9 @@ describe("hashed assets", () => {
     const reference = await rest.request(origin + "/api/reference/readThing");
     expect(reference.headers.get("cache-control")).toBe("public, max-age=300");
     expect((await rest.request(origin + "/api/reference/missing")).status).toBe(404);
+    const terms = await rest.request(origin + "/api/terms.json");
+    expect(terms.headers.get("cache-control")).toBe("public, max-age=300");
+    expect(terms.headers.get("content-type")).toContain("application/json");
     // One URL serves HTML or Markdown by Accept, so a cache must key on it.
     const markdown = await rest.request(origin + "/api/docs/quickstart", { headers: { Accept: "text/markdown" } });
     expect(markdown.headers.get("content-type")).toContain("text/markdown");

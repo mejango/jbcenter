@@ -9,7 +9,7 @@ import { FAVICON_SVG } from "../src/branding.js";
 import { HOMEPAGE_HTML, homepageAssets } from "../src/homepage.js";
 import { getContractCatalog } from "../src/rest/contracts/catalog.js";
 import { guidePage } from "../src/rest/docs/guide.js";
-import { apiDocsCss, apiDocsPage, apiReferencePages, buildRestOpenApi } from "../src/rest/docs/index.js";
+import { apiDocsCss, apiDocsPage, apiReferencePages, apiSearchTerms, buildRestOpenApi } from "../src/rest/docs/index.js";
 import { createIndexerReadService } from "../src/rest/indexer/index.js";
 import { REST_DOCUMENTS } from "../src/rest/site.js";
 import { hashedAssetName, type AssetNames } from "../src/rest/web/assets.js";
@@ -24,12 +24,13 @@ import { walletSignupCss, walletSignupPage } from "../src/rest/web/walletSignupP
 // Ceilings sit at the measured size rounded up to the next 0.5 KiB. Raise one only for bytes the
 // page needs on first view; anything else loads on demand and gets its own ceiling below.
 const pageCeilings: Record<string, number> = {
-  "/": 14_848, "/api": 32_768, "/api/docs/* (largest)": 19_968, "/accounts": 76_800,
+  "/": 14_848, "/api": 25_600, "/api/docs/* (largest)": 19_968, "/accounts": 76_800,
   "wallet /": 12_288, "wallet signup": 19_456, "wallet /payment": 25_088, "wallet /recover": 20_480, "wallet /add": 13_312,
 };
-// What loads after the first view: the backup kit, one journey map, one endpoint's tables.
+// What loads after the first view: the backup kit, one journey map, one endpoint's tables, the filter's term index.
 const onDemandCeilings: Record<string, number> = {
   "wallet-recovery-kit.js": 42_496, "journey map (largest)": 4_608, "/api/reference/* (largest)": 7_168,
+  "/api/terms.json": 23_040,
 };
 // Every bundle the build emits needs a ceiling, so a new page or chunk cannot escape the gate.
 const bundleCeilings: Record<string, number> = {
@@ -91,6 +92,7 @@ it("keeps every served page, bundle and on-demand piece within its ceiling", asy
     "wallet-recovery-kit.js": gz(wallet["wallet-recovery-kit.js"]),
     "journey map (largest)": Math.max(...Object.entries(home).filter(([file]) => file.startsWith("journey-")).map(([, body]) => gz(body))),
     "/api/reference/* (largest)": Math.max(...Array.from(apiReferencePages(spec, names(docs)).values(), gz)),
+    "/api/terms.json": gz(JSON.stringify(apiSearchTerms(spec))),
   };
   for (const [piece, ceiling] of Object.entries(onDemandCeilings)) expect(onDemand[piece], piece).toBeLessThanOrEqual(ceiling);
   // PAGE_WEIGHT_REPORT=<file> writes the measured sizes, for the PR table and for lowering ceilings.
