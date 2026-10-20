@@ -22,7 +22,7 @@ describe("standalone Accounts hosting", () => {
     for (const path of ["/", "/api", "/api/docs/quickstart", "/api/docs/smart-accounts", "/api/docs/sessions", "/api#write", "/api#glossary-paymaster"])
       expect(html).toContain(`href="${audience}${path}"`);
     expect(html).toContain(`npm install ${audience}/api/client/juicebox-center-client-0.1.0.tgz`);
-    expect(html).toContain('href="/assets/accounts-icon.svg"');
+    expect(html).toMatch(/href="\/assets\/accounts-icon\.[0-9a-f]{16}\.svg"/);
     expect(html).not.toMatch(/href="\/(?:api|favicon\.svg)/);
     const script = await app.request(origin + "/assets/accounts.js");
     expect(script.headers.get("content-type")).toContain("application/javascript");
@@ -75,7 +75,7 @@ describe("standalone Accounts hosting", () => {
       });
       await page.goto(origin + "/accounts");
       expect(await page.locator("body").getAttribute("data-accounts-script-loaded")).toBe("true");
-      expect(await page.locator('link[rel="icon"]').getAttribute("href")).toBe("/assets/accounts-icon.svg");
+      expect(await page.locator('link[rel="icon"]').getAttribute("href")).toMatch(/^\/assets\/accounts-icon\.[0-9a-f]{16}\.svg$/);
       const result = await page.evaluate(async () => {
         const configured = await fetch(document.body.dataset.audience + "/api/v1/health").then(response => response.json());
         const blocked = await fetch("https://unrelated.example.test/probe").then(() => false, () => true);

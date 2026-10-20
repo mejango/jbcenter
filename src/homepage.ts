@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { hashedAsset } from "./hashedAsset.js";
 import { BRAND_CSS, BRAND_ICON, FAVICON_LINK } from "./branding.js";
 import { HOMEPAGE_JS } from "./directoryClient.js";
 import {
@@ -416,12 +416,12 @@ export const HOMEPAGE_HTML = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Find Juicebox apps, learn how projects work, build an integration, and check the code.">
-  <script defer src="${HOMEPAGE_JS_PATH}?v=${createHash("sha256").update(HOMEPAGE_JS).digest("hex").slice(0, 12)}"></script>
+  <script defer src="${hashedAsset(HOMEPAGE_JS_PATH, HOMEPAGE_JS).href}"></script>
   <meta name="theme-color" content="#f5f4ef">
   <title>Juicebox Center</title>
   ${FAVICON_LINK}
   <link rel="canonical" href="https://juicebox.center/">
-  <link rel="stylesheet" href="${HOMEPAGE_CSS_PATH}?v=${createHash("sha256").update(HOMEPAGE_CSS).digest("hex").slice(0, 12)}">
+  <link rel="stylesheet" href="${hashedAsset(HOMEPAGE_CSS_PATH, HOMEPAGE_CSS).href}">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to directory</a>

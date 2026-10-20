@@ -5,7 +5,9 @@ import type { createRestApp } from "./app.js";
 import { guidePage } from "./docs/guide.js";
 import { mountAccountsSite } from "./accountsSite.js";
 import { createWalletHostMatcher } from "../walletHosts.js";
-import { REST_PAGE_HEADERS } from "./pageHeaders.js";
+import { REST_DOCS_HEADERS, REST_PAGE_HEADERS } from "./pageHeaders.js";
+import { DOCS_ASSETS } from "./docs/page.js";
+import { serveHashed } from "../hashedAsset.js";
 
 export { REST_PAGE_HEADERS } from "./pageHeaders.js";
 
@@ -78,24 +80,21 @@ export function mountRestSite(app: Hono<JbcenterEnv>, site: RestSite): void {
   } else if (site.wallet) app.route("/", site.wallet);
   app.route("/api/v1", site.app);
   mountAccountsSite(app, { audience: site.audience, accountsScript: site.accountsScript });
-  app.get("/assets/docs.js", (context) => context.body(site.docsScript ?? "", 200, { ...REST_PAGE_HEADERS, "Content-Type": "application/javascript; charset=utf-8" }));
+  const docs = {
+    script: serveHashed(app, DOCS_ASSETS.script, site.docsScript ?? "", { ...REST_PAGE_HEADERS, "Content-Type": "application/javascript; charset=utf-8" }),
+    style: serveHashed(app, DOCS_ASSETS.style, site.docsCss, { ...REST_PAGE_HEADERS, "Content-Type": "text/css; charset=utf-8" }),
+  };
   app.get("/api/client/juicebox-center-client-0.1.0.tgz", (context) => {
     if (!site.clientPackage) return context.notFound();
     return new Response(site.clientPackage as BodyInit, { headers: { "Content-Type": "application/gzip", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache", "Content-Disposition": 'attachment; filename="juicebox-center-client-0.1.0.tgz"' } });
   });
   app.get("/api", (context) =>
-    context.html(site.docsHtml, 200, REST_PAGE_HEADERS),
+    context.html(site.docsHtml, 200, REST_DOCS_HEADERS),
   );
   app.get("/api/reference/:operationId", (context) => {
     const page = site.apiReference?.get(context.req.param("operationId"));
-    return page ? context.html(page, 200, REST_PAGE_HEADERS) : context.notFound();
+    return page ? context.html(page, 200, REST_DOCS_HEADERS) : context.notFound();
   });
-  app.get("/assets/api.css", (context) =>
-    context.body(site.docsCss, 200, {
-      ...REST_PAGE_HEADERS,
-      "Content-Type": "text/css; charset=utf-8",
-    }),
-  );
   app.get("/api/docs/:name", (context) => {
     const name = context.req.param("name").replace(/\.md$/i, "").toLowerCase();
     const document = site.documents.get(name);
@@ -110,9 +109,9 @@ export function mountRestSite(app: Hono<JbcenterEnv>, site: RestSite): void {
         404,
       );
     if (!context.req.param("name").endsWith(".md") && !context.req.header("Accept")?.includes("text/markdown"))
-      return context.html(guidePage(name, document), 200, REST_PAGE_HEADERS);
+      return context.html(guidePage(name, document, docs), 200, { ...REST_DOCS_HEADERS, Vary: "Accept" });
     return context.text(document, 200, {
-      ...REST_PAGE_HEADERS,
+      ...REST_DOCS_HEADERS, Vary: "Accept",
       "Content-Type": "text/markdown; charset=utf-8",
       "Content-Security-Policy": "default-src 'none'; sandbox",
     });

@@ -16,7 +16,7 @@ import { createContractOwnerVerifier } from "./contractOwner.js";
 import { getContractCatalog, type ContractCatalog } from "./contracts/catalog.js";
 import { RestError, type RestRpc } from "./core.js";
 import { restRequest } from "./context.js";
-import { apiDocsCss, apiDocsPage, apiReferencePages, buildRestOpenApi } from "./docs/index.js";
+import { apiDocsCss, apiDocsPage, apiReferencePages, buildRestOpenApi, docsAssets } from "./docs/index.js";
 import {
   createTransactionDispatchAuthorizer,
   createSponsorshipDispatchAuthorizer,
@@ -691,8 +691,8 @@ export async function createRestRuntime(options: {
       ...(walletSite ? { wallet: walletSite, walletOrigins: [wallet!.origin, ...(options.wallet?.legacyOrigins ?? [])] } : {}),
       app,
       audience: auth.audience,
-      docsHtml: apiDocsPage(openapi),
-      apiReference: apiReferencePages(openapi),
+      docsHtml: apiDocsPage(openapi, docsAssets(assets.docsScript)),
+      apiReference: apiReferencePages(openapi, docsAssets(assets.docsScript).style),
       docsCss: apiDocsCss,
       ...assets,
     },

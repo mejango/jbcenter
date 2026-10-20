@@ -1,20 +1,20 @@
 import { chromium, type Browser, type Page } from 'playwright';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { HOMEPAGE_HTML, HOMEPAGE_CSS } from '../src/homepage.js';
-import { HOMEPAGE_JS } from '../src/directoryClient.js';
+import { createApp } from '../src/app.js';
+import { MemoryStore } from './support/memoryStore.js';
 
 describe('directory browser navigation', () => {
   let browser: Browser, page: Page;
+  const app = createApp(new MemoryStore());
   const errors: string[] = [];
   beforeAll(async () => { browser = await chromium.launch({ headless: true }); });
   beforeEach(async () => {
     errors.length = 0;
     page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
     page.on('pageerror', error => errors.push(error.message));
-    await page.route('https://directory.test/**', route => {
-      const path = new URL(route.request().url()).pathname;
-      return route.fulfill({ contentType: path === '/directory.js' ? 'text/javascript' : path === '/directory.css' ? 'text/css' : 'text/html',
-        body: path === '/directory.js' ? HOMEPAGE_JS : path === '/directory.css' ? HOMEPAGE_CSS : HOMEPAGE_HTML });
+    await page.route('https://directory.test/**', async route => {
+      const response = await app.request(new URL(route.request().url()).pathname);
+      return route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) });
     });
   });
   afterEach(async () => { await page.close(); expect(errors).toEqual([]); });
