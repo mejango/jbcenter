@@ -1067,7 +1067,9 @@ export class PaymentService {
         });
         simulatedFill = { status: 'known', value: result.toString() };
       } catch (error) {
-        const shown = publicPayError(error);
+        const shown = publicPayError(error, {
+          hookMinimumFromSlippage: input.metadata === undefined,
+        });
         fillFailure = shown.payFailure;
         simulatedFill = { status: 'unknown', error: shown };
       }
@@ -1158,7 +1160,12 @@ export class PaymentService {
         reservedTokenCount: preview.reservedTokenCount.toString(),
       },
       minimumBeneficiaryTokenCount: minimum.toString(),
-      ...(hookMinimum === undefined ? {} : { hookMinimumSwapAmountOut: hookMinimum.toString() }),
+      ...(hookMinimum === undefined
+        ? {}
+        : {
+            hookMinimumSwapAmountOut: hookMinimum.toString(),
+            hookMinimumSource: input.metadata === undefined ? 'slippageBps' : 'caller metadata',
+          }),
       minimumBasis:
         explicitMinimum !== undefined ? 'explicit' : prepared ? 'prepareUserPay' : 'slippage',
       skipSplits: {

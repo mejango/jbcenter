@@ -1356,6 +1356,7 @@ describe('payment quotes and approval plans', () => {
     });
     expect(quote.warnings.join(' ')).toContain('BUYBACK_SLIPPAGE_EXCEEDED');
     expect(quote.warnings.join(' ')).toContain('higher slippageBps');
+    expect(quote.hookMinimumSource).toBe('slippageBps');
     expect(JSON.stringify(quote)).not.toContain('secret-key');
   });
 

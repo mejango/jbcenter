@@ -66,31 +66,51 @@ export type PayFailureView = {
   retry?: string;
 };
 
+/** Where the buyback hook's minimum came from, so a retry hint names the input that moves it. */
+export type PayFailureContext = { hookMinimumFromSlippage?: boolean };
+
+const isAmount = (value: unknown): value is bigint => typeof value === 'bigint' && value >= 0n;
+
 /**
- * Why a payment reverts, from the SDK's decodePayFailure: a stable reason, its fixed sentence and,
- * for a shortfall, the decoded amounts with how to retry. Never node text.
+ * Why a payment reverts, from the SDK's decodePayFailure over the revert bytes only (a custom error
+ * with exactly its ABI arguments; names in node text or Error(string) never count): a stable reason,
+ * its fixed sentence and, for a shortfall, the uint256 amounts with a retry hint only when an input
+ * of jb_prepare_pay changes the failing check. Never node text.
  */
-export function payFailureOf(error: unknown): PayFailureView | undefined {
-  const failure = decodePayFailure(error);
+export function payFailureOf(
+  error: unknown,
+  context: PayFailureContext = {},
+): PayFailureView | undefined {
+  const data = revertDataOf(error);
+  const failure = data && decodePayFailure(data);
   if (!failure) return undefined;
   const { reason, message, received, minimum } = failure;
-  if (received === undefined || minimum === undefined) return { reason, message };
+  if (!isAmount(received) || !isAmount(minimum)) return { reason, message };
+  const retry =
+    received === 0n
+      ? "At this block the payment returns no project tokens, so lowering the minimum would only accept receiving nothing. Check the project's issuance and pool before retrying."
+      : reason === 'TERMINAL_UNDER_MIN'
+        ? `Prepare the payment again with jb_prepare_pay, passing minReturnedTokens at or below ${received}.`
+        : reason === 'BUYBACK_SLIPPAGE_EXCEEDED' && context.hookMinimumFromSlippage === true
+          ? "Prepare the payment again with jb_prepare_pay and a higher slippageBps; the buyback hook's minimum comes from it."
+          : reason === 'BUYBACK_SLIPPAGE_EXCEEDED' && context.hookMinimumFromSlippage === false
+            ? "The buyback hook's minimum is the minimumSwapAmountOut in the metadata you passed, so slippageBps does not change it: lower it there, or omit metadata to let jb_prepare_pay set it."
+            : undefined;
   return {
     reason,
     message,
     received: received.toString(),
     minimum: minimum.toString(),
-    // The terminal checks minReturnedTokens; the hook's own minimum comes from slippageBps.
-    retry:
-      reason === 'TERMINAL_UNDER_MIN'
-        ? `Prepare the payment again with jb_prepare_pay, passing minReturnedTokens at or below ${received} or a higher slippageBps.`
-        : "Prepare the payment again with jb_prepare_pay and a higher slippageBps; the buyback hook's minimum comes from it.",
+    ...(retry ? { retry } : {}),
   };
 }
 
 /** publicError for a payment: adds the decoded reason it reverts, when the SDK recognizes it. */
-export function publicPayError(error: unknown): ReturnType<typeof publicError> {
-  const failure = payFailureOf(error);
+export function publicPayError(
+  error: unknown,
+  context?: PayFailureContext,
+): ReturnType<typeof publicError> {
+  const failure = payFailureOf(error, context);
   return { ...publicError(error), ...(failure ? { payFailure: failure } : {}) };
 }
 
@@ -137,6 +157,30 @@ export type Revert = { selector: Hex; errorName?: string; args?: unknown[] };
  * strip revert data, -32603) are not reverts here: their outcome stays unknown.
  */
 export function revertOf(error: unknown): Revert | undefined {
+  const data = revertDataOf(error);
+  if (!data) return undefined;
+  const selector = data.slice(0, 10).toLowerCase() as Hex;
+  try {
+    const decoded = decodeErrorResult({ abi: KNOWN_ERRORS, data });
+    // Error(string) text is contract-supplied; keep it out of the response.
+    if (decoded.errorName === 'Error') return { selector, errorName: 'Error' };
+    return {
+      selector,
+      errorName: decoded.errorName,
+      // Numbers, addresses and bytes stay as diagnostics. Every ABI `string` argument (StringTooLong
+      // and the like) is caller- or node-supplied text, so it never reaches the response, whatever
+      // it looks like.
+      args: (decoded.abiItem as { inputs: readonly AbiParameter[] }).inputs.map((input, index) =>
+        shown(input, decoded.args?.[index]),
+      ),
+    };
+  } catch {
+    return { selector };
+  }
+}
+
+/** The revert bytes in an error's cause chain: a revert's raw data or a code-3 RPC error's data. */
+function revertDataOf(error: unknown): Hex | undefined {
   let item: unknown = error;
   for (let depth = 0; depth < 10 && item && typeof item === 'object'; depth++) {
     const e = item as {
@@ -148,26 +192,8 @@ export function revertOf(error: unknown): Revert | undefined {
     };
     const data =
       e.name === 'ContractFunctionRevertedError' ? e.raw : e.code === 3 ? e.data : undefined;
-    if (typeof data === 'string' && /^0x[0-9a-fA-F]{8}(?:[0-9a-fA-F]{2})*$/.test(data)) {
-      const selector = data.slice(0, 10).toLowerCase() as Hex;
-      try {
-        const decoded = decodeErrorResult({ abi: KNOWN_ERRORS, data: data as Hex });
-        // Error(string) text is contract-supplied; keep it out of the response.
-        if (decoded.errorName === 'Error') return { selector, errorName: 'Error' };
-        return {
-          selector,
-          errorName: decoded.errorName,
-          // Numbers, addresses and bytes stay as diagnostics. Every ABI `string` argument (StringTooLong
-          // and the like) is caller- or node-supplied text, so it never reaches the response, whatever
-          // it looks like.
-          args: (decoded.abiItem as { inputs: readonly AbiParameter[] }).inputs.map(
-            (input, index) => shown(input, decoded.args?.[index]),
-          ),
-        };
-      } catch {
-        return { selector };
-      }
-    }
+    if (typeof data === 'string' && /^0x[0-9a-fA-F]{8}(?:[0-9a-fA-F]{2})*$/.test(data))
+      return data as Hex;
     item = e.cause;
   }
   return undefined;

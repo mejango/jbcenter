@@ -5,8 +5,10 @@ import {
   ContractFunctionRevertedError,
   InsufficientFundsError,
   RpcRequestError,
+  encodeAbiParameters,
   encodeErrorResult,
   parseAbi,
+  parseAbiParameters,
 } from 'viem';
 import { payFailureOf, publicError, publicPayError, shown } from '../../src/domain/errors.js';
 
@@ -131,7 +133,7 @@ describe('public errors', () => {
       errorName: 'JBBuybackHook_SpecifiedSlippageExceeded',
       args: [380n, 396n],
     });
-    expect(publicPayError(rpcRevert(hookMiss))).toMatchObject({
+    expect(publicPayError(rpcRevert(hookMiss), { hookMinimumFromSlippage: true })).toMatchObject({
       code: 'CALL_REVERTED',
       payFailure: {
         reason: 'BUYBACK_SLIPPAGE_EXCEEDED',
@@ -142,6 +144,63 @@ describe('public errors', () => {
     });
     expect(payFailureOf(rpcRevert(insufficient))).toBeUndefined();
     expect(publicPayError(rpcRevert(insufficient))).not.toHaveProperty('payFailure');
+  });
+  const shortfall = (selector: string, received: bigint, minimum: bigint) =>
+    `${selector}${encodeAbiParameters(parseAbiParameters('uint256, uint256'), [received, minimum]).slice(2)}`;
+  it('decodes pay failures only from revert bytes with uint256 amounts', () => {
+    // A decoded-looking object with text arguments, a bare name in a message and Error(string)
+    // naming a custom error are not reverts of that error.
+    const spoofed = {
+      code: 3,
+      data: {
+        errorName: 'JBMultiTerminal_UnderMin',
+        args: ['https://rpc.invalid/secret-key', 'x'],
+      },
+    };
+    const errorString = encodeErrorResult({
+      abi: parseAbi(['error Error(string)']),
+      errorName: 'Error',
+      args: ['JBMultiTerminal_UnderMin'],
+    });
+    for (const error of [
+      spoofed,
+      { cause: spoofed },
+      new Error('JBMultiTerminal_UnderMin'),
+      rpcRevert(errorString),
+    ])
+      expect(payFailureOf(error)).toBeUndefined();
+    expect(JSON.stringify(publicPayError(spoofed))).not.toContain('secret-key');
+  });
+  it('gives a retry only when a jb_prepare_pay input moves the failing check', () => {
+    const underMin = '0x6b2bb382';
+    const hook = '0xe2d708a9';
+    expect(payFailureOf(rpcRevert(shortfall(underMin, 90n, 100n)))?.retry).toContain(
+      'minReturnedTokens at or below 90',
+    );
+    // A zero fill never invites a minimum of 0.
+    const zero = payFailureOf(rpcRevert(shortfall(underMin, 0n, 100n)));
+    expect(zero).toMatchObject({
+      received: '0',
+      retry: expect.stringContaining('no project tokens'),
+    });
+    expect(zero!.retry).not.toContain('at or below');
+    // Caller metadata keeps its own minimum, so slippageBps is not the answer.
+    const own = payFailureOf(rpcRevert(shortfall(hook, 380n, 396n)), {
+      hookMinimumFromSlippage: false,
+    });
+    expect(own!.retry).toContain('metadata you passed');
+    expect(own!.retry).not.toContain('higher slippageBps');
+    // Router conversion protection, the hook's derived floor, or an unknown hook minimum source:
+    // no jb_prepare_pay input changes them, so no hint.
+    for (const [data, context] of [
+      [shortfall('0x1dbd2ab5', 380n, 396n), { hookMinimumFromSlippage: true }],
+      [shortfall('0xe490a239', 380n, 396n), { hookMinimumFromSlippage: true }],
+      [shortfall(hook, 380n, 396n), {}],
+    ] as const) {
+      const failure = payFailureOf(rpcRevert(data), context);
+      expect(failure).toMatchObject({ received: '380', minimum: '396' });
+      expect(failure).not.toHaveProperty('retry');
+    }
   });
   it('leaves data-less failures unknown and retryable', () => {
     for (const error of [rpcRevert(), new Error('fetch failed https://rpc.invalid/secret-key')])

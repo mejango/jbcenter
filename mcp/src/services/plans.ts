@@ -11,7 +11,6 @@ import {
   type Abi,
   type Address,
   type Hex,
-  type PublicClient,
   type TransactionReceipt,
 } from 'viem';
 import {
@@ -40,7 +39,6 @@ import {
   publicError,
   publicPayError,
   revertOf,
-  type PayFailureView,
 } from '../domain/errors.js';
 import { canonicalJson, jsonSafe } from '../domain/json.js';
 import {
@@ -231,34 +229,16 @@ export interface StepVerification {
   evidence?: BlockEvidence;
   outcome?: OutcomeEvidence[];
   error?: ReturnType<typeof publicError>;
-  /** For a reverted payment: why, replayed at the parent block (earlier transactions in its block are not applied). */
-  payFailure?: PayFailureView & { replayedAtBlock: string };
 }
 
 const paying = (plan: PlanEnvelope) =>
   plan.draft.operation === 'pay' || plan.draft.operation === '721_pay';
-
-/** Replay a reverted payment at its parent block for the SDK's reason; undefined when it is not one. */
-async function replayedPayFailure(
-  client: PublicClient,
-  transaction: { from: Address; to: Address | null; input: Hex; value: bigint },
-  blockNumber: bigint,
-): Promise<StepVerification['payFailure']> {
-  try {
-    await client.call({
-      account: transaction.from,
-      to: transaction.to!,
-      data: transaction.input,
-      value: transaction.value,
-      blockNumber,
-      gas: MAX_GAS,
-    });
-    return undefined;
-  } catch (error) {
-    const failure = payFailureOf(error);
-    return failure ? { ...failure, replayedAtBlock: blockNumber.toString() } : undefined;
-  }
-}
+/** Whether the plan's buyback minimum came from slippageBps, for the retry hint. */
+const payContext = (plan: PlanEnvelope) => {
+  const source = (plan.draft.summary as { hookMinimumSource?: unknown } | undefined)
+    ?.hookMinimumSource;
+  return source === undefined ? {} : { hookMinimumFromSlippage: source === 'slippageBps' };
+};
 
 /** Reject non-JSON values, ambiguous objects, and pathological input before canonicalization. */
 function boundedJson(value: unknown, depth = 0, budget = { nodes: 0 }): void {
@@ -579,7 +559,7 @@ export class PlanService {
         step,
         status: 'unverified' as const,
         dependencies,
-        error: paying(plan) ? publicPayError(error) : publicError(error),
+        error: paying(plan) ? publicPayError(error, payContext(plan)) : publicError(error),
         ...fallback,
       };
     }
@@ -672,7 +652,8 @@ export class PlanService {
         const gasUsed = BigInt(result.gasUsed);
         const reverted = result.status === '0x0';
         const revert = { code: 3, data: result.error?.data };
-        const payFailure = reverted && paying(plan) ? payFailureOf(revert.data) : undefined;
+        const payFailure =
+          reverted && paying(plan) ? payFailureOf(revert, payContext(plan)) : undefined;
         const error = reverted
           ? {
               ...publicError(
@@ -910,16 +891,12 @@ export class PlanService {
         };
       const confirmations = head.number - receipt.blockNumber + 1n;
       if (receipt.status === 'reverted') {
-        const payFailure = paying(plan)
-          ? await replayedPayFailure(client, transaction, receipt.blockNumber - 1n)
-          : undefined;
         return {
           ...base,
           status: 'reverted',
           evidence,
           confirmations: confirmations.toString(),
           reason: 'The exact transaction reverted; it did not complete the planned operation.',
-          ...(payFailure ? { payFailure } : {}),
         };
       }
       if (receipt.status !== 'success')

@@ -10,6 +10,7 @@ import {
   erc20Abi,
   getAddress,
   parseAbiItem,
+  parseAbiParameters,
   zeroAddress,
   zeroHash,
   type Abi,
@@ -822,31 +823,35 @@ describe('re-simulation and dependency verification', () => {
       expect(result).toMatchObject({ error: { step: 1, payFailure: expected } });
     });
 
-    it('replays a reverted pay at its parent block for the reason; other operations get none', async () => {
+    it("keeps a mined pay revert's cause unknown and does not replay it", async () => {
       const { service, sealed, client, receipt } = setup();
       receipt.status = 'reverted';
-      client.call.mockRejectedValueOnce(nodeRevert(underMin));
+      const calls = client.call.mock.calls.length;
       const step = (
         await service.verify({ token: sealed.token, transactions: [{ step: 0, hash: HASH }] })
       ).steps[0]!;
-      expect(step).toMatchObject({
-        status: 'reverted',
-        payFailure: { ...expected, replayedAtBlock: String(receipt.blockNumber - 1n) },
+      expect(step.status).toBe('reverted');
+      expect(step).not.toHaveProperty('payFailure');
+      expect(client.call.mock.calls.length).toBe(calls);
+    });
+
+    it("points a buyback miss at the caller's metadata when the plan used it", async () => {
+      const hookMiss =
+        `0xe2d708a9${encodeAbiParameters(parseAbiParameters('uint256, uint256'), [380n, 396n]).slice(2)}` as Hex;
+      const { service, sealed, client } = setup({
+        ...draft(),
+        summary: { amount: '100', hookMinimumSource: 'caller metadata' },
       });
-      expect(client.call.mock.calls.at(-1)![0]).toMatchObject({
-        blockNumber: receipt.blockNumber - 1n,
+      client.call.mockRejectedValueOnce(nodeRevert(hookMiss));
+      const result = await service.simulate({ token: sealed.token });
+      expect(result).toMatchObject({
+        error: {
+          payFailure: {
+            reason: 'BUYBACK_SLIPPAGE_EXCEEDED',
+            retry: expect.stringContaining('metadata you passed'),
+          },
+        },
       });
-      const launch = setup({ ...draft([payCall()]), operation: 'launch' });
-      launch.receipt.status = 'reverted';
-      launch.client.call.mockRejectedValueOnce(nodeRevert(underMin));
-      const other = (
-        await launch.service.verify({
-          token: launch.sealed.token,
-          transactions: [{ step: 0, hash: HASH }],
-        })
-      ).steps[0]!;
-      expect(other.status).toBe('reverted');
-      expect(other.payFailure).toBeUndefined();
     });
   });
 
