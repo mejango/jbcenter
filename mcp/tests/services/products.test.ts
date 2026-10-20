@@ -746,7 +746,8 @@ describe('721 payment preparation', () => {
           300n,
           false,
           v6Address('JBController', project.chainId),
-          200n,
+          // A 200-token gross mint; skipping, 1.4 reports the payer's share (less 16.67%).
+          skipSplits ? 166n : 200n,
           1n,
           88n,
           0,
@@ -775,9 +776,9 @@ describe('721 payment preparation', () => {
     });
     const plan = await f.service.prepare721Pay(pay);
     const args = decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args!;
-    // The registry's skip entry and the tiers in one payload; the unsplit 200-token mint
-    // entitlement less 2, less 1%, is the fungible minimum.
-    expect([args[4], args[6]]).toEqual([196n, sent]);
+    // The registry's skip entry and the tiers in one payload; the payer's 166-token share of the
+    // 200-token mint, less 2, less 1%, is the fungible minimum.
+    expect([args[4], args[6]]).toEqual([162n, sent]);
     expect(plan.summary).toMatchObject({
       indicativeTokenIds: ['1000000001'],
       paymentQuote: {

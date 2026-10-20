@@ -76,7 +76,8 @@ const ruleset = {
   weight: 1_000n,
   weightCutPercent: 0,
   approvalHook: zeroAddress,
-  metadata: 0n,
+  // Reserved percent 1,667 of 10,000 at bits 4-19, as JBRulesetMetadataResolver packs it.
+  metadata: 1_667n << 4n,
 };
 const evidence: BlockEvidence = {
   chainId: 8453,
@@ -184,7 +185,10 @@ function fixture(
         return [
           // As on chain: useDataHookForPay (bit 80), useDataHookForCashOut (81), dataHook (82-241).
           options.dataHook
-            ? { ...ruleset, metadata: (3n << 80n) | (BigInt(options.dataHook) << 82n) }
+            ? {
+                ...ruleset,
+                metadata: ruleset.metadata | (3n << 80n) | (BigInt(options.dataHook) << 82n),
+              }
             : ruleset,
           options.beneficiaryCount ?? 101n,
           options.reservedCount ?? 10n,
@@ -300,7 +304,9 @@ function payHookMetadata(
       overrides.minimum ?? 300n,
       overrides.callerMinimum ?? false,
       controller,
-      200n,
+      // tokenCountWithoutHook: a 200-token gross mint. Skipping, buyback 1.4 reports the payer's
+      // share of it (200 less 16.67%), as its Solidity does; otherwise the gross count.
+      overrides.skipSplits ? 166n : 200n,
       1n,
       100n,
       0,
@@ -907,9 +913,9 @@ describe('payment quotes and approval plans', () => {
         payHooks: [{ hook, noop: false, amount: 100n, metadata: hookMetadata }],
         ...more,
       });
-    // Through the registry the SDK's prepareUserPay sets the minimum on 1.1.1 too: the payer's
-    // 200-token mint entitlement less 2 for rounding, less 1%. Its quote entry is the one the apps
-    // send; 1.1.1 reads two words of it and has no skip.
+    // Through the registry the SDK's prepareUserPay sets the minimum on 1.1.1 too: the payer's share
+    // of the 200-token mint under the ruleset's 16.67% reserved percent (166), less 2 for rounding,
+    // less 1%. Its quote entry is the one the apps send; 1.1.1 reads two words of it and has no skip.
     const legacyPay = legacyFixture();
     const plan = await legacyPay.service.preparePay({ ...payInput, memo: 'beep:demo' });
     const sdk = await prepareUserPay(legacyPay.client, {
@@ -920,10 +926,10 @@ describe('payment quotes and approval plans', () => {
       amount: 100n,
       beneficiary,
     });
-    expect(sdk.minReturnedTokens).toBe(196n);
+    expect(sdk.minReturnedTokens).toBe(162n);
     expect(plan.summary).toMatchObject({
       beneficiaryTokenCount: sdk.preview.beneficiaryTokenCount.toString(),
-      minimumBeneficiaryTokenCount: '196',
+      minimumBeneficiaryTokenCount: '162',
       minimumBasis: 'prepareUserPay',
       skipSplits: {
         requested: null,
@@ -934,18 +940,18 @@ describe('payment quotes and approval plans', () => {
     });
     expect(
       decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.slice(4),
-    ).toEqual([196n, 'beep:demo', sdk.metadata]);
-    // Codex's 1.1.1 registry-router fallback: a 200-token fill clears the SDK minimum, where the
+    ).toEqual([162n, 'beep:demo', sdk.metadata]);
+    // Codex's 1.1.1 registry-router fallback: a 170-token fill clears the SDK minimum, where the
     // conditional oracle figure less slippage (247) refused it.
     const routed = await legacyFixture(metadata, legacy, {
       primaryTerminal: v6Address('JBRouterTerminalRegistry', project.chainId),
-      payFill: 200n,
+      payFill: 170n,
     }).service.preparePay(payInput);
     expect(routed.summary).toMatchObject({
       route: 'router-terminal',
-      minimumBeneficiaryTokenCount: '196',
+      minimumBeneficiaryTokenCount: '162',
       minimumBasis: 'prepareUserPay',
-      simulatedBeneficiaryTokenCount: { status: 'known', value: '200' },
+      simulatedBeneficiaryTokenCount: { status: 'known', value: '170' },
     });
     const legacyText = plan.warnings.join(' ');
     expect(legacyText).toContain(
@@ -1180,12 +1186,13 @@ describe('payment quotes and approval plans', () => {
       expect(
         decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.[6],
       ).toBe(keyed(true));
-      // prepareUserPay's minimum with no pool quote: the payer's unsplit 200-token entitlement.
+      // prepareUserPay's minimum with no pool quote: the payer's 166-token share of the 200-token
+      // mint, which the skipping hook reports, less 2, less 1%.
       expect(plan.summary).toMatchObject({
         skipSplits: { sent: true, applied: true },
         buybackHook: { address: buybackHook, skipSplits: true },
         minimumBasis: 'prepareUserPay',
-        minimumBeneficiaryTokenCount: '196',
+        minimumBeneficiaryTokenCount: '162',
       });
       // No registry on this route: its hookOf is never read.
       expect(f.readContract.mock.calls.some(([r]) => r.functionName === 'hookOf')).toBe(false);
@@ -1328,8 +1335,8 @@ describe('payment quotes and approval plans', () => {
         [encodeAbiParameters(parseAbiParameters('uint256,uint256,bool'), [0n, minimum, true])],
       );
     // By default (skip on), a fill below prepareUserPay's minimum is refused with the fill as the
-    // suggested floor. With no pool quote that minimum is the payer's unsplit 200-token mint
-    // entitlement less 2 for rounding, less 1%: 196. A partial swap plus split issuance fills 166.
+    // suggested floor. With no pool quote that minimum is the payer's 166-token share of the
+    // 200-token mint less 2 for rounding, less 1%: 162. A partial swap plus split issuance fills 150.
     const partial = (fill: bigint) =>
       fixture({
         dataHook: registry,
@@ -1337,31 +1344,31 @@ describe('payment quotes and approval plans', () => {
         payHooks: buyback14(),
         payFill: (sent) => (sentQuote(sent).skip ? fill : 101n),
       });
-    const quote = (await partial(166n).service.quotePay(payInput)) as {
+    const quote = (await partial(150n).service.quotePay(payInput)) as {
       warnings: string[];
     } & Record<string, unknown>;
     expect(quote).toMatchObject({
-      minimumBeneficiaryTokenCount: '196',
+      minimumBeneficiaryTokenCount: '162',
       minimumBasis: 'prepareUserPay',
-      simulatedBeneficiaryTokenCount: { status: 'known', value: '166' },
+      simulatedBeneficiaryTokenCount: { status: 'known', value: '150' },
       skipSplits: { applied: true },
     });
-    expect(quote.warnings.join(' ')).toContain('above the simulated fill of 166');
-    await expect(partial(166n).service.preparePay(payInput)).rejects.toMatchObject({
+    expect(quote.warnings.join(' ')).toContain('above the simulated fill of 150');
+    await expect(partial(150n).service.preparePay(payInput)).rejects.toMatchObject({
       code: 'PAY_DEFAULT_MINIMUM_ABOVE_FILL',
       retryable: false,
-      details: { defaultMinimum: '196', simulatedFill: '166', suggestedMinReturnedTokens: '164' },
+      details: { defaultMinimum: '162', simulatedFill: '150', suggestedMinReturnedTokens: '148' },
     });
-    const reviewed = await partial(166n).service.preparePay({
+    const reviewed = await partial(150n).service.preparePay({
       ...payInput,
-      minReturnedTokens: '164',
+      minReturnedTokens: '148',
     });
     expect(
       decodeFunctionData({ abi: jbMultiTerminalAbi, data: reviewed.calls[0]!.data }).args?.[4],
-    ).toBe(164n);
+    ).toBe(148n);
     // A fill at the SDK minimum prepares with it.
-    expect((await partial(196n).service.preparePay(payInput)).summary).toMatchObject({
-      minimumBeneficiaryTokenCount: '196',
+    expect((await partial(162n).service.preparePay(payInput)).summary).toMatchObject({
+      minimumBeneficiaryTokenCount: '162',
     });
 
     // Honoring the split, prepareUserPay's minimum is the payer's split mint entitlement (162). A
