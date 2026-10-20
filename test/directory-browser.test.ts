@@ -123,6 +123,31 @@ describe('directory browser navigation', () => {
     expect(new URL(page.url()).hash).toBe('');
   });
 
+  it('routes a deep link again when Back returns to it before its map loaded', async () => {
+    const release = holdMaps();
+    await page.goto('https://directory.test/#api/rpc');
+    await page.waitForSelector('.is-enhanced');
+    await page.evaluate(() => { location.hash = 'developers/sdk'; });
+    await page.goBack();
+    release();
+    await expect.poll(current).toBe('api/rpc');
+  });
+
+  it('does not scroll for a deep link that a later choice replaced', async () => {
+    const release = holdMaps();
+    await page.goto('https://directory.test/#api/rpc');
+    await page.waitForSelector('.is-enhanced');
+    await page.locator('#journey-apps').click();
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const scrolled = await page.evaluate(() => window.scrollY);
+    expect(scrolled).toBeGreaterThan(0);
+    release();
+    await expect.poll(() => page.locator('#map-api').count()).toBe(1);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    expect(await page.evaluate(() => window.scrollY)).toBe(scrolled);
+    expect(await current()).toBe('apps/' + await page.locator('#map-apps').getAttribute('data-entry'));
+  });
+
   it('loads every map once the page is idle, so printing shows them all', async () => {
     await page.goto('https://directory.test/');
     const tabs = await page.locator('.journey-tabs button[data-view]').count();

@@ -70,9 +70,10 @@ export const HOMEPAGE_JS = String.raw`(() => {
     const view = hashView();
     if (view && !maps.has(view)) {
       await load(view);
-      if (ticket !== intent || hashView() !== view) return;
+      if (ticket !== intent || hashView() !== view) return false;
     }
     applyRoute(moveFocus);
+    return true;
   }
   let observer = null;
 
@@ -140,7 +141,9 @@ export const HOMEPAGE_JS = String.raw`(() => {
       const reference = node.querySelector('details.node-reference');
       if (reference) reference.open = true;
     }
-    routedKey = historyKey();
+    // An address whose map has not loaded yet is not routed, so returning to it routes again.
+    const named = hashView();
+    routedKey = named && !maps.has(named) ? '' : historyKey();
     if (next.target) {
       for (let target = next.target; target; target = target.parentElement) {
         if (target.matches('details')) target.open = true;
@@ -388,12 +391,17 @@ export const HOMEPAGE_JS = String.raw`(() => {
     for (const map of maps.values()) observer.observe(map.panel);
   }
   applyRoute(false);
+  // A deep link scrolls to its node once its map is in, unless another choice came first.
   if (window.location.hash) {
-    routeTo(false).then(() => window.requestAnimationFrame(() => {
-      const nativeTarget = route().target;
-      const target = nativeTarget || maps.get(current.view).nodes.get(current.node);
-      target.scrollIntoView({ block: nativeTarget ? 'start' : 'nearest', inline: 'nearest', behavior: 'auto' });
-    }));
+    routeTo(false).then((routed) => {
+      const ticket = intent;
+      if (routed) window.requestAnimationFrame(() => {
+        if (ticket !== intent) return;
+        const nativeTarget = route().target;
+        const target = nativeTarget || maps.get(current.view).nodes.get(current.node);
+        target.scrollIntoView({ block: nativeTarget ? 'start' : 'nearest', inline: 'nearest', behavior: 'auto' });
+      });
+    });
   }
   if (document.fonts) document.fonts.ready.then(scheduleDraw);
   // Printing shows every map, so the rest load once the page is idle.
