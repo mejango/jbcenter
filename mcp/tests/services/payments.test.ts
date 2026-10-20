@@ -553,15 +553,12 @@ describe('payment quotes and approval plans', () => {
       retryable: false,
       details: { beneficiaryTokenCount: '0', defaultMinimum: '0' },
     });
-    // One base unit less 1% floors to zero; slippageFloor lifts it to 1, which protects nothing either.
-    await expect(
-      fixture({ beneficiaryCount: 1n }).service.preparePay(payInput),
-    ).rejects.toMatchObject({
-      code: 'PAY_MINIMUM_PROTECTS_NOTHING',
-      details: { defaultMinimum: '1' },
-    });
-    const two = await fixture({ beneficiaryCount: 2n }).service.preparePay(payInput);
-    expect(two.summary).toMatchObject({ minimumBeneficiaryTokenCount: '1' });
+    // One base unit less 1% floors to zero; slippageFloor keeps it at 1, an enforceable minimum.
+    const one = await fixture({ beneficiaryCount: 1n }).service.preparePay(payInput);
+    expect(
+      decodeFunctionData({ abi: jbMultiTerminalAbi, data: one.calls[0]!.data }).args?.[4],
+    ).toBe(1n);
+    expect(one.warnings.join(' ')).not.toContain('protects nothing');
     // The explicit zero-output choice.
     const zero = await fixture({ beneficiaryCount: 0n }).service.preparePay({
       ...payInput,
@@ -723,7 +720,10 @@ describe('payment quotes and approval plans', () => {
     expect(
       decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.[4],
     ).toBe(247n);
-    expect(plan.warnings.join(' ')).toContain('falls back');
+    expect(plan.warnings.join(' ')).toContain(
+      'Buyback 1.4 unwinds a swap that misses its pro-rated TWAP floor and the whole payment falls back to issuance',
+    );
+    expect(plan.warnings.join(' ')).not.toContain('only a total swap failure');
     const plain = (await fixture().service.quotePay(payInput)) as Record<string, unknown>;
     expect(plain.buybackHook).toBeUndefined();
     expect(plain.tokenCounts).toMatchObject({
@@ -827,7 +827,28 @@ describe('payment quotes and approval plans', () => {
     expect(
       decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.slice(4),
     ).toEqual([247n, 'beep:demo', '0x']);
-    expect(plan.warnings.join(' ')).toContain('1.1.1');
+    const legacyText = plan.warnings.join(' ');
+    expect(legacyText).toContain(
+      'Buyback 1.1.1 checks its oracle-derived minimum against the swap plus any leftover mint and reverts below it; only a total swap failure falls back to issuance.',
+    );
+    expect(legacyText).not.toContain('unwinds');
+    expect(legacyText).not.toContain('TWAP floor');
+    expect((plan.summary as { tokenCounts: Record<string, string> }).tokenCounts).toMatchObject({
+      beneficiaryTokenCount: expect.stringContaining("buyback hook's oracle-derived minimum"),
+      minimumBeneficiaryTokenCount: expect.stringContaining(
+        'oracle-derived minimum is a separate check on the swap plus leftover mint',
+      ),
+    });
+    // A caller's raw minimum on 1.1.1 holds even after a total swap failure.
+    const callerLegacy = (await legacyFixture(
+      payHookMetadata({ minimum: 280n, callerMinimum: true }).slice(0, 2 + 15 * 64) as Hex,
+    ).service.quotePay(payInput)) as { warnings: string[]; tokenCounts: Record<string, string> };
+    expect(callerLegacy.warnings.join(' ')).toContain(
+      "Buyback 1.1.1 checks the caller's minimumSwapAmountOut 280 against the swap plus any leftover mint and reverts below it, even after a total swap failure",
+    );
+    expect(callerLegacy.tokenCounts.beneficiaryTokenCount).toContain(
+      "caller's own settlement minimum (minimumSwapAmountOut 280)",
+    );
     expect(plan.summary).toMatchObject({ buybackHook: { address: legacy, version: '1.1.1' } });
     await expect(
       legacyFixture(metadata, buybackHook).service.preparePay(payInput),

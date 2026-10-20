@@ -370,7 +370,7 @@ export class ProductService {
   }
 
   async quote721Pay(raw: z.input<typeof pay721Schema>) {
-    return (await this.nftPay(raw)).summary;
+    return (await this.nftPay(raw, true)).summary;
   }
   async prepare721Pay(raw: z.input<typeof pay721Schema>): Promise<PlanDraft> {
     return this.nftPay(raw);
@@ -482,7 +482,7 @@ export class ProductService {
     };
   }
 
-  private async nftPay(raw: z.input<typeof pay721Schema>): Promise<PlanDraft> {
+  private async nftPay(raw: z.input<typeof pay721Schema>, quoteOnly = false): Promise<PlanDraft> {
     const input = pay721Schema.parse(raw);
     const snapshot = await this.rpc.snapshot(input.project.chainId);
     const { shop } = await this.shop(snapshot, input.project);
@@ -497,7 +497,7 @@ export class ProductService {
       snapshot: async () => snapshot,
       client: () => snapshot.client,
     });
-    const plan = await payments.prepareNftPay({ ...input, metadata }, verifiedShop.hook);
+    const plan = await payments.prepareNftPay({ ...input, metadata }, verifiedShop.hook, quoteOnly);
     const quote = plan.summary as {
       terminal: Address;
       hooks: Array<{ hook: Address; noop: boolean }>;
