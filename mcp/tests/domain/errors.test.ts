@@ -133,13 +133,16 @@ describe('public errors', () => {
       errorName: 'JBBuybackHook_SpecifiedSlippageExceeded',
       args: [380n, 396n],
     });
-    expect(publicPayError(rpcRevert(hookMiss), { hookMinimumFromSlippage: true })).toMatchObject({
+    expect(publicPayError(rpcRevert(hookMiss), { slippageBps: 100n })).toMatchObject({
       code: 'CALL_REVERTED',
       payFailure: {
         reason: 'BUYBACK_SLIPPAGE_EXCEEDED',
         received: '380',
         minimum: '396',
-        retry: expect.stringContaining('higher slippageBps'),
+        adjustable: 'minimum',
+        // 380 of 396 is 405 bps short: 100 + 405, rounded up to a half percent.
+        retrySlippageBps: 550,
+        retry: expect.stringContaining('slippageBps 550'),
       },
     });
     expect(payFailureOf(rpcRevert(insufficient))).toBeUndefined();
@@ -171,35 +174,52 @@ describe('public errors', () => {
       expect(payFailureOf(error)).toBeUndefined();
     expect(JSON.stringify(publicPayError(spoofed))).not.toContain('secret-key');
   });
-  it('gives a retry only when a jb_prepare_pay input moves the failing check', () => {
+  it('offers a retry only where the SDK marks it adjustable, through the input that moves it', () => {
     const underMin = '0x6b2bb382';
     const hook = '0xe2d708a9';
-    expect(payFailureOf(rpcRevert(shortfall(underMin, 90n, 100n)))?.retry).toContain(
-      'minReturnedTokens at or below 90',
-    );
-    // A zero fill never invites a minimum of 0.
-    const zero = payFailureOf(rpcRevert(shortfall(underMin, 0n, 100n)));
+    const at = { slippageBps: 100n };
+    expect(payFailureOf(rpcRevert(shortfall(underMin, 90n, 100n)), at)).toMatchObject({
+      adjustable: 'minimum',
+      retrySlippageBps: 1100,
+    });
+    // The caller's own minReturnedTokens: slippageBps does not move it.
+    const own = payFailureOf(rpcRevert(shortfall(underMin, 90n, 100n)), {
+      ...at,
+      explicitMinimum: true,
+    });
+    expect(own!.retry).toContain('minReturnedTokens at or below 90');
+    expect(own).not.toHaveProperty('retrySlippageBps');
+    // A zero fill is never answered with a lower minimum or a looser tolerance.
+    const zero = payFailureOf(rpcRevert(shortfall(underMin, 0n, 100n)), at);
     expect(zero).toMatchObject({
       received: '0',
-      retry: expect.stringContaining('no project tokens'),
+      zeroFill: true,
+      retry: expect.stringContaining('settled nothing'),
     });
+    expect(zero).not.toHaveProperty('retrySlippageBps');
     expect(zero!.retry).not.toContain('at or below');
-    // Caller metadata keeps its own minimum, so slippageBps is not the answer.
-    const own = payFailureOf(rpcRevert(shortfall(hook, 380n, 396n)), {
-      hookMinimumFromSlippage: false,
+    // Caller metadata keeps its own hook minimum.
+    const metadata = payFailureOf(rpcRevert(shortfall(hook, 380n, 396n)), {
+      ...at,
+      hookMinimumSource: 'caller metadata',
     });
-    expect(own!.retry).toContain('metadata you passed');
-    expect(own!.retry).not.toContain('higher slippageBps');
-    // Router conversion protection, the hook's derived floor, or an unknown hook minimum source:
-    // no jb_prepare_pay input changes them, so no hint.
+    expect(metadata!.retry).toContain('metadata the caller passed');
+    expect(metadata).not.toHaveProperty('retrySlippageBps');
+    // At the SDK's cap nothing looser exists.
+    expect(
+      payFailureOf(rpcRevert(shortfall(hook, 380n, 396n)), { slippageBps: 4950n }),
+    ).not.toHaveProperty('retry');
+    // Router conversion or the hook's derived floor: nothing the payer sets moves them; and without
+    // the prepared tolerance no candidate is computed.
     for (const [data, context] of [
-      [shortfall('0x1dbd2ab5', 380n, 396n), { hookMinimumFromSlippage: true }],
-      [shortfall('0xe490a239', 380n, 396n), { hookMinimumFromSlippage: true }],
+      [shortfall('0x1dbd2ab5', 380n, 396n), at],
+      [shortfall('0xe490a239', 380n, 396n), at],
       [shortfall(hook, 380n, 396n), {}],
     ] as const) {
       const failure = payFailureOf(rpcRevert(data), context);
       expect(failure).toMatchObject({ received: '380', minimum: '396' });
       expect(failure).not.toHaveProperty('retry');
+      expect(failure).not.toHaveProperty('retrySlippageBps');
     }
   });
   it('leaves data-less failures unknown and retryable', () => {

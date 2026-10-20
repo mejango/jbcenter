@@ -36,6 +36,7 @@ import { jbSuckerV6Abi, uniswapV4PoolId, v6Address } from '@bananapus/nana-sdk-c
 import {
   DomainError,
   payFailureOf,
+  type PayFailureContext,
   publicError,
   publicPayError,
   revertOf,
@@ -233,11 +234,20 @@ export interface StepVerification {
 
 const paying = (plan: PlanEnvelope) =>
   plan.draft.operation === 'pay' || plan.draft.operation === '721_pay';
-/** Whether the plan's buyback minimum came from slippageBps, for the retry hint. */
-const payContext = (plan: PlanEnvelope) => {
-  const source = (plan.draft.summary as { hookMinimumSource?: unknown } | undefined)
-    ?.hookMinimumSource;
-  return source === undefined ? {} : { hookMinimumFromSlippage: source === 'slippageBps' };
+/** What the plan's quote summary says about its minimums, for the retry hint. */
+const payContext = (plan: PlanEnvelope): PayFailureContext => {
+  const summary = (plan.draft.summary ?? {}) as Record<string, unknown>;
+  const bps = summary.slippageBps;
+  const source = summary.hookMinimumSource;
+  return {
+    ...(Number.isSafeInteger(bps) && (bps as number) >= 0
+      ? { slippageBps: BigInt(bps as number) }
+      : {}),
+    explicitMinimum: summary.minimumBasis === 'explicit',
+    ...(source === 'slippageBps' || source === 'caller metadata'
+      ? { hookMinimumSource: source }
+      : {}),
+  };
 };
 
 /** Reject non-JSON values, ambiguous objects, and pathological input before canonicalization. */

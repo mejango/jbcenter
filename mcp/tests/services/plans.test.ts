@@ -787,11 +787,15 @@ describe('re-simulation and dependency verification', () => {
       received: '90',
       minimum: '100',
       message: expect.stringContaining('fewer tokens than your minimum'),
-      retry: expect.stringContaining('minReturnedTokens at or below 90'),
+      adjustable: 'minimum',
+      retrySlippageBps: 1100,
+      retry: expect.stringContaining('slippageBps 1100 (it was 100)'),
     };
+    // The plan's quote summary carries the tolerance the payment was prepared with.
+    const quoted = (base: PlanDraft) => ({ ...base, summary: { amount: '100', slippageBps: 100 } });
 
     it('names why a pay simulation reverts and how to retry, without node text', async () => {
-      const { service, sealed, client } = setup();
+      const { service, sealed, client } = setup(quoted(draft()));
       client.call.mockRejectedValueOnce(nodeRevert(underMin));
       const result = await service.simulate({ token: sealed.token });
       expect(result).toMatchObject({
@@ -803,7 +807,7 @@ describe('re-simulation and dependency verification', () => {
 
     it('names a reverting pay step in a chained simulation', async () => {
       const { service, sealed, client } = setup(
-        draft([approval(), { ...payCall(), dependsOn: [0] }]),
+        quoted(draft([approval(), { ...payCall(), dependsOn: [0] }])),
       );
       client.request.mockResolvedValueOnce([
         {
@@ -840,7 +844,7 @@ describe('re-simulation and dependency verification', () => {
         `0xe2d708a9${encodeAbiParameters(parseAbiParameters('uint256, uint256'), [380n, 396n]).slice(2)}` as Hex;
       const { service, sealed, client } = setup({
         ...draft(),
-        summary: { amount: '100', hookMinimumSource: 'caller metadata' },
+        summary: { amount: '100', slippageBps: 100, hookMinimumSource: 'caller metadata' },
       });
       client.call.mockRejectedValueOnce(nodeRevert(hookMiss));
       const result = await service.simulate({ token: sealed.token });
@@ -848,7 +852,7 @@ describe('re-simulation and dependency verification', () => {
         error: {
           payFailure: {
             reason: 'BUYBACK_SLIPPAGE_EXCEEDED',
-            retry: expect.stringContaining('metadata you passed'),
+            retry: expect.stringContaining('metadata the caller passed'),
           },
         },
       });

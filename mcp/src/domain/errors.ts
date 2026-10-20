@@ -1,5 +1,5 @@
 import * as sdk from '@bananapus/nana-sdk-core';
-import { decodePayFailure } from '@bananapus/nana-sdk-core/v6';
+import { decodePayFailure, payRetrySlippageBps } from '@bananapus/nana-sdk-core/v6';
 import { decodeErrorResult, type Abi, type AbiParameter, type Hex } from 'viem';
 
 export class DomainError extends Error {
@@ -63,19 +63,33 @@ export type PayFailureView = {
   message: string;
   received?: string;
   minimum?: string;
+  /** The SDK's: the failing check settled nothing, so no lower minimum fixes it. */
+  zeroFill?: boolean;
+  /** The SDK's: the setting a retry can relax ("minimum"); absent means relax nothing. */
+  adjustable?: string;
+  /** The SDK's payRetrySlippageBps from the plan's slippageBps: a candidate, not permission. */
+  retrySlippageBps?: number;
   retry?: string;
 };
 
-/** Where the buyback hook's minimum came from, so a retry hint names the input that moves it. */
-export type PayFailureContext = { hookMinimumFromSlippage?: boolean };
+/**
+ * What the SDK cannot see from a revert: the slippageBps the payment was prepared with, whether the
+ * caller fixed minReturnedTokens, and where the buyback hook's minimum came from.
+ */
+export type PayFailureContext = {
+  slippageBps?: bigint;
+  explicitMinimum?: boolean;
+  hookMinimumSource?: 'slippageBps' | 'caller metadata';
+};
 
 const isAmount = (value: unknown): value is bigint => typeof value === 'bigint' && value >= 0n;
 
 /**
  * Why a payment reverts, from the SDK's decodePayFailure over the revert bytes only (a custom error
  * with exactly its ABI arguments; names in node text or Error(string) never count): a stable reason,
- * its fixed sentence and, for a shortfall, the uint256 amounts with a retry hint only when an input
- * of jb_prepare_pay changes the failing check. Never node text.
+ * its fixed sentence and, for a shortfall, the uint256 amounts. A retry is offered only when the SDK
+ * marks the failure adjustable, naming the jb_prepare_pay input that moves the failing check.
+ * Never node text.
  */
 export function payFailureOf(
   error: unknown,
@@ -84,24 +98,41 @@ export function payFailureOf(
   const data = revertDataOf(error);
   const failure = data && decodePayFailure(data);
   if (!failure) return undefined;
-  const { reason, message, received, minimum } = failure;
+  const { reason, message, received, minimum, zeroFill, adjustable } = failure;
   if (!isAmount(received) || !isAmount(minimum)) return { reason, message };
-  const retry =
-    received === 0n
-      ? "At this block the payment returns no project tokens, so lowering the minimum would only accept receiving nothing. Check the project's issuance and pool before retrying."
-      : reason === 'TERMINAL_UNDER_MIN'
-        ? `Prepare the payment again with jb_prepare_pay, passing minReturnedTokens at or below ${received}.`
-        : reason === 'BUYBACK_SLIPPAGE_EXCEEDED' && context.hookMinimumFromSlippage === true
-          ? "Prepare the payment again with jb_prepare_pay and a higher slippageBps; the buyback hook's minimum comes from it."
-          : reason === 'BUYBACK_SLIPPAGE_EXCEEDED' && context.hookMinimumFromSlippage === false
-            ? "The buyback hook's minimum is the minimumSwapAmountOut in the metadata you passed, so slippageBps does not change it: lower it there, or omit metadata to let jb_prepare_pay set it."
-            : undefined;
-  return {
+  const view: PayFailureView = {
     reason,
     message,
     received: received.toString(),
     minimum: minimum.toString(),
-    ...(retry ? { retry } : {}),
+    ...(zeroFill === true ? { zeroFill } : {}),
+    ...(adjustable === 'minimum' ? { adjustable } : {}),
+  };
+  if (zeroFill === true)
+    return {
+      ...view,
+      retry:
+        "The failing check settled nothing, so a lower minimum would only accept receiving nothing. Check the project's issuance and pool before retrying.",
+    };
+  if (adjustable !== 'minimum') return view;
+  if (reason === 'TERMINAL_UNDER_MIN' && context.explicitMinimum)
+    return {
+      ...view,
+      retry: `minReturnedTokens was the caller's own. Prepare the payment again with jb_prepare_pay passing minReturnedTokens at or below ${received} only if the payer accepts that many.`,
+    };
+  if (reason === 'BUYBACK_SLIPPAGE_EXCEEDED' && context.hookMinimumSource === 'caller metadata')
+    return {
+      ...view,
+      retry:
+        "The buyback hook's minimum is the minimumSwapAmountOut in the metadata the caller passed, so slippageBps does not change it: lower it there, or omit metadata to let jb_prepare_pay set it.",
+    };
+  const next =
+    context.slippageBps === undefined ? null : payRetrySlippageBps(failure, context.slippageBps);
+  if (next === null) return view;
+  return {
+    ...view,
+    retrySlippageBps: Number(next),
+    retry: `Prepare the payment again with jb_prepare_pay and slippageBps ${next} (it was ${context.slippageBps}) only if the payer accepts that tolerance; review the new minimum and simulate before signing. It is a candidate and may still fall short.`,
   };
 }
 

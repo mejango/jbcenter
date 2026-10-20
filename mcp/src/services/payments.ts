@@ -11,6 +11,7 @@ import {
   build721PayMetadata,
   buildPayTx,
   getCurrentRuleset,
+  PAY_MAX_SLIPPAGE_BPS,
   prepareHookAwareCashOut,
   prepareUserPay,
   resolvePaymentTerminal,
@@ -208,9 +209,12 @@ function uint(value: string, name: string, positive = true): bigint {
   }
   return result;
 }
-function bps(value = 100): bigint {
-  if (!Number.isInteger(value) || value < 0 || value > 1000) {
-    throw new DomainError('INVALID_SLIPPAGE', 'Slippage must be between 0 and 1000 basis points.');
+function bps(value = 100, max = 1000): bigint {
+  if (!Number.isInteger(value) || value < 0 || value > max) {
+    throw new DomainError(
+      'INVALID_SLIPPAGE',
+      `Slippage must be between 0 and ${max} basis points.`,
+    );
   }
   return BigInt(value);
 }
@@ -814,7 +818,7 @@ export class PaymentService {
       throw new DomainError('INVALID_MEMO', 'Payment memo must be at most 256 UTF-8 bytes.');
     }
     const amount = uint(input.amount, 'amount', verifiedNftHook === undefined);
-    const slippage = bps(input.slippageBps);
+    const slippage = bps(input.slippageBps, Number(PAY_MAX_SLIPPAGE_BPS));
     const explicitMinimum =
       input.minReturnedTokens === undefined
         ? undefined
@@ -1068,7 +1072,9 @@ export class PaymentService {
         simulatedFill = { status: 'known', value: result.toString() };
       } catch (error) {
         const shown = publicPayError(error, {
-          hookMinimumFromSlippage: input.metadata === undefined,
+          slippageBps: slippage,
+          explicitMinimum: explicitMinimum !== undefined,
+          hookMinimumSource: input.metadata === undefined ? 'slippageBps' : 'caller metadata',
         });
         fillFailure = shown.payFailure;
         simulatedFill = { status: 'unknown', error: shown };

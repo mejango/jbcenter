@@ -23,6 +23,7 @@ import {
   positiveUintSchema,
   projectSchema,
   skipSplitsSchema,
+  paySlippageSchema,
   slippageSchema,
   uintSchema,
 } from '../domain/schemas.js';
@@ -98,7 +99,7 @@ const payShape = {
     'Input asset amount in its smallest units, as an exact integer string.',
   ),
   beneficiary: addressSchema,
-  slippageBps: slippageSchema,
+  slippageBps: paySlippageSchema,
   minReturnedTokens: uintSchema
     .optional()
     .describe(

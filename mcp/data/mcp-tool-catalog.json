@@ -3261,10 +3261,10 @@
           },
           "slippageBps": {
             "default": 100,
-            "description": "Slippage in basis points, 0–1000. Default 100 (1%).",
+            "description": "Slippage in basis points, 0–4950. Default 100. Raise it only within what the payer accepts, such as a payFailure's retrySlippageBps.",
             "type": "integer",
             "minimum": 0,
-            "maximum": 1000
+            "maximum": 4950
           },
           "minReturnedTokens": {
             "description": "Explicit minimum project tokens for the beneficiary, in 18-decimal base units, replacing beneficiaryTokenCount less slippageBps. To accept 2% below the fill, take the quote's simulatedBeneficiaryTokenCount less 2%. A warning names a figure above the simulated fill. jb_prepare_pay requires it when the default would protect nothing (PAY_MINIMUM_PROTECTS_NOTHING) or sits above the simulated fill (PAY_DEFAULT_MINIMUM_ABOVE_FILL). \"0\" accepts receiving no project tokens.",
@@ -3505,10 +3505,10 @@
           },
           "slippageBps": {
             "default": 100,
-            "description": "Slippage in basis points, 0–1000. Default 100 (1%).",
+            "description": "Slippage in basis points, 0–4950. Default 100. Raise it only within what the payer accepts, such as a payFailure's retrySlippageBps.",
             "type": "integer",
             "minimum": 0,
-            "maximum": 1000
+            "maximum": 4950
           },
           "minReturnedTokens": {
             "description": "Explicit minimum project tokens for the beneficiary, in 18-decimal base units, replacing beneficiaryTokenCount less slippageBps. To accept 2% below the fill, take the quote's simulatedBeneficiaryTokenCount less 2%. A warning names a figure above the simulated fill. jb_prepare_pay requires it when the default would protect nothing (PAY_MINIMUM_PROTECTS_NOTHING) or sits above the simulated fill (PAY_DEFAULT_MINIMUM_ABOVE_FILL). \"0\" accepts receiving no project tokens.",
@@ -11538,10 +11538,10 @@
           },
           "slippageBps": {
             "default": 100,
-            "description": "Slippage in basis points, 0–1000. Default 100 (1%).",
+            "description": "Slippage in basis points, 0–4950. Default 100. Raise it only within what the payer accepts, such as a payFailure's retrySlippageBps.",
             "type": "integer",
             "minimum": 0,
-            "maximum": 1000
+            "maximum": 4950
           },
           "minReturnedTokens": {
             "description": "Explicit minimum fungible project tokens for the beneficiary, in 18-decimal base units, replacing the quoted count less slippageBps. Needed when the quote warns that the default minimum sits above the simulated fill (a buyback hook beside the NFT hook). NFT delivery is checked either way.",
@@ -11796,10 +11796,10 @@
           },
           "slippageBps": {
             "default": 100,
-            "description": "Slippage in basis points, 0–1000. Default 100 (1%).",
+            "description": "Slippage in basis points, 0–4950. Default 100. Raise it only within what the payer accepts, such as a payFailure's retrySlippageBps.",
             "type": "integer",
             "minimum": 0,
-            "maximum": 1000
+            "maximum": 4950
           },
           "minReturnedTokens": {
             "description": "Explicit minimum fungible project tokens for the beneficiary, in 18-decimal base units, replacing the quoted count less slippageBps. Needed when the quote warns that the default minimum sits above the simulated fill (a buyback hook beside the NFT hook). NFT delivery is checked either way.",
