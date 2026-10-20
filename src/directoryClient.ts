@@ -63,12 +63,14 @@ export const HOMEPAGE_JS = String.raw`(() => {
     const slash = id.indexOf('/');
     return slash > 0 && buttons.has(id.slice(0, slash)) ? id.slice(0, slash) : null;
   }
-  // Loads the map the address names, then shows it. A later address change takes over.
+  // Each tab, edge or address change takes a ticket; a map that loads after a later one is dropped.
+  let intent = 0;
   async function routeTo(moveFocus) {
+    const ticket = ++intent;
     const view = hashView();
     if (view && !maps.has(view)) {
       await load(view);
-      if (hashView() !== view) return;
+      if (ticket !== intent || hashView() !== view) return;
     }
     applyRoute(moveFocus);
   }
@@ -168,7 +170,9 @@ export const HOMEPAGE_JS = String.raw`(() => {
   tabs.addEventListener('click', (event) => {
     const button = event.target.closest('button[data-view]');
     if (!button || !tabs.contains(button)) return;
+    const ticket = ++intent;
     load(button.dataset.view).then(() => {
+      if (ticket !== intent) return;
       const map = maps.get(button.dataset.view);
       if (map) navigate(map.view, map.entry, null, mobile.matches);
     });
@@ -189,8 +193,9 @@ export const HOMEPAGE_JS = String.raw`(() => {
     const view = edge.dataset.targetView || source.view;
     if (!buttons.has(view)) return;
     event.preventDefault();
+    const ticket = ++intent;
     load(view).then(() => {
-      if (maps.get(view)?.nodes.has(edge.dataset.to)) navigate(view, edge.dataset.to, { view: source.view, node: edge.dataset.from }, true);
+      if (ticket === intent && maps.get(view)?.nodes.has(edge.dataset.to)) navigate(view, edge.dataset.to, { view: source.view, node: edge.dataset.from }, true);
     });
   });
 
@@ -390,5 +395,9 @@ export const HOMEPAGE_JS = String.raw`(() => {
     }));
   }
   if (document.fonts) document.fonts.ready.then(scheduleDraw);
+  // Printing shows every map, so the rest load once the page is idle.
+  (window.requestIdleCallback || ((callback) => setTimeout(callback, 2000)))(() => {
+    for (const view of buttons.keys()) load(view);
+  });
 })();
 `;

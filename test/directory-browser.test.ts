@@ -8,15 +8,19 @@ describe('directory browser navigation', () => {
   const app = createApp(new MemoryStore());
   const fetched: string[] = [];
   const errors: string[] = [];
+  // Journey maps answer only once released, so a test can act while one is still loading.
+  let hold: Promise<void> = Promise.resolve();
+  const holdMaps = () => { let release!: () => void; hold = new Promise(resolve => { release = resolve; }); return release; };
   beforeAll(async () => { browser = await chromium.launch({ headless: true }); });
   beforeEach(async () => {
     errors.length = 0;
     page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
     page.on('pageerror', error => errors.push(error.message));
     fetched.length = 0;
+    hold = Promise.resolve();
     await page.route('https://directory.test/**', async route => {
       const path = new URL(route.request().url()).pathname;
-      if (path.startsWith('/assets/journey-')) fetched.push(path);
+      if (path.startsWith('/assets/journey-')) { fetched.push(path); await hold; }
       const response = await app.request(path);
       return route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) });
     });
@@ -59,11 +63,12 @@ describe('directory browser navigation', () => {
   });
 
   it('inlines only the first map and loads another the first time it is opened', async () => {
+    const release = holdMaps();
     await page.goto('https://directory.test/');
     await page.waitForSelector('.is-enhanced');
     expect(await page.locator('.journey-map').count()).toBe(1);
-    expect(fetched).toEqual([]);
     await page.locator('#journey-developers').click();
+    release();
     await expect.poll(current).toBe('developers/' + await page.locator('#map-developers').getAttribute('data-entry'));
     expect(await page.locator('#map-apps').isHidden()).toBe(true);
     await expect.poll(() => page.locator('#map-developers svg.journey-lines path').count()).toBeGreaterThan(0);
@@ -73,13 +78,39 @@ describe('directory browser navigation', () => {
   });
 
   it('follows an edge into a map that is not loaded yet', async () => {
+    const release = holdMaps();
     await page.goto('https://directory.test/');
     const edge = page.locator('#map-apps a.journey-edge[data-target-view]:not([data-target-view="apps"])').first();
     const [view, node] = await edge.evaluate(link => [(link as HTMLElement).dataset.targetView!, (link as HTMLElement).dataset.to!]);
+    expect(await page.locator('#map-' + view).count()).toBe(0);
     await edge.click();
+    release();
     await expect.poll(current).toBe(view + '/' + node);
     expect(new URL(page.url()).hash).toBe('#' + view + '/' + node);
     await page.goBack();
     await expect.poll(current).toBe('apps/' + await page.locator('#map-apps').getAttribute('data-entry'));
+  });
+
+  it('keeps the latest choice when an earlier map finishes loading after it', async () => {
+    const release = holdMaps();
+    await page.goto('https://directory.test/');
+    await page.waitForSelector('.is-enhanced');
+    const entries = await page.evaluate(() => history.length);
+    await page.locator('#journey-developers').click();
+    await page.locator('#journey-apps').click();
+    release();
+    await expect.poll(() => page.locator('#map-developers').count()).toBe(1);
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    expect(await current()).toBe('apps/' + await page.locator('#map-apps').getAttribute('data-entry'));
+    expect(await page.locator('#journey-apps').getAttribute('aria-expanded')).toBe('true');
+    expect(await page.evaluate(() => history.length)).toBe(entries + 1);
+  });
+
+  it('loads every map once the page is idle, so printing shows them all', async () => {
+    await page.goto('https://directory.test/');
+    const tabs = await page.locator('.journey-tabs button[data-view]').count();
+    await expect.poll(() => page.locator('.journey-map').count()).toBe(tabs);
+    await page.emulateMedia({ media: 'print' });
+    for (const map of await page.locator('.journey-map').all()) expect(await map.isVisible()).toBe(true);
   });
 });
