@@ -18,8 +18,10 @@ import {
 } from '@bananapus/nana-sdk-core/v6';
 import {
   decodeFunctionData,
+  encodeAbiParameters,
   getContractAddress,
   pad,
+  parseAbiParameters,
   zeroAddress,
   zeroHash,
   type Address,
@@ -183,6 +185,8 @@ function fixture(
     countRequests?: boolean;
     registry?: Address;
     deployerNotAllowed?: boolean;
+    /** A buyback 1.4 hook beside the NFT hook: its preview spec and the beneficiary's fill. */
+    buyback?: { metadata: Hex; fill: bigint };
   } = {},
 ) {
   const chainId = options.chainId ?? project.chainId;
@@ -277,7 +281,19 @@ function fixture(
           ruleset,
           options.paymentTokenCount ?? 101n,
           options.reservedTokenCount ?? 10n,
-          [{ hook, noop: false, amount: 0n, metadata: '0x' }],
+          [
+            { hook, noop: false, amount: 0n, metadata: '0x' },
+            ...(options.buyback
+              ? [
+                  {
+                    hook: deploymentAddress('JBBuybackHook', chainId)!,
+                    noop: false,
+                    amount: 88n,
+                    metadata: options.buyback.metadata,
+                  },
+                ]
+              : []),
+          ],
         ];
       case 'accountingContextForTokenOf':
         return {
@@ -298,7 +314,7 @@ function fixture(
       case 'BUYBACK_HOOK':
         return v6Address('JBBuybackHookRegistry', chainId);
       case 'hookOf':
-        return zeroAddress;
+        return options.buyback ? deploymentAddress('JBBuybackHook', chainId)! : zeroAddress;
       case 'tiered721HookOf':
         return hook;
       case 'cashOutDelayOf':
@@ -339,6 +355,11 @@ function fixture(
       throw new Error(
         typeof options.mintError === 'string' ? options.mintError : 'InsufficientSupplyRemaining',
       );
+    if (request.functionName === 'pay' && options.buyback) {
+      if ((request.args?.[4] as bigint) > options.buyback.fill)
+        throw new Error('JBMultiTerminal_UnderMinReturnedTokens');
+      return { result: options.buyback.fill };
+    }
     if (request.functionName !== 'recordMint')
       throw new Error(`Unexpected simulation ${request.functionName}`);
     return {
@@ -644,6 +665,67 @@ describe('721 payment preparation', () => {
         route: 'registry-forward',
       },
     });
+  });
+  it('takes a reviewed fungible minimum through the public 721 schema when a buyback fill misses the default', async () => {
+    // Indicative beneficiary floor 250 (default minimum 247); the fill falls back to issuance: 101.
+    const metadata = encodeAbiParameters(
+      parseAbiParameters(
+        'bool,uint256,uint256,bool,address,uint256,uint256,uint256,int24,uint128,bytes32,uint256,uint256,uint256,bool,bool,uint256',
+      ),
+      [
+        false,
+        0n,
+        300n,
+        false,
+        v6Address('JBController', project.chainId),
+        200n,
+        1n,
+        88n,
+        0,
+        1n,
+        hash,
+        250n,
+        50n,
+        999n,
+        false,
+        false,
+        1667n,
+      ],
+    );
+    const composed = () =>
+      fixture({ revnet: true, paymentTokenCount: 0n, buyback: { metadata, fill: 101n } });
+    const quote = (await composed().service.quote721Pay(pay)) as {
+      paymentQuote: { warnings: string[] };
+    } & Record<string, unknown>;
+    expect(quote).toMatchObject({
+      indicativeTokenIds: ['1000000001'],
+      paymentQuote: { minimumBeneficiaryTokenCount: '247' },
+    });
+    expect(quote.paymentQuote.warnings.join(' ')).toContain('jb_prepare_721_pay refuse it');
+    await expect(composed().service.prepare721Pay(pay)).rejects.toMatchObject({
+      code: 'PAY_DEFAULT_MINIMUM_ABOVE_FILL',
+      details: { suggestedMinReturnedTokens: '99' },
+    });
+    const reviewed = { ...pay, minReturnedTokens: '99' };
+    expect(pay721Schema.safeParse(reviewed).success).toBe(true);
+    const f = composed();
+    const plan = await f.service.prepare721Pay(reviewed);
+    expect(
+      decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.[4],
+    ).toBe(99n);
+    expect(plan.summary).toMatchObject({ indicativeTokenIds: ['1000000001'] });
+    // NFT delivery is still checked with a reviewed minimum.
+    expect(
+      f.simulateContract.mock.calls.some(([request]) => request.functionName === 'recordMint'),
+    ).toBe(true);
+    await expect(
+      fixture({
+        revnet: true,
+        paymentTokenCount: 0n,
+        buyback: { metadata, fill: 101n },
+        leftover: 1n,
+      }).service.prepare721Pay(reviewed),
+    ).rejects.toThrow('exceed tier prices');
   });
   it('verifies the deterministic router resolver runtime and prices NFTs using its actual outgoing token and amount', async () => {
     const router = v6Address('JBRouterTerminal', project.chainId);
