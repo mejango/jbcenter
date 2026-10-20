@@ -201,6 +201,7 @@ export const HOMEPAGE_JS = String.raw`(() => {
 
   function historyChanged() {
     if (historyKey() !== routedKey) routeTo(true);
+    else intent++; // Back to the page already shown still cancels a pending tab or edge.
   }
   window.addEventListener('hashchange', historyChanged);
   window.addEventListener('popstate', historyChanged);

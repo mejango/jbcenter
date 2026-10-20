@@ -106,6 +106,23 @@ describe('directory browser navigation', () => {
     expect(await page.evaluate(() => history.length)).toBe(entries + 1);
   });
 
+  it('lets Back cancel a map that is still loading', async () => {
+    const release = holdMaps();
+    await page.goto('https://directory.test/');
+    await page.waitForSelector('.is-enhanced');
+    const shown = await current();
+    // Both maps are still loading, so Back lands on the route already on screen.
+    await page.evaluate(() => { location.hash = 'api/rpc'; });
+    await page.locator('#journey-developers').click();
+    await page.goBack();
+    release();
+    await expect.poll(() => page.locator('#map-developers').count()).toBe(1);
+    await expect.poll(() => page.locator('#map-api').count()).toBe(1);
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    expect(await current()).toBe(shown);
+    expect(new URL(page.url()).hash).toBe('');
+  });
+
   it('loads every map once the page is idle, so printing shows them all', async () => {
     await page.goto('https://directory.test/');
     const tabs = await page.locator('.journey-tabs button[data-view]').count();
