@@ -10,7 +10,6 @@ COPY src ./src
 COPY scripts/rest ./scripts/rest
 COPY docs/rest ./docs/rest
 COPY client ./client
-COPY wallet-client ./wallet-client
 COPY mcp/tsconfig.json mcp/tsconfig.build.json ./mcp/
 COPY mcp/src ./mcp/src
 RUN npm run build
