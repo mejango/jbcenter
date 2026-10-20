@@ -9,6 +9,7 @@ import {
 } from '@bananapus/nana-sdk-core';
 import {
   build721PayMetadata,
+  buildBuybackPayMetadata,
   buildPayTx,
   getCurrentRuleset,
   prepareHookAwareCashOut,
@@ -96,11 +97,14 @@ type PaymentTerminal = Awaited<ReturnType<PaymentService['paymentTerminal']>>;
 type RulesetContext = Awaited<ReturnType<typeof getCurrentRuleset>> & {
   controller: Address;
   buybackHook: Address;
+  /** The registry rekeys its pay entry to buybackHook; a direct hook reads only its own. */
+  buybackViaRegistry: boolean;
   revOwner: Address | undefined;
   tieredHook: Address | undefined;
 };
 
-const feelessAbi = parseAbi([
+// The SDK does not export JBFeelessAddresses; this is its exact v6 read, shared with extensions.ts.
+export const feelessAbi = parseAbi([
   'function isFeelessFor(address addr, uint256 projectId, address caller) view returns (bool)',
 ]);
 // This exact V6 tuple is emitted by canonical JBBuybackHook.beforePayRecordedWith.
@@ -128,23 +132,29 @@ const buyback111PaySpecParameters = parseAbiParameters(
 );
 
 /**
- * Whether a payment sends the SDK's pay-card buyback entry (prepareUserPay): buyback 1.4 buys from the
- * pool for the payer and skips the reserved split on what it buys. Unset defaults to on where the
- * project's hook is 1.4 and the caller gave no metadata; an explicit true is refused where it cannot apply.
+ * How a payment is prepared. Where the registry rekeys its entry to the project's hook, the SDK's
+ * prepareUserPay owns the metadata, preview and default minimum, on any hook generation it can read
+ * (only 1.4 acts on the skip word). skipSplits false on 1.4 keeps this service's split-honoring path
+ * until the SDK's own option ships. A hook the ruleset calls directly reads only metadata keyed to
+ * itself, so skipping there uses the SDK's hook-keyed buildBuybackPayMetadata.
+ * Unset skipSplits defaults to on where the hook is 1.4 and the caller gave no metadata; an explicit
+ * true is refused where it cannot apply.
  */
-function skipChoice(input: PayInput, buybackHook: Address) {
-  const requested = input.skipSplits;
+function payChoice(
+  input: PayInput,
+  context: { buybackHook: Address; buybackViaRegistry: boolean },
+) {
+  const { buybackHook, buybackViaRegistry } = context;
   // null, not undefined: plan summaries are JSON data, and unset is a choice the quote reports.
-  const off = (reason: string) => ({ requested: requested ?? null, applied: false, reason });
-  if (requested === false)
-    return off("skipSplits false: the payment honors the project's reserved split.");
+  const requested = input.skipSplits ?? null;
+  const own = (reason: string) => ({ requested, send: false, sdk: false, reason });
   if (input.metadata !== undefined) {
     if (requested)
       throw new DomainError(
         'SKIP_SPLITS_WITH_METADATA',
         'skipSplits builds the buyback pay metadata itself, so it cannot be combined with metadata. Drop one; to send both, encode the buyback entry (amountToSwapWith, minimumSwapAmountOut, skipSplits) into metadata yourself.',
       );
-    return off('Off: the caller gave its own metadata.');
+    return own('Off: the caller gave its own metadata.');
   }
   if (same(buybackHook, zeroAddress)) {
     if (requested)
@@ -152,28 +162,30 @@ function skipChoice(input: PayInput, buybackHook: Address) {
         'SKIP_SPLITS_WITHOUT_BUYBACK',
         'skipSplits needs a buyback hook, and this project has none for payments at the quoted block. Pay without skipSplits.',
       );
-    return off('Off: the project has no buyback hook.');
+    return own('Off: the project has no buyback hook.');
   }
-  if (!same(buybackHook, buyback14)) {
-    const version = buybackVersions[buybackHook.toLowerCase()];
-    if (requested)
-      throw new DomainError(
-        'SKIP_SPLITS_UNSUPPORTED_BUYBACK',
-        `skipSplits needs buyback hook 1.4 (${buyback14}), the only version that reads the skipSplits word. This project uses ${version ? `buyback hook ${version}` : `${buybackHook}, which is not a recognized 1.4 deployment`}. Pay without skipSplits.`,
-        { details: { buybackHook, version: version ?? 'unrecognized' } },
-      );
-    return off(
-      `Off: buyback hook ${version ?? buybackHook} does not read skipSplits, so the payment honors the reserved split.`,
+  const version = buybackVersions[buybackHook.toLowerCase()];
+  const is14 = same(buybackHook, buyback14);
+  if (!is14 && requested)
+    throw new DomainError(
+      'SKIP_SPLITS_UNSUPPORTED_BUYBACK',
+      `skipSplits needs buyback hook 1.4 (${buyback14}), the only version that reads the skipSplits word. This project uses ${version ? `buyback hook ${version}` : `${buybackHook}, which is not a recognized 1.4 deployment`}. Pay without skipSplits.`,
+      { details: { buybackHook, version: version ?? 'unrecognized' } },
     );
+  const off = is14
+    ? "skipSplits false: the payment honors the project's reserved split."
+    : `Off: buyback hook ${version ?? buybackHook} does not read skipSplits, so the payment honors the reserved split.`;
+  if (is14 && requested === false) return own(off);
+  if (buybackViaRegistry) return { requested, send: is14, sdk: true, reason: off };
+  if (!is14) return own(off);
+  if (input.tiers) {
+    const reason =
+      'The ruleset calls buyback 1.4 directly, and its skip entry cannot yet be combined with NFT tiers (the SDK keys that composition to the registry).';
+    if (requested)
+      throw new DomainError('SKIP_SPLITS_UNSUPPORTED_ROUTE', `${reason} Pay without skipSplits.`);
+    return own(`Off: ${reason}`);
   }
-  return {
-    requested: requested ?? null,
-    applied: true,
-    reason:
-      requested === undefined
-        ? 'On by default on buyback 1.4. Pass skipSplits false when the payment should honor the reserved split.'
-        : 'On, as requested.',
-  };
+  return { requested, send: true, sdk: false, reason: off };
 }
 
 function same(a: Address, b: Address): boolean {
@@ -545,6 +557,7 @@ export class PaymentService {
         'The project has no active ruleset at the quoted block.',
       );
     let buybackHook: Address = zeroAddress;
+    let buybackViaRegistry = false;
     let revOwner: Address | undefined;
     let tieredHook: Address | undefined;
     const enabled =
@@ -598,6 +611,7 @@ export class PaymentService {
           if (tiered !== undefined && !same(tiered, zeroAddress)) await verifyTiered(tiered);
         }
         buybackHook = resolved;
+        buybackViaRegistry = true;
         if (
           !same(buybackHook, zeroAddress) &&
           !knownBuybacks.some((address) => same(buybackHook, address))
@@ -658,7 +672,7 @@ export class PaymentService {
       }
     };
     if (enabled) await inspectHook(current.metadata.dataHook);
-    return { ...current, controller, buybackHook, revOwner, tieredHook };
+    return { ...current, controller, buybackHook, buybackViaRegistry, revOwner, tieredHook };
   }
 
   private async paymentTerminal(client: PublicClient, project: ProjectRef, token: Address) {
@@ -817,7 +831,7 @@ export class PaymentService {
     const started = Date.now();
     let route = await this.payRoute(client, snapshot.evidence, input.project, input.token);
     const routed = Date.now();
-    let skip = skipChoice(input, route.context.buybackHook);
+    let choice = payChoice(input, route.context);
     const ownMetadata = input.tiers
       ? build721PayMetadata({
           metadataIdTarget: input.tiers.metadataIdTarget,
@@ -825,11 +839,11 @@ export class PaymentService {
           allowOverspending: input.tiers.allowOverspending ?? false,
         })
       : (input.metadata ?? '0x');
-    // With skipSplits the SDK's prepareUserPay owns the metadata, preview and default minimum. The
+    // Where the SDK's prepareUserPay applies it owns the metadata, preview and default minimum. The
     // terminal preview of the exact metadata it returns is then read for this service's own checks.
     const previewed = async (terminal: Address) => {
       let prepared: PreparedUserPay | undefined;
-      if (skip.applied)
+      if (choice.sdk)
         prepared = await prepareUserPay(client, {
           chainId: input.project.chainId,
           terminal,
@@ -844,7 +858,16 @@ export class PaymentService {
             unsupported(error.message);
           throw error;
         });
-      const metadata = prepared?.metadata ?? ownMetadata;
+      const metadata =
+        prepared?.metadata ??
+        (choice.send
+          ? buildBuybackPayMetadata({
+              hook: route.context.buybackHook,
+              amountToSwapWith: 0n,
+              minimumSwapAmountOut: 0n,
+              skipSplits: true,
+            })
+          : ownMetadata);
       return {
         prepared,
         metadata,
@@ -875,7 +898,7 @@ export class PaymentService {
       // The kept context is behind the chain (a new ruleset): read it again, once.
       this.recentProjects.delete(route.key);
       route = await this.payRoute(client, snapshot.evidence, input.project, input.token);
-      skip = skipChoice(input, route.context.buybackHook);
+      choice = payChoice(input, route.context);
       [{ prepared, metadata, preview }, extra] = await alongside(route.terminal.address);
     }
     const { context, terminal } = route;
@@ -907,7 +930,10 @@ export class PaymentService {
       'terminal-issuance-preview';
     let buybackVersion: '1.4' | '1.1.1' | undefined;
     let skippedSplits = false;
-    let callerMinimum: bigint | undefined;
+    // A nonzero minimumSwapAmountOut in the sent metadata: prepareUserPay's pool-quote floor or the
+    // caller's own. The hook enforces it on the swap, apart from the terminal's minReturnedTokens.
+    let hookMinimum: bigint | undefined;
+    const whose = input.metadata === undefined ? "prepareUserPay's" : "the caller's";
     let hookBehavior = '';
     const warnings = [
       'This quote follows the project terminal route. Direct market acquisition has not been compared, so this is not a best-price claim.',
@@ -968,18 +994,18 @@ export class PaymentService {
       // hasUserSpecifiedQuote: the caller's metadata carried a nonzero minimumSwapAmountOut. The hook
       // then derives no TWAP floor (L1160, L1208) and checks that minimum against swap plus leftover
       // mint instead (L571-583).
-      if (decoded[3]) callerMinimum = decoded[2];
+      if (decoded[3]) hookMinimum = decoded[2];
       // 1.4 (da85b70): a miss of the pro-rated derived floor unwinds the swap and the payment mints
       // instead (L880-890); a caller minimum is checked on swap plus leftover mint (L571-583).
       // 1.1.1 (7bf3c6b): any minimum is checked on swap plus leftover mint, and only a total swap
       // failure lets a derived one go unchecked (L546-553, _swap try/catch L1394-1397).
       hookBehavior = legacy111
-        ? callerMinimum === undefined
+        ? hookMinimum === undefined
           ? 'Buyback 1.1.1 checks its oracle-derived minimum against the swap plus any leftover mint and reverts below it; only a total swap failure falls back to issuance. A partial fill mints the unswapped remainder through the reserved split.'
-          : `Buyback 1.1.1 checks the caller's minimumSwapAmountOut ${callerMinimum} against the swap plus any leftover mint and reverts below it, even after a total swap failure; no oracle minimum is derived.`
-        : callerMinimum === undefined
+          : `Buyback 1.1.1 checks ${whose} minimumSwapAmountOut ${hookMinimum} against the swap plus any leftover mint and reverts below it, even after a total swap failure; no oracle minimum is derived.`
+        : hookMinimum === undefined
           ? 'Buyback 1.4 unwinds a swap that misses its pro-rated TWAP floor and the whole payment falls back to issuance; a partial fill mints the unswapped remainder through the reserved split. Both deliver less than a full swap.'
-          : `Buyback 1.4 derives no TWAP floor when the caller's metadata sets minimumSwapAmountOut ${callerMinimum}: it reverts unless the swap plus any leftover mint reaches ${callerMinimum}. That caller settlement minimum, not the TWAP, protects the swap.`;
+          : `Buyback 1.4 derives no TWAP floor when ${whose} metadata sets minimumSwapAmountOut ${hookMinimum}: it reverts unless the swap plus any leftover mint reaches ${hookMinimum}. That settlement minimum, not the TWAP, protects the swap.`;
       warnings.push(
         `Buyback ${legacy111 ? '1.1.1' : '1.4'} output is indicative. ${legacy111 ? '' : 'Buyback 1.4 pay quotes encode three words (amountToSwapWith, minimumSwapAmountOut, skipSplits); two-word quotes revert. '}${hookBehavior} The terminal also reverts if the final beneficiary balance increase is below its reviewed minimum.`,
       );
@@ -987,12 +1013,12 @@ export class PaymentService {
     if (skippedSplits)
       warnings.push(
         `skipSplits: tokens the hook buys from the pool already exist and go to the beneficiary as they are. Nothing is issued for that part and the reserved split gets none of it. ${
-          callerMinimum === undefined
+          hookMinimum === undefined
             ? 'A partial fill mints the unswapped remainder through the split, and a swap that misses its TWAP floor unwinds and falls back to issuance; both give the beneficiary less, so the minimum can revert the payment.'
-            : "A partial fill mints the unswapped remainder through the split; the caller's settlement minimum counts the beneficiary's share of it."
+            : `A partial fill mints the unswapped remainder through the split; ${whose} settlement minimum counts the beneficiary's share of it.`
         }`,
       );
-    else if (skip.applied)
+    else if (choice.send)
       warnings.push(
         "skipSplits has no effect at this block: the buyback hook takes the issuance route (minting beats the pool for the beneficiary's share, or the pool is not set for this token). Issuance pays the reserved split as usual.",
       );
@@ -1056,13 +1082,20 @@ export class PaymentService {
         warnings.push(
           `minReturnedTokens ${explicitMinimum} is above the simulated fill of ${fill} at this block. The payment reverts unless the price improves before it lands.`,
         );
+      // Lowering minReturnedTokens leaves a hook minimum in the metadata in force.
+      const stillHook =
+        hookMinimum === undefined
+          ? ''
+          : ` The hook still reverts unless the swap plus any leftover mint reaches ${whose} minimumSwapAmountOut ${hookMinimum}${input.metadata === undefined ? ' (the pool quote less slippageBps)' : ''}.`;
       if (explicitMinimum === 0n)
         warnings.push(
-          'minReturnedTokens 0: the payment goes through even if the beneficiary receives no project tokens.',
+          hookMinimum === undefined
+            ? 'minReturnedTokens 0: the payment goes through even if the beneficiary receives no project tokens.'
+            : `minReturnedTokens 0 turns off only the terminal's check.${stillHook}`,
         );
       else if (explicitMinimum < slippageMinimum)
         warnings.push(
-          `minReturnedTokens ${explicitMinimum} is below the default minimum of ${slippageMinimum} (${defaultRule}), so it protects less.`,
+          `minReturnedTokens ${explicitMinimum} is below the default minimum of ${slippageMinimum} (${defaultRule}), so the terminal checks less.${stillHook}`,
         );
     } else if (slippageMinimum === 0n) {
       // slippageFloor keeps a positive count at least one base unit, which the terminal enforces.
@@ -1094,8 +1127,8 @@ export class PaymentService {
       });
     }
     const hookCheck =
-      callerMinimum !== undefined
-        ? `The caller's minimumSwapAmountOut ${callerMinimum} is the hook's separate settlement check; no TWAP floor applies.`
+      hookMinimum !== undefined
+        ? `The hook separately requires ${whose} minimumSwapAmountOut ${hookMinimum} from the swap plus any leftover mint and reverts below it, whatever minReturnedTokens says; no TWAP floor applies.`
         : buybackVersion === '1.1.1'
           ? "The hook's own oracle-derived minimum is a separate check on the swap plus leftover mint."
           : "The hook's own TWAP floor is a separate check on the swap.";
@@ -1119,9 +1152,24 @@ export class PaymentService {
         reservedTokenCount: preview.reservedTokenCount.toString(),
       },
       minimumBeneficiaryTokenCount: minimum.toString(),
+      ...(hookMinimum === undefined ? {} : { hookMinimumSwapAmountOut: hookMinimum.toString() }),
       minimumBasis:
         explicitMinimum !== undefined ? 'explicit' : prepared ? 'prepareUserPay' : 'slippage',
-      skipSplits: skip,
+      skipSplits: {
+        requested: choice.requested,
+        sent: choice.send,
+        // From the hook's own specification, not from eligibility.
+        applied: skippedSplits,
+        reason: skippedSplits
+          ? !choice.send
+            ? "On: the caller's metadata carries a skip entry."
+            : choice.requested === null
+              ? 'On by default on buyback 1.4. Pass skipSplits false when the payment should honor the reserved split.'
+              : 'On, as requested.'
+          : choice.send
+            ? 'Sent, but the hook takes the issuance route at this block, which pays the reserved split.'
+            : choice.reason,
+      },
       ...(simulatedFill ? { simulatedBeneficiaryTokenCount: simulatedFill } : {}),
       ...(buybackVersion
         ? {
@@ -1137,12 +1185,14 @@ export class PaymentService {
         beneficiaryTokenCount: prepared
           ? "prepareUserPay's preview: when the pool beats minting, the pool quote at this block (fee and price impact included) plus the beneficiary's share of any direct mint; otherwise the terminal or hook preview."
           : quoteBasis === 'buyback-hook-indicative-output'
-            ? `A conditional swap figure: ${skippedSplits ? 'all' : "the payer's share"} of the ${callerMinimum === undefined ? `buyback hook's ${buybackVersion === '1.1.1' ? 'oracle' : 'TWAP'}-derived minimum swap output` : `caller's own settlement minimum (minimumSwapAmountOut ${callerMinimum}), which the hook enforces in place of a derived floor`}${skippedSplits ? ', since skipSplits keeps the reserved split out of the swap' : ''}, if the whole payment swaps. ${hookBehavior} The default minimum is computed from this count and checked against simulatedBeneficiaryTokenCount.`
+            ? `A conditional swap figure: ${skippedSplits ? 'all' : "the payer's share"} of the ${hookMinimum === undefined ? `buyback hook's ${buybackVersion === '1.1.1' ? 'oracle' : 'TWAP'}-derived minimum swap output` : `${input.metadata === undefined ? "prepareUserPay's" : "caller's own"} settlement minimum (minimumSwapAmountOut ${hookMinimum}), which the hook enforces in place of a derived floor`}${skippedSplits ? ', since skipSplits keeps the reserved split out of the swap' : ''}, if the whole payment swaps. ${hookBehavior} The default minimum is computed from this count and checked against simulatedBeneficiaryTokenCount.`
             : "The terminal's issuance preview for the payer. The minimum is computed from this count.",
         minimumBeneficiaryTokenCount: `${
           explicitMinimum === undefined
             ? `${defaultRule.charAt(0).toUpperCase()}${defaultRule.slice(1)}.`
-            : 'The caller-supplied minReturnedTokens; slippageBps is not used.'
+            : hookMinimum === undefined || input.metadata !== undefined
+              ? 'The caller-supplied minReturnedTokens; slippageBps does not change it.'
+              : `The caller-supplied minReturnedTokens. slippageBps still sets the hook's minimumSwapAmountOut ${hookMinimum}, which stays in force.`
         } The terminal measures the beneficiary's project-token balance increase (credits plus ERC-20) across the whole payment and reverts below this figure.${
           quoteBasis === 'buyback-hook-indicative-output'
             ? skippedSplits

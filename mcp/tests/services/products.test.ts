@@ -13,6 +13,7 @@ import {
 import {
   build721PayMetadata,
   buildDeployRevnetTx,
+  buildUserPayMetadata,
   buildRulesetMetadata,
   v6Address,
 } from '@bananapus/nana-sdk-core/v6';
@@ -185,8 +186,8 @@ function fixture(
     countRequests?: boolean;
     registry?: Address;
     deployerNotAllowed?: boolean;
-    /** A buyback 1.4 hook beside the NFT hook: its preview spec and the beneficiary's fill. */
-    buyback?: { metadata: Hex; fill: bigint };
+    /** A buyback 1.4 hook beside the NFT hook: its preview spec (for the sent metadata) and the fill. */
+    buyback?: { metadata: Hex | ((sent: Hex) => Hex); fill: bigint };
   } = {},
 ) {
   const chainId = options.chainId ?? project.chainId;
@@ -289,7 +290,10 @@ function fixture(
                     hook: deploymentAddress('JBBuybackHook', chainId)!,
                     noop: false,
                     amount: 88n,
-                    metadata: options.buyback.metadata,
+                    metadata:
+                      typeof options.buyback.metadata === 'function'
+                        ? options.buyback.metadata(request.args?.[4] as Hex)
+                        : options.buyback.metadata,
                   },
                 ]
               : []),
@@ -728,6 +732,61 @@ describe('721 payment preparation', () => {
         leftover: 1n,
       }).service.prepare721Pay(reviewed),
     ).rejects.toThrow('exceed tier prices');
+  });
+  it('composes the default skip entry with the tier purchase through prepareUserPay', async () => {
+    const spec = (skipSplits: boolean) =>
+      encodeAbiParameters(
+        parseAbiParameters(
+          'bool,uint256,uint256,bool,address,uint256,uint256,uint256,int24,uint128,bytes32,uint256,uint256,uint256,bool,bool,uint256',
+        ),
+        [
+          false,
+          0n,
+          300n,
+          false,
+          v6Address('JBController', project.chainId),
+          200n,
+          1n,
+          88n,
+          0,
+          1n,
+          hash,
+          250n,
+          50n,
+          999n,
+          false,
+          skipSplits,
+          1667n,
+        ],
+      );
+    const sent = buildUserPayMetadata({
+      chainId: project.chainId,
+      tiers: {
+        metadataIdTarget: v6Address('JB721TiersHook', project.chainId),
+        tierIdsToMint: [1n],
+        allowOverspending: false,
+      },
+    });
+    const f = fixture({
+      revnet: true,
+      paymentTokenCount: 0n,
+      buyback: { metadata: (metadata) => spec(metadata === sent), fill: 300n },
+    });
+    const plan = await f.service.prepare721Pay(pay);
+    const args = decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args!;
+    // The registry's skip entry and the tiers in one payload; the unsplit 200-token mint
+    // entitlement less 2, less 1%, is the fungible minimum.
+    expect([args[4], args[6]]).toEqual([196n, sent]);
+    expect(plan.summary).toMatchObject({
+      indicativeTokenIds: ['1000000001'],
+      paymentQuote: {
+        minimumBasis: 'prepareUserPay',
+        skipSplits: { requested: null, sent: true, applied: true },
+      },
+    });
+    expect(
+      f.simulateContract.mock.calls.some(([request]) => request.functionName === 'recordMint'),
+    ).toBe(true);
   });
   it('verifies the deterministic router resolver runtime and prices NFTs using its actual outgoing token and amount', async () => {
     const router = v6Address('JBRouterTerminal', project.chainId);
