@@ -65,6 +65,8 @@ export const HOMEPAGE_JS = String.raw`(() => {
   }
   // Each tab, edge or address change takes a ticket; a map that loads after a later one is dropped.
   let intent = 0;
+  // popstate and hashchange can both report one address change; only the first counts.
+  let seenKey = historyKey();
   async function routeTo(moveFocus) {
     const ticket = ++intent;
     const view = hashView();
@@ -167,6 +169,7 @@ export const HOMEPAGE_JS = String.raw`(() => {
     };
     if (window.location.hash === hash) window.history.replaceState(state, '', hash);
     else window.history.pushState(state, '', hash);
+    seenKey = historyKey();
     applyRoute(moveFocus);
   }
 
@@ -203,7 +206,10 @@ export const HOMEPAGE_JS = String.raw`(() => {
   });
 
   function historyChanged() {
-    if (historyKey() !== routedKey) routeTo(true);
+    const key = historyKey();
+    if (key === seenKey) return;
+    seenKey = key;
+    if (key !== routedKey) routeTo(true);
     else intent++; // Back to the page already shown still cancels a pending tab or edge.
   }
   window.addEventListener('hashchange', historyChanged);

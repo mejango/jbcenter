@@ -123,6 +123,15 @@ describe('directory browser navigation', () => {
     expect(new URL(page.url()).hash).toBe('');
   });
 
+  it('keeps a choice made between the two events of one address change', async () => {
+    const release = holdMaps();
+    await page.goto('https://directory.test/');
+    await page.waitForSelector('.is-enhanced');
+    await page.evaluate(() => { location.hash = 'directory-agents'; document.querySelector<HTMLElement>('#journey-developers')!.click(); });
+    release();
+    await expect.poll(current).toBe('developers/' + await page.locator('#map-developers').getAttribute('data-entry'));
+  });
+
   it('routes a deep link again when Back returns to it before its map loaded', async () => {
     const release = holdMaps();
     await page.goto('https://directory.test/#api/rpc');
