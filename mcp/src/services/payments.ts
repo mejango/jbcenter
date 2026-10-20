@@ -179,6 +179,10 @@ function payChoice(
   return buybackViaRegistry ? viaSdk(false, off) : own(off);
 }
 
+// prepareUserPay's refusal text in nana-sdk-core (v6/pay.ts); the SDK exports no error type for it.
+const SDK_UNREADABLE_SWAP =
+  "The project's buyback hook swaps with an unknown specification, so no safe minimum can be set.";
+
 function same(a: Address, b: Address): boolean {
   return a.toLowerCase() === b.toLowerCase();
 }
@@ -846,8 +850,16 @@ export class PaymentService {
           ...(same(route.context.buybackHook, buyback14) ? { skipSplits: choice.send } : {}),
           ...(input.tiers ? { tiers: input.tiers } : {}),
         }).catch((error: unknown) => {
-          if (error instanceof Error && error.message.includes('unknown specification'))
-            unsupported(error.message);
+          // Only the SDK's own refusal, a plain Error with its exact text, means an unreadable spec.
+          // Anything else (a revert, an RPC failure) keeps its type for publicError to sanitize.
+          if (
+            error instanceof Error &&
+            error.constructor === Error &&
+            error.message === SDK_UNREADABLE_SWAP
+          )
+            unsupported(
+              "The project's buyback hook swaps with a specification this service cannot read, so no safe minimum can be set.",
+            );
           throw error;
         });
       const metadata = prepared?.metadata ?? ownMetadata;

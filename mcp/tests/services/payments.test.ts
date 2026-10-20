@@ -41,7 +41,8 @@ import {
   type PayoutInput,
 } from '../../src/services/payments.js';
 import { deploymentAddress, rollout } from '../../src/services/rollout.js';
-import { publicError } from '../../src/domain/errors.js';
+import { DomainError, publicError } from '../../src/domain/errors.js';
+import { RpcPool } from '../../src/adapters/rpc.js';
 import type { BlockEvidence, RpcProvider } from '../../src/domain/types.js';
 
 const project = { chainId: 8453, projectId: '12', version: 6 } as const;
@@ -142,6 +143,8 @@ function fixture(
     resolvedBuyback?: Address;
     customController?: Address;
     errorOn?: string;
+    /** What a read named by errorOn throws; a generic RPC error by default. */
+    errorValue?: unknown;
     primaryTerminal?: Address;
     routerTarget?: Address;
     gatewayRouter?: Address;
@@ -163,7 +166,8 @@ function fixture(
     dataHook: options.dataHook ?? zeroAddress,
   };
   const readContract = vi.fn(async (request: Request): Promise<unknown> => {
-    if (options.errorOn === request.functionName) throw new Error('RPC read unavailable');
+    if (options.errorOn === request.functionName)
+      throw options.errorValue ?? new Error('RPC read unavailable');
     switch (request.functionName) {
       case 'controllerOf':
         return options.customController ?? controller;
@@ -1017,6 +1021,59 @@ describe('payment quotes and approval plans', () => {
       minimumBasis: 'prepareUserPay',
       rawTerminalPreview: { semantics: 'router-normalized', beneficiaryTokenCount: '832' },
     });
+  });
+
+  it("refuses the SDK's unreadable-spec case with its own text, and never forwards a revert's", async () => {
+    // The SDK's own refusal: buyback 1.4 returns a spec of a length no generation uses.
+    await expect(
+      fixture({
+        dataHook: registry,
+        beneficiaryCount: 0n,
+        payHooks: [
+          {
+            hook: buybackHook,
+            noop: false,
+            amount: 100n,
+            metadata: payHookMetadata().slice(0, 2 + 16 * 64) as Hex,
+          },
+        ],
+      }).service.preparePay(payInput),
+    ).rejects.toMatchObject({
+      code: 'UNSUPPORTED_CONFIGURATION',
+      message: expect.stringContaining('cannot read'),
+    });
+    // A node's revert carrying the same words, as RpcPool and viem deliver it to prepareUserPay.
+    const reason = encodeErrorResult({
+      abi: [{ type: 'error', name: 'Error', inputs: [{ name: 'message', type: 'string' }] }],
+      errorName: 'Error',
+      args: ['unknown specification https://rpc.invalid/secret'],
+    });
+    const node = new RpcPool({ 8453: 'https://rpc.invalid/secret' }, async (_url, options) => ({
+      jsonrpc: '2.0',
+      id: (options!.body as { id: number }).id,
+      error: { code: 3, message: 'execution reverted: unknown specification', data: reason },
+    }));
+    const revert = await node
+      .client(8453)
+      .readContract({
+        address: terminal,
+        abi: jbMultiTerminalAbi,
+        functionName: 'previewPayFor',
+        args: [12n, NATIVE_TOKEN, 100n, beneficiary, '0x'],
+      })
+      .catch((error: unknown) => error);
+    expect((revert as Error).message).toContain('unknown specification');
+    const caught = await fixture({
+      dataHook: registry,
+      errorOn: 'previewPayFor',
+      errorValue: revert,
+    })
+      .service.preparePay(payInput)
+      .catch((error: unknown) => error);
+    expect(caught).not.toBeInstanceOf(DomainError);
+    const shown = publicError(caught);
+    expect(shown).toMatchObject({ code: 'CALL_REVERTED', details: { errorName: 'Error' } });
+    expect(JSON.stringify(shown)).not.toMatch(/secret|unknown specification/);
   });
 
   it('refuses custom controllers, unknown active hooks, and historical buyback formats', async () => {
