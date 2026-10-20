@@ -3,6 +3,7 @@ import { jbTokensAbi } from '@bananapus/nana-sdk-core';
 import {
   CallExecutionError,
   ContractFunctionRevertedError,
+  InsufficientFundsError,
   RpcRequestError,
   encodeErrorResult,
   parseAbi,
@@ -25,6 +26,22 @@ const rpcRevert = (data?: string) =>
   );
 
 describe('public errors', () => {
+  it('names a payer that cannot cover value plus gas, and does not invite a retry', () => {
+    // viem's shape for a simulation whose account lacks the value: the node text sits in a cause.
+    const error = new CallExecutionError(
+      new InsufficientFundsError({
+        cause: new RpcRequestError({
+          body: {},
+          error: { code: -32000, message: 'insufficient funds for gas * price + value' },
+          url: 'https://rpc.invalid/secret-key',
+        }),
+      }),
+      {},
+    );
+    const result = publicError(error);
+    expect(result).toMatchObject({ code: 'INSUFFICIENT_FUNDS', retryable: false });
+    expect(JSON.stringify(result)).not.toContain('secret-key');
+  });
   it('reports a revert with data as a named, non-retryable contract result', () => {
     expect(publicError(rpcRevert(insufficient))).toEqual({
       code: 'CALL_REVERTED',

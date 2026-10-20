@@ -41,12 +41,29 @@ export function publicError(error: unknown): {
       retryable: false,
       details: revert,
     };
+  if (causedBy(error, 'InsufficientFundsError'))
+    return {
+      code: 'INSUFFICIENT_FUNDS',
+      message:
+        "The account cannot cover this call's value plus gas at this block. Retrying the same inputs fails again; fund the account or act from one that holds enough.",
+      retryable: false,
+    };
   return {
     code: 'UPSTREAM_FAILURE',
     message:
       'The operation could not be verified. Retry the read; do not infer zero balances, permission, or transaction failure.',
     retryable: true,
   };
+}
+
+/** viem names a node's known failure in the cause chain; its message embeds the request, so match the name. */
+function causedBy(error: unknown, name: string): boolean {
+  let item: unknown = error;
+  for (let depth = 0; depth < 10 && item && typeof item === 'object'; depth++) {
+    if ((item as { name?: unknown }).name === name) return true;
+    item = (item as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 /** Every error the installed V6 SDK ABIs declare, so a revert can name its contract error. */
