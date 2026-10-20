@@ -25,6 +25,7 @@ import {
   HOMEPAGE_HEADERS,
   HOMEPAGE_HTML,
   HOMEPAGE_JS_PATH,
+  JOURNEY_FRAGMENTS,
 } from "./homepage.js";
 import { HOMEPAGE_JS } from "./directoryClient.js";
 import { serveHashed } from "./hashedAsset.js";
@@ -486,6 +487,7 @@ export function createApp(
   });
   serveHashed(app, HOMEPAGE_CSS_PATH, HOMEPAGE_CSS, { ...HOMEPAGE_HEADERS, "Content-Type": "text/css; charset=UTF-8" });
   serveHashed(app, HOMEPAGE_JS_PATH, HOMEPAGE_JS, { ...HOMEPAGE_HEADERS, "Content-Type": "application/javascript; charset=UTF-8" });
+  for (const { path, html } of JOURNEY_FRAGMENTS) serveHashed(app, path, html, { ...HOMEPAGE_HEADERS, "Content-Type": "text/html; charset=UTF-8" });
 
   app.get("/healthz", (c) => c.json({ ok: true }));
 

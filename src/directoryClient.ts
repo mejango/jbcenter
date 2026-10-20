@@ -7,23 +7,72 @@ export const HOMEPAGE_JS = String.raw`(() => {
   const tabs = explorer.querySelector('.journey-tabs');
   const maps = new Map();
   if (!tabs) return;
-  for (const panel of explorer.querySelectorAll('.journey-map[data-view]')) {
+  const buttons = new Map(Array.from(tabs.querySelectorAll('button[data-view]'), (button) => [button.dataset.view, button]));
+  function register(panel) {
     const view = panel.dataset.view;
-    const button = Array.from(tabs.querySelectorAll('button[data-view]'))
-      .find((candidate) => candidate.dataset.view === view);
+    const button = buttons.get(view);
     const svg = panel.querySelector('svg.journey-lines');
     const nodes = new Map();
     for (const node of panel.querySelectorAll('.journey-node[data-node]')) {
-      if (nodes.has(node.dataset.node)) return;
+      if (nodes.has(node.dataset.node)) return false;
       nodes.set(node.dataset.node, node);
     }
-    if (!button || !svg || !nodes.has(panel.dataset.entry) || maps.has(view)) return;
+    if (!button || !svg || !nodes.has(panel.dataset.entry) || maps.has(view)) return false;
     maps.set(view, {
       view, panel, button, svg, nodes, entry: panel.dataset.entry,
       edges: Array.from(panel.querySelectorAll('a.journey-edge[data-from][data-to]')),
     });
+    return true;
   }
+  for (const panel of explorer.querySelectorAll('.journey-map[data-view]')) if (!register(panel)) return;
   if (!maps.has('apps')) return;
+
+  // Only the first map is in the page; the others load the first time they are needed.
+  const loading = new Map();
+  function load(view) {
+    if (maps.has(view)) return Promise.resolve(true);
+    const src = buttons.get(view)?.dataset.src;
+    if (!src) return Promise.resolve(false);
+    if (!loading.has(view)) {
+      loading.set(view, fetch(src).then((response) => {
+        if (!response.ok) throw new Error(String(response.status));
+        return response.text();
+      }).then((html) => {
+        const template = document.createElement('template');
+        template.innerHTML = html;
+        const panel = template.content.querySelector('.journey-map[data-view]');
+        if (!panel || panel.dataset.view !== view || maps.has(view)) return maps.has(view);
+        panel.hidden = true;
+        explorer.querySelector('details.directory-reference').before(panel);
+        if (!register(panel)) { panel.remove(); return false; }
+        observer?.observe(panel);
+        return true;
+      }).catch(() => false).then((loaded) => {
+        if (!loaded) loading.delete(view);
+        return loaded;
+      }));
+    }
+    return loading.get(view);
+  }
+  function hashView() {
+    let id = '';
+    try { id = decodeURIComponent(window.location.hash.slice(1)); }
+    catch { return null; }
+    if (buttons.has(id)) return id;
+    if (['rpc', 'ipfs', 'pinning'].includes(id)) return 'api';
+    const slash = id.indexOf('/');
+    return slash > 0 && buttons.has(id.slice(0, slash)) ? id.slice(0, slash) : null;
+  }
+  // Loads the map the address names, then shows it. A later address change takes over.
+  async function routeTo(moveFocus) {
+    const view = hashView();
+    if (view && !maps.has(view)) {
+      await load(view);
+      if (hashView() !== view) return;
+    }
+    applyRoute(moveFocus);
+  }
+  let observer = null;
 
   const mobile = window.matchMedia('(max-width: 760px)');
   const expandable = new Set(['rpc', 'ipfs', 'pinning', 'mcp']);
@@ -119,9 +168,17 @@ export const HOMEPAGE_JS = String.raw`(() => {
   tabs.addEventListener('click', (event) => {
     const button = event.target.closest('button[data-view]');
     if (!button || !tabs.contains(button)) return;
-    const map = maps.get(button.dataset.view);
-    if (map) navigate(map.view, map.entry, null, mobile.matches);
+    load(button.dataset.view).then(() => {
+      const map = maps.get(button.dataset.view);
+      if (map) navigate(map.view, map.entry, null, mobile.matches);
+    });
   });
+  const preload = (event) => {
+    const button = event.target.closest?.('button[data-view]');
+    if (button && tabs.contains(button)) load(button.dataset.view);
+  };
+  tabs.addEventListener('pointerover', preload);
+  tabs.addEventListener('focusin', preload);
 
   explorer.addEventListener('click', (event) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -130,13 +187,15 @@ export const HOMEPAGE_JS = String.raw`(() => {
     const source = panel && maps.get(panel.dataset.view);
     if (!source || !source.edges.includes(edge) || !source.nodes.has(edge.dataset.from)) return;
     const view = edge.dataset.targetView || source.view;
-    if (!maps.get(view)?.nodes.has(edge.dataset.to)) return;
+    if (!buttons.has(view)) return;
     event.preventDefault();
-    navigate(view, edge.dataset.to, { view: source.view, node: edge.dataset.from }, true);
+    load(view).then(() => {
+      if (maps.get(view)?.nodes.has(edge.dataset.to)) navigate(view, edge.dataset.to, { view: source.view, node: edge.dataset.from }, true);
+    });
   });
 
   function historyChanged() {
-    if (historyKey() !== routedKey) applyRoute(true);
+    if (historyKey() !== routedKey) routeTo(true);
   }
   window.addEventListener('hashchange', historyChanged);
   window.addEventListener('popstate', historyChanged);
@@ -316,19 +375,19 @@ export const HOMEPAGE_JS = String.raw`(() => {
   explorer.classList.add('is-enhanced');
   const reference = explorer.querySelector('details.directory-reference');
   if (reference) reference.open = false;
+  window.addEventListener('resize', scheduleDraw, { passive: true });
+  if ('ResizeObserver' in window) {
+    observer = new ResizeObserver(scheduleDraw);
+    observer.observe(explorer);
+    for (const map of maps.values()) observer.observe(map.panel);
+  }
   applyRoute(false);
   if (window.location.hash) {
-    window.requestAnimationFrame(() => {
+    routeTo(false).then(() => window.requestAnimationFrame(() => {
       const nativeTarget = route().target;
       const target = nativeTarget || maps.get(current.view).nodes.get(current.node);
       target.scrollIntoView({ block: nativeTarget ? 'start' : 'nearest', inline: 'nearest', behavior: 'auto' });
-    });
-  }
-  window.addEventListener('resize', scheduleDraw, { passive: true });
-  if ('ResizeObserver' in window) {
-    const observer = new ResizeObserver(scheduleDraw);
-    observer.observe(explorer);
-    for (const map of maps.values()) observer.observe(map.panel);
+    }));
   }
   if (document.fonts) document.fonts.ready.then(scheduleDraw);
 })();

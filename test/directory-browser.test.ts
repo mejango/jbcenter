@@ -6,14 +6,18 @@ import { MemoryStore } from './support/memoryStore.js';
 describe('directory browser navigation', () => {
   let browser: Browser, page: Page;
   const app = createApp(new MemoryStore());
+  const fetched: string[] = [];
   const errors: string[] = [];
   beforeAll(async () => { browser = await chromium.launch({ headless: true }); });
   beforeEach(async () => {
     errors.length = 0;
     page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
     page.on('pageerror', error => errors.push(error.message));
+    fetched.length = 0;
     await page.route('https://directory.test/**', async route => {
-      const response = await app.request(new URL(route.request().url()).pathname);
+      const path = new URL(route.request().url()).pathname;
+      if (path.startsWith('/journeys/')) fetched.push(path);
+      const response = await app.request(path);
       return route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) });
     });
   });
@@ -52,5 +56,30 @@ describe('directory browser navigation', () => {
     await expect.poll(current).toBe('api/rpc');
     await page.goForward();
     await expect.poll(current).toBe('developers/sdk');
+  });
+
+  it('inlines only the first map and loads another the first time it is opened', async () => {
+    await page.goto('https://directory.test/');
+    await page.waitForSelector('.is-enhanced');
+    expect(await page.locator('.journey-map').count()).toBe(1);
+    expect(fetched).toEqual([]);
+    await page.locator('#journey-developers').click();
+    await expect.poll(current).toBe('developers/' + await page.locator('#map-developers').getAttribute('data-entry'));
+    expect(await page.locator('#map-apps').isHidden()).toBe(true);
+    await expect.poll(() => page.locator('#map-developers svg.journey-lines path').count()).toBeGreaterThan(0);
+    await page.locator('#journey-apps').click();
+    await page.locator('#journey-developers').click();
+    expect(fetched.filter(path => path.startsWith('/journeys/developers.'))).toHaveLength(1);
+  });
+
+  it('follows an edge into a map that is not loaded yet', async () => {
+    await page.goto('https://directory.test/');
+    const edge = page.locator('#map-apps a.journey-edge[data-target-view]:not([data-target-view="apps"])').first();
+    const [view, node] = await edge.evaluate(link => [(link as HTMLElement).dataset.targetView!, (link as HTMLElement).dataset.to!]);
+    await edge.click();
+    await expect.poll(current).toBe(view + '/' + node);
+    expect(new URL(page.url()).hash).toBe('#' + view + '/' + node);
+    await page.goBack();
+    await expect.poll(current).toBe('apps/' + await page.locator('#map-apps').getAttribute('data-entry'));
   });
 });

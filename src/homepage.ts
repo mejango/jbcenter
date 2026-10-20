@@ -18,7 +18,7 @@ export const HOMEPAGE_JS_PATH = "/directory.js";
 export const HOMEPAGE_HEADERS = {
   "Cache-Control": "public, max-age=300",
   "Content-Security-Policy":
-    "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+    "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "X-Content-Type-Options": "nosniff",
 };
@@ -410,6 +410,10 @@ footer a { display: inline-flex; align-items: center; min-height: 32px; }
 }
 `;
 
+/** The maps behind the other tabs, fetched by directory.js when one is first needed. */
+export const JOURNEY_FRAGMENTS = journeyViews.slice(1).map((view) => ({ view: view.id, path: `/journeys/${view.id}.html`, html: renderJourney(view) }));
+const fragmentHref = new Map(JOURNEY_FRAGMENTS.map(({ view, path, html }) => [view, hashedAsset(path, html).href]));
+
 export const HOMEPAGE_HTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -436,10 +440,10 @@ export const HOMEPAGE_HTML = `<!doctype html>
       <section class="journey-explorer" aria-label="Juicebox journeys">
         <nav class="journey-tabs" aria-labelledby="choose-journey">
           <h2 id="choose-journey">What do you want to do?</h2>
-          <ul>${journeyViews.map((view) => `<li><button type="button" id="journey-${view.id}" data-view="${view.id}" aria-controls="map-${view.id}" aria-expanded="false">${escapeHtml(view.title)}</button></li>`).join("")}</ul>
+          <ul>${journeyViews.map((view) => `<li><button type="button" id="journey-${view.id}" data-view="${view.id}" aria-controls="map-${view.id}" aria-expanded="false"${fragmentHref.has(view.id) ? ` data-src="${fragmentHref.get(view.id)}"` : ""}>${escapeHtml(view.title)}</button></li>`).join("")}</ul>
         </nav>
         <p class="map-key"><span>→ Next step</span><span class="return-key">${RETURN_ICON}Revisit a decision</span><span>↗ Related path</span></p>
-        ${journeyViews.map(renderJourney).join("")}
+        ${renderJourney(journeyViews[0]!)}
         <details class="directory-reference" id="directory" open>
           <summary>Already know what you need? Browse the directory</summary>
           <ul class="choices">${directoryTree.map((node, index) => renderNode(node, "directory", index)).join("")}</ul>
