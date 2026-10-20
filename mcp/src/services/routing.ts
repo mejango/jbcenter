@@ -675,11 +675,14 @@ export class RoutingService {
     // failures keep their own errors.
     const quoter = uniswapV4Deployment(chainId)?.quoter;
     let quoterFailure: unknown;
+    // The SDK swallows V3 bridge-leg failures and returns null; a transport failure there leaves the route unknown.
+    let transportFailure: unknown;
     const watched = Object.create(client, {
       call: {
         value: (args: Parameters<typeof client.call>[0]) =>
           client.call(args).catch((error: unknown) => {
             if (quoter && args.to && same(args.to, quoter)) quoterFailure = error;
+            if (!revertOf(error)) transportFailure ??= error;
             throw error;
           }),
       },
@@ -705,6 +708,7 @@ export class RoutingService {
         );
       throw error;
     });
+    if (!swap && transportFailure) throw transportFailure;
     if (!swap)
       throw new DomainError(
         'POOL_QUOTE_UNAVAILABLE',

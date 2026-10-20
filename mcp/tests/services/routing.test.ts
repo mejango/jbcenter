@@ -1112,6 +1112,19 @@ describe('direct pool-buy quote', () => {
     await expect(
       bridged.service.quotePoolBuy(input, async () => terminalQuote),
     ).rejects.toMatchObject({ code: 'POOL_QUOTE_UNAVAILABLE' });
+
+    // A bridge leg lost to transport leaves the route unknown: retryable, not "no route".
+    const unreachable = fixture((request) =>
+      request.functionName === 'poolKeyOf'
+        ? request.args?.[1] === zeroAddress
+          ? emptyKey
+          : usdcKey
+        : pass,
+    );
+    failing(unreachable, () => new TimeoutError({ body: {}, url: 'http://rpc.invalid' }));
+    await expect(
+      unreachable.service.quotePoolBuy(input, async () => terminalQuote),
+    ).rejects.toBeInstanceOf(TimeoutError);
   });
 
   it('refuses projects without a buyback pool or with a pool for another token', async () => {
