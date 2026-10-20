@@ -116,7 +116,7 @@ RPC are public; RPC accepts any or no Origin. `GET /healthz` is public for infra
 
 ## Connect an assistant through MCP
 
-The `mcp/` package provides **68 V6-only tools across ten capability families**: project and
+The `mcp/` package provides **66 V6-only tools across ten capability families**: project and
 account intelligence, payments and cash-outs, launches and ruleset changes, buyback hooks, router
 terminals, 721 shops, revnets and loans, omnichain operations, source and webclient development,
 and reviewed project and NFT metadata publication. Read the [27 user journeys](mcp/docs/USER_JOURNEYS.md)

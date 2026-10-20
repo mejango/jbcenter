@@ -15,6 +15,7 @@ import {
   buildBorrowTx,
   buildBridgeClaimTx,
   buildRepayLoanTx,
+  buildSetPermissionsTx,
   buildSyncAccountingDataTx,
   CCIP_SUCKER_TRANSPORT_VALUES,
   NATIVE_SUCKER_TRANSPORT_VALUES,
@@ -41,6 +42,7 @@ import {
 import { z } from 'zod';
 import { DomainError } from '../domain/errors.js';
 import { UNITS } from '../domain/units.js';
+import { feelessAbi } from './payments.js';
 import {
   addressSchema,
   chainIdSchema,
@@ -162,11 +164,6 @@ export const prepareAccountingSyncInputSchema = z
   })
   .strict();
 
-// The SDK does not currently export JBFeelessAddresses. This is the exact v6 interface;
-// its caller is the terminal's caller (REVLoans), not the end-user beneficiary.
-const feelessAbi = parseAbi([
-  'function isFeelessFor(address addr,uint256 projectId,address caller) view returns (bool)',
-]);
 const SIMULATION_GAS = 10_000_000n;
 const sameAddress = (left: Address, right: Address) => left.toLowerCase() === right.toLowerCase();
 const block = (snapshot: RpcSnapshot) => BigInt(snapshot.evidence.blockNumber);
@@ -427,6 +424,7 @@ export class ExtensionService {
         functionName: 'currentSurplusOf',
         args: [config.projectId, [input.token], BigInt(context.decimals), BigInt(context.currency)],
       }),
+      // The caller is the terminal's caller (REVLoans), not the end-user beneficiary.
       client.readContract({
         ...pin,
         address: feelessAddresses,
@@ -580,20 +578,13 @@ export class ExtensionService {
       }
       calls.push(
         preparedCall(
-          {
+          buildSetPermissionsTx({
             chainId: input.project.chainId,
-            address: config.permissions,
-            abi: jbPermissionsAbi,
-            functionName: 'setPermissionsFor',
-            args: [
-              input.holder,
-              {
-                operator: config.loans,
-                projectId: config.projectId,
-                permissionIds: quote.burnPermission.proposal.resultingPermissionIds,
-              },
-            ],
-          },
+            account: input.holder,
+            operator: config.loans,
+            projectId: config.projectId,
+            permissionIds: quote.burnPermission.proposal.resultingPermissionIds,
+          }),
           'Grant REVLoans BURN_TOKENS (11), preserving existing project permissions',
         ),
       );

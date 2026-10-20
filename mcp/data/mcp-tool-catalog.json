@@ -3261,10 +3261,10 @@
           },
           "slippageBps": {
             "default": 100,
-            "description": "Slippage in basis points, 0–1000. Default 100 (1%).",
+            "description": "Slippage in basis points, 0–4950. Default 100. Raise it only within what the payer accepts, such as a payFailure's retrySlippageBps.",
             "type": "integer",
             "minimum": 0,
-            "maximum": 1000
+            "maximum": 4950
           },
           "minReturnedTokens": {
             "description": "Explicit minimum project tokens for the beneficiary, in 18-decimal base units, replacing beneficiaryTokenCount less slippageBps. To accept 2% below the fill, take the quote's simulatedBeneficiaryTokenCount less 2%. A warning names a figure above the simulated fill. jb_prepare_pay requires it when the default would protect nothing (PAY_MINIMUM_PROTECTS_NOTHING) or sits above the simulated fill (PAY_DEFAULT_MINIMUM_ABOVE_FILL). \"0\" accepts receiving no project tokens.",
@@ -3278,8 +3278,7 @@
             "pattern": "^0x(?:[a-fA-F0-9]{2})*$"
           },
           "skipSplits": {
-            "default": false,
-            "description": "Buyback 1.4 only. True sends the tokens the hook buys from the pool straight to the beneficiary, skipping the project's reserved split; the hook's TWAP floor still applies. Bought tokens already exist: nothing is issued for that part and the split gets none of it. Issuance (the hook passes, or leftover input) still pays the split. Refused with metadata, without a buyback hook, or on any hook other than buyback 1.4 (1.0 and 1.1.1 included).",
+            "description": "Buyback 1.4 only. Unset means on wherever the project's buyback hook is 1.4 and no metadata is given, as the apps pay: the hook buys from the pool when that beats the payer's share of a mint, and the tokens it buys go to the beneficiary without the reserved split (they already exist, so nothing is issued for them and the split gets none). Minting still pays the split. The default minimum is then the SDK's (prepareUserPay): with a pool quote, the beneficiary's part of the floored quote, which the hook also enforces. Pass false when the payment should honor the project's splits, such as routing fees or revenue into a project. Where it cannot apply (no buyback hook, hook 1.0 or 1.1.1, the caller's own metadata) unset means off, and an explicit true is refused. The quote's skipSplits says which applied and why.",
             "type": "boolean"
           }
         },
@@ -3506,10 +3505,10 @@
           },
           "slippageBps": {
             "default": 100,
-            "description": "Slippage in basis points, 0–1000. Default 100 (1%).",
+            "description": "Slippage in basis points, 0–4950. Default 100. Raise it only within what the payer accepts, such as a payFailure's retrySlippageBps.",
             "type": "integer",
             "minimum": 0,
-            "maximum": 1000
+            "maximum": 4950
           },
           "minReturnedTokens": {
             "description": "Explicit minimum project tokens for the beneficiary, in 18-decimal base units, replacing beneficiaryTokenCount less slippageBps. To accept 2% below the fill, take the quote's simulatedBeneficiaryTokenCount less 2%. A warning names a figure above the simulated fill. jb_prepare_pay requires it when the default would protect nothing (PAY_MINIMUM_PROTECTS_NOTHING) or sits above the simulated fill (PAY_DEFAULT_MINIMUM_ABOVE_FILL). \"0\" accepts receiving no project tokens.",
@@ -3523,8 +3522,7 @@
             "pattern": "^0x(?:[a-fA-F0-9]{2})*$"
           },
           "skipSplits": {
-            "default": false,
-            "description": "Buyback 1.4 only. True sends the tokens the hook buys from the pool straight to the beneficiary, skipping the project's reserved split; the hook's TWAP floor still applies. Bought tokens already exist: nothing is issued for that part and the split gets none of it. Issuance (the hook passes, or leftover input) still pays the split. Refused with metadata, without a buyback hook, or on any hook other than buyback 1.4 (1.0 and 1.1.1 included).",
+            "description": "Buyback 1.4 only. Unset means on wherever the project's buyback hook is 1.4 and no metadata is given, as the apps pay: the hook buys from the pool when that beats the payer's share of a mint, and the tokens it buys go to the beneficiary without the reserved split (they already exist, so nothing is issued for them and the split gets none). Minting still pays the split. The default minimum is then the SDK's (prepareUserPay): with a pool quote, the beneficiary's part of the floored quote, which the hook also enforces. Pass false when the payment should honor the project's splits, such as routing fees or revenue into a project. Where it cannot apply (no buyback hook, hook 1.0 or 1.1.1, the caller's own metadata) unset means off, and an explicit true is refused. The quote's skipSplits says which applied and why.",
             "type": "boolean"
           }
         },
@@ -10357,452 +10355,6 @@
       }
     },
     {
-      "name": "jb_quote_pool_buy",
-      "description": "Quote buying project tokens through the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. The buy runs the pool's hook: with JBUniswapV4Hook it can pay the project instead (issuance, reserved splits, payment to the balance) when that gives more tokens; pool.hook names the hook.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "project": {
-            "type": "object",
-            "properties": {
-              "chainId": {
-                "anyOf": [
-                  {
-                    "type": "number",
-                    "const": 1
-                  },
-                  {
-                    "type": "number",
-                    "const": 10
-                  },
-                  {
-                    "type": "number",
-                    "const": 8453
-                  },
-                  {
-                    "type": "number",
-                    "const": 42161
-                  },
-                  {
-                    "type": "number",
-                    "const": 11155111
-                  },
-                  {
-                    "type": "number",
-                    "const": 11155420
-                  },
-                  {
-                    "type": "number",
-                    "const": 84532
-                  },
-                  {
-                    "type": "number",
-                    "const": 421614
-                  }
-                ]
-              },
-              "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
-              },
-              "version": {
-                "default": 6,
-                "type": "number",
-                "const": 6
-              }
-            },
-            "required": [
-              "chainId",
-              "projectId"
-            ],
-            "additionalProperties": false
-          },
-          "account": {
-            "description": "Payer for the terminal quote. It also receives the tokens.",
-            "type": "string"
-          },
-          "token": {
-            "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
-            "type": "string"
-          },
-          "amount": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$",
-            "description": "Input amount in the token smallest units, as an exact integer string. 0.05 ETH = 50000000000000000."
-          },
-          "slippageBps": {
-            "default": 100,
-            "description": "Slippage in basis points, 0 to 1000, default 100 (1%). The pool minimum is the exact-input pool output less this; the terminal quote beside it uses the same figure.",
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 1000
-          }
-        },
-        "required": [
-          "project",
-          "account",
-          "token",
-          "amount"
-        ],
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "additionalProperties": false
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "schemaVersion": {
-            "type": "number",
-            "const": 1
-          },
-          "observedAt": {
-            "type": "string"
-          },
-          "ok": {
-            "type": "boolean"
-          },
-          "data": {
-            "allOf": [
-              {
-                "$ref": "#/definitions/__schema0"
-              }
-            ]
-          },
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string"
-              },
-              "message": {
-                "type": "string"
-              },
-              "retryable": {
-                "type": "boolean"
-              },
-              "details": {
-                "allOf": [
-                  {
-                    "$ref": "#/definitions/__schema1"
-                  }
-                ]
-              }
-            },
-            "required": [
-              "code",
-              "message",
-              "retryable"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "schemaVersion",
-          "observedAt",
-          "ok"
-        ],
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "additionalProperties": false,
-        "definitions": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/definitions/__schema0"
-                }
-              },
-              {
-                "type": "object",
-                "propertyNames": {
-                  "type": "string"
-                },
-                "additionalProperties": {
-                  "$ref": "#/definitions/__schema0"
-                }
-              }
-            ]
-          },
-          "__schema1": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/definitions/__schema1"
-                }
-              },
-              {
-                "type": "object",
-                "propertyNames": {
-                  "type": "string"
-                },
-                "additionalProperties": {
-                  "$ref": "#/definitions/__schema1"
-                }
-              }
-            ]
-          }
-        }
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      },
-      "execution": {
-        "taskSupport": "forbidden"
-      }
-    },
-    {
-      "name": "jb_prepare_pool_buy",
-      "description": "Prepare an authenticated unsigned buy through the project's buyback pool on the route jb_quote_pool_buy quotes, with the Uniswap Universal Router and a project-token minimum of the pool output less slippageBps. The pool's hook runs: with JBUniswapV4Hook the buy can be filled by paying the project. Refuses a custom project token or an unrecognized pool hook.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "project": {
-            "type": "object",
-            "properties": {
-              "chainId": {
-                "anyOf": [
-                  {
-                    "type": "number",
-                    "const": 1
-                  },
-                  {
-                    "type": "number",
-                    "const": 10
-                  },
-                  {
-                    "type": "number",
-                    "const": 8453
-                  },
-                  {
-                    "type": "number",
-                    "const": 42161
-                  },
-                  {
-                    "type": "number",
-                    "const": 11155111
-                  },
-                  {
-                    "type": "number",
-                    "const": 11155420
-                  },
-                  {
-                    "type": "number",
-                    "const": 84532
-                  },
-                  {
-                    "type": "number",
-                    "const": 421614
-                  }
-                ]
-              },
-              "projectId": {
-                "type": "string",
-                "maxLength": 78,
-                "pattern": "^(0|[1-9][0-9]*)$"
-              },
-              "version": {
-                "default": 6,
-                "type": "number",
-                "const": 6
-              }
-            },
-            "required": [
-              "chainId",
-              "projectId"
-            ],
-            "additionalProperties": false
-          },
-          "account": {
-            "description": "Payer for the terminal quote. It also receives the tokens.",
-            "type": "string"
-          },
-          "token": {
-            "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
-            "type": "string"
-          },
-          "amount": {
-            "type": "string",
-            "maxLength": 78,
-            "pattern": "^(0|[1-9][0-9]*)$",
-            "description": "Input amount in the token smallest units, as an exact integer string. 0.05 ETH = 50000000000000000."
-          },
-          "slippageBps": {
-            "default": 100,
-            "description": "Slippage in basis points, 0 to 1000, default 100 (1%). The pool minimum is the exact-input pool output less this; the terminal quote beside it uses the same figure.",
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 1000
-          }
-        },
-        "required": [
-          "project",
-          "account",
-          "token",
-          "amount"
-        ],
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "additionalProperties": false
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "schemaVersion": {
-            "type": "number",
-            "const": 1
-          },
-          "observedAt": {
-            "type": "string"
-          },
-          "ok": {
-            "type": "boolean"
-          },
-          "data": {
-            "allOf": [
-              {
-                "$ref": "#/definitions/__schema0"
-              }
-            ]
-          },
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string"
-              },
-              "message": {
-                "type": "string"
-              },
-              "retryable": {
-                "type": "boolean"
-              },
-              "details": {
-                "allOf": [
-                  {
-                    "$ref": "#/definitions/__schema1"
-                  }
-                ]
-              }
-            },
-            "required": [
-              "code",
-              "message",
-              "retryable"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "schemaVersion",
-          "observedAt",
-          "ok"
-        ],
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "additionalProperties": false,
-        "definitions": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/definitions/__schema0"
-                }
-              },
-              {
-                "type": "object",
-                "propertyNames": {
-                  "type": "string"
-                },
-                "additionalProperties": {
-                  "$ref": "#/definitions/__schema0"
-                }
-              }
-            ]
-          },
-          "__schema1": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "$ref": "#/definitions/__schema1"
-                }
-              },
-              {
-                "type": "object",
-                "propertyNames": {
-                  "type": "string"
-                },
-                "additionalProperties": {
-                  "$ref": "#/definitions/__schema1"
-                }
-              }
-            ]
-          }
-        }
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      },
-      "execution": {
-        "taskSupport": "forbidden"
-      }
-    },
-    {
       "name": "jb_prepare_buyback_pool",
       "description": "Prepare registration of an existing Uniswap V4 buyback pool for a verified project hook. Validates pool identity, token pair, permissions and TWAP window.",
       "inputSchema": {
@@ -11986,10 +11538,10 @@
           },
           "slippageBps": {
             "default": 100,
-            "description": "Slippage in basis points, 0–1000. Default 100 (1%).",
+            "description": "Slippage in basis points, 0–4950. Default 100. Raise it only within what the payer accepts, such as a payFailure's retrySlippageBps.",
             "type": "integer",
             "minimum": 0,
-            "maximum": 1000
+            "maximum": 4950
           },
           "minReturnedTokens": {
             "description": "Explicit minimum fungible project tokens for the beneficiary, in 18-decimal base units, replacing the quoted count less slippageBps. Needed when the quote warns that the default minimum sits above the simulated fill (a buyback hook beside the NFT hook). NFT delivery is checked either way.",
@@ -11999,6 +11551,10 @@
           },
           "allowOverspending": {
             "default": false,
+            "type": "boolean"
+          },
+          "skipSplits": {
+            "description": "Buyback 1.4 only. Unset means on wherever the project's buyback hook is 1.4 and no metadata is given, as the apps pay: the hook buys from the pool when that beats the payer's share of a mint, and the tokens it buys go to the beneficiary without the reserved split (they already exist, so nothing is issued for them and the split gets none). Minting still pays the split. The default minimum is then the SDK's (prepareUserPay): with a pool quote, the beneficiary's part of the floored quote, which the hook also enforces. Pass false when the payment should honor the project's splits, such as routing fees or revenue into a project. Where it cannot apply (no buyback hook, hook 1.0 or 1.1.1, the caller's own metadata) unset means off, and an explicit true is refused. The quote's skipSplits says which applied and why.",
             "type": "boolean"
           }
         },
@@ -12240,10 +11796,10 @@
           },
           "slippageBps": {
             "default": 100,
-            "description": "Slippage in basis points, 0–1000. Default 100 (1%).",
+            "description": "Slippage in basis points, 0–4950. Default 100. Raise it only within what the payer accepts, such as a payFailure's retrySlippageBps.",
             "type": "integer",
             "minimum": 0,
-            "maximum": 1000
+            "maximum": 4950
           },
           "minReturnedTokens": {
             "description": "Explicit minimum fungible project tokens for the beneficiary, in 18-decimal base units, replacing the quoted count less slippageBps. Needed when the quote warns that the default minimum sits above the simulated fill (a buyback hook beside the NFT hook). NFT delivery is checked either way.",
@@ -12253,6 +11809,10 @@
           },
           "allowOverspending": {
             "default": false,
+            "type": "boolean"
+          },
+          "skipSplits": {
+            "description": "Buyback 1.4 only. Unset means on wherever the project's buyback hook is 1.4 and no metadata is given, as the apps pay: the hook buys from the pool when that beats the payer's share of a mint, and the tokens it buys go to the beneficiary without the reserved split (they already exist, so nothing is issued for them and the split gets none). Minting still pays the split. The default minimum is then the SDK's (prepareUserPay): with a pool quote, the beneficiary's part of the floored quote, which the hook also enforces. Pass false when the payment should honor the project's splits, such as routing fees or revenue into a project. Where it cannot apply (no buyback hook, hook 1.0 or 1.1.1, the caller's own metadata) unset means off, and an explicit true is refused. The quote's skipSplits says which applied and why.",
             "type": "boolean"
           }
         },
@@ -18533,14 +18093,6 @@
           {
             "name": "jb_get_routing",
             "description": "Inspect the actual buyback/NFT/revnet hook composition, router project overrides, pool configuration, TWAP availability and token routes. Unknown oracle or custom-hook behavior remains explicit."
-          },
-          {
-            "name": "jb_quote_pool_buy",
-            "description": "Quote buying project tokens through the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. The buy runs the pool's hook: with JBUniswapV4Hook it can pay the project instead (issuance, reserved splits, payment to the balance) when that gives more tokens; pool.hook names the hook."
-          },
-          {
-            "name": "jb_prepare_pool_buy",
-            "description": "Prepare an authenticated unsigned buy through the project's buyback pool on the route jb_quote_pool_buy quotes, with the Uniswap Universal Router and a project-token minimum of the pool output less slippageBps. The pool's hook runs: with JBUniswapV4Hook the buy can be filled by paying the project. Refuses a custom project token or an unrecognized pool hook."
           },
           {
             "name": "jb_prepare_buyback_pool",

@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { zeroAddress, type Hex, type PublicClient } from 'viem';
+import { NATIVE_TOKEN } from '@bananapus/nana-sdk-core';
 import {
   createDevelopmentBundle,
   DEVELOPMENT_FEATURES,
@@ -44,6 +46,53 @@ describe('DevelopmentService', () => {
       expect(reference.source.spdxLicenseIdentifier).not.toBe('');
       expect(reference.source.path).not.toMatch(/(?:^|\/)\.env/);
       expect(reference.source.upstreamUrl).toContain(`/blob/${reference.source.commit}/`);
+    }
+  });
+
+  it('advertises only SDK imports the installed package exports, from the installed version', async () => {
+    const bundle = rawBundle();
+    const installed = JSON.parse(
+      readFileSync(
+        fileURLToPath(
+          new URL('../../node_modules/@bananapus/nana-sdk-core/package.json', import.meta.url),
+        ),
+        'utf8',
+      ),
+    ).version;
+    for (const reference of bundle.references)
+      if (reference.source.repository === 'juice-sdk-v4')
+        expect(reference.source.packageVersion).toBe(installed);
+    const missing: string[] = [];
+    for (const feature of bundle.features)
+      for (const action of feature.actions)
+        for (const { importFrom, symbol } of action.bindings)
+          if (importFrom && !(symbol in (await import(importFrom))))
+            missing.push(`${importFrom}:${symbol}`);
+    expect(missing).toEqual([]);
+  });
+
+  it('advertises a skipSplits option the installed SDK encodes, true and false', async () => {
+    const constraints = JSON.stringify(rawBundle().features);
+    expect(constraints).toContain('pass skipSplits false');
+    const { buildUserPayMetadata, prepareUserPay } = await import('@bananapus/nana-sdk-core/v6');
+    // The skip word is the last of the buyback entry's three words.
+    const skipWord = (metadata: Hex) => BigInt(`0x${metadata.slice(-64)}`) === 1n;
+    // A terminal preview with no hook specs: prepareUserPay sends the metadata it built.
+    const client = {
+      readContract: async () => [{ id: 1, weight: 10n ** 18n, metadata: 0n }, 100n, 0n, []],
+    } as unknown as PublicClient;
+    for (const skipSplits of [true, false]) {
+      expect(skipWord(buildUserPayMetadata({ chainId: 8453, skipSplits }))).toBe(skipSplits);
+      const prepared = await prepareUserPay(client, {
+        chainId: 8453,
+        terminal: zeroAddress,
+        projectId: 1n,
+        token: NATIVE_TOKEN,
+        amount: 1n,
+        beneficiary: zeroAddress,
+        skipSplits,
+      });
+      expect(skipWord(prepared.metadata)).toBe(skipSplits);
     }
   });
 

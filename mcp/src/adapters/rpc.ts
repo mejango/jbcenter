@@ -52,6 +52,32 @@ const READ_METHODS = new Set([
   'eth_simulateV1',
 ]);
 
+const FUNDED_METHODS = new Set([
+  'eth_call',
+  'eth_estimateGas',
+  'eth_simulateV1',
+  'eth_sendRawTransaction',
+  'eth_sendTransaction',
+]);
+
+/**
+ * geth answers -32000 "insufficient funds for gas * price + value" (or "... for transfer"); reth
+ * answers -32003 "EVM error: OutOfFunds". Anchored to the start, so a contract revert reason, a
+ * -32603 provider message or a URL that merely contains the words never matches.
+ */
+export function nativeBalanceRefusal(
+  method: string,
+  error: { code: number; message: string },
+): boolean {
+  return (
+    FUNDED_METHODS.has(method) &&
+    (error.code === -32000 || error.code === -32003) &&
+    /^(?:insufficient funds for (?:gas \* price \+ value|transfer)|EVM error: OutOfFunds)\b/i.test(
+      error.message,
+    )
+  );
+}
+
 /** Replace implicit latest with one observed block for every nested SDK eth_call. */
 export function pinRpcParameters(
   method: string,
@@ -209,13 +235,22 @@ export class RpcPool implements RpcProvider {
               );
             if (result.data.error) {
               // viem needs a JSON-RPC code/data to classify contract reverts. Never forward messages/URLs.
+              // The one node text passed on is a fixed phrase viem reads as InsufficientFundsError,
+              // and only for a node's own native-balance refusal of a call, estimate or send.
               const data = result.data.error.data;
-              throw Object.assign(new Error('RPC request failed.'), {
-                code: result.data.error.code,
-                ...(typeof data === 'string' && /^0x[0-9a-f]*$/i.test(data) && data.length < 65538
-                  ? { data }
-                  : {}),
-              });
+              throw Object.assign(
+                new Error(
+                  nativeBalanceRefusal(method, result.data.error)
+                    ? 'insufficient funds for gas * price + value'
+                    : 'RPC request failed.',
+                ),
+                {
+                  code: result.data.error.code,
+                  ...(typeof data === 'string' && /^0x[0-9a-f]*$/i.test(data) && data.length < 65538
+                    ? { data }
+                    : {}),
+                },
+              );
             }
             if (method === 'eth_getLogs' && blockNumber !== undefined && blockHash !== undefined) {
               const canonical = await this.client(chainId).getBlock({ blockNumber });

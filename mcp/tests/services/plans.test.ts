@@ -1,6 +1,8 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  CallExecutionError,
+  RpcRequestError,
   encodeAbiParameters,
   encodeEventTopics,
   encodeErrorResult,
@@ -8,6 +10,7 @@ import {
   erc20Abi,
   getAddress,
   parseAbiItem,
+  parseAbiParameters,
   zeroAddress,
   zeroHash,
   type Abi,
@@ -35,14 +38,7 @@ import {
   revLoansAbi,
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
-import {
-  buildDirectPaySwapTx,
-  buildPermit2ApproveTx,
-  jbSuckerV6Abi,
-  uniswapV4Deployment,
-  uniswapV4PoolId,
-  v6Address,
-} from '@bananapus/nana-sdk-core/v6';
+import { jbSuckerV6Abi, uniswapV4PoolId, v6Address } from '@bananapus/nana-sdk-core/v6';
 import { PlanService } from '../../src/services/plans.js';
 import { deploymentAddress, deploymentAddresses } from '../../src/services/rollout.js';
 import { canonicalJson } from '../../src/domain/json.js';
@@ -330,146 +326,6 @@ describe('direct transaction and canonical receipt verification', () => {
     expect(result.steps[0]!.status).toBe('mismatch');
     expect(result.transactionConfirmed).toBe(false);
     expect(result.outcomeVerified).toBe(false);
-  });
-
-  it("verifies a pool buy by the account's net project-token gain, on the real router calldata", async () => {
-    const swapTx = buildDirectPaySwapTx({
-      chainId: 1,
-      quote: {
-        kind: 'direct-swap',
-        poolKey: {
-          currency0: zeroAddress,
-          currency1: TOKEN,
-          fee: 3000,
-          tickSpacing: 60,
-          hooks: zeroAddress,
-        },
-        zeroForOne: true,
-        quotedTokenCount: 52n,
-        minimumTokenCount: 50n,
-        beneficiaryTokenCount: 50n,
-        reservedTokenCount: 0n,
-        inputRoute: { kind: 'single-v4' },
-      },
-      amount: 100n,
-      recipient: ACCOUNT,
-      deadline: 1788696900n,
-    });
-    const swap: PreparedCall = {
-      chainId: 1,
-      to: swapTx.address,
-      data: encodeFunctionData(swapTx),
-      value: String(swapTx.value),
-      label: 'Buy through the pool',
-      decoded: { functionName: 'execute', args: [] },
-      dependsOn: [],
-    };
-    const summary = {
-      projectToken: TOKEN,
-      recipient: ACCOUNT,
-      minimumTokenCount: '50',
-      projectTokenIsJBERC20: true,
-    };
-    const { service, sealed, receipt } = setup({
-      ...draft([swap]),
-      operation: 'pool_buy',
-      summary,
-    });
-    const params = { token: sealed.token, transactions: [{ step: 0, hash: HASH }] };
-    const transfer = (from: Address, to: Address, value: bigint, token = TOKEN, logIndex = 0) =>
-      eventLog(
-        'event Transfer(address indexed from,address indexed to,uint256 value)',
-        { from, to, value },
-        token,
-        logIndex,
-      );
-    receipt.logs = [transfer(OTHER, ACCOUNT, 60n)];
-    const verified = await service.verify(params);
-    expect(verified.outcomeVerified).toBe(true);
-    expect(verified.steps[0]).toMatchObject({
-      outcome: [{ event: 'Transfer', emitter: TOKEN, args: { value: '60' } }],
-    });
-    receipt.logs = [transfer(OTHER, ACCOUNT, 49n)];
-    expect((await service.verify(params)).outcomeVerified).toBe(false);
-    receipt.logs = [transfer(OTHER, OTHER, 60n), transfer(OTHER, ACCOUNT, 60n, OTHER)];
-    expect((await service.verify(params)).outcomeVerified).toBe(false);
-    // A self-transfer and a round trip are no gain.
-    receipt.logs = [transfer(ACCOUNT, ACCOUNT, 60n)];
-    expect((await service.verify(params)).outcomeVerified).toBe(false);
-    receipt.logs = [transfer(OTHER, ACCOUNT, 60n), transfer(ACCOUNT, OTHER, 60n, TOKEN, 1)];
-    expect((await service.verify(params)).outcomeVerified).toBe(false);
-    receipt.logs = [transfer(OTHER, ACCOUNT, 80n), transfer(ACCOUNT, OTHER, 20n, TOKEN, 1)];
-    expect((await service.verify(params)).outcomeVerified).toBe(true);
-
-    const untrusted = setup({
-      ...draft([swap]),
-      operation: 'pool_buy',
-      summary: { ...summary, projectTokenIsJBERC20: false },
-    });
-    untrusted.receipt.logs = [transfer(OTHER, ACCOUNT, 60n)];
-    expect(
-      (
-        await untrusted.service.verify({
-          token: untrusted.sealed.token,
-          transactions: [{ step: 0, hash: HASH }],
-        })
-      ).outcomeVerified,
-    ).toBe(false);
-  });
-
-  it('verifies a Permit2 approval by the canonical Approval event with every signed field', async () => {
-    const permit2 = uniswapV4Deployment(1)!.permit2;
-    const router = uniswapV4Deployment(1)!.universalRouter!;
-    const approval = buildPermit2ApproveTx({
-      chainId: 1,
-      token: TOKEN,
-      amount: 5000n,
-      expiration: 1788699600,
-    });
-    const step: PreparedCall = {
-      chainId: 1,
-      to: approval.address,
-      data: encodeFunctionData(approval),
-      value: '0',
-      label: 'Permit2 approve',
-      decoded: { functionName: 'approve', args: [] },
-      dependsOn: [],
-    };
-    const { service, sealed, receipt } = setup({ ...draft([step]), operation: 'pool_buy' });
-    const params = { token: sealed.token, transactions: [{ step: 0, hash: HASH }] };
-    const event =
-      'event Approval(address indexed owner,address indexed token,address indexed spender,uint160 amount,uint48 expiration)';
-    const log = (overrides: Record<string, unknown> = {}, emitter: Address = permit2) =>
-      eventLog(
-        event,
-        {
-          owner: ACCOUNT,
-          token: TOKEN,
-          spender: router,
-          amount: 5000n,
-          expiration: 1788699600,
-          ...overrides,
-        },
-        emitter,
-      );
-    receipt.logs = [log()];
-    const verified = await service.verify(params);
-    expect(verified.outcomeVerified).toBe(true);
-    expect(verified.steps[0]).toMatchObject({
-      outcome: [{ event: 'Approval', emitter: permit2, args: { amount: '5000' } }],
-    });
-    for (const wrong of [
-      { owner: OTHER },
-      { token: OTHER },
-      { spender: OTHER },
-      { amount: 4999n },
-      { expiration: 1788699599 },
-    ]) {
-      receipt.logs = [log(wrong)];
-      expect((await service.verify(params)).outcomeVerified).toBe(false);
-    }
-    receipt.logs = [log({}, OTHER)];
-    expect((await service.verify(params)).outcomeVerified).toBe(false);
   });
 
   it('distinguishes a pending transaction, an unavailable receipt, and a revert', async () => {
@@ -907,6 +763,134 @@ describe('re-simulation and dependency verification', () => {
         'reason',
         expect.stringContaining('chained: true'),
       );
+    });
+  });
+
+  describe('pay failures', () => {
+    // The terminal's minimum missed by 10 tokens, as a node returns it through viem.
+    const underMin = encodeErrorResult({
+      abi: jbMultiTerminalAbi,
+      errorName: 'JBMultiTerminal_UnderMin',
+      args: [90n, 100n],
+    });
+    const nodeRevert = (data: Hex) =>
+      new CallExecutionError(
+        new RpcRequestError({
+          body: {},
+          error: { code: 3, message: 'execution reverted', data },
+          url: 'https://rpc.invalid/secret-key',
+        }),
+        {},
+      );
+    const expected = {
+      reason: 'TERMINAL_UNDER_MIN',
+      received: '90',
+      minimum: '100',
+      message: expect.stringContaining('fewer tokens than your minimum'),
+      adjustable: 'minimum',
+      retrySlippageBps: 1100,
+      retry: expect.stringContaining('slippageBps 1100 (it was 100)'),
+    };
+    // The plan's quote summary carries the tolerance the payment was prepared with.
+    const quoted = (base: PlanDraft) => ({ ...base, summary: { amount: '100', slippageBps: 100 } });
+
+    it('names why a pay simulation reverts and how to retry, without node text', async () => {
+      const { service, sealed, client } = setup(quoted(draft()));
+      client.call.mockRejectedValueOnce(nodeRevert(underMin));
+      const result = await service.simulate({ token: sealed.token });
+      expect(result).toMatchObject({
+        status: 'unverified',
+        error: { code: 'CALL_REVERTED', payFailure: expected },
+      });
+      expect(JSON.stringify(result)).not.toContain('secret-key');
+    });
+
+    it('names a reverting pay step in a chained simulation', async () => {
+      const { service, sealed, client } = setup(
+        quoted(draft([approval(), { ...payCall(), dependsOn: [0] }])),
+      );
+      client.request.mockResolvedValueOnce([
+        {
+          calls: [
+            { status: '0x1', gasUsed: '0x5208', returnData: '0x', logs: [] },
+            {
+              status: '0x0',
+              gasUsed: '0x5208',
+              returnData: '0x',
+              logs: [],
+              error: { code: 3, data: underMin },
+            },
+          ],
+        },
+      ]);
+      const result = await service.simulate({ token: sealed.token, step: 1, chained: true });
+      expect(result).toMatchObject({ error: { step: 1, payFailure: expected } });
+    });
+
+    it("keeps a mined pay revert's cause unknown and does not replay it", async () => {
+      const { service, sealed, client, receipt } = setup();
+      receipt.status = 'reverted';
+      const calls = client.call.mock.calls.length;
+      const step = (
+        await service.verify({ token: sealed.token, transactions: [{ step: 0, hash: HASH }] })
+      ).steps[0]!;
+      expect(step.status).toBe('reverted');
+      expect(step).not.toHaveProperty('payFailure');
+      expect(client.call.mock.calls.length).toBe(calls);
+    });
+
+    it("reads a 721 payment's context from its payment quote", async () => {
+      const { service, sealed, client } = setup({
+        ...draft(),
+        operation: '721_pay',
+        summary: { nft: {}, paymentQuote: { slippageBps: 100, minimumBasis: 'explicit' } },
+      });
+      client.call.mockRejectedValueOnce(nodeRevert(underMin));
+      const result = await service.simulate({ token: sealed.token });
+      expect(result).toMatchObject({
+        error: {
+          payFailure: {
+            reason: 'TERMINAL_UNDER_MIN',
+            retry: expect.stringContaining(
+              'jb_prepare_721_pay and the same tiers, passing minReturnedTokens at or below 90',
+            ),
+          },
+        },
+      });
+    });
+
+    it('keeps an NFT purchase on jb_prepare_721_pay for a slippage retry', async () => {
+      const { service, sealed, client } = setup({
+        ...draft(),
+        operation: '721_pay',
+        summary: { nft: {}, paymentQuote: { slippageBps: 100, minimumBasis: 'prepareUserPay' } },
+      });
+      client.call.mockRejectedValueOnce(nodeRevert(underMin));
+      const failure = ((await service.simulate({ token: sealed.token })) as any).error.payFailure;
+      expect(failure).toMatchObject({ retrySlippageBps: 1100 });
+      expect(failure.retry).toContain(
+        'jb_prepare_721_pay and the same tiers, with slippageBps 1100',
+      );
+      expect(failure.retry).not.toContain('jb_prepare_pay ');
+    });
+
+    it("points a buyback miss at the caller's metadata when the plan used it", async () => {
+      const hookMiss =
+        `0xe2d708a9${encodeAbiParameters(parseAbiParameters('uint256, uint256'), [380n, 396n]).slice(2)}` as Hex;
+      const { service, sealed, client } = setup({
+        ...draft(),
+        summary: { amount: '100', slippageBps: 100, hookMinimumSource: 'caller metadata' },
+      });
+      client.call.mockRejectedValueOnce(nodeRevert(hookMiss));
+      const result = await service.simulate({ token: sealed.token });
+      expect(result).toMatchObject({
+        error: {
+          payFailure: {
+            reason: 'BUYBACK_SLIPPAGE_EXCEEDED',
+            retry: expect.stringContaining('metadata the caller passed'),
+          },
+        },
+      });
     });
   });
 

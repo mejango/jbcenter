@@ -14,16 +14,8 @@ import {
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
 import {
-  NATIVE_SWAP_BY_CHAIN,
-  buildDirectPaySwapTx,
-  buildPermit2ApproveTx,
-  permit2AllowanceNeedsRefresh,
-  quoteDirectPaySwap,
-  readPermit2Allowance,
-  uniswapV4Deployment,
   uniswapV4PoolId,
   uniswapV4PoolStateSlot,
-  uniswapV4SwapDirection,
   uniswapV4SqrtPriceX96FromSlot0,
   v6Address,
   type JBRulesetWithMetadata,
@@ -31,7 +23,6 @@ import {
 } from '@bananapus/nana-sdk-core/v6';
 import {
   encodeFunctionData,
-  erc20Abi,
   isAddressEqual,
   numberToHex,
   parseAbi,
@@ -41,27 +32,23 @@ import {
   type Hex,
 } from 'viem';
 import type { z } from 'zod';
-import { DomainError, publicError, revertOf } from '../domain/errors.js';
+import { DomainError, publicError } from '../domain/errors.js';
 import { jsonSafe } from '../domain/json.js';
 import {
   prepareBuybackHookSchema,
   prepareBuybackPoolSchema,
   prepareBuybackTwapSchema,
   prepareRouterTerminalSchema,
-  quotePoolBuySchema,
   resolveRouterTerminal,
   routingSchema,
 } from '../domain/routing.js';
 import type {
-  BlockEvidence,
   Observation,
   PlanDraft,
-  PreparedCall,
   ProjectRef,
   RpcProvider,
   RpcSnapshot,
 } from '../domain/types.js';
-import { call, pushExactApproval } from './payments.js';
 import { deploymentAddress, deploymentAddresses, routerGatewayAbi } from './rollout.js';
 
 const NATIVE = '0x000000000000000000000000000000000000EEEe' as const;
@@ -104,71 +91,6 @@ function bound<T>(items: readonly T[], max: number, label: string): readonly T[]
     );
   return items;
 }
-
-/** The terminal quote fields shown next to a pool quote. */
-export interface TerminalPayQuote {
-  route: string;
-  quoteBasis: string;
-  beneficiaryTokenCount: string;
-  reservedTokenCount: string;
-  minimumBeneficiaryTokenCount: string;
-  simulatedBeneficiaryTokenCount?: Observation<string>;
-  slippageBps: number;
-}
-/** Output at the pool spot price, before fees and price movement. */
-function spotOutput(amountIn: bigint, sqrtPriceX96: bigint, zeroForOne: boolean): bigint {
-  const priceX192 = sqrtPriceX96 * sqrtPriceX96;
-  if (priceX192 === 0n) return 0n;
-  return zeroForOne ? (amountIn * priceX192) >> 192n : (amountIn << 192n) / priceX192;
-}
-
-/** EIP-1167 minimal proxy runtime code for `implementation`, as OpenZeppelin Clones deploys it. */
-function eip1167(implementation: Address): string {
-  return `0x363d3d373d3d3d363d73${implementation.slice(2)}5af43d82803e903d91602b57fd5bf3`.toLowerCase();
-}
-
-/**
- * A recorded buyback hook only swaps in pools whose hook is its oracleHook, the protocol's JBUniswapV4Hook.
- * No hook is a plain pool; any other hook can change what a swap delivers.
- */
-function poolHookOf(
-  hooks: Address,
-  oracleHook: Address,
-  projectId: bigint,
-  inputProjectId: bigint,
-) {
-  if (same(hooks, zeroAddress)) return { address: hooks, kind: 'none' as const };
-  if (same(oracleHook, zeroAddress) || !same(hooks, oracleHook))
-    return { address: hooks, kind: 'unsupported' as const };
-  // JBUniswapV4Hook._beforeSwap picks the largest of these at swap time.
-  const routes = [
-    { route: 'pay' as const, projectId },
-    ...(inputProjectId ? [{ route: 'cashOut' as const, projectId: inputProjectId }] : []),
-    { route: 'pool' as const },
-  ];
-  return { address: hooks, kind: 'JBUniswapV4Hook' as const, routes };
-}
-
-/** What a buy through this pool does, by its hook. */
-function poolHookWarning(hook: ReturnType<typeof poolHookOf>): string {
-  if (hook.kind === 'none')
-    return "The pool has no hook, so the tokens come from its liquidity. Nothing is issued: no reserved tokens go to the project's splits (for a revnet, the operator split), and none of the payment reaches the project's balance.";
-  if (hook.kind === 'JBUniswapV4Hook') {
-    const cashOut = hook.routes.find((item) => item.route === 'cashOut');
-    return [
-      "The pool's hook is JBUniswapV4Hook (pool.hook.routes). At swap time it takes whichever gives the most output: paying",
-      `project ${hook.routes[0]!.projectId} through its primary terminal,`,
-      cashOut
-        ? `cashing out project ${cashOut.projectId}'s tokens, since the input currency is that project's registered ERC-20,`
-        : "(cashing out is not possible here: the input currency is not a project's registered ERC-20)",
-      "or pool liquidity. It compares terminal previews with its own estimate of the pool output (TWAP, or the spot price while the TWAP is cold). A terminal route's effects, such as issuance, reserved tokens, what reaches a project's balance and cash-out tax, follow that terminal's ruleset and hooks. The quoter runs the hook, so pool.tokenCount follows whichever route it picks at this block.",
-    ].join(' ');
-  }
-  return `The pool's hook ${hook.address} is not the buyback hook's JBUniswapV4Hook. Its behavior is not read; it can change what the swap delivers. jb_prepare_pool_buy refuses this pool.`;
-}
-
-const CUSTOM_TOKEN_WARNING =
-  'The project token is not a JBERC20 deployed by JBTokens. The router checks the minimum before it transfers the token, so a custom token can deliver less than minimumTokenCount to the account. jb_prepare_pool_buy refuses it; use jb_prepare_pay.';
 
 export interface ResolvedRoutingHooks {
   dataHook: Address;
@@ -579,371 +501,6 @@ export class RoutingService {
           'V6 has no setDefaultSlippageToleranceOf. Buyback tolerance is derived from amount, liquidity, and fees; explicit minima are supplied in transaction metadata.',
       },
     });
-  }
-
-  /**
-   * The direct pool buy for a payment at one block: the project's buyback pool for the payment token,
-   * or across the SDK's WETH/USDC V3 bridge, and the SDK quote of it with `slippageBps` taken off.
-   */
-  private async poolBuy(
-    input: z.output<typeof quotePoolBuySchema>,
-    snapshot: Awaited<ReturnType<RoutingService['context']>>,
-  ) {
-    const { chainId } = input.project;
-    const { client, projectId } = snapshot;
-    const hook = (await resolveRoutingHooks(snapshot, input.project, snapshot.current)).buyback;
-    if (!hook)
-      throw new DomainError('NO_BUYBACK_POOL', 'This project has no buyback hook, so no pool.');
-    if (!recordedBuyback(hook, chainId))
-      throw new DomainError(
-        'UNSUPPORTED_BUYBACK_IMPLEMENTATION',
-        'The project uses a custom buyback hook. Its pool is not read.',
-      );
-    const bridge = NATIVE_SWAP_BY_CHAIN[chainId];
-    const poolTokens: Address[] = [input.token];
-    if (bridge && same(input.token, NATIVE)) poolTokens.push(bridge.bridgeToken);
-    if (bridge && same(input.token, bridge.bridgeToken)) poolTokens.push(NATIVE);
-    const tokens = v6Address('JBTokens', chainId);
-    const [manager, oracleHook, projectToken, tokenImplementation, keys] = await Promise.all([
-      client.readContract({ address: hook, abi: jbBuybackHookAbi, functionName: 'poolManager' }),
-      client.readContract({ address: hook, abi: jbBuybackHookAbi, functionName: 'oracleHook' }),
-      client.readContract({
-        address: tokens,
-        abi: jbTokensAbi,
-        functionName: 'tokenOf',
-        args: [projectId],
-      }),
-      client.readContract({ address: tokens, abi: jbTokensAbi, functionName: 'TOKEN' }),
-      Promise.all(
-        poolTokens.map((token) =>
-          client.readContract({
-            address: hook,
-            abi: jbBuybackHookAbi,
-            functionName: 'poolKeyOf',
-            args: [projectId, normalized(token)],
-          }),
-        ),
-      ),
-    ]);
-    const index = keys.findIndex(configured);
-    if (index < 0)
-      throw new DomainError(
-        'NO_BUYBACK_POOL',
-        'The buyback hook has no pool for this token, and none across the ETH/USDC bridge.',
-      );
-    const key = keys[index]!;
-    const zeroForOne = uniswapV4SwapDirection({
-      poolKey: key,
-      tokenIn: poolTokens[index]!,
-      tokenOut: projectToken,
-    });
-    if (zeroForOne === null)
-      throw new DomainError(
-        'POOL_PAIR_MISMATCH',
-        "The buyback pool does not pair this token with the project's ERC-20.",
-      );
-    // JBUniswapV4Hook can cash out the input instead when it is a project's registered ERC-20 (its own rule).
-    const inputCurrency = normalized(poolTokens[index]!);
-    const [state, tokenCode, inputProjectId] = await Promise.all([
-      this.poolState(snapshot, manager, key),
-      client.getCode({ address: projectToken }),
-      same(inputCurrency, zeroAddress)
-        ? 0n
-        : client
-            .readContract({
-              address: tokens,
-              abi: jbTokensAbi,
-              functionName: 'projectIdOf',
-              args: [inputCurrency],
-            })
-            .then(async (id) =>
-              id !== 0n &&
-              same(
-                await client.readContract({
-                  address: tokens,
-                  abi: jbTokensAbi,
-                  functionName: 'tokenOf',
-                  args: [id],
-                }),
-                inputCurrency,
-              )
-                ? id
-                : 0n,
-            ),
-    ]);
-    // Only a revert of the V4 quoter call itself says the pool cannot fill; transport, bounds and bridge-leg
-    // failures keep their own errors.
-    const quoter = uniswapV4Deployment(chainId)?.quoter;
-    let quoterFailure: unknown;
-    // The SDK swallows V3 bridge-leg failures and returns null; a transport failure there leaves the route unknown.
-    let transportFailure: unknown;
-    const watched = Object.create(client, {
-      call: {
-        value: (args: Parameters<typeof client.call>[0]) =>
-          client.call(args).catch((error: unknown) => {
-            if (quoter && args.to && same(args.to, quoter)) quoterFailure = error;
-            if (!revertOf(error)) transportFailure ??= error;
-            throw error;
-          }),
-      },
-    }) as typeof client;
-    // A zero terminal preview makes the SDK return its route quote without picking a winner.
-    // The quoter decides executability: a swap can cross into initialized ticks, and the pool hook can fill it.
-    const swap = await quoteDirectPaySwap({
-      client: watched,
-      chainId,
-      poolKey: key,
-      pairIsCurrency0: zeroForOne,
-      paymentToken: input.token,
-      amount: BigInt(input.amount),
-      payPreview: { beneficiaryTokenCount: 0n, reservedTokenCount: 0n },
-      slippageBps: BigInt(input.slippageBps),
-    }).catch((error: unknown) => {
-      const revert = error === quoterFailure ? revertOf(error) : undefined;
-      if (revert && state.activeLiquidity === 0n)
-        throw new DomainError(
-          'NO_POOL_LIQUIDITY',
-          'The Uniswap V4 quoter reverted for this amount at this block, and the buyback pool has no liquidity at its current price. Pay the project through the terminal (jb_quote_pay) instead.',
-          { details: { poolId: state.poolId, activeLiquidity: '0', quoterRevert: revert } },
-        );
-      throw error;
-    });
-    if (!swap && transportFailure) throw transportFailure;
-    if (!swap)
-      throw new DomainError(
-        'POOL_QUOTE_UNAVAILABLE',
-        'No pool route for this amount: the V3 bridge leg found no pool, the pool output is zero, or this chain has no supported Uniswap router.',
-      );
-    return {
-      hook,
-      manager,
-      projectToken,
-      // JBTokens deploys project ERC-20s as EIP-1167 clones of TOKEN; anything else was set as a custom token.
-      canonicalToken: tokenCode?.toLowerCase() === eip1167(tokenImplementation),
-      poolHook: poolHookOf(key.hooks, oracleHook, projectId, inputProjectId),
-      key,
-      zeroForOne,
-      swap,
-      state,
-    };
-  }
-
-  /**
-   * Quote a direct buy from the project's buyback pool next to the terminal quote, at one block.
-   * Pools follow the SDK direct-swap routes: the payment token's own pool, or across its WETH/USDC V3 bridge.
-   */
-  async quotePoolBuy(
-    raw: z.input<typeof quotePoolBuySchema>,
-    quoteTerminal: (at: BlockEvidence) => Promise<TerminalPayQuote>,
-  ) {
-    const input = quotePoolBuySchema.parse(raw);
-    const snapshot = await this.context(input.project);
-    const pending = observe(async () => {
-      const quote = await quoteTerminal(snapshot.evidence);
-      return {
-        route: quote.route,
-        quoteBasis: quote.quoteBasis,
-        beneficiaryTokenCount: quote.beneficiaryTokenCount,
-        reservedTokenCount: quote.reservedTokenCount,
-        minimumBeneficiaryTokenCount: quote.minimumBeneficiaryTokenCount,
-        ...(quote.simulatedBeneficiaryTokenCount
-          ? { simulatedBeneficiaryTokenCount: quote.simulatedBeneficiaryTokenCount }
-          : {}),
-        slippageBps: quote.slippageBps,
-      };
-    });
-    const { hook, projectToken, canonicalToken, poolHook, key, zeroForOne, swap, state } =
-      await this.poolBuy(input, snapshot);
-    const terminal = await pending;
-    const poolAmountIn =
-      swap.inputRoute.kind === 'single-v4'
-        ? BigInt(input.amount)
-        : swap.inputRoute.quotedBridgeAmount;
-    const spotTokenCount = spotOutput(poolAmountIn, state.sqrtPriceX96, zeroForOne);
-    const warnings = [
-      poolHookWarning(poolHook),
-      ...(canonicalToken ? [] : [CUSTOM_TOKEN_WARNING]),
-      "pool.tokenCount is the pool's exact-input output at this block; pool.minimumTokenCount takes slippageBps off it. terminal.beneficiaryTokenCount is the count the terminal minimum is built from; with a buyback hook it is a TWAP floor, and terminal.simulatedBeneficiaryTokenCount is the fill at this block. Neither route is a best-price claim.",
-      'jb_prepare_pool_buy prepares this swap. jb_prepare_pay prepares the terminal route.',
-    ];
-    if (swap.inputRoute.kind !== 'single-v4')
-      warnings.push(
-        'This route first swaps through a Uniswap V3 ETH/USDC pool. priceImpactBps covers the V4 pool only.',
-      );
-    if (swap.inputRoute.kind !== 'single-v4' && terminal.status === 'known')
-      if (terminal.value.route === 'router-terminal')
-        warnings.push(
-          "pool.inputRoute.quotedBridgeAmount is the V3 quoter's output at this block, from the best fee tier. The router terminal picks its own V3 pool and previews its conversion at that pool's 10-minute TWAP less its slippage buffer (at least 2%, or the pool fee plus 1%), so the amount behind its buyback count is a floor about 2% or more below this one. The router's actual swap fills at the market.",
-        );
-    return jsonSafe({
-      project: input.project,
-      evidence: [snapshot.evidence],
-      payment: { token: input.token, amount: input.amount, unit: 'token-base-units' },
-      projectToken,
-      projectTokenDecimals: 18,
-      projectTokenIsJBERC20: canonicalToken,
-      pool: {
-        buybackHook: hook,
-        hook: poolHook,
-        key,
-        poolId: state.poolId,
-        sqrtPriceX96: state.sqrtPriceX96,
-        activeLiquidity: state.activeLiquidity,
-        inputRoute: swap.inputRoute,
-        amountIn: poolAmountIn,
-        tokenCount: swap.quotedTokenCount,
-        minimumTokenCount: swap.minimumTokenCount,
-        slippageBps: input.slippageBps,
-        spotTokenCount,
-        priceImpactBps:
-          spotTokenCount === 0n
-            ? null
-            : ((spotTokenCount - swap.quotedTokenCount) * 10_000n) / spotTokenCount,
-        priceImpact: 'Output shortfall against the pool spot price at this block, fees included.',
-      },
-      terminal,
-      warnings,
-    });
-  }
-
-  /**
-   * Prepare the direct pool buy `quotePoolBuy` quotes, as one Universal Router call.
-   * ERC-20 input first approves Permit2 and authorizes the router there, for exactly this amount.
-   */
-  async preparePoolBuy(raw: z.input<typeof quotePoolBuySchema>): Promise<PlanDraft> {
-    const input = quotePoolBuySchema.parse(raw);
-    const { chainId } = input.project;
-    const snapshot = await this.context(input.project);
-    const { projectToken, canonicalToken, poolHook, key, swap } = await this.poolBuy(
-      input,
-      snapshot,
-    );
-    // The router checks its minimum on the swap output, before the token transfer and with any pool hook run.
-    // That bounds what the account receives only for a JBERC20 and a pool hook whose behavior is known.
-    if (!canonicalToken || poolHook.kind === 'unsupported')
-      throw new DomainError(
-        'UNSUPPORTED_POOL_BUY',
-        canonicalToken
-          ? `The pool's hook ${poolHook.address} is not the buyback hook's JBUniswapV4Hook, so the swap's outcome cannot be bounded. Pay through the terminal with jb_prepare_pay.`
-          : CUSTOM_TOKEN_WARNING,
-        { details: { projectToken, projectTokenIsJBERC20: canonicalToken, poolHook } },
-      );
-    const amount = BigInt(input.amount);
-    // Enforced on-chain at 15 minutes past the quote block's timestamp. The plan token's wall-clock lifetime
-    // (PLAN_TTL_SECONDS) is separate: either can lapse first.
-    const deadline = BigInt(snapshot.evidence.timestamp) + 900n;
-    const swapTx = buildDirectPaySwapTx({
-      chainId,
-      quote: swap,
-      amount,
-      recipient: input.account,
-      deadline,
-    });
-    const calls: PreparedCall[] = [];
-    if (!same(input.token, NATIVE)) {
-      const permit2 = uniswapV4Deployment(chainId)!.permit2;
-      const [allowance, permitted] = await Promise.all([
-        snapshot.client.readContract({
-          address: input.token,
-          abi: erc20Abi,
-          functionName: 'allowance',
-          args: [input.account, permit2],
-        }),
-        readPermit2Allowance(snapshot.client, {
-          chainId,
-          owner: input.account,
-          token: input.token,
-        }),
-      ]);
-      pushExactApproval(
-        calls,
-        chainId,
-        input.token,
-        permit2,
-        allowance,
-        amount,
-        'Approve Permit2 for exactly this amount',
-      );
-      if (
-        permit2AllowanceNeedsRefresh({
-          allowance: permitted,
-          amount,
-          now: Number(snapshot.evidence.timestamp),
-        })
-      ) {
-        const approval = buildPermit2ApproveTx({
-          chainId,
-          token: input.token,
-          amount,
-          // Past the swap deadline by the SDK's 30-minute refresh buffer, so it cannot lapse first.
-          expiration: Number(deadline) + 1800,
-        });
-        calls.push(
-          call(
-            chainId,
-            approval.address,
-            approval.abi,
-            approval.functionName,
-            approval.args,
-            'Let the Uniswap Universal Router spend exactly this amount through Permit2',
-            0n,
-            calls.length ? [calls.length - 1] : [],
-          ),
-        );
-      }
-    }
-    calls.push(
-      call(
-        chainId,
-        swapTx.address,
-        swapTx.abi,
-        swapTx.functionName,
-        swapTx.args,
-        "Buy project tokens through the project's buyback pool and its hook, with the Uniswap Universal Router",
-        swapTx.value,
-        calls.length ? [calls.length - 1] : [],
-      ),
-    );
-    const warnings = [
-      poolHookWarning(poolHook),
-      `The swap reverts if it outputs fewer than minimumTokenCount project tokens, or after the deadline (${deadline}, unix seconds). The project token is a JBERC20, so the account receives that output in full.`,
-    ];
-    if (swap.inputRoute.kind !== 'single-v4')
-      warnings.push(
-        'The V3 bridge leg has no minimum of its own. The final project-token minimum covers both legs.',
-      );
-    if (calls.length > 1)
-      warnings.push(
-        'The swap has not been simulated with artificial allowances. Check it before signing with jb_simulate_plan chained: true, or confirm each approval first.',
-      );
-    return {
-      operation: 'pool_buy',
-      account: input.account,
-      project: input.project,
-      calls,
-      evidence: [snapshot.evidence],
-      summary: jsonSafe({
-        payment: { token: input.token, amount: input.amount, unit: 'token-base-units' },
-        recipient: input.account,
-        projectToken,
-        projectTokenDecimals: 18,
-        projectTokenIsJBERC20: canonicalToken,
-        poolHook,
-        poolKey: key,
-        inputRoute: swap.inputRoute,
-        quotedTokenCount: swap.quotedTokenCount,
-        minimumTokenCount: swap.minimumTokenCount,
-        slippageBps: input.slippageBps,
-        deadline,
-        router: swapTx.address,
-        tokenCounts: {
-          quotedTokenCount: "The pool's exact-input output at the quote block.",
-          minimumTokenCount:
-            'quotedTokenCount less slippageBps. The router reverts if the swap outputs fewer project tokens.',
-        },
-      }),
-      warnings,
-    };
   }
 
   private async pool(

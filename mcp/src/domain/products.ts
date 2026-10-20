@@ -13,6 +13,8 @@ import {
   hashSchema,
   positiveUintSchema,
   projectSchema,
+  skipSplitsSchema,
+  paySlippageSchema,
   slippageSchema,
   uintSchema,
 } from './schemas.js';
@@ -118,13 +120,14 @@ export const pay721Schema = z
       .array(uint(16).refine((v) => BigInt(v) > 0n))
       .min(1)
       .max(32),
-    slippageBps: slippageSchema,
+    slippageBps: paySlippageSchema,
     minReturnedTokens: uintSchema
       .optional()
       .describe(
         'Explicit minimum fungible project tokens for the beneficiary, in 18-decimal base units, replacing the quoted count less slippageBps. Needed when the quote warns that the default minimum sits above the simulated fill (a buyback hook beside the NFT hook). NFT delivery is checked either way.',
       ),
     allowOverspending: z.boolean().default(false),
+    skipSplits: skipSplitsSchema,
   })
   .strict();
 export const getRevnetSchema = z

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { getAddress, isAddress } from 'viem';
+import { PAY_DEFAULT_SLIPPAGE_BPS, PAY_MAX_SLIPPAGE_BPS } from '@bananapus/nana-sdk-core/v6';
 import { assertUnambiguousJson } from './json.js';
 
 export const chainIdSchema = z.union([
@@ -79,6 +80,16 @@ export const slippageSchema = z
   .max(1000)
   .default(100)
   .describe('Slippage in basis points, 0–1000. Default 100 (1%).');
+/** A payment's tolerance: up to the SDK's retry cap, so a payRetrySlippageBps candidate is accepted. */
+export const paySlippageSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(Number(PAY_MAX_SLIPPAGE_BPS))
+  .default(Number(PAY_DEFAULT_SLIPPAGE_BPS))
+  .describe(
+    `Slippage in basis points, 0–${PAY_MAX_SLIPPAGE_BPS}. Default ${PAY_DEFAULT_SLIPPAGE_BPS}. Raise it only within what the payer accepts, such as a payFailure's retrySlippageBps.`,
+  );
 export const pageSchema = {
   limit: z.number().int().min(1).max(50).default(20),
   cursor: z.string().max(1024).optional(),
@@ -99,3 +110,10 @@ export const jsonObjectSchema = z.preprocess(
   },
   z.record(z.string(), z.json()),
 );
+
+export const skipSplitsSchema = z
+  .boolean()
+  .optional()
+  .describe(
+    "Buyback 1.4 only. Unset means on wherever the project's buyback hook is 1.4 and no metadata is given, as the apps pay: the hook buys from the pool when that beats the payer's share of a mint, and the tokens it buys go to the beneficiary without the reserved split (they already exist, so nothing is issued for them and the split gets none). Minting still pays the split. The default minimum is then the SDK's (prepareUserPay): with a pool quote, the beneficiary's part of the floored quote, which the hook also enforces. Pass false when the payment should honor the project's splits, such as routing fees or revenue into a project. Where it cannot apply (no buyback hook, hook 1.0 or 1.1.1, the caller's own metadata) unset means off, and an explicit true is refused. The quote's skipSplits says which applied and why.",
+  );

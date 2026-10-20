@@ -368,7 +368,6 @@ describe('transport-independent protocol operations', () => {
       ...PAY_INPUT,
       project: PROJECT,
       slippageBps: 100,
-      skipSplits: false,
     });
     expect(quote.mock.calls[0]?.[0].amount).toBe('9007199254740995');
     expect(quote.mock.calls[0]?.[0].project.projectId).toBe('9007199254740993');
@@ -530,7 +529,6 @@ describe('transport-independent protocol operations', () => {
       ...PAY_INPUT,
       project: PROJECT,
       slippageBps: 100,
-      skipSplits: false,
     });
     expect(result).toMatchObject({
       operation: 'pay',

@@ -22,6 +22,8 @@ import {
   pageSchema,
   positiveUintSchema,
   projectSchema,
+  skipSplitsSchema,
+  paySlippageSchema,
   slippageSchema,
   uintSchema,
 } from '../domain/schemas.js';
@@ -64,7 +66,6 @@ import {
   prepareBuybackTwapSchema,
   prepareBuybackHookSchema,
   prepareRouterTerminalSchema,
-  quotePoolBuySchema,
 } from '../domain/routing.js';
 import { integrationInputSchema, referenceInputSchema } from '../services/development.js';
 import { UNITS } from '../domain/units.js';
@@ -98,19 +99,14 @@ const payShape = {
     'Input asset amount in its smallest units, as an exact integer string.',
   ),
   beneficiary: addressSchema,
-  slippageBps: slippageSchema,
+  slippageBps: paySlippageSchema,
   minReturnedTokens: uintSchema
     .optional()
     .describe(
       'Explicit minimum project tokens for the beneficiary, in 18-decimal base units, replacing beneficiaryTokenCount less slippageBps. To accept 2% below the fill, take the quote\'s simulatedBeneficiaryTokenCount less 2%. A warning names a figure above the simulated fill. jb_prepare_pay requires it when the default would protect nothing (PAY_MINIMUM_PROTECTS_NOTHING) or sits above the simulated fill (PAY_DEFAULT_MINIMUM_ABOVE_FILL). "0" accepts receiving no project tokens.',
     ),
   metadata: hexSchema.optional(),
-  skipSplits: z
-    .boolean()
-    .default(false)
-    .describe(
-      "Buyback 1.4 only. True sends the tokens the hook buys from the pool straight to the beneficiary, skipping the project's reserved split; the hook's TWAP floor still applies. Bought tokens already exist: nothing is issued for that part and the split gets none of it. Issuance (the hook passes, or leftover input) still pays the split. Refused with metadata, without a buyback hook, or on any hook other than buyback 1.4 (1.0 and 1.1.1 included).",
-    ),
+  skipSplits: skipSplitsSchema,
 };
 const cashOutShape = {
   project: projectSchema,
@@ -502,22 +498,6 @@ function definitions(s: Services): ProtocolOperation[] {
       'Inspect the actual buyback/NFT/revnet hook composition, router project overrides, pool configuration, TWAP availability and token routes. Unknown oracle or custom-hook behavior remains explicit.',
       routingSchema,
       (input) => s.routing.getRouting(input),
-    ),
-    operationWithSchema(
-      'quote_pool_buy',
-      "Quote buying project tokens through the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. The buy runs the pool's hook: with JBUniswapV4Hook it can pay the project instead (issuance, reserved splits, payment to the balance) when that gives more tokens; pool.hook names the hook.",
-      quotePoolBuySchema,
-      (input) =>
-        s.routing.quotePoolBuy(input, (at) =>
-          s.payments.quotePay({ ...input, beneficiary: input.account }, at),
-        ),
-    ),
-    transactionWithSchema(
-      s,
-      'prepare_pool_buy',
-      "Prepare an authenticated unsigned buy through the project's buyback pool on the route jb_quote_pool_buy quotes, with the Uniswap Universal Router and a project-token minimum of the pool output less slippageBps. The pool's hook runs: with JBUniswapV4Hook the buy can be filled by paying the project. Refuses a custom project token or an unrecognized pool hook.",
-      quotePoolBuySchema,
-      async (input) => s.routing.preparePoolBuy(input),
     ),
     transactionWithSchema(
       s,

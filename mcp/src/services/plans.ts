@@ -3,9 +3,7 @@ import { z } from 'zod';
 import {
   decodeEventLog,
   decodeFunctionData,
-  encodeAbiParameters,
   erc20Abi,
-  keccak256,
   numberToHex,
   parseAbi,
   toFunctionSelector,
@@ -34,8 +32,15 @@ import {
   revLoansAbi,
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
-import { jbSuckerV6Abi, uniswapV4Deployment, v6Address } from '@bananapus/nana-sdk-core/v6';
-import { DomainError, publicError, revertOf } from '../domain/errors.js';
+import { jbSuckerV6Abi, uniswapV4PoolId, v6Address } from '@bananapus/nana-sdk-core/v6';
+import {
+  DomainError,
+  payFailureOf,
+  type PayFailureContext,
+  publicError,
+  publicPayError,
+  revertOf,
+} from '../domain/errors.js';
 import { canonicalJson, jsonSafe } from '../domain/json.js';
 import {
   addressSchema,
@@ -71,10 +76,6 @@ const same = (left: unknown, right: unknown) =>
   left.toLowerCase() === right.toLowerCase();
 const equalData = (left: unknown, right: unknown) => canonicalJson(left) === canonicalJson(right);
 // The SDK's common sucker ABI omits these two V6 receipt events. Exact IJBSucker definitions.
-const permit2Abi = parseAbi([
-  'function approve(address token, address spender, uint160 amount, uint48 expiration)',
-  'event Approval(address indexed owner, address indexed token, address indexed spender, uint160 amount, uint48 expiration)',
-]);
 const suckerReceiptAbi = parseAbi([
   'event Claimed(bytes32 beneficiary,address token,uint256 projectTokenCount,uint256 terminalTokenAmount,uint256 index,bytes32 metadata,address caller)',
   'event AccountingDataSynced(uint256 sourceTimestamp,address caller)',
@@ -230,6 +231,31 @@ export interface StepVerification {
   outcome?: OutcomeEvidence[];
   error?: ReturnType<typeof publicError>;
 }
+
+const paying = (plan: PlanEnvelope) =>
+  plan.draft.operation === 'pay' || plan.draft.operation === '721_pay';
+/** What the plan's quote summary says about its minimums, for the retry hint. */
+const payContext = (plan: PlanEnvelope): PayFailureContext => {
+  const top = (plan.draft.summary ?? {}) as Record<string, unknown>;
+  // A 721 payment keeps its payment quote beside the NFT one.
+  const summary = (
+    plan.draft.operation === '721_pay' && top.paymentQuote && typeof top.paymentQuote === 'object'
+      ? top.paymentQuote
+      : top
+  ) as Record<string, unknown>;
+  const bps = summary.slippageBps;
+  const source = summary.hookMinimumSource;
+  return {
+    ...(Number.isSafeInteger(bps) && (bps as number) >= 0
+      ? { slippageBps: BigInt(bps as number) }
+      : {}),
+    explicitMinimum: summary.minimumBasis === 'explicit',
+    nft: plan.draft.operation === '721_pay',
+    ...(source === 'slippageBps' || source === 'caller metadata'
+      ? { hookMinimumSource: source }
+      : {}),
+  };
+};
 
 /** Reject non-JSON values, ambiguous objects, and pathological input before canonicalization. */
 function boundedJson(value: unknown, depth = 0, budget = { nodes: 0 }): void {
@@ -550,7 +576,7 @@ export class PlanService {
         step,
         status: 'unverified' as const,
         dependencies,
-        error: publicError(error),
+        error: paying(plan) ? publicPayError(error, payContext(plan)) : publicError(error),
         ...fallback,
       };
     }
@@ -643,12 +669,17 @@ export class PlanService {
         const gasUsed = BigInt(result.gasUsed);
         const reverted = result.status === '0x0';
         const revert = { code: 3, data: result.error?.data };
+        const payFailure =
+          reverted && paying(plan) ? payFailureOf(revert, payContext(plan)) : undefined;
         const error = reverted
-          ? publicError(
-              revertOf(revert)
-                ? revert
-                : new DomainError('CALL_REVERTED', 'This step reverts at this block.'),
-            )
+          ? {
+              ...publicError(
+                revertOf(revert)
+                  ? revert
+                  : new DomainError('CALL_REVERTED', 'This step reverts at this block.'),
+              ),
+              ...(payFailure ? { payFailure } : {}),
+            }
           : gasUsed > MAX_GAS
             ? publicError(
                 new DomainError(
@@ -876,7 +907,7 @@ export class PlanService {
             'This transaction predates the reviewed plan snapshot. A historical matching transaction is not execution of this plan.',
         };
       const confirmations = head.number - receipt.blockNumber + 1n;
-      if (receipt.status === 'reverted')
+      if (receipt.status === 'reverted') {
         return {
           ...base,
           status: 'reverted',
@@ -884,6 +915,7 @@ export class PlanService {
           confirmations: confirmations.toString(),
           reason: 'The exact transaction reverted; it did not complete the planned operation.',
         };
+      }
       if (receipt.status !== 'success')
         return {
           ...base,
@@ -1186,88 +1218,6 @@ export class PlanService {
           ? { verified: true, events }
           : unknown(
               'A launch requires matching JBProjects.Create and JBController.LaunchProject logs from canonical deployments, with the requested owner and URI.',
-            );
-      }
-      const router = uniswapV4Deployment(call.chainId)?.universalRouter;
-      if (plan.draft.operation === 'pool_buy' && router && same(call.to, router)) {
-        // The signed summary names the project ERC-20, recipient and minimum the swap committed to.
-        const { projectToken, recipient, minimumTokenCount, projectTokenIsJBERC20 } = plan.draft
-          .summary as Record<string, unknown>;
-        // Only a JBERC20's Transfer logs are trusted to state balances; preparation refuses other tokens.
-        if (projectTokenIsJBERC20 !== true)
-          return unknown(
-            'The plan does not name a JBERC20 project token, so its logs are not trusted.',
-          );
-        // Net change for the account: incoming minus outgoing transfers, self-transfers excluded.
-        let received = 0n;
-        for (const log of sourceLogs) {
-          if (log.removed || !same(log.address, projectToken as Address)) continue;
-          try {
-            const event = decodeEventLog({
-              abi: erc20Abi,
-              eventName: 'Transfer',
-              data: log.data,
-              topics: log.topics,
-              strict: true,
-            });
-            const { from, to, value } = event.args;
-            const incoming = same(to, recipient as Address);
-            if (incoming === same(from, recipient as Address)) continue;
-            received += incoming ? value : -value;
-            append(log, event.eventName, event.args);
-          } catch {
-            /* Other transfers are not this purchase. */
-          }
-        }
-        return received > 0n && received >= BigInt(minimumTokenCount as string)
-          ? {
-              verified: true,
-              events,
-              reason: `The account's net project-token gain is ${received}.`,
-            }
-          : unknown(
-              "The account's net project-token gain in this receipt is below the signed minimum.",
-            );
-      }
-      const permit2 = uniswapV4Deployment(call.chainId)?.permit2;
-      if (router && permit2 && same(call.to, permit2)) {
-        const [token, spender, amount, expiration] = decodeFunctionData({
-          abi: permit2Abi,
-          data: call.data,
-        }).args;
-        if (!same(spender, router))
-          return unknown('The Permit2 approval does not name the Uniswap Universal Router.');
-        for (const log of sourceLogs) {
-          if (log.removed || !same(log.address, permit2)) continue;
-          try {
-            const event = decodeEventLog({
-              abi: permit2Abi,
-              data: log.data,
-              topics: log.topics,
-              strict: true,
-            });
-            if (
-              event.eventName === 'Approval' &&
-              same(event.args.owner, plan.draft.account) &&
-              same(event.args.token, token) &&
-              same(event.args.spender, spender) &&
-              event.args.amount === amount &&
-              event.args.expiration === expiration
-            )
-              append(log, event.eventName, event.args);
-          } catch {
-            /* Only the canonical Permit2 Approval with every signed field proves this step. */
-          }
-        }
-        return events.length
-          ? {
-              verified: true,
-              events,
-              reason:
-                'Permit2 emitted the exact Approval. Re-simulate the dependent swap against current chain state; this event does not prove the allowance is still unspent.',
-            }
-          : unknown(
-              'No Permit2 Approval with the signed owner, token, spender, amount and expiration was found.',
             );
       }
       const extension = this.extensionEvidence(plan, call, sourceLogs);
@@ -1848,23 +1798,7 @@ export class PlanService {
             false,
             'The reviewed pool key does not match the signed fee, tick spacing, or terminal token.',
           );
-        const poolId = keccak256(
-          encodeAbiParameters(
-            [
-              {
-                type: 'tuple',
-                components: [
-                  { name: 'currency0', type: 'address' },
-                  { name: 'currency1', type: 'address' },
-                  { name: 'fee', type: 'uint24' },
-                  { name: 'tickSpacing', type: 'int24' },
-                  { name: 'hooks', type: 'address' },
-                ],
-              },
-            ],
-            [key],
-          ),
-        );
+        const poolId = uniswapV4PoolId(key);
         const pools = matching(
           jbBuybackHookAbi,
           'PoolAdded',
