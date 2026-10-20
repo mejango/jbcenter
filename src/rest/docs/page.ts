@@ -59,18 +59,36 @@ function schemaFields(value: unknown, spec: OpenApiDocument, depth = 0): string 
   });
   return rows.length ? `<table class="schema-fields"><thead><tr><th>Field</th><th>Type</th><th>Details</th></tr></thead><tbody>${rows.join("")}</tbody></table>` : `<p><code>${escape(schema.type ?? "See schema")}</code>${schema.description ? `: ${renderProse(schema.description)}` : ""}</p>`;
 }
-function endpointFields(operation: OpenApiOperation, spec: OpenApiDocument): string {
+function operationSchemas(operation: OpenApiOperation, spec: OpenApiDocument) {
   const parameters = Array.isArray(operation.parameters) ? operation.parameters.map(value => resolveDoc(value, spec)) : [];
-  const params = parameters.length ? `<h4>Parameters</h4><table class="schema-fields"><thead><tr><th>Name</th><th>Location</th><th>Details</th></tr></thead><tbody>${parameters.map(parameter => {
-    const schema = resolveDoc(parameter.schema ?? docObject(docObject(parameter.content)["application/json"]).schema, spec);
-    return `<tr><th scope="row"><code>${escape(parameter.name)}</code></th><td>${escape(parameter.in)}${parameter.required ? " / required" : " / optional"}</td><td>${renderProse(parameter.description ?? schema.description ?? schema.type ?? "JSON")}${schema.enum ? `<p><code>${escape(JSON.stringify(schema.enum))}</code></p>` : ""}</td></tr>`;
-  }).join("")}</tbody></table>` : "";
   const request = docObject(docObject(docObject(operation.requestBody).content)["application/json"]).schema;
   const success = Object.entries(operation.responses).find(([status]) => /^2\d\d$/.test(status));
   const response = success ? resolveDoc(success[1], spec) : undefined;
   const result = docObject(docObject(response?.content)["application/json"]).schema;
+  return { parameters, request, status: success?.[0], result };
+}
+// Every property name reachable from a schema, through references, arrays and variants, however deep the tables render.
+function propertyNames(value: unknown, spec: OpenApiDocument, names: Set<string>, seen = new Set<string>()): Set<string> {
+  if (Array.isArray(value)) { for (const item of value) propertyNames(item, spec, names, seen); return names; }
+  const node = docObject(value);
+  if (typeof node.$ref === "string" && !seen.has(node.$ref)) { seen.add(node.$ref); propertyNames(resolveDoc({ $ref: node.$ref }, spec), spec, names, seen); }
+  for (const name of Object.keys(docObject(node.properties))) names.add(name);
+  for (const child of Object.values(node)) if (child && typeof child === "object") propertyNames(child, spec, names, seen);
+  return names;
+}
+const operationTerms = (operation: OpenApiOperation, spec: OpenApiDocument): string => {
+  const { parameters, request, result } = operationSchemas(operation, spec);
+  const names = new Set(parameters.map(parameter => String(parameter.name)));
+  return [...propertyNames([parameters, request, result], spec, names)].join(" ");
+};
+function endpointFields(operation: OpenApiOperation, spec: OpenApiDocument): string {
+  const { parameters, request, status, result } = operationSchemas(operation, spec);
+  const params = parameters.length ? `<h4>Parameters</h4><table class="schema-fields"><thead><tr><th>Name</th><th>Location</th><th>Details</th></tr></thead><tbody>${parameters.map(parameter => {
+    const schema = resolveDoc(parameter.schema ?? docObject(docObject(parameter.content)["application/json"]).schema, spec);
+    return `<tr><th scope="row"><code>${escape(parameter.name)}</code></th><td>${escape(parameter.in)}${parameter.required ? " / required" : " / optional"}</td><td>${renderProse(parameter.description ?? schema.description ?? schema.type ?? "JSON")}${schema.enum ? `<p><code>${escape(JSON.stringify(schema.enum))}</code></p>` : ""}</td></tr>`;
+  }).join("")}</tbody></table>` : "";
   const showSchema = (title: string, value: unknown) => value ? `<h4>${title}</h4>${schemaFields(value, spec)}<details><summary>JSON schema</summary><pre tabindex="0"><code>${escape(JSON.stringify(resolveDoc(value, spec), null, 2))}</code></pre></details>` : "";
-  return params + showSchema("Request body", request) + showSchema(`Response ${escape(success?.[0] ?? "")}`, result);
+  return params + showSchema("Request body", request) + showSchema(`Response ${escape(status ?? "")}`, result);
 }
 
 const operationRows = (spec: OpenApiDocument) => Object.entries(spec.paths).flatMap(([path, methods]) => Object.entries(methods).map(([method, operation]) => ({ path, method: method.toUpperCase(), operation })));
@@ -96,8 +114,8 @@ export function apiDocsPage(spec: OpenApiDocument, assets?: AssetNames): string 
     return `<details class="group" id="${escape(tag.name.toLowerCase())}"><summary>${escape(tag.name)} <span class="muted">(${entries.length})</span></summary><p class="muted">${renderProse(tag.description)}</p>${entries.map(({ path, method, operation }) => {
       const fields = endpointFields(operation, spec);
       // Field names stay searchable; the tables themselves load when the endpoint is opened.
-      const terms = [...new Set(Array.from(fields.matchAll(/<th scope="row"><code>([^<]*)<\/code>/g), match => match[1]))].join(" ");
-      return `<details class="endpoint"${terms ? ` data-terms="${terms}"` : ""}><summary><span class="verb">${escape(method)}</span><span class="route">${escape(path)}</span> <span class="auth">${escape(authLabel(operation))}</span></summary><p>${renderProse(operation.summary)}</p>${operation.description ? `<p class="muted">${renderProse(operation.description)}</p>` : ""}${fields ? `<div class="endpoint-fields"><p><a href="${escape(apiReferencePath(operation.operationId))}">Parameters and schemas</a></p></div>` : ""}<p><code>operationId: ${escape(operation.operationId)}</code></p></details>`;
+      const terms = operationTerms(operation, spec);
+      return `<details class="endpoint"${terms ? ` data-terms="${escape(terms)}"` : ""}><summary><span class="verb">${escape(method)}</span><span class="route">${escape(path)}</span> <span class="auth">${escape(authLabel(operation))}</span></summary><p>${renderProse(operation.summary)}</p>${operation.description ? `<p class="muted">${renderProse(operation.description)}</p>` : ""}${fields ? `<div class="endpoint-fields"><p><a href="${escape(apiReferencePath(operation.operationId))}">Parameters and schemas</a></p></div>` : ""}<p><code>operationId: ${escape(operation.operationId)}</code></p></details>`;
     }).join("")}</details>`;
   }).join("");
   return `<!doctype html>
