@@ -57,10 +57,22 @@ describe('explicit V6 configuration schemas', () => {
       rulesetConfigSchema.safeParse({ ...configuration(), weight: (1n << 112n).toString() })
         .success,
     ).toBe(false);
-    expect(rulesetConfigSchema.parse({ ...configuration(), weight: 1000 }).weight).toBe('1000');
-    expect(rulesetConfigSchema.safeParse({ ...configuration(), weight: 2 ** 60 }).success).toBe(
-      false,
+    // Weights are amounts: strings only. Small fields such as duration also take a JSON number.
+    expect(rulesetConfigSchema.safeParse({ ...configuration(), weight: 1000 }).success).toBe(false);
+    expect(rulesetConfigSchema.parse({ ...configuration(), duration: 86400 }).duration).toBe(
+      '86400',
     );
+    // Identifiers range past 2^53: split project IDs and group IDs take strings only.
+    expect(splitSchema.safeParse({ ...split(), projectId: 7 }).success).toBe(false);
+    expect(splitSchema.parse({ ...split(), lockedUntil: 1700000000 }).lockedUntil).toBe(
+      '1700000000',
+    );
+    expect(
+      rulesetConfigSchema.safeParse({
+        ...configuration(),
+        splitGroups: [{ groupId: 1, splits: [split()] }],
+      }).success,
+    ).toBe(false);
   });
 
   it.each(['1.2', '-1', '1e18', '00', '', '9'.repeat(10000)])(

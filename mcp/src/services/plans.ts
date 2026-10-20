@@ -71,6 +71,10 @@ const same = (left: unknown, right: unknown) =>
   left.toLowerCase() === right.toLowerCase();
 const equalData = (left: unknown, right: unknown) => canonicalJson(left) === canonicalJson(right);
 // The SDK's common sucker ABI omits these two V6 receipt events. Exact IJBSucker definitions.
+const permit2Abi = parseAbi([
+  'function approve(address token, address spender, uint160 amount, uint48 expiration)',
+  'event Approval(address indexed owner, address indexed token, address indexed spender, uint160 amount, uint48 expiration)',
+]);
 const suckerReceiptAbi = parseAbi([
   'event Claimed(bytes32 beneficiary,address token,uint256 projectTokenCount,uint256 terminalTokenAmount,uint256 index,bytes32 metadata,address caller)',
   'event AccountingDataSynced(uint256 sourceTimestamp,address caller)',
@@ -1187,13 +1191,17 @@ export class PlanService {
       const router = uniswapV4Deployment(call.chainId)?.universalRouter;
       if (plan.draft.operation === 'pool_buy' && router && same(call.to, router)) {
         // The signed summary names the project ERC-20, recipient and minimum the swap committed to.
-        const { projectToken, recipient, minimumTokenCount } = plan.draft.summary as Record<
-          string,
-          string
-        >;
+        const { projectToken, recipient, minimumTokenCount, projectTokenIsJBERC20 } = plan.draft
+          .summary as Record<string, unknown>;
+        // Only a JBERC20's Transfer logs are trusted to state balances; preparation refuses other tokens.
+        if (projectTokenIsJBERC20 !== true)
+          return unknown(
+            'The plan does not name a JBERC20 project token, so its logs are not trusted.',
+          );
+        // Net change for the account: incoming minus outgoing transfers, self-transfers excluded.
         let received = 0n;
         for (const log of sourceLogs) {
-          if (!same(log.address, projectToken as Address)) continue;
+          if (log.removed || !same(log.address, projectToken as Address)) continue;
           try {
             const event = decodeEventLog({
               abi: erc20Abi,
@@ -1202,17 +1210,64 @@ export class PlanService {
               topics: log.topics,
               strict: true,
             });
-            if (!same(event.args.to, recipient as Address)) continue;
-            received += event.args.value;
+            const { from, to, value } = event.args;
+            const incoming = same(to, recipient as Address);
+            if (incoming === same(from, recipient as Address)) continue;
+            received += incoming ? value : -value;
             append(log, event.eventName, event.args);
           } catch {
             /* Other transfers are not this purchase. */
           }
         }
-        return received > 0n && received >= BigInt(minimumTokenCount!)
-          ? { verified: true, events }
+        return received > 0n && received >= BigInt(minimumTokenCount as string)
+          ? {
+              verified: true,
+              events,
+              reason: `The account's net project-token gain is ${received}.`,
+            }
           : unknown(
-              'No transfer of at least the signed minimum of project tokens to the account was found in this receipt.',
+              "The account's net project-token gain in this receipt is below the signed minimum.",
+            );
+      }
+      const permit2 = uniswapV4Deployment(call.chainId)?.permit2;
+      if (router && permit2 && same(call.to, permit2)) {
+        const [token, spender, amount, expiration] = decodeFunctionData({
+          abi: permit2Abi,
+          data: call.data,
+        }).args;
+        if (!same(spender, router))
+          return unknown('The Permit2 approval does not name the Uniswap Universal Router.');
+        for (const log of sourceLogs) {
+          if (log.removed || !same(log.address, permit2)) continue;
+          try {
+            const event = decodeEventLog({
+              abi: permit2Abi,
+              data: log.data,
+              topics: log.topics,
+              strict: true,
+            });
+            if (
+              event.eventName === 'Approval' &&
+              same(event.args.owner, plan.draft.account) &&
+              same(event.args.token, token) &&
+              same(event.args.spender, spender) &&
+              event.args.amount === amount &&
+              event.args.expiration === expiration
+            )
+              append(log, event.eventName, event.args);
+          } catch {
+            /* Only the canonical Permit2 Approval with every signed field proves this step. */
+          }
+        }
+        return events.length
+          ? {
+              verified: true,
+              events,
+              reason:
+                'Permit2 emitted the exact Approval. Re-simulate the dependent swap against current chain state; this event does not prove the allowance is still unspent.',
+            }
+          : unknown(
+              'No Permit2 Approval with the signed owner, token, spender, amount and expiration was found.',
             );
       }
       const extension = this.extensionEvidence(plan, call, sourceLogs);

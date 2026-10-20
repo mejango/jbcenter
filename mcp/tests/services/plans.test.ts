@@ -36,6 +36,8 @@ import {
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
 import {
+  buildDirectPaySwapTx,
+  buildPermit2ApproveTx,
   jbSuckerV6Abi,
   uniswapV4Deployment,
   uniswapV4PoolId,
@@ -330,38 +332,143 @@ describe('direct transaction and canonical receipt verification', () => {
     expect(result.outcomeVerified).toBe(false);
   });
 
-  it('verifies a pool buy only by enough project tokens reaching the account', async () => {
-    const router = uniswapV4Deployment(1)!.universalRouter!;
+  it("verifies a pool buy by the account's net project-token gain, on the real router calldata", async () => {
+    const swapTx = buildDirectPaySwapTx({
+      chainId: 1,
+      quote: {
+        kind: 'direct-swap',
+        poolKey: {
+          currency0: zeroAddress,
+          currency1: TOKEN,
+          fee: 3000,
+          tickSpacing: 60,
+          hooks: zeroAddress,
+        },
+        zeroForOne: true,
+        quotedTokenCount: 52n,
+        minimumTokenCount: 50n,
+        beneficiaryTokenCount: 50n,
+        reservedTokenCount: 0n,
+        inputRoute: { kind: 'single-v4' },
+      },
+      amount: 100n,
+      recipient: ACCOUNT,
+      deadline: 1788696900n,
+    });
     const swap: PreparedCall = {
       chainId: 1,
-      to: router,
-      data: '0x3593564c',
-      value: '100',
-      label: 'Buy from the pool',
+      to: swapTx.address,
+      data: encodeFunctionData(swapTx),
+      value: String(swapTx.value),
+      label: 'Buy through the pool',
       decoded: { functionName: 'execute', args: [] },
       dependsOn: [],
+    };
+    const summary = {
+      projectToken: TOKEN,
+      recipient: ACCOUNT,
+      minimumTokenCount: '50',
+      projectTokenIsJBERC20: true,
     };
     const { service, sealed, receipt } = setup({
       ...draft([swap]),
       operation: 'pool_buy',
-      summary: { projectToken: TOKEN, recipient: ACCOUNT, minimumTokenCount: '50' },
+      summary,
     });
     const params = { token: sealed.token, transactions: [{ step: 0, hash: HASH }] };
-    const transfer = (to: Address, value: bigint, token = TOKEN) =>
+    const transfer = (from: Address, to: Address, value: bigint, token = TOKEN, logIndex = 0) =>
       eventLog(
         'event Transfer(address indexed from,address indexed to,uint256 value)',
-        { from: OTHER, to, value },
+        { from, to, value },
         token,
+        logIndex,
       );
-    receipt.logs = [transfer(ACCOUNT, 60n)];
+    receipt.logs = [transfer(OTHER, ACCOUNT, 60n)];
     const verified = await service.verify(params);
     expect(verified.outcomeVerified).toBe(true);
     expect(verified.steps[0]).toMatchObject({
       outcome: [{ event: 'Transfer', emitter: TOKEN, args: { value: '60' } }],
     });
-    receipt.logs = [transfer(ACCOUNT, 49n)];
+    receipt.logs = [transfer(OTHER, ACCOUNT, 49n)];
     expect((await service.verify(params)).outcomeVerified).toBe(false);
-    receipt.logs = [transfer(OTHER, 60n), transfer(ACCOUNT, 60n, OTHER)];
+    receipt.logs = [transfer(OTHER, OTHER, 60n), transfer(OTHER, ACCOUNT, 60n, OTHER)];
+    expect((await service.verify(params)).outcomeVerified).toBe(false);
+    // A self-transfer and a round trip are no gain.
+    receipt.logs = [transfer(ACCOUNT, ACCOUNT, 60n)];
+    expect((await service.verify(params)).outcomeVerified).toBe(false);
+    receipt.logs = [transfer(OTHER, ACCOUNT, 60n), transfer(ACCOUNT, OTHER, 60n, TOKEN, 1)];
+    expect((await service.verify(params)).outcomeVerified).toBe(false);
+    receipt.logs = [transfer(OTHER, ACCOUNT, 80n), transfer(ACCOUNT, OTHER, 20n, TOKEN, 1)];
+    expect((await service.verify(params)).outcomeVerified).toBe(true);
+
+    const untrusted = setup({
+      ...draft([swap]),
+      operation: 'pool_buy',
+      summary: { ...summary, projectTokenIsJBERC20: false },
+    });
+    untrusted.receipt.logs = [transfer(OTHER, ACCOUNT, 60n)];
+    expect(
+      (
+        await untrusted.service.verify({
+          token: untrusted.sealed.token,
+          transactions: [{ step: 0, hash: HASH }],
+        })
+      ).outcomeVerified,
+    ).toBe(false);
+  });
+
+  it('verifies a Permit2 approval by the canonical Approval event with every signed field', async () => {
+    const permit2 = uniswapV4Deployment(1)!.permit2;
+    const router = uniswapV4Deployment(1)!.universalRouter!;
+    const approval = buildPermit2ApproveTx({
+      chainId: 1,
+      token: TOKEN,
+      amount: 5000n,
+      expiration: 1788699600,
+    });
+    const step: PreparedCall = {
+      chainId: 1,
+      to: approval.address,
+      data: encodeFunctionData(approval),
+      value: '0',
+      label: 'Permit2 approve',
+      decoded: { functionName: 'approve', args: [] },
+      dependsOn: [],
+    };
+    const { service, sealed, receipt } = setup({ ...draft([step]), operation: 'pool_buy' });
+    const params = { token: sealed.token, transactions: [{ step: 0, hash: HASH }] };
+    const event =
+      'event Approval(address indexed owner,address indexed token,address indexed spender,uint160 amount,uint48 expiration)';
+    const log = (overrides: Record<string, unknown> = {}, emitter: Address = permit2) =>
+      eventLog(
+        event,
+        {
+          owner: ACCOUNT,
+          token: TOKEN,
+          spender: router,
+          amount: 5000n,
+          expiration: 1788699600,
+          ...overrides,
+        },
+        emitter,
+      );
+    receipt.logs = [log()];
+    const verified = await service.verify(params);
+    expect(verified.outcomeVerified).toBe(true);
+    expect(verified.steps[0]).toMatchObject({
+      outcome: [{ event: 'Approval', emitter: permit2, args: { amount: '5000' } }],
+    });
+    for (const wrong of [
+      { owner: OTHER },
+      { token: OTHER },
+      { spender: OTHER },
+      { amount: 4999n },
+      { expiration: 1788699599 },
+    ]) {
+      receipt.logs = [log(wrong)];
+      expect((await service.verify(params)).outcomeVerified).toBe(false);
+    }
+    receipt.logs = [log({}, OTHER)];
     expect((await service.verify(params)).outcomeVerified).toBe(false);
   });
 

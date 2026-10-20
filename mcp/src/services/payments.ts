@@ -225,6 +225,37 @@ export function call(
 }
 
 /**
+ * Approve `spender` for exactly `amount` when the allowance is short, resetting a nonzero allowance to zero
+ * first (USDT-style tokens revert on a nonzero-to-nonzero approval). Each call depends on the one before it.
+ */
+export function pushExactApproval(
+  calls: PreparedCall[],
+  chainId: ChainId,
+  token: Address,
+  spender: Address,
+  allowance: bigint,
+  amount: bigint,
+  label: string,
+): void {
+  if (allowance >= amount) return;
+  const after = () => (calls.length ? [calls.length - 1] : []);
+  if (allowance > 0n)
+    calls.push(
+      call(
+        chainId,
+        token,
+        erc20Abi,
+        'approve',
+        [spender, 0n],
+        'Reset the existing insufficient token allowance',
+        0n,
+        after(),
+      ),
+    );
+  calls.push(call(chainId, token, erc20Abi, 'approve', [spender, amount], label, 0n, after()));
+}
+
+/**
  * Financial quote and calldata boundary. RPC failures propagate as unavailable;
  * no price, allowance, fee flag, or failed preview is replaced by a zero.
  */
@@ -348,35 +379,16 @@ export class PaymentService {
     );
     if (refusal && !quoteOnly) throw refusal;
     const calls: PreparedCall[] = [];
-    if (!isNative(input.token) && quote.payment.amount !== '0') {
-      const amount = BigInt(quote.payment.amount);
-      if (allowance < amount) {
-        if (allowance > 0n) {
-          calls.push(
-            call(
-              input.project.chainId,
-              input.token,
-              erc20Abi,
-              'approve',
-              [transaction.address, 0n],
-              'Reset the existing insufficient token allowance',
-            ),
-          );
-        }
-        calls.push(
-          call(
-            input.project.chainId,
-            input.token,
-            erc20Abi,
-            'approve',
-            [transaction.address, amount],
-            'Approve exactly this payment amount',
-            0n,
-            calls.length ? [calls.length - 1] : [],
-          ),
-        );
-      }
-    }
+    if (!isNative(input.token) && quote.payment.amount !== '0')
+      pushExactApproval(
+        calls,
+        input.project.chainId,
+        input.token,
+        transaction.address,
+        allowance,
+        BigInt(quote.payment.amount),
+        'Approve exactly this payment amount',
+      );
     calls.push(
       call(
         input.project.chainId,

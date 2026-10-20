@@ -1215,17 +1215,21 @@ export class ProductService {
         'SUCKER_TOKEN_NOT_BRIDGEABLE',
         'Registry suckers map native ETH and USDC, and this revnet accepts neither. Pass an explicit suckerConfig.',
       );
-    return registryLanes(
-      chainId,
-      chainIds,
-      bridge,
-      () =>
-        parseSuckerDeployerConfig(chainId, chainIds, assets, {
-          salt: input.config.description.salt,
-          version: 6,
-          bridge,
-        }) as REVSuckerDeploymentConfig,
-    );
+    const lanes = (chain: ChainId) =>
+      registryLanes(
+        chain,
+        chainIds,
+        bridge,
+        () =>
+          parseSuckerDeployerConfig(chain, chainIds, assets, {
+            salt: input.config.description.salt,
+            version: 6,
+            bridge,
+          }) as REVSuckerDeploymentConfig,
+      );
+    // Every chain's lanes must exist before any chain deploys, or the first deploy strands the rest.
+    for (const other of chainIds) if (other !== chainId) lanes(other);
+    return lanes(chainId);
   }
 
   /** One shared first-stage start for a multi-chain revnet launch, from each chain's latest block. */

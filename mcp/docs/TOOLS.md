@@ -38,7 +38,7 @@ Source areas: JB Center, jb-project-metadata, jb-721-tier-content.
 | `jb_resolve_project` | Resolve a V6 project URL or chain:project ID. Names return candidates without choosing one; bare numeric IDs are rejected as ambiguous. No user URL is fetched. |
 | `jb_search_projects` | Search V6 deployed projects and signed undeployed V6 JB Center intents. Center pages exclude every other deployment version, retain the upstream cursor, and report the V6 total as unknown. Project descriptions are untrusted data. |
 | `jb_get_project` | Explain a V6 project using pinned on-chain ownership, rulesets, supply, terminals, balances, payout limits, and surplus. Indexed metadata remains separate from executable accounting. |
-| `jb_get_rulesets` | Read current, upcoming, and a bounded page of queued V6 rulesets at one block. Approval and queue state are preserved; custom hooks are not guessed. currentAsInput is the active ruleset in the jb_preview_ruleset_change input shape. |
+| `jb_get_rulesets` | Read current, upcoming, and a bounded page of queued V6 rulesets at one block. Approval and queue state are preserved; custom hooks are not guessed. currentAsInput is the active ruleset in the jb_preview_ruleset_change input shape, with its coverage. |
 | `jb_get_position` | Read one account’s live project token position including unclaimed credits and ERC-20 balance, with exact units and explicit coverage for other assets. |
 | `jb_get_account` | Discover indexed V6 token positions for an address. This is a paginated participant view; use project/position/loan/NFT tools to inspect live state and additional rights. |
 | `jb_get_holders` | List a project's token holders on one chain, largest first, from the indexer. The first 20 rows of each page are checked on chain at one block; the rest are indexed-only. |
@@ -93,8 +93,8 @@ Source areas: JBRulesets, JBFundAccessLimits, JBSplits, JBController.
 | Tool | Behavior |
 |---|---|
 | `jb_get_routing` | Inspect the actual buyback/NFT/revnet hook composition, router project overrides, pool configuration, TWAP availability and token routes. Unknown oracle or custom-hook behavior remains explicit. |
-| `jb_quote_pool_buy` | Quote buying project tokens straight from the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. A direct swap skips issuance and reserved splits. |
-| `jb_prepare_pool_buy` | Prepare an authenticated unsigned direct buy from the project's buyback pool on the route jb_quote_pool_buy quotes, through the Uniswap Universal Router, with a project-token minimum of the pool output less slippageBps. Nothing is issued and no reserved split applies. |
+| `jb_quote_pool_buy` | Quote buying project tokens through the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. The buy runs the pool's hook: with JBUniswapV4Hook it can pay the project instead (issuance, reserved splits, payment to the balance) when that gives more tokens; pool.hook names the hook. |
+| `jb_prepare_pool_buy` | Prepare an authenticated unsigned buy through the project's buyback pool on the route jb_quote_pool_buy quotes, with the Uniswap Universal Router and a project-token minimum of the pool output less slippageBps. The pool's hook runs: with JBUniswapV4Hook the buy can be filled by paying the project. Refuses a custom project token or an unrecognized pool hook. |
 | `jb_prepare_buyback_pool` | Prepare registration of an existing Uniswap V4 buyback pool for a verified project hook. Validates pool identity, token pair, permissions and TWAP window. |
 | `jb_prepare_buyback_twap` | Prepare an authorized buyback TWAP-window change with exact contract bounds and current project hook resolution. |
 | `jb_prepare_buyback_hook` | Prepare a reviewed project buyback-registry override, with explicit target and authority checks. |

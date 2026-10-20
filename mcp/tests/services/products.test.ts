@@ -10,7 +10,12 @@ import {
   revDeployerAbi,
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
-import { build721PayMetadata, buildRulesetMetadata, v6Address } from '@bananapus/nana-sdk-core/v6';
+import {
+  build721PayMetadata,
+  buildDeployRevnetTx,
+  buildRulesetMetadata,
+  v6Address,
+} from '@bananapus/nana-sdk-core/v6';
 import {
   decodeFunctionData,
   encodeAbiParameters,
@@ -1035,6 +1040,7 @@ describe('new revnet deployment', () => {
       }).success,
     ).toBe(false);
     expect(prepareRevnetDeploySchema.safeParse({ ...deploy, revnetId: '12' }).success).toBe(false);
+    // The launch suckers deploy without bit 2, but the pinned SDK refuses to encode a cross-chain stage without it.
     expect(
       prepareRevnetDeploySchema.safeParse({
         ...deploy,
@@ -1051,6 +1057,18 @@ describe('new revnet deployment', () => {
         },
       }).success,
     ).toBe(false);
+  });
+  it('keeps the cross-chain bit-2 rule only because the pinned SDK builder refuses without it', () => {
+    // When the SDK stops refusing, drop the schema rule: REVDeployer itself does not need the bit at launch.
+    expect(() =>
+      buildDeployRevnetTx({
+        chainId: 8453,
+        config: { stageConfigurations: [{ extraMetadata: 0 }] },
+        accountingContexts: [],
+        suckerConfig: { salt: hash, deployerConfigurations: [{}] },
+        creationFee: 0n,
+      } as never),
+    ).toThrow('REV_METADATA_ALLOW_SUCKER_DEPLOYMENT');
   });
   it('fills the bridges from the registry when given chainIds, like the omnichain launch', async () => {
     const { suckerConfig: _explicit, ...base } = deploy;
@@ -1069,13 +1087,13 @@ describe('new revnet deployment', () => {
       { localToken: NATIVE_TOKEN, minGas: 200000, remoteToken: pad(NATIVE_TOKEN).toLowerCase() },
     ]);
     expect((plan.summary as { suckerConfig: unknown }).suckerConfig).toMatchObject({ salt: hash });
-    // The fixture reports 18 decimals for every token.
+    // Base USDC, with its real six decimals.
     const usdc = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-    const withUsdc = await fixture().service.prepareRevnetDeploy({
+    const withUsdc = await fixture({ decimals: 6 }).service.prepareRevnetDeploy({
       ...base,
       accountingContexts: [
         ...base.accountingContexts,
-        { token: usdc, decimals: '18', currency: String(BigInt(usdc) & 0xffffffffn) },
+        { token: usdc, decimals: '6', currency: String(BigInt(usdc) & 0xffffffffn) },
       ],
       chainIds: [8453, 10],
     });
@@ -1091,6 +1109,17 @@ describe('new revnet deployment', () => {
     await expect(
       fixture().service.prepareRevnetDeploy({ ...base, chainIds: [8453, 84532] }),
     ).rejects.toMatchObject({ code: 'SUCKER_LANE_UNAVAILABLE' });
+    // Ethereum has native lanes to both, but Optimism and Base have none to each other: refuse every chain,
+    // including the one whose own lanes exist, before anything deploys.
+    for (const chainId of [1, 10, 8453] as const)
+      await expect(
+        fixture().service.prepareRevnetDeploy({
+          ...base,
+          chainId,
+          chainIds: [1, 10, 8453],
+          bridge: 'native',
+        }),
+      ).rejects.toMatchObject({ code: 'SUCKER_LANE_UNAVAILABLE' });
     const invalid = (patch: Record<string, unknown>) =>
       prepareRevnetDeploySchema.safeParse({ ...base, ...patch }).success;
     expect(invalid({})).toBe(false);

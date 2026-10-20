@@ -13,8 +13,11 @@ export const chainIdSchema = z.union([
   z.literal(421614),
 ]);
 const UINT_PATTERN = '^(0|[1-9][0-9]*)$';
+const SEND_STRINGS =
+  'Send this value as a base-10 integer string. JSON numbers are accepted only for bounded fields (percents, durations, timestamps, chain IDs, small counts); amounts and IDs must be strings.';
 const decimalUintSchema = z
-  .string()
+  .string({ error: (issue) => (issue.input === undefined ? undefined : SEND_STRINGS) })
+  .meta({ pattern: UINT_PATTERN, maxLength: 78 })
   .regex(/^(0|[1-9][0-9]*)$/, {
     message: 'Use a base-10 integer string, without decimals or exponents.',
     abort: true,
@@ -25,10 +28,16 @@ const decimalUintSchema = z
     { message: 'Must fit uint256.', abort: true },
   );
 /**
- * A base-10 integer string, or a JSON number that is a safe non-negative integer (normalized to its string).
- * Larger values must be strings: JSON numbers above 2^53 - 1 have already lost precision.
+ * A uint256 as a base-10 integer string. Amounts, weights and wei take only this: JSON parsing has already
+ * rounded a number before any check could see its digits.
  */
-export const uintSchema = z
+export const uintSchema = decimalUintSchema;
+/**
+ * Only for fields bounded well inside 2^53 (percents, durations, timestamps, chain IDs, small counts), through
+ * rulesets.ts uint(): a base-10 string, or a safe non-negative integer JSON number normalized to its string.
+ * Amounts and identifiers with wider ranges take strings only.
+ */
+export const smallUintSchema = z
   .union([z.number(), z.string().meta({ pattern: UINT_PATTERN, maxLength: 78 })])
   .transform((value, ctx) => {
     if (typeof value === 'string') return value;
@@ -41,10 +50,8 @@ export const uintSchema = z
     return z.NEVER;
   })
   .pipe(decimalUintSchema);
-export const positiveUintSchema = uintSchema.refine(
-  (value) => /^[1-9][0-9]*$/.test(value),
-  'Must be positive.',
-);
+const positive = (value: string) => /^[1-9][0-9]*$/.test(value);
+export const positiveUintSchema = uintSchema.refine(positive, 'Must be positive.');
 export const addressSchema = z
   .string()
   .refine((value) => isAddress(value, { strict: true }), 'Use a valid EVM address.')
