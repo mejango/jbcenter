@@ -114,4 +114,16 @@ describe("served Center signup page", () => {
       expect(kitRequests).toBe(served + 1);
     } finally { await context.close(); }
   });
+
+  it("loads the backup kit beside its bundle when the page predates the kit tag", async () => {
+    expect(pageHtml).toContain('<meta name="module:wallet-recovery-kit"');
+    const context = await browser.newContext(), signup = await context.newPage();
+    try {
+      await signup.route(`${origin}/wallet`, route => route.fulfill({ status: 200, contentType: "text/html",
+        body: pageHtml.replace(/<meta name="module:wallet-recovery-kit"[^>]*>/, "") }));
+      const served = kitRequests;
+      await signup.goto(`${origin}/wallet`);
+      await expect.poll(() => kitRequests).toBe(served + 1);
+    } finally { await context.close(); }
+  });
 });
