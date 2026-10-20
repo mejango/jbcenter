@@ -132,6 +132,22 @@ describe('directory browser navigation', () => {
     await expect.poll(current).toBe('developers/' + await page.locator('#map-developers').getAttribute('data-entry'));
   });
 
+  it('lets a repeated click on the current fragment cancel a map that is still loading', async () => {
+    const release = holdMaps();
+    await page.goto('https://directory.test/');
+    await page.waitForSelector('.is-enhanced');
+    const shown = await current();
+    const follow = () => page.evaluate(() => document.querySelector<HTMLElement>('a[href="#directory-agents"]')!.click());
+    await follow();
+    await page.locator('#journey-developers').click();
+    await follow();
+    release();
+    await expect.poll(() => page.locator('#map-developers').count()).toBe(1);
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    expect(await current()).toBe(shown);
+    expect(new URL(page.url()).hash).toBe('#directory-agents');
+  });
+
   it('routes a deep link again when Back returns to it before its map loaded', async () => {
     const release = holdMaps();
     await page.goto('https://directory.test/#api/rpc');
