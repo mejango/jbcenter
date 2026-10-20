@@ -250,6 +250,7 @@ const payContext = (plan: PlanEnvelope): PayFailureContext => {
       ? { slippageBps: BigInt(bps as number) }
       : {}),
     explicitMinimum: summary.minimumBasis === 'explicit',
+    nft: plan.draft.operation === '721_pay',
     ...(source === 'slippageBps' || source === 'caller metadata'
       ? { hookMinimumSource: source }
       : {}),

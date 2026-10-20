@@ -80,6 +80,8 @@ export type PayFailureContext = {
   slippageBps?: bigint;
   explicitMinimum?: boolean;
   hookMinimumSource?: 'slippageBps' | 'caller metadata';
+  /** An NFT purchase: its retry goes through jb_prepare_721_pay with the same tiers. */
+  nft?: boolean;
 };
 
 const isAmount = (value: unknown): value is bigint => typeof value === 'bigint' && value >= 0n;
@@ -88,7 +90,7 @@ const isAmount = (value: unknown): value is bigint => typeof value === 'bigint' 
  * Why a payment reverts, from the SDK's decodePayFailure over the revert bytes only (a custom error
  * with exactly its ABI arguments; names in node text or Error(string) never count): a stable reason,
  * its fixed sentence and, for a shortfall, the uint256 amounts. A retry is offered only when the SDK
- * marks the failure adjustable, naming the jb_prepare_pay input that moves the failing check.
+ * marks the failure adjustable, naming the jb_prepare_pay (or jb_prepare_721_pay) input that moves the failing check.
  * Never node text.
  */
 export function payFailureOf(
@@ -108,6 +110,9 @@ export function payFailureOf(
     ...(zeroFill === true ? { zeroFill } : {}),
     ...(adjustable === 'minimum' ? { adjustable } : {}),
   };
+  const again = context.nft
+    ? 'Prepare the purchase again with jb_prepare_721_pay and the same tiers'
+    : 'Prepare the payment again with jb_prepare_pay';
   if (zeroFill === true)
     return {
       ...view,
@@ -118,13 +123,12 @@ export function payFailureOf(
   if (reason === 'TERMINAL_UNDER_MIN' && context.explicitMinimum)
     return {
       ...view,
-      retry: `minReturnedTokens was the caller's own. Prepare the payment again with jb_prepare_pay passing minReturnedTokens at or below ${received} only if the payer accepts that many.`,
+      retry: `minReturnedTokens was the caller's own. ${again}, passing minReturnedTokens at or below ${received} only if the payer accepts that many.`,
     };
   if (reason === 'BUYBACK_SLIPPAGE_EXCEEDED' && context.hookMinimumSource === 'caller metadata')
     return {
       ...view,
-      retry:
-        "The buyback hook's minimum is the minimumSwapAmountOut in the metadata the caller passed, so slippageBps does not change it. Only if the payer accepts a lower minimum, lower that value in the metadata and keep its other entries. Omitting the metadata hands the minimum to jb_prepare_pay: a pool-quote minimum, or without a quote only the payer's mint share, which can be far lower. Review the new minimum and simulate before signing.",
+      retry: `The buyback hook's minimum is the minimumSwapAmountOut in the metadata the caller passed, so slippageBps does not change it. Only if the payer accepts a lower minimum, lower that value in the metadata and keep its other entries. Omitting the metadata hands the minimum to ${context.nft ? 'jb_prepare_721_pay' : 'jb_prepare_pay'}: a pool-quote minimum, or without a quote only the payer's mint share, which can be far lower. Review the new minimum and simulate before signing.`,
     };
   // slippageBps moves the hook's minimum only when prepareUserPay set it from a pool quote; buyback
   // 1.1.1 raises the same error for its oracle floor, which no tolerance moves.
@@ -136,7 +140,7 @@ export function payFailureOf(
   return {
     ...view,
     retrySlippageBps: Number(next),
-    retry: `Prepare the payment again with jb_prepare_pay and slippageBps ${next} (it was ${context.slippageBps}) only if the payer accepts that tolerance; review the new minimum and simulate before signing. It is a candidate and may still fall short.`,
+    retry: `${again}, with slippageBps ${next} (it was ${context.slippageBps}) only if the payer accepts that tolerance; review the new minimum and simulate before signing. It is a candidate and may still fall short.`,
   };
 }
 

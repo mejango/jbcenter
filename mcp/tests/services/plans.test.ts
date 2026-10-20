@@ -851,10 +851,27 @@ describe('re-simulation and dependency verification', () => {
         error: {
           payFailure: {
             reason: 'TERMINAL_UNDER_MIN',
-            retry: expect.stringContaining('minReturnedTokens at or below 90'),
+            retry: expect.stringContaining(
+              'jb_prepare_721_pay and the same tiers, passing minReturnedTokens at or below 90',
+            ),
           },
         },
       });
+    });
+
+    it('keeps an NFT purchase on jb_prepare_721_pay for a slippage retry', async () => {
+      const { service, sealed, client } = setup({
+        ...draft(),
+        operation: '721_pay',
+        summary: { nft: {}, paymentQuote: { slippageBps: 100, minimumBasis: 'prepareUserPay' } },
+      });
+      client.call.mockRejectedValueOnce(nodeRevert(underMin));
+      const failure = ((await service.simulate({ token: sealed.token })) as any).error.payFailure;
+      expect(failure).toMatchObject({ retrySlippageBps: 1100 });
+      expect(failure.retry).toContain(
+        'jb_prepare_721_pay and the same tiers, with slippageBps 1100',
+      );
+      expect(failure.retry).not.toContain('jb_prepare_pay ');
     });
 
     it("points a buyback miss at the caller's metadata when the plan used it", async () => {

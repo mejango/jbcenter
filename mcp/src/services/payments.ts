@@ -1074,6 +1074,7 @@ export class PaymentService {
         const shown = publicPayError(error, {
           slippageBps: slippage,
           explicitMinimum: explicitMinimum !== undefined,
+          nft: verifiedNftHook !== undefined,
           ...(hookMinimum === undefined
             ? {}
             : {
