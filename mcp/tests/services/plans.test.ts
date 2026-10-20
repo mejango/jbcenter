@@ -36,7 +36,7 @@ import {
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
 import {
-  buildDirectPaySwapTx,
+  buildUniswapV4ExactInputSwapTx,
   buildPermit2ApproveTx,
   jbSuckerV6Abi,
   uniswapV4Deployment,
@@ -333,25 +333,18 @@ describe('direct transaction and canonical receipt verification', () => {
   });
 
   it("verifies a pool buy by the account's net project-token gain, on the real router calldata", async () => {
-    const swapTx = buildDirectPaySwapTx({
+    const swapTx = buildUniswapV4ExactInputSwapTx({
       chainId: 1,
-      quote: {
-        kind: 'direct-swap',
-        poolKey: {
-          currency0: zeroAddress,
-          currency1: TOKEN,
-          fee: 3000,
-          tickSpacing: 60,
-          hooks: zeroAddress,
-        },
-        zeroForOne: true,
-        quotedTokenCount: 52n,
-        minimumTokenCount: 50n,
-        beneficiaryTokenCount: 50n,
-        reservedTokenCount: 0n,
-        inputRoute: { kind: 'single-v4' },
+      poolKey: {
+        currency0: zeroAddress,
+        currency1: TOKEN,
+        fee: 3000,
+        tickSpacing: 60,
+        hooks: zeroAddress,
       },
-      amount: 100n,
+      zeroForOne: true,
+      amountIn: 100n,
+      minimumAmountOut: 50n,
       recipient: ACCOUNT,
       deadline: 1788696900n,
     });

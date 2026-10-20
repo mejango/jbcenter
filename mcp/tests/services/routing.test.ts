@@ -5,7 +5,6 @@ import {
   jbRouterTerminalRegistryAbi,
 } from '@bananapus/nana-sdk-core';
 import {
-  NATIVE_SWAP_BY_CHAIN,
   uniswapV4Deployment,
   uniswapV4PoolId,
   uniswapV4PoolStateSlot,
@@ -800,7 +799,7 @@ describe('direct pool-buy quote', () => {
     timestamp: '1700000100',
     source: 'rpc',
   } as const;
-  const usdc = NATIVE_SWAP_BY_CHAIN[1]!.bridgeToken;
+  const usdc = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' as Address;
   const terminalQuote = {
     route: 'multi-terminal',
     quoteBasis: 'terminal-issuance-preview',
@@ -810,21 +809,12 @@ describe('direct pool-buy quote', () => {
     slippageBps: 100,
   };
   const input = { project, account: owner, token: native, amount: '1000000000000000000' };
-  // V4 quoter: exact input in, 97% out. V3 bridge quoter: 2,000 USDC per ETH.
+  // V4 quoter: exact input in, 97% out.
   function withQuoters(service: ReturnType<typeof fixture>) {
     const calls: { to: Address; data: Hex }[] = [];
     (service.snapshot.client as unknown as { call: unknown }).call = vi.fn(
       async (request: { to: Address; data: Hex }) => {
         calls.push(request);
-        if (request.to.toLowerCase() === NATIVE_SWAP_BY_CHAIN[1]!.v3Quoter.toLowerCase())
-          return {
-            data: encodeAbiParameters(parseAbiParameters('uint256, uint160, uint32, uint256'), [
-              2_000_000_000n,
-              0n,
-              0,
-              0n,
-            ]),
-          };
         const amount = (
           decodeAbiParameters(
             parseAbiParameters('((address,address,uint24,int24,address),bool,uint128,bytes)'),
@@ -855,7 +845,6 @@ describe('direct pool-buy quote', () => {
       projectToken,
       pool: {
         key,
-        inputRoute: { kind: 'single-v4' },
         amountIn: '1000000000000000000',
         tokenCount: '970000000000000000',
         minimumTokenCount: '960300000000000000',
@@ -935,7 +924,7 @@ describe('direct pool-buy quote', () => {
     expect(unknownHook.warnings[0]).toContain('jb_prepare_pool_buy refuses this pool');
   });
 
-  it("names the router's TWAP floor as the reason its bridge amount sits below the V3 quote", async () => {
+  it("does not cross to another token's pool", async () => {
     const usdcKey = { ...key, currency0: projectToken, currency1: usdc };
     const routing = fixture((request) =>
       request.functionName === 'poolKeyOf'
@@ -945,42 +934,9 @@ describe('direct pool-buy quote', () => {
         : pass,
     );
     withQuoters(routing);
-    const routed = { ...terminalQuote, route: 'router-terminal' };
-    const result = (await routing.service.quotePoolBuy(input, async () => routed)) as {
-      warnings: string[];
-    };
-    expect(result.warnings.join(' ')).toContain('10-minute TWAP less its slippage buffer');
-    const direct = (await routing.service.quotePoolBuy(input, async () => terminalQuote)) as {
-      warnings: string[];
-    };
-    expect(direct.warnings.join(' ')).not.toContain('10-minute TWAP');
-  });
-
-  it('crosses the ETH/USDC bridge when only the USDC pool exists', async () => {
-    const usdcKey = { ...key, currency0: projectToken, currency1: usdc };
-    const routing = fixture((request) =>
-      request.functionName === 'poolKeyOf'
-        ? request.args?.[1] === zeroAddress
-          ? emptyKey
-          : usdcKey
-        : request.functionName === 'extsload' &&
-            request.args?.[0] === uniswapV4PoolStateSlot(uniswapV4PoolId(usdcKey))
-          ? numberToHex(1n << 96n, { size: 32 })
-          : pass,
-    );
-    withQuoters(routing);
-    const result = await routing.service.quotePoolBuy(input, async () => terminalQuote);
-    expect(result).toMatchObject({
-      pool: {
-        key: usdcKey,
-        inputRoute: { kind: 'native-v3-v4', quotedBridgeAmount: '2000000000' },
-        amountIn: '2000000000',
-        tokenCount: '1940000000',
-      },
-    });
-    expect((result as { warnings: string[] }).warnings.join(' ')).toContain(
-      'Uniswap V3 ETH/USDC pool',
-    );
+    await expect(
+      routing.service.quotePoolBuy(input, async () => terminalQuote),
+    ).rejects.toMatchObject({ code: 'NO_BUYBACK_POOL' });
   });
 
   it('keeps the pool quote when the terminal quote fails', async () => {
@@ -1000,14 +956,15 @@ describe('direct pool-buy quote', () => {
     const registered = (tokenOfNine: Address) =>
       fixture((request) => {
         if (request.functionName === 'poolKeyOf')
-          return request.args?.[1] === zeroAddress ? emptyKey : usdcKey;
+          return request.args?.[1] === usdc ? usdcKey : emptyKey;
         if (request.functionName === 'projectIdOf') return request.args?.[0] === usdc ? 9n : 0n;
         if (request.functionName === 'tokenOf' && request.args?.[0] === 9n) return tokenOfNine;
         return pass;
       });
+    const usdcInput = { ...input, token: usdc, amount: '5000000' };
     const cashOut = registered(usdc);
     withQuoters(cashOut);
-    const result = (await cashOut.service.quotePoolBuy(input, async () => terminalQuote)) as {
+    const result = (await cashOut.service.quotePoolBuy(usdcInput, async () => terminalQuote)) as {
       pool: { hook: { routes: unknown } };
       warnings: string[];
     };
@@ -1020,7 +977,10 @@ describe('direct pool-buy quote', () => {
     // projectIdOf alone is not registration: the hook also requires tokenOf(id) to be that token.
     const stale = registered(custom);
     withQuoters(stale);
-    const notRegistered = (await stale.service.quotePoolBuy(input, async () => terminalQuote)) as {
+    const notRegistered = (await stale.service.quotePoolBuy(
+      usdcInput,
+      async () => terminalQuote,
+    )) as {
       pool: { hook: { routes: { route: string }[] } };
     };
     expect(notRegistered.pool.hook.routes.map((item) => item.route)).toEqual(['pay', 'pool']);
@@ -1095,36 +1055,6 @@ describe('direct pool-buy quote', () => {
     expect(unreached).not.toHaveBeenCalled();
     expect(tooLarge).not.toMatchObject({ code: 'NO_POOL_LIQUIDITY' });
     expect((tooLarge as Error).message).toContain('uint128');
-
-    // A failed V3 bridge leg never reaches the V4 quoter: no route, not an empty pool.
-    const usdcKey = { ...key, currency0: projectToken, currency1: usdc };
-    const bridged = fixture((request) =>
-      request.functionName === 'poolKeyOf'
-        ? request.args?.[1] === zeroAddress
-          ? emptyKey
-          : usdcKey
-        : request.functionName === 'extsload' &&
-            request.args?.[0] !== uniswapV4PoolStateSlot(uniswapV4PoolId(usdcKey))
-          ? zeroHash
-          : pass,
-    );
-    reverting(bridged);
-    await expect(
-      bridged.service.quotePoolBuy(input, async () => terminalQuote),
-    ).rejects.toMatchObject({ code: 'POOL_QUOTE_UNAVAILABLE' });
-
-    // A bridge leg lost to transport leaves the route unknown: retryable, not "no route".
-    const unreachable = fixture((request) =>
-      request.functionName === 'poolKeyOf'
-        ? request.args?.[1] === zeroAddress
-          ? emptyKey
-          : usdcKey
-        : pass,
-    );
-    failing(unreachable, () => new TimeoutError({ body: {}, url: 'http://rpc.invalid' }));
-    await expect(
-      unreachable.service.quotePoolBuy(input, async () => terminalQuote),
-    ).rejects.toBeInstanceOf(TimeoutError);
   });
 
   it('refuses projects without a buyback pool or with a pool for another token', async () => {
@@ -1144,26 +1074,17 @@ describe('direct pool-buy quote', () => {
 });
 
 describe('direct pool-buy preparation', () => {
-  const usdc = NATIVE_SWAP_BY_CHAIN[1]!.bridgeToken;
+  const usdc = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' as Address;
   const router = uniswapV4Deployment(1)!.universalRouter!;
   const permit2 = uniswapV4Deployment(1)!.permit2;
   const input = { project, account: owner, token: native, amount: '1000000000000000000' };
   const executeAbi = parseAbi([
     'function execute(bytes commands, bytes[] inputs, uint256 deadline)',
   ]);
-  // Every quoter returns 2,000 of the output token per input token, as in the bridge test above.
+  // The V4 quoter returns 97% of the input, as in the quote tests above.
   function quoting(service: ReturnType<typeof fixture>) {
     (service.snapshot.client as unknown as { call: unknown }).call = vi.fn(
       async (request: { to: Address; data: Hex }) => {
-        if (request.to.toLowerCase() === NATIVE_SWAP_BY_CHAIN[1]!.v3Quoter.toLowerCase())
-          return {
-            data: encodeAbiParameters(parseAbiParameters('uint256, uint160, uint32, uint256'), [
-              2_000_000_000n,
-              0n,
-              0,
-              0n,
-            ]),
-          };
         const amount = (
           decodeAbiParameters(
             parseAbiParameters('((address,address,uint24,int24,address),bool,uint128,bytes)'),
@@ -1194,15 +1115,8 @@ describe('direct pool-buy preparation', () => {
     return params[3];
   }
 
-  it('prepares the ETH to USDC to project-token route as one router call with the slippage minimum', async () => {
-    const usdcKey = { ...key, currency0: projectToken, currency1: usdc };
-    const routing = fixture((request) =>
-      request.functionName === 'poolKeyOf'
-        ? request.args?.[1] === zeroAddress
-          ? emptyKey
-          : usdcKey
-        : pass,
-    );
+  it('prepares the ETH to project-token swap as one router call with the slippage minimum', async () => {
+    const routing = fixture();
     quoting(routing);
     const plan = await routing.service.preparePoolBuy({ ...input, slippageBps: 200 });
     expect(plan.operation).toBe('pool_buy');
@@ -1210,17 +1124,16 @@ describe('direct pool-buy preparation', () => {
     const [swap] = plan.calls;
     expect(swap).toMatchObject({ to: router, value: '1000000000000000000' });
     expect(decodeFunctionData({ abi: executeAbi, data: swap!.data }).args).toMatchObject([
-      '0x0b0010',
+      '0x10',
       expect.any(Array),
       1700000100n + 900n,
     ]);
-    expect(v4Minimum(swap!.data)).toBe(1_901_200_000n);
+    expect(v4Minimum(swap!.data)).toBe(950_600_000_000_000_000n);
     expect(plan.summary).toMatchObject({
       recipient: owner,
       projectToken,
-      inputRoute: { kind: 'native-v3-v4', quotedBridgeAmount: '2000000000' },
-      quotedTokenCount: '1940000000',
-      minimumTokenCount: '1901200000',
+      quotedTokenCount: '970000000000000000',
+      minimumTokenCount: '950600000000000000',
       slippageBps: 200,
     });
     expect(plan.summary).toMatchObject({
@@ -1232,7 +1145,6 @@ describe('direct pool-buy preparation', () => {
       { route: 'pool' },
     ]);
     expect(plan.warnings[0]).toContain('paying project 42 through its primary terminal');
-    expect(plan.warnings.join(' ')).toContain('The V3 bridge leg has no minimum of its own');
   });
 
   it('approves Permit2 and the router for exactly an ERC-20 payment, and skips what is already granted', async () => {

@@ -135,8 +135,9 @@ const deployPageSchema = z.object({ deploys: z.array(deployRowSchema).max(16) })
 export type CenterDeployRow = z.infer<typeof deployRowSchema>;
 export type CenterDeployPage = z.infer<typeof deployPageSchema>;
 /** Center names the sender that made each deployment: `forwarded` rides alongside the SDK's
- * deployment shape, and a deployment that is not forwarded ends Center's part in the intent. */
-export type CenterIntent = Omit<JBCenterIntent, 'deployments'> & {
+ * deployment shape, and a deployment that is not forwarded ends Center's part in the intent.
+ * Relay rows (`deploys`) are read from their own endpoint, so an intent read does not carry them. */
+export type CenterIntent = Omit<JBCenterIntent, 'deployments' | 'deploys'> & {
   deployments: (JBCenterDeployment & { forwarded: boolean })[];
 };
 

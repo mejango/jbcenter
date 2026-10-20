@@ -100,6 +100,7 @@ type HookSpec = { hook: Address; noop: boolean; amount: bigint; metadata: Hex };
 function fixture(
   options: {
     beneficiaryCount?: bigint;
+    reservedCount?: bigint;
     allowance?: bigint;
     /** A function receives the pay metadata, so a preview depends on the bytes it was sent. */
     payHooks?: HookSpec[] | ((metadata: Hex) => HookSpec[]);
@@ -156,7 +157,7 @@ function fixture(
         return [
           ruleset,
           options.beneficiaryCount ?? 101n,
-          10n,
+          options.reservedCount ?? 10n,
           typeof options.payHooks === 'function'
             ? options.payHooks(request.args?.[4] as Hex)
             : (options.payHooks ?? []),
@@ -700,6 +701,7 @@ describe('payment quotes and approval plans', () => {
     const { service } = fixture({
       dataHook: registry,
       beneficiaryCount: 0n,
+      reservedCount: 0n,
       payHooks: [{ hook: buybackHook, noop: false, amount: 100n, metadata: payHookMetadata() }],
     });
     const plan = await service.preparePay(payInput);
@@ -707,7 +709,12 @@ describe('payment quotes and approval plans', () => {
       quoteBasis: 'buyback-hook-indicative-output',
       beneficiaryTokenCount: '250',
       minimumBeneficiaryTokenCount: '247',
-      rawTerminalPreview: { semantics: 'issuance', beneficiaryTokenCount: '0' },
+      // The terminal's own counts, never the SDK previewPay's fold of the hook spec.
+      rawTerminalPreview: {
+        semantics: 'issuance',
+        beneficiaryTokenCount: '0',
+        reservedTokenCount: '0',
+      },
       buybackHook: { address: buybackHook, version: '1.4', status: 'current' },
       tokenCounts: {
         beneficiaryTokenCount: expect.stringMatching(

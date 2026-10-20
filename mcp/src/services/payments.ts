@@ -13,7 +13,6 @@ import {
   buildPayTx,
   getCurrentRuleset,
   prepareHookAwareCashOut,
-  previewPay,
   resolvePaymentTerminal,
   slippageFloor,
   v6Address,
@@ -747,22 +746,21 @@ export class PaymentService {
     return { terminal, accounting };
   }
 
-  private previewFor(
+  /** The terminal's own counts. The SDK's previewPay folds the buyback spec in; this service decodes it itself. */
+  private async previewFor(
     client: PublicClient,
     input: PayInput,
     terminal: Address,
     amount: bigint,
     metadata: Hex,
   ) {
-    return previewPay(client, {
-      chainId: input.project.chainId,
-      terminal,
-      projectId: BigInt(input.project.projectId),
-      token: input.token,
-      amount,
-      beneficiary: input.beneficiary,
-      metadata,
+    const [, beneficiaryTokenCount, reservedTokenCount] = await client.readContract({
+      address: terminal,
+      abi: jbMultiTerminalAbi,
+      functionName: 'previewPayFor',
+      args: [BigInt(input.project.projectId), input.token, amount, input.beneficiary, metadata],
     });
+    return { beneficiaryTokenCount, reservedTokenCount };
   }
   /** `beside` reads alongside the preview whatever else the plan needs from the resolved terminal. */
   private async pay<T = undefined>(
