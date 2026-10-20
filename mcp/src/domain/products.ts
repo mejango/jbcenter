@@ -25,13 +25,12 @@ import {
   splitSchema,
   terminalConfigurationsSchema,
   toRulesetConfig,
+  uint,
 } from './rulesets.js';
 import { DomainError } from './errors.js';
 import { UNITS } from './units.js';
 import type { ProjectRef } from './types.js';
 
-const uint = (bits: number, max = (1n << BigInt(bits)) - 1n) =>
-  uintSchema.refine((value) => BigInt(value) <= max, `Must fit uint${bits} and be at most ${max}.`);
 const nonzero = addressSchema.refine(
   (value) => value !== zeroAddress,
   'A nonzero address is required.',
@@ -410,13 +409,16 @@ export const prepareRevnetDeploySchema = z
         path: ['accountingContexts'],
         message: 'Accounting tokens must be unique.',
       });
+    // REVDeployer deploys the launch suckers without bit 2; it gates only later deploySuckersFor calls.
+    // The pinned SDK's buildDeployRevnetTx still refuses a cross-chain stage without it; name that here.
     if (crossChain)
       value.config.stageConfigurations.forEach((stage, i) => {
         if ((BigInt(stage.extraMetadata) & 4n) === 0n)
           ctx.addIssue({
             code: 'custom',
             path: ['config', 'stageConfigurations', i, 'extraMetadata'],
-            message: 'Every cross-chain stage must permit sucker deployment with metadata bit 2.',
+            message:
+              'Set extraMetadata bit 2 (value 4) on every cross-chain stage. The launch suckers deploy without it, but the SDK refuses to encode a cross-chain revnet without it: during a stage that lacks it the operator cannot add a chain or retry a failed bridge.',
           });
       });
   });

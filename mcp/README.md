@@ -116,7 +116,7 @@ NFT JSON uses the same authenticated review, integrated pinning backend, expiry,
 
 - Only V6 is supported. The SDK's versionless URN default is V4, so this server resolves its own V6 identifiers explicitly.
 - Each on-chain snapshot uses one canonical block hash. Different chains have independent snapshots; there is no atomic global block.
-- Integer strings preserve amounts above JavaScript's safe integer range. Integer inputs also accept JSON numbers up to 2^53 - 1 and refuse larger ones. Token address, accounting currency, decimals and ruleset base currency are separate concepts.
+- Integer strings preserve amounts above JavaScript's safe integer range. Amounts, weights, prices and IDs are strings only; bounded fields (percents, durations, timestamps, chain IDs, small counts) also accept a JSON number up to 2^53 - 1. Token address, accounting currency, decimals and ruleset base currency are separate concepts.
 - Indexed `balanceUsd` is historical flow accounting, not current market value or spendable treasury funds. Indexer status does not retroactively pin a GraphQL response.
 - Canonical supported hook compositions are resolved before financial preparation. Unsupported custom or nested behavior fails explicitly. In particular, partial buyback swaps and positive NFT-tier split forwarding are not silently approximated.
 - Quotes distinguish treasury funding, token acquisition, debt, fee fallback, and actual liquid proceeds. Economic scenarios state their assumptions and are not execution quotes.

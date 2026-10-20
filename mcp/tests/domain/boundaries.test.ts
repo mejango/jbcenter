@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { uintSchema, positiveUintSchema } from '../../src/domain/schemas.js';
+import {
+  positiveUintSchema,
+  projectSchema,
+  smallUintSchema,
+  uintSchema,
+} from '../../src/domain/schemas.js';
 import { loadConfig } from '../../src/config.js';
 import { resolveProjectIdentifier } from '../../src/services/identity.js';
 import { ContractService } from '../../src/services/contracts.js';
@@ -12,20 +17,36 @@ describe('public boundaries', () => {
       expect(positiveUintSchema.safeParse(value).success).toBe(false);
     },
   );
-  it('accepts safe-integer JSON numbers as their exact strings and refuses lossy ones', () => {
-    expect(uintSchema.parse(0)).toBe('0');
-    expect(uintSchema.parse(86400)).toBe('86400');
-    expect(uintSchema.parse(Number.MAX_SAFE_INTEGER)).toBe('9007199254740991');
+  it('takes amounts only as strings, since JSON parsing rounds a number before any check sees it', () => {
+    // 1.0000000000000001 and 9007199254740990.5 parse to integers; only the string keeps the digits.
+    for (const value of [0, 86400, 1.0000000000000001, 9007199254740990.5, -0, 1e3]) {
+      for (const schema of [uintSchema, positiveUintSchema]) {
+        const result = schema.safeParse(value);
+        expect(result.success).toBe(false);
+        expect(result.error?.issues[0]?.message).toContain('base-10 integer string');
+      }
+    }
     expect(uintSchema.parse('9007199254740993')).toBe('9007199254740993');
-    expect(positiveUintSchema.safeParse(0).success).toBe(false);
+  });
+  it('accepts safe-integer JSON numbers only for bounded fields, never for IDs', () => {
+    expect(smallUintSchema.parse(0)).toBe('0');
+    expect(smallUintSchema.parse(86400)).toBe('86400');
+    expect(smallUintSchema.parse(Number.MAX_SAFE_INTEGER)).toBe('9007199254740991');
+    expect(smallUintSchema.parse('9007199254740993')).toBe('9007199254740993');
+    // IDs have ranges past 2^53, where JSON parsing has already rounded 9007199254740990.5 to an integer.
+    for (const projectId of [7, 9007199254740990.5])
+      expect(
+        projectSchema.safeParse({ chainId: 1, projectId }).error?.issues[0]?.message,
+      ).toContain('base-10 integer string');
+    expect(projectSchema.parse({ chainId: 1, projectId: '7' }).projectId).toBe('7');
     for (const value of [2 ** 53, 1e21, 1.5, -1]) {
-      const result = uintSchema.safeParse(value);
+      const result = smallUintSchema.safeParse(value);
       expect(result.success).toBe(false);
       expect(result.error?.issues[0]?.message).toContain(
         'Send larger or exact values as a base-10 string',
       );
     }
-    expect(uintSchema.safeParse(Number.NaN).success).toBe(false);
+    expect(smallUintSchema.safeParse(Number.NaN).success).toBe(false);
     expect(uintSchema.safeParse('1.5').error?.issues[0]?.message).toContain(
       'base-10 integer string',
     );

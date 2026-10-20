@@ -38,7 +38,8 @@ function configuration() {
   };
 }
 function mockRpc(overrides: Record<string, unknown> = {}, chainId: ChainId = 1) {
-  const readContract = vi.fn(async (request: { functionName: string; blockNumber?: bigint }) => {
+  type Request = { functionName: string; args?: readonly unknown[]; blockNumber?: bigint };
+  const readContract = vi.fn(async (request: Request) => {
     const values: Record<string, unknown> = {
       controllerOf: v6Address('JBController', chainId),
       ownerOf: account,
@@ -58,6 +59,7 @@ function mockRpc(overrides: Record<string, unknown> = {}, chainId: ChainId = 1) 
       ...overrides,
     };
     const value = values[request.functionName];
+    if (typeof value === 'function') return (value as (request: Request) => unknown)(request);
     if (value instanceof Error) throw value;
     if (value === undefined) throw new Error(`Missing mock ${request.functionName}`);
     return value;
@@ -486,6 +488,15 @@ describe('project ERC-20 and URI preparation', () => {
 
 describe('current ruleset as preview input', () => {
   const terminal = v6Address('JBMultiTerminal', 1);
+  const reservedSplit = {
+    percent: 500_000_000,
+    projectId: 0n,
+    beneficiary: another,
+    preferAddToBalance: false,
+    lockedUntil: 0,
+    hook: zeroAddress,
+  };
+  const fallbackSplit = { ...reservedSplit, percent: 1_000_000_000, beneficiary: account };
   const live = {
     currentRulesetOf: [
       { ...stored, weight: 987654321987654321987n, weightCutPercent: 50_000_000 },
@@ -493,23 +504,18 @@ describe('current ruleset as preview input', () => {
     ],
     terminalsOf: [terminal],
     accountingContextsOf: [{ token: NATIVE_TOKEN, decimals: 18, currency: 61166 }],
-    splitsOf: [
-      {
-        percent: 500_000_000,
-        projectId: 0n,
-        beneficiary: another,
-        preferAddToBalance: false,
-        lockedUntil: 0,
-        hook: zeroAddress,
-      },
-    ],
+    // Group 1 is stored, with an empty fallback. Group 61166 reads equal to its fallback: either an explicit table
+    // that matches the fallback, or none stored and splitsOf resolving ruleset 0. Both states read identically.
+    splitsOf: ({ args }: { args: readonly bigint[] }) =>
+      args[2] === 1n ? (args[1] === 0n ? [] : [reservedSplit]) : [fallbackSplit],
     payoutLimitsOf: [{ amount: 2_000_000_000_000_000_000n, currency: 1 }],
   };
 
-  it('returns the active ruleset in the exact input shape, so an unedited copy previews with no changes', async () => {
+  it('returns the active ruleset in the input shape, keeps an explicit table that equals the fallback, and reports what it omits', async () => {
     const { service } = mockRpc(live);
     const project = { chainId: 1 as const, projectId: '7' };
-    const input = await service.currentRulesetInput(project, 12345n);
+    const current = await service.currentRulesetInput(project, 12345n);
+    const input = current!.rulesetConfiguration;
     expect(input).toMatchObject({
       mustStartAtOrAfter: '0',
       duration: '86400',
@@ -525,15 +531,44 @@ describe('current ruleset as preview input', () => {
         },
       ],
     });
-    expect(input!.splitGroups.map((group) => group.groupId)).toEqual(['1', '61166']);
+    // Equality does not prove inheritance: the group stays, preserving today's recipients, and is marked unknown.
+    expect(input.splitGroups).toEqual([
+      expect.objectContaining({
+        groupId: '1',
+        splits: [expect.objectContaining({ beneficiary: another })],
+      }),
+      expect.objectContaining({
+        groupId: '61166',
+        splits: [expect.objectContaining({ beneficiary: account })],
+      }),
+    ]);
+    expect(current!.coverage).toMatchObject({
+      status: 'incomplete',
+      splitGroupsRead: ['1', '61166'],
+      splitGroupProvenance: [
+        { groupId: '1', provenance: 'stored' },
+        { groupId: '61166', provenance: 'unknown' },
+      ],
+      fundAccessLimitPairsRead: [{ terminal, token: NATIVE_TOKEN }],
+    });
+    expect(current!.coverage.notCovered.join(' ')).toContain('hook-defined group IDs');
     const preview = await service.previewRulesetChange({
       project,
       account,
-      rulesetConfigurations: [input!],
+      rulesetConfigurations: [input],
     });
+    // economicChanges compares scalar fields only; the split tables are checked through lockChanges.
     expect(preview.economicChanges[0]!.changes).toEqual([]);
+    expect(preview.lockChanges).toMatchObject([
+      {
+        groups: [
+          { groupId: '1', usesFallbackSplits: false },
+          { groupId: '61166', usesFallbackSplits: false },
+        ],
+      },
+    ]);
     // Edit one field: only that field differs.
-    const edited = { ...input!, metadata: { ...input!.metadata, reservedPercent: '1000' } };
+    const edited = { ...input, metadata: { ...input.metadata, reservedPercent: '1000' } };
     const changed = await service.previewRulesetChange({
       project,
       account,
