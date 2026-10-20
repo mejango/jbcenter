@@ -148,6 +148,21 @@ describe('directory browser navigation', () => {
     expect(new URL(page.url()).hash).toBe('#directory-agents');
   });
 
+  it('keeps a later choice when a tab moved the address between the two events of one change', async () => {
+    const release = holdMaps();
+    await page.goto('https://directory.test/');
+    await page.waitForSelector('.is-enhanced');
+    await page.evaluate(async () => {
+      document.querySelector<HTMLElement>('a[href="#directory-agents"]')!.click();
+      document.querySelector<HTMLElement>('#journey-apps')!.click();
+      await Promise.resolve();
+      document.querySelector<HTMLElement>('#journey-developers')!.click();
+    });
+    await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 50)));
+    release();
+    await expect.poll(current).toBe('developers/' + await page.locator('#map-developers').getAttribute('data-entry'));
+  });
+
   it('routes a deep link again when Back returns to it before its map loaded', async () => {
     const release = holdMaps();
     await page.goto('https://directory.test/#api/rpc');

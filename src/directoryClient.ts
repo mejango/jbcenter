@@ -206,15 +206,16 @@ export const HOMEPAGE_JS = String.raw`(() => {
     if (historyKey() !== routedKey) routeTo(true);
     else intent++; // Back to the page already shown still cancels a pending tab or edge.
   }
-  // A fragment change fires popstate, then a queued hashchange for the same change; only the popstate counts.
-  let pairedKey = null;
+  // A fragment change fires popstate, then a queued hashchange naming the same URL; only the popstate counts.
+  // The pair is matched by the event's URL, since a choice made in between can already have moved the address.
+  let pairedUrl = null;
   window.addEventListener('popstate', () => {
-    pairedKey = historyKey();
+    pairedUrl = window.location.href;
     historyChanged();
   });
-  window.addEventListener('hashchange', () => {
-    const paired = pairedKey === historyKey();
-    pairedKey = null;
+  window.addEventListener('hashchange', (event) => {
+    const paired = event.newURL === pairedUrl;
+    pairedUrl = null;
     if (!paired) historyChanged();
   });
   explorer.addEventListener('toggle', scheduleDraw, true);
