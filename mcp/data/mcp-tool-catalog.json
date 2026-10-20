@@ -3278,7 +3278,7 @@
             "pattern": "^0x(?:[a-fA-F0-9]{2})*$"
           },
           "skipSplits": {
-            "description": "Buyback 1.4 only. Unset means on wherever the project's buyback hook is 1.4 and no metadata is given, as the apps pay: the hook buys from the pool when that beats the payer's share of a mint, and the tokens it buys go to the beneficiary without the reserved split (they already exist, so nothing is issued for them and the split gets none). Minting still pays the split. The default minimum is then the SDK's (prepareUserPay). Pass false when the payment should honor the project's splits, such as routing fees or revenue into a project. Where it cannot apply (no buyback hook, hook 1.0 or 1.1.1, the caller's own metadata) unset means off, and an explicit true is refused. The quote's skipSplits says which applied and why.",
+            "description": "Buyback 1.4 only. Unset means on wherever the project's buyback hook is 1.4 and no metadata is given, as the apps pay: the hook buys from the pool when that beats the payer's share of a mint, and the tokens it buys go to the beneficiary without the reserved split (they already exist, so nothing is issued for them and the split gets none). Minting still pays the split. The default minimum is then the SDK's (prepareUserPay): with a pool quote, the beneficiary's part of the floored quote, which the hook also enforces. Pass false when the payment should honor the project's splits, such as routing fees or revenue into a project. Where it cannot apply (no buyback hook, hook 1.0 or 1.1.1, the caller's own metadata) unset means off, and an explicit true is refused. The quote's skipSplits says which applied and why.",
             "type": "boolean"
           }
         },
@@ -3522,7 +3522,7 @@
             "pattern": "^0x(?:[a-fA-F0-9]{2})*$"
           },
           "skipSplits": {
-            "description": "Buyback 1.4 only. Unset means on wherever the project's buyback hook is 1.4 and no metadata is given, as the apps pay: the hook buys from the pool when that beats the payer's share of a mint, and the tokens it buys go to the beneficiary without the reserved split (they already exist, so nothing is issued for them and the split gets none). Minting still pays the split. The default minimum is then the SDK's (prepareUserPay). Pass false when the payment should honor the project's splits, such as routing fees or revenue into a project. Where it cannot apply (no buyback hook, hook 1.0 or 1.1.1, the caller's own metadata) unset means off, and an explicit true is refused. The quote's skipSplits says which applied and why.",
+            "description": "Buyback 1.4 only. Unset means on wherever the project's buyback hook is 1.4 and no metadata is given, as the apps pay: the hook buys from the pool when that beats the payer's share of a mint, and the tokens it buys go to the beneficiary without the reserved split (they already exist, so nothing is issued for them and the split gets none). Minting still pays the split. The default minimum is then the SDK's (prepareUserPay): with a pool quote, the beneficiary's part of the floored quote, which the hook also enforces. Pass false when the payment should honor the project's splits, such as routing fees or revenue into a project. Where it cannot apply (no buyback hook, hook 1.0 or 1.1.1, the caller's own metadata) unset means off, and an explicit true is refused. The quote's skipSplits says which applied and why.",
             "type": "boolean"
           }
         },
@@ -11554,7 +11554,7 @@
             "type": "boolean"
           },
           "skipSplits": {
-            "description": "Buyback 1.4 only. Unset means on wherever the project's buyback hook is 1.4 and no metadata is given, as the apps pay: the hook buys from the pool when that beats the payer's share of a mint, and the tokens it buys go to the beneficiary without the reserved split (they already exist, so nothing is issued for them and the split gets none). Minting still pays the split. The default minimum is then the SDK's (prepareUserPay). Pass false when the payment should honor the project's splits, such as routing fees or revenue into a project. Where it cannot apply (no buyback hook, hook 1.0 or 1.1.1, the caller's own metadata) unset means off, and an explicit true is refused. The quote's skipSplits says which applied and why.",
+            "description": "Buyback 1.4 only. Unset means on wherever the project's buyback hook is 1.4 and no metadata is given, as the apps pay: the hook buys from the pool when that beats the payer's share of a mint, and the tokens it buys go to the beneficiary without the reserved split (they already exist, so nothing is issued for them and the split gets none). Minting still pays the split. The default minimum is then the SDK's (prepareUserPay): with a pool quote, the beneficiary's part of the floored quote, which the hook also enforces. Pass false when the payment should honor the project's splits, such as routing fees or revenue into a project. Where it cannot apply (no buyback hook, hook 1.0 or 1.1.1, the caller's own metadata) unset means off, and an explicit true is refused. The quote's skipSplits says which applied and why.",
             "type": "boolean"
           }
         },
@@ -11812,7 +11812,7 @@
             "type": "boolean"
           },
           "skipSplits": {
-            "description": "Buyback 1.4 only. Unset means on wherever the project's buyback hook is 1.4 and no metadata is given, as the apps pay: the hook buys from the pool when that beats the payer's share of a mint, and the tokens it buys go to the beneficiary without the reserved split (they already exist, so nothing is issued for them and the split gets none). Minting still pays the split. The default minimum is then the SDK's (prepareUserPay). Pass false when the payment should honor the project's splits, such as routing fees or revenue into a project. Where it cannot apply (no buyback hook, hook 1.0 or 1.1.1, the caller's own metadata) unset means off, and an explicit true is refused. The quote's skipSplits says which applied and why.",
+            "description": "Buyback 1.4 only. Unset means on wherever the project's buyback hook is 1.4 and no metadata is given, as the apps pay: the hook buys from the pool when that beats the payer's share of a mint, and the tokens it buys go to the beneficiary without the reserved split (they already exist, so nothing is issued for them and the split gets none). Minting still pays the split. The default minimum is then the SDK's (prepareUserPay): with a pool quote, the beneficiary's part of the floored quote, which the hook also enforces. Pass false when the payment should honor the project's splits, such as routing fees or revenue into a project. Where it cannot apply (no buyback hook, hook 1.0 or 1.1.1, the caller's own metadata) unset means off, and an explicit true is refused. The quote's skipSplits says which applied and why.",
             "type": "boolean"
           }
         },

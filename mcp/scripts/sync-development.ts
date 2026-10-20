@@ -120,6 +120,7 @@ const SOURCES = {
       ['sdk.package', 'packages/core/package.json'],
       ['sdk.v6', 'packages/core/src/v6/index.ts'],
       ['sdk.pay', 'packages/core/src/v6/pay.ts'],
+      ['sdk.execution-errors', 'packages/core/src/v6/executionErrors.ts'],
       ['sdk.terminals', 'packages/core/src/v6/terminals.ts'],
       ['sdk.cashout', 'packages/core/src/v6/cashOut.ts'],
       ['sdk.permit2', 'packages/core/src/v6/permit2.ts'],
@@ -315,6 +316,7 @@ const FEATURES: DevelopmentFeature[] = [
         sdk('sdk.pay', 'prepareUserPay'),
         sdk('sdk.pay', 'buildUserPayMetadata'),
         sdk('sdk.pay', 'buildPayTx'),
+        sdk('sdk.execution-errors', 'decodePayFailure'),
       ),
       action(
         'prove',
@@ -324,7 +326,7 @@ const FEATURES: DevelopmentFeature[] = [
       ),
     ],
     [
-      "Payments go through the project's terminal. With buyback 1.4 the hook buys from the pool when that beats minting, and skipSplits (prepareUserPay's default, true) hands those tokens over without the reserved split; pass skipSplits false to prepareUserPay (SDK 3.2.0 or later) for fees or revenue that should honor the project's splits. It encodes a (0, 0, false) entry and sets the minimum to the payer's split mint entitlement. prepareUserPay keys the entry to the registry, or to buyback 1.4 when the ruleset calls it directly.",
+      "Payments go through the project's terminal. With buyback 1.4 the hook buys from the pool when that beats minting, and skipSplits (prepareUserPay's default, true) hands those tokens over without the reserved split; pass skipSplits false to prepareUserPay (SDK 3.2.0 or later) for fees or revenue that should honor the project's splits. Either way prepareUserPay (SDK 3.3.0 or later) quotes the V4 pool, on buyback 1.4 and 1.1.1: the hook's minimumSwapAmountOut is the floored quote and minReturnedTokens the beneficiary's part of it; only without a quote does it fall back to the payer's mint share. When a payment reverts, decodePayFailure(error) gives a stable reason, a sentence for the payer and, for a shortfall, received and minimum, so the payer can lower the minimum or raise the slippage and retry. prepareUserPay keys the entry to the registry, or to buyback 1.4 when the ruleset calls it directly.",
       'Quote metadata must equal execution metadata; NFT selections and buyback opt-outs affect the route.',
       'Native value, ERC-20 allowance and token decimals must match the resolved terminal route.',
     ],

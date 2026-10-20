@@ -945,6 +945,35 @@ describe('payment quotes and approval plans', () => {
     expect(
       decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.slice(4),
     ).toEqual([162n, 'beep:demo', sdk.metadata]);
+    // With a pool quote, 1.1.1 gets the same treatment as 1.4: the hook must buy the floored quote
+    // (396), and the payer's minimum is their 83.33% share of it (329), not the mint share.
+    const legacyQuoted = fixture({
+      dataHook: registry,
+      resolvedBuyback: legacy,
+      beneficiaryCount: 0n,
+      reservedCount: 0n,
+      poolQuote: 400n,
+      payHooks: (sent) => {
+        const { minimum } = sentQuote(sent);
+        return [
+          {
+            hook: legacy,
+            noop: false,
+            amount: 100n,
+            metadata: payHookMetadata(minimum ? { minimum, callerMinimum: true } : {}).slice(
+              0,
+              2 + 15 * 64,
+            ) as Hex,
+          },
+        ];
+      },
+    });
+    expect(await legacyQuoted.service.quotePay(payInput)).toMatchObject({
+      minimumBeneficiaryTokenCount: '329',
+      hookMinimumSwapAmountOut: '396',
+      minimumBasis: 'prepareUserPay',
+      buybackHook: { version: '1.1.1' },
+    });
     // Codex's 1.1.1 registry-router fallback: a 170-token fill clears the SDK minimum, where the
     // conditional oracle figure less slippage (247) refused it.
     const routed = await legacyFixture(metadata, legacy, {
@@ -1093,7 +1122,9 @@ describe('payment quotes and approval plans', () => {
     const quoted = (options: Parameters<typeof fixture>[0] = {}) =>
       fixture({
         dataHook: registry,
+        // A swapping hook takes the whole payment: the terminal itself issues nothing.
         beneficiaryCount: 0n,
+        reservedCount: 0n,
         payHooks: buyback14(),
         poolQuote: 400n,
         payFill: (sent) => (sentQuote(sent).skip ? 400n : 101n),
@@ -1168,8 +1199,9 @@ describe('payment quotes and approval plans', () => {
       rawTerminalPreview: { semantics: 'router-normalized' },
     });
 
-    // skipSplits false honors the split through prepareUserPay's own option: a (0, 0, false) entry,
-    // no pool quote, and the payer's split mint entitlement (200 less 16.67%, less 2, less 1%).
+    // skipSplits false honors the split through prepareUserPay's own option. The pool is still
+    // quoted: the hook must buy at least the floored quote (396), and the payer's minimum is their
+    // share of it after the 16.67% split (329), not the mint share.
     const split = quoted();
     const splitSdk = await prepareUserPay(split.client, {
       chainId: project.chainId,
@@ -1181,13 +1213,19 @@ describe('payment quotes and approval plans', () => {
       skipSplits: false,
     });
     expect(splitSdk.metadata).toBe(
-      buildUserPayMetadata({ chainId: project.chainId, skipSplits: false }),
+      buildUserPayMetadata({
+        chainId: project.chainId,
+        skipSplits: false,
+        minimumSwapAmountOut: 396n,
+      }),
     );
+    expect(splitSdk.minReturnedTokens).toBe(329n);
     expect(sentQuote(splitSdk.metadata).skip).toBe(false);
     expect(await split.service.quotePay(splitPayInput)).toMatchObject({
       metadata: splitSdk.metadata,
       beneficiaryTokenCount: splitSdk.preview.beneficiaryTokenCount.toString(),
-      minimumBeneficiaryTokenCount: '162',
+      minimumBeneficiaryTokenCount: '329',
+      hookMinimumSwapAmountOut: '396',
       minimumBasis: 'prepareUserPay',
       skipSplits: {
         requested: false,

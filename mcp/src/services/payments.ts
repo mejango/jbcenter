@@ -1026,7 +1026,7 @@ export class PaymentService {
       ? prepared.minReturnedTokens
       : slippageFloor(beneficiaryTokenCount, slippage);
     const defaultRule = prepared
-      ? "prepareUserPay's minimum: the pool quote at this block (fee and price impact included) less slippageBps, which the hook also enforces as minimumSwapAmountOut; without a pool quote, the payer's mint entitlement (or the terminal's issuance) less slippageBps"
+      ? "prepareUserPay's minimum: when the pool beats minting, the pool quote at this block (fee and price impact included) less slippageBps is the hook's minimumSwapAmountOut, and this minimum is the beneficiary's part of it (all of it with skipSplits, the share after the reserved split without) plus their share of any direct mint; only without a usable pool quote, the payer's mint entitlement (or the terminal's issuance) less slippageBps"
       : 'beneficiaryTokenCount less slippageBps';
     const minimum = explicitMinimum ?? slippageMinimum;
     const payTx = (minReturnedTokens: bigint) =>
@@ -1111,7 +1111,7 @@ export class PaymentService {
       }
     } else if (fill !== undefined && slippageMinimum > fill) {
       const suggested = slippageFloor(fill, slippage);
-      const message = `The default minimum ${slippageMinimum} (${defaultRule}) is above the simulated fill of ${fill} at this block, so the payment would revert at this price.${quoteBasis === 'buyback-hook-indicative-output' ? ` beneficiaryTokenCount is a conditional swap figure. ${hookBehavior}` : ''} jb_prepare_pay and jb_prepare_721_pay refuse it. Review the fill and pass minReturnedTokens; ${suggested} is the fill less slippageBps.`;
+      const message = `The default minimum ${slippageMinimum} (${defaultRule}) is above the simulated fill of ${fill} at this block, so the payment would revert at this price.${quoteBasis === 'buyback-hook-indicative-output' && !prepared ? ` beneficiaryTokenCount is a conditional swap figure. ${hookBehavior}` : ''} jb_prepare_pay and jb_prepare_721_pay refuse it. Review the fill and pass minReturnedTokens; ${suggested} is the fill less slippageBps.`;
       warnings.push(message);
       refusal = new DomainError('PAY_DEFAULT_MINIMUM_ABOVE_FILL', message, {
         details: {
@@ -1178,7 +1178,7 @@ export class PaymentService {
         : {}),
       tokenCounts: {
         beneficiaryTokenCount: prepared
-          ? "prepareUserPay's preview: when the pool beats minting, the pool quote at this block (fee and price impact included) plus the beneficiary's share of any direct mint; otherwise the terminal or hook preview."
+          ? "prepareUserPay's preview: when the pool beats minting, the pool quote at this block (fee and price impact included), all of it with skipSplits or the beneficiary's share after the reserved split without, plus their share of any direct mint; otherwise the terminal or hook preview."
           : quoteBasis === 'buyback-hook-indicative-output'
             ? `A conditional swap figure: ${skippedSplits ? 'all' : "the payer's share"} of the ${hookMinimum === undefined ? `buyback hook's ${buybackVersion === '1.1.1' ? 'oracle' : 'TWAP'}-derived minimum swap output` : `${input.metadata === undefined ? "prepareUserPay's" : "caller's own"} settlement minimum (minimumSwapAmountOut ${hookMinimum}), which the hook enforces in place of a derived floor`}${skippedSplits ? ', since skipSplits keeps the reserved split out of the swap' : ''}, if the whole payment swaps. ${hookBehavior} The default minimum is computed from this count and checked against simulatedBeneficiaryTokenCount.`
             : "The terminal's issuance preview for the payer. The minimum is computed from this count.",
