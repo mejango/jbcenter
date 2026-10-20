@@ -25,10 +25,10 @@ import {
   HOMEPAGE_HEADERS,
   HOMEPAGE_HTML,
   HOMEPAGE_JS_PATH,
-  JOURNEY_FRAGMENTS,
+  homepageAssets,
 } from "./homepage.js";
 import { HOMEPAGE_JS } from "./directoryClient.js";
-import { serveHashed } from "./hashedAsset.js";
+import { mountAssets } from "./rest/web/assets.js";
 import { Metrics } from "./observability.js";
 import { createIpfsGateway } from "./ipfsGateway.js";
 import type { IpfsDiskCache } from "./ipfsCache.js";
@@ -468,7 +468,11 @@ export function createApp(
   if (options.rest) mountRestSite(app, { ...options.rest, walletOrigins });
 
   app.get("/", (c) => c.html(HOMEPAGE_HTML, 200, HOMEPAGE_HEADERS));
-  serveHashed(app, "/favicon.svg", FAVICON_SVG, { "Content-Type": "image/svg+xml; charset=utf-8", "X-Content-Type-Options": "nosniff" });
+  app.get("/favicon.svg", (c) => c.body(FAVICON_SVG, 200, {
+    "Content-Type": "image/svg+xml; charset=utf-8",
+    "Cache-Control": "public, max-age=300",
+    "X-Content-Type-Options": "nosniff",
+  }));
   app.get("/llms.txt", (c) => c.text(llmsIndex(options.rest?.audience), 200, {
     "Cache-Control": "public, max-age=300",
     "X-Content-Type-Options": "nosniff",
@@ -485,9 +489,10 @@ export function createApp(
     c.header("Cache-Control", "public, max-age=300");
     return c.redirect(`${JUICESCAN}#${chain}:${project}`, 302);
   });
-  serveHashed(app, HOMEPAGE_CSS_PATH, HOMEPAGE_CSS, { ...HOMEPAGE_HEADERS, "Content-Type": "text/css; charset=UTF-8" });
-  serveHashed(app, HOMEPAGE_JS_PATH, HOMEPAGE_JS, { ...HOMEPAGE_HEADERS, "Content-Type": "application/javascript; charset=UTF-8" });
-  for (const { path, html } of JOURNEY_FRAGMENTS) serveHashed(app, path, html, { ...HOMEPAGE_HEADERS, "Content-Type": "text/html; charset=UTF-8" });
+  mountAssets(app, "", homepageAssets());
+  // A homepage cached before a deploy still links these for up to five minutes.
+  app.get(HOMEPAGE_CSS_PATH, (c) => c.body(HOMEPAGE_CSS, 200, { "Content-Type": "text/css; charset=UTF-8", "X-Content-Type-Options": "nosniff" }));
+  app.get(HOMEPAGE_JS_PATH, (c) => c.body(HOMEPAGE_JS, 200, { "Content-Type": "application/javascript; charset=UTF-8", "X-Content-Type-Options": "nosniff" }));
 
   app.get("/healthz", (c) => c.json({ ok: true }));
 

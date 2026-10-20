@@ -1,5 +1,5 @@
-import { hashedAsset } from "./hashedAsset.js";
-import { BRAND_CSS, BRAND_ICON, FAVICON_LINK } from "./branding.js";
+import { assetHref, hashedAssetName } from "./rest/web/assets.js";
+import { BRAND_CSS, BRAND_ICON, FAVICON_LINK, FAVICON_SVG } from "./branding.js";
 import { HOMEPAGE_JS } from "./directoryClient.js";
 import {
   journeyNodes,
@@ -13,6 +13,7 @@ import {
   type DirectoryNode,
 } from "./directory.js";
 
+/** Paths an older homepage (cached up to five minutes) may still link; pages now use homepageAssets(). */
 export const HOMEPAGE_CSS_PATH = "/directory.css";
 export const HOMEPAGE_JS_PATH = "/directory.js";
 export const HOMEPAGE_HEADERS = {
@@ -411,8 +412,13 @@ footer a { display: inline-flex; align-items: center; min-height: 32px; }
 `;
 
 /** The maps behind the other tabs, fetched by directory.js when one is first needed. */
-export const JOURNEY_FRAGMENTS = journeyViews.slice(1).map((view) => ({ view: view.id, path: `/journeys/${view.id}.html`, html: renderJourney(view) }));
-const fragmentHref = new Map(JOURNEY_FRAGMENTS.map(({ view, path, html }) => [view, hashedAsset(path, html).href]));
+const journeyFile = (view: string) => `journey-${view}.html`;
+/** The files `/` links, served under hashed names: its script, stylesheet, icon and the other journey maps. */
+export const homepageAssets = (): Record<string, string> => ({
+  "directory.js": HOMEPAGE_JS, "directory.css": HOMEPAGE_CSS, "favicon.svg": FAVICON_SVG,
+  ...Object.fromEntries(journeyViews.slice(1).map((view) => [journeyFile(view.id), renderJourney(view)])),
+});
+const names = Object.fromEntries(Object.entries(homepageAssets()).map(([file, body]) => [file, hashedAssetName(file, body)]));
 
 export const HOMEPAGE_HTML = `<!doctype html>
 <html lang="en">
@@ -420,12 +426,12 @@ export const HOMEPAGE_HTML = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Find Juicebox apps, learn how projects work, build an integration, and check the code.">
-  <script defer src="${hashedAsset(HOMEPAGE_JS_PATH, HOMEPAGE_JS).href}"></script>
+  <script defer src="${assetHref("", "directory.js", names)}"></script>
   <meta name="theme-color" content="#f5f4ef">
   <title>Juicebox Center</title>
   ${FAVICON_LINK}
   <link rel="canonical" href="https://juicebox.center/">
-  <link rel="stylesheet" href="${hashedAsset(HOMEPAGE_CSS_PATH, HOMEPAGE_CSS).href}">
+  <link rel="stylesheet" href="${assetHref("", "directory.css", names)}">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to directory</a>
@@ -440,7 +446,7 @@ export const HOMEPAGE_HTML = `<!doctype html>
       <section class="journey-explorer" aria-label="Juicebox journeys">
         <nav class="journey-tabs" aria-labelledby="choose-journey">
           <h2 id="choose-journey">What do you want to do?</h2>
-          <ul>${journeyViews.map((view) => `<li><button type="button" id="journey-${view.id}" data-view="${view.id}" aria-controls="map-${view.id}" aria-expanded="false"${fragmentHref.has(view.id) ? ` data-src="${fragmentHref.get(view.id)}"` : ""}>${escapeHtml(view.title)}</button></li>`).join("")}</ul>
+          <ul>${journeyViews.map((view) => `<li><button type="button" id="journey-${view.id}" data-view="${view.id}" aria-controls="map-${view.id}" aria-expanded="false"${names[journeyFile(view.id)] ? ` data-src="${assetHref("", journeyFile(view.id), names)}"` : ""}>${escapeHtml(view.title)}</button></li>`).join("")}</ul>
         </nav>
         <p class="map-key"><span>→ Next step</span><span class="return-key">${RETURN_ICON}Revisit a decision</span><span>↗ Related path</span></p>
         ${renderJourney(journeyViews[0]!)}

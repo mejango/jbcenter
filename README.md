@@ -86,7 +86,7 @@ Layout and styling live in [`src/homepage.ts`](src/homepage.ts), with browser be
 copy. Do not use middot separators. Verify public destinations, protocol versions, and feature
 availability before adding or changing a link. Distinguish source repositories from live apps.
 `/`, `/api` and its guides are public and cached for five minutes. Pages link scripts, stylesheets and icons
-by content hash (`name.<hash>.ext`, see [`src/hashedAsset.ts`](src/hashedAsset.ts)); the current hash is
+by content hash (`name.<hash>.ext`, see [`src/rest/web/assets.ts`](src/rest/web/assets.ts)); the current hash is
 cached for a year, and any other name for the file gets the current bytes uncached, so pages from either side
 of a deploy still load. These routes do not change the API, IPFS, or MCP access rules.
 Juicescan links to its published CID on `eth.sucks`, with a separate source link. Update the CID

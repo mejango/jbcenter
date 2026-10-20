@@ -6,8 +6,7 @@ import { guidePage } from "./docs/guide.js";
 import { mountAccountsSite } from "./accountsSite.js";
 import { createWalletHostMatcher } from "../walletHosts.js";
 import { REST_DOCS_HEADERS, REST_PAGE_HEADERS } from "./pageHeaders.js";
-import { DOCS_ASSETS } from "./docs/page.js";
-import { serveHashed } from "../hashedAsset.js";
+import { mountAssets } from "./web/assets.js";
 
 export { REST_PAGE_HEADERS } from "./pageHeaders.js";
 
@@ -80,10 +79,7 @@ export function mountRestSite(app: Hono<JbcenterEnv>, site: RestSite): void {
   } else if (site.wallet) app.route("/", site.wallet);
   app.route("/api/v1", site.app);
   mountAccountsSite(app, { audience: site.audience, accountsScript: site.accountsScript });
-  const docs = {
-    script: serveHashed(app, DOCS_ASSETS.script, site.docsScript ?? "", { ...REST_PAGE_HEADERS, "Content-Type": "application/javascript; charset=utf-8" }),
-    style: serveHashed(app, DOCS_ASSETS.style, site.docsCss, { ...REST_PAGE_HEADERS, "Content-Type": "text/css; charset=utf-8" }),
-  };
+  const assets = mountAssets(app, "", { "docs.js": site.docsScript ?? "", "api.css": site.docsCss });
   app.get("/api/client/juicebox-center-client-0.1.0.tgz", (context) => {
     if (!site.clientPackage) return context.notFound();
     return new Response(site.clientPackage as BodyInit, { headers: { "Content-Type": "application/gzip", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache", "Content-Disposition": 'attachment; filename="juicebox-center-client-0.1.0.tgz"' } });
@@ -109,7 +105,7 @@ export function mountRestSite(app: Hono<JbcenterEnv>, site: RestSite): void {
         404,
       );
     if (!context.req.param("name").endsWith(".md") && !context.req.header("Accept")?.includes("text/markdown"))
-      return context.html(guidePage(name, document, docs), 200, { ...REST_DOCS_HEADERS, Vary: "Accept" });
+      return context.html(guidePage(name, document, assets), 200, { ...REST_DOCS_HEADERS, Vary: "Accept" });
     return context.text(document, 200, {
       ...REST_DOCS_HEADERS, Vary: "Accept",
       "Content-Type": "text/markdown; charset=utf-8",

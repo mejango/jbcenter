@@ -16,7 +16,7 @@ describe('directory browser navigation', () => {
     fetched.length = 0;
     await page.route('https://directory.test/**', async route => {
       const path = new URL(route.request().url()).pathname;
-      if (path.startsWith('/journeys/')) fetched.push(path);
+      if (path.startsWith('/assets/journey-')) fetched.push(path);
       const response = await app.request(path);
       return route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) });
     });
@@ -69,7 +69,7 @@ describe('directory browser navigation', () => {
     await expect.poll(() => page.locator('#map-developers svg.journey-lines path').count()).toBeGreaterThan(0);
     await page.locator('#journey-apps').click();
     await page.locator('#journey-developers').click();
-    expect(fetched.filter(path => path.startsWith('/journeys/developers.'))).toHaveLength(1);
+    expect(fetched.filter(path => path.startsWith('/assets/journey-developers.'))).toHaveLength(1);
   });
 
   it('follows an edge into a map that is not loaded yet', async () => {
