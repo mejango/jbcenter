@@ -38,7 +38,7 @@ beforeEach(async () => {
       if (failReference) return route.fulfill({ status: 503, body: "unavailable" });
     }
     if (/^\/api\/terms\.[0-9a-f]{12}\.json$/.test(url.pathname)) {
-      fetched.push(url.pathname);
+      fetched.push(failTerms ? `${url.pathname} 503` : url.pathname);
       if (failTerms) return route.fulfill({ status: 503, body: "unavailable" });
     }
     const response = await app.request(url.href);
@@ -99,7 +99,8 @@ describe("/api endpoint reference", () => {
     failTerms = true;
     await page.fill("#endpoint-filter", term!);
     const shown = page.locator(".endpoint:not([hidden])");
-    await expect.poll(() => fetched.length).toBe(1);
+    // fill fires focus then input; a fast 503 can land between them, so the failing phase may fetch once or twice.
+    await expect.poll(() => fetched.length).toBeGreaterThan(0);
     expect(await shown.count()).toBe(0);
     // A failed fetch retries on the next use, then the open query matches.
     failTerms = false;
@@ -116,6 +117,9 @@ describe("/api endpoint reference", () => {
     await expect.poll(() => shown.count()).toBe(0);
     await page.fill("#endpoint-filter", "");
     expect(await shown.count()).toBe(await page.locator(".endpoint").count());
-    expect(fetched).toEqual([apiTermsPath(spec), apiTermsPath(spec)]);
+    const failed = fetched.slice(0, -1);
+    expect(failed.length).toBeGreaterThan(0);
+    expect(failed.every(path => path === `${apiTermsPath(spec)} 503`)).toBe(true);
+    expect(fetched.at(-1)).toBe(apiTermsPath(spec));
   });
 });
