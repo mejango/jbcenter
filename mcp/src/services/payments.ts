@@ -134,7 +134,8 @@ const buyback111PaySpecParameters = parseAbiParameters(
  */
 function skipChoice(input: PayInput, buybackHook: Address) {
   const requested = input.skipSplits;
-  const off = (reason: string) => ({ requested, applied: false, reason });
+  // null, not undefined: plan summaries are JSON data, and unset is a choice the quote reports.
+  const off = (reason: string) => ({ requested: requested ?? null, applied: false, reason });
   if (requested === false)
     return off("skipSplits false: the payment honors the project's reserved split.");
   if (input.metadata !== undefined) {
@@ -166,7 +167,7 @@ function skipChoice(input: PayInput, buybackHook: Address) {
     );
   }
   return {
-    requested,
+    requested: requested ?? null,
     applied: true,
     reason:
       requested === undefined

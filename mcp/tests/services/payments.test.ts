@@ -953,11 +953,19 @@ describe('payment quotes and approval plans', () => {
       minimumBeneficiaryTokenCount: sdk.minReturnedTokens.toString(),
       minimumBasis: 'prepareUserPay',
       metadata: expected,
-      skipSplits: { applied: true, reason: expect.stringContaining('On by default') },
+      skipSplits: {
+        requested: null,
+        applied: true,
+        reason: expect.stringContaining('On by default'),
+      },
       buybackHook: { address: buybackHook, version: '1.4', skipSplits: true },
       tokenCounts: { minimumBeneficiaryTokenCount: expect.stringContaining('PrepareUserPay') },
     });
     expect(plan.warnings.join(' ')).toContain('Nothing is issued for that part');
+    // Summaries are JSON data (the Center's payment recognizer refuses undefined values).
+    expect(JSON.parse(JSON.stringify(plan.summary))).toStrictEqual(plan.summary);
+    const unset = (await fixture().service.preparePay(byDefault)).summary;
+    expect(JSON.parse(JSON.stringify(unset))).toStrictEqual(unset);
     // Asking for it explicitly is the same payment.
     const asked = await skipping().service.preparePay({ ...payInput, skipSplits: true });
     expect(asked.calls[0]!.data).toBe(plan.calls[0]!.data);
