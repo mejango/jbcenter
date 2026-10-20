@@ -22,6 +22,7 @@ import {
   pageSchema,
   positiveUintSchema,
   projectSchema,
+  skipSplitsSchema,
   slippageSchema,
   uintSchema,
 } from '../domain/schemas.js';
@@ -104,12 +105,7 @@ const payShape = {
       'Explicit minimum project tokens for the beneficiary, in 18-decimal base units, replacing beneficiaryTokenCount less slippageBps. To accept 2% below the fill, take the quote\'s simulatedBeneficiaryTokenCount less 2%. A warning names a figure above the simulated fill. jb_prepare_pay requires it when the default would protect nothing (PAY_MINIMUM_PROTECTS_NOTHING) or sits above the simulated fill (PAY_DEFAULT_MINIMUM_ABOVE_FILL). "0" accepts receiving no project tokens.',
     ),
   metadata: hexSchema.optional(),
-  skipSplits: z
-    .boolean()
-    .default(false)
-    .describe(
-      "Buyback 1.4 only. True sends the tokens the hook buys from the pool straight to the beneficiary, skipping the project's reserved split; the hook's TWAP floor still applies. Bought tokens already exist: nothing is issued for that part and the split gets none of it. Issuance (the hook passes, or leftover input) still pays the split. Refused with metadata, without a buyback hook, or on any hook other than buyback 1.4 (1.0 and 1.1.1 included).",
-    ),
+  skipSplits: skipSplitsSchema,
 };
 const cashOutShape = {
   project: projectSchema,

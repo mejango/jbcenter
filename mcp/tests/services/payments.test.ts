@@ -9,6 +9,9 @@ import {
 import {
   build721PayMetadata,
   buildBuybackCashOutMetadata,
+  buildUserPayMetadata,
+  prepareUserPay,
+  slippageFloor,
   v6Address,
 } from '@bananapus/nana-sdk-core/v6';
 import {
@@ -71,7 +74,15 @@ const evidence: BlockEvidence = {
   timestamp: '1000',
   source: 'rpc',
 };
-const payInput: PayInput = { project, account, token: NATIVE_TOKEN, amount: '100', beneficiary };
+// The split-honoring path. The skipSplits default (on with buyback 1.4) has its own tests.
+const payInput: PayInput = {
+  project,
+  account,
+  token: NATIVE_TOKEN,
+  amount: '100',
+  beneficiary,
+  skipSplits: false,
+};
 const cashInput: CashOutInput & { account: Address } = {
   project,
   account,
@@ -232,6 +243,7 @@ function fixture(
   const rpc: RpcProvider = { snapshot, client: () => client };
   return {
     service: new PaymentService(rpc),
+    client,
     readContract,
     simulateContract,
     getBytecode,
@@ -898,7 +910,9 @@ describe('payment quotes and approval plans', () => {
     ).rejects.toMatchObject({ code: 'UNSUPPORTED_CONFIGURATION' });
   });
 
-  it('skipSplits sends the (0, 0, true) buyback entry and quotes the whole swap output for the beneficiary', async () => {
+  it("defaults skipSplits on for buyback 1.4 and takes metadata, counts and minimum from the SDK's prepareUserPay", async () => {
+    // The SDK's pay-card entry: the registry-keyed quote (0, 0, skipSplits=true).
+    const expected = buildUserPayMetadata({ chainId: project.chainId });
     // The hook previews a skip only when the skip entry reaches it, as the 1.4 decoder does.
     const skipping = (options: Parameters<typeof fixture>[0] = {}) =>
       fixture({
@@ -914,70 +928,79 @@ describe('payment quotes and approval plans', () => {
         ],
         ...options,
       });
-    // JBMetadataResolver layout: reserved word, one (id, offset 2) table word, the 3-word payload.
-    const id = (BigInt(buybackHook) ^ BigInt(keccak256(toHex('pay')).slice(0, 42)))
-      .toString(16)
-      .padStart(40, '0')
-      .slice(0, 8);
-    const expected = concat([
-      pad('0x', { size: 32 }),
-      pad(`0x${id}02`, { dir: 'right', size: 32 }),
-      encodeAbiParameters(parseAbiParameters('uint256,uint256,bool'), [0n, 0n, true]),
-    ]);
+    const byDefault = { ...payInput, skipSplits: undefined };
     const direct = skipping();
-    const plan = await direct.service.preparePay({ ...payInput, skipSplits: true });
+    const plan = await direct.service.preparePay(byDefault);
+    const sdk = await prepareUserPay(direct.client, {
+      chainId: project.chainId,
+      terminal: v6Address('JBMultiTerminal', project.chainId),
+      projectId: BigInt(project.projectId),
+      token: NATIVE_TOKEN,
+      amount: 100n,
+      beneficiary,
+    });
+    expect(sdk.metadata).toBe(expected);
     const payArgs = decodeFunctionData({
       abi: jbMultiTerminalAbi,
       data: plan.calls[0]!.data,
     }).args!;
     expect(payArgs[6]).toBe(expected);
-    expect(
-      direct.readContract.mock.calls.find(
-        ([request]) => request.functionName === 'previewPayFor',
-      )?.[0].args?.[4],
-    ).toBe(expected);
+    expect(payArgs[4]).toBe(sdk.minReturnedTokens);
     expect((direct.simulateContract.mock.calls[0]![0] as Request).args?.[6]).toBe(expected);
-    // The hook's own preview splits its floor (250 / 50); skipping, all 300 are the payer's.
     expect(plan.summary).toMatchObject({
-      beneficiaryTokenCount: '300',
-      reservedTokenCount: '0',
-      minimumBeneficiaryTokenCount: '297',
+      beneficiaryTokenCount: sdk.preview.beneficiaryTokenCount.toString(),
+      reservedTokenCount: sdk.preview.reservedTokenCount.toString(),
+      minimumBeneficiaryTokenCount: sdk.minReturnedTokens.toString(),
+      minimumBasis: 'prepareUserPay',
       metadata: expected,
+      skipSplits: { applied: true, reason: expect.stringContaining('On by default') },
       buybackHook: { address: buybackHook, version: '1.4', skipSplits: true },
-      tokenCounts: { minimumBeneficiaryTokenCount: expect.stringContaining('whole swap output') },
+      tokenCounts: { minimumBeneficiaryTokenCount: expect.stringContaining('PrepareUserPay') },
     });
-    expect(payArgs[4]).toBe(297n);
     expect(plan.warnings.join(' ')).toContain('Nothing is issued for that part');
+    // Asking for it explicitly is the same payment.
+    const asked = await skipping().service.preparePay({ ...payInput, skipSplits: true });
+    expect(asked.calls[0]!.data).toBe(plan.calls[0]!.data);
 
     // The router registry forwards the same bytes to the destination terminal.
     const registryTerminal = v6Address('JBRouterTerminalRegistry', project.chainId);
     const routed = skipping({ primaryTerminal: registryTerminal, beneficiaryCount: 832n });
-    const routedPlan = await routed.service.preparePay({ ...payInput, skipSplits: true });
+    const routedPlan = await routed.service.preparePay(byDefault);
     expect(routedPlan.calls[0]?.to).toBe(registryTerminal);
     expect(
       decodeFunctionData({ abi: jbMultiTerminalAbi, data: routedPlan.calls[0]!.data }).args?.[6],
     ).toBe(expected);
     expect(routedPlan.summary).toMatchObject({
-      beneficiaryTokenCount: '300',
-      reservedTokenCount: '0',
+      skipSplits: { applied: true },
       rawTerminalPreview: { semantics: 'router-normalized' },
     });
 
-    // A caller-encoded skip entry in raw metadata settles the same way, so it is quoted the same way.
-    const raw = await skipping().service.quotePay({ ...payInput, metadata: expected });
-    expect(raw).toMatchObject({ beneficiaryTokenCount: '300', reservedTokenCount: '0' });
-
-    // Without skipSplits nothing is added and the split preview stands.
-    const plain = fixture({
-      dataHook: registry,
-      beneficiaryCount: 0n,
-      payHooks: [{ hook: buybackHook, noop: false, amount: 100n, metadata: payHookMetadata() }],
-    });
-    expect(await plain.service.quotePay(payInput)).toMatchObject({
+    // skipSplits false honors the split: no buyback entry, the hook's split preview stands.
+    expect(await skipping().service.quotePay(payInput)).toMatchObject({
       metadata: '0x',
       beneficiaryTokenCount: '250',
       reservedTokenCount: '50',
+      minimumBasis: 'slippage',
+      skipSplits: { applied: false, reason: expect.stringContaining('honors') },
       buybackHook: { skipSplits: false },
+    });
+    // Unset falls back to off where skipping cannot apply, and says why.
+    expect(await fixture().service.quotePay(byDefault)).toMatchObject({
+      metadata: '0x',
+      skipSplits: { applied: false, reason: expect.stringContaining('no buyback hook') },
+    });
+    expect(
+      await fixture({
+        dataHook: registry,
+        resolvedBuyback: '0x77bee1ad2ac0ace98a9b5b58d75685c8b4d94948',
+      }).service.quotePay(byDefault),
+    ).toMatchObject({
+      metadata: '0x',
+      skipSplits: { applied: false, reason: expect.stringContaining('1.1.1') },
+    });
+    expect(await skipping().service.quotePay({ ...byDefault, metadata: '0x1234' })).toMatchObject({
+      metadata: '0x1234',
+      skipSplits: { applied: false, reason: expect.stringContaining('own metadata') },
     });
   });
 
@@ -1056,9 +1079,10 @@ describe('payment quotes and approval plans', () => {
         [hookMetadataId(buybackHook, 'pay')],
         [encodeAbiParameters(parseAbiParameters('uint256,uint256,bool'), [0n, minimum, true])],
       );
-    // Codex's example: full-input floor 300, half swaps for 150, the rest mints 100 of which the
-    // beneficiary keeps 80 after a 20% split. The fill is 230, below the 297 default.
-    const partial = () =>
+    // A skip payment whose simulated fill (a partial swap plus split issuance) misses the
+    // prepareUserPay minimum is refused with the fill as the suggested floor.
+    const sdkEntry = buildUserPayMetadata({ chainId: project.chainId });
+    const partial = (fill: bigint) =>
       fixture({
         dataHook: registry,
         beneficiaryCount: 0n,
@@ -1067,39 +1091,56 @@ describe('payment quotes and approval plans', () => {
             hook: buybackHook,
             noop: false,
             amount: 100n,
-            metadata: payHookMetadata({ skipSplits: sent === skipEntry(0n) }),
+            metadata: payHookMetadata({ skipSplits: sent === sdkEntry }),
           },
         ],
-        payFill: (sent) => (sent === skipEntry(0n) ? 230n : 101n),
+        payFill: (sent) => (sent === sdkEntry ? fill : 101n),
       });
-    const quote = (await partial().service.quotePay({ ...payInput, skipSplits: true })) as {
+    const probe = partial(1n);
+    const { minReturnedTokens: sdkMinimum } = await prepareUserPay(probe.client, {
+      chainId: project.chainId,
+      terminal: v6Address('JBMultiTerminal', project.chainId),
+      projectId: BigInt(project.projectId),
+      token: NATIVE_TOKEN,
+      amount: 100n,
+      beneficiary,
+    });
+    const short = sdkMinimum - 30n;
+    const quote = (await partial(short).service.quotePay({ ...payInput, skipSplits: true })) as {
       warnings: string[];
     } & Record<string, unknown>;
     expect(quote).toMatchObject({
-      beneficiaryTokenCount: '300',
-      minimumBeneficiaryTokenCount: '297',
-      simulatedBeneficiaryTokenCount: { status: 'known', value: '230' },
-      tokenCounts: { beneficiaryTokenCount: expect.stringContaining('conditional swap figure') },
+      minimumBeneficiaryTokenCount: sdkMinimum.toString(),
+      minimumBasis: 'prepareUserPay',
+      simulatedBeneficiaryTokenCount: { status: 'known', value: short.toString() },
     });
-    expect(quote.warnings.join(' ')).toContain('above the simulated fill of 230');
+    expect(quote.warnings.join(' ')).toContain(`above the simulated fill of ${short}`);
     await expect(
-      partial().service.preparePay({ ...payInput, skipSplits: true }),
+      partial(short).service.preparePay({ ...payInput, skipSplits: true }),
     ).rejects.toMatchObject({
       code: 'PAY_DEFAULT_MINIMUM_ABOVE_FILL',
       retryable: false,
-      details: { defaultMinimum: '297', simulatedFill: '230', suggestedMinReturnedTokens: '227' },
+      details: {
+        defaultMinimum: sdkMinimum.toString(),
+        simulatedFill: short.toString(),
+        suggestedMinReturnedTokens: slippageFloor(short, 100n).toString(),
+      },
     });
-    const reviewed = await partial().service.preparePay({
+    const reviewed = await partial(short).service.preparePay({
       ...payInput,
       skipSplits: true,
-      minReturnedTokens: '227',
+      minReturnedTokens: slippageFloor(short, 100n).toString(),
     });
     expect(
       decodeFunctionData({ abi: jbMultiTerminalAbi, data: reviewed.calls[0]!.data }).args?.[4],
-    ).toBe(227n);
+    ).toBe(slippageFloor(short, 100n));
+    // A fill at the SDK minimum prepares with it.
+    expect(
+      (await partial(sdkMinimum).service.preparePay({ ...payInput, skipSplits: true })).summary,
+    ).toMatchObject({ minimumBeneficiaryTokenCount: sdkMinimum.toString() });
 
     // Without skipSplits a missed TWAP floor falls back to issuance: the fill is the 101 issuance share.
-    await expect(partial().service.preparePay(payInput)).rejects.toMatchObject({
+    await expect(partial(1n).service.preparePay(payInput)).rejects.toMatchObject({
       code: 'PAY_DEFAULT_MINIMUM_ABOVE_FILL',
       details: { defaultMinimum: '247', simulatedFill: '101', suggestedMinReturnedTokens: '99' },
     });

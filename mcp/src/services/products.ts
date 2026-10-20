@@ -21,7 +21,6 @@ import {
 import {
   BASE_CURRENCY_ETH,
   NATIVE_TOKEN_CURRENCY_ID,
-  build721PayMetadata,
   buildAutoIssueTx,
   buildDeployRevnetTx,
   buildOmnichainLaunchProjectTx,
@@ -488,21 +487,28 @@ export class ProductService {
     const { shop } = await this.shop(snapshot, input.project);
     if (!shop) fail('NO_721_SHOP', 'No active canonical NFT shop is registered for this project.');
     const verifiedShop = shop!;
-    const metadata = build721PayMetadata({
+    const purchase = {
       metadataIdTarget: verifiedShop.metadataIdTarget,
       tierIdsToMint: input.tierIds.map(BigInt),
       allowOverspending: input.allowOverspending,
-    });
+    };
     const payments = new PaymentService({
       snapshot: async () => snapshot,
       client: () => snapshot.client,
     });
-    const plan = await payments.prepareNftPay({ ...input, metadata }, verifiedShop.hook, quoteOnly);
+    const plan = await payments.prepareNftPay(
+      { ...input, tiers: purchase },
+      verifiedShop.hook,
+      quoteOnly,
+    );
     const quote = plan.summary as {
       terminal: Address;
       hooks: Array<{ hook: Address; noop: boolean }>;
+      metadata: Hex;
       [key: string]: unknown;
     };
+    // The payment's own metadata: the tiers, with the buyback entry when skipSplits applies.
+    const { metadata } = quote;
     const destination = await this.nftDestination(snapshot, input, metadata, quote);
     const [accounting, prices, credits, flags, tiers] = await Promise.all([
       snapshot.client.readContract({

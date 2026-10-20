@@ -13,6 +13,7 @@ import {
   hashSchema,
   positiveUintSchema,
   projectSchema,
+  skipSplitsSchema,
   slippageSchema,
   uintSchema,
 } from './schemas.js';
@@ -125,6 +126,7 @@ export const pay721Schema = z
         'Explicit minimum fungible project tokens for the beneficiary, in 18-decimal base units, replacing the quoted count less slippageBps. Needed when the quote warns that the default minimum sits above the simulated fill (a buyback hook beside the NFT hook). NFT delivery is checked either way.',
       ),
     allowOverspending: z.boolean().default(false),
+    skipSplits: skipSplitsSchema,
   })
   .strict();
 export const getRevnetSchema = z
