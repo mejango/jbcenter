@@ -68,13 +68,32 @@ function endpointFields(operation: OpenApiOperation, spec: OpenApiDocument): str
   return params + showSchema("Request body", request) + showSchema(`Response ${escape(success?.[0] ?? "")}`, result);
 }
 
+const operationRows = (spec: OpenApiDocument) => Object.entries(spec.paths).flatMap(([path, methods]) => Object.entries(methods).map(([method, operation]) => ({ path, method: method.toUpperCase(), operation })));
+export const apiReferencePath = (operationId: string) => `/api/reference/${encodeURIComponent(operationId)}`;
+
+/** Each endpoint's parameter and schema tables, as small pages /api loads when an endpoint is opened. */
+export function apiReferencePages(spec: OpenApiDocument, cssHref = "/assets/api.css"): Map<string, string> {
+  const pages = new Map<string, string>();
+  for (const { path, method, operation } of operationRows(spec)) {
+    const fields = endpointFields(operation, spec);
+    if (fields) pages.set(operation.operationId, `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(method)} ${escape(path)} | Juicebox Center</title>${FAVICON_LINK}<link rel="stylesheet" href="${escape(cssHref)}"></head>
+<body><main id="main" class="endpoint"><p><a href="/api#reference">Endpoint reference</a></p><h1><span class="verb">${escape(method)}</span> ${escape(path)}</h1><div class="endpoint-fields">${fields}</div></main></body></html>`);
+  }
+  return pages;
+}
+
 /** Server-rendered documentation with optional search and copy controls. Descriptions are escaped and never executed. */
 export function apiDocsPage(spec: OpenApiDocument): string {
-  const rows = Object.entries(spec.paths).flatMap(([path, methods]) => Object.entries(methods).map(([method, operation]) => ({ path, method: method.toUpperCase(), operation })));
+  const rows = operationRows(spec);
   const groups = spec.tags.map((tag) => {
     const entries = rows.filter((row) => row.operation.tags.includes(tag.name));
-    return `<details class="group" id="${escape(tag.name.toLowerCase())}"><summary>${escape(tag.name)} <span class="muted">(${entries.length})</span></summary><p class="muted">${renderProse(tag.description)}</p>${entries.map(({ path, method, operation }) =>
-      `<details class="endpoint"><summary><span class="verb">${escape(method)}</span><span class="route">${escape(path)}</span> <span class="auth">${escape(authLabel(operation))}</span></summary><p>${renderProse(operation.summary)}</p>${operation.description ? `<p class="muted">${renderProse(operation.description)}</p>` : ""}${endpointFields(operation, spec)}<p><code>operationId: ${escape(operation.operationId)}</code></p></details>`).join("")}</details>`;
+    return `<details class="group" id="${escape(tag.name.toLowerCase())}"><summary>${escape(tag.name)} <span class="muted">(${entries.length})</span></summary><p class="muted">${renderProse(tag.description)}</p>${entries.map(({ path, method, operation }) => {
+      const fields = endpointFields(operation, spec);
+      // Field names stay searchable; the tables themselves load when the endpoint is opened.
+      const terms = [...new Set(Array.from(fields.matchAll(/<th scope="row"><code>([^<]*)<\/code>/g), match => match[1]))].join(" ");
+      return `<details class="endpoint"${terms ? ` data-terms="${terms}"` : ""}><summary><span class="verb">${escape(method)}</span><span class="route">${escape(path)}</span> <span class="auth">${escape(authLabel(operation))}</span></summary><p>${renderProse(operation.summary)}</p>${operation.description ? `<p class="muted">${renderProse(operation.description)}</p>` : ""}${fields ? `<div class="endpoint-fields"><p><a href="${escape(apiReferencePath(operation.operationId))}">Parameters and schemas</a></p></div>` : ""}<p><code>operationId: ${escape(operation.operationId)}</code></p></details>`;
+    }).join("")}</details>`;
   }).join("");
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Juicebox V6 API: read projects, prepare transactions, and check their results."><title>Developer API | Juicebox Center</title>${FAVICON_LINK}<script type="module" src="/assets/docs.js"></script><link rel="stylesheet" href="/assets/api.css"></head>
