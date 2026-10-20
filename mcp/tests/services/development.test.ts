@@ -47,6 +47,28 @@ describe('DevelopmentService', () => {
     }
   });
 
+  it('advertises only SDK imports the installed package exports, from the installed version', async () => {
+    const bundle = rawBundle();
+    const installed = JSON.parse(
+      readFileSync(
+        fileURLToPath(
+          new URL('../../node_modules/@bananapus/nana-sdk-core/package.json', import.meta.url),
+        ),
+        'utf8',
+      ),
+    ).version;
+    for (const reference of bundle.references)
+      if (reference.source.repository === 'juice-sdk-v4')
+        expect(reference.source.packageVersion).toBe(installed);
+    const missing: string[] = [];
+    for (const feature of bundle.features)
+      for (const action of feature.actions)
+        for (const { importFrom, symbol } of action.bindings)
+          if (importFrom && !(symbol in (await import(importFrom))))
+            missing.push(`${importFrom}:${symbol}`);
+    expect(missing).toEqual([]);
+  });
+
   it('reconstructs exact source with bounded pagination and verifiable source lines/hash', () => {
     const service = new DevelopmentService();
     const id = 'sdk.pay';
