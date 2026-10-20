@@ -64,7 +64,6 @@ import {
   prepareBuybackTwapSchema,
   prepareBuybackHookSchema,
   prepareRouterTerminalSchema,
-  quotePoolBuySchema,
 } from '../domain/routing.js';
 import { integrationInputSchema, referenceInputSchema } from '../services/development.js';
 import { UNITS } from '../domain/units.js';
@@ -502,22 +501,6 @@ function definitions(s: Services): ProtocolOperation[] {
       'Inspect the actual buyback/NFT/revnet hook composition, router project overrides, pool configuration, TWAP availability and token routes. Unknown oracle or custom-hook behavior remains explicit.',
       routingSchema,
       (input) => s.routing.getRouting(input),
-    ),
-    operationWithSchema(
-      'quote_pool_buy',
-      "Quote buying project tokens through the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. The buy runs the pool's hook: with JBUniswapV4Hook it can pay the project instead (issuance, reserved splits, payment to the balance) when that gives more tokens; pool.hook names the hook.",
-      quotePoolBuySchema,
-      (input) =>
-        s.routing.quotePoolBuy(input, (at) =>
-          s.payments.quotePay({ ...input, beneficiary: input.account }, at),
-        ),
-    ),
-    transactionWithSchema(
-      s,
-      'prepare_pool_buy',
-      "Prepare an authenticated unsigned buy through the project's buyback pool on the route jb_quote_pool_buy quotes, with the Uniswap Universal Router and a project-token minimum of the pool output less slippageBps. The pool's hook runs: with JBUniswapV4Hook the buy can be filled by paying the project. Refuses a custom project token or an unrecognized pool hook.",
-      quotePoolBuySchema,
-      async (input) => s.routing.preparePoolBuy(input),
     ),
     transactionWithSchema(
       s,
