@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { NATIVE_TOKEN, jbMultiTerminalAbi, jbTerminalStoreAbi } from '@bananapus/nana-sdk-core';
+import {
+  NATIVE_TOKEN,
+  createHookMetadata,
+  hookMetadataId,
+  jbMultiTerminalAbi,
+  jbTerminalStoreAbi,
+} from '@bananapus/nana-sdk-core';
 import {
   build721PayMetadata,
   buildBuybackCashOutMetadata,
@@ -28,7 +34,7 @@ import {
   type PayInput,
   type PayoutInput,
 } from '../../src/services/payments.js';
-import { deploymentAddress } from '../../src/services/rollout.js';
+import { deploymentAddress, rollout } from '../../src/services/rollout.js';
 import { publicError } from '../../src/domain/errors.js';
 import type { BlockEvidence, RpcProvider } from '../../src/domain/types.js';
 
@@ -95,7 +101,8 @@ function fixture(
   options: {
     beneficiaryCount?: bigint;
     allowance?: bigint;
-    payHooks?: HookSpec[];
+    /** A function receives the pay metadata, so a preview depends on the bytes it was sent. */
+    payHooks?: HookSpec[] | ((metadata: Hex) => HookSpec[]);
     dataHook?: Address;
     cashGross?: bigint;
     cashTax?: bigint;
@@ -117,7 +124,8 @@ function fixture(
     nftProjectId?: bigint;
     extraDataHook?: Address;
     extraPayEnabled?: boolean;
-    payFill?: bigint | Error;
+    /** The beneficiary's fill for the pay metadata; a simulation reverts below its minimum. */
+    payFill?: bigint | Error | ((metadata: Hex) => bigint);
   } = {},
 ) {
   const metadata = {
@@ -145,7 +153,14 @@ function fixture(
       case 'accountingContextForTokenOf':
         return { token: request.args?.[1], decimals: 18, currency: 61166 };
       case 'previewPayFor':
-        return [ruleset, options.beneficiaryCount ?? 101n, 10n, options.payHooks ?? []];
+        return [
+          ruleset,
+          options.beneficiaryCount ?? 101n,
+          10n,
+          typeof options.payHooks === 'function'
+            ? options.payHooks(request.args?.[4] as Hex)
+            : (options.payHooks ?? []),
+        ];
       case 'allowance':
         return options.allowance ?? 0n;
       case 'BUYBACK_HOOK':
@@ -196,7 +211,13 @@ function fixture(
   const simulateContract = vi.fn(async (request: Request) => {
     if (request.functionName === 'pay') {
       if (options.payFill instanceof Error) throw options.payFill;
-      return { result: options.payFill ?? 600n };
+      const fill =
+        typeof options.payFill === 'function'
+          ? options.payFill(request.args?.[6] as Hex)
+          : (options.payFill ?? 600n);
+      if ((request.args?.[4] as bigint) > fill)
+        throw new Error('JBMultiTerminal_UnderMinReturnedTokens');
+      return { result: fill };
     }
     if (options.payoutRevert) throw options.payoutRevert;
     return { result: options.grossPayout ?? 101n };
@@ -218,7 +239,14 @@ function fixture(
 }
 
 function payHookMetadata(
-  overrides: { beneficiaryCount?: bigint; skipSplits?: boolean; partialMint?: bigint } = {},
+  overrides: {
+    beneficiaryCount?: bigint;
+    skipSplits?: boolean;
+    partialMint?: bigint;
+    /** Word 2: the TWAP-derived floor, or the caller's own minimum when `callerMinimum` is set. */
+    minimum?: bigint;
+    callerMinimum?: boolean;
+  } = {},
 ): Hex {
   return encodeAbiParameters(
     parseAbiParameters(
@@ -227,8 +255,8 @@ function payHookMetadata(
     [
       false,
       overrides.partialMint ?? 0n,
-      300n,
-      false,
+      overrides.minimum ?? 300n,
+      overrides.callerMinimum ?? false,
       controller,
       200n,
       1n,
@@ -514,13 +542,36 @@ describe('payment quotes and approval plans', () => {
     });
   });
 
-  it('keeps verified zero issuance explicit, and never converts a failed preview to zero', async () => {
-    const zero = await fixture({ beneficiaryCount: 0n }).service.preparePay(payInput);
-    expect(zero.summary).toMatchObject({
-      beneficiaryTokenCount: '0',
-      minimumBeneficiaryTokenCount: '0',
+  it('refuses a default minimum that protects nothing, takes an explicit zero, and never converts a failed preview to zero', async () => {
+    const quote = await fixture({ beneficiaryCount: 0n }).service.quotePay(payInput);
+    expect(quote).toMatchObject({ beneficiaryTokenCount: '0', minimumBeneficiaryTokenCount: '0' });
+    expect(quote.warnings.join(' ')).toContain('protects nothing');
+    await expect(
+      fixture({ beneficiaryCount: 0n }).service.preparePay(payInput),
+    ).rejects.toMatchObject({
+      code: 'PAY_MINIMUM_PROTECTS_NOTHING',
+      retryable: false,
+      details: { beneficiaryTokenCount: '0', defaultMinimum: '0' },
     });
-    expect(zero.warnings.join(' ')).toContain('zero fungible');
+    // One base unit less 1% floors to zero; slippageFloor lifts it to 1, which protects nothing either.
+    await expect(
+      fixture({ beneficiaryCount: 1n }).service.preparePay(payInput),
+    ).rejects.toMatchObject({
+      code: 'PAY_MINIMUM_PROTECTS_NOTHING',
+      details: { defaultMinimum: '1' },
+    });
+    const two = await fixture({ beneficiaryCount: 2n }).service.preparePay(payInput);
+    expect(two.summary).toMatchObject({ minimumBeneficiaryTokenCount: '1' });
+    // The explicit zero-output choice.
+    const zero = await fixture({ beneficiaryCount: 0n }).service.preparePay({
+      ...payInput,
+      minReturnedTokens: '0',
+    });
+    expect(
+      decodeFunctionData({ abi: jbMultiTerminalAbi, data: zero.calls[0]!.data }).args?.[4],
+    ).toBe(0n);
+    expect(zero.summary).toMatchObject({ minimumBasis: 'explicit' });
+    expect(zero.warnings.join(' ')).toContain('receives no project tokens');
     await expect(
       fixture({ errorOn: 'previewPayFor' }).service.preparePay(payInput),
     ).rejects.toThrow('RPC read unavailable');
@@ -662,7 +713,9 @@ describe('payment quotes and approval plans', () => {
       rawTerminalPreview: { semantics: 'issuance', beneficiaryTokenCount: '0' },
       buybackHook: { address: buybackHook, version: '1.4', status: 'current' },
       tokenCounts: {
-        beneficiaryTokenCount: expect.stringContaining('The minimum is computed from this count.'),
+        beneficiaryTokenCount: expect.stringMatching(
+          /^A conditional swap figure: the payer's share of the buyback hook's TWAP-derived.*partial fill mints the unswapped remainder/,
+        ),
         rawTerminalPreview: expect.stringContaining('The minimum does not use it.'),
         simulation: expect.stringContaining('pool spot price'),
       },
@@ -748,8 +801,11 @@ describe('payment quotes and approval plans', () => {
     expect(blind.summary).toMatchObject({ simulatedBeneficiaryTokenCount: { status: 'unknown' } });
     expect(blind.warnings.join(' ')).toContain('not checked against a fill');
 
+    const none = await buyback().service.preparePay({ ...payInput, minReturnedTokens: '0' });
+    expect(minimumOf(none)).toBe(0n);
+    expect(none.warnings.join(' ')).toContain('receives no project tokens');
     await expect(
-      buyback().service.preparePay({ ...payInput, minReturnedTokens: '0' }),
+      buyback().service.preparePay({ ...payInput, minReturnedTokens: '-1' }),
     ).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
   });
 
@@ -815,16 +871,17 @@ describe('payment quotes and approval plans', () => {
   });
 
   it('skipSplits sends the (0, 0, true) buyback entry and quotes the whole swap output for the beneficiary', async () => {
+    // The hook previews a skip only when the skip entry reaches it, as the 1.4 decoder does.
     const skipping = (options: Parameters<typeof fixture>[0] = {}) =>
       fixture({
         dataHook: registry,
         beneficiaryCount: 0n,
-        payHooks: [
+        payHooks: (sent) => [
           {
             hook: buybackHook,
             noop: false,
             amount: 100n,
-            metadata: payHookMetadata({ skipSplits: true }),
+            metadata: payHookMetadata({ skipSplits: sent === expected }),
           },
         ],
         ...options,
@@ -926,6 +983,144 @@ describe('payment quotes and approval plans', () => {
     }).service.quotePay({ ...payInput, skipSplits: true })) as { warnings: string[] };
     expect(issuance).toMatchObject({ beneficiaryTokenCount: '101', reservedTokenCount: '10' });
     expect(issuance.warnings.join(' ')).toContain('skipSplits has no effect at this block');
+  });
+
+  it('refuses skipSplits on buyback 1.0 and anything not recognized as 1.4, even when the preview would not invoke it', async () => {
+    const v1 = '0xc7c8334b09e43a38c20b43cf0f824e074280b566' as Address;
+    for (const payHooks of [[], [{ hook: v1, noop: true, amount: 0n, metadata: '0x' as Hex }]]) {
+      const f = fixture({ dataHook: registry, resolvedBuyback: v1, payHooks });
+      await expect(f.service.preparePay({ ...payInput, skipSplits: true })).rejects.toMatchObject({
+        code: 'SKIP_SPLITS_UNSUPPORTED_BUYBACK',
+        retryable: false,
+        details: { buybackHook: v1, version: '1.0' },
+      });
+      expect(
+        f.readContract.mock.calls.some(([request]) => request.functionName === 'previewPayFor'),
+      ).toBe(false);
+      // Without skipSplits a passing 1.0 hook still pays by issuance.
+      expect(
+        (await fixture({ dataHook: registry, resolvedBuyback: v1, payHooks }).service.quotePay(
+          payInput,
+        )) as Record<string, unknown>,
+      ).toMatchObject({ beneficiaryTokenCount: '101', quoteBasis: 'terminal-issuance-preview' });
+    }
+    // An active 1.0 spec in the 1.4 shape is not decoded as 1.4.
+    await expect(
+      fixture({
+        dataHook: registry,
+        resolvedBuyback: v1,
+        payHooks: [{ hook: v1, noop: false, amount: 100n, metadata: payHookMetadata() }],
+      }).service.quotePay(payInput),
+    ).rejects.toMatchObject({ code: 'UNSUPPORTED_CONFIGURATION' });
+    // The pinned 1.4 address is the rollout catalog's only current buyback hook.
+    const current = rollout.contracts.JBBuybackHook!.deployments.filter(
+      (item) => item.generation === 'current',
+    );
+    expect(current.length).toBeGreaterThan(0);
+    expect(new Set(current.map((item) => item.address.toLowerCase()))).toEqual(
+      new Set([buybackHook.toLowerCase()]),
+    );
+  });
+
+  it('refuses a default minimum the simulated fill misses: partial skip fills and issuance fallbacks', async () => {
+    const skipEntry = (minimum: bigint) =>
+      createHookMetadata(
+        [hookMetadataId(buybackHook, 'pay')],
+        [encodeAbiParameters(parseAbiParameters('uint256,uint256,bool'), [0n, minimum, true])],
+      );
+    // Codex's example: full-input floor 300, half swaps for 150, the rest mints 100 of which the
+    // beneficiary keeps 80 after a 20% split. The fill is 230, below the 297 default.
+    const partial = () =>
+      fixture({
+        dataHook: registry,
+        beneficiaryCount: 0n,
+        payHooks: (sent) => [
+          {
+            hook: buybackHook,
+            noop: false,
+            amount: 100n,
+            metadata: payHookMetadata({ skipSplits: sent === skipEntry(0n) }),
+          },
+        ],
+        payFill: (sent) => (sent === skipEntry(0n) ? 230n : 101n),
+      });
+    const quote = (await partial().service.quotePay({ ...payInput, skipSplits: true })) as {
+      warnings: string[];
+    } & Record<string, unknown>;
+    expect(quote).toMatchObject({
+      beneficiaryTokenCount: '300',
+      minimumBeneficiaryTokenCount: '297',
+      simulatedBeneficiaryTokenCount: { status: 'known', value: '230' },
+      tokenCounts: { beneficiaryTokenCount: expect.stringContaining('conditional swap figure') },
+    });
+    expect(quote.warnings.join(' ')).toContain('above the simulated fill of 230');
+    await expect(
+      partial().service.preparePay({ ...payInput, skipSplits: true }),
+    ).rejects.toMatchObject({
+      code: 'PAY_DEFAULT_MINIMUM_ABOVE_FILL',
+      retryable: false,
+      details: { defaultMinimum: '297', simulatedFill: '230', suggestedMinReturnedTokens: '227' },
+    });
+    const reviewed = await partial().service.preparePay({
+      ...payInput,
+      skipSplits: true,
+      minReturnedTokens: '227',
+    });
+    expect(
+      decodeFunctionData({ abi: jbMultiTerminalAbi, data: reviewed.calls[0]!.data }).args?.[4],
+    ).toBe(227n);
+
+    // Without skipSplits a missed TWAP floor falls back to issuance: the fill is the 101 issuance share.
+    await expect(partial().service.preparePay(payInput)).rejects.toMatchObject({
+      code: 'PAY_DEFAULT_MINIMUM_ABOVE_FILL',
+      details: { defaultMinimum: '247', simulatedFill: '101', suggestedMinReturnedTokens: '99' },
+    });
+    // A fill at or above the default prepares as before.
+    const filled = fixture({
+      dataHook: registry,
+      beneficiaryCount: 0n,
+      payHooks: [{ hook: buybackHook, noop: false, amount: 100n, metadata: payHookMetadata() }],
+      payFill: 247n,
+    });
+    expect((await filled.service.preparePay(payInput)).summary).toMatchObject({
+      minimumBeneficiaryTokenCount: '247',
+    });
+
+    // Raw metadata with a nonzero minimumSwapAmountOut: the caller's settlement minimum, not TWAP.
+    const raw = skipEntry(280n);
+    const explicit = (await fixture({
+      dataHook: registry,
+      beneficiaryCount: 0n,
+      payHooks: (sent) => [
+        {
+          hook: buybackHook,
+          noop: false,
+          amount: 100n,
+          metadata:
+            sent === raw
+              ? payHookMetadata({ skipSplits: true, minimum: 280n, callerMinimum: true })
+              : payHookMetadata(),
+        },
+      ],
+      payFill: 290n,
+    }).service.quotePay({ ...payInput, metadata: raw })) as {
+      warnings: string[];
+      tokenCounts: Record<string, string>;
+    } & Record<string, unknown>;
+    expect(explicit).toMatchObject({
+      beneficiaryTokenCount: '280',
+      reservedTokenCount: '0',
+      minimumBeneficiaryTokenCount: '277',
+    });
+    expect(explicit.tokenCounts.beneficiaryTokenCount).toContain(
+      "caller's own settlement minimum (minimumSwapAmountOut 280)",
+    );
+    expect(explicit.tokenCounts.beneficiaryTokenCount).not.toContain('TWAP-derived');
+    expect(explicit.tokenCounts.minimumBeneficiaryTokenCount).toContain('no TWAP floor applies');
+    const text = explicit.warnings.join(' ');
+    expect(text).toContain("caller's metadata sets minimumSwapAmountOut 280");
+    expect(text).not.toContain('below the TWAP floor');
+    expect(text).not.toContain('misses its TWAP floor');
   });
 
   it('checks registry forwarding targets even when the outer call goes directly to the canonical router', async () => {
