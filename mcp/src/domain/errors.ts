@@ -100,9 +100,15 @@ export function revertOf(error: unknown): Revert | undefined {
         return {
           selector,
           errorName: decoded.errorName,
+          // Numbers, addresses and bytes stay as diagnostics. Any string argument (StringTooLong and
+          // the like) is caller- or node-supplied text, so it never reaches the response.
           args: JSON.parse(
             JSON.stringify(decoded.args ?? [], (_key, value: unknown) =>
-              typeof value === 'bigint' ? value.toString() : value,
+              typeof value === 'bigint'
+                ? value.toString()
+                : typeof value === 'string' && !/^0x[0-9a-fA-F]*$/.test(value)
+                  ? '[text withheld]'
+                  : value,
             ),
           ) as unknown[],
         };

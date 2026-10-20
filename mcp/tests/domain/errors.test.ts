@@ -77,6 +77,19 @@ describe('public errors', () => {
     });
   });
 
+  it('names a custom error but withholds its text arguments', () => {
+    const data = encodeErrorResult({
+      abi: [{ type: 'error', name: 'StringTooLong', inputs: [{ name: 'str', type: 'string' }] }],
+      errorName: 'StringTooLong',
+      args: ['https://rpc.example/synthetic-secret-key'],
+    });
+    const result = publicError(rpcRevert(data));
+    expect(result).toMatchObject({
+      code: 'CALL_REVERTED',
+      details: { errorName: 'StringTooLong', args: ['[text withheld]'] },
+    });
+    expect(JSON.stringify(result)).not.toContain('synthetic-secret-key');
+  });
   it('leaves data-less failures unknown and retryable', () => {
     for (const error of [rpcRevert(), new Error('fetch failed https://rpc.invalid/secret-key')])
       expect(publicError(error)).toMatchObject({ code: 'UPSTREAM_FAILURE', retryable: true });
