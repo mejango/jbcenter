@@ -988,6 +988,38 @@ describe('payment quotes and approval plans', () => {
       minimumBasis: 'prepareUserPay',
       simulatedBeneficiaryTokenCount: { status: 'known', value: '170' },
     });
+    // SDK 3.4.1: through the router too, a pool quote sets the minimum (the 83.33% share of the
+    // floored quote), not the mint share.
+    const routedQuoted = await fixture({
+      dataHook: registry,
+      resolvedBuyback: legacy,
+      primaryTerminal: v6Address('JBRouterTerminalRegistry', project.chainId),
+      beneficiaryCount: 0n,
+      reservedCount: 0n,
+      poolQuote: 400n,
+      payFill: 400n,
+      payHooks: (sent) => {
+        const { minimum } = sentQuote(sent);
+        return [
+          {
+            hook: legacy,
+            noop: false,
+            amount: 100n,
+            metadata: payHookMetadata(minimum ? { minimum, callerMinimum: true } : {}).slice(
+              0,
+              2 + 15 * 64,
+            ) as Hex,
+          },
+        ];
+      },
+    }).service.quotePay(payInput);
+    expect(routedQuoted).toMatchObject({
+      route: 'router-terminal',
+      minimumBeneficiaryTokenCount: '329',
+      hookMinimumSwapAmountOut: '396',
+      hookMinimumSource: 'slippageBps',
+      minimumBasis: 'prepareUserPay',
+    });
     const legacyText = plan.warnings.join(' ');
     expect(legacyText).toContain(
       'Buyback 1.1.1 checks its oracle-derived minimum against the swap plus any leftover mint and reverts below it; only a total swap failure falls back to issuance.',
@@ -1355,7 +1387,7 @@ describe('payment quotes and approval plans', () => {
       },
     });
     expect(quote.warnings.join(' ')).toContain('BUYBACK_SLIPPAGE_EXCEEDED');
-    expect(quote.warnings.join(' ')).toContain('higher slippageBps');
+    expect(quote.warnings.join(' ')).toContain('slippageBps 550 (it was 100)');
     expect(quote.hookMinimumSource).toBe('slippageBps');
     expect(JSON.stringify(quote)).not.toContain('secret-key');
   });

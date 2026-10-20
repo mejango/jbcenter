@@ -317,6 +317,7 @@ const FEATURES: DevelopmentFeature[] = [
         sdk('sdk.pay', 'buildUserPayMetadata'),
         sdk('sdk.pay', 'buildPayTx'),
         sdk('sdk.execution-errors', 'decodePayFailure'),
+        sdk('sdk.execution-errors', 'payRetrySlippageBps'),
       ),
       action(
         'prove',
@@ -326,7 +327,7 @@ const FEATURES: DevelopmentFeature[] = [
       ),
     ],
     [
-      "Payments go through the project's terminal. With buyback 1.4 the hook buys from the pool when that beats minting, and skipSplits (prepareUserPay's default, true) hands those tokens over without the reserved split; pass skipSplits false to prepareUserPay (SDK 3.2.0 or later) for fees or revenue that should honor the project's splits. Either way prepareUserPay (SDK 3.3.0 or later) quotes the V4 pool, on buyback 1.4 and 1.1.1: the hook's minimumSwapAmountOut is the floored quote and minReturnedTokens the beneficiary's part of it; only without a quote does it fall back to the payer's mint share. When a payment reverts, decodePayFailure(error) gives a stable reason, a sentence for the payer and, for a shortfall, received and minimum, so the payer can lower the minimum or raise the slippage and retry. prepareUserPay keys the entry to the registry, or to buyback 1.4 when the ruleset calls it directly.",
+      "Payments go through the project's terminal. With buyback 1.4 the hook buys from the pool when that beats minting, and skipSplits (prepareUserPay's default, true) hands those tokens over without the reserved split; pass skipSplits false to prepareUserPay (SDK 3.2.0 or later) for fees or revenue that should honor the project's splits. Either way prepareUserPay (SDK 3.3.0 or later) quotes the V4 pool, on buyback 1.4 and 1.1.1: the hook's minimumSwapAmountOut is the floored quote and minReturnedTokens the beneficiary's part of it; from SDK 3.4.1 a router-converted payment gets the same quote minimum; only without a quote does it fall back to the payer's mint share. When a payment reverts, decodePayFailure(error) gives a stable reason, a sentence for the payer and, for a shortfall, received and minimum; only when it sets adjustable may a retry relax anything, and payRetrySlippageBps(failure, slippageBps) gives the candidate tolerance (capped at PAY_MAX_SLIPPAGE_BPS) to prepare again with, within what the payer accepts. zeroFill means no lower minimum helps. prepareUserPay keys the entry to the registry, or to buyback 1.4 when the ruleset calls it directly.",
       'Quote metadata must equal execution metadata; NFT selections and buyback opt-outs affect the route.',
       'Native value, ERC-20 allowance and token decimals must match the resolved terminal route.',
     ],
