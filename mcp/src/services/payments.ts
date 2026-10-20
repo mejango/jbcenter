@@ -1,7 +1,5 @@
 import {
   NATIVE_TOKEN,
-  createHookMetadata,
-  hookMetadataId,
   jbBuybackHookRegistryAbi,
   jbDirectoryAbi,
   jbMultiTerminalAbi,
@@ -10,6 +8,7 @@ import {
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
 import {
+  buildBuybackPayMetadata,
   buildPayTx,
   getCurrentRuleset,
   prepareHookAwareCashOut,
@@ -20,7 +19,6 @@ import {
 import {
   decodeAbiParameters,
   decodeFunctionData,
-  encodeAbiParameters,
   encodeFunctionData,
   erc20Abi,
   parseAbi,
@@ -129,8 +127,7 @@ const buyback111PaySpecParameters = parseAbiParameters(
  * amountToSwapWith 0 swaps the whole payment (L1167); minimumSwapAmountOut 0 is not a user
  * quote (L1160), so the hook still derives its TWAP floor (L1223) and an underfill falls back
  * to issuance instead of reverting; skipSplits then transfers the swap output to the
- * beneficiary with no burn and remint (L593). The pinned SDK predates buildBuybackPayMetadata,
- * so this uses the primitives it is built from.
+ * beneficiary with no burn and remint (L593).
  */
 function payMetadata(input: PayInput, buybackHook: Address): Hex {
   if (!input.skipSplits) return input.metadata ?? '0x';
@@ -147,10 +144,12 @@ function payMetadata(input: PayInput, buybackHook: Address): Hex {
       { details: { buybackHook, version: version ?? 'unrecognized' } },
     );
   }
-  return createHookMetadata(
-    [hookMetadataId(buybackHook, 'pay')],
-    [encodeAbiParameters(parseAbiParameters('uint256, uint256, bool'), [0n, 0n, true])],
-  );
+  return buildBuybackPayMetadata({
+    hook: buybackHook,
+    amountToSwapWith: 0n,
+    minimumSwapAmountOut: 0n,
+    skipSplits: true,
+  });
 }
 
 function same(a: Address, b: Address): boolean {

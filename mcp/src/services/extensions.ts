@@ -15,6 +15,7 @@ import {
   buildBorrowTx,
   buildBridgeClaimTx,
   buildRepayLoanTx,
+  buildSetPermissionsTx,
   buildSyncAccountingDataTx,
   CCIP_SUCKER_TRANSPORT_VALUES,
   NATIVE_SUCKER_TRANSPORT_VALUES,
@@ -580,20 +581,13 @@ export class ExtensionService {
       }
       calls.push(
         preparedCall(
-          {
+          buildSetPermissionsTx({
             chainId: input.project.chainId,
-            address: config.permissions,
-            abi: jbPermissionsAbi,
-            functionName: 'setPermissionsFor',
-            args: [
-              input.holder,
-              {
-                operator: config.loans,
-                projectId: config.projectId,
-                permissionIds: quote.burnPermission.proposal.resultingPermissionIds,
-              },
-            ],
-          },
+            account: input.holder,
+            operator: config.loans,
+            projectId: config.projectId,
+            permissionIds: quote.burnPermission.proposal.resultingPermissionIds,
+          }),
           'Grant REVLoans BURN_TOKENS (11), preserving existing project permissions',
         ),
       );

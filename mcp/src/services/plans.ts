@@ -3,9 +3,7 @@ import { z } from 'zod';
 import {
   decodeEventLog,
   decodeFunctionData,
-  encodeAbiParameters,
   erc20Abi,
-  keccak256,
   numberToHex,
   parseAbi,
   toFunctionSelector,
@@ -34,7 +32,12 @@ import {
   revLoansAbi,
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
-import { jbSuckerV6Abi, uniswapV4Deployment, v6Address } from '@bananapus/nana-sdk-core/v6';
+import {
+  jbSuckerV6Abi,
+  uniswapV4Deployment,
+  uniswapV4PoolId,
+  v6Address,
+} from '@bananapus/nana-sdk-core/v6';
 import { DomainError, publicError, revertOf } from '../domain/errors.js';
 import { canonicalJson, jsonSafe } from '../domain/json.js';
 import {
@@ -1848,23 +1851,7 @@ export class PlanService {
             false,
             'The reviewed pool key does not match the signed fee, tick spacing, or terminal token.',
           );
-        const poolId = keccak256(
-          encodeAbiParameters(
-            [
-              {
-                type: 'tuple',
-                components: [
-                  { name: 'currency0', type: 'address' },
-                  { name: 'currency1', type: 'address' },
-                  { name: 'fee', type: 'uint24' },
-                  { name: 'tickSpacing', type: 'int24' },
-                  { name: 'hooks', type: 'address' },
-                ],
-              },
-            ],
-            [key],
-          ),
-        );
+        const poolId = uniswapV4PoolId(key);
         const pools = matching(
           jbBuybackHookAbi,
           'PoolAdded',
