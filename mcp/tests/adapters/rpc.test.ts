@@ -141,6 +141,20 @@ describe('RPC snapshots', () => {
       ).toMatchObject({ code: 'INSUFFICIENT_FUNDS', retryable: false });
     },
   );
+  it('withholds a decoded string argument even when it looks like hex', async () => {
+    const secret = `0x${'abcdef1234567890'.repeat(4)}`;
+    const data = encodeErrorResult({
+      abi: [{ type: 'error', name: 'StringTooLong', inputs: [{ name: 'str', type: 'string' }] }],
+      errorName: 'StringTooLong',
+      args: [secret],
+    });
+    const result = await nodeAnswer({ code: 3, message: 'execution reverted', data });
+    expect(result).toMatchObject({
+      code: 'CALL_REVERTED',
+      details: { errorName: 'StringTooLong', args: ['[text withheld]'] },
+    });
+    expect(JSON.stringify(result)).not.toContain('abcdef1234567890');
+  });
   it('never calls a contract revert, a provider failure or a URL an underfunded payer', async () => {
     const reason = encodeErrorResult({
       abi: [{ type: 'error', name: 'Error', inputs: [{ name: 'message', type: 'string' }] }],

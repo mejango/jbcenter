@@ -8,7 +8,7 @@ import {
   encodeErrorResult,
   parseAbi,
 } from 'viem';
-import { publicError } from '../../src/domain/errors.js';
+import { publicError, shown } from '../../src/domain/errors.js';
 
 const insufficient = encodeErrorResult({
   abi: jbTokensAbi,
@@ -89,6 +89,32 @@ describe('public errors', () => {
       details: { errorName: 'StringTooLong', args: ['[text withheld]'] },
     });
     expect(JSON.stringify(result)).not.toContain('synthetic-secret-key');
+  });
+  it('withholds strings by ABI type, inside arrays and tuples, and keeps other diagnostics', () => {
+    const hexText = `0x${'ab'.repeat(20)}`;
+    expect(shown({ type: 'string[]' }, ['a', hexText])).toEqual([
+      '[text withheld]',
+      '[text withheld]',
+    ]);
+    expect(
+      shown(
+        {
+          type: 'tuple',
+          components: [
+            { name: 'note', type: 'string' },
+            { name: 'owner', type: 'address' },
+            { name: 'data', type: 'bytes' },
+            { name: 'amount', type: 'uint256' },
+          ],
+        },
+        { note: hexText, owner: hexText, data: '0x1234', amount: 5n },
+      ),
+    ).toEqual({ note: '[text withheld]', owner: hexText, data: '0x1234', amount: '5' });
+    expect(
+      shown({ type: 'tuple[]', components: [{ type: 'string' }, { type: 'int8' }] }, [
+        [hexText, -1n],
+      ]),
+    ).toEqual([['[text withheld]', '-1']]);
   });
   it('leaves data-less failures unknown and retryable', () => {
     for (const error of [rpcRevert(), new Error('fetch failed https://rpc.invalid/secret-key')])

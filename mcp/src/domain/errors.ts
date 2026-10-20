@@ -1,5 +1,5 @@
 import * as sdk from '@bananapus/nana-sdk-core';
-import { decodeErrorResult, type Abi, type Hex } from 'viem';
+import { decodeErrorResult, type Abi, type AbiParameter, type Hex } from 'viem';
 
 export class DomainError extends Error {
   readonly code: string;
@@ -66,6 +66,25 @@ function causedBy(error: unknown, name: string): boolean {
   return false;
 }
 
+/** A decoded argument for the response, by its ABI type: strings withheld, integers as decimal text. */
+export function shown(input: AbiParameter, value: unknown): unknown {
+  const array = /^(.*)\[\d*\]$/.exec(input.type);
+  if (array) return (value as unknown[]).map((item) => shown({ ...input, type: array[1]! }, item));
+  if (input.type === 'string') return '[text withheld]';
+  if (input.type === 'tuple') {
+    const components = (input as { components: readonly AbiParameter[] }).components;
+    return Array.isArray(value)
+      ? components.map((component, index) => shown(component, value[index]))
+      : Object.fromEntries(
+          components.map((component) => [
+            component.name,
+            shown(component, (value as Record<string, unknown>)[component.name!]),
+          ]),
+        );
+  }
+  return typeof value === 'bigint' ? value.toString() : value;
+}
+
 /** Every error the installed V6 SDK ABIs declare, so a revert can name its contract error. */
 const KNOWN_ERRORS = Object.values(sdk).flatMap((value) =>
   Array.isArray(value)
@@ -100,17 +119,12 @@ export function revertOf(error: unknown): Revert | undefined {
         return {
           selector,
           errorName: decoded.errorName,
-          // Numbers, addresses and bytes stay as diagnostics. Any string argument (StringTooLong and
-          // the like) is caller- or node-supplied text, so it never reaches the response.
-          args: JSON.parse(
-            JSON.stringify(decoded.args ?? [], (_key, value: unknown) =>
-              typeof value === 'bigint'
-                ? value.toString()
-                : typeof value === 'string' && !/^0x[0-9a-fA-F]*$/.test(value)
-                  ? '[text withheld]'
-                  : value,
-            ),
-          ) as unknown[],
+          // Numbers, addresses and bytes stay as diagnostics. Every ABI `string` argument (StringTooLong
+          // and the like) is caller- or node-supplied text, so it never reaches the response, whatever
+          // it looks like.
+          args: (decoded.abiItem as { inputs: readonly AbiParameter[] }).inputs.map(
+            (input, index) => shown(input, decoded.args?.[index]),
+          ),
         };
       } catch {
         return { selector };
