@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
 import { IMMUTABLE_CACHE, hashedAssetName, mountAssets } from "../src/rest/web/assets.js";
-import { apiDocsCss, apiDocsPage, docsAssetNames, type OpenApiDocument } from "../src/rest/docs/index.js";
+import { apiDocsCss, apiDocsPage, apiSearchTerms, apiTermsPath, docsAssetNames, type OpenApiDocument } from "../src/rest/docs/index.js";
 import { mountRestSite, type RestSite } from "../src/rest/site.js";
 import type { JbcenterEnv } from "../src/types.js";
 import { MemoryStore } from "./support/memoryStore.js";
@@ -37,7 +37,7 @@ describe("hashed assets", () => {
     const spec = { openapi: "3.1.2", info: {}, paths: {}, tags: [] } as unknown as OpenApiDocument;
     mountRestSite(rest, { app: new Hono() as unknown as RestSite["app"], audience: origin, accountsScript: "console.log('accounts')",
       docsHtml: apiDocsPage(spec, docsAssetNames(docsScript)), apiReference: new Map([["readThing", "<p>fields</p>"]]),
-      docsCss: apiDocsCss, docsScript, documents: new Map([["quickstart", "# Get started"]]) });
+      apiTerms: JSON.stringify(apiSearchTerms(spec)), docsCss: apiDocsCss, docsScript, documents: new Map([["quickstart", "# Get started"]]) });
     const pages: [Hono<JbcenterEnv>, string, string][] = [
       [app, "/", "public, max-age=300"],
       [rest, "/api", "public, max-age=300"],
@@ -60,9 +60,16 @@ describe("hashed assets", () => {
     const reference = await rest.request(origin + "/api/reference/readThing");
     expect(reference.headers.get("cache-control")).toBe("public, max-age=300");
     expect((await rest.request(origin + "/api/reference/missing")).status).toBe(404);
-    const terms = await rest.request(origin + "/api/terms.json");
-    expect(terms.headers.get("cache-control")).toBe("public, max-age=300");
-    expect(terms.headers.get("content-type")).toContain("application/json");
+    // The page's hashed index name, another deploy's hash and the plain name all get the current index.
+    const current = JSON.stringify(apiSearchTerms(spec));
+    for (const path of [apiTermsPath(spec), "/api/terms.0123456789ab.json", "/api/terms.json"]) {
+      const terms = await rest.request(origin + path);
+      expect(terms.headers.get("cache-control"), path).toBe("public, max-age=300");
+      expect(terms.headers.get("content-type"), path).toContain("application/json");
+      expect(await terms.text(), path).toBe(current);
+    }
+    for (const path of ["/api/terms.0123.json", "/api/terms.json.bak", "/api/termsxjson"])
+      expect((await rest.request(origin + path)).status, path).toBe(404);
     // One URL serves HTML or Markdown by Accept, so a cache must key on it.
     const markdown = await rest.request(origin + "/api/docs/quickstart", { headers: { Accept: "text/markdown" } });
     expect(markdown.headers.get("content-type")).toContain("text/markdown");
