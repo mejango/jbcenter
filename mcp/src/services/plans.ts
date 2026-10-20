@@ -11,6 +11,7 @@ import {
   type Abi,
   type Address,
   type Hex,
+  type PublicClient,
   type TransactionReceipt,
 } from 'viem';
 import {
@@ -33,7 +34,14 @@ import {
   revOwnerAbi,
 } from '@bananapus/nana-sdk-core';
 import { jbSuckerV6Abi, uniswapV4PoolId, v6Address } from '@bananapus/nana-sdk-core/v6';
-import { DomainError, publicError, revertOf } from '../domain/errors.js';
+import {
+  DomainError,
+  payFailureOf,
+  publicError,
+  publicPayError,
+  revertOf,
+  type PayFailureView,
+} from '../domain/errors.js';
 import { canonicalJson, jsonSafe } from '../domain/json.js';
 import {
   addressSchema,
@@ -223,6 +231,33 @@ export interface StepVerification {
   evidence?: BlockEvidence;
   outcome?: OutcomeEvidence[];
   error?: ReturnType<typeof publicError>;
+  /** For a reverted payment: why, replayed at the parent block (earlier transactions in its block are not applied). */
+  payFailure?: PayFailureView & { replayedAtBlock: string };
+}
+
+const paying = (plan: PlanEnvelope) =>
+  plan.draft.operation === 'pay' || plan.draft.operation === '721_pay';
+
+/** Replay a reverted payment at its parent block for the SDK's reason; undefined when it is not one. */
+async function replayedPayFailure(
+  client: PublicClient,
+  transaction: { from: Address; to: Address | null; input: Hex; value: bigint },
+  blockNumber: bigint,
+): Promise<StepVerification['payFailure']> {
+  try {
+    await client.call({
+      account: transaction.from,
+      to: transaction.to!,
+      data: transaction.input,
+      value: transaction.value,
+      blockNumber,
+      gas: MAX_GAS,
+    });
+    return undefined;
+  } catch (error) {
+    const failure = payFailureOf(error);
+    return failure ? { ...failure, replayedAtBlock: blockNumber.toString() } : undefined;
+  }
 }
 
 /** Reject non-JSON values, ambiguous objects, and pathological input before canonicalization. */
@@ -544,7 +579,7 @@ export class PlanService {
         step,
         status: 'unverified' as const,
         dependencies,
-        error: publicError(error),
+        error: paying(plan) ? publicPayError(error) : publicError(error),
         ...fallback,
       };
     }
@@ -637,12 +672,16 @@ export class PlanService {
         const gasUsed = BigInt(result.gasUsed);
         const reverted = result.status === '0x0';
         const revert = { code: 3, data: result.error?.data };
+        const payFailure = reverted && paying(plan) ? payFailureOf(revert.data) : undefined;
         const error = reverted
-          ? publicError(
-              revertOf(revert)
-                ? revert
-                : new DomainError('CALL_REVERTED', 'This step reverts at this block.'),
-            )
+          ? {
+              ...publicError(
+                revertOf(revert)
+                  ? revert
+                  : new DomainError('CALL_REVERTED', 'This step reverts at this block.'),
+              ),
+              ...(payFailure ? { payFailure } : {}),
+            }
           : gasUsed > MAX_GAS
             ? publicError(
                 new DomainError(
@@ -870,14 +909,19 @@ export class PlanService {
             'This transaction predates the reviewed plan snapshot. A historical matching transaction is not execution of this plan.',
         };
       const confirmations = head.number - receipt.blockNumber + 1n;
-      if (receipt.status === 'reverted')
+      if (receipt.status === 'reverted') {
+        const payFailure = paying(plan)
+          ? await replayedPayFailure(client, transaction, receipt.blockNumber - 1n)
+          : undefined;
         return {
           ...base,
           status: 'reverted',
           evidence,
           confirmations: confirmations.toString(),
           reason: 'The exact transaction reverted; it did not complete the planned operation.',
+          ...(payFailure ? { payFailure } : {}),
         };
+      }
       if (receipt.status !== 'success')
         return {
           ...base,

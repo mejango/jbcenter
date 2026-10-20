@@ -18,7 +18,9 @@ import {
   type UserPayTiers,
 } from '@bananapus/nana-sdk-core/v6';
 import {
+  CallExecutionError,
   ContractFunctionRevertedError,
+  RpcRequestError,
   concat,
   keccak256,
   pad,
@@ -1313,6 +1315,48 @@ describe('payment quotes and approval plans', () => {
       metadata: keyed(true, tiers),
       skipSplits: { sent: true, applied: true },
     });
+  });
+
+  it('says why the fill simulation reverts and how to retry', async () => {
+    const hookMiss = encodeErrorResult({
+      abi: [
+        {
+          type: 'error',
+          name: 'JBBuybackHook_SpecifiedSlippageExceeded',
+          inputs: [
+            { name: 'amount', type: 'uint256' },
+            { name: 'minimum', type: 'uint256' },
+          ],
+        },
+      ],
+      errorName: 'JBBuybackHook_SpecifiedSlippageExceeded',
+      args: [380n, 396n],
+    });
+    const quote = (await fixture({
+      dataHook: registry,
+      beneficiaryCount: 0n,
+      reservedCount: 0n,
+      payHooks: buyback14(),
+      poolQuote: 400n,
+      payFill: new CallExecutionError(
+        new RpcRequestError({
+          body: {},
+          error: { code: 3, message: 'execution reverted', data: hookMiss },
+          url: 'https://rpc.invalid/secret-key',
+        }),
+        {},
+      ),
+    }).service.quotePay(payInput)) as { warnings: string[] } & Record<string, unknown>;
+    expect(quote.simulatedBeneficiaryTokenCount).toMatchObject({
+      status: 'unknown',
+      error: {
+        code: 'CALL_REVERTED',
+        payFailure: { reason: 'BUYBACK_SLIPPAGE_EXCEEDED', received: '380', minimum: '396' },
+      },
+    });
+    expect(quote.warnings.join(' ')).toContain('BUYBACK_SLIPPAGE_EXCEEDED');
+    expect(quote.warnings.join(' ')).toContain('higher slippageBps');
+    expect(JSON.stringify(quote)).not.toContain('secret-key');
   });
 
   it("keeps the hook's minimum when minReturnedTokens is lowered, and says so", async () => {

@@ -1,6 +1,8 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  CallExecutionError,
+  RpcRequestError,
   encodeAbiParameters,
   encodeEventTopics,
   encodeErrorResult,
@@ -760,6 +762,91 @@ describe('re-simulation and dependency verification', () => {
         'reason',
         expect.stringContaining('chained: true'),
       );
+    });
+  });
+
+  describe('pay failures', () => {
+    // The terminal's minimum missed by 10 tokens, as a node returns it through viem.
+    const underMin = encodeErrorResult({
+      abi: jbMultiTerminalAbi,
+      errorName: 'JBMultiTerminal_UnderMin',
+      args: [90n, 100n],
+    });
+    const nodeRevert = (data: Hex) =>
+      new CallExecutionError(
+        new RpcRequestError({
+          body: {},
+          error: { code: 3, message: 'execution reverted', data },
+          url: 'https://rpc.invalid/secret-key',
+        }),
+        {},
+      );
+    const expected = {
+      reason: 'TERMINAL_UNDER_MIN',
+      received: '90',
+      minimum: '100',
+      message: expect.stringContaining('fewer tokens than your minimum'),
+      retry: expect.stringContaining('minReturnedTokens at or below 90'),
+    };
+
+    it('names why a pay simulation reverts and how to retry, without node text', async () => {
+      const { service, sealed, client } = setup();
+      client.call.mockRejectedValueOnce(nodeRevert(underMin));
+      const result = await service.simulate({ token: sealed.token });
+      expect(result).toMatchObject({
+        status: 'unverified',
+        error: { code: 'CALL_REVERTED', payFailure: expected },
+      });
+      expect(JSON.stringify(result)).not.toContain('secret-key');
+    });
+
+    it('names a reverting pay step in a chained simulation', async () => {
+      const { service, sealed, client } = setup(
+        draft([approval(), { ...payCall(), dependsOn: [0] }]),
+      );
+      client.request.mockResolvedValueOnce([
+        {
+          calls: [
+            { status: '0x1', gasUsed: '0x5208', returnData: '0x', logs: [] },
+            {
+              status: '0x0',
+              gasUsed: '0x5208',
+              returnData: '0x',
+              logs: [],
+              error: { code: 3, data: underMin },
+            },
+          ],
+        },
+      ]);
+      const result = await service.simulate({ token: sealed.token, step: 1, chained: true });
+      expect(result).toMatchObject({ error: { step: 1, payFailure: expected } });
+    });
+
+    it('replays a reverted pay at its parent block for the reason; other operations get none', async () => {
+      const { service, sealed, client, receipt } = setup();
+      receipt.status = 'reverted';
+      client.call.mockRejectedValueOnce(nodeRevert(underMin));
+      const step = (
+        await service.verify({ token: sealed.token, transactions: [{ step: 0, hash: HASH }] })
+      ).steps[0]!;
+      expect(step).toMatchObject({
+        status: 'reverted',
+        payFailure: { ...expected, replayedAtBlock: String(receipt.blockNumber - 1n) },
+      });
+      expect(client.call.mock.calls.at(-1)![0]).toMatchObject({
+        blockNumber: receipt.blockNumber - 1n,
+      });
+      const launch = setup({ ...draft([payCall()]), operation: 'launch' });
+      launch.receipt.status = 'reverted';
+      launch.client.call.mockRejectedValueOnce(nodeRevert(underMin));
+      const other = (
+        await launch.service.verify({
+          token: launch.sealed.token,
+          transactions: [{ step: 0, hash: HASH }],
+        })
+      ).steps[0]!;
+      expect(other.status).toBe('reverted');
+      expect(other.payFailure).toBeUndefined();
     });
   });
 

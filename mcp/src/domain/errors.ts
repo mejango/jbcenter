@@ -1,4 +1,5 @@
 import * as sdk from '@bananapus/nana-sdk-core';
+import { decodePayFailure } from '@bananapus/nana-sdk-core/v6';
 import { decodeErrorResult, type Abi, type AbiParameter, type Hex } from 'viem';
 
 export class DomainError extends Error {
@@ -24,6 +25,7 @@ export function publicError(error: unknown): {
   message: string;
   retryable: boolean;
   details?: unknown;
+  payFailure?: PayFailureView;
 } {
   if (error instanceof DomainError) {
     return {
@@ -54,6 +56,42 @@ export function publicError(error: unknown): {
       'The operation could not be verified. Retry the read; do not infer zero balances, permission, or transaction failure.',
     retryable: true,
   };
+}
+
+export type PayFailureView = {
+  reason: string;
+  message: string;
+  received?: string;
+  minimum?: string;
+  retry?: string;
+};
+
+/**
+ * Why a payment reverts, from the SDK's decodePayFailure: a stable reason, its fixed sentence and,
+ * for a shortfall, the decoded amounts with how to retry. Never node text.
+ */
+export function payFailureOf(error: unknown): PayFailureView | undefined {
+  const failure = decodePayFailure(error);
+  if (!failure) return undefined;
+  const { reason, message, received, minimum } = failure;
+  if (received === undefined || minimum === undefined) return { reason, message };
+  return {
+    reason,
+    message,
+    received: received.toString(),
+    minimum: minimum.toString(),
+    // The terminal checks minReturnedTokens; the hook's own minimum comes from slippageBps.
+    retry:
+      reason === 'TERMINAL_UNDER_MIN'
+        ? `Prepare the payment again with jb_prepare_pay, passing minReturnedTokens at or below ${received} or a higher slippageBps.`
+        : "Prepare the payment again with jb_prepare_pay and a higher slippageBps; the buyback hook's minimum comes from it.",
+  };
+}
+
+/** publicError for a payment: adds the decoded reason it reverts, when the SDK recognizes it. */
+export function publicPayError(error: unknown): ReturnType<typeof publicError> {
+  const failure = payFailureOf(error);
+  return { ...publicError(error), ...(failure ? { payFailure: failure } : {}) };
 }
 
 /** viem names a node's known failure in the cause chain; its message embeds the request, so match the name. */

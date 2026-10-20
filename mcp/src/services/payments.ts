@@ -32,7 +32,13 @@ import {
   type Hex,
   type PublicClient,
 } from 'viem';
-import { DomainError, publicError, revertOf } from '../domain/errors.js';
+import {
+  DomainError,
+  publicError,
+  publicPayError,
+  revertOf,
+  type PayFailureView,
+} from '../domain/errors.js';
 import { jsonSafe } from '../domain/json.js';
 import { verify721Hook } from '../domain/products.js';
 import { resolveRouterTerminal } from '../domain/routing.js';
@@ -1045,6 +1051,7 @@ export class PaymentService {
     // A buyback fill differs from the hook's TWAP floor, and an explicit minimum is checked
     // against it: run the payment with no minimum at the quote block to see what it returns.
     let simulatedFill: Observation<string> | undefined;
+    let fillFailure: PayFailureView | undefined;
     if (quoteBasis === 'buyback-hook-indicative-output' || explicitMinimum !== undefined) {
       try {
         const { address, abi, functionName, args, value } = payTx(0n);
@@ -1060,7 +1067,9 @@ export class PaymentService {
         });
         simulatedFill = { status: 'known', value: result.toString() };
       } catch (error) {
-        simulatedFill = { status: 'unknown', error: publicError(error) };
+        const shown = publicPayError(error);
+        fillFailure = shown.payFailure;
+        simulatedFill = { status: 'unknown', error: shown };
       }
     }
     // Every selected minimum is checked against the fill when there is one. jb_prepare_pay refuses
@@ -1070,7 +1079,9 @@ export class PaymentService {
     let refusal: DomainError | undefined;
     if (simulatedFill?.status === 'unknown')
       warnings.push(
-        'The payment could not be simulated at the quote block, so its minimum is not checked against a fill. Run jb_simulate_plan before signing.',
+        fillFailure
+          ? `The payment reverts at the quote block even with no terminal minimum (${fillFailure.reason}): ${fillFailure.message}${fillFailure.retry ? ` ${fillFailure.retry}` : ''}`
+          : 'The payment could not be simulated at the quote block, so its minimum is not checked against a fill. Run jb_simulate_plan before signing.',
       );
     if (explicitMinimum !== undefined) {
       if (fill !== undefined && explicitMinimum > fill)

@@ -8,7 +8,7 @@ import {
   encodeErrorResult,
   parseAbi,
 } from 'viem';
-import { publicError, shown } from '../../src/domain/errors.js';
+import { payFailureOf, publicError, publicPayError, shown } from '../../src/domain/errors.js';
 
 const insufficient = encodeErrorResult({
   abi: jbTokensAbi,
@@ -115,6 +115,33 @@ describe('public errors', () => {
         [hexText, -1n],
       ]),
     ).toEqual([['[text withheld]', '-1']]);
+  });
+  it("adds the SDK's pay failure, with the retry that fits it, and nothing for other reverts", () => {
+    const hookMiss = encodeErrorResult({
+      abi: [
+        {
+          type: 'error',
+          name: 'JBBuybackHook_SpecifiedSlippageExceeded',
+          inputs: [
+            { name: 'amount', type: 'uint256' },
+            { name: 'minimum', type: 'uint256' },
+          ],
+        },
+      ],
+      errorName: 'JBBuybackHook_SpecifiedSlippageExceeded',
+      args: [380n, 396n],
+    });
+    expect(publicPayError(rpcRevert(hookMiss))).toMatchObject({
+      code: 'CALL_REVERTED',
+      payFailure: {
+        reason: 'BUYBACK_SLIPPAGE_EXCEEDED',
+        received: '380',
+        minimum: '396',
+        retry: expect.stringContaining('higher slippageBps'),
+      },
+    });
+    expect(payFailureOf(rpcRevert(insufficient))).toBeUndefined();
+    expect(publicPayError(rpcRevert(insufficient))).not.toHaveProperty('payFailure');
   });
   it('leaves data-less failures unknown and retryable', () => {
     for (const error of [rpcRevert(), new Error('fetch failed https://rpc.invalid/secret-key')])
