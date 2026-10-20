@@ -13,7 +13,7 @@ it("rebuilds only current runtime files and all assets needed by a fresh dev sta
   const directory = await mkdtemp(join(tmpdir(), "center-build-"));
   try {
     // Share read-only inputs; every compiler, bundler and package output stays in this fixture.
-    for (const name of ["src", "docs", "client", "wallet-client", "node_modules"]) await symlink(join(root, name), join(directory, name));
+    for (const name of ["src", "docs", "client", "node_modules"]) await symlink(join(root, name), join(directory, name));
     for (const name of ["mcp", "scripts/rest", "test", "dist/src/db/migrations", ".generated/rest", ".generated/checks"])
       await mkdir(join(directory, name), { recursive: true });
     for (const name of ["src", "node_modules"]) await symlink(join(root, "mcp", name), join(directory, "mcp", name));
@@ -44,7 +44,6 @@ it("rebuilds only current runtime files and all assets needed by a fresh dev sta
       import { readRestAssets } from './dist/src/rest/site.js';
       import { CenterClient } from './.generated/rest/client/index.js';
       import { connect } from './.generated/rest/client/node.js';
-      import { createCenterWalletClient } from './.generated/rest/wallet-client/index.js';
       const assets = await readRestAssets();
       for (const key of ['accountsScript', 'walletScript', 'walletPaymentScript', 'walletSignupScript', 'walletRecoveryScript', 'walletDeviceScript', 'docsScript'])
         assert(assets[key].length > 0, key);
@@ -52,7 +51,6 @@ it("rebuilds only current runtime files and all assets needed by a fresh dev sta
       assert.deepEqual([...assets.clientPackage.slice(0, 2)], [0x1f, 0x8b]);
       assert.equal(typeof CenterClient, 'function');
       assert.equal(typeof connect, 'function');
-      assert.equal(typeof createCenterWalletClient, 'function');
       // The homepage ships its directory script minified, and links the minified bytes' hash.
       const { HOMEPAGE_JS } = await import('./dist/src/directoryClient.js');
       const { HOMEPAGE_HTML } = await import('./dist/src/homepage.js');
