@@ -209,13 +209,22 @@ export class RpcPool implements RpcProvider {
               );
             if (result.data.error) {
               // viem needs a JSON-RPC code/data to classify contract reverts. Never forward messages/URLs.
+              // The one node text passed on is a fixed phrase viem reads as InsufficientFundsError
+              // (geth "insufficient funds", reth "OutOfFunds").
               const data = result.data.error.data;
-              throw Object.assign(new Error('RPC request failed.'), {
-                code: result.data.error.code,
-                ...(typeof data === 'string' && /^0x[0-9a-f]*$/i.test(data) && data.length < 65538
-                  ? { data }
-                  : {}),
-              });
+              throw Object.assign(
+                new Error(
+                  /insufficient funds|OutOfFunds/i.test(result.data.error.message)
+                    ? 'insufficient funds for gas * price + value'
+                    : 'RPC request failed.',
+                ),
+                {
+                  code: result.data.error.code,
+                  ...(typeof data === 'string' && /^0x[0-9a-f]*$/i.test(data) && data.length < 65538
+                    ? { data }
+                    : {}),
+                },
+              );
             }
             if (method === 'eth_getLogs' && blockNumber !== undefined && blockHash !== undefined) {
               const canonical = await this.client(chainId).getBlock({ blockNumber });

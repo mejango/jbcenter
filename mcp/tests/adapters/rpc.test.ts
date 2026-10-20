@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { erc20Abi, encodeFunctionResult, type Hex } from 'viem';
 import { RpcPool, pinRpcParameters } from '../../src/adapters/rpc.js';
 import type { fetchJson } from '../../src/adapters/http.js';
+import { publicError } from '../../src/domain/errors.js';
 
 const hash = `0x${'ab'.repeat(32)}` as Hex;
 const address = `0x${'12'.repeat(20)}` as Hex;
@@ -109,6 +110,26 @@ describe('RPC snapshots', () => {
     ).rejects.toMatchObject({ cause: { code: 'RPC_INVALID_CALL' } });
     expect(calls.length).toBe(sent);
   });
+  it.each([
+    [-32000, 'insufficient funds for gas * price + value: balance 0'],
+    [-32003, 'EVM error: OutOfFunds'],
+  ])(
+    'names an underfunded payer (node code %i) without forwarding node text',
+    async (code, message) => {
+      const pool = new RpcPool({ 1: 'https://rpc.example/secret-key' }, async (_url, options) => ({
+        jsonrpc: '2.0',
+        id: (options!.body as { id: number }).id,
+        error: { code, message: `${message} from 0x${'99'.repeat(20)}` },
+      }));
+      const error = await pool
+        .client(1)
+        .call({ account: address, to: address, value: 1n })
+        .catch((caught: unknown) => caught);
+      const result = publicError(error);
+      expect(result).toMatchObject({ code: 'INSUFFICIENT_FUNDS', retryable: false });
+      expect(JSON.stringify(result)).not.toMatch(/secret-key|9999/);
+    },
+  );
   it('rejects a mismatched RPC response id', async () => {
     const pool = new RpcPool({ 1: 'https://rpc.example' }, async () => ({
       jsonrpc: '2.0',
