@@ -9,7 +9,6 @@ import {
 } from '@bananapus/nana-sdk-core';
 import {
   build721PayMetadata,
-  buildBuybackPayMetadata,
   buildPayTx,
   getCurrentRuleset,
   prepareHookAwareCashOut,
@@ -132,13 +131,12 @@ const buyback111PaySpecParameters = parseAbiParameters(
 );
 
 /**
- * How a payment is prepared. Where the registry rekeys its entry to the project's hook, the SDK's
- * prepareUserPay owns the metadata, preview and default minimum, on any hook generation it can read
- * (only 1.4 acts on the skip word). skipSplits false on 1.4 keeps this service's split-honoring path
- * until the SDK's own option ships. A hook the ruleset calls directly reads only metadata keyed to
- * itself, so skipping there uses the SDK's hook-keyed buildBuybackPayMetadata.
- * Unset skipSplits defaults to on where the hook is 1.4 and the caller gave no metadata; an explicit
- * true is refused where it cannot apply.
+ * How a payment is prepared. The SDK's prepareUserPay owns the metadata, preview and default minimum
+ * wherever it can key the quote: through the registry (which rekeys its entry to the project's hook,
+ * any generation) and on buyback 1.4 called directly or behind the omnichain deployer (keyed to the
+ * hook). Caller metadata, no buyback hook, and an older hook called directly keep this service's
+ * own path. Unset skipSplits defaults to on where the hook is 1.4 and the caller gave no metadata;
+ * an explicit true is refused where it cannot apply.
  */
 function payChoice(
   input: PayInput,
@@ -148,6 +146,8 @@ function payChoice(
   // null, not undefined: plan summaries are JSON data, and unset is a choice the quote reports.
   const requested = input.skipSplits ?? null;
   const own = (reason: string) => ({ requested, send: false, sdk: false, reason });
+  // send: the skip word on buyback 1.4 is true. Older hooks get the SDK's default bytes, which they ignore.
+  const viaSdk = (send: boolean, reason: string) => ({ requested, send, sdk: true, reason });
   if (input.metadata !== undefined) {
     if (requested)
       throw new DomainError(
@@ -175,17 +175,8 @@ function payChoice(
   const off = is14
     ? "skipSplits false: the payment honors the project's reserved split."
     : `Off: buyback hook ${version ?? buybackHook} does not read skipSplits, so the payment honors the reserved split.`;
-  if (is14 && requested === false) return own(off);
-  if (buybackViaRegistry) return { requested, send: is14, sdk: true, reason: off };
-  if (!is14) return own(off);
-  if (input.tiers) {
-    const reason =
-      'The ruleset calls buyback 1.4 directly, and its skip entry cannot yet be combined with NFT tiers (the SDK keys that composition to the registry).';
-    if (requested)
-      throw new DomainError('SKIP_SPLITS_UNSUPPORTED_ROUTE', `${reason} Pay without skipSplits.`);
-    return own(`Off: ${reason}`);
-  }
-  return { requested, send: true, sdk: false, reason: off };
+  if (is14) return viaSdk(requested !== false, off);
+  return buybackViaRegistry ? viaSdk(false, off) : own(off);
 }
 
 function same(a: Address, b: Address): boolean {
@@ -852,22 +843,14 @@ export class PaymentService {
           amount,
           beneficiary: input.beneficiary,
           slippageBps: slippage,
+          ...(same(route.context.buybackHook, buyback14) ? { skipSplits: choice.send } : {}),
           ...(input.tiers ? { tiers: input.tiers } : {}),
         }).catch((error: unknown) => {
           if (error instanceof Error && error.message.includes('unknown specification'))
             unsupported(error.message);
           throw error;
         });
-      const metadata =
-        prepared?.metadata ??
-        (choice.send
-          ? buildBuybackPayMetadata({
-              hook: route.context.buybackHook,
-              amountToSwapWith: 0n,
-              minimumSwapAmountOut: 0n,
-              skipSplits: true,
-            })
-          : ownMetadata);
+      const metadata = prepared?.metadata ?? ownMetadata;
       return {
         prepared,
         metadata,

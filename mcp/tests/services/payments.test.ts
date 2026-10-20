@@ -15,6 +15,7 @@ import {
   slippageFloor,
   uniswapV4PoolId,
   v6Address,
+  type UserPayTiers,
 } from '@bananapus/nana-sdk-core/v6';
 import {
   ContractFunctionRevertedError,
@@ -94,6 +95,8 @@ const payInput: PayInput = {
 };
 // The split-honoring path, for fees or revenue routed into a project.
 const splitPayInput: PayInput = { ...payInput, skipSplits: false };
+// Caller metadata keeps this service's own path: the hook's spec, less slippage.
+const ownPayInput: PayInput = { ...payInput, metadata: '0x1234' };
 const cashInput: CashOutInput & { account: Address } = {
   project,
   account,
@@ -179,7 +182,10 @@ function fixture(
         return { token: request.args?.[1], decimals: 18, currency: 61166 };
       case 'previewPayFor':
         return [
-          ruleset,
+          // As on chain: useDataHookForPay (bit 80), useDataHookForCashOut (81), dataHook (82-241).
+          options.dataHook
+            ? { ...ruleset, metadata: (3n << 80n) | (BigInt(options.dataHook) << 82n) }
+            : ruleset,
           options.beneficiaryCount ?? 101n,
           options.reservedCount ?? 10n,
           typeof options.payHooks === 'function'
@@ -765,7 +771,7 @@ describe('payment quotes and approval plans', () => {
       reservedCount: 0n,
       payHooks: [{ hook: buybackHook, noop: false, amount: 100n, metadata: payHookMetadata() }],
     });
-    const plan = await service.preparePay(splitPayInput);
+    const plan = await service.preparePay(ownPayInput);
     expect(plan.summary).toMatchObject({
       quoteBasis: 'buyback-hook-indicative-output',
       beneficiaryTokenCount: '250',
@@ -792,7 +798,7 @@ describe('payment quotes and approval plans', () => {
       'Buyback 1.4 unwinds a swap that misses its pro-rated TWAP floor and the whole payment falls back to issuance',
     );
     expect(plan.warnings.join(' ')).not.toContain('only a total swap failure');
-    const plain = (await fixture().service.quotePay(splitPayInput)) as Record<string, unknown>;
+    const plain = (await fixture().service.quotePay(ownPayInput)) as Record<string, unknown>;
     expect(plain.buybackHook).toBeUndefined();
     expect(plain.tokenCounts).toMatchObject({
       beneficiaryTokenCount: expect.stringContaining("terminal's issuance preview"),
@@ -805,7 +811,7 @@ describe('payment quotes and approval plans', () => {
       beneficiaryCount: 0n,
       payHooks: [{ hook: buybackHook, noop: false, amount: 100n, metadata: payHookMetadata() }],
     });
-    const quote = (await buyback.service.quotePay(splitPayInput)) as Record<string, unknown>;
+    const quote = (await buyback.service.quotePay(ownPayInput)) as Record<string, unknown>;
     expect(quote).toMatchObject({
       minimumBeneficiaryTokenCount: '247',
       minimumBasis: 'slippage',
@@ -828,7 +834,7 @@ describe('payment quotes and approval plans', () => {
     expect(simulated.args[4]).toBe(0n);
 
     const plain = fixture();
-    const issuance = (await plain.service.quotePay(splitPayInput)) as Record<string, unknown>;
+    const issuance = (await plain.service.quotePay(ownPayInput)) as Record<string, unknown>;
     expect(issuance.simulatedBeneficiaryTokenCount).toBeUndefined();
     expect(plain.simulateContract).not.toHaveBeenCalled();
   });
@@ -845,7 +851,7 @@ describe('payment quotes and approval plans', () => {
       decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.[4];
 
     const within = await buyback().service.preparePay({
-      ...splitPayInput,
+      ...ownPayInput,
       minReturnedTokens: '588',
     });
     expect(minimumOf(within)).toBe(588n);
@@ -859,30 +865,30 @@ describe('payment quotes and approval plans', () => {
     expect(within.warnings.join(' ')).not.toContain('minReturnedTokens');
 
     const above = await buyback().service.preparePay({
-      ...splitPayInput,
+      ...ownPayInput,
       minReturnedTokens: '601',
     });
     expect(minimumOf(above)).toBe(601n);
     expect(above.warnings.join(' ')).toContain('above the simulated fill of 600');
 
     const below = await buyback().service.preparePay({
-      ...splitPayInput,
+      ...ownPayInput,
       minReturnedTokens: '100',
     });
     expect(below.warnings.join(' ')).toContain('below the default minimum of 247');
 
     const blind = await buyback(new Error('insufficient funds')).service.preparePay({
-      ...splitPayInput,
+      ...ownPayInput,
       minReturnedTokens: '588',
     });
     expect(blind.summary).toMatchObject({ simulatedBeneficiaryTokenCount: { status: 'unknown' } });
     expect(blind.warnings.join(' ')).toContain('not checked against a fill');
 
-    const none = await buyback().service.preparePay({ ...splitPayInput, minReturnedTokens: '0' });
+    const none = await buyback().service.preparePay({ ...ownPayInput, minReturnedTokens: '0' });
     expect(minimumOf(none)).toBe(0n);
     expect(none.warnings.join(' ')).toContain('receives no project tokens');
     await expect(
-      buyback().service.preparePay({ ...splitPayInput, minReturnedTokens: '-1' }),
+      buyback().service.preparePay({ ...ownPayInput, minReturnedTokens: '-1' }),
     ).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
   });
 
@@ -987,11 +993,13 @@ describe('payment quotes and approval plans', () => {
       primaryTerminal: v6Address('JBRouterTerminalRegistry', project.chainId),
       payHooks: [{ hook: buybackHook, noop: false, amount: 100n, metadata: payHookMetadata() }],
     });
-    // Honoring the split, the hook's own split preview replaces the router's normalized count.
+    // Honoring the split, prepareUserPay keeps the router's count once and requires the payer's
+    // split mint entitlement, the same minimum as the default here (the pool is not quoted).
     expect(await service.quotePay(splitPayInput)).toMatchObject({
-      beneficiaryTokenCount: '250',
-      reservedTokenCount: '50',
-      minimumBeneficiaryTokenCount: '247',
+      beneficiaryTokenCount: '832',
+      minimumBeneficiaryTokenCount: '162',
+      minimumBasis: 'prepareUserPay',
+      metadata: buildUserPayMetadata({ chainId: project.chainId, skipSplits: false }),
       rawTerminalPreview: { semantics: 'router-normalized', beneficiaryTokenCount: '832' },
     });
     // By default prepareUserPay keeps the router's count once and requires only the payer's mint
@@ -1097,12 +1105,27 @@ describe('payment quotes and approval plans', () => {
       rawTerminalPreview: { semantics: 'router-normalized' },
     });
 
-    // skipSplits false honors the split: no buyback entry, the hook's split preview stands.
-    expect(await quoted().service.quotePay(splitPayInput)).toMatchObject({
-      metadata: '0x',
-      beneficiaryTokenCount: '250',
-      reservedTokenCount: '50',
-      minimumBasis: 'slippage',
+    // skipSplits false honors the split through prepareUserPay's own option: a (0, 0, false) entry,
+    // no pool quote, and the payer's split mint entitlement (200 less 16.67%, less 2, less 1%).
+    const split = quoted();
+    const splitSdk = await prepareUserPay(split.client, {
+      chainId: project.chainId,
+      terminal,
+      projectId: BigInt(project.projectId),
+      token: NATIVE_TOKEN,
+      amount: 100n,
+      beneficiary,
+      skipSplits: false,
+    });
+    expect(splitSdk.metadata).toBe(
+      buildUserPayMetadata({ chainId: project.chainId, skipSplits: false }),
+    );
+    expect(sentQuote(splitSdk.metadata).skip).toBe(false);
+    expect(await split.service.quotePay(splitPayInput)).toMatchObject({
+      metadata: splitSdk.metadata,
+      beneficiaryTokenCount: splitSdk.preview.beneficiaryTokenCount.toString(),
+      minimumBeneficiaryTokenCount: '162',
+      minimumBasis: 'prepareUserPay',
       skipSplits: {
         requested: false,
         sent: false,
@@ -1130,55 +1153,64 @@ describe('payment quotes and approval plans', () => {
     });
   });
 
-  it('keys the skip entry to buyback 1.4 when the ruleset calls it directly, alone or behind the omnichain deployer', async () => {
-    const hookKeyed = buildBuybackPayMetadata({
-      hook: buybackHook,
-      amountToSwapWith: 0n,
-      minimumSwapAmountOut: 0n,
-      skipSplits: true,
-    });
+  it('keys the quote to buyback 1.4 when the ruleset calls it directly, alone or behind the omnichain deployer', async () => {
+    const keyed = (skipSplits: boolean, tiers?: UserPayTiers) =>
+      buildUserPayMetadata({
+        chainId: project.chainId,
+        hook: buybackHook,
+        skipSplits,
+        ...(tiers ? { tiers } : {}),
+      });
+    const hookId = hookMetadataId(buybackHook, 'pay').slice(2).toLowerCase();
+    // The hook reads only an entry keyed to itself; without one it mints through the split.
+    const direct = (options: Parameters<typeof fixture>[0]) =>
+      fixture({
+        ...options,
+        beneficiaryCount: 0n,
+        payHooks: (sent) => buyback14()(sent.toLowerCase().includes(hookId) ? sent : '0x'),
+        payFill: (sent) =>
+          sent.toLowerCase().includes(hookId) && sentQuote(sent).skip ? 300n : 166n,
+      });
     for (const options of [
       { dataHook: buybackHook },
       { dataHook: omni, extraDataHook: buybackHook },
     ]) {
-      const f = fixture({
-        ...options,
-        beneficiaryCount: 0n,
-        // The hook reads only an entry keyed to itself.
-        payHooks: (sent) => buyback14()(sent === hookKeyed ? sent : '0x'),
-        payFill: (sent) => (sent === hookKeyed ? 300n : 101n),
-      });
+      const f = direct(options);
       const plan = await f.service.preparePay(payInput);
       expect(
         decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.[6],
-      ).toBe(hookKeyed);
+      ).toBe(keyed(true));
+      // prepareUserPay's minimum with no pool quote: the payer's unsplit 200-token entitlement.
       expect(plan.summary).toMatchObject({
         skipSplits: { sent: true, applied: true },
         buybackHook: { address: buybackHook, skipSplits: true },
-        minimumBasis: 'slippage',
-        minimumBeneficiaryTokenCount: '297',
+        minimumBasis: 'prepareUserPay',
+        minimumBeneficiaryTokenCount: '196',
       });
       // No registry on this route: its hookOf is never read.
       expect(f.readContract.mock.calls.some(([r]) => r.functionName === 'hookOf')).toBe(false);
+      // Honoring the split keys a false entry to the hook.
+      const split = await direct(options).service.preparePay(splitPayInput);
+      expect(
+        decodeFunctionData({ abi: jbMultiTerminalAbi, data: split.calls[0]!.data }).args?.[6],
+      ).toBe(keyed(false));
+      expect(split.summary).toMatchObject({
+        skipSplits: { sent: false, applied: false },
+        minimumBasis: 'prepareUserPay',
+        minimumBeneficiaryTokenCount: '162',
+      });
     }
-    // NFT tiers with a direct hook have no SDK composition yet: off by default, refused when asked.
+    // NFT tiers compose with the hook-keyed skip entry.
     const tiers = {
       metadataIdTarget: nftImplementation,
       tierIdsToMint: [1n],
       allowOverspending: false,
     };
-    const tiered = () =>
-      fixture({
-        dataHook: buybackHook,
-        beneficiaryCount: 0n,
-        payHooks: buyback14({ skipSplits: false }),
-      });
-    expect(await tiered().service.quotePay({ ...payInput, tiers })).toMatchObject({
-      skipSplits: { sent: false, applied: false, reason: expect.stringContaining('NFT tiers') },
+    const tiered = await direct({ dataHook: buybackHook }).service.quotePay({ ...payInput, tiers });
+    expect(tiered).toMatchObject({
+      metadata: keyed(true, tiers),
+      skipSplits: { sent: true, applied: true },
     });
-    await expect(
-      tiered().service.quotePay({ ...payInput, tiers, skipSplits: true }),
-    ).rejects.toMatchObject({ code: 'SKIP_SPLITS_UNSUPPORTED_ROUTE' });
   });
 
   it("keeps the hook's minimum when minReturnedTokens is lowered, and says so", async () => {
@@ -1332,7 +1364,8 @@ describe('payment quotes and approval plans', () => {
       minimumBeneficiaryTokenCount: '196',
     });
 
-    // Without skipSplits a missed TWAP floor falls back to issuance: the fill is the 101 issuance share.
+    // Honoring the split, prepareUserPay's minimum is the payer's split mint entitlement (162). A
+    // missed TWAP floor that falls back to issuance fills only the 101 issuance share.
     await expect(
       fixture({
         dataHook: registry,
@@ -1342,17 +1375,17 @@ describe('payment quotes and approval plans', () => {
       }).service.preparePay(splitPayInput),
     ).rejects.toMatchObject({
       code: 'PAY_DEFAULT_MINIMUM_ABOVE_FILL',
-      details: { defaultMinimum: '247', simulatedFill: '101', suggestedMinReturnedTokens: '99' },
+      details: { defaultMinimum: '162', simulatedFill: '101', suggestedMinReturnedTokens: '99' },
     });
-    // A fill at or above the default prepares as before.
+    // A fill at the minimum prepares.
     const filled = fixture({
       dataHook: registry,
       beneficiaryCount: 0n,
-      payHooks: [{ hook: buybackHook, noop: false, amount: 100n, metadata: payHookMetadata() }],
-      payFill: 247n,
+      payHooks: buyback14(),
+      payFill: 162n,
     });
     expect((await filled.service.preparePay(splitPayInput)).summary).toMatchObject({
-      minimumBeneficiaryTokenCount: '247',
+      minimumBeneficiaryTokenCount: '162',
     });
 
     // Raw metadata with a nonzero minimumSwapAmountOut: the caller's settlement minimum, not TWAP.
@@ -1459,7 +1492,7 @@ describe('payment quotes and approval plans', () => {
         { hook: buybackHook, noop: false, amount: 100n, metadata: payHookMetadata() },
       ],
     });
-    const quote = await service.quotePay(splitPayInput);
+    const quote = await service.quotePay(ownPayInput);
     expect(quote).toMatchObject({
       beneficiaryTokenCount: '250',
       minimumBeneficiaryTokenCount: '247',
@@ -1477,7 +1510,7 @@ describe('payment quotes and approval plans', () => {
       tieredHook: custom,
       extraDataHook: token,
       extraPayEnabled: false,
-    }).service.quotePay(splitPayInput);
+    }).service.quotePay(ownPayInput);
     expect(inactive.beneficiaryTokenCount).toBe('101');
   });
 });

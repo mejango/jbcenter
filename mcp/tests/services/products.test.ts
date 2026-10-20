@@ -698,14 +698,15 @@ describe('721 payment preparation', () => {
     );
     const composed = () =>
       fixture({ revnet: true, paymentTokenCount: 0n, buyback: { metadata, fill: 101n } });
-    // The split-honoring path; the hook's spec above carries no skip.
+    // The split-honoring path; the hook's spec above carries no skip. prepareUserPay's minimum is the
+    // payer's split mint entitlement (200 less 16.67%, less 2, less 1%), which the 101 fill misses.
     const splitPay = { ...pay, skipSplits: false };
     const quote = (await composed().service.quote721Pay(splitPay)) as {
       paymentQuote: { warnings: string[] };
     } & Record<string, unknown>;
     expect(quote).toMatchObject({
       indicativeTokenIds: ['1000000001'],
-      paymentQuote: { minimumBeneficiaryTokenCount: '247' },
+      paymentQuote: { minimumBeneficiaryTokenCount: '162' },
     });
     expect(quote.paymentQuote.warnings.join(' ')).toContain('jb_prepare_721_pay refuse it');
     await expect(composed().service.prepare721Pay(splitPay)).rejects.toMatchObject({
