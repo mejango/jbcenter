@@ -133,6 +133,9 @@ export const requiredVitestSuites = [
   "test/rest-wallet-device-probe.test.ts",
   "test/rest-wallet-device-probe-browser.test.ts",
   "test/rest-signed-transaction.test.ts",
+  "test/page-weight.test.ts",
+  "test/asset-cache.test.ts",
+  "test/rest-docs-browser.test.ts",
 ];
 
 // Reuse the execution fixture's catalog/source/compiler validation without starting an EVM.

@@ -16,7 +16,7 @@ import { createContractOwnerVerifier } from "./contractOwner.js";
 import { getContractCatalog, type ContractCatalog } from "./contracts/catalog.js";
 import { RestError, type RestRpc } from "./core.js";
 import { restRequest } from "./context.js";
-import { apiDocsCss, apiDocsPage, buildRestOpenApi } from "./docs/index.js";
+import { apiDocsCss, apiDocsPage, apiReferencePages, apiSearchTerms, buildRestOpenApi, docsAssetNames } from "./docs/index.js";
 import {
   createTransactionDispatchAuthorizer,
   createSponsorshipDispatchAuthorizer,
@@ -574,6 +574,7 @@ export async function createRestRuntime(options: {
     browserScript: assets.walletScript, login: wallet.login, policy: wallet.policy,
     handoff: wallet.handoff, refresh: wallet.refresh,
     ...(walletPayments ? { payments: walletPayments, paymentBrowserScript: assets.walletPaymentScript } : {}),
+    ...(wallet.signup || wallet.recovery ? { recoveryKitScript: assets.walletRecoveryKitScript } : {}),
     ...(wallet.signup ? { signup: wallet.signup, signupBrowserScript: assets.walletSignupScript } : {}),
     ...(wallet.recovery ? { recovery: wallet.recovery, recoveryBrowserScript: assets.walletRecoveryScript } : {}),
     ...(wallet.devices ? { devices: wallet.devices, deviceBrowserScript: assets.walletDeviceScript } : {}),
@@ -691,7 +692,9 @@ export async function createRestRuntime(options: {
       ...(walletSite ? { wallet: walletSite, walletOrigins: [wallet!.origin, ...(options.wallet?.legacyOrigins ?? [])] } : {}),
       app,
       audience: auth.audience,
-      docsHtml: apiDocsPage(openapi),
+      docsHtml: apiDocsPage(openapi, docsAssetNames(assets.docsScript ?? "")),
+      apiReference: apiReferencePages(openapi, docsAssetNames(assets.docsScript ?? "")),
+      apiTerms: JSON.stringify(apiSearchTerms(openapi)),
       docsCss: apiDocsCss,
       ...assets,
     },

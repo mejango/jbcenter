@@ -106,7 +106,9 @@ export async function exerciseSignupBrowser(options: Omit<LocalWalletSignupDepen
   const bundle = async (entry: string) => (await build({ entryPoints: [entry], bundle: true, platform: 'browser', format: 'esm', write: false })).outputFiles[0]!.text;
   const [browserScript, signupBrowserScript] = await Promise.all([bundle('src/rest/web/wallet.ts'), bundle('src/rest/web/walletSignup.ts')]);
   const recoveryBrowserScript = recovery ? await bundle('src/rest/web/walletRecoveryJourney.ts') : undefined;
-  app = createWalletSite({ origin, basePath: '', audience: 'https://juicebox.center', browserScript, signup, signupBrowserScript, login,
+  // Signup and recovery import the backup kit, its own bundle, from the URL their pages name.
+  const recoveryKitScript = await bundle('src/rest/web/walletRecoveryKit.ts');
+  app = createWalletSite({ origin, basePath: '', audience: 'https://juicebox.center', browserScript, signup, signupBrowserScript, recoveryKitScript, login,
     ...(recovery ? { recovery, recoveryBrowserScript: recoveryBrowserScript! } : {}), networks,
     // No app handoff is involved in this signup/login observation.
     handoff: {} as never, policy: {} as never,

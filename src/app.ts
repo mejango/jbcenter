@@ -25,8 +25,10 @@ import {
   HOMEPAGE_HEADERS,
   HOMEPAGE_HTML,
   HOMEPAGE_JS_PATH,
+  homepageAssets,
 } from "./homepage.js";
 import { HOMEPAGE_JS } from "./directoryClient.js";
+import { mountAssets } from "./rest/web/assets.js";
 import { Metrics } from "./observability.js";
 import { createIpfsGateway } from "./ipfsGateway.js";
 import type { IpfsDiskCache } from "./ipfsCache.js";
@@ -487,14 +489,10 @@ export function createApp(
     c.header("Cache-Control", "public, max-age=300");
     return c.redirect(`${JUICESCAN}#${chain}:${project}`, 302);
   });
-  app.get(HOMEPAGE_CSS_PATH, (c) => c.body(HOMEPAGE_CSS, 200, {
-    ...HOMEPAGE_HEADERS,
-    "Content-Type": "text/css; charset=UTF-8",
-  }));
-  app.get(HOMEPAGE_JS_PATH, (c) => c.body(HOMEPAGE_JS, 200, {
-    ...HOMEPAGE_HEADERS,
-    "Content-Type": "application/javascript; charset=UTF-8",
-  }));
+  mountAssets(app, "", homepageAssets());
+  // A homepage cached before a deploy still links these for up to five minutes.
+  app.get(HOMEPAGE_CSS_PATH, (c) => c.body(HOMEPAGE_CSS, 200, { "Content-Type": "text/css; charset=UTF-8", "X-Content-Type-Options": "nosniff" }));
+  app.get(HOMEPAGE_JS_PATH, (c) => c.body(HOMEPAGE_JS, 200, { "Content-Type": "application/javascript; charset=UTF-8", "X-Content-Type-Options": "nosniff" }));
 
   app.get("/healthz", (c) => c.json({ ok: true }));
 

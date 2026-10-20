@@ -4,7 +4,7 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import { beforeAll, describe, expect, it } from "vitest";
 import { operationDescriptors } from "../src/rest/app.js";
 import { getContractCatalog } from "../src/rest/contracts/catalog.js";
-import { apiDocsCss, apiDocsPage, buildRestOpenApi, type OpenApiDocument } from "../src/rest/docs/index.js";
+import { apiDocsCss, apiDocsPage, apiReferencePages, apiSearchTerms, apiTermsPath, buildRestOpenApi, type OpenApiDocument } from "../src/rest/docs/index.js";
 import { createIndexerReadService } from "../src/rest/indexer/index.js";
 
 const origin = "https://juicebox.center";
@@ -201,6 +201,41 @@ describe("REST OpenAPI contract", () => {
 });
 
 describe("static REST documentation", () => {
+  it("indexes every parameter, request and response field name at any depth", () => {
+    const object = (properties: Record<string, unknown>) => ({ type: "object", properties });
+    const fixture = {
+      tags: [], components: {
+        schemas: {
+          // A cycle: a node's children are nodes.
+          Node: object({ nodeLabel: { type: "string" }, children: { type: "array", items: { $ref: "#/components/schemas/Node" } } }),
+          Deep: object({ levelOne: object({ levelTwo: object({ levelThree: object({ deepestRequestField: { type: "string" } }) }) }) }),
+        },
+        requestBodies: { Body: { content: { "application/json": { schema: { $ref: "#/components/schemas/Deep" } } } } },
+        parameters: { Cursor: { name: "pageCursor", in: "query", schema: object({ cursorPart: { type: "string" } }) } },
+      },
+      paths: {
+        "/things": { post: {
+          operationId: "makeThing", tags: [],
+          parameters: [{ $ref: "#/components/parameters/Cursor" }, { name: "thingId", in: "path", schema: { type: "string" } }],
+          requestBody: { $ref: "#/components/requestBodies/Body" },
+          responses: {
+            "201": { content: { "application/json": { schema: object({
+              items: { type: "array", items: { oneOf: [object({ firstVariantField: { type: "string" } }), object({ secondVariantField: { type: "string" } })] } },
+              tree: { $ref: "#/components/schemas/Node" },
+            }) } } },
+            "400": { content: { "application/json": { schema: object({ errorOnlyField: { type: "string" } }) } } },
+          },
+        } },
+      },
+    } as unknown as OpenApiDocument;
+    expect(apiSearchTerms(fixture).makeThing!.split(" ").sort()).toEqual([
+      "children", "cursorPart", "deepestRequestField", "firstVariantField", "items", "levelOne", "levelThree", "levelTwo",
+      "nodeLabel", "pageCursor", "secondVariantField", "thingId", "tree",
+    ]);
+    // The referenced body's fields reach its tables too.
+    expect(apiReferencePages(fixture).get("makeThing")).toContain("<code>levelOne</code>");
+  });
+
   it("renders escaped, responsive docs with local progressive enhancement", () => {
     const unsafe = structuredClone(spec);
     unsafe.paths["/api/v1"]!.get!.summary = '<img src=x onerror="alert(1)">';
@@ -213,10 +248,27 @@ describe("static REST documentation", () => {
     expect(html).toContain('src="/assets/docs.js"');
     expect(html).not.toContain('<script>alert');
     expect(html).toContain('href="/assets/api.css"');
-    expect(html).toContain("Request body");
-    expect(html).toContain("Response 201");
-    expect(html).toContain('<code>planId</code>');
-    expect(html).toContain("Parameters");
+    // Field tables load per endpoint; the page keeps only their names, for the filter.
+    expect(html).not.toContain("schema-fields");
+    expect(html).toMatch(/data-terms="\/api\/terms\.[0-9a-f]{12}\.json"/);
+    expect(html).toContain(`data-terms="${apiTermsPath(unsafe)}"`);
+    // A deploy that changes any field name changes the URL, so a cached index from the last deploy is never reused.
+    const changed = structuredClone(unsafe);
+    const response = changed.paths["/api/v1"]!.get!.responses["200"] as { content: { "application/json": { schema: { properties: Record<string, unknown> } } } };
+    response.content["application/json"].schema.properties.addedField = { type: "string" };
+    expect(apiTermsPath(changed)).not.toBe(apiTermsPath(unsafe));
+    expect(apiDocsPage(changed)).toContain(`data-terms="${apiTermsPath(changed)}"`);
+    const reference = apiReferencePages(unsafe);
+    const pages = [...reference.values()].join("");
+    expect(pages).toContain("Request body");
+    expect(pages).toContain("Response 201");
+    expect(pages).toContain('<code>planId</code>');
+    expect(pages).toContain("Parameters");
+    expect(pages).not.toContain("<img");
+    for (const [operationId, page] of reference) {
+      expect(html).toContain(`href="/api/reference/${encodeURIComponent(operationId)}"`);
+      expect(page).toContain('class="endpoint-fields"');
+    }
     expect(html).toContain('name="viewport"');
     expect(html).toContain('href="/api/v1/openapi.json"');
     expect(html).toContain('href="/api/docs/ai-guide"');

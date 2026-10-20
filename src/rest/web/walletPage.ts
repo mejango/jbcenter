@@ -1,9 +1,10 @@
+import { assetHref, type AssetNames } from './assets.js';
 /** Dedicated credential surface. All behavior and styles are served as same-origin assets. */
-export function walletPage(signup = false, recovery = false, base = '/wallet'): string {
+export function walletPage(signup = false, recovery = false, base = '/wallet', assets?: AssetNames): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="wallet-base" content="${base}"><link rel="icon" type="image/svg+xml" href="${base}/assets/favicon.svg"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>Your account | Juicebox</title>
-<link rel="stylesheet" href="${base}/assets/wallet.css"><script type="module" src="${base}/assets/wallet.js"></script></head>
+<link rel="stylesheet" href="${assetHref(base, 'wallet.css', assets)}"><script type="module" src="${assetHref(base, 'wallet.js', assets)}"></script></head>
 <body><main><a class="brand" href="${base || '/'}">JUICEBOX CENTER</a>
 <h1>Your account</h1>
 <p id="wallet-destination" hidden></p>
