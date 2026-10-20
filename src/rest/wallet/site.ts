@@ -40,6 +40,8 @@ export interface WalletSiteOptions {
   signupBrowserScript?: string;
   recovery?: WalletRecoverySiteOptions['recovery'];
   recoveryBrowserScript?: string;
+  /** The backup kit signup and recovery load on demand (wallet-recovery-kit.js). */
+  recoveryKitScript?: string;
   devices?: WalletDeviceSiteOptions['devices'];
   deviceBrowserScript?: string;
   login: Pick<PostgresWalletLoginStore, 'begin' | 'identifyCompletion' | 'complete' | 'identifySession' | 'identityKnown' | 'readSession' | 'viewSession' | 'logout' | 'passkeyName'>;
@@ -228,17 +230,18 @@ export function createWalletSite(options: WalletSiteOptions): Hono {
     callback.searchParams.set('code', code.code); callback.searchParams.set('state', code.state); callback.searchParams.set('iss', code.issuer);
     emit('handoff_issue', 'ok'); return callback.href;
   };
+  const kitAssets = options.recoveryKitScript ? mountAssets(app, base, { 'wallet-recovery-kit.js': options.recoveryKitScript }) : {};
   let signupAssets: AssetNames | undefined;
   if (options.signup) {
     if (!options.signupBrowserScript) reject(503, 'WALLET_SIGNUP_UNAVAILABLE');
-    signupAssets = mountWalletSignup(app, { origin, signup: options.signup, browserScript: options.signupBrowserScript, basePath: base, refresh,
+    signupAssets = mountWalletSignup(app, { origin, signup: options.signup, browserScript: options.signupBrowserScript, basePath: base, refresh, assets: kitAssets,
       framed: { frameOrigin: id => handoff.frameOrigin ? handoff.frameOrigin(id) : Promise.resolve(undefined), framedBy,
         intent: async id => (await framedIntent(id)).intent,
         issue: async (id, sessionId) => { const { intent, launchSignature } = await framedIntent(id); return issued(intent.id, sessionId, launchSignature); } } });
   }
   if (options.recovery) {
     if (!options.recoveryBrowserScript) reject(503, 'WALLET_RECOVERY_UNAVAILABLE');
-    mountWalletRecovery(app, { origin, recovery: options.recovery, browserScript: options.recoveryBrowserScript, basePath: base, refresh });
+    mountWalletRecovery(app, { origin, recovery: options.recovery, browserScript: options.recoveryBrowserScript, basePath: base, refresh, assets: kitAssets });
   }
   if (options.devices) {
     if (!options.deviceBrowserScript) reject(503, 'WALLET_DEVICE_UNAVAILABLE');

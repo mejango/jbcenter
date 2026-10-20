@@ -2,7 +2,7 @@ import { assetHref, type AssetNames } from './assets.js';
 import { walletCss } from './walletPage.js';
 export function walletSignupPage(options: { base?: string; assets?: AssetNames } = {}) {
   const base = options.base ?? '/wallet';
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="wallet-base" content="${base}"><link rel="icon" type="image/svg+xml" href="${base}/assets/favicon.svg"><meta name="viewport" content="width=device-width, initial-scale=1">
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="wallet-base" content="${base}"><meta name="module:wallet-recovery-kit" content="${assetHref(base, 'wallet-recovery-kit.js', options.assets)}"><link rel="icon" type="image/svg+xml" href="${base}/assets/favicon.svg"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>Your account</title>
 <link rel="stylesheet" href="${assetHref(base, 'wallet-signup.css', options.assets)}"><script type="module" src="${assetHref(base, 'wallet-signup.js', options.assets)}"></script></head>
 <body><main><a class="brand" id="wallet-back" href="${base || '/'}">JUICEBOX CENTER</a>

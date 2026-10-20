@@ -30,7 +30,7 @@ import { enrollmentManifest } from './fixtures/wallet-enrollment-crypto.js';
 // semantics have independent PostgreSQL, browser and EVM suites; no live service is contacted here.
 vi.mock('../src/rest/site.js', async original => ({
   ...(await original<typeof import('../src/rest/site.js')>()),
-  readRestAssets: async () => ({ accountsScript: '', walletScript: '/* bounded wallet browser fixture */', walletPaymentScript: '/* payment fixture */', walletSignupScript: '/* signup fixture */', walletRecoveryScript: '/* recovery fixture */', documents: new Map() }),
+  readRestAssets: async () => ({ accountsScript: '', walletScript: '/* bounded wallet browser fixture */', walletPaymentScript: '/* payment fixture */', walletSignupScript: '/* signup fixture */', walletRecoveryScript: '/* recovery fixture */', walletRecoveryKitScript: '/* kit fixture */', docsScript: '', documents: new Map() }),
 }));
 const origin = 'https://wallet.pilot.example', audience = 'https://juicebox.center';
 const cleanup: Array<() => Promise<void>> = [];
