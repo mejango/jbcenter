@@ -2,13 +2,24 @@ import { z } from 'zod';
 import { zeroAddress, zeroHash } from 'viem';
 import { NATIVE_TOKEN } from '@bananapus/nana-sdk-core';
 import type { JBRulesetConfig, JBTerminalConfig } from '@bananapus/nana-sdk-core/v6';
-import { addressSchema, chainIdSchema, hashSchema, projectSchema, uintSchema } from './schemas.js';
+import {
+  addressSchema,
+  chainIdSchema,
+  hashSchema,
+  projectSchema,
+  smallUintSchema,
+  uintSchema,
+} from './schemas.js';
 import { DomainError } from './errors.js';
 import { UNITS } from './units.js';
 
-/** Wire integers remain decimal strings; only these converters construct ABI integers. */
+/**
+ * Wire integers remain decimal strings; only these converters construct ABI integers.
+ * Fields up to 64 bits (percents, ids, durations, counts) also take a safe-integer JSON number; wider ones
+ * (amounts, weights, prices) take strings only.
+ */
 export const uint = (bits: number, max = (1n << BigInt(bits)) - 1n) =>
-  uintSchema.pipe(
+  (bits <= 64 ? smallUintSchema : uintSchema).pipe(
     z.string().refine((value) => BigInt(value) <= max, {
       message: `Must fit uint${bits} and be at most ${max}.`,
       abort: true,
@@ -87,7 +98,7 @@ export const splitSchema = z
 
 export const splitGroupSchema = z
   .object({
-    groupId: uintSchema.describe(UNITS.groupId),
+    groupId: smallUintSchema.describe(UNITS.groupId),
     splits: z.array(splitSchema).max(maxEntries),
   })
   .strict()

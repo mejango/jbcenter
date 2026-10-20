@@ -492,7 +492,35 @@ export class ConfigurationService {
       terminals,
       [],
     );
-    return toRulesetInput(ruleset, metadata, tables.splitGroups, tables.fundAccessLimitGroups);
+    // splitsOf falls back to ruleset 0 when this ruleset stores no group, so equal tables read as inherited.
+    // Copying an inherited table would freeze today's fallback recipients into the new ruleset.
+    const inherits = (group: (typeof tables.splitGroups)[number]) =>
+      group.splits.length > 0 &&
+      JSON.stringify(jsonSafe(group.splits)) === JSON.stringify(jsonSafe(group.fallbackSplits));
+    const fallbackGroups = tables.splitGroups.filter(inherits).map((group) => group.groupId);
+    return {
+      rulesetConfiguration: toRulesetInput(
+        ruleset,
+        metadata,
+        tables.splitGroups.filter((group) => !inherits(group)),
+        tables.fundAccessLimitGroups,
+      ),
+      coverage: {
+        status: 'incomplete' as const,
+        splitGroupsRead: tables.splitGroups.map((group) => group.groupId),
+        fundAccessLimitPairsRead: tables.fundAccessLimitGroups.map(({ terminal, token }) => ({
+          terminal,
+          token,
+        })),
+        fallbackSplitGroups: fallbackGroups,
+        notCovered: [
+          'Split groups other than reserved tokens (1) and the payout groups of current accounting tokens, such as hook-defined group IDs: contract reads cannot enumerate them, so they are omitted and the new ruleset would not have them.',
+          "Payout limits and surplus allowances for terminal/token pairs outside the current terminals' accounting contexts.",
+        ],
+        fallbackUse:
+          'fallbackSplitGroups resolve from the fallback table (ruleset 0) or store an identical copy. They are left out of rulesetConfiguration so the new ruleset keeps inheriting; add them explicitly to freeze those recipients.',
+      },
+    };
   }
 
   /** Each terminal's accounting contexts, and the split tables and fund access limits stored for one ruleset. */

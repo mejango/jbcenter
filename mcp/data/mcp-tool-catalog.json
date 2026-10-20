@@ -1421,7 +1421,7 @@
     },
     {
       "name": "jb_get_rulesets",
-      "description": "Read current, upcoming, and a bounded page of queued V6 rulesets at one block. Approval and queue state are preserved; custom hooks are not guessed. currentAsInput is the active ruleset in the jb_preview_ruleset_change input shape.",
+      "description": "Read current, upcoming, and a bounded page of queued V6 rulesets at one block. Approval and queue state are preserved; custom hooks are not guessed. currentAsInput is the active ruleset in the jb_preview_ruleset_change input shape, with its coverage.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3328,17 +3328,10 @@
             "type": "string"
           },
           "amount": {
-            "description": "Input asset amount in its smallest units, as an exact integer string.",
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Input asset amount in its smallest units, as an exact integer string."
           },
           "beneficiary": {
             "type": "string"
@@ -3352,16 +3345,9 @@
           },
           "minReturnedTokens": {
             "description": "Explicit minimum project tokens for the beneficiary, in 18-decimal base units, replacing beneficiaryTokenCount less slippageBps. To accept 2% below the fill, take the quote's simulatedBeneficiaryTokenCount less 2%. A warning names a figure above the simulated fill.",
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$"
           },
           "metadata": {
             "type": "string",
@@ -3589,17 +3575,10 @@
             "type": "string"
           },
           "amount": {
-            "description": "Input asset amount in its smallest units, as an exact integer string.",
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Input asset amount in its smallest units, as an exact integer string."
           },
           "beneficiary": {
             "type": "string"
@@ -3613,16 +3592,9 @@
           },
           "minReturnedTokens": {
             "description": "Explicit minimum project tokens for the beneficiary, in 18-decimal base units, replacing beneficiaryTokenCount less slippageBps. To accept 2% below the fill, take the quote's simulatedBeneficiaryTokenCount less 2%. A warning names a figure above the simulated fill.",
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$"
           },
           "metadata": {
             "type": "string",
@@ -3843,17 +3815,10 @@
             "type": "string"
           },
           "cashOutCount": {
-            "description": "Project token count in 18-decimal base units.",
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Project token count in 18-decimal base units."
           },
           "tokenToReclaim": {
             "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
@@ -4089,17 +4054,10 @@
             "type": "string"
           },
           "cashOutCount": {
-            "description": "Project token count in 18-decimal base units.",
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Project token count in 18-decimal base units."
           },
           "tokenToReclaim": {
             "description": "Token address; native ETH is 0x000000000000000000000000000000000000EEEe.",
@@ -4340,17 +4298,10 @@
             "type": "string"
           },
           "amount": {
-            "description": "Payout amount in accounting token decimals, denominated in currency.",
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Payout amount in accounting token decimals, denominated in currency."
           },
           "currency": {
             "type": "integer",
@@ -4586,17 +4537,10 @@
             "type": "string"
           },
           "amount": {
-            "description": "Payout amount in accounting token decimals, denominated in currency.",
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Payout amount in accounting token decimals, denominated in currency."
           },
           "currency": {
             "type": "integer",
@@ -4793,16 +4737,9 @@
               },
               "weight": {
                 "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$",
-                    "maxLength": 78
-                  }
-                ]
+                "type": "string",
+                "maxLength": 78,
+                "pattern": "^(0|[1-9][0-9]*)$"
               },
               "weightCutPercent": {
                 "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
@@ -5056,16 +4993,9 @@
                         "type": "object",
                         "properties": {
                           "amount": {
-                            "anyOf": [
-                              {
-                                "type": "number"
-                              },
-                              {
-                                "type": "string",
-                                "pattern": "^(0|[1-9][0-9]*)$",
-                                "maxLength": 78
-                              }
-                            ]
+                            "type": "string",
+                            "maxLength": 78,
+                            "pattern": "^(0|[1-9][0-9]*)$"
                           },
                           "currency": {
                             "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
@@ -5095,16 +5025,9 @@
                         "type": "object",
                         "properties": {
                           "amount": {
-                            "anyOf": [
-                              {
-                                "type": "number"
-                              },
-                              {
-                                "type": "string",
-                                "pattern": "^(0|[1-9][0-9]*)$",
-                                "maxLength": 78
-                              }
-                            ]
+                            "type": "string",
+                            "maxLength": 78,
+                            "pattern": "^(0|[1-9][0-9]*)$"
                           },
                           "currency": {
                             "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
@@ -5160,16 +5083,9 @@
           },
           "inheritedWeight": {
             "description": "Explicit hypothetical already resolved starting weight, required for successor weight=1.",
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$"
           },
           "revnet": {
             "description": "A revnet project or stage config. Give this or rulesetConfiguration, not both.",
@@ -5341,16 +5257,9 @@
                                     ]
                                   },
                                   "count": {
-                                    "anyOf": [
-                                      {
-                                        "type": "number"
-                                      },
-                                      {
-                                        "type": "string",
-                                        "pattern": "^(0|[1-9][0-9]*)$",
-                                        "maxLength": 78
-                                      }
-                                    ]
+                                    "type": "string",
+                                    "maxLength": 78,
+                                    "pattern": "^(0|[1-9][0-9]*)$"
                                   },
                                   "beneficiary": {
                                     "type": "string"
@@ -5443,16 +5352,9 @@
                             },
                             "initialIssuance": {
                               "description": "Tokens issued per one unit of baseCurrency at stage start, with 18 decimals: 1000000000000000000000 = 1,000 tokens.",
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "issuanceCutFrequency": {
                               "description": "Seconds between issuance cuts.",
@@ -5494,7 +5396,7 @@
                               ]
                             },
                             "extraMetadata": {
-                              "description": "Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): the operator may deploy new suckers during this stage; every stage needs it when suckers are configured. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. 4 is usual for a multi-chain revnet, 0 for one chain.",
+                              "description": "Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): while this stage is active the operator may add or retry suckers with REVDeployer.deploySuckersFor; the launch suckers deploy without it. A cross-chain revnet must set it on every stage, because the SDK refuses to encode one that does not. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. 4 for a multi-chain revnet, 0 for one chain.",
                               "anyOf": [
                                 {
                                   "type": "number"
@@ -5567,57 +5469,29 @@
                   "maxLength": 160
                 },
                 "contributionInBaseCurrency18": {
-                  "description": "Hypothetical contribution denominated in the ruleset base currency, with 18 decimals; no price-feed conversion is assumed.",
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "string",
-                      "pattern": "^(0|[1-9][0-9]*)$",
-                      "maxLength": 78
-                    }
-                  ]
+                  "type": "string",
+                  "maxLength": 78,
+                  "pattern": "^(0|[1-9][0-9]*)$",
+                  "description": "Hypothetical contribution denominated in the ruleset base currency, with 18 decimals; no price-feed conversion is assumed."
                 },
                 "cashOut": {
                   "description": "Independent hypothetical pre-fee cash-out inputs; supply must include pending reserved tokens and is not automatically changed by contribution.",
                   "type": "object",
                   "properties": {
                     "surplusAtomic": {
-                      "anyOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^(0|[1-9][0-9]*)$",
-                          "maxLength": 78
-                        }
-                      ]
+                      "type": "string",
+                      "maxLength": 78,
+                      "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "cashOutCount": {
-                      "anyOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^(0|[1-9][0-9]*)$",
-                          "maxLength": 78
-                        }
-                      ]
+                      "type": "string",
+                      "maxLength": 78,
+                      "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "totalSupply": {
-                      "anyOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^(0|[1-9][0-9]*)$",
-                          "maxLength": 78
-                        }
-                      ]
+                      "type": "string",
+                      "maxLength": 78,
+                      "pattern": "^(0|[1-9][0-9]*)$"
                     }
                   },
                   "required": [
@@ -5880,16 +5754,9 @@
                 },
                 "weight": {
                   "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "string",
-                      "pattern": "^(0|[1-9][0-9]*)$",
-                      "maxLength": 78
-                    }
-                  ]
+                  "type": "string",
+                  "maxLength": 78,
+                  "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "weightCutPercent": {
                   "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
@@ -6143,16 +6010,9 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
@@ -6182,16 +6042,9 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
@@ -6484,16 +6337,9 @@
                 },
                 "weight": {
                   "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "string",
-                      "pattern": "^(0|[1-9][0-9]*)$",
-                      "maxLength": 78
-                    }
-                  ]
+                  "type": "string",
+                  "maxLength": 78,
+                  "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "weightCutPercent": {
                   "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
@@ -6747,16 +6593,9 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
@@ -6786,16 +6625,9 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
@@ -7078,16 +6910,9 @@
                 },
                 "weight": {
                   "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "string",
-                      "pattern": "^(0|[1-9][0-9]*)$",
-                      "maxLength": 78
-                    }
-                  ]
+                  "type": "string",
+                  "maxLength": 78,
+                  "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "weightCutPercent": {
                   "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
@@ -7341,16 +7166,9 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
@@ -7380,16 +7198,9 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
@@ -7740,16 +7551,9 @@
                 },
                 "weight": {
                   "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "string",
-                      "pattern": "^(0|[1-9][0-9]*)$",
-                      "maxLength": 78
-                    }
-                  ]
+                  "type": "string",
+                  "maxLength": 78,
+                  "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "weightCutPercent": {
                   "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
@@ -8003,16 +7807,9 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
@@ -8042,16 +7839,9 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
@@ -8216,16 +8006,9 @@
                       "properties": {
                         "price": {
                           "description": "Tier price in the tiers currency, with the tiers decimals.",
-                          "anyOf": [
-                            {
-                              "type": "number"
-                            },
-                            {
-                              "type": "string",
-                              "pattern": "^(0|[1-9][0-9]*)$",
-                              "maxLength": 78
-                            }
-                          ]
+                          "type": "string",
+                          "maxLength": 78,
+                          "pattern": "^(0|[1-9][0-9]*)$"
                         },
                         "initialSupply": {
                           "anyOf": [
@@ -9171,16 +8954,9 @@
             "type": "string"
           },
           "collateralCount": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$"
           },
           "prepaidFeePercent": {
             "type": "integer",
@@ -9410,16 +9186,9 @@
             "type": "string"
           },
           "collateralCount": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$"
           },
           "prepaidFeePercent": {
             "type": "integer",
@@ -9833,28 +9602,14 @@
             "type": "string"
           },
           "maxRepayBorrowAmount": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$"
           },
           "collateralCountToReturn": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$"
           },
           "beneficiary": {
             "type": "string"
@@ -10103,28 +9858,14 @@
                     "pattern": "^0x[a-fA-F0-9]{64}$"
                   },
                   "projectTokenCount": {
-                    "anyOf": [
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "^(0|[1-9][0-9]*)$",
-                        "maxLength": 78
-                      }
-                    ]
+                    "type": "string",
+                    "maxLength": 78,
+                    "pattern": "^(0|[1-9][0-9]*)$"
                   },
                   "terminalTokenAmount": {
-                    "anyOf": [
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "^(0|[1-9][0-9]*)$",
-                        "maxLength": 78
-                      }
-                    ]
+                    "type": "string",
+                    "maxLength": 78,
+                    "pattern": "^(0|[1-9][0-9]*)$"
                   },
                   "metadata": {
                     "type": "string",
@@ -10500,17 +10241,10 @@
             "type": "string"
           },
           "maxTransportValue": {
-            "description": "Maximum native wei attached to the accounting message; gas is additional.",
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Maximum native wei attached to the accounting message; gas is additional."
           }
         },
         "required": [
@@ -10901,7 +10635,7 @@
     },
     {
       "name": "jb_quote_pool_buy",
-      "description": "Quote buying project tokens straight from the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. A direct swap skips issuance and reserved splits.",
+      "description": "Quote buying project tokens through the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. The buy runs the pool's hook: with JBUniswapV4Hook it can pay the project instead (issuance, reserved splits, payment to the balance) when that gives more tokens; pool.hook names the hook.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -10977,17 +10711,10 @@
             "type": "string"
           },
           "amount": {
-            "description": "Input amount in the token smallest units, as an exact integer string. 0.05 ETH = 50000000000000000.",
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Input amount in the token smallest units, as an exact integer string. 0.05 ETH = 50000000000000000."
           },
           "slippageBps": {
             "default": 100,
@@ -11138,7 +10865,7 @@
     },
     {
       "name": "jb_prepare_pool_buy",
-      "description": "Prepare an authenticated unsigned direct buy from the project's buyback pool on the route jb_quote_pool_buy quotes, through the Uniswap Universal Router, with a project-token minimum of the pool output less slippageBps. Nothing is issued and no reserved split applies.",
+      "description": "Prepare an authenticated unsigned buy through the project's buyback pool on the route jb_quote_pool_buy quotes, with the Uniswap Universal Router and a project-token minimum of the pool output less slippageBps. The pool's hook runs: with JBUniswapV4Hook the buy can be filled by paying the project. Refuses a custom project token or an unrecognized pool hook.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -11214,17 +10941,10 @@
             "type": "string"
           },
           "amount": {
-            "description": "Input amount in the token smallest units, as an exact integer string. 0.05 ETH = 50000000000000000.",
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Input amount in the token smallest units, as an exact integer string. 0.05 ETH = 50000000000000000."
           },
           "slippageBps": {
             "default": 100,
@@ -12578,17 +12298,10 @@
             "type": "string"
           },
           "amount": {
-            "description": "Fresh payment amount in the token’s smallest units. Use 0 for free tiers or eligible NFT-credit purchases.",
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Fresh payment amount in the token’s smallest units. Use 0 for free tiers or eligible NFT-credit purchases."
           },
           "beneficiary": {
             "type": "string"
@@ -12840,17 +12553,10 @@
             "type": "string"
           },
           "amount": {
-            "description": "Fresh payment amount in the token’s smallest units. Use 0 for free tiers or eligible NFT-credit purchases.",
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)$",
-                "maxLength": 78
-              }
-            ]
+            "type": "string",
+            "maxLength": 78,
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Fresh payment amount in the token’s smallest units. Use 0 for free tiers or eligible NFT-credit purchases."
           },
           "beneficiary": {
             "type": "string"
@@ -13105,16 +12811,9 @@
               "properties": {
                 "price": {
                   "description": "Tier price in the tiers currency, with the tiers decimals.",
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "string",
-                      "pattern": "^(0|[1-9][0-9]*)$",
-                      "maxLength": 78
-                    }
-                  ]
+                  "type": "string",
+                  "maxLength": 78,
+                  "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "initialSupply": {
                   "anyOf": [
@@ -13553,16 +13252,9 @@
                       "properties": {
                         "price": {
                           "description": "Tier price in the tiers currency, with the tiers decimals.",
-                          "anyOf": [
-                            {
-                              "type": "number"
-                            },
-                            {
-                              "type": "string",
-                              "pattern": "^(0|[1-9][0-9]*)$",
-                              "maxLength": 78
-                            }
-                          ]
+                          "type": "string",
+                          "maxLength": 78,
+                          "pattern": "^(0|[1-9][0-9]*)$"
                         },
                         "initialSupply": {
                           "anyOf": [
@@ -13875,16 +13567,9 @@
                 },
                 "weight": {
                   "description": "Tokens issued per one unit of baseCurrency, with 18 decimals: 1000000000000000000000 = 1,000 tokens. 0 means zero issuance; 1 inherits decayed weight when a prior ruleset exists.",
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "string",
-                      "pattern": "^(0|[1-9][0-9]*)$",
-                      "maxLength": 78
-                    }
-                  ]
+                  "type": "string",
+                  "maxLength": 78,
+                  "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "weightCutPercent": {
                   "description": "Issuance cut applied each cycle, out of 1,000,000,000. 100,000,000 = 10%.",
@@ -14130,16 +13815,9 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
@@ -14169,16 +13847,9 @@
                           "type": "object",
                           "properties": {
                             "amount": {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "currency": {
                               "description": "JB currency ID: uint32(uint160(token)) for a token (native ETH is 0x000000000000000000000000000000000000EEEe, currency 61166), or 1 = ETH and 2 = USD.",
@@ -14988,16 +14659,9 @@
                             ]
                           },
                           "count": {
-                            "anyOf": [
-                              {
-                                "type": "number"
-                              },
-                              {
-                                "type": "string",
-                                "pattern": "^(0|[1-9][0-9]*)$",
-                                "maxLength": 78
-                              }
-                            ]
+                            "type": "string",
+                            "maxLength": 78,
+                            "pattern": "^(0|[1-9][0-9]*)$"
                           },
                           "beneficiary": {
                             "type": "string"
@@ -15090,16 +14754,9 @@
                     },
                     "initialIssuance": {
                       "description": "Tokens issued per one unit of baseCurrency at stage start, with 18 decimals: 1000000000000000000000 = 1,000 tokens.",
-                      "anyOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^(0|[1-9][0-9]*)$",
-                          "maxLength": 78
-                        }
-                      ]
+                      "type": "string",
+                      "maxLength": 78,
+                      "pattern": "^(0|[1-9][0-9]*)$"
                     },
                     "issuanceCutFrequency": {
                       "description": "Seconds between issuance cuts.",
@@ -15141,7 +14798,7 @@
                       ]
                     },
                     "extraMetadata": {
-                      "description": "Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): the operator may deploy new suckers during this stage; every stage needs it when suckers are configured. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. 4 is usual for a multi-chain revnet, 0 for one chain.",
+                      "description": "Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): while this stage is active the operator may add or retry suckers with REVDeployer.deploySuckersFor; the launch suckers deploy without it. A cross-chain revnet must set it on every stage, because the SDK refuses to encode one that does not. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. 4 for a multi-chain revnet, 0 for one chain.",
                       "anyOf": [
                         {
                           "type": "number"
@@ -15385,16 +15042,9 @@
                           "properties": {
                             "price": {
                               "description": "Tier price in the tiers currency, with the tiers decimals.",
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "pattern": "^(0|[1-9][0-9]*)$",
-                                  "maxLength": 78
-                                }
-                              ]
+                              "type": "string",
+                              "maxLength": 78,
+                              "pattern": "^(0|[1-9][0-9]*)$"
                             },
                             "initialSupply": {
                               "anyOf": [
@@ -15710,16 +15360,9 @@
                   ]
                 },
                 "minimumPrice": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "string",
-                      "pattern": "^(0|[1-9][0-9]*)$",
-                      "maxLength": 78
-                    }
-                  ]
+                  "type": "string",
+                  "maxLength": 78,
+                  "pattern": "^(0|[1-9][0-9]*)$"
                 },
                 "minimumTotalSupply": {
                   "anyOf": [
@@ -19107,7 +18750,7 @@
     "version": "0.1.0",
     "protocolVersion": 6,
     "publicOrigin": "https://juicebox.center",
-    "amountEncoding": "All asset amounts and uint256 identifiers are base-10 integer strings with explicit currency and decimal context. Integer inputs also accept a JSON number up to 2^53 - 1; send larger values as strings.",
+    "amountEncoding": "All asset amounts and uint256 identifiers are base-10 integer strings with explicit currency and decimal context. Amounts, weights and prices take strings only; small integer fields (ids, percents, durations, counts) also accept a JSON number up to 2^53 - 1.",
     "execution": "V6 reads, pure models, unsigned authenticated transaction plans and receipt verification. Explicitly authorized logo and metadata publication is available through jb_pin_project_logo, jb_pin_project_metadata and jb_pin_nft_metadata when a publisher is configured. Already-signed project intents can be published and their sponsored deploy requested through jb_publish_intent and jb_deploy_intent. Blockchain signing/execution remain in the external wallet.",
     "families": [
       {
@@ -19167,7 +18810,7 @@
           },
           {
             "name": "jb_get_rulesets",
-            "description": "Read current, upcoming, and a bounded page of queued V6 rulesets at one block. Approval and queue state are preserved; custom hooks are not guessed. currentAsInput is the active ruleset in the jb_preview_ruleset_change input shape."
+            "description": "Read current, upcoming, and a bounded page of queued V6 rulesets at one block. Approval and queue state are preserved; custom hooks are not guessed. currentAsInput is the active ruleset in the jb_preview_ruleset_change input shape, with its coverage."
           },
           {
             "name": "jb_get_position",
@@ -19303,11 +18946,11 @@
           },
           {
             "name": "jb_quote_pool_buy",
-            "description": "Quote buying project tokens straight from the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. A direct swap skips issuance and reserved splits."
+            "description": "Quote buying project tokens through the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. The buy runs the pool's hook: with JBUniswapV4Hook it can pay the project instead (issuance, reserved splits, payment to the balance) when that gives more tokens; pool.hook names the hook."
           },
           {
             "name": "jb_prepare_pool_buy",
-            "description": "Prepare an authenticated unsigned direct buy from the project's buyback pool on the route jb_quote_pool_buy quotes, through the Uniswap Universal Router, with a project-token minimum of the pool output less slippageBps. Nothing is issued and no reserved split applies."
+            "description": "Prepare an authenticated unsigned buy through the project's buyback pool on the route jb_quote_pool_buy quotes, with the Uniswap Universal Router and a project-token minimum of the pool output less slippageBps. The pool's hook runs: with JBUniswapV4Hook the buy can be filled by paying the project. Refuses a custom project token or an unrecognized pool hook."
           },
           {
             "name": "jb_prepare_buyback_pool",

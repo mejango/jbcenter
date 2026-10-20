@@ -57,9 +57,10 @@ describe('explicit V6 configuration schemas', () => {
       rulesetConfigSchema.safeParse({ ...configuration(), weight: (1n << 112n).toString() })
         .success,
     ).toBe(false);
-    expect(rulesetConfigSchema.parse({ ...configuration(), weight: 1000 }).weight).toBe('1000');
-    expect(rulesetConfigSchema.safeParse({ ...configuration(), weight: 2 ** 60 }).success).toBe(
-      false,
+    // Weights are amounts: strings only. Small fields such as duration also take a JSON number.
+    expect(rulesetConfigSchema.safeParse({ ...configuration(), weight: 1000 }).success).toBe(false);
+    expect(rulesetConfigSchema.parse({ ...configuration(), duration: 86400 }).duration).toBe(
+      '86400',
     );
   });
 

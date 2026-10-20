@@ -40,8 +40,13 @@ const custom = '0x4444444444444444444444444444444444444444' as const;
 const manager = '0x5555555555555555555555555555555555555555' as const;
 const oracle = '0x6666666666666666666666666666666666666666' as const;
 const nft = '0x7777777777777777777777777777777777777777' as const;
+const customHook = '0x9999999999999999999999999999999999999999' as const;
 const native = '0x000000000000000000000000000000000000EEEe' as const;
 const buyback = deploymentAddress('JBBuybackHook', 1)!;
+const tokenImplementation = '0x8888888888888888888888888888888888888888' as const;
+/** JBTokens deploys project ERC-20s as EIP-1167 clones of its TOKEN implementation. */
+const cloneCode = (implementation: Address) =>
+  `0x363d3d373d3d3d363d73${implementation.slice(2)}5af43d82803e903d91602b57fd5bf3` as Hex;
 const registry = v6Address('JBBuybackHookRegistry', 1);
 const key = {
   currency0: zeroAddress,
@@ -96,6 +101,9 @@ const pass = Symbol('passthrough');
 function fixture(override: (request: Read) => unknown = () => pass, chainId: ChainId = 1) {
   const reads: Read[] = [];
   const client = {
+    getCode: vi.fn(async ({ address }: { address: Address }) =>
+      address === projectToken ? cloneCode(tokenImplementation) : undefined,
+    ),
     readContract: vi.fn(async (request: Read) => {
       reads.push(request);
       const result = override(request);
@@ -170,6 +178,8 @@ function fixture(override: (request: Read) => unknown = () => pass, chainId: Cha
           return v6Address('JBTokens', 1);
         case 'tokenOf':
           return projectToken;
+        case 'TOKEN':
+          return tokenImplementation;
         case 'primaryTerminalOf':
           return v6Address('JBMultiTerminal', 1);
         case 'extsload':
@@ -825,7 +835,7 @@ describe('direct pool-buy quote', () => {
     return calls;
   }
 
-  it('quotes the pool next to the terminal quote at the same block and says splits are skipped', async () => {
+  it('quotes the pool next to the terminal quote at the same block and names the pool hook', async () => {
     const routing = fixture();
     const calls = withQuoters(routing);
     const quoteTerminal = vi.fn(async () => terminalQuote);
@@ -848,24 +858,69 @@ describe('direct pool-buy quote', () => {
       },
       terminal: { status: 'known', value: terminalQuote },
     });
+    expect(result).toMatchObject({
+      projectTokenIsJBERC20: true,
+      pool: { hook: { address: oracle, kind: 'JBUniswapV4Hook' } },
+    });
     const { warnings } = result as { warnings: string[] };
-    expect(warnings[0]).toContain('no reserved tokens');
+    expect(warnings[0]).toContain(
+      'When the terminal gives more, the hook pays the project instead',
+    );
+    expect(warnings.join(' ')).not.toContain('Nothing is issued');
     expect(warnings.join(' ')).toContain('Neither route is a best-price claim');
     expect(warnings.join(' ')).toContain('jb_prepare_pool_buy prepares this swap');
   });
 
-  it('takes slippageBps off the pool output and passes it to the terminal quote', async () => {
+  it('takes slippageBps off the pool output', async () => {
     const routing = fixture();
     withQuoters(routing);
-    const quoteTerminal = vi.fn(async () => ({ ...terminalQuote, slippageBps: 250 }));
     const result = await routing.service.quotePoolBuy(
       { ...input, slippageBps: 250 },
-      quoteTerminal,
+      async () => terminalQuote,
     );
     expect(result).toMatchObject({
-      pool: { tokenCount: '970000000000000000', minimumTokenCount: '945750000000000000' },
-      terminal: { value: { slippageBps: 250 } },
+      pool: {
+        tokenCount: '970000000000000000',
+        minimumTokenCount: '945750000000000000',
+        slippageBps: 250,
+      },
     });
+  });
+
+  it('says a hookless pool issues nothing, and flags a custom token or an unknown pool hook', async () => {
+    const hookless = fixture((request) =>
+      request.functionName === 'poolKeyOf' ? { ...key, hooks: zeroAddress } : pass,
+    );
+    withQuoters(hookless);
+    const plain = (await hookless.service.quotePoolBuy(input, async () => terminalQuote)) as {
+      pool: { hook: unknown };
+      warnings: string[];
+    };
+    expect(plain.pool.hook).toEqual({ address: zeroAddress, kind: 'none' });
+    expect(plain.warnings[0]).toContain('Nothing is issued');
+
+    const customToken = fixture();
+    (customToken.snapshot.client as unknown as { getCode: unknown }).getCode = vi.fn(
+      async () => '0x6080',
+    );
+    withQuoters(customToken);
+    const custom = (await customToken.service.quotePoolBuy(input, async () => terminalQuote)) as {
+      projectTokenIsJBERC20: boolean;
+      warnings: string[];
+    };
+    expect(custom.projectTokenIsJBERC20).toBe(false);
+    expect(custom.warnings.join(' ')).toContain('can deliver less than minimumTokenCount');
+
+    const otherHook = fixture((request) =>
+      request.functionName === 'poolKeyOf' ? { ...key, hooks: customHook } : pass,
+    );
+    withQuoters(otherHook);
+    const unknownHook = (await otherHook.service.quotePoolBuy(
+      input,
+      async () => terminalQuote,
+    )) as { pool: { hook: unknown }; warnings: string[] };
+    expect(unknownHook.pool.hook).toEqual({ address: customHook, kind: 'unsupported' });
+    expect(unknownHook.warnings[0]).toContain('jb_prepare_pool_buy refuses this pool');
   });
 
   it("names the router's TWAP floor as the reason its bridge amount sits below the V3 quote", async () => {
@@ -928,21 +983,46 @@ describe('direct pool-buy quote', () => {
     });
   });
 
-  it('names an empty pool instead of passing on the quoter revert', async () => {
-    const empty = fixture((request) =>
-      request.functionName === 'extsload' &&
-      request.args?.[0] !== uniswapV4PoolStateSlot(uniswapV4PoolId(key))
-        ? zeroHash
-        : pass,
-    );
-    const calls = withQuoters(empty);
+  it('lets the quoter decide, and names an empty pool only when the quoter also fails', async () => {
+    const empty = () =>
+      fixture((request) =>
+        request.functionName === 'extsload' &&
+        request.args?.[0] !== uniswapV4PoolStateSlot(uniswapV4PoolId(key))
+          ? zeroHash
+          : pass,
+      );
+    const reverting = (service: ReturnType<typeof fixture>) => {
+      const quoter = vi.fn(async () => {
+        throw new Error('UnexpectedRevertBytes');
+      });
+      (service.snapshot.client as unknown as { call: unknown }).call = quoter;
+      return quoter;
+    };
+    // Zero in-range liquidity, but the swap can cross into initialized ticks: the quote stands.
+    const crossing = empty();
+    withQuoters(crossing);
     await expect(
-      empty.service.quotePoolBuy(input, async () => terminalQuote),
-    ).rejects.toMatchObject({ code: 'NO_POOL_LIQUIDITY', retryable: false });
-    expect(calls).toHaveLength(0);
-    await expect(empty.service.preparePoolBuy(input)).rejects.toMatchObject({
+      crossing.service.quotePoolBuy(input, async () => terminalQuote),
+    ).resolves.toMatchObject({ pool: { activeLiquidity: '0', tokenCount: '970000000000000000' } });
+
+    const dry = empty();
+    const quoter = reverting(dry);
+    const error = await dry.service
+      .quotePoolBuy(input, async () => terminalQuote)
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: 'NO_POOL_LIQUIDITY', retryable: false });
+    expect(quoter).toHaveBeenCalled();
+    expect((error as Error).message).not.toContain('fills nothing');
+    await expect(dry.service.preparePoolBuy(input)).rejects.toMatchObject({
       code: 'NO_POOL_LIQUIDITY',
     });
+
+    // With liquidity, a quoter failure is passed on rather than relabeled.
+    const liquid = fixture();
+    reverting(liquid);
+    await expect(
+      liquid.service.quotePoolBuy(input, async () => terminalQuote),
+    ).rejects.not.toMatchObject({ code: 'NO_POOL_LIQUIDITY' });
   });
 
   it('refuses projects without a buyback pool or with a pool for another token', async () => {
@@ -1041,7 +1121,11 @@ describe('direct pool-buy preparation', () => {
       minimumTokenCount: '1901200000',
       slippageBps: 200,
     });
-    expect(plan.warnings.join(' ')).toContain('no reserved tokens');
+    expect(plan.summary).toMatchObject({
+      projectTokenIsJBERC20: true,
+      poolHook: { kind: 'JBUniswapV4Hook' },
+    });
+    expect(plan.warnings.join(' ')).toContain('the hook pays the project instead');
     expect(plan.warnings.join(' ')).toContain('The V3 bridge leg has no minimum of its own');
   });
 
@@ -1082,6 +1166,40 @@ describe('direct pool-buy preparation', () => {
     ] as unknown as typeof allowances.permit2;
     const granted = await routing.service.preparePoolBuy(usdcInput);
     expect(granted.calls.map((call) => call.decoded.functionName)).toEqual(['execute']);
+
+    // USDT-style tokens revert on nonzero-to-nonzero approvals: reset first, as jb_prepare_pay does.
+    allowances.erc20 = 1n;
+    const short = await routing.service.preparePoolBuy(usdcInput);
+    expect(short.calls.map((call) => [call.to, call.decoded.args, call.dependsOn])).toEqual([
+      [usdc, [permit2, '0'], []],
+      [usdc, [permit2, '5000000'], [0]],
+      [router, expect.any(Array), [1]],
+    ]);
+  });
+
+  it('refuses a custom project token or an unrecognized pool hook', async () => {
+    const customToken = fixture();
+    (customToken.snapshot.client as unknown as { getCode: unknown }).getCode = vi.fn(async () =>
+      cloneCode(custom),
+    );
+    quoting(customToken);
+    await expect(customToken.service.preparePoolBuy(input)).rejects.toMatchObject({
+      code: 'UNSUPPORTED_POOL_BUY',
+      message: expect.stringContaining('can deliver less than minimumTokenCount'),
+    });
+    const otherHook = fixture((request) =>
+      request.functionName === 'poolKeyOf' ? { ...key, hooks: customHook } : pass,
+    );
+    quoting(otherHook);
+    await expect(otherHook.service.preparePoolBuy(input)).rejects.toMatchObject({
+      code: 'UNSUPPORTED_POOL_BUY',
+    });
+    const hookless = fixture((request) =>
+      request.functionName === 'poolKeyOf' ? { ...key, hooks: zeroAddress } : pass,
+    );
+    quoting(hookless);
+    const plan = await hookless.service.preparePoolBuy(input);
+    expect(plan.warnings[0]).toContain('Nothing is issued');
   });
 
   it('refuses a project without a pool, like the quote', async () => {

@@ -11,9 +11,10 @@ import {
   addressSchema,
   chainIdSchema,
   hashSchema,
-  positiveUintSchema,
+  positiveSmallUintSchema,
   projectSchema,
   slippageSchema,
+  smallUintSchema,
   uintSchema,
 } from './schemas.js';
 import {
@@ -92,7 +93,7 @@ export const tiersConfigArraySchema = z
 export const get721ShopSchema = z
   .object({
     project: projectSchema,
-    startingId: uintSchema.default('0'),
+    startingId: smallUintSchema.default('0'),
     size: z.number().int().min(1).max(32).default(20),
     categories: z
       .array(uint(24))
@@ -125,7 +126,7 @@ export const pay721Schema = z
 export const getRevnetSchema = z
   .object({
     project: projectSchema,
-    startingId: uintSchema.default('0'),
+    startingId: smallUintSchema.default('0'),
     size: z.number().int().min(1).max(32).default(16),
     operator: nonzero.optional(),
   })
@@ -134,7 +135,7 @@ export const prepareAutoIssueSchema = z
   .object({
     project: projectSchema,
     account: nonzero,
-    stageId: positiveUintSchema,
+    stageId: positiveSmallUintSchema,
     beneficiary: nonzero,
   })
   .strict();
@@ -409,13 +410,16 @@ export const prepareRevnetDeploySchema = z
         path: ['accountingContexts'],
         message: 'Accounting tokens must be unique.',
       });
+    // REVDeployer deploys the launch suckers without bit 2; it gates only later deploySuckersFor calls.
+    // The pinned SDK's buildDeployRevnetTx still refuses a cross-chain stage without it; name that here.
     if (crossChain)
       value.config.stageConfigurations.forEach((stage, i) => {
         if ((BigInt(stage.extraMetadata) & 4n) === 0n)
           ctx.addIssue({
             code: 'custom',
             path: ['config', 'stageConfigurations', i, 'extraMetadata'],
-            message: 'Every cross-chain stage must permit sucker deployment with metadata bit 2.',
+            message:
+              'Set extraMetadata bit 2 (value 4) on every cross-chain stage. The launch suckers deploy without it, but the SDK refuses to encode a cross-chain revnet without it: during a stage that lacks it the operator cannot add a chain or retry a failed bridge.',
           });
       });
   });

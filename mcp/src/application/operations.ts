@@ -23,7 +23,7 @@ import {
   positiveUintSchema,
   projectSchema,
   slippageSchema,
-  uintSchema,
+  smallUintSchema,
 } from '../domain/schemas.js';
 import {
   prepareDeployErc20Schema,
@@ -270,11 +270,11 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     defineOperation(
       'get_rulesets',
-      'Read current, upcoming, and a bounded page of queued V6 rulesets at one block. Approval and queue state are preserved; custom hooks are not guessed. currentAsInput is the active ruleset in the jb_preview_ruleset_change input shape.',
+      'Read current, upcoming, and a bounded page of queued V6 rulesets at one block. Approval and queue state are preserved; custom hooks are not guessed. currentAsInput is the active ruleset in the jb_preview_ruleset_change input shape, with its coverage.',
       {
         project: projectSchema,
         limit: z.number().int().min(1).max(50).default(10),
-        startingId: uintSchema.optional(),
+        startingId: smallUintSchema.optional(),
       },
       async ({ project, ...page }) => {
         const rulesets = await s.projects.getRulesets(project, page);
@@ -285,7 +285,7 @@ function definitions(s: Services): ProtocolOperation[] {
             s.configuration.currentRulesetInput(project, blockNumber),
           ),
           currentAsInputUse:
-            'The active ruleset in the exact rulesetConfigurations shape, at the same block. Copy it, change only what should change, and pass it to jb_preview_ruleset_change. mustStartAtOrAfter is 0, so the queue picks the start; weight is the current cycle weight (1 inherits the decayed weight instead).',
+            'currentAsInput.rulesetConfiguration is the active ruleset in the rulesetConfigurations shape, at the same block. It is not an exact copy: currentAsInput.coverage lists what it omits (split groups and terminal/token pairs that reads cannot enumerate) and which split groups inherit the fallback table. Copy it, change only what should change, and pass it to jb_preview_ruleset_change. mustStartAtOrAfter is 0, so the queue picks the start; weight is the current cycle weight (1 inherits the decayed weight instead).',
         };
       },
     ),
@@ -352,8 +352,8 @@ function definitions(s: Services): ProtocolOperation[] {
       {
         project: projectSchema,
         holder: addressSchema.optional(),
-        fromBlock: uintSchema.optional(),
-        toBlock: uintSchema.optional(),
+        fromBlock: smallUintSchema.optional(),
+        toBlock: smallUintSchema.optional(),
       },
       async ({ project, ...options }) => s.projects.getBridgeStatus(project, options),
     ),
@@ -499,7 +499,7 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     operationWithSchema(
       'quote_pool_buy',
-      "Quote buying project tokens straight from the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. A direct swap skips issuance and reserved splits.",
+      "Quote buying project tokens through the project's buyback pool, next to the terminal pay quote at the same block. Quote only, not a best-price claim. The buy runs the pool's hook: with JBUniswapV4Hook it can pay the project instead (issuance, reserved splits, payment to the balance) when that gives more tokens; pool.hook names the hook.",
       quotePoolBuySchema,
       (input) =>
         s.routing.quotePoolBuy(input, (at) =>
@@ -509,7 +509,7 @@ function definitions(s: Services): ProtocolOperation[] {
     transactionWithSchema(
       s,
       'prepare_pool_buy',
-      "Prepare an authenticated unsigned direct buy from the project's buyback pool on the route jb_quote_pool_buy quotes, through the Uniswap Universal Router, with a project-token minimum of the pool output less slippageBps. Nothing is issued and no reserved split applies.",
+      "Prepare an authenticated unsigned buy through the project's buyback pool on the route jb_quote_pool_buy quotes, with the Uniswap Universal Router and a project-token minimum of the pool output less slippageBps. The pool's hook runs: with JBUniswapV4Hook the buy can be filled by paying the project. Refuses a custom project token or an unrecognized pool hook.",
       quotePoolBuySchema,
       async (input) => s.routing.preparePoolBuy(input),
     ),
