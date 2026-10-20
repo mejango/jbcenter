@@ -39,7 +39,7 @@
     "rollout:check": "node --import tsx scripts/sync-rollout.ts --check"
   },
   "dependencies": {
-    "@bananapus/nana-sdk-core": "3.0.0",
+    "@bananapus/nana-sdk-core": "3.2.0",
     "@modelcontextprotocol/sdk": "1.31.0",
     "express": "5.1.0",
     "multiformats": "13.4.2",

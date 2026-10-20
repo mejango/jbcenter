@@ -324,7 +324,7 @@ const FEATURES: DevelopmentFeature[] = [
       ),
     ],
     [
-      "Payments go through the project's terminal. With buyback 1.4 the hook buys from the pool when that beats minting, and skipSplits (prepareUserPay's default) hands those tokens over without the reserved split; pass skipSplits false for fees or revenue that should honor the project's splits.",
+      "Payments go through the project's terminal. With buyback 1.4 the hook buys from the pool when that beats minting, and skipSplits (prepareUserPay's default, true) hands those tokens over without the reserved split; pass skipSplits false to prepareUserPay (SDK 3.2.0 or later) for fees or revenue that should honor the project's splits. It encodes a (0, 0, false) entry and sets the minimum to the payer's split mint entitlement. prepareUserPay keys the entry to the registry, or to buyback 1.4 when the ruleset calls it directly.",
       'Quote metadata must equal execution metadata; NFT selections and buyback opt-outs affect the route.',
       'Native value, ERC-20 allowance and token decimals must match the resolved terminal route.',
     ],
