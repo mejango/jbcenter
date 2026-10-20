@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { erc20Abi, encodeFunctionResult, type Hex } from 'viem';
-import { RpcPool, pinRpcParameters } from '../../src/adapters/rpc.js';
+import { encodeErrorResult, erc20Abi, encodeFunctionResult, type Hex } from 'viem';
+import { RpcPool, nativeBalanceRefusal, pinRpcParameters } from '../../src/adapters/rpc.js';
 import type { fetchJson } from '../../src/adapters/http.js';
 import { publicError } from '../../src/domain/errors.js';
 
@@ -110,26 +110,66 @@ describe('RPC snapshots', () => {
     ).rejects.toMatchObject({ cause: { code: 'RPC_INVALID_CALL' } });
     expect(calls.length).toBe(sent);
   });
+  // What a payer sees after the node answers `error` to an eth_call or eth_estimateGas.
+  async function nodeAnswer(
+    error: { code: number; message: string; data?: string },
+    run: 'call' | 'estimateGas' = 'call',
+  ) {
+    const pool = new RpcPool({ 1: 'https://rpc.example/secret-key' }, async (_url, options) => ({
+      jsonrpc: '2.0',
+      id: (options!.body as { id: number }).id,
+      error,
+    }));
+    const caught = await pool
+      .client(1)
+      [run]({ account: address, to: address, value: 1n })
+      .catch((thrown: unknown) => thrown);
+    const result = publicError(caught);
+    expect(JSON.stringify(result)).not.toMatch(/secret-key|9999|ERC20/);
+    return result;
+  }
   it.each([
-    [-32000, 'insufficient funds for gas * price + value: balance 0'],
-    [-32003, 'EVM error: OutOfFunds'],
-  ])(
-    'names an underfunded payer (node code %i) without forwarding node text',
-    async (code, message) => {
-      const pool = new RpcPool({ 1: 'https://rpc.example/secret-key' }, async (_url, options) => ({
-        jsonrpc: '2.0',
-        id: (options!.body as { id: number }).id,
-        error: { code, message: `${message} from 0x${'99'.repeat(20)}` },
-      }));
-      const error = await pool
-        .client(1)
-        .call({ account: address, to: address, value: 1n })
-        .catch((caught: unknown) => caught);
-      const result = publicError(error);
-      expect(result).toMatchObject({ code: 'INSUFFICIENT_FUNDS', retryable: false });
-      expect(JSON.stringify(result)).not.toMatch(/secret-key|9999/);
+    [-32000, 'insufficient funds for gas * price + value: balance 0', 'call'],
+    [-32000, 'insufficient funds for transfer', 'estimateGas'],
+    [-32003, 'EVM error: OutOfFunds', 'call'],
+    [-32003, 'EVM error: OutOfFunds', 'estimateGas'],
+  ] as const)(
+    'names an underfunded payer (node code %i, %s) without forwarding node text',
+    async (code, message, run) => {
+      expect(
+        await nodeAnswer({ code, message: `${message} from 0x${'99'.repeat(20)}` }, run),
+      ).toMatchObject({ code: 'INSUFFICIENT_FUNDS', retryable: false });
     },
   );
+  it('never calls a contract revert, a provider failure or a URL an underfunded payer', async () => {
+    const reason = encodeErrorResult({
+      abi: [{ type: 'error', name: 'Error', inputs: [{ name: 'message', type: 'string' }] }],
+      errorName: 'Error',
+      args: ['ERC20: insufficient funds'],
+    });
+    expect(
+      await nodeAnswer({
+        code: 3,
+        message: 'execution reverted: ERC20: insufficient funds',
+        data: reason,
+      }),
+    ).toMatchObject({ code: 'CALL_REVERTED', retryable: false });
+    for (const error of [
+      { code: -32000, message: 'execution reverted: ERC20: insufficient funds' },
+      { code: -32603, message: 'insufficient funds for gas * price + value' },
+      { code: -32603, message: 'EVM error: OutOfFunds' },
+      { code: -32000, message: 'request to https://rpc.example/OutOfFunds failed' },
+      { code: -32000, message: 'upstream said: insufficient funds for gas * price + value' },
+    ])
+      expect(await nodeAnswer(error)).toMatchObject({ code: 'UPSTREAM_FAILURE', retryable: true });
+    // Reads are never a payer's funding problem.
+    expect(
+      nativeBalanceRefusal('eth_getBalance', {
+        code: -32000,
+        message: 'insufficient funds for transfer',
+      }),
+    ).toBe(false);
+  });
   it('rejects a mismatched RPC response id', async () => {
     const pool = new RpcPool({ 1: 'https://rpc.example' }, async () => ({
       jsonrpc: '2.0',
