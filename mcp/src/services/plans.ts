@@ -236,7 +236,13 @@ const paying = (plan: PlanEnvelope) =>
   plan.draft.operation === 'pay' || plan.draft.operation === '721_pay';
 /** What the plan's quote summary says about its minimums, for the retry hint. */
 const payContext = (plan: PlanEnvelope): PayFailureContext => {
-  const summary = (plan.draft.summary ?? {}) as Record<string, unknown>;
+  const top = (plan.draft.summary ?? {}) as Record<string, unknown>;
+  // A 721 payment keeps its payment quote beside the NFT one.
+  const summary = (
+    plan.draft.operation === '721_pay' && top.paymentQuote && typeof top.paymentQuote === 'object'
+      ? top.paymentQuote
+      : top
+  ) as Record<string, unknown>;
   const bps = summary.slippageBps;
   const source = summary.hookMinimumSource;
   return {

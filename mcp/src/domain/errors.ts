@@ -124,8 +124,12 @@ export function payFailureOf(
     return {
       ...view,
       retry:
-        "The buyback hook's minimum is the minimumSwapAmountOut in the metadata the caller passed, so slippageBps does not change it: lower it there, or omit metadata to let jb_prepare_pay set it.",
+        "The buyback hook's minimum is the minimumSwapAmountOut in the metadata the caller passed, so slippageBps does not change it. Only if the payer accepts a lower minimum, lower that value in the metadata and keep its other entries. Omitting the metadata hands the minimum to jb_prepare_pay: a pool-quote minimum, or without a quote only the payer's mint share, which can be far lower. Review the new minimum and simulate before signing.",
     };
+  // slippageBps moves the hook's minimum only when prepareUserPay set it from a pool quote; buyback
+  // 1.1.1 raises the same error for its oracle floor, which no tolerance moves.
+  if (reason === 'BUYBACK_SLIPPAGE_EXCEEDED' && context.hookMinimumSource !== 'slippageBps')
+    return view;
   const next =
     context.slippageBps === undefined ? null : payRetrySlippageBps(failure, context.slippageBps);
   if (next === null) return view;

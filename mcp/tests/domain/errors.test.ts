@@ -133,7 +133,9 @@ describe('public errors', () => {
       errorName: 'JBBuybackHook_SpecifiedSlippageExceeded',
       args: [380n, 396n],
     });
-    expect(publicPayError(rpcRevert(hookMiss), { slippageBps: 100n })).toMatchObject({
+    expect(
+      publicPayError(rpcRevert(hookMiss), { slippageBps: 100n, hookMinimumSource: 'slippageBps' }),
+    ).toMatchObject({
       code: 'CALL_REVERTED',
       payFailure: {
         reason: 'BUYBACK_SLIPPAGE_EXCEEDED',
@@ -204,20 +206,29 @@ describe('public errors', () => {
       hookMinimumSource: 'caller metadata',
     });
     expect(metadata!.retry).toContain('metadata the caller passed');
+    expect(metadata!.retry).toContain('Only if the payer accepts');
+    expect(metadata!.retry).toContain('mint share');
     expect(metadata).not.toHaveProperty('retrySlippageBps');
     // At the SDK's cap nothing looser exists.
     expect(
-      payFailureOf(rpcRevert(shortfall(hook, 380n, 396n)), { slippageBps: 4950n }),
+      payFailureOf(rpcRevert(shortfall(hook, 380n, 396n)), {
+        slippageBps: 4950n,
+        hookMinimumSource: 'slippageBps',
+      }),
     ).not.toHaveProperty('retry');
+
     // Router conversion or the hook's derived floor: nothing the payer sets moves them; and without
     // the prepared tolerance no candidate is computed.
     for (const [data, context] of [
       [shortfall('0x1dbd2ab5', 380n, 396n), at],
       [shortfall('0xe490a239', 380n, 396n), at],
       [shortfall(hook, 380n, 396n), {}],
+      // Buyback 1.1.1's oracle floor raises the same error with no hook minimum of ours: no
+      // tolerance moves it, so no candidate (Codex pass 7: 100 -> 800 -> 1500 bps otherwise).
+      [shortfall(hook, 280n, 300n), at],
     ] as const) {
       const failure = payFailureOf(rpcRevert(data), context);
-      expect(failure).toMatchObject({ received: '380', minimum: '396' });
+      expect(failure).toHaveProperty('received');
       expect(failure).not.toHaveProperty('retry');
       expect(failure).not.toHaveProperty('retrySlippageBps');
     }

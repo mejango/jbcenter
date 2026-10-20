@@ -63,6 +63,8 @@ const nftCloneCode =
   `0x3d3d3d3d363d3d37363d73${nftImplementation.slice(2)}5af43d3d93803e602a57fd5bf3` as Hex;
 const hash = `0x${'ab'.repeat(32)}` as Hex;
 // The project's buyback pool for the paid token (native), as the hook's poolKeyOf returns it.
+const weth = '0x4200000000000000000000000000000000000006' as Address;
+const usdc = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as Address;
 const poolKey = {
   currency0: zeroAddress,
   currency1: token,
@@ -160,6 +162,8 @@ function fixture(
     payFill?: bigint | Error | ((metadata: Hex) => bigint);
     /** The V4 quoter's output for the buyback pool; unset, the hook has no readable pool. */
     poolQuote?: bigint;
+    /** The router converts `paid` into the native token first: its floor and quoted output. */
+    conversion?: { paid: Address; floor: bigint; expected: bigint };
   } = {},
 ) {
   const metadata = {
@@ -247,7 +251,33 @@ function fixture(
         return options.holderBalance ?? 10n ** 30n;
       case 'poolKeyOf':
         if (options.poolQuote === undefined) throw new Error('No pool for this token');
-        return poolKey;
+        // The paid token's own pool is another one: the hook's pool is in the converted token.
+        return request.args?.[1] === options.conversion?.paid
+          ? { ...poolKey, currency0: options.conversion!.paid }
+          : poolKey;
+      case 'accountingContextsOf':
+        return [{ token: NATIVE_TOKEN, decimals: 18, currency: 61166 }];
+      case 'projectIdOf':
+        return 0n;
+      case 'wrappedNativeToken':
+        return weth;
+      case 'previewSwapAmountOutOf':
+        return options.conversion!.floor;
+      case 'discoverBestPool':
+        return {
+          isV4: true,
+          v3Pool: zeroAddress,
+          v4Key: { ...poolKey, currency1: options.conversion!.paid },
+        };
+      case 'previewTerminalPayOf':
+        return [
+          ruleset,
+          options.beneficiaryCount ?? 101n,
+          options.reservedCount ?? 10n,
+          typeof options.payHooks === 'function'
+            ? options.payHooks(request.args?.[5] as Hex)
+            : (options.payHooks ?? []),
+        ];
       default:
         throw new Error(`Unexpected read ${request.functionName}`);
     }
@@ -271,10 +301,17 @@ function fixture(
     return address === options.nftClone || address === options.tieredHook ? nftCloneCode : '0x';
   });
   // The V4 quoter: (amountOut, gasEstimate).
-  const call = vi.fn(async () => {
+  const call = vi.fn(async ({ data }: { data?: Hex } = {}) => {
     if (options.poolQuote === undefined) throw new Error('No pool for this token');
+    // The conversion's pool names the paid token; the buyback pool does not.
+    const converting =
+      options.conversion &&
+      data?.toLowerCase().includes(options.conversion.paid.slice(2).toLowerCase());
     return {
-      data: encodeAbiParameters(parseAbiParameters('uint256,uint256'), [options.poolQuote, 0n]),
+      data: encodeAbiParameters(parseAbiParameters('uint256,uint256'), [
+        converting ? options.conversion!.expected : options.poolQuote,
+        0n,
+      ]),
     };
   });
   const client = { readContract, simulateContract, getBytecode, call } as unknown as PublicClient;
@@ -988,37 +1025,44 @@ describe('payment quotes and approval plans', () => {
       minimumBasis: 'prepareUserPay',
       simulatedBeneficiaryTokenCount: { status: 'known', value: '170' },
     });
-    // SDK 3.4.1: through the router too, a pool quote sets the minimum (the 83.33% share of the
-    // floored quote), not the mint share.
-    const routedQuoted = await fixture({
-      dataHook: registry,
-      resolvedBuyback: legacy,
-      primaryTerminal: v6Address('JBRouterTerminalRegistry', project.chainId),
-      beneficiaryCount: 0n,
-      reservedCount: 0n,
-      poolQuote: 400n,
-      payFill: 400n,
-      payHooks: (sent) => {
-        const { minimum } = sentQuote(sent);
-        return [
-          {
-            hook: legacy,
-            noop: false,
-            amount: 100n,
-            metadata: payHookMetadata(minimum ? { minimum, callerMinimum: true } : {}).slice(
-              0,
-              2 + 15 * 64,
-            ) as Hex,
-          },
-        ];
-      },
-    }).service.quotePay(payInput);
-    expect(routedQuoted).toMatchObject({
+    // SDK 3.4.1: a payment the router converts into the hook's token first is quoted on the
+    // conversion's quote, so it gets the pool minimum (the 83.33% share of the floored quote), not
+    // the mint share (162).
+    const converted = (conversion?: { paid: Address; floor: bigint; expected: bigint }) =>
+      fixture({
+        dataHook: registry,
+        resolvedBuyback: legacy,
+        primaryTerminal: v6Address('JBRouterTerminalRegistry', project.chainId),
+        beneficiaryCount: 0n,
+        reservedCount: 0n,
+        poolQuote: 400n,
+        payFill: 400n,
+        ...(conversion ? { conversion } : {}),
+        payHooks: (sent) => {
+          const { minimum } = sentQuote(sent);
+          return [
+            {
+              hook: legacy,
+              noop: false,
+              amount: 100n,
+              metadata: payHookMetadata(minimum ? { minimum, callerMinimum: true } : {}).slice(
+                0,
+                2 + 15 * 64,
+              ) as Hex,
+            },
+          ];
+        },
+      }).service.quotePay({ ...payInput, token: usdc });
+    expect(await converted({ paid: usdc, floor: 100n, expected: 101n })).toMatchObject({
       route: 'router-terminal',
       minimumBeneficiaryTokenCount: '329',
       hookMinimumSwapAmountOut: '396',
       hookMinimumSource: 'slippageBps',
       minimumBasis: 'prepareUserPay',
+    });
+    // A conversion floor below what reached the hook is not this route: the mint-share fallback.
+    expect(await converted({ paid: usdc, floor: 99n, expected: 101n })).toMatchObject({
+      minimumBeneficiaryTokenCount: '162',
     });
     const legacyText = plan.warnings.join(' ');
     expect(legacyText).toContain(

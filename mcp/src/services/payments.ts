@@ -1074,7 +1074,11 @@ export class PaymentService {
         const shown = publicPayError(error, {
           slippageBps: slippage,
           explicitMinimum: explicitMinimum !== undefined,
-          hookMinimumSource: input.metadata === undefined ? 'slippageBps' : 'caller metadata',
+          ...(hookMinimum === undefined
+            ? {}
+            : {
+                hookMinimumSource: input.metadata === undefined ? 'slippageBps' : 'caller metadata',
+              }),
         });
         fillFailure = shown.payFailure;
         simulatedFill = { status: 'unknown', error: shown };

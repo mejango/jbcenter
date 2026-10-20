@@ -839,6 +839,24 @@ describe('re-simulation and dependency verification', () => {
       expect(client.call.mock.calls.length).toBe(calls);
     });
 
+    it("reads a 721 payment's context from its payment quote", async () => {
+      const { service, sealed, client } = setup({
+        ...draft(),
+        operation: '721_pay',
+        summary: { nft: {}, paymentQuote: { slippageBps: 100, minimumBasis: 'explicit' } },
+      });
+      client.call.mockRejectedValueOnce(nodeRevert(underMin));
+      const result = await service.simulate({ token: sealed.token });
+      expect(result).toMatchObject({
+        error: {
+          payFailure: {
+            reason: 'TERMINAL_UNDER_MIN',
+            retry: expect.stringContaining('minReturnedTokens at or below 90'),
+          },
+        },
+      });
+    });
+
     it("points a buyback miss at the caller's metadata when the plan used it", async () => {
       const hookMiss =
         `0xe2d708a9${encodeAbiParameters(parseAbiParameters('uint256, uint256'), [380n, 396n]).slice(2)}` as Hex;
