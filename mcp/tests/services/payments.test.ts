@@ -11,6 +11,7 @@ import {
   buildBuybackCashOutMetadata,
   buildBuybackPayMetadata,
   buildUserPayMetadata,
+  PAY_QUOTE_FAILED_MESSAGE,
   prepareUserPay,
   slippageFloor,
   uniswapV4PoolId,
@@ -1330,6 +1331,36 @@ describe('payment quotes and approval plans', () => {
       metadata: '0x1234',
       skipSplits: { applied: false, reason: expect.stringContaining('own metadata') },
     });
+  });
+
+  it("warns when prepareUserPay could not read the pool's price", async () => {
+    const swapping = (poolQuote?: bigint) =>
+      fixture({
+        dataHook: registry,
+        beneficiaryCount: 0n,
+        reservedCount: 0n,
+        payHooks: buyback14(),
+        ...(poolQuote === undefined ? {} : { poolQuote }),
+        payFill: 400n,
+      });
+    // The pool reads fail twice: the SDK's minimum is only the mint rate, and the quote says so.
+    const failed = swapping();
+    const sdk = await prepareUserPay(failed.client, {
+      chainId: project.chainId,
+      terminal,
+      projectId: BigInt(project.projectId),
+      token: NATIVE_TOKEN,
+      amount: 100n,
+      beneficiary,
+    });
+    expect(sdk.quoteFailed).toBe(true);
+    expect((await failed.service.quotePay(payInput)).warnings.join(' ')).toContain(
+      PAY_QUOTE_FAILED_MESSAGE,
+    );
+    // A readable pool quote carries no such warning.
+    expect((await swapping(400n).service.quotePay(payInput)).warnings.join(' ')).not.toContain(
+      PAY_QUOTE_FAILED_MESSAGE,
+    );
   });
 
   it('keys the quote to buyback 1.4 when the ruleset calls it directly, alone or behind the omnichain deployer', async () => {
