@@ -1333,19 +1333,20 @@ describe('payment quotes and approval plans', () => {
     });
   });
 
-  it("warns when prepareUserPay could not read the pool's price", async () => {
-    const swapping = (poolQuote?: bigint) =>
-      fixture({
-        dataHook: registry,
-        beneficiaryCount: 0n,
-        reservedCount: 0n,
-        payHooks: buyback14(),
-        ...(poolQuote === undefined ? {} : { poolQuote }),
-        payFill: 400n,
-      });
-    // The pool reads fail twice: the SDK's minimum is only the mint rate, and the quote says so.
-    const failed = swapping();
-    const sdk = await prepareUserPay(failed.client, {
+  it("warns when prepareUserPay could not read the pool's price, in quotes and plans, and only while it cannot", async () => {
+    // One fixture whose pool turns readable, so the same service is asked again.
+    const options: Parameters<typeof fixture>[0] = {
+      dataHook: registry,
+      beneficiaryCount: 0n,
+      reservedCount: 0n,
+      payHooks: buyback14(),
+      payFill: 400n,
+    };
+    const f = fixture(options);
+    const warned = (warnings: string[]) =>
+      warnings.some((warning) => warning.startsWith(PAY_QUOTE_FAILED_MESSAGE));
+    // The pool reads fail twice: the SDK's minimum is only the mint rate, and the payer is told.
+    const sdk = await prepareUserPay(f.client, {
       chainId: project.chainId,
       terminal,
       projectId: BigInt(project.projectId),
@@ -1354,13 +1355,27 @@ describe('payment quotes and approval plans', () => {
       beneficiary,
     });
     expect(sdk.quoteFailed).toBe(true);
-    expect((await failed.service.quotePay(payInput)).warnings.join(' ')).toContain(
-      PAY_QUOTE_FAILED_MESSAGE,
-    );
-    // A readable pool quote carries no such warning.
-    expect((await swapping(400n).service.quotePay(payInput)).warnings.join(' ')).not.toContain(
-      PAY_QUOTE_FAILED_MESSAGE,
-    );
+    const quoted = await f.service.quotePay(payInput);
+    expect(warned(quoted.warnings)).toBe(true);
+    expect(warned((await f.service.preparePay(payInput)).warnings)).toBe(true);
+    // The quote's metadata sent back to prepare keeps its exact bytes and still says so.
+    const sentBack = await f.service.preparePay({ ...payInput, metadata: quoted.metadata });
+    expect(sentBack.summary).toMatchObject({ metadata: quoted.metadata });
+    expect(warned(sentBack.warnings)).toBe(true);
+    // NFT tiers go through the same SDK preparation and carry the same notice.
+    const tiers = {
+      metadataIdTarget: nftImplementation,
+      tierIdsToMint: [1n],
+      allowOverspending: false,
+    };
+    expect(warned((await f.service.quotePay({ ...payInput, tiers })).warnings)).toBe(true);
+    // Once the pool reads, the same service quotes and plans the pool price with no stale notice.
+    options.poolQuote = 400n;
+    expect(warned((await f.service.quotePay(payInput)).warnings)).toBe(false);
+    expect(warned((await f.service.preparePay(payInput)).warnings)).toBe(false);
+    expect(
+      warned((await f.service.preparePay({ ...payInput, metadata: quoted.metadata })).warnings),
+    ).toBe(false);
   });
 
   it('keys the quote to buyback 1.4 when the ruleset calls it directly, alone or behind the omnichain deployer', async () => {

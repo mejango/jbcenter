@@ -17,6 +17,7 @@ export {
 } from './adapters/http.js';
 export { consumeRequest, withRequestBudget } from './domain/context.js';
 export { DomainError, publicError } from './domain/errors.js';
+export { PAY_QUOTE_FAILED_MESSAGE } from '@bananapus/nana-sdk-core/v6';
 export { jsonSafe, canonicalJson, assertUnambiguousJson } from './domain/json.js';
 export {
   type ChainId,

@@ -1030,8 +1030,26 @@ export class PaymentService {
       beneficiaryTokenCount = prepared.preview.beneficiaryTokenCount;
       reservedTokenCount = prepared.preview.reservedTokenCount;
     }
-    if (prepared?.quoteFailed)
-      warnings.push(`${PAY_QUOTE_FAILED_MESSAGE} Quote again for the pool price.`);
+    // A buyback entry with no minimum of its own (caller metadata, such as a failed quote's sent back,
+    // or this service's own path) protects the swap only by the hook's floor: ask the SDK whether the
+    // pool reads now. A read that fails here is the same unknown, so the payer is told.
+    let quoteFailed = prepared?.quoteFailed === true;
+    if (!prepared && quoteBasis === 'buyback-hook-indicative-output' && hookMinimum === undefined)
+      quoteFailed = await prepareUserPay(client, {
+        chainId: input.project.chainId,
+        terminal: terminal.address,
+        projectId: BigInt(input.project.projectId),
+        token: input.token,
+        amount,
+        beneficiary: input.beneficiary,
+        slippageBps: slippage,
+        ...(buybackVersion === '1.4' ? { skipSplits: skippedSplits } : {}),
+        ...(input.tiers ? { tiers: input.tiers } : {}),
+      }).then(
+        (requoted) => requoted.quoteFailed === true,
+        () => true,
+      );
+    if (quoteFailed) warnings.push(`${PAY_QUOTE_FAILED_MESSAGE} Quote again for the pool price.`);
     // The default minimum: prepareUserPay's with skipSplits, otherwise the counted output less slippage.
     const slippageMinimum = prepared
       ? prepared.minReturnedTokens

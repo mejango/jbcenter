@@ -22,6 +22,11 @@ describe('wallet payment HTTP projection',()=>{
       challenge:Buffer.from('ab'.repeat(32),'hex').toString('base64url'),userVerification:'required'});
     expect(JSON.stringify(result)).not.toContain('private-');expect(result).not.toHaveProperty('authority');
   });
+  it('shows the quote notice on the central review only, where the payer approves',()=>{
+    const source=fixture(); expect(publicWalletPaymentCentralReview(source).notice).toBeNull();
+    (source.draft as any).notice='Notice.'; expect(publicWalletPaymentCentralReview(source).notice).toBe('Notice.');
+    expect(publicWalletPaymentReview(source)).not.toHaveProperty('notice');expect(publicWalletPaymentAppReview(source)).not.toHaveProperty('notice');
+  });
   it('does not expose mutable internal draft objects through the projection',()=>{
     const source=fixture(), result=publicWalletPaymentAppReview(source) as any;
     result.operation.callData='changed';result.payment.amount='2';result.stepIndexes.push(9);result.signing.digest='changed';result.approval.signature='changed';
