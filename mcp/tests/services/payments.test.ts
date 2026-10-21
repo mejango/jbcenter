@@ -11,6 +11,7 @@ import {
   buildBuybackCashOutMetadata,
   buildBuybackPayMetadata,
   buildUserPayMetadata,
+  PAY_QUOTE_FAILED_MESSAGE,
   prepareUserPay,
   slippageFloor,
   uniswapV4PoolId,
@@ -1330,6 +1331,51 @@ describe('payment quotes and approval plans', () => {
       metadata: '0x1234',
       skipSplits: { applied: false, reason: expect.stringContaining('own metadata') },
     });
+  });
+
+  it("warns when prepareUserPay could not read the pool's price, in quotes and plans, and only while it cannot", async () => {
+    // One fixture whose pool turns readable, so the same service is asked again.
+    const options: Parameters<typeof fixture>[0] = {
+      dataHook: registry,
+      beneficiaryCount: 0n,
+      reservedCount: 0n,
+      payHooks: buyback14(),
+      payFill: 400n,
+    };
+    const f = fixture(options);
+    const warned = (warnings: string[]) =>
+      warnings.some((warning) => warning.startsWith(PAY_QUOTE_FAILED_MESSAGE));
+    // The pool reads fail twice: the SDK's minimum is only the mint rate, and the payer is told.
+    const sdk = await prepareUserPay(f.client, {
+      chainId: project.chainId,
+      terminal,
+      projectId: BigInt(project.projectId),
+      token: NATIVE_TOKEN,
+      amount: 100n,
+      beneficiary,
+    });
+    expect(sdk.quoteFailed).toBe(true);
+    const quoted = await f.service.quotePay(payInput);
+    expect(warned(quoted.warnings)).toBe(true);
+    expect(warned((await f.service.preparePay(payInput)).warnings)).toBe(true);
+    // The quote's metadata sent back to prepare keeps its exact bytes and still says so.
+    const sentBack = await f.service.preparePay({ ...payInput, metadata: quoted.metadata });
+    expect(sentBack.summary).toMatchObject({ metadata: quoted.metadata });
+    expect(warned(sentBack.warnings)).toBe(true);
+    // NFT tiers go through the same SDK preparation and carry the same notice.
+    const tiers = {
+      metadataIdTarget: nftImplementation,
+      tierIdsToMint: [1n],
+      allowOverspending: false,
+    };
+    expect(warned((await f.service.quotePay({ ...payInput, tiers })).warnings)).toBe(true);
+    // Once the pool reads, the same service quotes and plans the pool price with no stale notice.
+    options.poolQuote = 400n;
+    expect(warned((await f.service.quotePay(payInput)).warnings)).toBe(false);
+    expect(warned((await f.service.preparePay(payInput)).warnings)).toBe(false);
+    expect(
+      warned((await f.service.preparePay({ ...payInput, metadata: quoted.metadata })).warnings),
+    ).toBe(false);
   });
 
   it('keys the quote to buyback 1.4 when the ruleset calls it directly, alone or behind the omnichain deployer', async () => {

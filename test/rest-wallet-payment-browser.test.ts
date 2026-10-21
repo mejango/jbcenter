@@ -6,6 +6,7 @@ import { chromium, type Browser, type Page, type CDPSession } from 'playwright';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createWalletPaymentClientFixture } from './fixtures/wallet-payment-client.js';
 import type { WalletPaymentCentralPublic } from '../src/rest/wallet/paymentPublic.js';
+import { PAY_QUOTE_FAILED_MESSAGE } from '@juicebox/mcp/host';
 import { parseWalletRegistration, type WalletRegistrationCandidate } from '../src/rest/wallet/registration.js';
 import { verifyWalletAssertion } from '../src/rest/wallet/webauthn.js';
 
@@ -83,7 +84,7 @@ describe('central payment review browser, virtual authenticator', () => {
       safe7579: f.safe7579, payment: f.payment,
       signing: { digest: f.prepared.signing.digest, signedData: f.prepared.signing.signedData, validAfter: f.prepared.signing.validAfter, validUntil: f.prepared.signing.validUntil },
       createdAtMs: f.prepared.createdAt, expiresAtMs: f.prepared.expiresAt, status: 'pending', approvedAtMs: null, cancelledAtMs: null,
-      operationState: 'prepared', passkey: { rpId: 'localhost', credentialId: 'pending', challenge: encode(decode('AA')), userVerification: 'required' } };
+      operationState: 'prepared', notice: null, passkey: { rpId: 'localhost', credentialId: 'pending', challenge: encode(decode('AA')), userVerification: 'required' } };
     // The HTTP fixture supplies trusted derived review fields; executable-byte checks live in domain tests.
     const context = await browser.newContext({ viewport: { width: 360, height: 780 } });
     page = await context.newPage(); page.setDefaultTimeout(5000);
@@ -115,6 +116,15 @@ describe('central payment review browser, virtual authenticator', () => {
   afterAll(async () => { await browser?.close(); if (server?.listening) await new Promise<void>(resolve => server.close(() => resolve())); });
   async function load() { await page.goto(`${origin}/wallet/payment?review=${reviewId}`); await status('ready'); }
   const approvals = () => requests.filter(request => request.path.endsWith('/approve'));
+
+  it('shows the quote notice beside approval only when the review carries one', async () => {
+    await load(); expect(await page.locator('#payment-notice').isVisible()).toBe(false);
+    review = { ...review, notice: PAY_QUOTE_FAILED_MESSAGE }; await load();
+    expect(await page.locator('#payment-notice').textContent()).toBe(PAY_QUOTE_FAILED_MESSAGE);
+    expect(await page.locator('#payment-notice').isVisible()).toBe(true);
+    expect(await page.locator('#payment-approve').isVisible()).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
 
   it('shows exact payment terms and approves only on a click with selected UV credential and CSRF', async () => {
     await load(); expect(await page.evaluate(() => (window as any).passkeyRequests)).toEqual([]);

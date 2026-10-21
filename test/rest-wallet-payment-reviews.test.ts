@@ -17,6 +17,7 @@ import { getUserOperationHash, userOperationCommitment } from "../src/rest/userO
 import { createWalletRecoveryIntent, createWalletRecoveryMapping, prepareWalletRecoveryCandidate,
   verifyWalletRecoveryProof, walletRecoveryDocument } from '../src/rest/wallet/recovery.js';
 import { passkeyOnboardingDocument } from '../src/rest/smartAccounts/passkeyOnboarding.js';
+import { PAY_QUOTE_FAILED_MESSAGE } from "@juicebox/mcp/host";
 
 const now = 1_800_000_120_000, issuer = "https://wallet.juicebox.center", rpId = "wallet.juicebox.center";
 const audience = "https://juicebox.center";
@@ -153,6 +154,19 @@ describe("owner-approved modeled payment review", () => {
     expect(Object.isFrozen(draft)).toBe(true); expect(Object.isFrozen(draft.operation)).toBe(true);
     expect(validateWalletPaymentReviewDraft(draft)).toEqual(draft);
     expect(() => assertWalletPaymentReviewContext(draft, c)).not.toThrow();
+  });
+  it("binds the plan's quote notice into the review, and nothing else from its warnings", () => {
+    const plain = createWalletPaymentReviewDraft(context(), options());
+    expect(plain).not.toHaveProperty("notice");
+    const c = context(); c.plan.draft.warnings = ["Other warning.", `${PAY_QUOTE_FAILED_MESSAGE} Quote again for the pool price.`]; recommit(c);
+    const draft = createWalletPaymentReviewDraft(c, options());
+    expect(draft.notice).toBe(PAY_QUOTE_FAILED_MESSAGE);
+    expect(validateWalletPaymentReviewDraft(draft)).toEqual(draft);
+    expect(() => assertWalletPaymentReviewContext(draft, c)).not.toThrow();
+    // The notice is part of the reviewed context: a plan without it no longer matches, and it cannot be edited.
+    expect(() => assertWalletPaymentReviewContext(plain, c)).toThrow();
+    expect(() => validateWalletPaymentReviewDraft({ ...structuredClone(draft), notice: "Anything else." })).toThrow();
+    expect(() => validateWalletPaymentReviewDraft({ ...structuredClone(plain), notice: PAY_QUOTE_FAILED_MESSAGE })).toThrow();
   });
   it("verifies real P256 UV possession and returns the Safe contract owner envelope", () => {
     const draft = createWalletPaymentReviewDraft(context(), options()), proof = verifyWalletPaymentReviewProof(draft, assertion(draft));
