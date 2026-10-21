@@ -387,6 +387,20 @@ describe('ProjectService project intelligence', () => {
     await expect(service.getRulesets(ref, { limit: 51 })).rejects.toMatchObject({
       code: 'INVALID_INPUT',
     });
+    expect(result.page).not.toHaveProperty('value.revnetCheck');
+  });
+
+  it('points REVOwner-hooked rulesets at the revnet check', async () => {
+    const revOwner = v6Address('REVOwner', ref.chainId);
+    const { service } = fixture((request) =>
+      request.functionName === 'allRulesetsOf'
+        ? [{ ruleset, metadata: { ...metadata, allowOwnerMinting: true, dataHook: revOwner } }]
+        : passthrough,
+    );
+    const result = await service.getRulesets(ref, { limit: 1 });
+    expect(result.page).toMatchObject({
+      value: { revnetCheck: expect.stringContaining('jb_get_revnet proves') },
+    });
   });
 
   it('keeps failed permission checks unknown even for the owner account and checks root/wildcard explicitly', async () => {

@@ -405,6 +405,28 @@ describe('transport-independent protocol operations', () => {
     expect(indexed).not.toHaveBeenCalled();
   });
 
+  it('finds an omnichain group from one of its projects', async () => {
+    const project = { chainId: 8453 as const, projectId: '14' };
+    const indexed = vi
+      .spyOn(services.bendystraw, 'getProject')
+      .mockResolvedValue({ suckerGroupId: 'group-14' } as never);
+    const group = vi
+      .spyOn(services.bendystraw, 'getSuckerGroup')
+      .mockResolvedValue({ group: null, projects: { items: [] } } as never);
+    await operations.execute('get_omnichain_group', { project });
+    expect(indexed).toHaveBeenCalledWith({ ...project, version: 6 });
+    expect(group).toHaveBeenCalledWith({ id: 'group-14', chainId: 8453 });
+    await operations.execute('get_omnichain_group', { id: 'group-6' });
+    expect(group).toHaveBeenLastCalledWith({ id: 'group-6', network: 'mainnet' });
+    await expect(
+      operations.execute('get_omnichain_group', { id: 'group-6', project }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    indexed.mockResolvedValue(null);
+    await expect(operations.execute('get_omnichain_group', { project })).rejects.toMatchObject({
+      code: 'NOT_INDEXED',
+    });
+  });
+
   it('reads only indexed project data and keeps missing and unavailable observations distinct', async () => {
     const project = { chainId: 8453 as const, projectId: '1' };
     const indexed = vi.spyOn(services.bendystraw, 'getProject').mockResolvedValue(null);

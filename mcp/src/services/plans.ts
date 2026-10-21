@@ -3,12 +3,15 @@ import { z } from 'zod';
 import {
   decodeEventLog,
   decodeFunctionData,
+  decodeFunctionResult,
   erc20Abi,
+  getAbiItem,
   numberToHex,
   parseAbi,
   toFunctionSelector,
   zeroAddress,
   type Abi,
+  type AbiFunction,
   type Address,
   type Hex,
   type TransactionReceipt,
@@ -57,6 +60,7 @@ import type {
   RpcProvider,
   RpcSnapshot,
 } from '../domain/types.js';
+import { abiAt } from './contracts.js';
 import { deploymentAddress, deploymentAddresses } from './rollout.js';
 
 // Fit token + review in MCP result limits, and token + references in the HTTP request limit.
@@ -80,6 +84,30 @@ const suckerReceiptAbi = parseAbi([
   'event Claimed(bytes32 beneficiary,address token,uint256 projectTokenCount,uint256 terminalTokenAmount,uint256 index,bytes32 metadata,address caller)',
   'event AccountingDataSynced(uint256 sourceTimestamp,address caller)',
 ]);
+/** A simulated call's named return values, when its destination is a known canonical contract. */
+function decodedReturn(call: PreparedCall, returnData: Hex) {
+  const abi = abiAt(call.chainId, call.to);
+  if (!abi || returnData === '0x') return undefined;
+  try {
+    const { functionName, args } = decodeFunctionData({ abi, data: call.data });
+    const item = getAbiItem({ abi, name: functionName, args } as never) as AbiFunction | undefined;
+    if (!item?.outputs.length) return undefined;
+    const result = decodeFunctionResult({ abi: [item], functionName, data: returnData } as never);
+    const values = item.outputs.length === 1 ? [result] : (result as readonly unknown[]);
+    return {
+      functionName,
+      values: Object.fromEntries(
+        item.outputs.map((output, i) => [output.name || `output${i}`, jsonSafe(values[i])]),
+      ),
+    };
+  } catch {
+    return undefined;
+  }
+}
+const withDecodedReturn = (call: PreparedCall, returnData: Hex) => {
+  const decoded = decodedReturn(call, returnData);
+  return decoded ? { decodedReturn: decoded } : {};
+};
 const timestampSchema = z
   .string()
   .datetime({ offset: false })
@@ -454,6 +482,24 @@ export class PlanService {
     return freeze(envelope);
   }
 
+  /** jb_inspect_plan: the authenticated envelope, with what authentication proved and what it did not. */
+  review(token: string) {
+    const plan = this.inspect(token, { allowExpired: true });
+    return {
+      authentic: true as const,
+      expired: this.now() >= Date.parse(plan.expiresAt),
+      checks: {
+        signature: 'This service issued the token: its HMAC signature matches.',
+        contentHash: 'The plan content matches its contentHash and is canonical.',
+        timestamps:
+          'issuedAt and expiresAt are well formed; expired says whether the plan is past expiresAt.',
+      },
+      notChecked:
+        'Chain state. Authentication does not simulate, and it does not authorize execution. Call jb_simulate_plan before signing.',
+      ...plan,
+    };
+  }
+
   async simulate(input: {
     token: string;
     step?: number;
@@ -565,6 +611,7 @@ export class PlanService {
         evidence: snapshot.evidence,
         gasEstimate: gasEstimate.toString(),
         returnData: result.data ?? '0x',
+        ...withDecodedReturn(call, result.data ?? '0x'),
         dependencies,
         warning:
           'Simulation is a block-specific observation, not an execution guarantee. Your wallet must review the exact signed calls and enforce the plan expiry.',
@@ -697,6 +744,9 @@ export class PlanService {
               : ('chained-simulated' as const),
           gasUsed: gasUsed.toString(),
           returnData: result.returnData,
+          ...(reverted
+            ? {}
+            : withDecodedReturn(plan.draft.calls[indexes[position]!]!, result.returnData)),
           ...(error ? { error } : {}),
         };
       });
@@ -1354,6 +1404,26 @@ export class PlanService {
     }
     if (same(call.to, v6Address('JBOmnichainDeployer', call.chainId))) {
       const decoded = decodeFunctionData({ abi: jbOmnichainDeployerAbi, data: call.data });
+      if (decoded.functionName === 'queueRulesetsOf') {
+        const args = decoded.args as readonly unknown[];
+        const projectId = args[0];
+        const memo = args[args.length - 1];
+        const queued =
+          projectMatches(projectId) &&
+          matching(
+            jbControllerAbi,
+            'QueueRulesets',
+            v6Address('JBController', call.chainId),
+            (event) =>
+              event.projectId === projectId && same(event.caller, call.to) && event.memo === memo,
+          ).length === 1;
+        return done(
+          queued,
+          queued
+            ? 'Rulesets were queued through JBOmnichainDeployer. This does not assert approval or activation; inspect their current status and effective dates separately.'
+            : 'The canonical QueueRulesets event from JBController with JBOmnichainDeployer as caller is absent or does not match the project/memo.',
+        );
+      }
       if (decoded.functionName !== 'launchProjectFor') return done(false);
       const args = decoded.args as readonly unknown[];
       const owner = args[0] as Address;

@@ -224,6 +224,19 @@ describe('stateless authenticated plans', () => {
     );
   });
 
+  it('says what inspection verified and what it did not', () => {
+    const { service, sealed } = setup();
+    const reviewed = service.review(sealed.token);
+    expect(reviewed).toMatchObject({
+      authentic: true,
+      expired: false,
+      contentHash: sealed.contentHash,
+    });
+    expect(Object.keys(reviewed.checks)).toEqual(['signature', 'contentHash', 'timestamps']);
+    expect(reviewed.notChecked).toContain('jb_simulate_plan');
+    expect(() => service.review(`${sealed.token.slice(0, -2)}xx`)).toThrow();
+  });
+
   it('hashes the reviewed content independently of issuance time', () => {
     const { service, sealed, setNow } = setup();
     setNow(NOW + 1000);
@@ -529,6 +542,24 @@ describe('re-simulation and dependency verification', () => {
       blockNumber: 101n,
     });
     expect(client.estimateGas).toHaveBeenCalledWith(client.call.mock.calls[0]![0]);
+  });
+
+  it('decodes return values for canonical destinations and leaves others raw', async () => {
+    const { service, sealed, client } = setup();
+    client.call.mockResolvedValueOnce({
+      data: encodeAbiParameters(parseAbiParameters('uint256'), [42n]),
+    });
+    expect(await service.simulate({ token: sealed.token })).toMatchObject({
+      status: 'simulated',
+      decodedReturn: { functionName: 'pay', values: { beneficiaryTokenCount: '42' } },
+    });
+    const other = setup(draft([approval()]));
+    other.client.call.mockResolvedValueOnce({
+      data: encodeAbiParameters(parseAbiParameters('bool'), [true]),
+    });
+    expect(await other.service.simulate({ token: other.sealed.token })).not.toHaveProperty(
+      'decodedReturn',
+    );
   });
 
   it('blocks dependent calls until exact approval transactions are confirmed', async () => {
@@ -1123,6 +1154,29 @@ describe('extension receipt evidence', () => {
     expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(true);
     receipt.logs = [
       abiLog(jbPermissionsAbi, 'OperatorPermissionsSet', { ...args, operator: TOKEN }, permissions),
+    ];
+    expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
+  });
+
+  it('verifies a ruleset queue through JBOmnichainDeployer by its controller event', async () => {
+    const deployer = v6Address('JBOmnichainDeployer', 1);
+    const plan = planFor(
+      deployer,
+      jbOmnichainDeployerAbi,
+      'queueRulesetsOf',
+      [7n, [], 'terms'],
+      'ruleset-change',
+    );
+    const { service, sealed, receipt } = setup(plan);
+    const event = { rulesetId: 1n, projectId: 7n, memo: 'terms', caller: deployer };
+    receipt.logs = [abiLog(jbControllerAbi, 'QueueRulesets', event, CONTROLLER)];
+    expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(true);
+    receipt.logs = [
+      abiLog(jbControllerAbi, 'QueueRulesets', { ...event, caller: ACCOUNT }, CONTROLLER),
+    ];
+    expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
+    receipt.logs = [
+      abiLog(jbControllerAbi, 'QueueRulesets', { ...event, projectId: 8n }, CONTROLLER),
     ];
     expect((await service.verify(params(sealed.token))).outcomeVerified).toBe(false);
   });

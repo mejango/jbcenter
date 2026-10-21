@@ -213,7 +213,7 @@ After launch verification, use `jb_get_project` and `jb_get_721_shop` on the ret
 
 > “Change next cycle's terms without losing existing splits or overriding locked commitments.”
 
-Read `jb_get_rulesets` and the project's current state. Use `jb_preview_ruleset_change` to compare a complete proposed configuration against live terms, permissions, splits, limits, locks, and queue state. Resolve the diff, then use `jb_prepare_ruleset_change` and the shared execution flow.
+Read `jb_get_rulesets` and the project's current state. Use `jb_preview_ruleset_change` to compare a complete proposed configuration against live terms, permissions, splits, limits, locks, and queue state. Resolve the diff, then use `jb_prepare_ruleset_change` and the shared execution flow. A project whose rulesets run through JBOmnichainDeployer queues through it, which keeps its NFT hook; `route` in the preview says which contract the plan calls.
 
 The immediate outcome is a verified queue operation. Follow-up reads establish whether the configuration is upcoming, approved, active, or failed; an approval hook can make timing conditional. Omitted settings are not interpreted as “keep everything else unchanged,” and a preview is not a guarantee of future activation.
 
@@ -289,7 +289,7 @@ Verify the repayment and collateral outcome, then inspect any replacement loan. 
 
 > “Which projects belong to this cross-chain group, and how are they connected?”
 
-Use `jb_get_omnichain_group` for indexed discovery, then `jb_get_bridges` for live registry membership, reciprocal peers, transport, remote project IDs, and accounting observations. A movement scan requires an explicit bounded block range.
+Use `jb_get_omnichain_group` for indexed discovery (by group ID or by any project in the group), then `jb_get_bridges` for live registry membership, reciprocal peers, transport, remote project IDs, and accounting observations. A movement scan requires an explicit bounded block range.
 
 The output is a scoped connection map with independent evidence on each chain. Project IDs need not match across chains. Indexed grouping alone is insufficient for preparing a claim, and there is no atomic global state snapshot or promise that all accounting messages have arrived.
 

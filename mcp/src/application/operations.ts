@@ -361,9 +361,34 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     defineOperation(
       'get_omnichain_group',
-      'Read the indexer’s V6 sucker group and a bounded project page. This is discovery evidence; validate peers on-chain before preparing bridge actions.',
-      { id: z.string().min(1).max(256), network: networkSchema },
-      async (input) => s.bendystraw.getSuckerGroup(input),
+      'Read the indexer’s V6 sucker group and a bounded project page, by group ID or by one project in the group. This is discovery evidence; validate peers on-chain before preparing bridge actions.',
+      {
+        id: z
+          .string()
+          .min(1)
+          .max(256)
+          .optional()
+          .describe('Sucker group ID. Give this or project.'),
+        project: projectSchema.optional().describe('Any project in the group. Give this or id.'),
+        network: inferredNetworkSchema,
+      },
+      async ({ id, project, network }) => {
+        if ((id === undefined) === (project === undefined))
+          throw new DomainError('INVALID_INPUT', 'Give a sucker group id or a project, not both.');
+        if (!project)
+          return s.bendystraw.getSuckerGroup({ id: id!, network: network ?? 'mainnet' });
+        const indexed = await s.bendystraw.getProject(project);
+        if (!indexed?.suckerGroupId)
+          throw new DomainError(
+            'NOT_INDEXED',
+            'The indexer has no sucker group for this V6 project. Check the chain and project ID, or read its suckers on chain with jb_get_bridges.',
+          );
+        return s.bendystraw.getSuckerGroup({
+          id: indexed.suckerGroupId,
+          chainId: project.chainId,
+          ...(network ? { network } : {}),
+        });
+      },
     ),
     defineOperation(
       'quote_pay',
@@ -421,7 +446,7 @@ function definitions(s: Services): ProtocolOperation[] {
     transactionWithSchema(
       s,
       'prepare_ruleset_change',
-      'Prepare exact reviewed V6 ruleset calldata after a live diff and permission check. Does not silently overwrite omitted configuration or promise approval timing.',
+      'Prepare exact reviewed V6 ruleset calldata after a live diff and permission check. Projects whose rulesets run through JBOmnichainDeployer queue through it, keeping their NFT hook; route says which. Does not silently overwrite omitted configuration or promise approval timing.',
       prepareRulesetChangeSchema,
       async (input) => s.configuration.prepareRulesetChange(input),
     ),
@@ -623,9 +648,9 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     defineOperation(
       'inspect_plan',
-      'Authenticate and inspect a previously prepared plan, including expired plans for historical review. Inspection does not authorize execution.',
+      'Authenticate and inspect a previously prepared plan, including expired plans for historical review. authentic: true means this service issued the token and its content is unchanged; checks lists each check. Inspection does not simulate or authorize execution.',
       { token: tokenSchema },
-      async ({ token }) => s.plans.inspect(token, { allowExpired: true }),
+      async ({ token }) => s.plans.review(token),
     ),
     defineOperation(
       'simulate_plan',

@@ -510,10 +510,19 @@ export class ProjectService {
         size: BigInt(limit),
       });
       const previousId = items.at(-1)?.ruleset.basedOnId ?? 0;
+      const revnet = items.some((item) =>
+        sameAddress(item.metadata.dataHook, v6Address('REVOwner', ref.chainId)),
+      );
       return {
         items,
         nextStartingId: BigInt(previousId) === 0n ? null : BigInt(previousId).toString(),
         order: 'newestFirst',
+        ...(revnet
+          ? {
+              revnetCheck:
+                'These rulesets name REVOwner as data hook, which revnets do. jb_get_revnet proves whether this project is a revnet and, if so, explains why its rulesets read allowOwnerMinting: true and who can mint.',
+            }
+          : {}),
       };
     });
     return json({

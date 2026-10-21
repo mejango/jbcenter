@@ -59,6 +59,7 @@ import {
   prepareAutoIssueSchema,
   prepareOmnichainLaunchSchema,
   prepareRevnetDeploySchema,
+  REVNET_OWNER_MINTING,
   REVNET_START_LEAD_SECONDS,
   revnetStartWarning,
   suggestedRevnetStart,
@@ -757,6 +758,7 @@ export class ProductService {
         stageTerms:
           'Immutable issuance, cut schedule, splitPercent and cashOutTaxRate. Current split recipients may change under operator permissions.',
         extraMetadataSuckerDeploymentBit: 2,
+        allowOwnerMinting: REVNET_OWNER_MINTING,
         denominators: {
           splitPercent: 10_000,
           splitRecipientPercent: 1_000_000_000,
@@ -1384,9 +1386,9 @@ export class ProductService {
     });
     if (new Set(commitments).size !== 1)
       fail('OMNICHAIN_MISMATCH', 'The prepared chains do not share identical launch arguments.');
-    const warnings = configurationWarnings(input.chainIds[0]!, input.rulesetConfigurations).filter(
-      (warning) => !warning.startsWith('This action configures one chain only.'),
-    );
+    const warnings = configurationWarnings(input.chainIds[0]!, input.rulesetConfigurations, {
+      omnichainDeployer: true,
+    }).filter((warning) => !warning.startsWith('This action configures one chain only.'));
     warnings.unshift(
       'Sign every step from the same account. Each step is one chain; project IDs can differ by chain.',
     );
@@ -1395,7 +1397,7 @@ export class ProductService {
         'mustStartAtOrAfter is 0, so each chain starts when its step executes. Set one absolute start to align cycles.',
       );
     warnings.push(
-      'JBOmnichainDeployer becomes each ruleset’s data hook and always deploys an NFT collection. A dataHook you set runs behind it. Queue later rulesets through JBOmnichainDeployer.queueRulesetsOf to keep this wiring.',
+      'JBOmnichainDeployer becomes each ruleset’s data hook and always deploys an NFT collection. A dataHook you set runs behind it. jb_prepare_ruleset_change queues later rulesets through JBOmnichainDeployer.queueRulesetsOf, which keeps this wiring.',
       'Local suckers do not prove the remote side launched. Verify every chain.',
       'Creation fees are exact per chain and block. Reprepare if one changes.',
       ...launchFollowUps(input.projectUri),

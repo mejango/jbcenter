@@ -4,7 +4,13 @@ import { decodeFunctionData, isAddressEqual, type Abi, type Address, type Hex } 
 import { DomainError } from '../domain/errors.js';
 import { jsonSafe } from '../domain/json.js';
 import type { ChainId } from '../domain/types.js';
-import { deploymentAddress, rollout, routerGatewayAbi, ratioPriceFeedAbi } from './rollout.js';
+import {
+  deploymentAddress,
+  deploymentAddresses,
+  rollout,
+  routerGatewayAbi,
+  ratioPriceFeedAbi,
+} from './rollout.js';
 
 /** Canonical JBDeadline approval hooks, one per duration. Addresses come from the SDK registry. */
 const DEADLINES: Record<string, Abi> = {
@@ -60,6 +66,14 @@ const ABI_REGISTRY: Record<string, Abi> = {
   REVOwner: sdk.revOwnerAbi,
   ERC2771Forwarder: sdk.erc2771ForwarderAbi,
 };
+
+/** The ABI of the canonical contract at an address on a chain, current or retired. */
+export function abiAt(chainId: ChainId, address: Address): Abi | undefined {
+  const name = Object.keys(ABI_REGISTRY).find((item) =>
+    deploymentAddresses(item, chainId).some((deployed) => isAddressEqual(deployed, address)),
+  );
+  return name === undefined ? undefined : (rollout.contracts[name]?.abi ?? ABI_REGISTRY[name]);
+}
 
 export class ContractService {
   catalog() {

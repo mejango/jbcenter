@@ -3,6 +3,7 @@ import {
   jbDirectoryAbi,
   jbFundAccessLimitsAbi,
   jbMultiTerminalAbi,
+  jbOmnichainDeployerAbi,
   jbPermissionsAbi,
   jbProjectsAbi,
   jbRulesetsAbi,
@@ -12,6 +13,7 @@ import {
 import {
   buildDeployErc20Tx,
   buildLaunchProjectTx,
+  buildOmnichainQueueRulesetsTx,
   buildQueueRulesetsTx,
   hasPermissions,
   JBPermissionIdsV6,
@@ -84,6 +86,7 @@ export function changedLockedSplits(
 export function configurationWarnings(
   chainId: ChainId,
   configurations: RulesetConfigInput[],
+  { omnichainDeployer = false }: { omnichainDeployer?: boolean } = {},
 ): string[] {
   const warnings = [
     'This action configures one chain only. An omnichain project requires coordinated, separately reviewed chain actions; this call does not synchronize remote projects or payout budgets.',
@@ -113,7 +116,9 @@ export function configurationWarnings(
       );
     if (config.metadata.dataHook !== zeroAddress)
       warnings.push(
-        `Configuration ${i}: a data hook is configured. Enabled hook behavior and any embedded permissions require contract-specific review and simulation.`,
+        omnichainDeployer
+          ? `Configuration ${i}: JBOmnichainDeployer stays the data hook and runs ${config.metadata.dataHook} behind it as the extra data hook. Review that hook's behavior and permissions, and simulate.`
+          : `Configuration ${i}: a data hook is configured. Enabled hook behavior and any embedded permissions require contract-specific review and simulation.`,
       );
     if (config.approvalHook !== zeroAddress) {
       const deadline = canonicalDeadline(chainId, config.approvalHook);
@@ -131,6 +136,61 @@ export function configurationWarnings(
       );
   });
   return warnings;
+}
+
+/** JBApprovalStatus values under which JBRulesets bases a new queue on the latest ruleset. */
+const APPROVAL_EMPTY = 0;
+const APPROVAL_APPROVED = 4;
+
+/**
+ * JBRulesets starts a new queue at max(execution, mustStartAtOrAfter) when the latest ruleset has started,
+ * is approved (or needed no approval), has duration 0 and has no approval hook.
+ */
+function immediateStart(
+  latest:
+    | { ruleset: { start: number | bigint; duration: number | bigint; approvalHook: Address } }
+    | undefined,
+  approvalStatus: number,
+  timestamp: bigint,
+) {
+  return (
+    !!latest &&
+    BigInt(latest.ruleset.start) <= timestamp &&
+    BigInt(latest.ruleset.duration) === 0n &&
+    isAddressEqual(latest.ruleset.approvalHook, zeroAddress) &&
+    (approvalStatus === APPROVAL_EMPTY || approvalStatus === APPROVAL_APPROVED)
+  );
+}
+
+/**
+ * The first configuration's start when immediateStart holds: JBRulesets substitutes the execution time
+ * only for a zero bound, and otherwise starts at max(bound, latest start), even in the past.
+ */
+function firstStart(bound: string, latestStart: number | bigint, timestamp: string) {
+  const common = {
+    currentAndUpcomingStartsAreOnchain: true,
+    proposedStartTimes: null,
+    laterConfigurations:
+      "Each later configuration starts from its own mustStartAtOrAfter and the preceding configuration's duration and approval hook.",
+    reason:
+      'The latest ruleset has started, is approved, has duration 0 (no cycles) and no approval hook, so nothing holds the queue.',
+  };
+  if (bound === '0')
+    return {
+      status: 'at-execution' as const,
+      firstConfigurationStarts: 'At execution: mustStartAtOrAfter 0 becomes the execution time.',
+      ...common,
+    };
+  const start = BigInt(bound) > BigInt(latestStart) ? BigInt(bound) : BigInt(latestStart);
+  return {
+    status: 'at-bound' as const,
+    firstConfigurationStart: start.toString(),
+    firstConfigurationStarts:
+      start <= BigInt(timestamp)
+        ? `At ${start}, which has already passed: the ruleset is backdated, so a cycling ruleset may begin with elapsed cycles and cut issuance. Use mustStartAtOrAfter 0 to start at execution.`
+        : `At ${start}, mustStartAtOrAfter.`,
+    ...common,
+  };
 }
 
 /** Launch warnings that name the follow-up tools for an ERC-20 and a project URI. */
@@ -259,7 +319,7 @@ export class ConfigurationService {
   }
 
   private async readChange(input: PreviewRulesetChangeInput) {
-    const { project, account, rulesetConfigurations } = input;
+    const { project, account } = input;
     const projectId = BigInt(project.projectId);
     const { client, evidence } = await this.rpc.snapshot(project.chainId);
     const blockNumber = BigInt(evidence.blockNumber);
@@ -315,8 +375,35 @@ export class ConfigurationService {
         'CONFIGURATION_TOO_LARGE',
         'More than 32 terminals require a scoped configuration review.',
       );
+    const deployer = await this.omnichainRoute(client, project, blockNumber, {
+      current,
+      latest: latest[0],
+      latestApprovalStatus: Number(latestApprovalStatus),
+      omnichainOperator,
+      timestamp: BigInt(evidence.timestamp),
+    });
+    // Through the deployer, a dataHook equal to the deployer (a copy of the live ruleset) keeps the current extra hook.
+    const rulesetConfigurations = deployer
+      ? input.rulesetConfigurations.map((config) =>
+          isAddressEqual(config.metadata.dataHook, deployer.address)
+            ? { ...config, metadata: { ...config.metadata, ...deployer.extraDataHook } }
+            : config,
+        )
+      : input.rulesetConfigurations;
+    // What the queue stores: the deployer rewrites every ruleset to point at itself.
+    const effective = deployer
+      ? rulesetConfigurations.map((config) => ({
+          ...config,
+          metadata: {
+            ...config.metadata,
+            dataHook: deployer.address,
+            useDataHookForPay: true,
+            useDataHookForCashOut: true,
+          },
+        }))
+      : rulesetConfigurations;
     const authorizedByOwner = isAddressEqual(owner, account);
-    const authorizedByOmnichainOperator = isAddressEqual(omnichainOperator, account);
+    const authorizedByOmnichainOperator = !deployer && isAddressEqual(omnichainOperator, account);
     const authorizedByPermission =
       authorizedByOwner || authorizedByOmnichainOperator
         ? false
@@ -343,7 +430,7 @@ export class ConfigurationService {
       terminals,
       rulesetConfigurations,
     );
-    const lockChanges = rulesetConfigurations.map((config, configurationIndex) => {
+    const lockChanges = effective.map((config, configurationIndex) => {
       const proposed = toRulesetConfig(config);
       return {
         configurationIndex,
@@ -365,7 +452,20 @@ export class ConfigurationService {
         }),
       };
     });
-    const warnings = configurationWarnings(project.chainId, rulesetConfigurations);
+    const warnings = configurationWarnings(project.chainId, rulesetConfigurations, {
+      omnichainDeployer: !!deployer,
+    });
+    if (deployer && !isAddressEqual(deployer.extraDataHook.dataHook, zeroAddress))
+      rulesetConfigurations.forEach((config, i) => {
+        if (isAddressEqual(config.metadata.dataHook, zeroAddress))
+          warnings.push(
+            `Configuration ${i}: removes the extra data hook ${deployer.extraDataHook.dataHook} that runs behind JBOmnichainDeployer today. To keep it, set dataHook to it or to the deployer.`,
+          );
+      });
+    if (deployer)
+      warnings.unshift(
+        `This project's rulesets run through JBOmnichainDeployer, so the queue goes through JBOmnichainDeployer.queueRulesetsOf. It keeps the deployer as the data hook and carries the NFT hook ${deployer.tiered721Hook} forward. Queueing on JBController directly would drop that wiring and make later deployer queues revert.`,
+      );
     if (
       lockChanges.some((config) =>
         config.groups.some((group) => group.removedOrWeakenedLockedSplits.length > 0),
@@ -380,7 +480,7 @@ export class ConfigurationService {
       );
     const comparable = (value: string | number | bigint | boolean) =>
       typeof value === 'boolean' ? value : String(value).toLowerCase();
-    const economicChanges = rulesetConfigurations.map((config, configurationIndex) => {
+    const economicChanges = effective.map((config, configurationIndex) => {
       const changes: { field: string; current: string | boolean; proposed: string | boolean }[] =
         [];
       for (const field of ['duration', 'weight', 'weightCutPercent', 'approvalHook'] as const) {
@@ -395,6 +495,15 @@ export class ConfigurationService {
         const after = comparable(config.metadata[field]);
         if (before !== after)
           changes.push({ field: `metadata.${field}`, current: before, proposed: after });
+      }
+      if (deployer) {
+        const proposedExtra = rulesetConfigurations[configurationIndex]!.metadata;
+        for (const field of ['dataHook', 'useDataHookForPay', 'useDataHookForCashOut'] as const) {
+          const before = comparable(deployer.extraDataHook[field]);
+          const after = comparable(proposedExtra[field]);
+          if (before !== after)
+            changes.push({ field: `extraDataHook.${field}`, current: before, proposed: after });
+        }
       }
       return {
         configurationIndex,
@@ -415,10 +524,28 @@ export class ConfigurationService {
       account,
       owner,
       controller,
+      route: deployer
+        ? {
+            via: 'JBOmnichainDeployer' as const,
+            address: deployer.address,
+            call: 'queueRulesetsOf(projectId, rulesetConfigurations, memo)',
+            tiered721Hook: deployer.tiered721Hook,
+            tiered721HookSource: deployer.tiered721HookSource,
+            useTiered721HookForCashOut: deployer.useTiered721HookForCashOut,
+            currentExtraDataHook: deployer.extraDataHook,
+            rule: 'The deployer stores the carried NFT hook and each extra data hook per new ruleset, then queues on JBController with itself as the data hook (pay and cash-out). A dataHook in the input is the extra hook; one equal to the deployer keeps currentExtraDataHook. The controller trusts the deployer as its OMNICHAIN_RULESET_OPERATOR.',
+          }
+        : { via: 'JBController' as const, address: controller },
       permission: {
         required: 'QUEUE_RULESETS',
         id: JBPermissionIdsV6.QUEUE_RULESETS,
         authorized: authorizedByOwner || authorizedByOmnichainOperator || authorizedByPermission,
+        ...(deployer
+          ? {
+              checkedBy:
+                'JBOmnichainDeployer checks the signer against the owner and its QUEUE_RULESETS grant; no grant to the deployer is needed.',
+            }
+          : {}),
         authorizedByOwner,
         authorizedByOmnichainOperator,
         authorizedByPermission,
@@ -446,17 +573,114 @@ export class ConfigurationService {
       proposed: rulesetConfigurations,
       economicChanges,
       lockChanges: jsonSafe(lockChanges),
-      timing: {
-        status: 'unresolved-until-execution',
-        currentAndUpcomingStartsAreOnchain: true,
-        proposedStartTimes: null,
-        reason:
-          'Existing queue state, hook approval and DURATION(), cycle boundaries, and the execution timestamp determine the selected base ruleset and starts. A custom hook can change its answer.',
-      },
+      timing: immediateStart(latest[0], Number(latestApprovalStatus), BigInt(evidence.timestamp))
+        ? firstStart(
+            rulesetConfigurations[0]!.mustStartAtOrAfter,
+            latest[0]!.ruleset.start,
+            evidence.timestamp,
+          )
+        : {
+            status: 'unresolved-until-execution' as const,
+            currentAndUpcomingStartsAreOnchain: true,
+            proposedStartTimes: null,
+            reason:
+              'Existing queue state, hook approval and DURATION(), cycle boundaries, and the execution timestamp determine the selected base ruleset and starts. A custom hook can change its answer.',
+          },
       comparisonScope:
         'Current standard reserved-token group, current terminal-token payout groups, all proposed group IDs, and fallback tables. Arbitrary historical custom group IDs are not enumerable; this is not a complete audit of hook-defined storage.',
       evidence: [evidence],
       warnings,
+    };
+  }
+
+  /**
+   * The JBOmnichainDeployer route, when the project's rulesets run through it. Mirrors the deployer's
+   * carry-forward: the latest ruleset's NFT hook when it is approved (or needed no approval), else the current one's.
+   */
+  private async omnichainRoute(
+    client: PublicClient,
+    project: ProjectRef,
+    blockNumber: bigint,
+    state: {
+      current: readonly [{ id: number | bigint }, { dataHook: Address }];
+      latest: { ruleset: { id: number | bigint }; metadata: { dataHook: Address } } | undefined;
+      latestApprovalStatus: number;
+      omnichainOperator: Address;
+      timestamp: bigint;
+    },
+  ) {
+    const address = v6Address('JBOmnichainDeployer', project.chainId);
+    if (
+      !isAddressEqual(state.current[1].dataHook, address) &&
+      !(state.latest && isAddressEqual(state.latest.metadata.dataHook, address))
+    )
+      return undefined;
+    if (!isAddressEqual(state.omnichainOperator, address))
+      throw new DomainError(
+        'UNSUPPORTED_CONTROLLER',
+        'The controller does not trust this JBOmnichainDeployer as its omnichain ruleset operator, so a queue through it would revert.',
+        { details: { omnichainOperator: state.omnichainOperator, deployer: address } },
+      );
+    const projectId = BigInt(project.projectId);
+    const currentId = BigInt(state.current[0].id);
+    const latestId = state.latest ? BigInt(state.latest.ruleset.id) : 0n;
+    if (latestId >= state.timestamp)
+      throw new DomainError(
+        'RULESET_IDS_UNPREDICTABLE',
+        `The latest ruleset ID ${latestId} is not yet in the past, so JBOmnichainDeployer.queueRulesetsOf would revert (JBOmnichainDeployer_RulesetIdsUnpredictable). Prepare again after timestamp ${latestId}.`,
+        {
+          retryable: true,
+          details: { latestRulesetId: String(latestId), earliestTimestamp: String(latestId + 1n) },
+        },
+      );
+    const read = <T>(functionName: 'tiered721HookOf' | 'extraDataHookOf', rulesetId: bigint) =>
+      client.readContract({
+        address,
+        abi: jbOmnichainDeployerAbi,
+        functionName,
+        args: [projectId, rulesetId],
+        blockNumber,
+      }) as Promise<T>;
+    const [latestHook, currentHook, extra] = await Promise.all([
+      latestId === 0n
+        ? Promise.resolve([zeroAddress, false] as const)
+        : read<readonly [Address, boolean]>('tiered721HookOf', latestId),
+      read<readonly [Address, boolean]>('tiered721HookOf', currentId),
+      read<{ dataHook: Address; useDataHookForPay: boolean; useDataHookForCashOut: boolean }>(
+        'extraDataHookOf',
+        currentId,
+      ),
+    ]);
+    const useLatest =
+      latestId !== 0n &&
+      (state.latestApprovalStatus === APPROVAL_EMPTY ||
+        state.latestApprovalStatus === APPROVAL_APPROVED) &&
+      !isAddressEqual(latestHook[0], zeroAddress);
+    const [hook, useForCashOut] = useLatest ? latestHook : currentHook;
+    if (isAddressEqual(hook, zeroAddress))
+      throw new DomainError(
+        'OMNICHAIN_HOOK_MISSING',
+        'This project runs through JBOmnichainDeployer, but neither its latest approved ruleset nor its current one has an NFT hook recorded there, so JBOmnichainDeployer.queueRulesetsOf would revert (JBOmnichainDeployer_InvalidHook).',
+        {
+          details: {
+            deployer: address,
+            currentRulesetId: String(currentId),
+            latestRulesetId: String(latestId),
+          },
+        },
+      );
+    return {
+      address,
+      tiered721Hook: hook,
+      tiered721HookSource: useLatest
+        ? { ruleset: 'latest' as const, id: String(latestId) }
+        : { ruleset: 'current' as const, id: String(currentId) },
+      useTiered721HookForCashOut: useForCashOut,
+      extraDataHook: {
+        dataHook: extra.dataHook,
+        useDataHookForPay: extra.useDataHookForPay,
+        useDataHookForCashOut: extra.useDataHookForCashOut,
+      },
     };
   }
 
@@ -633,23 +857,20 @@ export class ConfigurationService {
         'The proposed signing account lacks QUEUE_RULESETS permission for this project.',
         { details: preview.permission },
       );
-    const request = buildQueueRulesetsTx({
+    const queue = {
       chainId: input.project.chainId,
       projectId: BigInt(input.project.projectId),
-      rulesetConfigurations: input.rulesetConfigurations.map(toRulesetConfig),
+      rulesetConfigurations: preview.proposed.map(toRulesetConfig),
       memo: input.memo,
-    });
-    const data = encodeFunctionData(request);
-    const decoded = decodeFunctionData({ abi: request.abi, data });
-    const call: PreparedCall = {
-      chainId: input.project.chainId,
-      to: request.address,
-      data,
-      value: '0',
-      label: 'Queue project rulesets',
-      decoded: { functionName: decoded.functionName, args: jsonSafe(decoded.args) },
-      dependsOn: [],
     };
+    const call =
+      preview.route.via === 'JBOmnichainDeployer'
+        ? controllerCall(
+            queue.chainId,
+            buildOmnichainQueueRulesetsTx(queue),
+            'Queue project rulesets through JBOmnichainDeployer',
+          )
+        : controllerCall(queue.chainId, buildQueueRulesetsTx(queue), 'Queue project rulesets');
     return {
       operation: 'ruleset-change',
       account: input.account,
