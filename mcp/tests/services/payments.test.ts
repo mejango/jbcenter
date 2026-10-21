@@ -1910,9 +1910,11 @@ describe('payout quotes', () => {
       isCurrencyConversion: true,
       minimumGrossAmountRecorded: '99',
     });
-    expect(
-      (await fixture({ grossPayout: 0n }).service.quotePayout(payoutInput)).grossAmountRecorded,
-    ).toBe('0');
+    expect(await fixture({ grossPayout: 0n }).service.quotePayout(payoutInput)).toMatchObject({
+      payable: false,
+      reason: expect.stringContaining('Nothing to pay out'),
+      grossAmountRecorded: '0',
+    });
     await expect(
       fixture({ grossPayout: 0n }).service.preparePayout(payoutInput),
     ).rejects.toMatchObject({ code: 'NOTHING_TO_PAY_OUT' });

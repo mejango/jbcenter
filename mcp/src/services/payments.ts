@@ -298,6 +298,9 @@ export function pushExactApproval(
  * Financial quote and calldata boundary. RPC failures propagate as unavailable;
  * no price, allowance, fee flag, or failed preview is replaced by a zero.
  */
+const NOTHING_PAYABLE =
+  'Nothing to pay out: the payout simulation records zero, so this cycle has no payout limit left for this terminal, token and currency. jb_prepare_payout refuses it.';
+
 /** A project's payment route (controller, ruleset, hooks, terminal) is kept this long. Payments to
  * one project arrive minutes apart, every quote is still previewed live and the route is re-read on a
  * ruleset change; a terminal or hook swap inside this window only makes the plan's own simulation fail. */
@@ -516,12 +519,7 @@ export class PaymentService {
 
   async preparePayout(input: PayoutInput): Promise<PlanDraft> {
     const { quote, transaction } = await this.payout(input);
-    if (quote.grossAmountRecorded === '0') {
-      throw new DomainError(
-        'NOTHING_TO_PAY_OUT',
-        'The verified payout simulation records zero; no payout transaction was prepared.',
-      );
-    }
+    if (!quote.payable) throw new DomainError('NOTHING_TO_PAY_OUT', NOTHING_PAYABLE);
     return {
       operation: 'payout',
       account: input.account,
@@ -1240,6 +1238,9 @@ export class PaymentService {
       slippageBps: Number(slippage),
       metadata,
       hooks: jsonSafe(hooks),
+      hooksAmountUnit: terminal.isRouter
+        ? 'hooks[].amount is the part of the payment forwarded to that hook, in base units of the token the routed terminal receives.'
+        : 'hooks[].amount is the part of the payment forwarded to that hook, in payment token base units (same unit as payment.amount).',
       rulesetId: context.ruleset.id.toString(),
       routeEvidence: route.evidence,
       // One evidence entry per chain: the quote's block. The route's own block is in the summary.
@@ -1365,6 +1366,8 @@ export class PaymentService {
       treasuryNet: route.treasuryNet.toString(),
       cashOutTaxRate: prepared.preview.cashOutTaxRate.toString(),
       hooks: jsonSafe(prepared.preview.hookSpecifications),
+      hooksAmountUnit:
+        'hooks[].amount is the part of the reclaimed amount forwarded to that hook, in tokenToReclaim base units.',
       rulesetId: context.ruleset.id.toString(),
       evidence: [snapshot.evidence],
       warnings,
@@ -1419,6 +1422,7 @@ export class PaymentService {
         throw error;
       });
     const gross = simulated.result;
+    const payable = gross > 0n;
     const isCurrencyConversion = input.currency !== accounting.currency;
     const minimum = isCurrencyConversion ? slippageFloor(gross, slippage) : gross;
     const transaction = call(
@@ -1440,6 +1444,12 @@ export class PaymentService {
       currency: input.currency,
       accountingCurrency: accounting.currency,
       isCurrencyConversion,
+      payable,
+      ...(payable
+        ? {}
+        : {
+            reason: NOTHING_PAYABLE,
+          }),
       grossAmountRecorded: gross.toString(),
       minimumGrossAmountRecorded: minimum.toString(),
       slippageBps: isCurrencyConversion ? Number(slippage) : 0,

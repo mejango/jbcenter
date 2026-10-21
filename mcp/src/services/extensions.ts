@@ -74,7 +74,7 @@ export const quoteLoanInputSchema = z
     project: projectSchema,
     holder: nonzeroAddress,
     token: nonzeroAddress.describe(UNITS.token),
-    collateralCount: collateralSchema,
+    collateralCount: collateralSchema.describe(UNITS.collateralCount),
     prepaidFeePercent: z.number().int().min(25).max(500).describe(UNITS.prepaidFeePercent),
     beneficiary: nonzeroAddress,
   })

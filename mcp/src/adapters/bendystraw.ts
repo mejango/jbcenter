@@ -610,6 +610,7 @@ export class BendystrawClient {
 
   async getSuckerGroup(args: {
     id: string;
+    chainId?: number;
     network?: BendystrawNetwork;
   }): Promise<{ group: IndexedSuckerGroup | null; projects: IndexedPage<IndexedProject> }> {
     const id = input(z.string().min(1).max(256), args.id);

@@ -259,7 +259,7 @@ describe('real MCP application protocol', () => {
     });
     expect(inspected.structuredContent).toMatchObject({
       ok: true,
-      data: { draft: { calls: [{ data, value: '10' }] } },
+      data: { authentic: true, draft: { calls: [{ data, value: '10' }] } },
     });
     const tampered = await client.callTool({
       name: 'jb_inspect_plan',

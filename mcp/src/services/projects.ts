@@ -24,6 +24,7 @@ import {
 } from '@bananapus/nana-sdk-core/v6';
 import { erc20Abi, getAddress, isAddress, pad, parseAbi, zeroAddress, type Address } from 'viem';
 import { DomainError, publicError } from '../domain/errors.js';
+import { REVNET_OWNER_MINTING } from '../domain/products.js';
 import type { Observation, ProjectRef, RpcProvider, RpcSnapshot } from '../domain/types.js';
 
 const MAX_TERMINALS = 32;
@@ -510,10 +511,14 @@ export class ProjectService {
         size: BigInt(limit),
       });
       const previousId = items.at(-1)?.ruleset.basedOnId ?? 0;
+      const revnet = items.some((item) =>
+        sameAddress(item.metadata.dataHook, v6Address('REVOwner', ref.chainId)),
+      );
       return {
         items,
         nextStartingId: BigInt(previousId) === 0n ? null : BigInt(previousId).toString(),
         order: 'newestFirst',
+        ...(revnet ? { revnetOwnerMinting: REVNET_OWNER_MINTING } : {}),
       };
     });
     return json({

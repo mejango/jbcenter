@@ -39,9 +39,11 @@ export const UNITS = {
     'Tokens issued per one unit of baseCurrency at stage start, with 18 decimals: 1000000000000000000000 = 1,000 tokens.',
   baseCurrency: `Currency that issuance is priced in: ${BASE_CURRENCY_ETH} = ETH, ${BASE_CURRENCY_USD} = USD. Use ${BASE_CURRENCY_ETH} for ETH, not ${NATIVE_TOKEN_CURRENCY_ID} (native ETH's accounting currency). A token's own currency, uint32(uint160(token)), applies only when payments come in that token or JBPrices has a feed for it.`,
   extraMetadata:
-    'Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): while this stage is active the operator may add or retry suckers with REVDeployer.deploySuckersFor; the launch suckers deploy without it. A cross-chain revnet must set it on every stage, because the SDK refuses to encode one that does not. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. 4 for a multi-chain revnet, 0 for one chain.',
+    'Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): while this stage is active the operator may add or retry suckers with REVDeployer.deploySuckersFor; the launch suckers deploy without it. A cross-chain revnet must set it on every stage, because the SDK refuses to encode one that does not. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. Recommended: 4 on every stage, which is what revnet.money sends, even for one chain, so chains can be added later; 0 only if the revnet must never add a chain.',
   scopeCashOutsToLocalBalances:
-    "false: cash outs count every chain's supply and surplus (through the suckers). true: only this chain's.",
+    "false: cash outs count every chain's supply and surplus (through the suckers). true: only this chain's. Recommended: false, which is what revnet.money sends.",
+  collateralCount:
+    'Project tokens to lock as collateral, with 18 decimals: 1000000000000000000 = 1 token. The holder must hold them; the loan burns them and mints them back on repay.',
   currency: currencyId,
   payoutCurrency: `Currency that amount is in; it must match a payout limit currency. ${currencyId}`,
   accountingCurrency: `Usually uint32(uint160(token)); ${native}, currency ${NATIVE_TOKEN_CURRENCY_ID}.`,

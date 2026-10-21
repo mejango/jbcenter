@@ -234,6 +234,10 @@ export const suggestRevnetStartSchema = z
   })
   .strict();
 
+/** Why revnet rulesets read allowOwnerMinting: true although the revnet cannot change (REVDeployer, REVOwner). */
+export const REVNET_OWNER_MINTING =
+  "allowOwnerMinting is true on every revnet ruleset because the owner is the REVOwner contract, which mints each stage's auto-issuance (jb_prepare_auto_issue) and nothing else. Beyond payments, only REVLoans (loan collateral), the buyback hook and the revnet's suckers may mint. The operator holds no MINT_TOKENS permission and cannot mint project tokens.";
+
 /** Time to sign and land one chain's deploy after its plan expires; the prepare-time warning threshold. */
 export const REVNET_SIGNING_MARGIN_SECONDS = 180;
 

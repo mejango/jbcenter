@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { decodeFunctionData, getAddress, zeroAddress, type Address, type PublicClient } from 'viem';
-import { jbContractAddress, jbControllerAbi, NATIVE_TOKEN } from '@bananapus/nana-sdk-core';
+import {
+  jbContractAddress,
+  jbControllerAbi,
+  jbOmnichainDeployerAbi,
+  NATIVE_TOKEN,
+} from '@bananapus/nana-sdk-core';
 import { buildRulesetMetadata, v6Address } from '@bananapus/nana-sdk-core/v6';
 import { ConfigurationService, changedLockedSplits } from '../../src/services/configuration.js';
 import type { ChainId, RpcProvider } from '../../src/domain/types.js';
@@ -584,5 +589,146 @@ describe('current ruleset as preview input', () => {
     await expect(
       service.currentRulesetInput({ chainId: 1, projectId: '7' }, 12345n),
     ).resolves.toBeNull();
+  });
+});
+
+describe('ruleset changes on projects launched through JBOmnichainDeployer', () => {
+  // Shaped like Base project 14: deployer-wired, NFT hook recorded, duration 0, no approval hook.
+  const chainId = 8453 as const;
+  const deployer = v6Address('JBOmnichainDeployer', chainId);
+  const owner = getAddress('0x5138a42C3D5065debE950deBDa10C1f38150a908');
+  const nft = getAddress('0x5a834cdB371bF649188cad912dFeFEe9966773Ab');
+  const extraHook = getAddress('0x3333333333333333333333333333333333333333');
+  const live = { ...stored, id: 1500, start: 1500, duration: 0 };
+  const wired = {
+    ...metadata,
+    useDataHookForPay: true,
+    useDataHookForCashOut: true,
+    dataHook: deployer,
+  };
+  const noExtra = { dataHook: zeroAddress, useDataHookForPay: false, useDataHookForCashOut: false };
+  const project = { chainId, projectId: '14' };
+  function omnichain(overrides: Record<string, unknown> = {}) {
+    return mockRpc(
+      {
+        ownerOf: owner,
+        currentRulesetOf: [live, wired],
+        allRulesetsOf: [{ ruleset: live, metadata: wired }],
+        currentApprovalStatusForLatestRulesetOf: 0,
+        OMNICHAIN_RULESET_OPERATOR: deployer,
+        tiered721HookOf: [nft, false],
+        extraDataHookOf: noExtra,
+        ...overrides,
+      },
+      chainId,
+    );
+  }
+  // A copy of the live ruleset, as get_rulesets currentAsInput returns it.
+  const copy = () => ({
+    ...configuration(),
+    duration: '0',
+    metadata: {
+      ...configuration().metadata,
+      useDataHookForPay: true,
+      useDataHookForCashOut: true,
+      dataHook: deployer,
+    },
+  });
+
+  it('queues through the deployer, keeps the NFT hook and the extra hook, and starts at execution', async () => {
+    const { service, readContract } = omnichain();
+    const plan = await service.prepareRulesetChange({
+      project,
+      account: owner,
+      rulesetConfigurations: [copy()],
+      memo: 'choo',
+    });
+    const call = plan.calls[0]!;
+    expect(call.to).toBe(deployer);
+    expect(call.label).toContain('JBOmnichainDeployer');
+    const decoded = decodeFunctionData({ abi: jbOmnichainDeployerAbi, data: call.data });
+    expect(decoded.functionName).toBe('queueRulesetsOf');
+    const args = decoded.args as readonly unknown[];
+    expect(args).toHaveLength(3);
+    expect(args[0]).toBe(14n);
+    expect(args[2]).toBe('choo');
+    const sent = (args[1] as readonly { metadata: Record<string, unknown> }[])[0]!.metadata;
+    expect(sent).toMatchObject({ dataHook: zeroAddress, useDataHookForPay: false });
+    const summary = plan.summary as Awaited<ReturnType<typeof service.previewRulesetChange>>;
+    expect(summary.route).toMatchObject({
+      via: 'JBOmnichainDeployer',
+      tiered721Hook: nft,
+      tiered721HookSource: { ruleset: 'latest', id: '1500' },
+    });
+    expect(summary.timing.status).toBe('at-execution');
+    expect(summary.economicChanges[0]!.changes.map((change) => change.field)).not.toContain(
+      'metadata.dataHook',
+    );
+    const warnings = plan.warnings.join(' ');
+    expect(warnings).toContain('JBOmnichainDeployer.queueRulesetsOf');
+    expect(warnings).not.toContain('a data hook is configured');
+    expect(readContract.mock.calls.every(([request]) => request.blockNumber === 12345n)).toBe(true);
+  });
+
+  it('passes a new extra data hook through and names it', async () => {
+    const { service } = omnichain();
+    const config = copy();
+    const preview = await service.previewRulesetChange({
+      project,
+      account: owner,
+      rulesetConfigurations: [{ ...config, metadata: { ...config.metadata, dataHook: extraHook } }],
+    });
+    expect(preview.proposed[0]!.metadata.dataHook).toBe(extraHook);
+    expect(preview.warnings.join(' ')).toContain(`runs ${extraHook} behind it`);
+  });
+
+  it('checks the signer the way the deployer does', async () => {
+    const input = { project, account, rulesetConfigurations: [copy()] };
+    await expect(omnichain().service.prepareRulesetChange(input)).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED',
+    });
+    const permitted = await omnichain({ hasPermissions: true }).service.prepareRulesetChange(input);
+    expect(permitted.calls[0]!.to).toBe(deployer);
+  });
+
+  it('refuses a queue the deployer would revert', async () => {
+    const input = { project, account: owner, rulesetConfigurations: [copy()] };
+    await expect(
+      omnichain({ tiered721HookOf: [zeroAddress, false] }).service.prepareRulesetChange(input),
+    ).rejects.toMatchObject({ code: 'OMNICHAIN_HOOK_MISSING' });
+    await expect(
+      omnichain({ OMNICHAIN_RULESET_OPERATOR: another }).service.prepareRulesetChange(input),
+    ).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTROLLER' });
+  });
+
+  it('carries the current hook when the latest ruleset is not approved', async () => {
+    const queued = { ...live, id: 1600, start: 5000 };
+    const { service } = omnichain({
+      allRulesetsOf: [{ ruleset: queued, metadata: wired }],
+      currentApprovalStatusForLatestRulesetOf: 3,
+      tiered721HookOf: ({ args }: { args: readonly bigint[] }) =>
+        args[1] === 1600n ? [extraHook, false] : [nft, true],
+    });
+    const preview = await service.previewRulesetChange({
+      project,
+      account: owner,
+      rulesetConfigurations: [copy()],
+    });
+    expect(preview.route).toMatchObject({
+      tiered721Hook: nft,
+      tiered721HookSource: { ruleset: 'current', id: '1500' },
+      useTiered721HookForCashOut: true,
+    });
+    expect(preview.timing.status).toBe('unresolved-until-execution');
+  });
+
+  it('keeps JBController for other projects', async () => {
+    const { service } = mockRpc();
+    const preview = await service.previewRulesetChange({
+      project: { chainId: 1, projectId: '7' },
+      account,
+      rulesetConfigurations: [configuration()],
+    });
+    expect(preview.route).toEqual({ via: 'JBController', address: v6Address('JBController', 1) });
   });
 });

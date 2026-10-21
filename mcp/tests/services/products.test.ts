@@ -875,6 +875,7 @@ describe('revnet reads and auto-issuance', () => {
       operator: { candidate: account, isOperator: true },
       cashOutDelay: { until: '2000', active: true, appliesToLoans: true },
     });
+    expect(revnet.economics.allowOwnerMinting).toContain('The operator holds no MINT_TOKENS');
     expect((await f.service.getRevnet({ project })).operator).toMatchObject({ status: 'unknown' });
     await expect(fixture().service.getRevnet({ project })).rejects.toThrow('No canonical revnet');
   });
