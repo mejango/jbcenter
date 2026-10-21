@@ -12,6 +12,7 @@ import {
   buildPayTx,
   getCurrentRuleset,
   PAY_MAX_SLIPPAGE_BPS,
+  PAY_QUOTE_FAILED_MESSAGE,
   prepareHookAwareCashOut,
   prepareUserPay,
   resolvePaymentTerminal,
@@ -1029,6 +1030,7 @@ export class PaymentService {
       beneficiaryTokenCount = prepared.preview.beneficiaryTokenCount;
       reservedTokenCount = prepared.preview.reservedTokenCount;
     }
+    if (prepared?.quoteFailed) warnings.push(`${PAY_QUOTE_FAILED_MESSAGE} Quote again for the pool price.`);
     // The default minimum: prepareUserPay's with skipSplits, otherwise the counted output less slippage.
     const slippageMinimum = prepared
       ? prepared.minReturnedTokens
