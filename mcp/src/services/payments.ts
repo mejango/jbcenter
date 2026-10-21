@@ -299,7 +299,7 @@ export function pushExactApproval(
  * no price, allowance, fee flag, or failed preview is replaced by a zero.
  */
 const NOTHING_PAYABLE =
-  'Nothing to pay out: the payout simulation records zero, so this cycle has no payout limit left for this terminal, token and currency. jb_prepare_payout refuses it.';
+  'Nothing to pay out: this payout simulates to zero. Either this cycle has no payout limit left for this terminal, token and currency, or a cross-currency amount rounds below one base unit of the accounting token (raise amount). jb_prepare_payout refuses it.';
 
 /** A project's payment route (controller, ruleset, hooks, terminal) is kept this long. Payments to
  * one project arrive minutes apart, every quote is still previewed live and the route is re-read on a

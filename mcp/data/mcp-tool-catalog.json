@@ -5319,7 +5319,7 @@
                               ]
                             },
                             "extraMetadata": {
-                              "description": "Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): while this stage is active the operator may add or retry suckers with REVDeployer.deploySuckersFor; the launch suckers deploy without it. A cross-chain revnet must set it on every stage, because the SDK refuses to encode one that does not. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. Recommended: 4 on every stage, which is what revnet.money sends, even for one chain, so chains can be added later; 0 only if the revnet must never add a chain.",
+                              "description": "Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): while this stage is active the operator may add or retry suckers with REVDeployer.deploySuckersFor; the launch suckers deploy without it. A cross-chain revnet must set it on every stage, because the SDK refuses to encode one that does not. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. Recommended: include 4 on every stage, even for one chain, so chains can be added later. revnet.money also sets bit 0, so pausable NFT tiers cannot be transferred, and sends 5.",
                               "anyOf": [
                                 {
                                   "type": "number"
@@ -14026,7 +14026,7 @@
                       ]
                     },
                     "extraMetadata": {
-                      "description": "Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): while this stage is active the operator may add or retry suckers with REVDeployer.deploySuckersFor; the launch suckers deploy without it. A cross-chain revnet must set it on every stage, because the SDK refuses to encode one that does not. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. Recommended: 4 on every stage, which is what revnet.money sends, even for one chain, so chains can be added later; 0 only if the revnet must never add a chain.",
+                      "description": "Ruleset metadata bits for hooks (uint16, lower 14 bits kept, at most 16,383). Bit 2 (value 4): while this stage is active the operator may add or retry suckers with REVDeployer.deploySuckersFor; the launch suckers deploy without it. A cross-chain revnet must set it on every stage, because the SDK refuses to encode one that does not. Bits 0 (1) and 1 (2): the NFT hook pauses transfers of pausable tiers, and pending reserve mints. Recommended: include 4 on every stage, even for one chain, so chains can be added later. revnet.money also sets bit 0, so pausable NFT tiers cannot be transferred, and sends 5.",
                       "anyOf": [
                         {
                           "type": "number"

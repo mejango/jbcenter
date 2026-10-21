@@ -24,7 +24,6 @@ import {
 } from '@bananapus/nana-sdk-core/v6';
 import { erc20Abi, getAddress, isAddress, pad, parseAbi, zeroAddress, type Address } from 'viem';
 import { DomainError, publicError } from '../domain/errors.js';
-import { REVNET_OWNER_MINTING } from '../domain/products.js';
 import type { Observation, ProjectRef, RpcProvider, RpcSnapshot } from '../domain/types.js';
 
 const MAX_TERMINALS = 32;
@@ -518,7 +517,12 @@ export class ProjectService {
         items,
         nextStartingId: BigInt(previousId) === 0n ? null : BigInt(previousId).toString(),
         order: 'newestFirst',
-        ...(revnet ? { revnetOwnerMinting: REVNET_OWNER_MINTING } : {}),
+        ...(revnet
+          ? {
+              revnetCheck:
+                'These rulesets name REVOwner as data hook, which revnets do. jb_get_revnet proves whether this project is a revnet and, if so, explains why its rulesets read allowOwnerMinting: true and who can mint.',
+            }
+          : {}),
       };
     });
     return json({

@@ -722,6 +722,65 @@ describe('ruleset changes on projects launched through JBOmnichainDeployer', () 
     expect(preview.timing.status).toBe('unresolved-until-execution');
   });
 
+  it('diffs the extra data hook the deployer stores and warns when one is removed', async () => {
+    const { service } = omnichain({
+      extraDataHookOf: {
+        dataHook: extraHook,
+        useDataHookForPay: true,
+        useDataHookForCashOut: false,
+      },
+    });
+    const config = copy();
+    const removed = await service.previewRulesetChange({
+      project,
+      account: owner,
+      rulesetConfigurations: [{ ...config, metadata: { ...config.metadata, ...noExtra } }],
+    });
+    expect(removed.economicChanges[0]!.changes).toEqual(
+      expect.arrayContaining([
+        {
+          field: 'extraDataHook.dataHook',
+          current: extraHook.toLowerCase(),
+          proposed: zeroAddress,
+        },
+        { field: 'extraDataHook.useDataHookForPay', current: true, proposed: false },
+      ]),
+    );
+    expect(removed.warnings.join(' ')).toContain(`removes the extra data hook ${extraHook}`);
+    const kept = await service.previewRulesetChange({
+      project,
+      account: owner,
+      rulesetConfigurations: [config],
+    });
+    expect(
+      kept.economicChanges[0]!.changes.filter((change) => change.field.startsWith('extra')),
+    ).toEqual([]);
+  });
+
+  it('dates a nonzero bound exactly, including a backdated one', async () => {
+    const { service } = omnichain();
+    const preview = await service.previewRulesetChange({
+      project,
+      account: owner,
+      rulesetConfigurations: [{ ...copy(), mustStartAtOrAfter: '1600' }],
+    });
+    expect(preview.timing).toMatchObject({
+      status: 'at-bound',
+      firstConfigurationStart: '1600',
+      firstConfigurationStarts: expect.stringContaining('already passed'),
+    });
+  });
+
+  it('asks to retry while the latest ruleset ID is not yet in the past', async () => {
+    const ahead = { ...live, id: 2000 };
+    await expect(
+      omnichain({
+        currentRulesetOf: [ahead, wired],
+        allRulesetsOf: [{ ruleset: ahead, metadata: wired }],
+      }).service.prepareRulesetChange({ project, account: owner, rulesetConfigurations: [copy()] }),
+    ).rejects.toMatchObject({ code: 'RULESET_IDS_UNPREDICTABLE', retryable: true });
+  });
+
   it('keeps JBController for other projects', async () => {
     const { service } = mockRpc();
     const preview = await service.previewRulesetChange({
