@@ -336,11 +336,13 @@ function payHookMetadata(
     /** Word 2: the TWAP-derived floor, or the caller's own minimum when `callerMinimum` is set. */
     minimum?: bigint;
     callerMinimum?: boolean;
+    /** Buyback 1.4's seventeen words; by default the current 2.0 adds floorCoversSettlement. */
+    v14?: boolean;
   } = {},
 ): Hex {
-  return encodeAbiParameters(
+  const encoded = encodeAbiParameters(
     parseAbiParameters(
-      'bool,uint256,uint256,bool,address,uint256,uint256,uint256,int24,uint128,bytes32,uint256,uint256,uint256,bool,bool,uint256',
+      'bool,uint256,uint256,bool,address,uint256,uint256,uint256,int24,uint128,bytes32,uint256,uint256,uint256,bool,bool,uint256,bool',
     ),
     [
       false,
@@ -362,9 +364,13 @@ function payHookMetadata(
       false,
       overrides.skipSplits ?? false,
       1667n,
+      true,
     ],
   );
+  return overrides.v14 ? (encoded.slice(0, 2 + 17 * 64) as Hex) : encoded;
 }
+/** Buyback 1.4, still serving projects that have not moved to 2.0. */
+const hook14 = '0xb222da5a71e8fb89a5a38b7c920eab5dfbc74b91' as Address;
 
 /** The quote words buyback 1.4 reads from a registry or hook-keyed entry: (amount, minimum, skip). */
 function sentQuote(sent: Hex) {
@@ -373,14 +379,14 @@ function sentQuote(sent: Hex) {
     ? { minimum: words[1]!, skip: words[2] === 1n }
     : { minimum: 0n, skip: false };
 }
-/** Buyback 1.4 as it previews whatever quote it is sent. */
+/** The buyback hook (2.0 by default, 1.4 with `v14`) as it previews whatever quote it is sent. */
 const buyback14 =
   (overrides: Parameters<typeof payHookMetadata>[0] = {}) =>
   (sent: Hex): HookSpec[] => {
     const { minimum, skip } = sentQuote(sent);
     return [
       {
-        hook: buybackHook,
+        hook: overrides.v14 ? hook14 : buybackHook,
         noop: false,
         amount: 100n,
         metadata: payHookMetadata({
@@ -832,7 +838,7 @@ describe('payment quotes and approval plans', () => {
         beneficiaryTokenCount: '0',
         reservedTokenCount: '0',
       },
-      buybackHook: { address: buybackHook, version: '1.4', status: 'current' },
+      buybackHook: { address: buybackHook, version: '2.0', status: 'current' },
       tokenCounts: {
         beneficiaryTokenCount: expect.stringMatching(
           /^A conditional swap figure: the payer's share of the buyback hook's TWAP-derived.*partial fill mints the unswapped remainder/,
@@ -845,7 +851,7 @@ describe('payment quotes and approval plans', () => {
       decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.[4],
     ).toBe(247n);
     expect(plan.warnings.join(' ')).toContain(
-      'Buyback 1.4 unwinds a swap that misses its pro-rated TWAP floor and the whole payment falls back to issuance',
+      'Buyback 2.0 unwinds a swap that misses its pro-rated TWAP floor and the whole payment falls back to issuance',
     );
     expect(plan.warnings.join(' ')).not.toContain('only a total swap failure');
     const plain = (await fixture().service.quotePay(ownPayInput)) as Record<string, unknown>;
@@ -1247,7 +1253,7 @@ describe('payment quotes and approval plans', () => {
         applied: true,
         reason: expect.stringContaining('On by default'),
       },
-      buybackHook: { address: buybackHook, version: '1.4', skipSplits: true },
+      buybackHook: { address: buybackHook, version: '2.0', skipSplits: true },
       tokenCounts: {
         minimumBeneficiaryTokenCount: expect.stringContaining(
           "The hook separately requires prepareUserPay's minimumSwapAmountOut 396",
@@ -1382,24 +1388,22 @@ describe('payment quotes and approval plans', () => {
     const keyed = (skipSplits: boolean, tiers?: UserPayTiers) =>
       buildUserPayMetadata({
         chainId: project.chainId,
-        hook: buybackHook,
+        hook: hook14,
         skipSplits,
         ...(tiers ? { tiers } : {}),
       });
-    const hookId = hookMetadataId(buybackHook, 'pay').slice(2).toLowerCase();
+    const hookId = hookMetadataId(hook14, 'pay').slice(2).toLowerCase();
     // The hook reads only an entry keyed to itself; without one it mints through the split.
     const direct = (options: Parameters<typeof fixture>[0]) =>
       fixture({
         ...options,
         beneficiaryCount: 0n,
-        payHooks: (sent) => buyback14()(sent.toLowerCase().includes(hookId) ? sent : '0x'),
+        payHooks: (sent) =>
+          buyback14({ v14: true })(sent.toLowerCase().includes(hookId) ? sent : '0x'),
         payFill: (sent) =>
           sent.toLowerCase().includes(hookId) && sentQuote(sent).skip ? 300n : 166n,
       });
-    for (const options of [
-      { dataHook: buybackHook },
-      { dataHook: omni, extraDataHook: buybackHook },
-    ]) {
+    for (const options of [{ dataHook: hook14 }, { dataHook: omni, extraDataHook: hook14 }]) {
       const f = direct(options);
       const plan = await f.service.preparePay(payInput);
       expect(
@@ -1409,7 +1413,7 @@ describe('payment quotes and approval plans', () => {
       // mint, which the skipping hook reports, less 2, less 1%.
       expect(plan.summary).toMatchObject({
         skipSplits: { sent: true, applied: true },
-        buybackHook: { address: buybackHook, skipSplits: true },
+        buybackHook: { address: hook14, skipSplits: true },
         minimumBasis: 'prepareUserPay',
         minimumBeneficiaryTokenCount: '162',
       });
@@ -1432,7 +1436,7 @@ describe('payment quotes and approval plans', () => {
       tierIdsToMint: [1n],
       allowOverspending: false,
     };
-    const tiered = await direct({ dataHook: buybackHook }).service.quotePay({ ...payInput, tiers });
+    const tiered = await direct({ dataHook: hook14 }).service.quotePay({ ...payInput, tiers });
     expect(tiered).toMatchObject({
       metadata: keyed(true, tiers),
       skipSplits: { sent: true, applied: true },
