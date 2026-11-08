@@ -674,7 +674,7 @@ describe('721 payment preparation', () => {
     // Indicative beneficiary floor 250 (default minimum 247); the fill falls back to issuance: 101.
     const metadata = encodeAbiParameters(
       parseAbiParameters(
-        'bool,uint256,uint256,bool,address,uint256,uint256,uint256,int24,uint128,bytes32,uint256,uint256,uint256,bool,bool,uint256',
+        'bool,uint256,uint256,bool,address,uint256,uint256,uint256,int24,uint128,bytes32,uint256,uint256,uint256,bool,bool,uint256,bool',
       ),
       [
         false,
@@ -694,6 +694,7 @@ describe('721 payment preparation', () => {
         false,
         false,
         1667n,
+        true,
       ],
     );
     const composed = () =>
@@ -738,7 +739,7 @@ describe('721 payment preparation', () => {
     const spec = (skipSplits: boolean) =>
       encodeAbiParameters(
         parseAbiParameters(
-          'bool,uint256,uint256,bool,address,uint256,uint256,uint256,int24,uint128,bytes32,uint256,uint256,uint256,bool,bool,uint256',
+          'bool,uint256,uint256,bool,address,uint256,uint256,uint256,int24,uint128,bytes32,uint256,uint256,uint256,bool,bool,uint256,bool',
         ),
         [
           false,
@@ -759,6 +760,7 @@ describe('721 payment preparation', () => {
           false,
           skipSplits,
           1667n,
+          true,
         ],
       );
     const sent = buildUserPayMetadata({

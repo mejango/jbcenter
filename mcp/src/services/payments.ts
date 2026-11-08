@@ -125,11 +125,14 @@ const buybackPaySpecParameters = parseAbiParameters(
 // keccak256 0x228c41a61a032067c67e79cba946dd21f9fe5e039307456376318a0a464b485e
 // matches the deployment's compiler metadata. This generation has no skipSplits word.
 const buyback111 = '0x77bee1ad2ac0ace98a9b5b58d75685c8b4d94948' as Address;
-// Buyback 1.4, the rollout catalog's current generation on every chain; its deployed source matches
-// nana-buyback-hook-v6 origin/main da85b70. Only this hook reads the skipSplits pay word, so it is
-// recognized positively: 1.0 (0xc7c8...b566) decodes two words and ignores a third, and 1.1.1 has none.
+// Buyback 1.4 (nana-buyback-hook-v6 da85b70) and 2.0, the rollout catalog's current generation on every
+// chain, read the skipSplits pay word, so they are recognized positively: 1.0 (0xc7c8...b566) decodes two
+// words and ignores a third, and 1.1.1 has none. 2.0's pay spec is 1.4's plus a trailing
+// floorCoversSettlement word.
 const buyback14 = '0xb222da5a71e8fb89a5a38b7c920eab5dfbc74b91' as Address;
+const buyback20 = '0x80717f09461a3fb08364fe8c5259220f7d06e0af' as Address;
 const buybackVersions: Record<string, string> = {
+  [buyback20]: '2.0',
   [buyback14]: '1.4',
   [buyback111]: '1.1.1',
   '0xc7c8334b09e43a38c20b43cf0f824e074280b566': '1.0',
@@ -173,11 +176,11 @@ function payChoice(
     return own('Off: the project has no buyback hook.');
   }
   const version = buybackVersions[buybackHook.toLowerCase()];
-  const is14 = same(buybackHook, buyback14);
+  const is14 = readsSkipSplits(buybackHook);
   if (!is14 && requested)
     throw new DomainError(
       'SKIP_SPLITS_UNSUPPORTED_BUYBACK',
-      `skipSplits needs buyback hook 1.4 (${buyback14}), the only version that reads the skipSplits word. This project uses ${version ? `buyback hook ${version}` : `${buybackHook}, which is not a recognized 1.4 deployment`}. Pay without skipSplits.`,
+      `skipSplits needs buyback hook 2.0 (${buyback20}) or 1.4 (${buyback14}), the only versions that read the skipSplits word. This project uses ${version ? `buyback hook ${version}` : `${buybackHook}, which is not a recognized 2.0 or 1.4 deployment`}. Pay without skipSplits.`,
       { details: { buybackHook, version: version ?? 'unrecognized' } },
     );
   const off = is14
@@ -190,6 +193,11 @@ function payChoice(
 // prepareUserPay's refusal text in nana-sdk-core (v6/pay.ts); the SDK exports no error type for it.
 const SDK_UNREADABLE_SWAP =
   "The project's buyback hook swaps with an unknown specification, so no safe minimum can be set.";
+
+/** Buyback 2.0 or 1.4: the generations that read the skipSplits word. */
+function readsSkipSplits(hook: Address): boolean {
+  return same(hook, buyback20) || same(hook, buyback14);
+}
 
 function same(a: Address, b: Address): boolean {
   return a.toLowerCase() === b.toLowerCase();
@@ -856,7 +864,7 @@ export class PaymentService {
           amount,
           beneficiary: input.beneficiary,
           slippageBps: slippage,
-          ...(same(route.context.buybackHook, buyback14) ? { skipSplits: choice.send } : {}),
+          ...(readsSkipSplits(route.context.buybackHook) ? { skipSplits: choice.send } : {}),
           ...(input.tiers ? { tiers: input.tiers } : {}),
         }).catch((error: unknown) => {
           // Only the SDK's own refusal, a plain Error with its exact text, means an unreadable spec.
@@ -932,7 +940,7 @@ export class PaymentService {
     let reservedTokenCount = preview.reservedTokenCount;
     let quoteBasis: 'terminal-issuance-preview' | 'buyback-hook-indicative-output' =
       'terminal-issuance-preview';
-    let buybackVersion: '1.4' | '1.1.1' | undefined;
+    let buybackVersion: '2.0' | '1.4' | '1.1.1' | undefined;
     let skippedSplits = false;
     // A nonzero minimumSwapAmountOut in the sent metadata: prepareUserPay's pool-quote floor or the
     // caller's own. The hook enforces it on the swap, apart from the terminal's minReturnedTokens.
@@ -964,16 +972,17 @@ export class PaymentService {
           'The pay preview includes an unrecognized active hook. Its final beneficiary output is unknown.',
         );
       const legacy111 = same(context.buybackHook, buyback111);
+      const is20 = same(context.buybackHook, buyback20);
       if (
-        (!legacy111 && !same(context.buybackHook, buyback14)) ||
-        spec.metadata.length !== 2 + (legacy111 ? 15 : 17) * 64
+        (!legacy111 && !readsSkipSplits(context.buybackHook)) ||
+        spec.metadata.length !== 2 + (legacy111 ? 15 : is20 ? 18 : 17) * 64
       )
         unsupported(
           'The selected historical buyback hook uses an unsupported settlement format; its address remains available in the contract catalog.',
         );
       const decoded = legacy111
         ? decodeAbiParameters(buyback111PaySpecParameters, spec.metadata)
-        : decodeAbiParameters(buybackPaySpecParameters, spec.metadata);
+        : decodeAbiParameters(buybackPaySpecParameters, `0x${spec.metadata.slice(2, 2 + 17 * 64)}`);
       const amountToMintWith = decoded[1];
       const previewController = decoded[4];
       const skipSplits = legacy111 ? false : decoded[15];
@@ -993,7 +1002,7 @@ export class PaymentService {
       beneficiaryTokenCount = skipSplits ? decoded[2] : decoded[11];
       reservedTokenCount = skipSplits ? 0n : decoded[12];
       quoteBasis = 'buyback-hook-indicative-output';
-      buybackVersion = legacy111 ? '1.1.1' : '1.4';
+      buybackVersion = legacy111 ? '1.1.1' : is20 ? '2.0' : '1.4';
       if (skipSplits) skippedSplits = true;
       // hasUserSpecifiedQuote: the caller's metadata carried a nonzero minimumSwapAmountOut. The hook
       // then derives no TWAP floor (L1160, L1208) and checks that minimum against swap plus leftover
@@ -1008,10 +1017,10 @@ export class PaymentService {
           ? 'Buyback 1.1.1 checks its oracle-derived minimum against the swap plus any leftover mint and reverts below it; only a total swap failure falls back to issuance. A partial fill mints the unswapped remainder through the reserved split.'
           : `Buyback 1.1.1 checks ${whose} minimumSwapAmountOut ${hookMinimum} against the swap plus any leftover mint and reverts below it, even after a total swap failure; no oracle minimum is derived.`
         : hookMinimum === undefined
-          ? 'Buyback 1.4 unwinds a swap that misses its pro-rated TWAP floor and the whole payment falls back to issuance; a partial fill mints the unswapped remainder through the reserved split. Both deliver less than a full swap.'
-          : `Buyback 1.4 derives no TWAP floor when ${whose} metadata sets minimumSwapAmountOut ${hookMinimum}: it reverts unless the swap plus any leftover mint reaches ${hookMinimum}. That settlement minimum, not the TWAP, protects the swap.`;
+          ? `Buyback ${buybackVersion} unwinds a swap that misses its pro-rated TWAP floor and the whole payment falls back to issuance; a partial fill mints the unswapped remainder through the reserved split. Both deliver less than a full swap.`
+          : `Buyback ${buybackVersion} derives no TWAP floor when ${whose} metadata sets minimumSwapAmountOut ${hookMinimum}: it reverts unless the swap plus any leftover mint reaches ${hookMinimum}. That settlement minimum, not the TWAP, protects the swap.`;
       warnings.push(
-        `Buyback ${legacy111 ? '1.1.1' : '1.4'} output is indicative. ${legacy111 ? '' : 'Buyback 1.4 pay quotes encode three words (amountToSwapWith, minimumSwapAmountOut, skipSplits); two-word quotes revert. '}${hookBehavior} The terminal also reverts if the final beneficiary balance increase is below its reviewed minimum.`,
+        `Buyback ${buybackVersion} output is indicative. ${legacy111 ? '' : `Buyback ${buybackVersion} pay quotes encode three words (amountToSwapWith, minimumSwapAmountOut, skipSplits); two-word quotes revert. `}${hookBehavior} The terminal also reverts if the final beneficiary balance increase is below its reviewed minimum.`,
       );
     }
     if (skippedSplits)
@@ -1043,7 +1052,9 @@ export class PaymentService {
         amount,
         beneficiary: input.beneficiary,
         slippageBps: slippage,
-        ...(buybackVersion === '1.4' ? { skipSplits: skippedSplits } : {}),
+        ...(buybackVersion === '2.0' || buybackVersion === '1.4'
+          ? { skipSplits: skippedSplits }
+          : {}),
         ...(input.tiers ? { tiers: input.tiers } : {}),
       }).then(
         (requoted) => requoted.quoteFailed === true,
@@ -1219,7 +1230,7 @@ export class PaymentService {
             buybackHook: {
               address: context.buybackHook,
               version: buybackVersion,
-              status: buybackVersion === '1.4' ? 'current' : 'retired, still serving this project',
+              status: buybackVersion === '2.0' ? 'current' : 'retired, still serving this project',
               skipSplits: skippedSplits,
             },
           }
