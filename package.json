@@ -33,7 +33,7 @@
     "node": ">=22.16.0"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.9",
+    "@hono/node-server": "^1.19.18",
     "@juicebox/mcp": "file:./mcp",
     "@scure/bip39": "1.6.0",
     "busboy": "^1.6.0",
@@ -42,7 +42,7 @@
     "marked": "18.0.12",
     "multiformats": "^13.4.2",
     "pg": "^8.16.3",
-    "undici": "^6.28.1",
+    "undici": "^6.29.1",
     "viem": "^2.37.6"
   },
   "devDependencies": {
@@ -60,6 +60,6 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.2",
     "vitest": "4.1.11",
-    "zod": "4.5.4"
+    "zod": "4.6.7"
   }
 }
