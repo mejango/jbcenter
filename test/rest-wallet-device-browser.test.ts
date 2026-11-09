@@ -16,7 +16,7 @@ describe("served device pages", () => {
   const possessionDocument = { domain: { name: "Juicebox Center Wallet Device", version: "1", chainId: 8453, verifyingContract: walletAddress as `0x${string}` },
     types: { WalletDevice: [{ name: "purpose", type: "string" }] }, primaryType: "WalletDevice", message: { purpose: "add-device" } } as const;
   const requests: { path: string; body: any }[] = [];
-  let phase = "awaiting_registration", approvals = 0, activations = 0;
+  let phase = "awaiting_registration", approvals = 0, activations = 0, beginFailures = 0;
   const view = () => ({ id: "11111111-1111-4111-8111-111111111111", passkeyName: "Test phone", rpId: "localhost", origin, expiresAtMs: Date.now() + 300_000,
     walletAddress, primarySigner: `0x${"04".repeat(20)}`, deviceSigner: phase === "awaiting_registration" ? null : `0x${"05".repeat(20)}`, phase, transactionHashes: [],
     registration: phase === "awaiting_registration" ? { challenge: encode(Buffer.alloc(32, 13)), userHandle: encode(Buffer.alloc(32, 14)) } : null,
@@ -43,7 +43,7 @@ describe("served device pages", () => {
       if (path === "/wallet/config") return json({ version: "center-wallet-v1", issuer: origin, audience: `${origin}/v1`, rpId: "localhost" });
       if (path === "/wallet/session") return json({ session: session(), csrfToken: csrf });
       if (path === "/wallet/networks") return json({ networks: [{ chainId: 8453, name: "Base", state: "deployed", txHash: null }], offered: [], pending: [] });
-      if (path === "/wallet/devices/begin") return json({ view: view(), link: `${origin}/wallet/add#${link}` });
+      if (path === "/wallet/devices/begin") return beginFailures-- > 0 ? json({ error: { message: "unavailable" } }, 500) : json({ view: view(), link: `${origin}/wallet/add#${link}` });
       if (path === "/wallet/devices/11111111-1111-4111-8111-111111111111") return json({ view: view() });
       if (path === "/wallet/devices/11111111-1111-4111-8111-111111111111/review") return json({ review: { deviceId: "11111111-1111-4111-8111-111111111111" }, document: {}, challenge: `0x${"16".repeat(32)}` });
       if (path === "/wallet/devices/11111111-1111-4111-8111-111111111111/approve") { approvals++; phase = "adding"; setTimeout(() => { phase = "awaiting_activation"; }, 200); return json({ view: view() }); }
@@ -106,4 +106,18 @@ describe("served device pages", () => {
     expect(errors).toEqual([]);
     await other.close(); await account.close();
   }, 60_000);
+
+  it("retries the action that failed, not the page load", async () => {
+    phase = "awaiting_registration"; beginFailures = 1; requests.length = 0;
+    const account = await browser.newContext(), accountPage = await account.newPage();
+    await withAuthenticator(account, accountPage, true);
+    await accountPage.goto(`${origin}/wallet`);
+    await expect.poll(() => accountPage.locator("#wallet-device-add").isVisible()).toBe(true);
+    await accountPage.locator("#wallet-device-add").click();
+    await expect.poll(() => accountPage.locator("#wallet-retry").isVisible()).toBe(true);
+    await accountPage.locator("#wallet-retry").click();
+    await expect.poll(() => accountPage.locator("#wallet-device-link").getAttribute("href")).toBe(`${origin}/wallet/add#${link}`);
+    expect(requests.filter(item => item.path === "/wallet/devices/begin")).toHaveLength(2);
+    await account.close();
+  });
 });
