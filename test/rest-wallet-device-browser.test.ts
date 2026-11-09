@@ -17,6 +17,7 @@ describe("served device pages", () => {
     types: { WalletDevice: [{ name: "purpose", type: "string" }] }, primaryType: "WalletDevice", message: { purpose: "add-device" } } as const;
   const requests: { path: string; body: any }[] = [];
   let phase = "awaiting_registration", approvals = 0, activations = 0, beginFailures = 0, lostApprovals = 0, networksPending = false, quotes = 0;
+  let networksApprovals = 0, unfundedApproval = false;
   const view = () => ({ id: "11111111-1111-4111-8111-111111111111", passkeyName: "Test phone", rpId: "localhost", origin, expiresAtMs: Date.now() + 300_000,
     walletAddress, primarySigner: `0x${"04".repeat(20)}`, deviceSigner: phase === "awaiting_registration" ? null : `0x${"05".repeat(20)}`, phase, transactionHashes: [],
     registration: phase === "awaiting_registration" ? { challenge: encode(Buffer.alloc(32, 13)), userHandle: encode(Buffer.alloc(32, 14)) } : null,
@@ -49,7 +50,10 @@ describe("served device pages", () => {
       if (path === "/wallet/networks/quote") { quotes++; return networksPending ? json({ error: { message: "pending" } }, 409)
         : json({ view: networks(), bundle: { id: "33333333-3333-4333-8333-333333333333" }, challenge: `0x${"17".repeat(32)}` }); }
       if (path === "/wallet/networks/approve") {
-        networksPending = true;
+        // The first approval either fails before funding or is accepted with its answer cut; a replay of it answers with the deployment.
+        if (networksApprovals++ === 0 && unfundedApproval) return json({ error: { code: "WALLET_NETWORKS_UNFUNDED", message: "short" } }, 503);
+        const replay = networksPending; networksPending = true;
+        if (replay || unfundedApproval) return json({ bundle: { id: "33333333-3333-4333-8333-333333333333", state: "paying" }, replayed: replay, view: networks() });
         response.writeHead(200, { "content-type": "application/json", "content-length": "4096" }); response.write('{"view":', () => response.destroy()); return;
       }
       if (path === "/wallet/devices/begin") return beginFailures-- > 0 ? json({ error: { message: "unavailable" } }, 500) : json({ view: view(), link: `${origin}/wallet/add#${link}` });
@@ -139,7 +143,7 @@ describe("served device pages", () => {
   });
 
   it("after a networks approval whose answer was lost, Retry reads the deployment instead of quoting again", async () => {
-    networksPending = false; quotes = 0; requests.length = 0;
+    networksPending = false; quotes = 0; networksApprovals = 0; unfundedApproval = false; requests.length = 0;
     const account = await browser.newContext(), accountPage = await account.newPage();
     await withAuthenticator(account, accountPage, true);
     try {
@@ -171,5 +175,25 @@ describe("served device pages", () => {
     expect(approvals).toBe(1);
     expect(requests.filter(item => item.path.endsWith("/review"))).toHaveLength(1);
     await account.close();
+  }, 30_000);
+
+  it("after a networks approval that failed before funding, Retry sends the same approval instead of dropping the network", async () => {
+    networksPending = false; quotes = 0; networksApprovals = 0; unfundedApproval = true; requests.length = 0;
+    const account = await browser.newContext(), accountPage = await account.newPage();
+    await withAuthenticator(account, accountPage, true);
+    try {
+      await accountPage.goto(`${origin}/wallet`);
+      await expect.poll(() => accountPage.locator("#wallet-networks-add").isVisible()).toBe(true);
+      await accountPage.locator("#wallet-networks-add").click();
+      await accountPage.locator("#wallet-networks-choices input[value='10']").check();
+      await accountPage.locator("#wallet-networks-deploy").click();
+      await expect.poll(() => accountPage.locator("#wallet-retry").isVisible(), { timeout: 10_000 }).toBe(true);
+      await accountPage.locator("#wallet-retry").click();
+      await expect.poll(() => accountPage.locator("#wallet-status").textContent()).toContain("Deploying on Optimism");
+      const sent = requests.filter(item => item.path === "/wallet/networks/approve");
+      expect(quotes).toBe(1);
+      expect(sent).toHaveLength(2);
+      expect(sent[1]!.body).toEqual(sent[0]!.body);
+    } finally { await account.close(); networksPending = false; unfundedApproval = false; }
   }, 30_000);
 });
