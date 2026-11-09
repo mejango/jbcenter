@@ -37,6 +37,8 @@ const intentView = () => { if (!intentReturn) throw new Error('Return to the ori
 let loggingIn = false;
 let pending: { path: string; body: unknown; csrf: string } | null = null;
 let disposed = false, pollCount = 0;
+/** The background poll stops after 150 reads; the check then stands in for it. */
+const pollStopped = () => polling() && pollCount >= 150;
 let recoverySecret: WalletRecoverySecret | null = null, kitSavedWallet: string | null = null;
 const downloadUrls = new Set<string>();
 // The choice outlives the form: a resumed signup reads it back by enrollment.
@@ -179,8 +181,8 @@ function render() {
   // "log in" resumes with a passkey; a finished wallet lands at sign-in. Once the state is known (or its load failed),
   // it stays offered unless a signup with a passkey is under way, so a returning user is never without a way in.
   resume.hidden = !known || loggingIn || (!!view && view.phase !== 'expired' && view.phase !== 'awaiting_registration');
-  // "Check signup" only matters for a lost reply; creation and login preparation are pushed.
-  check.hidden = stranded || !pending; check.disabled = engaged;
+  // "Check signup" only matters for a lost reply or a stopped poll; creation and login preparation are pushed.
+  check.hidden = stranded || (!pending && !pollStopped()); check.disabled = engaged;
   // One filled button per page: the check is the primary only when it stands alone.
   check.classList.toggle('link', !form.hidden); check.classList.toggle('secondary', form.hidden && !next.hidden);
   cancel.hidden = !native;
@@ -476,7 +478,7 @@ function stream() {
 }
 const timer = setInterval(() => {
   stream();
-  if (busy || pending || !polling() || document.hidden || !navigator.onLine || pollCount >= 150) return;
+  if (busy || pending || !polling() || document.hidden || !navigator.onLine || pollStopped()) return;
   const interval = source && live() ? 10000 : 2000;
   if (Date.now() - lastPoll < interval) return;
   lastPoll = Date.now(); pollCount++; void run(observe, true);
