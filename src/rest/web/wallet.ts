@@ -1,6 +1,7 @@
 import { base } from './walletBase.js';
 import { qrSvg } from "./qr.js";
 import { checkedRedirect, framed, listenForTheme } from "./walletFramed.js";
+import type { WalletDevicePhase } from "../wallet/deviceService.js";
 /** No credentials, assertions, CSRF values or handoff codes are persisted by this page. */
 type Json = Record<string, unknown>;
 type Configuration = { issuer: string; audience: string; rpId: string };
@@ -18,7 +19,7 @@ const networksList = element("wallet-networks"), networksAdd = element<HTMLButto
 let networksView: NetworksView | null = null, networksQuote: { bundleId: string; challenge: string } | null = null, networksTimer: ReturnType<typeof setInterval> | null = null, networksOpen = false, networksPolls = 0;
 const destination = element("wallet-destination");
 // Adding a device: begin here, show the other device its link, approve with this passkey once it has proved its own.
-type DeviceView = { id: string; phase: string; passkeyName: string | null; deviceSigner: string | null; expiresAtMs: number; transactionHashes: string[] };
+type DeviceView = { id: string; phase: WalletDevicePhase; passkeyName: string | null; deviceSigner: string | null; expiresAtMs: number; transactionHashes: string[] };
 const deviceAdd = element<HTMLButtonElement>("wallet-device-add"), devicePanel = element("wallet-device"), deviceApprove = element<HTMLButtonElement>("wallet-device-approve");
 let device: { view: DeviceView; link: string } | null = null, deviceTimer: ReturnType<typeof setInterval> | null = null;
 const signIn = element<HTMLButtonElement>("wallet-signin"), retry = element<HTMLButtonElement>("wallet-retry");
@@ -439,9 +440,11 @@ if (networksAdd && networksForm) {
 }
 // The last hex characters of the new device's signer show on both pages, so a swapped device is visible before approval.
 // The mark spins only while the service works (adding, finishing); waiting on a person does not spin.
-const deviceWorking = (phase: string) => phase === "adding" || phase === "awaiting_activation";
+const deviceWorking = (phase: WalletDevicePhase) => phase === "adding" || phase === "awaiting_activation";
+// The panel reads the device only while the other device or the service is moving it on; waiting on this person, or an end, needs no reads.
+const devicePolled = (phase: WalletDevicePhase) => phase === "awaiting_registration" || phase === "awaiting_possession" || deviceWorking(phase);
 const deviceTag = (signer: string | null) => typeof signer === "string" && /^0x[0-9a-fA-F]{40}$/.test(signer) ? signer.slice(-6).toUpperCase() : "";
-function deviceText(phase: string, signer: string | null = device?.view.deviceSigner ?? null) {
+function deviceText(phase: WalletDevicePhase, signer: string | null = device?.view.deviceSigner ?? null) {
   return phase === "awaiting_registration" || phase === "awaiting_possession" ? "Waiting for the other device to create its passkey…"
     : phase === "awaiting_approval" ? `The other device is ready. Approve it with your passkey if it shows ${deviceTag(signer)}.` : phase === "adding" ? "Adding the device to your account…"
     : phase === "awaiting_activation" ? "Finishing…" : phase === "ready" ? "The device is added. Sign in again on this device to continue."
@@ -464,7 +467,8 @@ function renderDevice() {
   deviceCancel.hidden = false; deviceCancel.textContent = phase === "ready" || phase === "expired" || phase === "addition_failed" ? "Close" : "Cancel";
   // One dark button on the page: while the approval is the action, Retry is a text button beside Cancel.
   retry.classList.toggle("link", !deviceApprove.hidden);
-  if (!deviceTimer && ["awaiting_registration", "awaiting_possession", "adding", "awaiting_activation"].includes(phase)) deviceTimer = setInterval(() => {
+  if (!devicePolled(phase) && deviceTimer) { clearInterval(deviceTimer); deviceTimer = null; }
+  if (devicePolled(phase) && !deviceTimer) deviceTimer = setInterval(() => {
     if (busy || document.hidden || !navigator.onLine) return;
     devicePoll().catch(() => { /* The next poll reads again. */ });
   }, 3000);
