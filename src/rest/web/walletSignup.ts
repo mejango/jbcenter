@@ -4,6 +4,8 @@ import { base } from './walletBase.js';
 import { checkedRedirect, framed, listenForTheme } from './walletFramed.js';
 import type { WalletRecoveryKitIdentity, WalletRecoverySecret } from './walletRecoveryKit.js';
 import { loadRecoveryKit as loadKit, loadedRecoveryKit, preloadRecoveryKit } from './walletRecoveryKitLoader.js';
+import { assertion as passkeyAssertion, busy, ceremony, disposed, encode, engaged, message, native, prompt, run, spin, waiting } from './ceremony.js';
+import { nativePasskeyError } from './walletPasskeyError.js';
 /** A backup secret only exists once the kit made or read it, so the kit is loaded by the time a backup is saved. */
 const loadedKit = () => { const kit = loadedRecoveryKit(); if (!kit) throw new Error('Your backup is still loading. Try again.'); return kit; };
 
@@ -24,7 +26,7 @@ function announce(title: string, text: string) {
     explain.returnValue = ''; explain.showModal();
   });
 }
-let view: View | null = null, known = false, busy = false, csrf = '', native: AbortController | null = null;
+let view: View | null = null, known = false, csrf = '';
 // Inside an admitted app's frame the signup is the app's intent's: no cookie reaches a cross-site frame, so the
 // flow token rides in every request body and each request is admitted by the intent behind the framed launch.
 // The account made here is the same account; at the end the app gets its code and the frame returns to it.
@@ -36,7 +38,7 @@ const intentView = () => { if (!intentReturn) throw new Error('Return to the ori
 // A log-in in progress is the whole page; the signup form waits until it fails.
 let loggingIn = false;
 let pending: { path: string; body: unknown; csrf: string } | null = null;
-let disposed = false, pollCount = 0;
+let pollCount = 0;
 /** The background poll stops after 150 reads; the check then stands in for it. */
 const pollStopped = () => polling() && pollCount >= 150;
 let recoverySecret: WalletRecoverySecret | null = null, kitSavedWallet: string | null = null;
@@ -74,8 +76,19 @@ const steps: Record<View['phase'], string> = {
 // While work is in flight the status line's mark spins (Croptop's text ticker) instead of showing the lightning.
 // A native prompt waiting on the user is not work in flight, so the mark holds still for it.
 const polling = () => view?.phase === 'deploying' || view?.phase === 'preparing_sign_in';
-const waiting = () => (busy && !native) || polling();
-function message(value: string, error = false) { status.textContent = value; status.dataset.state = error ? 'error' : waiting() ? 'busy' : 'ready'; }
+ceremony(status, polling, render, async (error, prompt) => {
+  known = true; // Whatever failed, the page stops waiting and offers its ways in.
+  if (error instanceof HttpFailure && error.status >= 400 && error.status < 500) {
+    pending = null;
+    try { accept(await request('state')); } catch { /* Resume with a fresh proof if the cookie is no longer valid. */ }
+  }
+  // A browser (or a framing app) that does not let a passkey be made inside another app's page.
+  if (error instanceof DOMException && prompt && !prompt.signal.aborted && inFrame() && error.name === 'NotAllowedError' && view?.phase === 'awaiting_registration')
+    return { message: 'This browser will not create a passkey inside another app. Open Fullscreen below to sign up on a page of its own.', state: 'error' };
+  if (error instanceof DOMException && prompt) return nativePasskeyError(error, prompt.signal.aborted);
+  return { message: error instanceof DOMException && error.name === 'AbortError' ? 'The account service took too long to answer. Try again.'
+    : error instanceof Error ? error.message : 'Signup is unavailable. Check the original signup again.', state: 'error' };
+});
 /** The first word links to the creation transaction on Basescan when the signup has one. */
 function messageLinked(word: string, rest: string) {
   const hash = view?.transactionHash;
@@ -83,8 +96,6 @@ function messageLinked(word: string, rest: string) {
   const link = document.createElement('a'); link.href = 'https://basescan.org/tx/' + hash; link.target = '_blank'; link.rel = 'noopener'; link.textContent = word;
   status.replaceChildren(link, document.createTextNode(rest)); status.dataset.state = waiting() ? 'busy' : 'ready';
 }
-function spin() { if (waiting()) { if (status.dataset.state !== 'error') status.dataset.state = 'busy'; } else if (status.dataset.state === 'busy') status.dataset.state = 'ready'; }
-function encode(value: ArrayBuffer) { return btoa(String.fromCharCode(...new Uint8Array(value))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', ''); }
 function decode(value: string): Uint8Array<ArrayBuffer> {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,4096}$/.test(value)) throw new Error('Invalid passkey challenge.');
   const bytes = Uint8Array.from(atob(value.replaceAll('-', '+').replaceAll('_', '/')), char => char.charCodeAt(0));
@@ -203,31 +214,6 @@ async function observe() {
   if (pending) { const saved = pending; await send(saved.path, saved.body, saved.csrf); }
   else accept(await request('state', inFrame() ? {} : undefined));
 }
-// A background poll (`quiet`) guards re-entrancy like any run but never dims the controls: the
-// person is not waiting on a button, so nothing should flash every couple of seconds.
-let engaged = false;
-async function run(action: () => Promise<void>, quiet = false) {
-  if (busy || disposed) return;
-  busy = true; engaged = !quiet; render();
-  try { await action(); }
-  catch (error) {
-    known = true; // Whatever failed, the page stops waiting and offers its ways in.
-    if (error instanceof HttpFailure && error.status >= 400 && error.status < 500) {
-      pending = null;
-      try { accept(await request('state')); } catch { /* Resume with a fresh proof if the cookie is no longer valid. */ }
-    }
-    message(error instanceof DOMException && native && (error.name === 'AbortError' || (error.name === 'NotAllowedError' && native.signal.aborted))
-      ? 'Passkey prompt cancelled. You can try again.'
-      // A browser (or a framing app) that does not let a passkey be made inside another app's page.
-      : error instanceof DOMException && native && inFrame() && error.name === 'NotAllowedError' && view?.phase === 'awaiting_registration'
-      ? 'This browser will not create a passkey inside another app. Open Fullscreen below to sign up on a page of its own.'
-      : error instanceof DOMException && native
-      ? `The passkey prompt did not complete (${error.name}${error.message ? ': ' + error.message : ''}). If your passkey manager just saved this passkey, wait a moment and try again.`
-      : error instanceof DOMException && error.name === 'AbortError'
-      ? 'The account service took too long to answer. Try again.'
-      : error instanceof Error ? error.message : 'Signup is unavailable. Check the original signup again.', true);
-  } finally { native = null; busy = false; engaged = false; if (!disposed) render(); }
-}
 function provider(): Ethereum {
   const value = (window as unknown as { ethereum?: Ethereum }).ethereum;
   if (!value?.request) throw new Error('Open this page with your recovery wallet browser extension available.');
@@ -239,17 +225,7 @@ async function recoveryOwner(expected?: Address) {
     throw new Error('Select the original recovery wallet before continuing.');
   return getAddress(accounts[0]);
 }
-/** Discoverable on purpose: Center pins the expected passkey when it verifies; an allow list only lets
- * iOS refuse a passkey it cannot preselect. */
-async function assertion(challenge: string, rpId: string) {
-  if (rpId !== location.hostname || !window.isSecureContext) throw new Error('Open the original secure wallet page.');
-  native = new AbortController(); render();
-  const value = await navigator.credentials.get({ publicKey: { rpId, challenge: hexBytes(challenge), userVerification: 'required', timeout: 90000 }, signal: native.signal });
-  if (!(value instanceof PublicKeyCredential) || !(value.response instanceof AuthenticatorAssertionResponse)) throw new Error('The passkey response is unavailable.');
-  const response = value.response; native = null;
-  return { credentialId: encode(value.rawId), userHandle: response.userHandle ? encode(response.userHandle) : null,
-    authenticatorData: encode(response.authenticatorData), clientDataJSON: encode(response.clientDataJSON), signature: encode(response.signature) };
-}
+const assertion = (challenge: string, rpId: string) => passkeyAssertion(hexBytes(challenge), rpId);
 async function advance() {
   if (!view) return;
   if (['awaiting_possession', 'awaiting_deployment_approval', 'awaiting_activation'].includes(view.phase)) {
@@ -262,14 +238,14 @@ async function advance() {
     if (inFrame()) { view = null; flowToken = ''; } else await send('restart', {});
     csrf = '';
   } else if (view.phase === 'awaiting_registration' && view.registration) {
-    message('Create the passkey in the prompt.'); native = new AbortController(); render();
-    const value = await navigator.credentials.create({ publicKey: { rp: { id: view.rpId, name: 'Juicebox' },
+    message('Create the passkey in the prompt.');
+    const publicKey: PublicKeyCredentialCreationOptions = { rp: { id: view.rpId, name: 'Juicebox' },
       user: { id: decode(view.registration.userHandle), name: view.passkeyName, displayName: view.passkeyName },
       challenge: decode(view.registration.challenge), pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
       authenticatorSelection: { residentKey: 'required', requireResidentKey: true, userVerification: 'required' },
-      attestation: 'none', timeout: 90000 }, signal: native.signal });
+      attestation: 'none', timeout: 90000 };
+    const value = await prompt(signal => navigator.credentials.create({ publicKey, signal }));
     if (!(value instanceof PublicKeyCredential) || !(value.response instanceof AuthenticatorAttestationResponse)) throw new Error('The passkey response is unavailable.');
-    native = null;
     await send('register', { type: 'public-key', credentialId: encode(value.rawId), rawId: encode(value.rawId),
       clientDataJSON: encode(value.response.clientDataJSON), attestationObject: encode(value.response.attestationObject) });
     // Existing-wallet signup keeps its single approval prompt. Kit users first save the
@@ -484,7 +460,7 @@ const timer = setInterval(() => {
   lastPoll = Date.now(); pollCount++; void run(observe, true);
 }, 2000);
 window.addEventListener('pagehide', () => {
-  disposed = true; native?.abort(); clearInterval(timer); source?.close(); recoverySecret = null;
+  clearInterval(timer); source?.close(); recoverySecret = null;
   el<HTMLInputElement>('recovery-phrase').value = '';
   el<HTMLTextAreaElement>('recovery-words').value = ''; el<HTMLInputElement>('recovery-file').value = '';
   for (const url of downloadUrls) URL.revokeObjectURL(url); downloadUrls.clear();

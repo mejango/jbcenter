@@ -1,6 +1,8 @@
 import { base } from './walletBase.js';
 import { getAddress, hashTypedData, isAddress, type TypedDataDefinition } from 'viem';
 import type { WalletDeviceView } from '../wallet/deviceService.js';
+import { assertion, busy, ceremony, disposed, encode, message, native, prompt, run, waiting } from './ceremony.js';
+import { nativePasskeyError } from './walletPasskeyError.js';
 
 /** The second device: registers its own passkey, proves it, waits for the other device's approval
  * and the owner addition, then finishes. The link token lives in the URL fragment for this tab. */
@@ -12,14 +14,14 @@ const steps: Record<WalletDeviceView['phase'], string> = {
   awaiting_approval: 'Approve this device from the device you started on. It shows this device as TAG.', adding: 'Adding this device to your account…',
   addition_failed: 'Adding the device did not complete. Start again from your account.', awaiting_activation: 'Finishing…',
   ready: 'This device is added.', expired: 'This link expired. Start again from your account.' };
-let view: WalletDeviceView | null = null, busy = false, native: AbortController | null = null, disposed = false;
+let view: WalletDeviceView | null = null;
 const linkToken = (() => { const value = location.hash.slice(1); return /^[A-Za-z0-9_-]{43}$/.test(value) ? value : null; })();
 const polling = () => view?.phase === 'awaiting_approval' || view?.phase === 'adding' || view?.phase === 'awaiting_activation';
 // The mark spins only while the service works; waiting for the other device's approval is not work in flight.
-const waiting = () => (busy && !native) || view?.phase === 'adding' || view?.phase === 'awaiting_activation';
-function message(value: string, error = false) { status.textContent = value; status.dataset.state = error ? 'error' : waiting() ? 'busy' : 'ready'; }
+ceremony(status, () => view?.phase === 'adding' || view?.phase === 'awaiting_activation', render,
+  (error, prompt) => error instanceof DOMException && prompt ? nativePasskeyError(error, prompt.signal.aborted)
+    : { message: error instanceof Error ? error.message : 'Adding the device is unavailable. Check again.', state: 'error' });
 function invalid(): never { throw new Error('The device link changed. Start again from your account.'); }
-const encode = (value: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(value))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 function decode(value: string): Uint8Array<ArrayBuffer> {
   if (!/^[A-Za-z0-9_-]{1,4096}$/.test(value)) invalid();
   const bytes = Uint8Array.from(atob(value.replaceAll('-', '+').replaceAll('_', '/')), char => char.charCodeAt(0));
@@ -50,40 +52,20 @@ function render() {
   cancel.hidden = !native; signIn.hidden = phase !== 'ready';
   if (waiting() && status.dataset.state !== 'error') status.dataset.state = 'busy';
 }
-async function run(action: () => Promise<void>) {
-  if (busy || disposed) return;
-  busy = true; render();
-  try { await action(); }
-  catch (error) {
-    message(error instanceof DOMException && native && (error.name === 'AbortError' || (error.name === 'NotAllowedError' && native.signal.aborted)) ? 'Passkey prompt cancelled. You can try again.'
-      : error instanceof DOMException && native ? `The passkey prompt did not complete (${error.name}${error.message ? ': ' + error.message : ''}). If your passkey manager just saved this passkey, wait a moment and try again.`
-      : error instanceof Error ? error.message : 'Adding the device is unavailable. Check again.', true);
-  } finally { native = null; busy = false; if (!disposed) render(); }
-}
-async function assertion(challenge: string, rpId: string) {
-  if (rpId !== location.hostname || !window.isSecureContext) throw new Error('Open the original secure account page.');
-  native = new AbortController(); render();
-  // Discoverable on purpose: Center pins the expected passkey when it verifies.
-  const value = await navigator.credentials.get({ publicKey: { rpId, challenge: challengeBytes(challenge), userVerification: 'required', timeout: 90000 }, signal: native.signal });
-  if (!(value instanceof PublicKeyCredential) || !(value.response instanceof AuthenticatorAssertionResponse)) throw new Error('The passkey response is unavailable.');
-  const response = value.response; native = null;
-  return { credentialId: encode(value.rawId), userHandle: response.userHandle ? encode(response.userHandle) : null,
-    authenticatorData: encode(response.authenticatorData), clientDataJSON: encode(response.clientDataJSON), signature: encode(response.signature) };
-}
 async function advance() {
   if (!view) return;
   if (view.phase === 'awaiting_registration' && view.registration) {
-    message('Create the passkey in the prompt.'); native = new AbortController(); render();
+    message('Create the passkey in the prompt.');
     // A name that tells passkeys apart later, like the signup's: the site, then when it was made here.
     const now = new Date(), passkeyName = view.passkeyName
       ?? `${location.hostname} ${now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} ${now.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`;
-    const value = await navigator.credentials.create({ publicKey: { rp: { id: view.rpId, name: 'Juicebox' },
+    const publicKey: PublicKeyCredentialCreationOptions = { rp: { id: view.rpId, name: 'Juicebox' },
       user: { id: decode(view.registration.userHandle), name: passkeyName, displayName: passkeyName },
       challenge: decode(view.registration.challenge), pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
       authenticatorSelection: { residentKey: 'required', requireResidentKey: true, userVerification: 'required' },
-      attestation: 'none', timeout: 90000 }, signal: native.signal });
+      attestation: 'none', timeout: 90000 };
+    const value = await prompt(signal => navigator.credentials.create({ publicKey, signal }));
     if (!(value instanceof PublicKeyCredential) || !(value.response instanceof AuthenticatorAttestationResponse)) throw new Error('The passkey response is unavailable.');
-    native = null;
     accept(await request('register', { type: 'public-key', credentialId: encode(value.rawId), rawId: encode(value.rawId),
       clientDataJSON: encode(value.response.clientDataJSON), attestationObject: encode(value.response.attestationObject), passkeyName }));
     if ((view as WalletDeviceView | null)?.phase === 'awaiting_possession') await advance();
@@ -91,7 +73,7 @@ async function advance() {
     const document = view.possession.document as unknown as TypedDataDefinition;
     if (hashTypedData(document) !== view.possession.challenge) invalid();
     message('Confirm the new passkey in the prompt.');
-    const proved = await request('prove', { assertion: await assertion(view.possession.challenge, view.rpId) });
+    const proved = await request('prove', { assertion: await assertion(challengeBytes(view.possession.challenge), view.rpId) });
     accept(proved); if (typeof proved.sessionClaim === 'string') sessionClaim = proved.sessionClaim;
   } else if (view.phase === 'awaiting_activation') {
     accept(await request('activate', {}));
@@ -123,7 +105,6 @@ async function poll() {
 next.addEventListener('click', () => void run(advance));
 cancel.addEventListener('click', () => native?.abort());
 setInterval(() => void poll(), 3000);
-window.addEventListener('pagehide', () => { disposed = true; });
 void run(async () => {
   if (!linkToken) throw new Error('Open this page from the link your account showed.');
   accept(await request('state', {}));
