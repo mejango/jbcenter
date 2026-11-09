@@ -16,7 +16,7 @@ const status = element("wallet-status"), account = element("wallet-account"), ad
 type NetworksView = { networks: { chainId: number; name: string; state: string; txHash: string | null }[];
   offered: { chainId: number; name: string; family: string; centerPays: boolean }[]; pending: { id: string; state: string; chainIds: number[] }[] };
 const networksList = element("wallet-networks"), networksAdd = element<HTMLButtonElement>("wallet-networks-add"), networksForm = element<HTMLFormElement>("wallet-networks-form");
-let networksView: NetworksView | null = null, networksQuote: { bundleId: string; challenge: string } | null = null, networksTimer: ReturnType<typeof setInterval> | null = null, networksOpen = false, networksPolls = 0;
+let networksView: NetworksView | null = null, networksTimer: ReturnType<typeof setInterval> | null = null, networksOpen = false, networksPolls = 0;
 const destination = element("wallet-destination");
 // Adding a device: begin here, show the other device its link, approve with this passkey once it has proved its own.
 type DeviceView = { id: string; phase: WalletDevicePhase; passkeyName: string | null; deviceSigner: string | null; expiresAtMs: number; transactionHashes: string[] };
@@ -361,7 +361,7 @@ function renderNetworks() {
     if (busy || document.hidden || !navigator.onLine || networksPolls++ > 200) return;
     networksStatus().catch(() => { /* The next poll reads again. */ });
   }, 3000);
-  if (view && !view.pending.length && networksTimer) { clearInterval(networksTimer); networksTimer = null; networksPolls = 0; }
+  if (!view?.pending.length && networksTimer) { clearInterval(networksTimer); networksTimer = null; networksPolls = 0; }
 }
 function chosenFamily(): string {
   return (networksForm?.querySelector<HTMLInputElement>("input[name=family]:checked")?.value) ?? "mainnet";
@@ -380,7 +380,7 @@ function renderChoices() {
 function openNetworks() {
   if (!networksView) return;
   renderChoices();
-  networksQuote = null; networksOpen = true; render();
+  networksOpen = true; render();
 }
 function chosenChains(): number[] {
   return [...element("wallet-networks-choices").querySelectorAll<HTMLInputElement>("input:checked")].map(input => Number(input.value));
@@ -403,9 +403,9 @@ async function networksDeploy() {
   setStatus("checking", "Preparing the deployments…");
   const quoted = record(await request(`${base}/networks/quote`, { chainIds }, csrf, 60_000));
   networksView = networkView(quoted.view as Json);
-  if (quoted.bundle === null) { networksOpen = false; networksQuote = null; setStatus("ready", "Your account is already on those networks."); return; }
+  if (quoted.bundle === null) { networksOpen = false; setStatus("ready", "Your account is already on those networks."); return; }
   const bundle = record(quoted.bundle);
-  networksQuote = { bundleId: string(bundle.id, 36), challenge: string(quoted.challenge, 66) };
+  const networksQuote = { bundleId: string(bundle.id, 36), challenge: string(quoted.challenge, 66) };
   if (!configuration) throw new InvalidResponse();
   const challenge = networksQuote.challenge; if (!/^0x[0-9a-fA-F]{64}$/.test(challenge)) throw new InvalidResponse();
   // Only the account's passkey can approve, so the prompt offers that one instead of every passkey for the site.
@@ -418,7 +418,7 @@ async function networksDeploy() {
   const result = record(await request(`${base}/networks/approve`, { bundleId: networksQuote.bundleId, assertion: { credentialId: encode(credential.rawId),
     userHandle: response.userHandle ? encode(response.userHandle) : null, authenticatorData: encode(response.authenticatorData),
     clientDataJSON: encode(response.clientDataJSON), signature: encode(response.signature) } }, csrf, 60_000));
-  networksView = networkView(result.view as Json); networksQuote = null; networksOpen = false;
+  networksView = networkView(result.view as Json); networksOpen = false;
   setStatus("checking", deployingText());
 }
 function deployingText() {
@@ -435,8 +435,8 @@ async function networksStatus() {
 if (networksAdd && networksForm) {
   networksAdd.addEventListener("click", () => openNetworks());
   networksForm.addEventListener("submit", event => { event.preventDefault(); void run(networksDeploy); });
-  for (const radio of networksForm.querySelectorAll<HTMLInputElement>("input[name=family]")) radio.addEventListener("change", () => { networksQuote = null; renderChoices(); render(); });
-  element("wallet-networks-cancel").addEventListener("click", () => { networksOpen = false; networksQuote = null; render(); });
+  for (const radio of networksForm.querySelectorAll<HTMLInputElement>("input[name=family]")) radio.addEventListener("change", () => { renderChoices(); render(); });
+  element("wallet-networks-cancel").addEventListener("click", () => { networksOpen = false; render(); });
 }
 // The last hex characters of the new device's signer show on both pages, so a swapped device is visible before approval.
 // The mark spins only while the service works (adding, finishing); waiting on a person does not spin.
