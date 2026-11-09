@@ -153,4 +153,43 @@ describe("served Center signup page", () => {
       await expect.poll(() => reads).toBe(stopped + 2);
     } finally { await context.close(); }
   }, 60_000);
+  it("logs in through a 503 and recovers a completion whose reply was lost, with one passkey prompt", async () => {
+    const context = await browser.newContext(), signup = await context.newPage();
+    try {
+      const cdp = await context.newCDPSession(signup); await cdp.send("WebAuthn.enable");
+      await cdp.send("WebAuthn.addVirtualAuthenticator", { options: { protocol: "ctap2", ctap2Version: "ctap2_1", transport: "internal",
+        hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
+      await signup.addInitScript(() => {
+        const original = navigator.credentials.get.bind(navigator.credentials);
+        (window as any).prompts = 0; navigator.credentials.get = options => { (window as any).prompts++; return original(options); };
+      });
+      const b64 = (fill: number) => Buffer.alloc(32, fill).toString("base64url"), loginId = "33333333-3333-4333-8333-333333333333";
+      let begins = 0, completions = 0, installed = false, sessionReads = 0;
+      await signup.route("**/wallet/login/begin", route => { begins++; return route.fulfill({ status: 201, json: { loginId, csrfToken: b64(7),
+        expiresAtMs: Date.now() + 180_000, publicKey: { rpId: "localhost", challenge: b64(9), userVerification: "required", timeout: 90_000 } } }); });
+      await signup.route("**/wallet/login/complete", route => {
+        completions++;
+        if (completions === 1) return route.fulfill({ status: 503, json: { error: { message: "checking" } } });
+        // The service accepts and installs the session, but the reply never reaches the page.
+        if (completions === 2) { installed = true; return route.abort("failed"); }
+        return route.fulfill({ status: 500, json: {} });
+      });
+      await signup.route("**/wallet/session", route => { sessionReads++; return route.fulfill({ json: installed
+        ? { session: { loginId, accountId: "eip155:8453:0x" + "02".repeat(20) }, csrfToken: b64(8) } : { session: null } }); });
+      await signup.goto(`${origin}/wallet`);
+      await expect.poll(() => signup.locator("#signup-resume").isVisible()).toBe(true);
+      await signup.evaluate(async () => {
+        await navigator.credentials.create({ publicKey: { rp: { id: "localhost", name: "Fixture" }, user: { id: new Uint8Array(16).fill(4), name: "Fixture", displayName: "Fixture" },
+          challenge: new Uint8Array(32), pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+          authenticatorSelection: { residentKey: "required", userVerification: "required" }, attestation: "none" } });
+      });
+      await signup.locator("#signup-resume").click();
+      await expect.poll(() => completions, { timeout: 10_000 }).toBe(2);
+      await expect.poll(() => signup.locator("#signup-resume").isVisible()).toBe(true);
+      const left = signup.waitForRequest(request => request.isNavigationRequest());
+      await signup.locator("#signup-resume").click();
+      await left;
+      expect({ begins, completions, sessionReads }).toEqual({ begins: 1, completions: 2, sessionReads: 1 });
+    } finally { await context.close(); }
+  }, 30_000);
 });

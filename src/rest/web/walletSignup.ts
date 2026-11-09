@@ -6,6 +6,7 @@ import type { WalletRecoveryKitIdentity, WalletRecoverySecret } from './walletRe
 import { loadRecoveryKit as loadKit, loadedRecoveryKit, preloadRecoveryKit } from './walletRecoveryKitLoader.js';
 import { assertion as passkeyAssertion, busy, ceremony, disposed, encode, engaged, message, native, prompt, run, spin, waiting } from './ceremony.js';
 import { nativePasskeyError } from './walletPasskeyError.js';
+import { beginLogin, forgetLogin, loginWith, passkeyLogin, pendingLogin, whileChecking } from './walletLogin.js';
 /** A backup secret only exists once the kit made or read it, so the kit is loaded by the time a backup is saved. */
 const loadedKit = () => { const kit = loadedRecoveryKit(); if (!kit) throw new Error('Your backup is still loading. Try again.'); return kit; };
 
@@ -398,30 +399,21 @@ async function login() {
 }
 async function loginFlow() {
   if (inFrame()) return framedLogin();
-  message('Logging in…');
-  const begun = await walletRequest(`${base}/login/begin`, {}), publicKey = begun.publicKey;
-  if (publicKey?.rpId !== location.hostname || publicKey.userVerification !== 'required' || typeof begun.loginId !== 'string' || typeof begun.csrfToken !== 'string') throw new Error('The account host changed.');
-  const challenge = decode(publicKey.challenge); if (challenge.length !== 32) throw new Error('Invalid passkey challenge.');
-  message('Log in with the prompt.');
-  const proof = await assertion('0x' + Array.from(challenge, byte => byte.toString(16).padStart(2, '0')).join(''), publicKey.rpId);
-  message('Logging in…');
-  const result = await walletRequest(`${base}/login/complete`, { loginId: begun.loginId, assertion: proof }, begun.csrfToken, 100000);
-  if (result?.session?.loginId !== begun.loginId) throw new Error('Sign-in could not be confirmed.');
+  if (!pendingLogin) message('Logging in…');
+  await passkeyLogin(prove, location.hostname);
   location.replace((base || '/') + location.search);
 }
+const prove = (challenge: Uint8Array<ArrayBuffer>, rpId: string) => { message('Log in with the prompt.'); return passkeyAssertion(challenge, rpId); };
 /** Inside the frame: the passkey sign-in the wallet landing page runs framed (the intent admits it, no cookie), then the app's return. */
 async function framedLogin() {
   message('Logging in…');
-  const begun = await walletRequest(`${base}/authorize/${intentId}/begin`, {}), publicKey = begun.publicKey;
-  if (publicKey?.rpId !== location.hostname || publicKey.userVerification !== 'required' || typeof begun.loginId !== 'string' || typeof begun.flowToken !== 'string') throw new Error('The account host changed.');
-  const challenge = decode(publicKey.challenge); if (challenge.length !== 32) throw new Error('Invalid passkey challenge.');
-  message('Log in with the prompt.');
-  const proof = await assertion('0x' + Array.from(challenge, byte => byte.toString(16).padStart(2, '0')).join(''), publicKey.rpId);
+  const { loginId, token: flowToken, assertion } = await beginLogin(`${base}/authorize/${intentId}/begin`, 'flowToken', prove, location.hostname);
   message('Logging in…');
-  const result = await walletRequest(`${base}/authorize/${intentId}/approve`, { loginId: begun.loginId, flowToken: begun.flowToken, assertion: proof }, undefined, 100000);
+  const result = await whileChecking(`${base}/authorize/${intentId}/approve`, { loginId, flowToken, assertion }, undefined, 100000);
   message('Returning to your app…');
   location.replace(checkedRedirect(result, intentView(), location.origin));
 }
+loginWith(walletRequest, message, () => { throw new Error('The account host changed.'); });
 async function resumeSignup() {
   await announce('Pick up your signup', 'That passkey belongs to an unfinished signup. One more passkey prompt picks it up where you left off.');
   const begun = await request('resume/begin', {}); message('Pick up your signup with the prompt.');
@@ -431,7 +423,7 @@ async function resumeSignup() {
 }
 resume.addEventListener('click', event => { event.preventDefault(); if (busy || pending) return; void run(async () => {
   // A passkey with a finished wallet logs in; one from an unfinished signup resumes it.
-  try { await login(); return; } catch (error) { if (!(error instanceof HttpFailure) || ![400, 401, 403, 404, 410].includes(error.status)) throw error; }
+  try { await login(); return; } catch (error) { if (!(error instanceof HttpFailure) || ![400, 401, 403, 404, 410].includes(error.status)) throw error; forgetLogin(); }
   await resumeSignup();
 }); });
 // Phase changes are pushed over the events stream while creation or login preparation is under way.
