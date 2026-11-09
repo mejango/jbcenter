@@ -46,9 +46,13 @@ export const encode = (value: ArrayBuffer) => btoa(String.fromCharCode(...new Ui
  * passkey when it verifies, and an allow list only lets iOS refuse a passkey it cannot preselect. */
 export async function assertion(challenge: Uint8Array<ArrayBuffer>, rpId: string) {
   if (rpId !== location.hostname || !window.isSecureContext) throw new Error('Open the original secure account page.');
-  const value = await prompt(signal => navigator.credentials.get({ publicKey: { rpId, challenge, userVerification: 'required', timeout: 90000 }, signal }));
-  if (!(value instanceof PublicKeyCredential) || !(value.response instanceof AuthenticatorAssertionResponse)) throw new Error('The passkey response is unavailable.');
+  return proof(await prompt(signal => navigator.credentials.get({ publicKey: { rpId, challenge, userVerification: 'required', timeout: 90000 }, signal })));
+}
+/** The assertion's fields as the service reads them. */
+export function proof(value: Credential | null, unavailable = () => { throw new Error('The passkey response is unavailable.'); }) {
+  if (!(value instanceof PublicKeyCredential) || !(value.response instanceof AuthenticatorAssertionResponse)) return unavailable();
   const response = value.response;
   return { credentialId: encode(value.rawId), userHandle: response.userHandle ? encode(response.userHandle) : null,
     authenticatorData: encode(response.authenticatorData), clientDataJSON: encode(response.clientDataJSON), signature: encode(response.signature) };
 }
+export type Proof = ReturnType<typeof proof>;

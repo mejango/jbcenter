@@ -2,13 +2,13 @@ import { base } from './walletBase.js';
 import { qrSvg } from "./qr.js";
 import { checkedRedirect, framed, listenForTheme } from "./walletFramed.js";
 import type { WalletDevicePhase } from "../wallet/deviceService.js";
+import { encode, proof } from "./ceremony.js";
+import { beginLogin, forgetLogin, loginWith, passkeyLogin, pendingLogin, whileChecking } from "./walletLogin.js";
 /** No credentials, assertions, CSRF values or handoff codes are persisted by this page. */
 type Json = Record<string, unknown>;
 type Configuration = { issuer: string; audience: string; rpId: string };
 type Session = { accountId: string; loginId: string; walletAddress: string; chainId: number; expiresAtMs: number; passkeyName: string | null };
 type Intent = { id: string; callbackUri: string; state: string; expiresAtMs: number };
-type Completion = { loginId: string; assertion: { credentialId: string; userHandle: string | null;
-  authenticatorData: string; clientDataJSON: string; signature: string } };
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = element("wallet-status"), account = element("wallet-account"), address = element("wallet-address"), passkey = element("wallet-passkey"), passkeyLabel = element("wallet-passkey-label");
@@ -25,8 +25,7 @@ let device: { view: DeviceView; link: string } | null = null, deviceTimer: Retur
 const signIn = element<HTMLButtonElement>("wallet-signin"), retry = element<HTMLButtonElement>("wallet-retry");
 const cancel = element<HTMLButtonElement>("wallet-cancel"), signOut = element<HTMLButtonElement>("wallet-logout");
 let configuration: Configuration, intent: Intent | null = null, session: Session | null = null, framerOrigin: string | null = null;
-let sessionKnown = false, busy = false, csrf = "", pending: Completion | null = null;
-let completionAttempted = false;
+let sessionKnown = false, busy = false, csrf = "";
 let paymentReviewId: string | null = null;
 let nativePrompt: AbortController | null = null, retryAction: (() => Promise<void>) | null = null;
 // Framed inside an admitted app's page, this page signs in without a Center session or cookie: the
@@ -50,6 +49,7 @@ if (framed) {
 const frameTooSmall = () => framed && window.innerWidth < 300;
 
 class InvalidResponse extends Error {}
+function invalid(): never { throw new InvalidResponse(); }
 class HttpFailure extends Error { constructor(readonly status: number, readonly code?: string, readonly appOrigin?: string) { super("Wallet request failed"); } }
 function record(value: unknown): Json {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new InvalidResponse();
@@ -62,9 +62,6 @@ function string(value: unknown, maximum = 2048): string {
 function future(value: unknown): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= Date.now()) throw new InvalidResponse();
   return value;
-}
-function encode(value: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(value))).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 function decode(value: unknown): Uint8Array<ArrayBuffer> {
   const encoded = string(value, 4096);
@@ -81,7 +78,7 @@ function token(value: unknown): string {
 }
 function setStatus(state: string, message: string) { status.dataset.state = state; status.textContent = message; }
 function render() {
-  signIn.hidden = !sessionKnown || !!session || !!pending;
+  signIn.hidden = !sessionKnown || !!session || !!pendingLogin;
   signIn.disabled = busy || frameTooSmall() || !signInVisible;
   if (openAsPage) openAsPage.hidden = !framed || !intent;
   retry.hidden = !retryAction || busy;
@@ -121,19 +118,6 @@ async function request(path: string, body?: unknown, csrfToken?: string, timeout
     return record(await response.json());
   } finally { clearTimeout(timer); }
 }
-/** Retries a 503 while the wallet's authority is being checked. Reads stop after three quick
- * attempts; an action the user is waiting on (`attempts`, `delayMs`) may wait for a hosted
- * authority refresh, which takes tens of seconds after the account has been idle. */
-async function readyRequest(path: string, body?: unknown, csrfToken?: string, timeoutMs?: number, attempts = 3, delayMs?: number): Promise<Json> {
-  for (let attempt = 0; ; attempt++) {
-    try { return await request(path, body, csrfToken, timeoutMs); }
-    catch (error) {
-      if (!(error instanceof HttpFailure) || error.status !== 503 || attempt === attempts - 1) throw error;
-      setStatus("checking", "Checking current wallet access. This may take a moment…");
-      await new Promise(resolve => setTimeout(resolve, delayMs ?? (attempt + 1) * 400));
-    }
-  }
-}
 function acceptSession(value: Json, required = false) {
   if (value.session === null && !required) { session = null; csrf = ""; sessionKnown = true; return; }
   const current = record(value.session), walletAddress = string(current.walletAddress, 42);
@@ -164,11 +148,11 @@ async function run(action: () => Promise<void>) {
       setStatus("error", "This wallet request could not be verified. Return to the app and start again.");
       // An unverified result never makes a previously unknown session safe to replace.
     } else if (error instanceof HttpFailure && error.code === 'WALLET_LOGIN_UNKNOWN_PASSKEY') {
-      pending = null; csrf = ""; completionAttempted = false;
+      forgetLogin(); csrf = "";
       setStatus("ready", "That passkey isn't linked to an account here. It may be left over from a signup that didn't finish. Try another passkey, or sign up.");
     } else if (error instanceof HttpFailure && [400, 401, 403, 404, 410].includes(error.status)) {
-      if (pending) {
-        pending = null; csrf = ""; completionAttempted = false;
+      if (pendingLogin) {
+        forgetLogin(); csrf = "";
         setStatus("ready", "This sign-in expired or could not be authorized. Try your passkey again.");
       } else {
         retryAction = framed ? load : readSession;
@@ -176,7 +160,7 @@ async function run(action: () => Promise<void>) {
       }
     } else {
       retryAction = action;
-      setStatus("retry", pending
+      setStatus("retry", pendingLogin
         ? "Sign-in confirmation is unavailable. Retry to check the same sign-in without using your passkey again."
         : "Wallet access is temporarily unavailable. Retry to check again.");
     }
@@ -192,7 +176,7 @@ async function load() {
   // The reads this page opens with do not depend on one another: they go out together and are checked in order.
   const configRead = request(`${base}/config`);
   const authorization = intentId ? request(`${base}/authorize/${intentId}`) : null;
-  ahead = readyRequest(`${base}/session`, undefined, undefined, 100_000);
+  ahead = whileChecking(`${base}/session`, undefined, undefined, 100_000);
   for (const read of [authorization, ahead]) read?.catch(() => undefined);
   const config = await configRead;
   if (config.version !== "center-wallet-v1" || config.issuer !== location.origin) throw new InvalidResponse();
@@ -234,7 +218,7 @@ async function load() {
 let ahead: Promise<Json> | null = null;
 async function readSession() {
   setStatus("checking", "Checking current wallet access…");
-  const read = ahead ?? readyRequest(`${base}/session`, undefined, undefined, 100_000); ahead = null;
+  const read = ahead ?? whileChecking(`${base}/session`, undefined, undefined, 100_000); ahead = null;
   acceptSession(await read);
   await continueSession();
 }
@@ -250,49 +234,23 @@ async function continueSession() {
 }
 async function login() {
   if (framed && intent) return framedSignIn();
-  if (pending) return completeLogin();
-  if (!window.isSecureContext || !navigator.credentials?.get) {
-    setStatus("error", "This browser cannot use passkeys here. Open Center in a browser that supports passkeys."); return;
-  }
-  setStatus("checking", "Preparing your passkey sign-in…");
-  const begun = await request(`${base}/login/begin`, {}), publicKey = record(begun.publicKey);
-  if (publicKey.rpId !== configuration.rpId || publicKey.userVerification !== "required" || publicKey.timeout !== 90_000) throw new InvalidResponse();
-  const challenge = decode(publicKey.challenge); if (challenge.length !== 32) throw new InvalidResponse();
-  const loginId = string(begun.loginId, 36); future(begun.expiresAtMs);
-  const flowCsrf = token(begun.csrfToken);
-  nativePrompt = new AbortController(); setStatus("authenticating", "Use your passkey to sign in."); render();
-  const credential = await navigator.credentials.get({ publicKey: { rpId: configuration.rpId, challenge,
-    userVerification: "required", timeout: 90_000 }, signal: nativePrompt.signal });
-  if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAssertionResponse)) throw new InvalidResponse();
-  const assertion = credential.response;
-  pending = { loginId, assertion: { credentialId: encode(credential.rawId), userHandle: assertion.userHandle ? encode(assertion.userHandle) : null,
-    authenticatorData: encode(assertion.authenticatorData), clientDataJSON: encode(assertion.clientDataJSON), signature: encode(assertion.signature) } };
-  csrf = flowCsrf; nativePrompt = null; render();
-  completionAttempted = false;
-  await completeLogin();
-}
-async function completeLogin() {
-  if (!pending) throw new InvalidResponse();
-  setStatus("checking", "Confirming your account access…");
-  if (completionAttempted) {
-    // Success headers can install the session and clear the flow cookie before its body
-    // arrives. Only this exact login can recover the selected credential's completion.
-    const recovered = await readyRequest(`${base}/session`);
-    if (recovered.session && record(recovered.session).loginId === pending.loginId) {
-      acceptSession(recovered, true); pending = null; completionAttempted = false;
-      await continueSession(); return;
+  if (!pendingLogin) {
+    if (!window.isSecureContext || !navigator.credentials?.get) {
+      setStatus("error", "This browser cannot use passkeys here. Open Center in a browser that supports passkeys."); return;
     }
-    // A different tab's session must neither replace this identity nor its flow CSRF.
+    setStatus("checking", "Preparing your passkey sign-in…");
   }
-  completionAttempted = true;
-  // Completion may refresh the account's authority on Base first; the site holds the request up to 90 s.
-  setStatus("checking", "Checking your account. This can take up to a minute…");
-  const result = await readyRequest(`${base}/login/complete`, pending, csrf, 100_000);
-  if (record(result.session).loginId !== pending.loginId) throw new InvalidResponse();
-  acceptSession(result, true);
-  pending = null; completionAttempted = false;
+  acceptSession(await passkeyLogin(prove, configuration.rpId), true);
   await continueSession();
 }
+/** One prompt for the account's passkey; Cancel aborts it. */
+async function askPasskey(challenge: Uint8Array<ArrayBuffer>, ask = "Use your passkey to sign in.") {
+  nativePrompt = new AbortController(); setStatus("authenticating", ask); render();
+  const value = proof(await navigator.credentials.get({ publicKey: { rpId: configuration.rpId, challenge, userVerification: "required", timeout: 90_000 }, signal: nativePrompt.signal }), invalid);
+  nativePrompt = null; render(); return value;
+}
+const prove = (challenge: Uint8Array<ArrayBuffer>) => askPasskey(challenge);
+const hex = (value: string) => Uint8Array.from(value.slice(2).match(/../g)!.map(pair => parseInt(pair, 16)));
 // The framed sign-in: begin, one passkey prompt, approve; the approval's answer is the app's callback.
 async function framedSignIn() {
   if (!intent) throw new InvalidResponse();
@@ -302,22 +260,10 @@ async function framedSignIn() {
   }
   future(intent.expiresAtMs);
   setStatus("checking", "Preparing your passkey sign-in…");
-  const begun = await request(`${base}/authorize/${intent.id}/begin`, {}), publicKey = record(begun.publicKey);
-  if (publicKey.rpId !== configuration.rpId || publicKey.userVerification !== "required" || publicKey.timeout !== 90_000) throw new InvalidResponse();
-  const challenge = decode(publicKey.challenge); if (challenge.length !== 32) throw new InvalidResponse();
-  const loginId = string(begun.loginId, 36), flowToken = token(begun.flowToken); future(begun.expiresAtMs);
-  nativePrompt = new AbortController(); setStatus("authenticating", "Use your passkey to sign in."); render();
-  const credential = await navigator.credentials.get({ publicKey: { rpId: configuration.rpId, challenge,
-    userVerification: "required", timeout: 90_000 }, signal: nativePrompt.signal });
-  if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAssertionResponse)) throw new InvalidResponse();
-  const assertion = credential.response;
-  nativePrompt = null;
+  const { loginId, token: flowToken, assertion } = await beginLogin(`${base}/authorize/${intent.id}/begin`, "flowToken", prove, configuration.rpId);
   // Approval may refresh the account's authority on Base first; the site holds the request up to 90 s.
   setStatus("checking", "Checking your account. This can take up to a minute…");
-  const result = await readyRequest(`${base}/authorize/${intent.id}/approve`, { loginId, flowToken, assertion: {
-    credentialId: encode(credential.rawId), userHandle: assertion.userHandle ? encode(assertion.userHandle) : null,
-    authenticatorData: encode(assertion.authenticatorData), clientDataJSON: encode(assertion.clientDataJSON), signature: encode(assertion.signature) } },
-    undefined, 100_000);
+  const result = await whileChecking(`${base}/authorize/${intent.id}/approve`, { loginId, flowToken, assertion }, undefined, 100_000);
   setStatus("returning", "Returning to your Juicebox app…");
   location.replace(appReturn(result));
 }
@@ -330,14 +276,14 @@ async function issue() {
   future(intent.expiresAtMs); future(session.expiresAtMs);
   setStatus("returning", "Returning to your Juicebox app…");
   // Issuing needs fresh on-chain authority; after idle that is a hosted refresh of ~25 s.
-  const result = await readyRequest(`${base}/authorize/issue`, { intentId: intent.id }, csrf, undefined, 90, 1000);
+  const result = await whileChecking(`${base}/authorize/issue`, { intentId: intent.id }, csrf, undefined, 90, 1000);
   location.replace(appReturn(result));
 }
 async function logout() {
   setStatus("checking", "Signing out…");
   const result = await request(`${base}/logout`, {}, csrf);
   if (result.loggedOut !== true) throw new InvalidResponse();
-  session = null; csrf = ""; pending = null; completionAttempted = false; sessionKnown = true;
+  session = null; csrf = ""; forgetLogin(); sessionKnown = true;
   setStatus("ready", "You are signed out. You can sign in again with your passkey.");
 }
 function networkView(value: Json): NetworksView {
@@ -409,15 +355,9 @@ async function networksDeploy() {
   if (!configuration) throw new InvalidResponse();
   const challenge = networksQuote.challenge; if (!/^0x[0-9a-fA-F]{64}$/.test(challenge)) throw new InvalidResponse();
   // Only the account's passkey can approve, so the prompt offers that one instead of every passkey for the site.
-  nativePrompt = new AbortController(); setStatus("authenticating", "Approve the new networks with your passkey."); render();
-  const credential = await navigator.credentials.get({ publicKey: { rpId: configuration.rpId, challenge: Uint8Array.from(challenge.slice(2).match(/../g)!.map(pair => parseInt(pair, 16))),
-    userVerification: "required", timeout: 90_000 }, signal: nativePrompt.signal });
-  if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAssertionResponse)) throw new InvalidResponse();
-  const response = credential.response; nativePrompt = null;
+  const assertion = await askPasskey(hex(challenge), "Approve the new networks with your passkey.");
   setStatus("checking", "Funding the deployments…");
-  const result = record(await request(`${base}/networks/approve`, { bundleId: networksQuote.bundleId, assertion: { credentialId: encode(credential.rawId),
-    userHandle: response.userHandle ? encode(response.userHandle) : null, authenticatorData: encode(response.authenticatorData),
-    clientDataJSON: encode(response.clientDataJSON), signature: encode(response.signature) } }, csrf, 60_000));
+  const result = record(await request(`${base}/networks/approve`, { bundleId: networksQuote.bundleId, assertion }, csrf, 60_000));
   networksView = networkView(result.view as Json); networksOpen = false;
   setStatus("checking", deployingText());
 }
@@ -494,15 +434,9 @@ async function deviceApproveNow() {
   setStatus("checking", "Preparing the approval…");
   const prepared = record(await request(`${base}/devices/${device.view.id}/review`, {}, csrf, 60_000));
   const challenge = string(prepared.challenge, 66); if (!/^0x[0-9a-fA-F]{64}$/.test(challenge)) throw new InvalidResponse();
-  nativePrompt = new AbortController(); setStatus("authenticating", "Approve the new device with your passkey."); render();
-  const credential = await navigator.credentials.get({ publicKey: { rpId: configuration.rpId, challenge: Uint8Array.from(challenge.slice(2).match(/../g)!.map(pair => parseInt(pair, 16))),
-    userVerification: "required", timeout: 90_000 }, signal: nativePrompt.signal });
-  if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAssertionResponse)) throw new InvalidResponse();
-  const response = credential.response; nativePrompt = null;
+  const assertion = await askPasskey(hex(challenge), "Approve the new device with your passkey.");
   setStatus("checking", "Adding the device to your account…");
-  const result = record(await request(`${base}/devices/${device.view.id}/approve`, { review: prepared.review, assertion: { credentialId: encode(credential.rawId),
-    userHandle: response.userHandle ? encode(response.userHandle) : null, authenticatorData: encode(response.authenticatorData),
-    clientDataJSON: encode(response.clientDataJSON), signature: encode(response.signature) } }, csrf, 60_000));
+  const result = record(await request(`${base}/devices/${device.view.id}/approve`, { review: prepared.review, assertion }, csrf, 60_000));
   device = { ...device, view: record(result.view) as unknown as DeviceView };
   setStatus(deviceWorking(device.view.phase) ? "checking" : "ready", deviceText(device.view.phase));
 }
@@ -518,6 +452,7 @@ if (deviceAdd && devicePanel) {
   deviceApprove.addEventListener("click", () => void run(deviceApproveNow));
   element("wallet-device-cancel").addEventListener("click", () => { device = null; render(); });
 }
+loginWith(request, text => setStatus("checking", text), invalid);
 signIn.addEventListener("click", () => void run(login));
 if (framed) window.addEventListener("resize", render);
 retry.addEventListener("click", () => { if (retryAction) void run(retryAction); });
