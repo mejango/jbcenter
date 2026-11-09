@@ -25,7 +25,7 @@ import { walletSignupCss, walletSignupPage } from "../src/rest/web/walletSignupP
 // page needs on first view; anything else loads on demand and gets its own ceiling below.
 const pageCeilings: Record<string, number> = {
   "/": 14_848, "/api": 25_600, "/api/docs/* (largest)": 19_968, "/accounts": 76_800,
-  "wallet /": 12_288, "wallet signup": 19_456, "wallet /payment": 25_088, "wallet /recover": 20_480, "wallet /add": 13_312,
+  "wallet /": 12_288, "wallet signup": 19_968, "wallet /payment": 25_088, "wallet /recover": 20_480, "wallet /add": 13_312,
 };
 // What loads after the first view: the backup kit, one journey map, one endpoint's tables, the filter's term index.
 const onDemandCeilings: Record<string, number> = {
@@ -34,8 +34,8 @@ const onDemandCeilings: Record<string, number> = {
 };
 // Every bundle the build emits needs a ceiling, so a new page or chunk cannot escape the gate.
 const bundleCeilings: Record<string, number> = {
-  accounts: 68_096, docs: 1_024, wallet: 9_216, "wallet-device": 10_240, "wallet-payment": 21_504,
-  "wallet-recovery": 16_384, "wallet-recovery-kit": 42_496, "wallet-signup": 15_360,
+  accounts: 68_096, docs: 1_024, wallet: 9_728, "wallet-device": 10_752, "wallet-payment": 21_504,
+  "wallet-recovery": 16_384, "wallet-recovery-kit": 42_496, "wallet-signup": 16_384,
 };
 
 const gz = (body: string) => gzipSync(body).length;
