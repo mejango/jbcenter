@@ -26,6 +26,8 @@ const signIn = element<HTMLButtonElement>("wallet-signin"), retry = element<HTML
 const cancel = element<HTMLButtonElement>("wallet-cancel"), signOut = element<HTMLButtonElement>("wallet-logout");
 let configuration: Configuration, intent: Intent | null = null, session: Session | null = null, framerOrigin: string | null = null;
 let sessionKnown = false, busy = false, csrf = "";
+/** A page sign-in is between its begin and its session: a refusal then means that sign-in is over. */
+let signingIn = false;
 let paymentReviewId: string | null = null;
 let nativePrompt: AbortController | null = null, retryAction: (() => Promise<void>) | null = null;
 /** What Retry repeats after an uncertain failure: the action, or the stage it reached. A stage past a
@@ -135,7 +137,7 @@ function acceptSession(value: Json, required = false) {
 }
 async function run(action: () => Promise<void>) {
   if (busy) return;
-  busy = true; retryAction = null; stage = action; render();
+  busy = true; retryAction = null; stage = action; signingIn = false; render();
   try { await action(); }
   catch (error) {
     if (error instanceof HttpFailure && error.code === 'WALLET_HANDOFF_EXPIRED') {
@@ -154,7 +156,7 @@ async function run(action: () => Promise<void>) {
       forgetLogin(); csrf = "";
       setStatus("ready", "That passkey isn't linked to an account here. It may be left over from a signup that didn't finish. Try another passkey, or sign up.");
     } else if (error instanceof HttpFailure && [400, 401, 403, 404, 410].includes(error.status)) {
-      if (pendingLogin) {
+      if (signingIn) {
         forgetLogin(); csrf = "";
         setStatus("ready", "This sign-in expired or could not be authorized. Try your passkey again.");
       } else {
@@ -243,7 +245,10 @@ async function login() {
     }
     setStatus("checking", "Preparing your passkey sign-in…");
   }
-  acceptSession(await passkeyLogin(prove, configuration.rpId), true);
+  signingIn = true;
+  const result = await passkeyLogin(prove, configuration.rpId);
+  signingIn = false;
+  acceptSession(result, true);
   await continueSession();
 }
 /** One prompt for the account's passkey; Cancel aborts it. */
