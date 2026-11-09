@@ -3,6 +3,7 @@ import { RestClientError, newRequestNonce } from './index.js';
 import type { CenterClient } from './center.js';
 import { assertReviewedOperation, type PreparedUserOperation, type SmartWalletPlan } from './smartAccounts.js';
 import type { CenterWalletStorage } from './wallet.js';
+import { isSettledPayment, paymentStates, type CenterWalletPaymentState } from './paymentStates.js';
 import { decodeSafe7579PasskeyOwnerSignature, safe7579PasskeyOwnerSigningPayload } from '../smartAccounts/passkeySignatures.js';
 import { normalizeUserOperation, userOperationCommitment, userOperationMaximumCost, uoCanonical } from '../userOperations/codec.js';
 import { recognizeWalletV6UsdcPayment, type WalletV6UsdcPayment } from '../userOperations/semantics.js';
@@ -21,8 +22,7 @@ export interface CenterWalletPaymentInput {
   operation: PreparedUserOperation;
   expectedPayment: CenterWalletExpectedPayment;
 }
-/** `expired`: published but never included before its signed validity ended; it cannot execute. */
-export type CenterWalletPaymentState = 'reviewing' | 'approved' | 'submitting' | 'pending' | 'confirming' | 'paid' | 'reverted' | 'cancelled' | 'unknown' | 'expired';
+export type { CenterWalletPaymentState };
 export interface CenterWalletPaymentStatus {
   status: CenterWalletPaymentState;
   accountId: string;
@@ -70,8 +70,6 @@ const maximumBytes = 1_048_576;
 const reviewPath = '/api/v1/wallet/payment-reviews';
 const reviewIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const paymentFields = ['kind', 'chainId', 'account', 'token', 'terminal', 'projectId', 'amount', 'beneficiary', 'minimumReturnedTokens', 'memo', 'metadata'] as const;
-const states = ['reviewing', 'approved', 'submitting', 'pending', 'confirming', 'paid', 'reverted', 'cancelled', 'unknown', 'expired'];
-const terminal = (status: string) => ['paid', 'reverted', 'cancelled', 'expired'].includes(status);
 const hex32 = (value: unknown): value is Hex => typeof value === 'string' && /^0x[0-9a-fA-F]{64}$/.test(value);
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
 const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
@@ -197,7 +195,7 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
       const decoded = JSON.parse(encoded), { integrity, ...value } = decoded;
       if (integrity !== sha256(stringToHex(uoCanonical(value))) || value.version !== 'center-wallet-payment-client-v1' ||
         value.issuer !== issuer || value.audience !== audience || value.callbackUri !== callbackUri ||
-        !states.includes(value.status) || typeof value.submissionStarted !== 'boolean' ||
+        !(paymentStates as readonly unknown[]).includes(value.status) || typeof value.submissionStarted !== 'boolean' ||
         !/^payment-review-[0-9a-f]{64}$/.test(value.reviewKey) || !/^payment-submit-[0-9a-f]{64}$/.test(value.submissionKey) ||
         (value.reviewId !== undefined && !reviewIdPattern.test(value.reviewId))) throw new Error();
       validateWalletHandoffToken(value.state);
@@ -307,7 +305,7 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
   async function submitPayment(): Promise<CenterWalletPaymentStatus> {
     let saved = pending();
     const client = live(saved.value).client;
-    if (!saved.value.approval || terminal(saved.value.status))
+    if (!saved.value.approval || isSettledPayment(saved.value.status))
       fail('WALLET_PAYMENT_NOT_APPROVED', 'Retrieve fresh owner approval for this exact payment before submission.');
     // Once a dispatch may have occurred, retain the original bytes/key even after their first-use window.
     if (!saved.value.submissionStarted && saved.value.operation.expiresAt <= now())
@@ -362,7 +360,7 @@ export function createCenterWalletPaymentClient(options: CenterWalletPaymentClie
   function clearPayment(): void {
     const saved = pending(), archivedAtMs = now(), signing = saved.value.operation.signing;
     if (!('ownerProfile' in signing)) mismatch();
-    const settled = terminal(saved.value.status);
+    const settled = isSettledPayment(saved.value.status);
     // Explicit local bookkeeping only: this clock and a missing local send marker do not prove an onchain outcome.
     const unsignedWindowElapsed = saved.value.submissionStarted === false && !saved.value.approval &&
       typeof signing.validUntil === 'string' && /^[1-9][0-9]{0,14}$/.test(signing.validUntil) &&
