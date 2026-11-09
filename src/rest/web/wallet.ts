@@ -428,11 +428,11 @@ async function deviceBegin() {
   const anchor = element<HTMLAnchorElement>("wallet-device-link"); anchor.href = link; anchor.textContent = "Open the link on this device instead";
   setStatus(deviceWorking(view.phase) ? "checking" : "ready", deviceText(view.phase));
 }
-async function devicePoll() {
+async function devicePoll(running = false) {
   if (!session || !device) return;
   const result = record(await request(`${base}/devices/${device.view.id}`)), view = record(result.view) as unknown as DeviceView;
   device = { ...device, view };
-  if (view.phase === "awaiting_activation") { await run(deviceActivate); return; }
+  if (view.phase === "awaiting_activation") { await (running ? deviceActivate() : run(deviceActivate)); return; }
   render(); setStatus(deviceWorking(view.phase) ? "checking" : "ready", deviceText(view.phase));
 }
 async function deviceApproveNow() {
@@ -442,6 +442,8 @@ async function deviceApproveNow() {
   const challenge = string(prepared.challenge, 66); if (!/^0x[0-9a-fA-F]{64}$/.test(challenge)) throw new InvalidResponse();
   const assertion = await askPasskey(hex(challenge), "Approve the new device with your passkey.");
   setStatus("checking", "Adding the device to your account…");
+  // An approval whose answer is lost may have been accepted: Retry reads the device and goes on from there.
+  stage = () => devicePoll(true);
   const result = record(await request(`${base}/devices/${device.view.id}/approve`, { review: prepared.review, assertion }, csrf, 60_000));
   device = { ...device, view: record(result.view) as unknown as DeviceView };
   setStatus(deviceWorking(device.view.phase) ? "checking" : "ready", deviceText(device.view.phase));
