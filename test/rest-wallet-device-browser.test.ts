@@ -16,7 +16,9 @@ describe("served device pages", () => {
   const possessionDocument = { domain: { name: "Juicebox Center Wallet Device", version: "1", chainId: 8453, verifyingContract: walletAddress as `0x${string}` },
     types: { WalletDevice: [{ name: "purpose", type: "string" }] }, primaryType: "WalletDevice", message: { purpose: "add-device" } } as const;
   const requests: { path: string; body: any }[] = [];
-  let phase = "awaiting_registration", approvals = 0, activations = 0;
+  let phase = "awaiting_registration", approvals = 0, activations = 0, beginFailures = 0, lostApprovals = 0, networksPending = false, quotes = 0;
+  let networksApprovals = 0, unfundedApproval = false, heldReads = 0;
+  const held: (() => void)[] = [];
   const view = () => ({ id: "11111111-1111-4111-8111-111111111111", passkeyName: "Test phone", rpId: "localhost", origin, expiresAtMs: Date.now() + 300_000,
     walletAddress, primarySigner: `0x${"04".repeat(20)}`, deviceSigner: phase === "awaiting_registration" ? null : `0x${"05".repeat(20)}`, phase, transactionHashes: [],
     registration: phase === "awaiting_registration" ? { challenge: encode(Buffer.alloc(32, 13)), userHandle: encode(Buffer.alloc(32, 14)) } : null,
@@ -42,11 +44,31 @@ describe("served device pages", () => {
       requests.push({ path, body });
       if (path === "/wallet/config") return json({ version: "center-wallet-v1", issuer: origin, audience: `${origin}/v1`, rpId: "localhost" });
       if (path === "/wallet/session") return json({ session: session(), csrfToken: csrf });
-      if (path === "/wallet/networks") return json({ networks: [{ chainId: 8453, name: "Base", state: "deployed", txHash: null }], offered: [], pending: [] });
-      if (path === "/wallet/devices/begin") return json({ view: view(), link: `${origin}/wallet/add#${link}` });
-      if (path === "/wallet/devices/11111111-1111-4111-8111-111111111111") return json({ view: view() });
+      const networks = () => ({ networks: [{ chainId: 8453, name: "Base", state: "deployed", txHash: null }, ...(networksPending ? [{ chainId: 10, name: "Optimism", state: "pending", txHash: null }] : [])],
+        offered: networksPending ? [] : [{ chainId: 10, name: "Optimism", family: "mainnet", centerPays: true }],
+        pending: networksPending ? [{ id: "33333333-3333-4333-8333-333333333333", state: "funded", chainIds: [10] }] : [] });
+      if (path === "/wallet/networks" || path === "/wallet/networks/status") return json(networks());
+      if (path === "/wallet/networks/quote") { quotes++; return networksPending ? json({ error: { message: "pending" } }, 409)
+        : json({ view: networks(), bundle: { id: "33333333-3333-4333-8333-333333333333" }, challenge: `0x${"17".repeat(32)}` }); }
+      if (path === "/wallet/networks/approve") {
+        // The first approval either fails before funding or is accepted with its answer cut; a replay of it answers with the deployment.
+        if (networksApprovals++ === 0 && unfundedApproval) return json({ error: { code: "WALLET_NETWORKS_UNFUNDED", message: "short" } }, 503);
+        const replay = networksPending; networksPending = true;
+        if (replay || unfundedApproval) return json({ bundle: { id: "33333333-3333-4333-8333-333333333333", state: "paying" }, replayed: replay, view: networks() });
+        response.writeHead(200, { "content-type": "application/json", "content-length": "4096" }); response.write('{"view":', () => response.destroy()); return;
+      }
+      if (path === "/wallet/devices/begin") return beginFailures-- > 0 ? json({ error: { message: "unavailable" } }, 500) : json({ view: view(), link: `${origin}/wallet/add#${link}` });
+      if (path === "/wallet/devices/11111111-1111-4111-8111-111111111111") {
+        // A held read answers late with what it saw when it was asked.
+        if (heldReads > 0) { heldReads--; const seen = view(); held.push(() => json({ view: seen })); return; }
+        return json({ view: view() });
+      }
       if (path === "/wallet/devices/11111111-1111-4111-8111-111111111111/review") return json({ review: { deviceId: "11111111-1111-4111-8111-111111111111" }, document: {}, challenge: `0x${"16".repeat(32)}` });
-      if (path === "/wallet/devices/11111111-1111-4111-8111-111111111111/approve") { approvals++; phase = "adding"; setTimeout(() => { phase = "awaiting_activation"; }, 200); return json({ view: view() }); }
+      if (path === "/wallet/devices/11111111-1111-4111-8111-111111111111/approve") { approvals++; phase = "adding"; setTimeout(() => { phase = "awaiting_activation"; }, 200); if (lostApprovals-- > 0) {
+          // The answer starts and is cut: the browser cannot replay a request whose acceptance it does not know.
+          response.writeHead(200, { "content-type": "application/json", "content-length": "4096" }); response.write('{"view":', () => response.destroy()); return;
+        }
+        return json({ view: view() }); }
       if (path === "/wallet/devices/11111111-1111-4111-8111-111111111111/activate") { activations++; phase = "ready"; return json({ view: view() }); }
       if (path === "/wallet/devices/link/state") return body?.linkToken === link ? json({ view: view() }) : json({ error: { message: "no" } }, 403);
       if (path === "/wallet/devices/link/register") { if (body?.linkToken !== link || body.type !== "public-key") return json({ error: {} }, 400); phase = "awaiting_possession"; return json({ view: view() }); }
@@ -95,8 +117,12 @@ describe("served device pages", () => {
     await expect.poll(() => accountPage.locator("#wallet-device-approve").isVisible(), { timeout: 10_000 }).toBe(true);
     expect(await accountPage.locator("#wallet-device-code").isHidden()).toBe(true);
     expect(await accountPage.locator("#wallet-status").textContent()).toContain("if it shows 050505");
+    // Waiting on this person is not work in flight: the panel stops reading the device until something changes here.
+    const polls = () => requests.filter(item => item.path === "/wallet/devices/11111111-1111-4111-8111-111111111111").length;
+    let read = polls(); await accountPage.waitForTimeout(3_500); expect(polls()).toBe(read);
     await accountPage.locator("#wallet-device-approve").click();
     await expect.poll(() => accountPage.locator("#wallet-status").textContent(), { timeout: 15_000 }).toContain("The device is added");
+    read = polls(); await accountPage.waitForTimeout(3_500); expect(polls()).toBe(read);
     expect(approvals).toBe(1);
     const approval = requests.find(item => item.path.endsWith("/approve"))!;
     expect(approval.body.review.deviceId).toBe("11111111-1111-4111-8111-111111111111");
@@ -106,4 +132,95 @@ describe("served device pages", () => {
     expect(errors).toEqual([]);
     await other.close(); await account.close();
   }, 60_000);
+
+  it("retries the action that failed, not the page load", async () => {
+    phase = "awaiting_registration"; beginFailures = 1; requests.length = 0;
+    const account = await browser.newContext(), accountPage = await account.newPage();
+    await withAuthenticator(account, accountPage, true);
+    await accountPage.goto(`${origin}/wallet`);
+    await expect.poll(() => accountPage.locator("#wallet-device-add").isVisible()).toBe(true);
+    await accountPage.locator("#wallet-device-add").click();
+    await expect.poll(() => accountPage.locator("#wallet-retry").isVisible()).toBe(true);
+    await accountPage.locator("#wallet-retry").click();
+    await expect.poll(() => accountPage.locator("#wallet-device-link").getAttribute("href")).toBe(`${origin}/wallet/add#${link}`);
+    expect(requests.filter(item => item.path === "/wallet/devices/begin")).toHaveLength(2);
+    await account.close();
+  });
+
+  it("after a networks approval whose answer was lost, Retry reads the deployment instead of quoting again", async () => {
+    networksPending = false; quotes = 0; networksApprovals = 0; unfundedApproval = false; requests.length = 0;
+    const account = await browser.newContext(), accountPage = await account.newPage();
+    await withAuthenticator(account, accountPage, true);
+    try {
+      await accountPage.goto(`${origin}/wallet`);
+      await expect.poll(() => accountPage.locator("#wallet-networks-add").isVisible()).toBe(true);
+      await accountPage.locator("#wallet-networks-add").click();
+      await accountPage.locator("#wallet-networks-choices input[value='10']").check();
+      await accountPage.locator("#wallet-networks-deploy").click();
+      await expect.poll(() => accountPage.locator("#wallet-retry").isVisible(), { timeout: 10_000 }).toBe(true);
+      await accountPage.locator("#wallet-retry").click();
+      await expect.poll(() => accountPage.locator("#wallet-status").textContent()).toContain("Deploying on Optimism");
+      expect(quotes).toBe(1);
+      expect(await accountPage.locator("#wallet-networks").textContent()).toContain("Optimism (deploying…)");
+    } finally { await account.close(); networksPending = false; }
+  }, 30_000);
+
+  it("after an approval whose answer was lost, Retry reads the device and finishes it without a second approval", async () => {
+    phase = "awaiting_approval"; lostApprovals = 1; approvals = 0; requests.length = 0;
+    const account = await browser.newContext(), accountPage = await account.newPage();
+    await withAuthenticator(account, accountPage, true);
+    await accountPage.goto(`${origin}/wallet`);
+    await expect.poll(() => accountPage.locator("#wallet-device-add").isVisible()).toBe(true);
+    await accountPage.locator("#wallet-device-add").click();
+    await expect.poll(() => accountPage.locator("#wallet-device-approve").isVisible()).toBe(true);
+    await accountPage.locator("#wallet-device-approve").click();
+    await expect.poll(() => accountPage.locator("#wallet-retry").isVisible(), { timeout: 10_000 }).toBe(true);
+    await accountPage.locator("#wallet-retry").click();
+    await expect.poll(() => accountPage.locator("#wallet-status").textContent(), { timeout: 15_000 }).toContain("The device is added");
+    expect(approvals).toBe(1);
+    expect(requests.filter(item => item.path.endsWith("/review"))).toHaveLength(1);
+    await account.close();
+  }, 30_000);
+
+  it("after a networks approval that failed before funding, Retry sends the same approval instead of dropping the network", async () => {
+    networksPending = false; quotes = 0; networksApprovals = 0; unfundedApproval = true; requests.length = 0;
+    const account = await browser.newContext(), accountPage = await account.newPage();
+    await withAuthenticator(account, accountPage, true);
+    try {
+      await accountPage.goto(`${origin}/wallet`);
+      await expect.poll(() => accountPage.locator("#wallet-networks-add").isVisible()).toBe(true);
+      await accountPage.locator("#wallet-networks-add").click();
+      await accountPage.locator("#wallet-networks-choices input[value='10']").check();
+      await accountPage.locator("#wallet-networks-deploy").click();
+      await expect.poll(() => accountPage.locator("#wallet-retry").isVisible(), { timeout: 10_000 }).toBe(true);
+      await accountPage.locator("#wallet-retry").click();
+      await expect.poll(() => accountPage.locator("#wallet-status").textContent()).toContain("Deploying on Optimism");
+      const sent = requests.filter(item => item.path === "/wallet/networks/approve");
+      expect(quotes).toBe(1);
+      expect(sent).toHaveLength(2);
+      expect(sent[1]!.body).toEqual(sent[0]!.body);
+    } finally { await account.close(); networksPending = false; unfundedApproval = false; }
+  }, 30_000);
+
+  it("ignores a device read answered after the approval it predates, and finishes the device", async () => {
+    phase = "awaiting_possession"; approvals = 0; activations = 0; heldReads = 1; held.length = 0; requests.length = 0;
+    const account = await browser.newContext(), accountPage = await account.newPage();
+    await withAuthenticator(account, accountPage, true);
+    try {
+      await accountPage.goto(`${origin}/wallet`);
+      await expect.poll(() => accountPage.locator("#wallet-device-add").isVisible()).toBe(true);
+      await accountPage.locator("#wallet-device-add").click();
+      await expect.poll(() => accountPage.locator("#wallet-status").textContent()).toContain("Waiting for the other device");
+      // The other device proves its passkey; the first read stalls and the next one answers first.
+      phase = "awaiting_approval";
+      await expect.poll(() => held.length, { timeout: 10_000 }).toBe(1);
+      await expect.poll(() => accountPage.locator("#wallet-device-approve").isVisible(), { timeout: 10_000 }).toBe(true);
+      await accountPage.locator("#wallet-device-approve").click();
+      await expect.poll(() => approvals).toBe(1);
+      await accountPage.waitForTimeout(300);
+      held.shift()!();
+      await expect.poll(() => accountPage.locator("#wallet-status").textContent(), { timeout: 15_000 }).toContain("The device is added");
+      expect(approvals).toBe(1);
+    } finally { heldReads = 0; for (const answer of held.splice(0)) answer(); await account.close(); }
+  }, 30_000);
 });
