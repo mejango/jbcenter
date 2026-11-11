@@ -1,7 +1,6 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { Context } from "hono";
 import { DomainError } from "@juicebox/mcp/host";
-import { RestAuthError, type SignedRequestInput } from "./auth/index.js";
 import { ContractCatalogError } from "./contracts/catalog.js";
 import { RestError } from "./core.js";
 import { IndexerError } from "./indexer/index.js";
@@ -171,34 +170,71 @@ export function object(
   return value as Record<string, unknown>;
 }
 
-export function jsonBody(input: SignedRequestInput): Record<string, unknown> {
+/** Stream a bounded JSON body; size limits also apply without Content-Length. */
+export async function jsonBody(
+  request: Request,
+  signal: AbortSignal,
+): Promise<Record<string, unknown>> {
   if (
-    input.contentType.split(";")[0]?.trim().toLowerCase() !== "application/json"
-  ) {
+    request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !==
+    "application/json"
+  )
     throw new RestError(
       415,
       "UNSUPPORTED_MEDIA_TYPE",
       "This endpoint requires application/json",
     );
+  const declared = request.headers.get("content-length");
+  if (
+    declared !== null &&
+    (!/^(0|[1-9][0-9]*)$/.test(declared) ||
+      Number(declared) > REST_LIMITS.bodyBytes)
+  )
+    throw new RestError(
+      413,
+      "BODY_TOO_LARGE",
+      "The JSON body exceeds its size limit",
+    );
+  const reader = request.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  if (reader) {
+    const abort = () => {
+      void reader.cancel(signal.reason).catch(() => {});
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      while (true) {
+        signal.throwIfAborted();
+        const { value, done } = await reader.read();
+        signal.throwIfAborted();
+        if (done) break;
+        length += value.byteLength;
+        if (length > REST_LIMITS.bodyBytes)
+          throw new RestError(
+            413,
+            "BODY_TOO_LARGE",
+            "The JSON body exceeds its size limit",
+          );
+        chunks.push(value);
+      }
+    } catch (error) {
+      void reader.cancel().catch(() => {});
+      throw error;
+    } finally {
+      signal.removeEventListener("abort", abort);
+      reader.releaseLock();
+    }
   }
   let text: string;
   try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(input.body);
+    text = new TextDecoder("utf-8", { fatal: true }).decode(
+      Buffer.concat(chunks),
+    );
   } catch {
     throw new RestError(400, "INVALID_UTF8", "JSON must use valid UTF-8");
   }
   return object(jsonValue(text));
-}
-
-/** Stable operation identity excludes the per-attempt nonce and signature. */
-export function requestHash(input: SignedRequestInput): string {
-  const hash = createHash("sha256");
-  hash.update(
-    JSON.stringify([input.method, input.requestTarget, input.contentType]),
-  );
-  hash.update(new Uint8Array([0]));
-  hash.update(input.body);
-  return hash.digest("hex");
 }
 
 export function response(
@@ -225,11 +261,7 @@ export function problem(error: Error, context: Context): Response {
   let code = "INTERNAL_ERROR";
   let detail = "The operation could not be completed";
   let retryable = false;
-  if (
-    error instanceof RestError ||
-    error instanceof RestAuthError ||
-    error instanceof IndexerError
-  ) {
+  if (error instanceof RestError || error instanceof IndexerError) {
     ({ status, code } = error);
     detail = error.message;
     retryable =
@@ -265,8 +297,6 @@ export function problem(error: Error, context: Context): Response {
   }
   const requestId = context.res.headers.get("X-Request-Id") ?? randomUUID();
   context.set("errorCode", code);
-  // A user-operation codec message names only the field it refused; it carries no request data.
-  if (code.startsWith("INVALID_USER_OPERATION")) context.set("errorDetail", detail);
   if (status === 429) context.header("Retry-After", "60");
   // Error details may contain calldata, signatures, or upstream request data.
   // Typed public error codes and bounded messages are the portable contract.
