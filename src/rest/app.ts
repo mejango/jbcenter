@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Hex } from "viem";
@@ -64,7 +64,7 @@ export interface RestDependencies {
 type RestEnv = {
   Variables: { requestId: string; restSignal: AbortSignal };
   Bindings: {
-    incoming?: { url?: string; socket?: { remoteAddress?: string } };
+    incoming?: { url?: string };
   };
 };
 const page = (params: URLSearchParams) => ({
@@ -189,12 +189,7 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
       credentials: false,
       allowMethods: ["GET", "POST", "OPTIONS"],
       allowHeaders: ["Content-Type"],
-      exposeHeaders: [
-        "X-Request-Id",
-        "Retry-After",
-        "RateLimit-Limit",
-        "RateLimit-Remaining",
-      ],
+      exposeHeaders: ["X-Request-Id", "Retry-After"],
       maxAge: 600,
     }),
   );
@@ -222,22 +217,7 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
       );
     active++;
     try {
-      // The transport owns peer identity. Client-supplied forwarding headers cannot reset this budget.
-      const peer = context.env?.incoming?.socket?.remoteAddress ?? "unknown";
-      const key = createHash("sha256").update(peer).digest("hex");
-      const caller = await deps.quota.consumeRequest(
-        `rest:peer:${key}`,
-        REST_LIMITS.requestsPerMinute,
-        60,
-      );
-      context.header("RateLimit-Limit", String(REST_LIMITS.requestsPerMinute));
-      context.header("RateLimit-Remaining", String(caller.remaining));
-      if (!caller.allowed)
-        throw new RestError(
-          429,
-          "RATE_LIMITED",
-          "The transport peer request budget is spent; retry later",
-        );
+      // One durable service budget spans callers and replicas, independent of proxy identity.
       const site = await deps.quota.consumeRequest(
         "rest:site",
         REST_LIMITS.siteRequestsPerMinute,

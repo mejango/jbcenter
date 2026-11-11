@@ -11,7 +11,6 @@ export const REST_LIMITS = Object.freeze({
   responseBytes: 5_242_880,
   targetBytes: 4096,
   timeoutMs: 60_000,
-  requestsPerMinute: 300,
   siteRequestsPerMinute: 10_000,
   maxConcurrentRequests: 64,
 });

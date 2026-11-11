@@ -293,25 +293,34 @@ describe("public protocol REST API", () => {
     ).toBe(413);
     expect(f.prepare).not.toHaveBeenCalled();
   });
-  it("enforces durable shared and caller budgets independently of spoofed forwarding headers", async () => {
+  it("charges one shared budget before protocol work and forwarding headers cannot bypass it", async () => {
     const f = fixture();
-    await f.app.request("/api/v1", {
-      headers: { "x-forwarded-for": "1.2.3.4" },
-    });
-    await f.app.request("/api/v1", {
-      headers: { "x-forwarded-for": "4.3.2.1" },
-    });
-    const peerKeys = [...f.counts.keys()].filter((key) =>
-      key.startsWith("rest:peer:"),
-    );
-    expect(peerKeys).toHaveLength(1);
-    expect(f.counts.get(peerKeys[0]!)).toBe(2);
-    f.counts.set(peerKeys[0]!, REST_LIMITS.requestsPerMinute);
-    const limited = await f.app.request("/api/v1");
-    expect(limited.status).toBe(429);
-    expect(limited.headers.get("Retry-After")).toBe("60");
-    const site = fixture();
-    site.counts.set("rest:site", REST_LIMITS.siteRequestsPerMinute);
-    expect((await site.app.request("/api/v1")).status).toBe(429);
+    for (const forwarded of ["1.2.3.4", "4.3.2.1"]) {
+      const response = await f.app.request("/api/v1", {
+        headers: { "x-forwarded-for": forwarded },
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.has("RateLimit-Limit")).toBe(false);
+      expect(response.headers.has("RateLimit-Remaining")).toBe(false);
+    }
+    expect([...f.counts.keys()]).toEqual(["rest:site"]);
+    expect(f.counts.get("rest:site")).toBe(2);
+    f.counts.set("rest:site", REST_LIMITS.siteRequestsPerMinute);
+    for (const forwarded of ["5.6.7.8", "8.7.6.5"]) {
+      const response = await f.app.request("/api/v1/plans", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-forwarded-for": forwarded,
+        },
+        body: JSON.stringify({ operation: "prepare_pay", input: {}, at }),
+      });
+      expect(response.status).toBe(429);
+      expect(response.headers.get("Retry-After")).toBe("60");
+      expect(response.headers.has("RateLimit-Limit")).toBe(false);
+      expect(response.headers.has("RateLimit-Remaining")).toBe(false);
+    }
+    expect(f.prepare).not.toHaveBeenCalled();
+    expect(f.rpc.request).not.toHaveBeenCalled();
   });
 });
