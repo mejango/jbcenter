@@ -30,6 +30,7 @@ jobs:
           --health-retries 10
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      ANVIL_BINARY: anvil
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,6 +40,13 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             mcp/package-lock.json
+      - name: Install pinned Anvil for retained Relayr payment bytecode checks
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+        with:
+          version: v1.7.0
+          cache: false
+      - name: Prepare pinned compiler for retained Relayr executable-equivalence check
+        run: forge build --use 0.8.26 --evm-version cancun --via-ir --optimize --optimizer-runs 200 --contracts src/rest/sponsorship/stack/relayr --out "$RUNNER_TEMP/center-relayr-out" --cache-path "$RUNNER_TEMP/center-relayr-cache"
       - run: npm ci --ignore-scripts
       - run: npm --prefix mcp ci --ignore-scripts
       - name: Install pinned Chromium for documentation browser checks

@@ -30,3 +30,7 @@ Protocol reads are fixed to canonical block hashes. Bendystraw is an explicitly 
 Project-intent publication remains a separate signed envelope flow, and IPFS publication retains its approved-origin or MCP review requirements. The intent sponsor can execute only the reviewed signed deployment-intent flow under its own funding policy. Removing account execution does not remove that sponsor or broaden its authority. Its original queue, reservations and reconciliation remain owned by Center. See [project intents](PROJECT_INTENTS.md).
 
 PostgreSQL retains intents, deployment records, sponsor state and shared quotas. Center no longer creates new account tables. Previously applied account migrations need no compatibility runtime and no destructive migration is part of this change.
+
+## Storage after account removal
+
+Fresh Center databases create only intents, deployment records, sponsorship reservations and shared quotas. Account migrations are no longer part of startup. Existing databases may retain historical account migration entries or inert account tables; this release does not drop them or import them into Signa. Center constructs no account stores or account execution workers. The protocol runtime only prunes expired rate-limit windows; the separately authorized intent sponsor retains its deployment recovery worker.

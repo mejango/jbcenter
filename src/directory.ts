@@ -190,12 +190,12 @@ export const directoryTree: readonly DirectoryNode[] = [
     id: "api",
     children: [
       {
-        title: "Read V6 data and send signed transactions → REST API",
+        title: "Read V6 data and prepare unsigned transactions → REST API",
         url: "https://juicebox.center/api",
       },
       {
         title: "Create and manage a bot → Accounts",
-        url: "https://juicebox.center/accounts",
+        url: "https://api.signa.center/accounts",
       },
       {
         title: "Generate an API client → OpenAPI specification",

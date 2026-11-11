@@ -16,6 +16,10 @@ export const requiredVitestSuites = [
   "test/sponsor/relayr.test.ts",
   "test/sponsor/worker.test.ts",
   "test/rest-protocol.test.ts",
+  "test/rest-public-api.test.ts",
+  "test/rest-protocol-runtime.test.ts",
+  "test/rest-relayr-payment-source.test.ts",
+  "test/rest-relayr-payment-evm.test.ts",
   "test/rest-openapi.test.ts",
   "test/page-weight.test.ts",
   "test/asset-cache.test.ts",
@@ -68,16 +72,6 @@ export function summarizeVitest(report, projectRoot, requiredSuites = requiredVi
     names.size !== suites.length || requiredSuites.some(name => !names.has(name)) ||
     suites.reduce((total, suite) => total + suite.total, 0) !== report.numTotalTests) fail(suites);
   return suites;
-}
-
-export function verifyExecutionReport(report) {
-  if (!Array.isArray(report?.suites) || !report.suites.length || report.suites.some(suite =>
-    typeof suite.name !== "string" || !suite.name || !Number.isSafeInteger(suite.total) || suite.total < 1 ||
-    suite.passed !== suite.total || suite.failed !== 0 || suite.skipped !== 0) ||
-    new Set(report.suites.map(suite => suite.name)).size !== report.suites.length) {
-    throw new Error("Required execution suite counts are missing, failed, skipped or empty.");
-  }
-  return report.suites.map(({ name, total, passed, failed, skipped }) => ({ name, total, passed, failed, skipped }));
 }
 
 export function redactOutput(env) {

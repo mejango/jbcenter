@@ -346,10 +346,10 @@ export const journeyNodes: readonly JourneyNode[] = [
     kind: "resource",
     links: [
       { title: "Read the API", url: "https://juicebox.center/api" },
-      { title: "Create a bot", url: "https://juicebox.center/accounts" },
+      { title: "Create a bot", url: "https://api.signa.center/accounts" },
       { title: "OpenAPI specification", url: "https://juicebox.center/api/v1/openapi.json" },
     ],
-    note: "Read V6 projects, plan transactions, and send transactions your wallet has signed.",
+    note: "Read V6 projects and prepare unsigned transactions. Signa handles account approval and execution.",
     edges: [{ to: "transaction-review", kind: "cross" }],
   },
   {

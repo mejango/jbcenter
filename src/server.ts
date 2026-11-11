@@ -2,13 +2,11 @@ import { getRequestListener } from "@hono/node-server";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { HttpHandler } from "@juicebox/mcp/host";
-import { createWalletHostMatcher } from "./walletHosts.js";
 
 export interface CenterServerOptions {
   port: number;
   hostname?: string;
   shutdownGraceMs?: number;
-  walletOrigins?: readonly string[];
 }
 
 export interface CenterServer {
@@ -28,7 +26,6 @@ export function createCenterServer(
     throw new Error("Shutdown grace must be a positive bounded integer");
   }
   const center = getRequestListener(fetch, { overrideGlobalObjects: false });
-  const walletHost = createWalletHostMatcher(options.walletOrigins);
   let draining = false;
   let closing: Promise<void> | undefined;
   let closingMcp: Promise<void> | undefined;
@@ -52,9 +49,7 @@ export function createCenterServer(
         setImmediate(() => server.closeIdleConnections());
       });
       const path = (request.url ?? "/").split("?", 1)[0]!;
-      // The reserved wallet origin belongs entirely to Hono's wallet boundary,
-      // including setup/disabled responses. MCP must not bypass that host guard.
-      if (!walletHost(request.headers.host) && (path === "/mcp" || path.startsWith("/mcp/"))) {
+      if (path === "/mcp" || path.startsWith("/mcp/")) {
         mcp.handler(request, response);
         return;
       }

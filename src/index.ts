@@ -12,7 +12,6 @@ import { createRpcGateway, dwellirRpcUpstreams } from "./rpc.js";
 import { createCenterMcp } from "./mcp.js";
 import { createCenterServer } from "./server.js";
 import { createRestRuntime } from "./rest/runtime.js";
-import { readRestExecutionConfiguration } from "./rest/executionConfig.js";
 import { Metrics } from "./observability.js";
 import { SponsorshipChain } from "./rest/sponsorship/chain.js";
 import { DEFAULT_SPONSORSHIP_POLICY } from "./rest/sponsorship/constants.js";
@@ -78,9 +77,8 @@ const mcp = createCenterMcp(store, {
 });
 const metrics = new Metrics();
 const rest = await createRestRuntime({
-  pool, store, services: mcp.services, config: mcp.config, upstreams: rpcUpstreams, rpcSiteLimitPerMinute, metrics,
+  store, services: mcp.services, config: mcp.config, upstreams: rpcUpstreams, rpcSiteLimitPerMinute,
   ...(process.env.REST_PUBLIC_ORIGIN ? { audience: process.env.REST_PUBLIC_ORIGIN } : {}),
-  executionConfiguration: await readRestExecutionConfiguration(process.env),
 });
 let sponsor: (SponsorRuntime & { stop(): Promise<void> }) | undefined;
 if (sponsorSigner) {
@@ -138,7 +136,6 @@ const app = createApp(store, {
   });
 const runtime = createCenterServer(app.fetch, handler, {
   port,
-  ...(rest.site.walletOrigins ? { walletOrigins: rest.site.walletOrigins } : {}),
   shutdownGraceMs: positiveInteger("SHUTDOWN_GRACE_MS", 25_000),
 });
 await runtime.listen();

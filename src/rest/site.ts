@@ -3,8 +3,6 @@ import type { Hono } from "hono";
 import type { JbcenterEnv } from "../types.js";
 import type { createRestApp } from "./app.js";
 import { guidePage } from "./docs/guide.js";
-import { mountAccountsSite } from "./accountsSite.js";
-import { createWalletHostMatcher } from "../walletHosts.js";
 import { REST_DOCS_HEADERS, REST_PAGE_HEADERS } from "./pageHeaders.js";
 import { mountAssets } from "./web/assets.js";
 
@@ -13,9 +11,7 @@ export { REST_PAGE_HEADERS } from "./pageHeaders.js";
 export const REST_DOCUMENTS = [
   "ARCHITECTURE",
   "QUICKSTART",
-  "CLIENT",
   "USER_JOURNEYS",
-  "AUTHENTICATION",
   "API",
   "AI_GUIDE",
   "PROJECT_INTENTS",
@@ -23,24 +19,13 @@ export const REST_DOCUMENTS = [
   "INDEXER",
   "TRANSACTIONS",
   "OMNICHAIN",
-  "SPONSORSHIP",
-  "SMART_ACCOUNTS",
-  "SESSIONS",
-  "EXECUTION_OPERATIONS",
-  "PRODUCTION_CHECK",
   "PRODUCTION_OPERATIONS",
-  "SIGNA_MIGRATION",
 ] as const;
 
 export interface RestSite {
   app: ReturnType<typeof createRestApp>;
-  wallet?: Hono;
-  /** Origins served entirely by the wallet app (its own and retired ones). */
-  walletOrigins?: readonly string[];
   audience: string;
-  accountsScript: string;
-  docsScript?: string;
-  clientPackage?: Uint8Array;
+  docsScript: string;
   docsHtml: string;
   /** Each endpoint's parameter and schema tables, by operationId; /api loads one when it is opened. */
   apiReference?: ReadonlyMap<string, string>;
@@ -51,10 +36,6 @@ export interface RestSite {
 }
 
 export async function readRestAssets() {
-  const accountsScript = await readFile(
-    new URL("../../.generated/rest/accounts.js", import.meta.url),
-    "utf8",
-  );
   const documents = new Map<string, string>();
   for (const name of REST_DOCUMENTS) {
     const content = await readFile(
@@ -64,29 +45,13 @@ export async function readRestAssets() {
     documents.set(name.toLowerCase(), content);
     documents.set(name.toLowerCase().replaceAll("_", "-"), content);
   }
-  const walletScript = await readFile(new URL("../../.generated/rest/wallet.js", import.meta.url), "utf8");
-  const walletPaymentScript = await readFile(new URL("../../.generated/rest/wallet-payment.js", import.meta.url), "utf8");
-  const walletSignupScript = await readFile(new URL("../../.generated/rest/wallet-signup.js", import.meta.url), "utf8");
-  const walletRecoveryScript = await readFile(new URL("../../.generated/rest/wallet-recovery.js", import.meta.url), "utf8");
-  const walletRecoveryKitScript = await readFile(new URL("../../.generated/rest/wallet-recovery-kit.js", import.meta.url), "utf8");
-  const walletDeviceScript = await readFile(new URL("../../.generated/rest/wallet-device.js", import.meta.url), "utf8");
   const docsScript = await readFile(new URL("../../.generated/rest/docs.js", import.meta.url), "utf8");
-  const clientPackage = new Uint8Array(await readFile(new URL("../../.generated/rest/juicebox-center-client-0.1.0.tgz", import.meta.url)));
-  return { accountsScript, walletScript, walletPaymentScript, walletSignupScript, walletRecoveryScript, walletRecoveryKitScript, walletDeviceScript, documents, docsScript, clientPackage };
+  return { documents, docsScript };
 }
 
 export function mountRestSite(app: Hono<JbcenterEnv>, site: RestSite): void {
-  if (site.wallet && site.walletOrigins?.length) {
-    const walletHost = createWalletHostMatcher(site.walletOrigins);
-    app.use("*", async (c, next) => walletHost(c.req.header("host")) || walletHost(new URL(c.req.url).host) ? site.wallet!.fetch(c.req.raw, c.env) : next());
-  } else if (site.wallet) app.route("/", site.wallet);
   app.route("/api/v1", site.app);
-  mountAccountsSite(app, { audience: site.audience, accountsScript: site.accountsScript });
   const assets = mountAssets(app, "", { "docs.js": site.docsScript ?? "", "api.css": site.docsCss }, REST_PAGE_HEADERS);
-  app.get("/api/client/juicebox-center-client-0.1.0.tgz", (context) => {
-    if (!site.clientPackage) return context.notFound();
-    return new Response(site.clientPackage as BodyInit, { headers: { "Content-Type": "application/gzip", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache", "Content-Disposition": 'attachment; filename="juicebox-center-client-0.1.0.tgz"' } });
-  });
   app.get("/api", (context) =>
     context.html(site.docsHtml, 200, REST_DOCS_HEADERS),
   );

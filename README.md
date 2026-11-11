@@ -444,7 +444,7 @@ and the route allows 30 requests per requester per hour. See
 ## Authentication boundaries
 
 Intent writes use the reviewed browser origins; signed intents provide publisher authenticity.
-Public protocol REST reads and preparation use their own bounded account-free access policy.
+Public protocol REST reads and preparation share a PostgreSQL-backed 10,000-request-per-minute budget across replicas, a per-process concurrency limit, and bounded upstream RPC work. No account enrollment or forwarded-header identity is required.
 Deployment recording needs no bearer credential: the publisher's signed call commitment and the
 onchain trace provide the intent-to-project binding. Center's server-side trace method is not
 exposed through the public browser RPC gateway.

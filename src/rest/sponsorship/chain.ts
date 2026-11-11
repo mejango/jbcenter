@@ -397,7 +397,7 @@ export class SponsorshipChain {
     if (!same(signer, message.from))
       fail(
         "FORWARD_SIGNATURE_ACCOUNT_MISMATCH",
-        "API bot keys cannot replace the owner wallet’s transaction signature.",
+        "The signature must match the exact forward request sender.",
         403,
       );
     const evidence = await this.revalidate(request, preceding.length);

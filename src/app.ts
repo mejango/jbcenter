@@ -62,7 +62,6 @@ import {
 } from "./sponsor/policy.js";
 import type { Intent, JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
-import { createWalletHostMatcher } from "./walletHosts.js";
 import { llmsIndex } from "./llms.js";
 import { JUICESCAN } from "./journeyGraph.js";
 import { JUICESCAN_URL } from "./directory.js";
@@ -91,8 +90,6 @@ class PinFailed extends Error {}
 
 export type AppOptions = {
   rest?: RestSite;
-  /** Reserve credential origins even before their wallet runtime is enabled. */
-  walletOrigins?: readonly string[];
   allowedOrigins?: readonly string[];
   deploymentVerifier?: DeploymentVerifier;
   requestLimitPerMinute?: number;
@@ -451,22 +448,7 @@ export function createApp(
     await next();
   });
 
-  const walletOrigins = [...(options.rest?.walletOrigins ?? []), ...(options.walletOrigins ?? [])];
-  const walletHost = createWalletHostMatcher(walletOrigins);
-  // DNS may be attached before the wallet runtime is activated. Reserve its credential
-  // origin even then: legacy Accounts and IPFS must never execute on this host.
-  app.use('*', async (c, next) => {
-    if (!options.rest?.wallet && (walletHost(new URL(c.req.url).host) || walletHost(c.req.header('Host')))) {
-      return c.text('Juicebox wallet setup is in progress. Please try again later.', 503, {
-        'Cache-Control': 'no-store', 'Retry-After': '60', 'Referrer-Policy': 'no-referrer',
-        'X-Content-Type-Options': 'nosniff',
-        'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
-      });
-    }
-    await next();
-  });
-
-  if (options.rest) mountRestSite(app, { ...options.rest, walletOrigins });
+  if (options.rest) mountRestSite(app, options.rest);
 
   app.get("/", (c) => c.html(HOMEPAGE_HTML, 200, HOMEPAGE_HEADERS));
   app.get("/favicon.svg", (c) => c.body(FAVICON_SVG, 200, {

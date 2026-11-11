@@ -1,6 +1,5 @@
 import type { Address, Hex } from "viem";
-import type { RestActor, RestBlockEvidence } from "../core.js";
-import type { SemanticResult, StoredReceipt } from "../transactions/types.js";
+import type { RestBlockEvidence } from "../core.js";
 
 export interface ForwardRequest {
   from: Address;
@@ -49,42 +48,6 @@ export interface RelayrQuote<Entry extends RelayrEntry | RelayrIndependentEntry 
   commitment: Hex;
   observedAt: number;
 }
-export interface DestinationObservation {
-  stepIndex: number;
-  chainId: number;
-  /** Provider status is only a hint for locating a transaction. */
-  providerState: string;
-  state: "pending" | "unknown" | "confirming" | "confirmed" | "reverted";
-  hash?: Hex;
-  receipt?: StoredReceipt;
-  semantic?: SemanticResult;
-  reason?: string;
-}
-export interface SponsorshipRecord {
-  id: string;
-  actor: RestActor;
-  planId: string;
-  planCommitment: Hex;
-  preparationKey: string;
-  inputHash: Hex;
-  commitment: Hex;
-  requests: PreparedForwardRequest[];
-  createdAt: number;
-  expiresAt: number;
-  revision: number;
-  state: "prepared" | "submitting" | "submission_unknown" | "quoted";
-  submission?: {
-    key: string;
-    hash: Hex;
-    entries: RelayrEntry[];
-    startedAt: number;
-  };
-  quote?: RelayrQuote;
-  /** Explicit false permits new provisional UUID rebinding; absent legacy mappings stay immutable. */
-  quoteBindingVerified?: boolean;
-  quoteRuntimeVerified?: boolean;
-  observations: DestinationObservation[];
-}
 export interface SponsorshipPolicy {
   enabled: boolean;
   allowedChainIds: readonly number[];
@@ -95,10 +58,4 @@ export interface SponsorshipPolicy {
   confirmations: number;
   rpcTimeoutMs: number;
   providerTimeoutMs: number;
-}
-export interface SponsorshipPrepareInput {
-  stepIndexes?: number[];
-}
-export interface SponsorshipSubmission {
-  signatures: Hex[];
 }

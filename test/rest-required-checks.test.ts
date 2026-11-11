@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const {
-  validateRuntime, checkDatabase, summarizeVitest, requiredVitestSuites, verifyExecutionReport, redactOutput, runStep,
+  validateRuntime, checkDatabase, summarizeVitest, requiredVitestSuites, redactOutput, runStep,
   writeObservation, captureSourceSnapshot,
 } = await import(new URL("../scripts/rest/check-required-tests.mjs", import.meta.url).href);
 
@@ -88,16 +88,6 @@ describe("release check cannot silently omit required verification", () => {
     expect(suites).toHaveLength(requiredVitestSuites.length);
     expect(suites[0]).toEqual({ name: requiredVitestSuites[0], total: 1, passed: 1, failed: 0, skipped: 0 });
     expect(JSON.stringify(suites)).not.toMatch(/private key|assertion|secret/);
-  });
-
-  it("also rejects missing, empty and skipped machine execution evidence", () => {
-    expect(() => verifyExecutionReport(null)).toThrow();
-    expect(() => verifyExecutionReport({ suites: [] })).toThrow();
-    for (const counts of [{ total: 0, passed: 0, skipped: 0 }, { total: 1, passed: 0, skipped: 1 }]) {
-      expect(() => verifyExecutionReport({ suites: [{ name: "execution", failed: 0, ...counts }] })).toThrow();
-    }
-    expect(verifyExecutionReport({ suites: [{ name: "execution", total: 1, passed: 1, failed: 0, skipped: 0, payload: "secret" }] }))
-      .toEqual([{ name: "execution", total: 1, passed: 1, failed: 0, skipped: 0 }]);
   });
 
   it("redacts URLs and known secret environment values, including URL-decoded passwords", () => {
