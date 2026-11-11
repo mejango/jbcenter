@@ -13,12 +13,12 @@ it("rebuilds only current runtime files and all assets needed by a fresh dev sta
   const directory = await mkdtemp(join(tmpdir(), "center-build-"));
   try {
     // Share read-only inputs; every compiler, bundler and package output stays in this fixture.
-    for (const name of ["src", "docs", "client", "node_modules"]) await symlink(join(root, name), join(directory, name));
+    for (const name of ["src", "docs", "node_modules"]) await symlink(join(root, name), join(directory, name));
     for (const name of ["mcp", "scripts/rest", "test", "dist/src/db/migrations", ".generated/rest", ".generated/checks"])
       await mkdir(join(directory, name), { recursive: true });
     for (const name of ["src", "node_modules"]) await symlink(join(root, "mcp", name), join(directory, "mcp", name));
     for (const name of ["package.json", "tsconfig.json", "tsconfig.build.json", "mcp/package.json", "mcp/tsconfig.json", "mcp/tsconfig.build.json",
-      "scripts/rest/clean-build.mjs", "scripts/rest/build-web.mjs", "scripts/rest/build-client.mjs", "scripts/rest/copy-assets.mjs", "scripts/rest/center.mjs"])
+      "scripts/rest/clean-build.mjs", "scripts/rest/build-web.mjs", "scripts/rest/copy-assets.mjs"])
       await copyFile(join(root, name), join(directory, name));
     await writeFile(join(directory, "test/build-only.test.ts"), "export const testOnly = true;\n");
     await writeFile(join(directory, "dist/src/removed.js"), "throw new Error('obsolete');\n");
@@ -42,15 +42,12 @@ it("rebuilds only current runtime files and all assets needed by a fresh dev sta
     const smoke = await execute(process.execPath, ["--input-type=module", "--eval", `
       import assert from 'node:assert/strict';
       import { readRestAssets } from './dist/src/rest/site.js';
-      import { CenterClient } from './.generated/rest/client/index.js';
-      import { connect } from './.generated/rest/client/node.js';
       const assets = await readRestAssets();
-      for (const key of ['accountsScript', 'walletScript', 'walletPaymentScript', 'walletSignupScript', 'walletRecoveryScript', 'walletDeviceScript', 'docsScript'])
+      for (const key of ['docsScript'])
         assert(assets[key].length > 0, key);
       assert(assets.documents.size > 0);
-      assert.deepEqual([...assets.clientPackage.slice(0, 2)], [0x1f, 0x8b]);
-      assert.equal(typeof CenterClient, 'function');
-      assert.equal(typeof connect, 'function');
+      assert(!('accountsScript' in assets));
+      assert(!('clientPackage' in assets));
       // The homepage ships its directory script minified, and links the minified bytes' hash.
       const { HOMEPAGE_JS } = await import('./dist/src/directoryClient.js');
       const { HOMEPAGE_HTML } = await import('./dist/src/homepage.js');
@@ -61,7 +58,8 @@ it("rebuilds only current runtime files and all assets needed by a fresh dev sta
       console.log('assets and client ready');
     `], { cwd: directory, timeout: 15_000, maxBuffer: 1024 * 1024 });
     expect(smoke.stdout.trim()).toBe("assets and client ready");
-    const cli = await execute(process.execPath, [".generated/rest/client/cli.mjs", "--help"], { cwd: directory, timeout: 15_000 });
-    expect(cli.stdout).toContain("Install the Center client package");
+    expect(await readdir(join(directory, ".generated/rest"))).toEqual(["docs.js"]);
+    for (const name of ["dist/src/rest/auth", "dist/src/rest/wallet", "dist/src/rest/sessions", "dist/client"])
+      await expect(stat(join(directory, name)), name).rejects.toMatchObject({ code: "ENOENT" });
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 120_000);

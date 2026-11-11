@@ -50,19 +50,13 @@ describe("REST OpenAPI contract", () => {
   });
 
   it("covers every registered HTTP route with matching methods and path parameters", async () => {
-    const files = ["../src/rest/app.ts", "../src/rest/auth/router.ts"];
+    const files = ["../src/rest/app.ts"];
     for (const file of files) {
       const source = await readFile(new URL(file, import.meta.url), "utf8");
       for (const match of source.matchAll(/(?:app|router)\.(get|post|patch|delete)\((["'])([^"']+)\2/g)) {
         const path = match[3] === "/" ? "/api/v1" : `/api/v1${match[3]!.replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, "{$1}")}`;
         expect(spec.paths[path]?.[match[1]!], `${match[1]} ${path}`).toBeDefined();
       }
-    }
-    for (const kind of ["activation", "revocation"]) {
-      const operation = spec.paths[`/api/v1/smart-accounts/sessions/{id}/${kind}-plans`]?.post;
-      expect(operation, `${kind} lifecycle route`).toBeDefined();
-      expect(operation?.["x-auth"]).toMatchObject({ ownerOnly: true, idempotencyRequired: true });
-      expect(operation?.responses).toHaveProperty("201");
     }
     const ids = new Set<string>();
     for (const [path, methods] of Object.entries(spec.paths)) {
@@ -127,38 +121,24 @@ describe("REST OpenAPI contract", () => {
     expect(validate({ version: 5, metadata: {} })).toBe(false);
   });
 
-  it("models custom request signatures, public discovery, JSON query serialization and distinct transaction signatures", () => {
+  it("exposes only public protocol routes and stateless drafts", () => {
     for (const methods of Object.values(spec.paths)) for (const operation of Object.values(methods)) {
-      const auth = operation["x-auth"] as { scheme: string; idempotencyRequired: boolean };
-      const parameters = operation.parameters as Record<string, unknown>[];
-      const headers = parameters.map((parameter) => typeof parameter.$ref === "string" ? resolvePointer(parameter.$ref) as Record<string, unknown> : parameter).filter((parameter) => parameter.in === "header");
-      if (auth.scheme === "public") expect(headers).toHaveLength(0);
-      else {
-        for (const name of ["Account", "Signer", "Issued-At", "Expires-At", "Nonce", "Signature"]) {
-          expect(headers.some((header) => header.name === `X-Juicebox-${name}` && header.required === true)).toBe(true);
-        }
-        expect(headers.find((header) => header.name === "Idempotency-Key")?.required).toBe(auth.idempotencyRequired);
-      }
+      expect(operation["x-auth"]).toEqual({ scheme: "public" });
+      expect(operation.security).toEqual([]);
+      expect((operation.parameters as Record<string, unknown>[]).some(parameter => parameter.in === "header")).toBe(false);
     }
     const method = spec.paths["/api/v1/protocol/read"]!.get!;
-    const args = (method.parameters as Record<string, unknown>[]).find((parameter) => parameter.name === "args")!;
+    const args = (method.parameters as Record<string, unknown>[]).find(parameter => parameter.name === "args")!;
     expect(args.content).toHaveProperty("application/json");
     expect(args.schema).toBeUndefined();
-    expect(spec.components.schemas.SignedTransactionSubmission!.required).toEqual(["rawSignedTransaction"]);
-    expect(spec.paths["/api/v1/plans"]!.post!.responses).toHaveProperty("201");
-    expect(spec.paths["/api/v1/plans/{id}/submissions"]!.post!.responses).toHaveProperty("202");
-    expect(spec.paths["/api/v1/accounts/enroll"]!.post!.responses).toHaveProperty("200");
-    const onboarding = spec.paths["/api/v1/smart-accounts/onboarding"]!.post!;
-    expect(onboarding["x-auth"]).toMatchObject({ scheme: "public", idempotencyRequired: false });
-    expect(onboarding["x-body-approval"]).toMatchObject({ required: true,
-      owner: { field: "signature", primaryType: "SetupAccount" },
-      browser: { field: "proofSignature", primaryType: "CenterSetupProof" },
-      transactionAuthority: false, onchainSessionAuthority: false });
-    expect(onboarding.responses).toHaveProperty("201");
-    expect(JSON.stringify(spec)).not.toMatch(/"(?:bearer|oauth2|apiKey)"/);
+    expect(spec.paths["/api/v1/plans"]!.post!.responses).toHaveProperty("200");
+    for (const path of ["/accounts/enroll", "/plans/{id}", "/plans/{id}/submissions", "/smart-accounts/onboarding", "/user-operations"])
+      expect(spec.paths[`/api/v1${path}`]).toBeUndefined();
+    for (const name of ["Account", "BotGrant", "Plan", "SignedTransactionSubmission", "TransactionApproval"])
+      expect(spec.components.schemas[name]).toBeUndefined();
   });
 
-  it("validates durable plan inputs and lossless numbers from the published components", () => {
+  it("validates unsigned draft inputs and lossless numbers from the published components", () => {
     const serialized = JSON.stringify({ $id: "urn:juicebox:test-schemas", $defs: spec.components.schemas }).replaceAll("#/components/schemas/", "#/$defs/");
     const ajv = new Ajv2020({ strict: false, validateFormats: false });
     ajv.addSchema(JSON.parse(serialized));
@@ -174,9 +154,7 @@ describe("REST OpenAPI contract", () => {
     expect(amount((1n << 256n).toString())).toBe(false);
     expect(amount(1000000000000000000)).toBe(false);
     expect(amount("1e18")).toBe(false);
-    const grant = ajv.compile({ $ref: "urn:juicebox:test-schemas#/$defs/BotScopes" });
-    for (const scopes of [["read"], ["read", "plan"], ["read", "plan", "relay"]]) expect(grant(scopes)).toBe(true);
-    for (const scopes of [[], ["relay"], ["plan"], ["read", "relay"], ["plan", "read"], ["read", "read"]]) expect(grant(scopes)).toBe(false);
+
   });
 
   it("validates an actual normalized indexer response and its distinct list/read integer bounds", async () => {
@@ -261,8 +239,8 @@ describe("static REST documentation", () => {
     const reference = apiReferencePages(unsafe);
     const pages = [...reference.values()].join("");
     expect(pages).toContain("Request body");
-    expect(pages).toContain("Response 201");
-    expect(pages).toContain('<code>planId</code>');
+    expect(pages).toContain("Response 200");
+    expect(pages).toContain('<code>dependsOn</code>');
     expect(pages).toContain("Parameters");
     expect(pages).not.toContain("<img");
     for (const [operationId, page] of reference) {

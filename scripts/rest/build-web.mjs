@@ -4,17 +4,7 @@ import { fileURLToPath } from "node:url";
 /** The browser bundles Center serves. */
 export const webBuildOptions = {
   absWorkingDir: fileURLToPath(new URL("../../", import.meta.url)),
-  entryPoints: {
-    "wallet-recovery": "src/rest/web/walletRecoveryJourney.ts",
-    "wallet-device": "src/rest/web/walletDevice.ts",
-    "wallet-signup": "src/rest/web/walletSignup.ts",
-    "wallet-payment": "src/rest/web/walletPayment.ts",
-    wallet: "src/rest/web/wallet.ts",
-    accounts: "src/rest/web/main.ts",
-    docs: "src/rest/docs/main.ts",
-    // Loaded on demand from the URL its page names in <meta name="module:..."> (src/rest/web/lazyModule.ts).
-    "wallet-recovery-kit": "src/rest/web/walletRecoveryKit.ts",
-  },
+  entryPoints: { docs: "src/rest/docs/main.ts" },
   outdir: ".generated/rest",
   bundle: true,
   platform: "browser",

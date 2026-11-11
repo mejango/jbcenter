@@ -11,146 +11,16 @@ import { finished } from "node:stream/promises";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 export const requiredVitestSuites = [
   "test/postgres.integration.test.ts",
-  "test/rest-smart-accounts-postgres.integration.test.ts",
-  "test/rest-transactions-postgres.integration.test.ts",
-  "test/rest-user-operations-postgres.integration.test.ts",
-  "test/rest-sponsorship-postgres.integration.test.ts",
-  "test/rest-sessions-postgres.integration.test.ts",
-  "test/rest-smart-account-onboarding-store.integration.test.ts",
-  "test/rest-auth-store.test.ts",
-  "test/rest-sessions-service.test.ts",
-  "test/rest-smart-account-checkpoints.test.ts",
-  "test/rest-wallet-ceremonies-postgres.integration.test.ts",
-  "test/rest-smart-accounts-policy-evm.test.ts",
-  "test/rest-smart-accounts-inspector-evm.test.ts",
-  "test/rest-user-operations-evm.test.ts",
-  "test/rest-user-operations-chain-execution.test.ts",
-  "test/rest-sponsorship-execution.test.ts",
-  "test/rest-execution-app.test.ts",
-  "test/rest-execution-runtime.test.ts",
-  "test/rest-execution-config.test.ts",
-  "test/rest-wallet-webauthn.test.ts",
-  "test/rest-wallet-production-stack.test.ts",
-  "test/rest-wallet-dependency-bundle.test.ts",
-  "test/rest-wallet-dependency-funding.test.ts",
-  "test/rest-relayr-payment-evm.test.ts",
-  "test/rest-relayr-payment-source.test.ts",
-  "test/rest-relayr-payment-event.test.ts",
-  "test/rest-passkey-evidence.test.ts",
-  "test/rest-passkey-signatures.test.ts",
-  "test/rest-wallet-passkey-evm.test.ts",
-  "test/rest-passkey-profile-evm.test.ts",
-  "test/rest-passkey-onboarding.test.ts",
-  "test/rest-passkey-user-operations.test.ts",
-  "test/rest-passkey-creation.test.ts",
-  "test/rest-passkey-creation-evm.test.ts",
-  "test/rest-wallet-registration.test.ts",
-  "test/rest-wallet-browser.test.ts",
-  "test/rest-wallet-enrollment-postgres.integration.test.ts",
-  "test/rest-wallet-signup-postgres.integration.test.ts",
-  "test/rest-wallet-signup-evm-postgres.integration.test.ts",
-  "test/rest-wallet-signup-site.test.ts",
-  "test/rest-wallet-networks.test.ts",
-  "test/rest-wallet-networks-postgres.integration.test.ts",
-  "test/rest-wallet-passkey-recovery.test.ts",
-  "test/rest-wallet-passkey-recovery-postgres.integration.test.ts",
-  "test/rest-wallet-recovery-kit.test.ts",
-  "test/rest-wallet-recovery-lineage.test.ts",
-  "test/rest-wallet-recovery-flow-postgres.integration.test.ts",
-  "test/rest-wallet-recovery-dispatch-postgres.integration.test.ts",
-  "test/rest-wallet-recovery-rotation.test.ts",
-  "test/rest-wallet-device-addition.test.ts",
-  "test/rest-wallet-device-site.test.ts",
-  "test/rest-web-qr.test.ts",
-  "test/rest-wallet-device-browser.test.ts",
-  "test/rest-wallet-recovery-review.test.ts",
-  "test/rest-wallet-recovery-site.test.ts",
-  "test/rest-wallet-recovery-browser.test.ts",
-  "test/rest-wallet-enrollment-browser.test.ts",
-  "test/rest-wallet-enrollment-pressure.test.ts",
-  "test/rest-wallet-deployment.test.ts",
-  "test/rest-wallet-deployment-postgres.integration.test.ts",
-  "test/rest-wallet-deployment-execution.test.ts",
-  "test/rest-wallet-deployment-execution-postgres.integration.test.ts",
-  "test/rest-wallet-deployment-dispatch-evm-postgres.integration.test.ts",
-  "test/rest-wallet-deployment-local-anvil.test.ts",
-  "test/rest-wallet-deployment-scalar-evm.test.ts",
-  "test/rest-wallet-deployment-chain.test.ts",
-  "test/rest-wallet-deployment-chain-evm.test.ts",
-  "test/rest-wallet-deployment-observation.test.ts",
-  "test/rest-wallet-deployment-observation-evm.test.ts",
-  "test/rest-wallet-deployment-fees.test.ts",
-  "test/rest-wallet-deployment-fees-anvil.test.ts",
-  "test/anvil-support.test.ts",
-  "test/rest-wallet-base-receipt-fees.test.ts",
-  "test/rest-wallet-base-fee-observation.test.ts",
-  "test/rest-wallet-policy.test.ts",
-  "test/rest-wallet-policy-postgres.integration.test.ts",
-  "test/rest-wallet-app-grants.test.ts",
-  "test/rest-wallet-app-grants-postgres.integration.test.ts",
-  "test/rest-wallet-app-authority.test.ts",
-  "test/rest-wallet-app-auth-postgres.integration.test.ts",
-  "test/rest-wallet-app-dispatch.test.ts",
-  "test/rest-wallet-app-sessions.test.ts",
-  "test/rest-wallet-authority.test.ts",
-  "test/rest-wallet-authority-chain.test.ts",
-  "test/rest-wallet-authority-evm.test.ts",
-  "test/rest-wallet-authority-postgres.integration.test.ts",
-  "test/rest-wallet-authority-service.test.ts",
-  "test/rest-wallet-authority-refresh.test.ts",
-  "test/rest-wallet-authority-refresh-postgres.integration.test.ts",
-  "test/rest-wallet-login.test.ts",
-  "test/rest-wallet-login-postgres.integration.test.ts",
-  "test/rest-wallet-handoff.test.ts",
-  "test/rest-wallet-handoff-postgres.integration.test.ts",
-  "test/rest-wallet-site.test.ts",
-  "test/rest-wallet-site-postgres.integration.test.ts",
-  "test/rest-wallet-connect-browser-postgres.integration.test.ts",
-  "test/rest-wallet-app-refresh-postgres.integration.test.ts",
-  "test/rest-wallet-payment-reviews-postgres.integration.test.ts",
-  "test/rest-wallet-payment-reviews.test.ts",
-  "test/rest-wallet-payment-public.test.ts",
-  "test/rest-wallet-payment-client.test.ts",
-  "test/rest-wallet-payment-browser.test.ts",
-  "test/rest-wallet-payment-http-postgres.integration.test.ts",
-  "test/rest-wallet-pressure-schedule.test.ts",
-  "test/rest-wallet-pressure-postgres.integration.test.ts",
-  "test/rest-user-operations-v6-payment-semantics.test.ts",
-  "test/rest-wallet-deployment-settlement-postgres.integration.test.ts",
-  "test/rest-wallet-deployment-settlement-evm-postgres.integration.test.ts",
-  "test/rest-wallet-deployment-settlement.test.ts",
-  "test/rest-wallet-deployment-settlement-local-anvil.test.ts",
-  "test/rest-wallet-deployment-base-boundaries.test.ts",
-  "test/rest-wallet-deployment-base-postgres.integration.test.ts",
-  "test/rest-wallet-deployment-base-anvil.test.ts",
-  "test/rest-wallet-signup-base-postgres.integration.test.ts",
-  "test/rest-wallet-base-host-postgres.integration.test.ts",
-  "test/rest-wallet-recovery-base-postgres.integration.test.ts",
-  "test/rest-wallet-v6-payment-evm.test.ts",
-  "test/rest-v6-payment-fixture.test.ts",
-  "test/rest-wallet-http.test.ts",
-  "test/rest-wallet-runtime.test.ts",
-  "test/rest-wallet-client.test.ts",
-  "test/rest-wallet-device-probe.test.ts",
-  "test/rest-wallet-device-probe-browser.test.ts",
-  "test/rest-signed-transaction.test.ts",
+  "test/sponsor/chain.test.ts",
+  "test/sponsor/policy.test.ts",
+  "test/sponsor/relayr.test.ts",
+  "test/sponsor/worker.test.ts",
+  "test/rest-protocol.test.ts",
+  "test/rest-openapi.test.ts",
   "test/page-weight.test.ts",
   "test/asset-cache.test.ts",
   "test/rest-docs-browser.test.ts",
 ];
-
-// Reuse the execution fixture's catalog/source/compiler validation without starting an EVM.
-// No local checkout path is implied; its explicit dependency is documented beside the fixture.
-export const v6PaymentSourcePreflight = ["--import", "tsx", "--input-type=module", "--eval", `
-  try {
-    const { loadV6PaymentArtifacts } = await import('./test/fixtures/v6-payment/contracts.ts');
-    const { contracts, verifiedSourceCount } = await loadV6PaymentArtifacts();
-    process.stdout.write(JSON.stringify({ contracts: contracts.size, verifiedSourceCount }) + '\\n');
-  } catch {
-    process.stderr.write('V6 payment source preflight failed. Configure CENTER_V6_SOURCE_ROOT with the pinned source and artifacts documented in test/fixtures/v6-payment/README.md.\\n');
-    process.exitCode = 1;
-  }
-`];
 
 export function validateRuntime(version, databaseUrl) {
   const [major, minor] = version.split(".").map(Number);
@@ -365,20 +235,6 @@ export async function runStep(name, binary, args, { directory, observation, cwd,
   if (step.status !== "passed") throw new Error(`${name} failed${failure ? ` (${failure})` : ""}; see ${step.log}.`);
 }
 
-export async function prepareV6PaymentDependency(env, options) {
-  if (env.CENTER_V6_SOURCE_ROOT?.trim()) return null;
-  const temporary = await realpath(await mkdtemp(resolve(tmpdir(), "center-check-v6-")));
-  try {
-    const destination = resolve(temporary, "source");
-    await runStep("v6-payment-extract", process.execPath,
-      ["scripts/rest/prepare-v6-payment-fixture.mjs", "--output", destination], { ...options, env, timeoutMs: 30_000 });
-    env.CENTER_V6_SOURCE_ROOT = destination;
-    return temporary;
-  } catch (error) {
-    await rm(temporary, { recursive: true, force: true }); throw error;
-  }
-}
-
 async function main() {
   const preflightOnly = process.argv.includes("--preflight");
   if (process.argv.slice(2).some(arg => arg !== "--preflight")) throw new Error("Usage: check-required-tests.mjs [--preflight]");
@@ -392,7 +248,7 @@ async function main() {
   const checkEnv = { ...process.env };
   const options = { directory, observation, cwd: root, env: checkEnv, save };
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  let temporary, v6Temporary;
+  let temporary;
   console.log(`[check] observation: ${relative(root, directory)}/summary.json`);
   await save();
   try {
@@ -400,20 +256,10 @@ async function main() {
     observation.revision = observation.sourceStart.revision;
     observation.dirty = observation.sourceStart.dirty;
     validateRuntime(process.versions.node, process.env.TEST_DATABASE_URL);
-    v6Temporary = await prepareV6PaymentDependency(checkEnv, options);
-    await runStep("v6-payment-sources", process.execPath, v6PaymentSourcePreflight, { ...options, timeoutMs: 30_000 });
     observation.database = await checkDatabase(new Client({ connectionString: process.env.TEST_DATABASE_URL,
       connectionTimeoutMillis: 5_000, query_timeout: 5_000 }));
     await save();
     if (!preflightOnly) {
-      const executionReport = resolve(directory, "execution.json");
-      await runStep("execution", npm, ["run", "check:execution"], { ...options,
-        env: { ...checkEnv, CENTER_EXECUTION_REPORT: executionReport } });
-      observation.suites.push(...verifyExecutionReport(JSON.parse(await readFile(executionReport, "utf8"))));
-      const passkeyReport = resolve(directory, "passkey.json");
-      await runStep("wallet-compatibility", npm, ["run", "check:wallet-compatibility"], { ...options,
-        env: { ...checkEnv, CENTER_PASSKEY_REPORT: passkeyReport } });
-      observation.suites.push(...verifyExecutionReport(JSON.parse(await readFile(passkeyReport, "utf8"))));
       temporary = await mkdtemp(resolve(tmpdir(), "center-check-report-"));
       const mcpReport = resolve(temporary, "mcp.json");
       let mcpError;
@@ -441,7 +287,6 @@ async function main() {
     process.exitCode = 1;
   } finally {
     if (temporary) await rm(temporary, { recursive: true, force: true });
-    if (v6Temporary) await rm(v6Temporary, { recursive: true, force: true });
     try {
       observation.sourceEnd = await captureSourceSnapshot(root);
       observation.sourceChangedDuringCheck = observation.sourceStart?.fingerprint !== observation.sourceEnd.fingerprint;

@@ -17,7 +17,7 @@ or send the operation's input directly to `POST /api/v1/operations/:id/plans`. R
 
 Both return `{data: RestPlanDraft}` without storing an account-owned plan. Calls identify exact chains, destinations, calldata, native values and earlier-call dependencies. The draft includes the intended sender, decoded review data, warnings and canonical block evidence. Read errors, unsupported destinations and ambiguous evidence fail explicitly.
 
-An optional `at` in `/plans` supplies the exact chain/block evidence to validate and use for supported preparation. It is not an arbitrary timestamp override. Omitting it allows the operation to select current canonical snapshots.
+For `prepare_pay` only, an optional `at` in `/plans` supplies the exact chain/block evidence to validate and use. Other operations, including `contract_calls`, reject it. It is not an arbitrary timestamp override. Omitting it allows the operation to select current canonical snapshots.
 
 ## Review and execute
 

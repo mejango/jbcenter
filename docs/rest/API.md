@@ -53,7 +53,7 @@ The address, project and URI are illustrative. Select a real verified target and
 
 The result is `{ "data": RestPlanDraft }`. A draft contains `operation`, `account`, optional `project`, `calls`, `evidence`, `summary` and `warnings`. It has no persisted ID, execution status or spending authority. Each call carries `chainId`, `to`, `data`, `value`, `label`, `dependsOn` and decoded review data.
 
-The optional `at` field binds preparation to supplied block evidence where supported. Its chain, block number, hash and timestamp must match canonical chain evidence; it cannot override chain state. Use the generated schema for its exact shape. Never assume the same input produces the same quote at a later block.
+Only `prepare_pay` accepts the optional `at` field, which binds preparation to supplied block evidence. Other operations, including `contract_calls`, reject it. Its chain, block number, hash and timestamp must match canonical chain evidence; it cannot override chain state. Use the generated schema for its exact shape. Never assume the same input produces the same quote at a later block.
 
 ## Reads and limits
 
