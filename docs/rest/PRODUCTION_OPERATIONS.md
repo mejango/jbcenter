@@ -26,4 +26,4 @@ A full-data restore drill needs an isolated destination with no sponsor workers 
 
 ## Release checks
 
-Run `npm run check` against a disposable PostgreSQL 16 database and build the production container. The gate includes retained protocol, publication, sponsor and MCP behavior. Review that account routes and bundles are absent and that existing project-intent consumers still work. Local checks establish the source build, not deployment readiness or successful production transactions.
+Run `npm run check` against a disposable PostgreSQL 16 database and build the production container. The retained sponsor checks also require Anvil, the pinned Solidity 0.8.26 compiler in the Foundry cache, and Playwright Chromium. The [CI workflow](https://github.com/mejango/jbcenter/blob/main/.github/workflows/ci.yml) owns their installation commands and tool pins. The gate includes retained protocol, publication, sponsor and MCP behavior. Review that account routes and bundles are absent and that existing project-intent consumers still work. Local checks establish the source build, not deployment readiness or successful production transactions.
