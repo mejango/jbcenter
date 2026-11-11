@@ -21,7 +21,7 @@ beforeAll(async () => {
   const bundle = await build({ entryPoints: [new URL("../src/rest/docs/main.ts", import.meta.url).pathname],
     bundle: true, format: "esm", write: false, platform: "browser" });
   app = new Hono<JbcenterEnv>();
-  mountRestSite(app, { app: new Hono() as unknown as RestSite["app"], audience: origin, 
+  mountRestSite(app, { app: new Hono() as unknown as RestSite["app"], audience: origin,
     docsHtml: apiDocsPage(spec), apiReference: apiReferencePages(spec), apiTerms: JSON.stringify(apiSearchTerms(spec)), docsCss: apiDocsCss,
     docsScript: bundle.outputFiles[0]!.text, documents: new Map() });
   browser = await chromium.launch({ headless: true });

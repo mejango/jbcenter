@@ -226,11 +226,11 @@ describe("release check cannot silently omit required verification", () => {
     const directory = await mkdtemp(join(tmpdir(), "center-check-deadline-"));
     directories.push(directory);
     const observation = { steps: [] };
-    const script = `const {spawn}=require('node:child_process');const fs=require('node:fs');
-      const child=spawn(process.execPath,['-e', 'process.on("SIGTERM",()=>{});setInterval(()=>{},1000);setTimeout(()=>process.exit(0),2500)'],{stdio:'inherit'});
-      fs.writeFileSync('descendant.pid',String(child.pid));setTimeout(()=>process.exit(0),2500);`;
+    // Spawn the fixture with the system shell so a loaded Node runtime cannot spend
+    // the entire deadline starting up before there is a descendant to terminate.
+    const script = `(trap '' TERM; sleep 3) & echo $! > descendant.pid; wait`;
     const started = Date.now();
-    await expect(runStep("hung", process.execPath, ["-e", script], { directory, observation, cwd: directory,
+    await expect(runStep("hung", "/bin/sh", ["-c", script], { directory, observation, cwd: directory,
       env: process.env, save: async () => {}, timeoutMs: 500 })).rejects.toThrow("timed out");
     expect(Date.now() - started).toBeLessThan(2_000);
     expect(observation.steps).toMatchObject([{ name: "hung", status: "failed", timedOut: true }]);
