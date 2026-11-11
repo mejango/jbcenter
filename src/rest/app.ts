@@ -363,6 +363,12 @@ export function createRestApp(deps: RestDependencies): Hono<RestEnv> {
         "TRANSACTION_OPERATION_NOT_FOUND",
         "Choose a transaction operation from the catalog",
       );
+    if (head !== undefined && id !== "prepare_pay")
+      throw new RestError(
+        400,
+        "HEAD_UNSUPPORTED",
+        "Only prepare_pay currently accepts caller-supplied canonical block evidence",
+      );
     const at =
       head === undefined ? undefined : await canonicalHead(head, signal);
     const draft = await deps.operations.prepare(id, input, {

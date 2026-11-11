@@ -57,6 +57,7 @@ function fixture(overrides: Partial<RestDependencies> = {}) {
   const entries = [
     descriptor("get_project"),
     descriptor("prepare_pay", true),
+    descriptor("prepare_cash_out", true),
     descriptor("publish_intent", false, true),
   ];
   const prepare = vi.fn<ProtocolOperations["prepare"]>(
@@ -70,14 +71,15 @@ function fixture(overrides: Partial<RestDependencies> = {}) {
     async (_id, input, options) => ({ input, source: options?.source }),
   );
   const rpc = {
-    request: vi.fn(async (_chain: number, method: string) =>
-      method === "eth_chainId"
-        ? "0x2105"
-        : {
-            hash: blockHash,
-            number: "0x64",
-            timestamp: `0x${BigInt(at.timestamp).toString(16)}`,
-          },
+    request: vi.fn(
+      async (_chain: number, method: string): Promise<unknown> =>
+        method === "eth_chainId"
+          ? "0x2105"
+          : {
+              hash: blockHash,
+              number: "0x64",
+              timestamp: `0x${BigInt(at.timestamp).toString(16)}`,
+            },
     ),
   };
   const generic = vi.fn(async () => ({
@@ -100,7 +102,7 @@ function fixture(overrides: Partial<RestDependencies> = {}) {
     rpc,
     contracts: {
       data: { chains: [{ id: 8453 }] },
-    } as RestDependencies["contracts"],
+    } as unknown as RestDependencies["contracts"],
     protocol: { prepare: generic } as unknown as RestDependencies["protocol"],
     indexer: {
       catalog: () => ({ entities: [] }),
@@ -155,7 +157,7 @@ describe("public protocol REST API", () => {
     ).json();
     expect(
       catalog.data.operations.map((item: { id: string }) => item.id),
-    ).toEqual(["get_project", "prepare_pay"]);
+    ).toEqual(["get_project", "prepare_pay", "prepare_cash_out"]);
     for (const path of [
       "/accounts/enroll",
       "/accounts/me",
@@ -237,6 +239,18 @@ describe("public protocol REST API", () => {
     expect(
       (await f.post({ operation: "prepare_pay", input: {}, at })).status,
     ).toBe(409);
+  });
+  it("rejects caller heads for preparers that do not support them", async () => {
+    const f = fixture();
+    const response = await f.post({
+      operation: "prepare_cash_out",
+      input: {},
+      at,
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "HEAD_UNSUPPORTED" });
+    expect(f.prepare).not.toHaveBeenCalled();
+    expect(f.rpc.request).not.toHaveBeenCalled();
   });
   it("supports catalog call drafts and rejects unsupported pinned heads instead of ignoring them", async () => {
     const f = fixture();
