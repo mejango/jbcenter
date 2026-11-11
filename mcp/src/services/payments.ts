@@ -13,6 +13,7 @@ import {
   getCurrentRuleset,
   PAY_MAX_SLIPPAGE_BPS,
   PAY_QUOTE_FAILED_MESSAGE,
+  PaySwapQuoteFailedError,
   prepareHookAwareCashOut,
   prepareUserPay,
   resolvePaymentTerminal,
@@ -867,6 +868,8 @@ export class PaymentService {
           ...(readsSkipSplits(route.context.buybackHook) ? { skipSplits: choice.send } : {}),
           ...(input.tiers ? { tiers: input.tiers } : {}),
         }).catch((error: unknown) => {
+          if (error instanceof PaySwapQuoteFailedError)
+            throw new DomainError(error.code, error.message, { retryable: true });
           // Only the SDK's own refusal, a plain Error with its exact text, means an unreadable spec.
           // Anything else (a revert, an RPC failure) keeps its type for publicError to sanitize.
           if (
@@ -1066,7 +1069,7 @@ export class PaymentService {
       ? prepared.minReturnedTokens
       : slippageFloor(beneficiaryTokenCount, slippage);
     const defaultRule = prepared
-      ? "prepareUserPay's minimum: when the pool beats minting, the pool quote at this block (fee and price impact included) less slippageBps is the hook's minimumSwapAmountOut, and this minimum is the beneficiary's part of it (all of it with skipSplits, the share after the reserved split without) plus their share of any direct mint; only without a usable pool quote, the payer's mint entitlement (or the terminal's issuance) less slippageBps"
+      ? "prepareUserPay's minimum: when the pool beats minting, the pool quote at this block (fee and price impact included) less slippageBps is the hook's minimumSwapAmountOut, and this minimum is the beneficiary's part of it (all of it with skipSplits, the share after the reserved split without) plus their share of any direct mint; when the route resolves to minting, the payer's mint entitlement (or the terminal's issuance) less slippageBps. Failed pool reads on an active swap refuse preparation"
       : 'beneficiaryTokenCount less slippageBps';
     const minimum = explicitMinimum ?? slippageMinimum;
     const payTx = (minReturnedTokens: bigint) =>

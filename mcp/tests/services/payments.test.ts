@@ -959,6 +959,7 @@ describe('payment quotes and approval plans', () => {
       fixture({
         dataHook: registry,
         resolvedBuyback: hook,
+        poolQuote: 100n,
         beneficiaryCount: 0n,
         payHooks: [{ hook, noop: false, amount: 100n, metadata: hookMetadata }],
         ...more,
@@ -1114,11 +1115,12 @@ describe('payment quotes and approval plans', () => {
     const { service } = fixture({
       dataHook: registry,
       beneficiaryCount: 832n,
+      poolQuote: 100n,
       primaryTerminal: v6Address('JBRouterTerminalRegistry', project.chainId),
       payHooks: [{ hook: buybackHook, noop: false, amount: 100n, metadata: payHookMetadata() }],
     });
     // Honoring the split, prepareUserPay keeps the router's count once and requires the payer's
-    // split mint entitlement, the same minimum as the default here (the pool is not quoted).
+    // split mint entitlement, the same minimum as the default here (the pool quote loses to minting).
     expect(await service.quotePay(splitPayInput)).toMatchObject({
       beneficiaryTokenCount: '832',
       minimumBeneficiaryTokenCount: '162',
@@ -1339,8 +1341,7 @@ describe('payment quotes and approval plans', () => {
     });
   });
 
-  it("warns when prepareUserPay could not read the pool's price, in quotes and plans, and only while it cannot", async () => {
-    // One fixture whose pool turns readable, so the same service is asked again.
+  it('refuses failed swap pool reads in quotes and plans, then succeeds when the pool recovers', async () => {
     const options: Parameters<typeof fixture>[0] = {
       dataHook: registry,
       beneficiaryCount: 0n,
@@ -1349,39 +1350,57 @@ describe('payment quotes and approval plans', () => {
       payFill: 400n,
     };
     const f = fixture(options);
-    const warned = (warnings: string[]) =>
-      warnings.some((warning) => warning.startsWith(PAY_QUOTE_FAILED_MESSAGE));
-    // The pool reads fail twice: the SDK's minimum is only the mint rate, and the payer is told.
-    const sdk = await prepareUserPay(f.client, {
-      chainId: project.chainId,
-      terminal,
-      projectId: BigInt(project.projectId),
-      token: NATIVE_TOKEN,
-      amount: 100n,
-      beneficiary,
+    const refusal = { code: 'PAY_SWAP_QUOTE_FAILED', retryable: true };
+    await expect(f.service.quotePay(payInput)).rejects.toMatchObject(refusal);
+    await expect(f.service.preparePay(payInput)).rejects.toMatchObject(refusal);
+    const failed = await f.service.quotePay(payInput).catch(publicError);
+    expect(failed).toEqual({
+      ...refusal,
+      message: 'The swap quote could not be loaded.',
     });
-    expect(sdk.quoteFailed).toBe(true);
-    const quoted = await f.service.quotePay(payInput);
-    expect(warned(quoted.warnings)).toBe(true);
-    expect(warned((await f.service.preparePay(payInput)).warnings)).toBe(true);
-    // The quote's metadata sent back to prepare keeps its exact bytes and still says so.
-    const sentBack = await f.service.preparePay({ ...payInput, metadata: quoted.metadata });
-    expect(sentBack.summary).toMatchObject({ metadata: quoted.metadata });
-    expect(warned(sentBack.warnings)).toBe(true);
-    // NFT tiers go through the same SDK preparation and carry the same notice.
+    expect(f.simulateContract).not.toHaveBeenCalled();
+    // NFT composition cannot bypass the same missing swap quote.
     const tiers = {
       metadataIdTarget: nftImplementation,
       tierIdsToMint: [1n],
       allowOverspending: false,
     };
-    expect(warned((await f.service.quotePay({ ...payInput, tiers })).warnings)).toBe(true);
-    // Once the pool reads, the same service quotes and plans the pool price with no stale notice.
+    await expect(f.service.quotePay({ ...payInput, tiers })).rejects.toMatchObject(refusal);
+    // The same service can recover from the failed read without retaining a weaker minimum.
     options.poolQuote = 400n;
-    expect(warned((await f.service.quotePay(payInput)).warnings)).toBe(false);
-    expect(warned((await f.service.preparePay(payInput)).warnings)).toBe(false);
-    expect(
-      warned((await f.service.preparePay({ ...payInput, metadata: quoted.metadata })).warnings),
-    ).toBe(false);
+    const quote = await f.service.quotePay(payInput);
+    expect(quote).toMatchObject({ minimumBeneficiaryTokenCount: '396' });
+    expect(quote.warnings.some((warning) => warning.startsWith(PAY_QUOTE_FAILED_MESSAGE))).toBe(
+      false,
+    );
+    expect((await f.service.preparePay(payInput)).summary).toMatchObject({
+      minimumBeneficiaryTokenCount: '396',
+    });
+  });
+
+  it('preserves caller-owned metadata and its pool-read warning until the quote recovers', async () => {
+    const options: Parameters<typeof fixture>[0] = {
+      dataHook: registry,
+      beneficiaryCount: 0n,
+      reservedCount: 0n,
+      payHooks: buyback14(),
+      payFill: 400n,
+    };
+    const f = fixture(options);
+    const metadata = buildUserPayMetadata({ chainId: project.chainId });
+    const owned = { ...payInput, metadata };
+    const warned = (warnings: string[]) =>
+      warnings.some((warning) => warning.startsWith(PAY_QUOTE_FAILED_MESSAGE));
+    const quote = await f.service.quotePay(owned);
+    expect(quote.metadata).toBe(metadata);
+    expect(warned(quote.warnings)).toBe(true);
+    const plan = await f.service.preparePay(owned);
+    expect(plan.summary).toMatchObject({ metadata });
+    expect(warned(plan.warnings)).toBe(true);
+    options.poolQuote = 400n;
+    const recovered = await f.service.preparePay(owned);
+    expect(recovered.summary).toMatchObject({ metadata });
+    expect(warned(recovered.warnings)).toBe(false);
   });
 
   it('keys the quote to buyback 1.4 when the ruleset calls it directly, alone or behind the omnichain deployer', async () => {
@@ -1398,6 +1417,7 @@ describe('payment quotes and approval plans', () => {
       fixture({
         ...options,
         beneficiaryCount: 0n,
+        poolQuote: 100n,
         payHooks: (sent) =>
           buyback14({ v14: true })(sent.toLowerCase().includes(hookId) ? sent : '0x'),
         payFill: (sent) =>
@@ -1409,7 +1429,7 @@ describe('payment quotes and approval plans', () => {
       expect(
         decodeFunctionData({ abi: jbMultiTerminalAbi, data: plan.calls[0]!.data }).args?.[6],
       ).toBe(keyed(true));
-      // prepareUserPay's minimum with no pool quote: the payer's 166-token share of the 200-token
+      // prepareUserPay's minimum when the pool quote loses to minting: the payer's 166-token share of the 200-token
       // mint, which the skipping hook reports, less 2, less 1%.
       expect(plan.summary).toMatchObject({
         skipSplits: { sent: true, applied: true },
@@ -1581,6 +1601,7 @@ describe('payment quotes and approval plans', () => {
       fixture({
         dataHook: registry,
         resolvedBuyback: v1,
+        poolQuote: 100n,
         payHooks: [{ hook: v1, noop: false, amount: 100n, metadata: payHookMetadata() }],
       }).service.quotePay(payInput),
     ).rejects.toMatchObject({ code: 'UNSUPPORTED_CONFIGURATION' });
@@ -1601,13 +1622,14 @@ describe('payment quotes and approval plans', () => {
         [encodeAbiParameters(parseAbiParameters('uint256,uint256,bool'), [0n, minimum, true])],
       );
     // By default (skip on), a fill below prepareUserPay's minimum is refused with the fill as the
-    // suggested floor. With no pool quote that minimum is the payer's 166-token share of the
+    // suggested floor. With a pool quote below minting that minimum is the payer's 166-token share of the
     // 200-token mint less 2 for rounding, less 1%: 162. A partial swap plus split issuance fills 150.
     const partial = (fill: bigint) =>
       fixture({
         dataHook: registry,
         beneficiaryCount: 0n,
         payHooks: buyback14(),
+        poolQuote: 100n,
         payFill: (sent) => (sentQuote(sent).skip ? fill : 101n),
       });
     const quote = (await partial(150n).service.quotePay(payInput)) as {
@@ -1644,6 +1666,7 @@ describe('payment quotes and approval plans', () => {
         dataHook: registry,
         beneficiaryCount: 0n,
         payHooks: buyback14(),
+        poolQuote: 100n,
         payFill: 101n,
       }).service.preparePay(splitPayInput),
     ).rejects.toMatchObject({
@@ -1655,6 +1678,7 @@ describe('payment quotes and approval plans', () => {
       dataHook: registry,
       beneficiaryCount: 0n,
       payHooks: buyback14(),
+      poolQuote: 100n,
       payFill: 162n,
     });
     expect((await filled.service.preparePay(splitPayInput)).summary).toMatchObject({
