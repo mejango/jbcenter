@@ -816,7 +816,7 @@ suckers link.
 
 ## Related
 
-- [Agent integration guide](./AI_GUIDE.md): transaction review and recovery across Center's APIs.
-- [Journey map](./USER_JOURNEYS.md): the directory, REST, sponsored execution and shared services.
+- [Agent integration guide](./AI_GUIDE.md): protocol preparation and execution handoff to Signa.
+- [Journey map](./USER_JOURNEYS.md): the directory, REST, sponsored intent deployment and shared services.
 - [MCP connection guide](https://github.com/mejango/jbcenter/blob/main/mcp/README.md): connect a
   client to `https://juicebox.center/mcp`.

@@ -1,11 +1,11 @@
 # Relayr payment evidence
 
-The wallet dependency operator uses the existing Relayr prepaid API at `https://api.relayr.ba5ed.com`. The source references supplied on 2026-09-14 were inspected directly and pinned:
+The retained intent sponsor uses the Relayr prepaid API at `https://api.relayr.ba5ed.com`. The source references supplied on 2026-09-14 were inspected directly and pinned:
 
 - [TypeScript SDK, cbc4fad](https://github.com/xBA5ED/relayr-ts/tree/cbc4fadf6acabc69c1ed2daa6d91854377df145d): `src/client.ts`, `bundle.ts`, `types.ts`, `helpers.ts` and `utils.ts` confirm the prepaid POST, bundle GET, optional virtual nonce, hexadecimal values and payment response fields.
 - [Legacy billing contract, ccaae59](https://github.com/xBA5ED/relayr-contracts-v1/blob/ccaae5922e69946039812031f8f3cb331d657da4/src/RelayrV1.sol): its `prepayment(bytes16,uint40)` selector matches, but its token-bearing event and organization accounting differ from the current quoted payment runtime. It is not verified source for that runtime.
 
-SDK polling treats `Included` as a terminal provider state. The operator separately verifies exact signed transaction identity, a matching payment event and canonical L1 finality. The SDK's response types do not establish positional correspondence between submitted calls and returned transaction UUIDs; Center authenticates that mapping from the stored bundle GET response. Independent deployment calls omit `virtual_nonce` under `Disabled`.
+SDK polling treats `Included` as a terminal provider state. That status alone does not prove destination execution: the intent sponsor separately verifies exact calls and canonical deployment receipts. The SDK's response types do not establish positional correspondence between submitted calls and returned transaction UUIDs; Center authenticates that mapping from the stored bundle GET response. Independent deployment calls omit `virtual_nonce` under `Disabled`.
 
 ## Executable identity
 

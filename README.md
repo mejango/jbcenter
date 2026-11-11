@@ -3,55 +3,40 @@
 JB Center is the small shared offchain service beside Bendystraw. It stores signed, undeployed
 Juicebox project intents and provides the ecosystem's redundant IPFS pinning, public read gateway,
 credential-hiding read-only Ethereum RPC, the Juicebox V6 MCP at
-`https://juicebox.center/mcp`, and authenticated REST at `https://juicebox.center/api/v1`.
+`https://juicebox.center/mcp`, and public protocol REST at `https://juicebox.center/api/v1`.
 Webclients can render an intent as a project page and include it beside deployed
 Bendystraw projects in search. When a deployment is recorded, the intent leaves default search.
 
-Stored project intents are immutable; changing one means publishing a new intent. REST transaction
-plans are separate immutable records with durable execution progress.
+Stored project intents are immutable; changing one means publishing a new intent. REST preparation
+returns unsigned drafts without creating account-owned records.
 
 ## V6 REST API
 
 Start at [the API directory](https://juicebox.center/api), [OpenAPI](https://juicebox.center/api/v1/openapi.json),
-or the [signed-request quickstart](docs/rest/QUICKSTART.md). Select **Sign in** at
-[Accounts](https://juicebox.center/accounts) with an existing wallet, then create API connections with explicit
-read, plan, and relay scopes. Every live API request carries a short-lived EIP-712 signature binding
-its audience, account, signer, method, exact path/query, raw body, nonce, and idempotency key.
-Private keys stay with the client. API grants never substitute for onchain signing authority.
+or the [quickstart](docs/rest/QUICKSTART.md). Protocol reads and preparation are public and bounded;
+no Center account, API grant or signed HTTP request is required.
 
 GET endpoints cover canonical contract reads and the V6-compatible Bendystraw schema. Project reads
 require an explicit `source=onchain` or `source=bendystraw`; an unavailable source never silently falls
-back to the other. The pinned catalog includes official core, buyback, 721, router, revnet, sucker,
-and other V6 repositories, with exact deployed ABI variants and per-chain availability. Experimental
-apps/extensions remain outside this protocol surface.
+back to the other. The pinned catalog includes exact deployed ABI variants and per-chain availability.
 
-POST endpoints prepare transaction plans and relay externally signed transactions. Plans bind the
-wallet, chains, destinations, calldata, values, dependencies, evidence, and expiry. Durable nonce,
-idempotency, and transport reservations prevent conflicting submissions. A receipt confirms one
-transaction; operation effects and cross-chain settlement have separate evidence.
-Fund movement requires fresh owner consent unless an installed smart-account session already
-authorizes that exact action within an explicit spending allocation. Direct and prepaid dispatch
-require a fresh signed owner request or an additional owner approval attached to the bot submission.
-An old wallet transaction signature is insufficient.
+POST `/api/v1/plans` accepts `{operation,input,at?}` and returns `{data: RestPlanDraft}`. Named
+preparation routes accept the operation's input directly. Drafts identify the intended sender,
+chains, destinations, exact calldata, values, dependencies and block evidence. Preparation stores
+no account plan and grants no signing authority. Signa or an external wallet owns approval,
+submission and recovery. The independently authorized project-intent sponsor remains in Center.
 
-Read [authentication](docs/rest/AUTHENTICATION.md), [contracts](docs/rest/CONTRACTS.md),
-[indexed reads](docs/rest/INDEXER.md), [transactions](docs/rest/TRANSACTIONS.md),
-[omnichain projects](docs/rest/OMNICHAIN.md), [sponsorship](docs/rest/SPONSORSHIP.md), and
-[AI integration](docs/rest/AI_GUIDE.md). Prepaid execution supports externally funded gas for eligible exact
-owner-signed calls, with independent destination verification. Hosted ERC-4337 execution supports
-reviewed Safe accounts, exact owner-signed bundles, and seven- or thirty-day bot sessions with
-onchain spending and gas limits. The browser facilitates account creation, binding, activation,
-local signing, quotas and revocation. Read the [session lifecycle](docs/rest/SESSIONS.md) and
-[execution runbook](docs/rest/EXECUTION_OPERATIONS.md) before enabling it: providers require operator
-configuration, and the checked session guard still requires a verified deployment on each enabled
-chain. Live capabilities report configured availability. Gas sponsorship is separate from permission
-to spend funds.
+Read [contracts](docs/rest/CONTRACTS.md), [indexed reads](docs/rest/INDEXER.md),
+[transaction preparation](docs/rest/TRANSACTIONS.md), [omnichain projects](docs/rest/OMNICHAIN.md),
+and [AI integration](docs/rest/AI_GUIDE.md).
 
-## Passkey accounts
+## Accounts and wallets
 
-[Signa](https://signa.center) owns signup, recovery, devices, wallet sessions, and payment approval
-for Homerun and Beep. Center retains the project and protocol APIs those apps use. The earlier
-[wallet delivery report](docs/rest/CENTER-WALLET-DELIVERY.md) records the retired Center host.
+[Signa](https://signa.center) is the sole account service, with its API at
+[api.signa.center](https://api.signa.center/api). It owns signup, devices, recovery, app and bot
+grants, wallet sessions, approvals and account execution. Center retains the project and protocol
+APIs. Center account history and credentials are not migrated, and no legacy account runtime is
+retained. Removing that code does not itself delete production database contents.
 
 ## Ecosystem directory
 
@@ -254,8 +239,8 @@ from IPFS such as juicescan have no stable origin to allowlist — is served key
 under a tighter per-IP budget and a separate shared public budget, so public traffic can never
 starve the trusted sites. An `Origin` header is not identity, so upstream provider quotas remain
 the final spend boundary.
-This public RPC route remains a read transport. Externally wallet-signed transaction submission
-uses the separately authenticated REST plan/submission API.
+This public RPC route remains a read transport. Wallet transaction submission belongs to Signa
+or the user's selected external wallet.
 
 ## Publish an intent
 
@@ -458,7 +443,8 @@ and the route allows 30 requests per requester per hour. See
 
 ## Authentication boundaries
 
-Client access uses the two reviewed browser origins; signed intents provide publisher authenticity.
+Intent writes use the reviewed browser origins; signed intents provide publisher authenticity.
+Public protocol REST reads and preparation use their own bounded account-free access policy.
 Deployment recording needs no bearer credential: the publisher's signed call commitment and the
 onchain trace provide the intent-to-project binding. Center's server-side trace method is not
 exposed through the public browser RPC gateway.
@@ -534,16 +520,14 @@ Then set `IPFS_CACHE_DIR=/data/ipfs` and keep the byte budget below the availabl
 Keep Docker's default unprivileged Node user; no root startup setting is needed.
 One process must own the cache directory. Railway volumes prevent replicas and add a brief stop
 between deployments. Startup removes abandoned fills and reloads complete entries from the volume.
-Railway's optional CDN can serve immutable IPFS responses at the edge; account, API, health and
+Railway's optional CDN can serve immutable IPFS responses at the edge; API, health and
 metrics responses use `no-store`. `X-Cache` describes the CDN, while `X-IPFS-Cache` describes the
 origin response that the CDN retained.
 
 The [production monitor](.github/workflows/production.yml) checks the public service and protected
-receipt-recovery metrics every five minutes using GitHub Actions. Set its
-`PRODUCTION_METRICS_TOKEN` repository secret to the server's `METRICS_TOKEN`; the script needs no
-installed dependencies. See [production operations](docs/rest/PRODUCTION_OPERATIONS.md) for backup,
-restore and monitoring evidence, and the [real-wallet check](docs/rest/PRODUCTION_CHECK.md) for
-the remaining owner-approved four-chain verification. Scheduled Actions can be delayed, and failed-run
+metrics using GitHub Actions. Set its `PRODUCTION_METRICS_TOKEN` repository secret to the server's
+`METRICS_TOKEN`. See [production operations](docs/rest/PRODUCTION_OPERATIONS.md) for monitoring,
+backup and sponsor-recovery requirements. Scheduled Actions can be delayed, and failed-run
 notifications follow the operator's GitHub settings.
 
 Start from the [user journey map](docs/rest/USER_JOURNEYS.md) for the shortest supported path and

@@ -57,7 +57,7 @@ await indexer.read(
 await indexer.status({ network: "mainnet" }, signal);
 ```
 
-The address above is an illustrative primary key, not a claim of an existing collection. The host supplies authenticated HTTP routing, quota enforcement and cancellation. Every request remains a closed read operation; callers cannot submit arbitrary GraphQL, fragments, directives, aliases, operation names, URLs or headers.
+The address above is an illustrative primary key, not a claim of an existing collection. The host supplies public bounded HTTP routing, quota enforcement and cancellation. Every request remains a closed read operation; callers cannot submit arbitrary GraphQL, fragments, directives, aliases, operation names, URLs or headers.
 
 `network` is mandatory. Supported mainnet chains are Ethereum, Optimism, Base and Arbitrum; corresponding Sepolia chains use `testnet`. An absent configured network returns `INDEXER_NOT_CONFIGURED`. Explicit chain/network conflicts are rejected. An entity without a chain or project column cannot accept that scope: a cross-chain sucker-group aggregate is never relabeled as one chain's balance.
 

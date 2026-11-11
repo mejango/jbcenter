@@ -2,7 +2,7 @@
 
 A **smart contract** is code running on a blockchain. Its **ABI** describes the functions your software can call and their input and output types. Center's catalog links each contract to its exact package version, source, ABI, and published addresses. See the [glossary](https://juicebox.center/api#glossary) for related terms.
 
-The service exposes every `view`/`pure` function of a verified target for reads, and every `nonpayable`/`payable` function for unsigned transaction preparation. Hosts must serve reads as GET requests and preparation as a separate authenticated action. Preparation gives no permission to sign or submit a transaction.
+The service exposes every `view`/`pure` function of a verified target for reads, and every `nonpayable`/`payable` function for unsigned transaction preparation. Center serves reads as GET requests and unsigned preparation as bounded public POST requests. Preparation gives no permission to sign or submit a transaction.
 
 ```ts
 import { createProtocolReadService } from "../../src/rest/protocol/index.js";
@@ -88,6 +88,6 @@ The generic ABI layer covers configuration and management methods as well as ord
 
 ## Modeled receipt outcomes
 
-`createProtocolSemanticVerifier({plans})` reuses the MCP PlanService outcome verifiers without minting or accepting MCP authentication tokens. Hosts must first establish exact transaction or authenticated forwarded execution, canonicality and confirmations. Preserve the original prepared project identity and account; the adapter validates the original draft and passes its complete bounded destination receipt to the existing event checks.
+Execution owners first establish the exact transaction or authenticated forwarded execution, canonicality and confirmations. Preserve the original prepared project identity and account when interpreting protocol events. Center REST provides unsigned preparation; Signa owns durable execution and receipt reconciliation. MCP and SDK outcome checks do not confer wallet authority.
 
-Modeled outcomes map to `verified` or `unknown`. Partial payout failures and failed buyback sell delivery remain unknown even when the outer transaction succeeds. Generic catalog calls are explicitly `unmodeled`. Missing, noncanonical, malformed or incomplete logs cannot establish an outcome. Full logs remain transient; evidence exceeding 8 KiB is downgraded to unknown with a deterministic SHA-256 commitment and event count.
+Modeled outcomes map to `verified` or `unknown`. Partial payout failures and failed buyback sell delivery remain unknown even when the outer transaction succeeds. Generic catalog calls are explicitly `unmodeled`. Missing, noncanonical, malformed or incomplete logs cannot establish an outcome. Each verifier must retain its documented receipt and response bounds; bounded or missing evidence must not be presented as a complete successful outcome.
