@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { expect, it } from "vitest";
 
 const execute = promisify(execFile);
+const { runStep } = await import(new URL("../scripts/rest/check-required-tests.mjs", import.meta.url).href);
 const root = fileURLToPath(new URL("..", import.meta.url));
 
 it("rebuilds only current runtime files and all assets needed by a fresh dev start", async () => {
@@ -26,7 +27,12 @@ it("rebuilds only current runtime files and all assets needed by a fresh dev sta
     await writeFile(join(directory, ".generated/rest/removed-client.tgz"), "obsolete");
     await writeFile(join(directory, ".generated/checks/retained.json"), "{}");
 
-    await execute("npm", ["run", "build"], { cwd: directory, timeout: 75_000, maxBuffer: 1024 * 1024 });
+    // A measured production build takes 80 seconds alongside the consumer checks.
+    // Reuse release process-group cleanup and streamed diagnostics with a finite budget.
+    await runStep("fresh-build", "npm", ["run", "build"], {
+      directory, cwd: directory, observation: { steps: [] }, env: process.env,
+      save: async () => {}, timeoutMs: 180_000,
+    });
 
     for (const name of ["dist/src/removed.js", "dist/src/db/migrations/999_removed.sql", ".generated/rest/removed-client.tgz",
       "dist/.generated/rest/removed-client.tgz", "dist/test", "dist/scripts"])
@@ -62,4 +68,4 @@ it("rebuilds only current runtime files and all assets needed by a fresh dev sta
     for (const name of ["dist/src/rest/auth", "dist/src/rest/wallet", "dist/src/rest/sessions", "dist/client"])
       await expect(stat(join(directory, name)), name).rejects.toMatchObject({ code: "ENOENT" });
   } finally { await rm(directory, { recursive: true, force: true }); }
-}, 120_000);
+}, 210_000);
