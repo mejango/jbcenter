@@ -70,8 +70,6 @@ export function buildRestOpenApi({ contracts, indexer, operations, publicOrigin 
   const responseHeaders = {
     "X-Request-Id": { schema: text, description: "Correlates this response with a problem report." },
     "Retry-After": { schema: text, description: "Wait this many seconds before a bounded retry." },
-    "RateLimit-Limit": { schema: uint(), description: "Public request quota where applied." },
-    "RateLimit-Remaining": { schema: uint(), description: "Remaining public request quota where applied." },
   };
   const document: OpenApiDocument = {
     openapi: "3.1.2", jsonSchemaDialect: "https://json-schema.org/draft/2020-12/schema",
