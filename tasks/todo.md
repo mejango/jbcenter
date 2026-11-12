@@ -82,11 +82,17 @@ Shared resources: /Users/jango/Documents/jb/v6/evm/AGENTS.md, /Users/jango/Docum
 - **Verification:** Review every active runtime pin and engine metadata change; extend the existing guard check to reject 26.13.0 and accept 26.13.1 without weakening coverage. Clean-install both unchanged dependency graphs, run the normal full service/MCP gate with PostgreSQL 16 and Anvil on frozen source, and run both production audits. Normal GitHub CI must pass including Linux Docker build; verify the standalone MCP image separately through the existing Docker build capability when available. Do not infer deployed runtime behavior from a successful build.
 - **Resource budget:** Center has the first exclusive local heavy-check slot; coordinate fixture startup and completion with root, then release the slot to Signa. Start only the existing stopped owned PostgreSQL cluster, never initialize or alter unrelated services. Use existing tests and gates, one bounded full run, no unrelated lock regeneration or runtime-global changes. Only this repository's journal is writable by this agent.
 - [x] Update active runtime pins, engine floor and setup guidance.
-- [ ] Verify clean Node 26.13.1 installs and full required checks on frozen source.
-- [ ] Review and open the concrete runtime PR, with complete remote CI evidence.
+- [x] Verify clean Node 26.13.1 installs and full required checks on frozen source.
+- [x] Review and open the concrete runtime PR; monitor required CI before merge.
 
 ### Runtime update prepared
 - Both Docker build contexts use the freshly verified multiarch Node 26.13.1 bookworm-slim digest, with one reused base stage per Dockerfile. Root CI builds both images. Root workflows read .nvmrc; the standalone MCP workflow is explicitly pinned. No npm override/assertion was introduced.
 - Clean installs under the official temporary Node 26.13.1 distribution and bundled npm 11.20.0 completed: 209 root packages and 166 MCP packages. Lock comparison proves only the owning engine metadata changed; all dependency versions and integrity entries are unchanged. Evidence: /private/tmp/center-node26131-lock-inventory.json.
 - Existing runtime guard coverage now includes the security-patch boundary and preserves missing-database refusal. Active setup docs use the requested runtime; prior verification reports remain historical evidence. Independent read-only review found no actionable issues, and git diff --check passed.
 - The existing owned PostgreSQL 16 cluster was started with its unchanged local configuration on port 56416 for the coordinator-granted exclusive Center check slot. No cluster initialization or unrelated service change occurred.
+
+### Node 26.13.1 verification review
+- Full local gate passed on clean source 6f7ca211ece1f566fd3cf45ef01cde1f6dc97850, Node 26.13.1 and bundled npm 11.20.0: 559 MCP tests plus 928 service tests, 1,487 total, zero skips. Formatting, both typechecks, catalog verification, the fresh-build fixture and final production build passed with all original deadlines and worker bounds.
+- Observation .generated/checks/2026-11-12T12-18-08.691Z-e93154fa/summary.json records 168.2 seconds and identical clean source fingerprints: 2937d4489e08bd54bf0cb07e9605d5ff055c87f30a7ebb45d55b12084ad8f9c1. Log: /private/tmp/center-node26131-full-check.log. The host had high unrelated load, but the complete run passed; no timing failure or partial run is being counted as success.
+- Draft runtime PR: https://github.com/mejango/jbcenter/pull/98. This final journal commit changes no executable source. Its required GitHub CI verifies clean Linux installs, the full gate, both production audits and both changed Docker build contexts. Record terminal CI evidence in the PR description without another journal-only push.
+- The local heavy-check slot is released. The owned PostgreSQL fixture remains available for the coordinator's subsequent checks. No main merge, hosting change or deployment occurred in this task.
