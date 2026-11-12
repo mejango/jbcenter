@@ -55,8 +55,8 @@ Shared resources: /Users/jango/Documents/jb/v6/evm/AGENTS.md, /Users/jango/Docum
 - **Resource budget:** Root grants Center the exclusive install/full-check slot before Signa. One clean-install/full-gate sequence, targeted diagnosis only if a real failure appears. No unrelated process changes, broad consumer reruns or optional Node26 work. Update only Center's journal and draft branch after evidence is complete.
 - [x] Update exact registry pin/locks and SDK-only source references.
 - [x] Clean install and verify the published artifact.
-- [ ] Complete full required gate and both production audits on frozen source.
-- [ ] Record evidence, review and update draftPR97.
+- [x] Complete full required gate and both production audits on frozen source.
+- [x] Record evidence and prepare the reviewed draftPR97 update.
 
 ### Published dependency and source verification
 - Both npm-generated locks resolve exact core6.4.0 with the independently verified official integrity. npm10.9.9 dropped libc metadata for10unchanged packages perlock; their exact existing metadata was retained, and every non-SDK package entry remains identical. No unrelated version or graph changes.
@@ -64,3 +64,10 @@ Shared resources: /Users/jango/Documents/jb/v6/evm/AGENTS.md, /Users/jango/Docum
 - Refreshed28SDK references to clean publication commit7fce09a; all72app references and feature data are unchanged. Bundle5682767371e95ee0443dce848971b0ed29ea21655b253e6a3a691f52cbce1bb4. Independent read-only review found no actionable issues and git diff --check passed.
 
 - Both production audits passed the required high-severity threshold. MCP reports0vulnerabilities; root reports one moderate @hono/node-server serveStatic advisory (GHSA-rmxm-3fg6-px4f) in the unchanged dependency. Center imports getRequestListener, with no serveStatic use in src/scripts. No claim of an advisory-free entire graph or unrelated major-version upgrade.
+
+### Published SDK final review
+- Full required gate passed on clean source f7ec3ae0156e7f16d285a5ca90f7045fc6bf3094 with Node22.23.4/npm10.9.9 and the actual registry-installed core6.4.0:559MCPtests plus928service tests,1487total, zero skips. Formatting, both typechecks, catalog verification, fresh-build fixture and final production build passed. The normal configured worker bounds and every existing test/operation deadline were unchanged.
+- Observation .generated/checks/2026-11-12T04-05-03.118Z-66f15bdd/summary.json spans82.9seconds. Start/end source fingerprints are identical:6e7d98e312d5bea559d34fac4875adc52426a3d026bedcd483512afed3e26167; source remained clean. Full log /private/tmp/center-published-sdk-full-check.log.
+- The published dependency prerequisite is now satisfied, including exact locks, clean installation, both1931-file installed artifact comparisons and28clean SDK source references. Both production audits passed their required high threshold; the one unchanged moderate root advisory remains disclosed above.
+- Independent small-diff review found no actionable issues. Current remote main remains a49ab0a and draftPR97 is mergeable. This journal update changes no executable source. Updating the existing draft branch/description triggers its normal CI, including Linux Dockerbuild; local evidence does not claim that separate container check.
+- Existing Node22.23.4 runtime pin remains unchanged. A patched runtime and its deployment verification remain prerequisites before production. No service main merge, deployment or live database change was performed.
