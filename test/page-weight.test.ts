@@ -13,30 +13,17 @@ import { apiDocsCss, apiDocsPage, apiReferencePages, apiSearchTerms, buildRestOp
 import { createIndexerReadService } from "../src/rest/indexer/index.js";
 import { REST_DOCUMENTS } from "../src/rest/site.js";
 import { hashedAssetName, type AssetNames } from "../src/rest/web/assets.js";
-import { accountsCss, accountsPage } from "../src/rest/web/page.js";
-import { walletDeviceCss, walletDevicePage } from "../src/rest/web/walletDevicePage.js";
-import { walletCss, walletPage } from "../src/rest/web/walletPage.js";
-import { walletPaymentCss, walletPaymentPage } from "../src/rest/web/walletPaymentPage.js";
-import { walletRecoveryCss, walletRecoveryPage } from "../src/rest/web/walletRecoveryPage.js";
-import { walletSignupCss, walletSignupPage } from "../src/rest/web/walletSignupPage.js";
 
 // Gzip bytes of each served page: its HTML plus every script, stylesheet and icon the HTML links.
 // Ceilings sit at the measured size rounded up to the next 0.5 KiB. Raise one only for bytes the
 // page needs on first view; anything else loads on demand and gets its own ceiling below.
 const pageCeilings: Record<string, number> = {
-  "/": 14_848, "/api": 25_600, "/api/docs/* (largest)": 19_968, "/accounts": 76_800,
-  "wallet /": 12_288, "wallet signup": 19_968, "wallet /payment": 25_088, "wallet /recover": 20_480, "wallet /add": 13_312,
+  "/": 14_848, "/api": 25_600, "/api/docs/* (largest)": 19_968,
 };
-// What loads after the first view: the backup kit, one journey map, one endpoint's tables, the filter's term index.
 const onDemandCeilings: Record<string, number> = {
-  "wallet-recovery-kit.js": 42_496, "journey map (largest)": 4_608, "/api/reference/* (largest)": 7_168,
-  "/api/terms.json": 23_040,
+  "journey map (largest)": 4_608, "/api/reference/* (largest)": 7_168, "/api/terms.json": 23_040,
 };
-// Every bundle the build emits needs a ceiling, so a new page or chunk cannot escape the gate.
-const bundleCeilings: Record<string, number> = {
-  accounts: 68_096, docs: 1_024, wallet: 9_728, "wallet-device": 10_752, "wallet-payment": 21_504,
-  "wallet-recovery": 16_384, "wallet-recovery-kit": 42_496, "wallet-signup": 16_384,
-};
+const bundleCeilings: Record<string, number> = { docs: 1_024 };
 
 const gz = (body: string) => gzipSync(body).length;
 // Each link is /<base>/assets/<name>.<hash>.<ext>; the hash must name these exact bytes.
@@ -61,23 +48,11 @@ it("keeps every served page, bundle and on-demand piece within its ceiling", asy
   // Production serves directory.js minified (scripts/rest/copy-assets.mjs); the HTML is the same size either way.
   const source = homepageAssets(), home = { ...source, "directory.js": minifyScript(source["directory.js"]!) as string };
   const docs = { "docs.js": bundles.docs!, "api.css": apiDocsCss, "favicon.svg": FAVICON_SVG };
-  const accounts = { "accounts.js": bundles.accounts!, "accounts.css": accountsCss(), "accounts-icon.svg": FAVICON_SVG };
-  const wallet = { "wallet.js": bundles.wallet!, "wallet.css": walletCss(), "wallet-payment.js": bundles["wallet-payment"]!, "wallet-payment.css": walletPaymentCss(),
-    "wallet-signup.js": bundles["wallet-signup"]!, "wallet-signup.css": walletSignupCss(), "wallet-recovery.js": bundles["wallet-recovery"]!,
-    "wallet-recovery.css": walletRecoveryCss(), "wallet-device.js": bundles["wallet-device"]!, "wallet-device.css": walletDeviceCss(),
-    "wallet-recovery-kit.js": bundles["wallet-recovery-kit"]! };
   const guides = await Promise.all(REST_DOCUMENTS.map(async name => guidePage(name.toLowerCase(), await readFile(new URL(`../docs/rest/${name}.md`, import.meta.url), "utf8"), names(docs))));
   const pages: Record<string, [string, Record<string, string>]> = {
     "/": [HOMEPAGE_HTML.replace(hashedAssetName("directory.js", source["directory.js"]!), hashedAssetName("directory.js", home["directory.js"])), home],
     "/api": [apiDocsPage(spec, names(docs)), docs],
     "/api/docs/* (largest)": [guides.reduce((a, b) => gz(a) >= gz(b) ? a : b), docs],
-    "/accounts": [accountsPage({ audience: origin, scriptPath: `/assets/${hashedAssetName("accounts.js", accounts["accounts.js"])}`,
-      stylePath: `/assets/${hashedAssetName("accounts.css", accounts["accounts.css"])}`, faviconPath: `/assets/${hashedAssetName("accounts-icon.svg", FAVICON_SVG)}` }), accounts],
-    "wallet /": [walletPage(true, true, "", names(wallet)), wallet],
-    "wallet signup": [walletSignupPage({ base: "", assets: names(wallet) }), wallet],
-    "wallet /payment": [walletPaymentPage("", names(wallet)), wallet],
-    "wallet /recover": [walletRecoveryPage({ base: "", assets: names(wallet) }), wallet],
-    "wallet /add": [walletDevicePage({ base: "", assets: names(wallet) }), wallet],
   };
   expect(Object.keys(pages).sort()).toEqual(Object.keys(pageCeilings).sort());
   const sizes: Record<string, number> = {};
@@ -89,7 +64,6 @@ it("keeps every served page, bundle and on-demand piece within its ceiling", asy
   }
 
   const onDemand: Record<string, number> = {
-    "wallet-recovery-kit.js": gz(wallet["wallet-recovery-kit.js"]),
     "journey map (largest)": Math.max(...Object.entries(home).filter(([file]) => file.startsWith("journey-")).map(([, body]) => gz(body))),
     "/api/reference/* (largest)": Math.max(...Array.from(apiReferencePages(spec, names(docs)).values(), gz)),
     "/api/terms.json": gz(JSON.stringify(apiSearchTerms(spec))),

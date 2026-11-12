@@ -3,7 +3,7 @@ import type { Hono } from 'hono';
 
 // Signa (mejango/signa) carries a copy of this module; keep the two the same.
 
-/** Logical asset file ('wallet.js') to the content-hashed name pages reference ('wallet.0123456789ab.js'). */
+/** Logical asset file ('docs.js') to the content-hashed name pages reference ('docs.0123456789ab.js'). */
 export type AssetNames = Readonly<Record<string, string>>;
 
 export const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';

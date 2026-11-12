@@ -15,36 +15,6 @@ import type { Store } from "../src/store.js";
 import type { Intent, IntentDeploy, RelayRequest, SearchPage } from "../src/types.js";
 import { MemoryStore } from "./support/memoryStore.js";
 
-describe('reserved production credential origin during rollout', () => {
-  it.each(['/', '/accounts', '/assets/accounts.js', '/wallet', '/ipfs/bafytest'])('keeps %s closed before the wallet host is configured', async path => {
-    const response = await createApp(new MemoryStore()).request('https://wallet.juicebox.center' + path);
-    expect(response.status).toBe(503);
-    expect(response.headers.get('cache-control')).toBe('no-store');
-    expect(response.headers.get('content-security-policy')).toContain("default-src 'none'");
-    expect(response.headers.get('set-cookie')).toBeNull();
-    expect(await response.text()).not.toContain('<script');
-  });
-  it('protects the actual Host header without trusting forwarded-host claims', async () => {
-    const app = createApp(new MemoryStore());
-    expect((await app.request('http://localhost/accounts', { headers: { Host: 'WALLET.JUICEBOX.CENTER:8080' } })).status).toBe(503);
-    expect((await app.request('https://juicebox.center/', { headers: { 'X-Forwarded-Host': 'wallet.juicebox.center' } })).status).toBe(200);
-  });
-  it.each([
-    ['https://signa.center', 'SIGNA.CENTER:443', 'https://signa.center:8443'],
-    ['https://signa.center:8443', 'SIGNA.CENTER:8443', 'https://signa.center:9443'],
-    ['http://[::1]:3000', '[::1]:3000', 'http://[::1]:3001'],
-  ])('reserves configured credential origin %s without swallowing another port', async (origin, host, other) => {
-    const app = createApp(new MemoryStore(), { walletOrigins: [origin] });
-    for (const path of ['/', '/accounts', '/assets/accounts.js', '/ipfs/bafytest', '/mcp']) {
-      expect((await app.request(origin + path)).status).toBe(503);
-      expect((await app.request('https://juicebox.center' + path, { headers: { Host: host } })).status).toBe(503);
-    }
-    expect((await app.request(other + '/')).status).toBe(200);
-    expect((await app.request(origin + '/', { headers: { Host: 'juicebox.center' } })).status).toBe(503);
-    expect((await app.request('https://juicebox.center/', { headers: { 'X-Forwarded-Host': host } })).status).toBe(200);
-  });
-});
-
 const account = privateKeyToAccount(
   "0x0123456789012345678901234567890123456789012345678901234567890123",
 );

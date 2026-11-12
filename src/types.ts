@@ -15,7 +15,6 @@ export type JbcenterEnv = {
     /** A bounded, data-free error message for the request log line. */
     errorDetail?: string;
     /** Time spent authenticating the signed request, for the request log line. */
-    authMs?: number;
   };
 };
 

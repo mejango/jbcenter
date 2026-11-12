@@ -35,14 +35,13 @@ describe("hashed assets", () => {
     const rest = new Hono<JbcenterEnv>();
     const docsScript = "console.log('docs')";
     const spec = { openapi: "3.1.2", info: {}, paths: {}, tags: [] } as unknown as OpenApiDocument;
-    mountRestSite(rest, { app: new Hono() as unknown as RestSite["app"], audience: origin, accountsScript: "console.log('accounts')",
+    mountRestSite(rest, { app: new Hono() as unknown as RestSite["app"], audience: origin,
       docsHtml: apiDocsPage(spec, docsAssetNames(docsScript)), apiReference: new Map([["readThing", "<p>fields</p>"]]),
       apiTerms: JSON.stringify(apiSearchTerms(spec)), docsCss: apiDocsCss, docsScript, documents: new Map([["quickstart", "# Get started"]]) });
     const pages: [Hono<JbcenterEnv>, string, string][] = [
       [app, "/", "public, max-age=300"],
       [rest, "/api", "public, max-age=300"],
       [rest, "/api/docs/quickstart", "public, max-age=300"],
-      [rest, "/accounts", "no-store"],
     ];
     for (const [site, path, cache] of pages) {
       const page = await site.request(origin + path);

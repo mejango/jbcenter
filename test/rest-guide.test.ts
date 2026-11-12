@@ -16,17 +16,16 @@ describe("readable developer guides", () => {
     expect(html).not.toContain('href="javascript:');
     expect(html).toContain('aria-current="page"');
   });
-  it("keeps Markdown available while serving readable pages and the actual client archive", async () => {
+  it("keeps Markdown available while serving readable pages without the retired account client archive", async () => {
     const app = new Hono<JbcenterEnv>();
-    mountRestSite(app, { app: new Hono(), audience: "https://juicebox.center", accountsScript: "", docsScript: "", docsHtml: "", docsCss: "", clientPackage: new Uint8Array([1, 2, 3]), documents: new Map([["quickstart", "# Hello"]]) } as RestSite);
+    mountRestSite(app, { app: new Hono(), audience: "https://juicebox.center", docsScript: "", docsHtml: "", docsCss: "", documents: new Map([["quickstart", "# Hello"]]) } as RestSite);
     const html = await app.request('/api/docs/quickstart');
     expect(html.headers.get('content-type')).toContain('text/html');
     expect(await html.text()).toContain('<h1 id="hello">Hello</h1>');
     expect(await (await app.request('/api/docs/quickstart.md')).text()).toBe('# Hello');
     expect(await (await app.request('/api/docs/quickstart', { headers: { accept: 'text/markdown' } })).text()).toBe('# Hello');
     const archive = await app.request('/api/client/juicebox-center-client-0.1.0.tgz');
-    expect(archive.headers.get('content-type')).toBe('application/gzip');
-    expect(new Uint8Array(await archive.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+    expect(archive.status).toBe(404);
   });
   it("lists the project intents guide and keeps every listed document on disk", async () => {
     expect(REST_DOCUMENTS).toContain("PROJECT_INTENTS");
@@ -40,8 +39,8 @@ describe("readable developer guides", () => {
     const markdown = await readFile(new URL("../docs/rest/PROJECT_INTENTS.md", import.meta.url), "utf8");
     const app = new Hono<JbcenterEnv>();
     mountRestSite(app, {
-      app: new Hono(), audience: "https://juicebox.center", accountsScript: "", docsScript: "",
-      docsHtml: "", docsCss: "", clientPackage: new Uint8Array([1]),
+      app: new Hono(), audience: "https://juicebox.center", docsScript: "",
+      docsHtml: "", docsCss: "",
       documents: new Map([["project-intents", markdown]]),
     } as RestSite);
     const page = await app.request("/api/docs/project-intents");

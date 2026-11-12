@@ -1,129 +1,36 @@
-# Signed REST access to Juicebox V6
+# Center protocol service
 
-Implementation architecture. The generated OpenAPI specification describes the mounted routes;
-capability discovery reports which execution transports and deployment adapters are configured.
+Center serves Juicebox V6 protocol reads, contract and operation catalogs, unsigned transaction preparation, project intents, IPFS and read-only RPC. Signa owns account identity, passkeys, app and bot grants, approvals, wallet execution and recovery at [signa.center](https://signa.center) and [api.signa.center](https://api.signa.center/api).
 
-The account and wallet product is intended to move to Signa. The
-[Signa preparation contract](SIGNA_MIGRATION.md) defines ownership, portable hosting
-seams and the credential and execution guarantees that must survive that move.
-The architecture below describes the current combined deployment.
+## Owners and boundaries
 
-## Confirmed scope
+| Owner | Responsibilities |
+| --- | --- |
+| SDK | Reusable protocol math, ABI encoding/decoding, transaction builders and supported evidence checks |
+| Center | Hosted protocol data and preparation, catalogs, MCP, signed project intents and publication |
+| Signa | Account authorization, durable reviewed plans, submission and recovery |
+| Blockchain | Canonical state, transaction inclusion and contract-enforced permissions |
 
-- Operate within the existing jbcenter service at juicebox.center.
-- Include the official repositories in Bananapus/version-6, including the 721 and buyback hooks,
-  router terminal, revnets, suckers, and other official packages. Exclude experimental extensions
-  such as Sticky, JBChat, JBProcessor, and Plugin.
-- GET requests read the protocol or Bendystraw. Where both can supply the requested information,
-  clients can select the source. Responses identify the source and its actual freshness guarantees.
-- POST requests prepare transactions or journeys and relay transaction bytes signed by an external
-  wallet. Center never receives or stores a wallet or bot private key.
-- Wallet owners manage accounts, profiles, and revocable bot grants. Bot keys are generated locally
-  in the browser or CLI. Every protected request is signed; there are no static API keys or bearer
-  tokens in this access model.
+Center has no account enrollment, grants, sessions, wallet approval UI or account transaction relay. Existing Center account history is not migrated. The separation does not delete live databases or rewrite chain history.
 
-## Boundaries
+## Runtime
 
-The HTTP adapter owns parsing, request authentication, authorization, response envelopes, and
-OpenAPI descriptions. Shared application operations own protocol semantics and validated inputs.
-Contract catalogs are generated from pinned official artifacts; indexer catalogs are generated
-from the pinned Bendystraw schema. Network adapters accept configured upstreams only.
+The REST runtime constructs the pinned contract catalog, bounded RPC adapter, protocol reader, indexer, omnichain reader and shared protocol operation registry. REST and MCP use those operations through their own transports. Callers cannot supply arbitrary upstream URLs, GraphQL, ABIs or RPC write methods.
 
-REST does not invoke MCP tools by name. The two transports share application services and retain
-their own principal, audience, quotas, and response contracts. Existing public RPC/IPFS endpoints,
-MCP access, and internal metrics authorization keep their documented behavior.
+GET requests read catalog or protocol data. POST `/api/v1/plans` and `/api/v1/operations/:id/plans` prepare unsigned drafts without persistence, account authentication or signing authority. Service quotas, concurrency, deadlines and request/response bounds apply. See [API](API.md) for route contracts and [transactions](TRANSACTIONS.md) for handoff semantics.
 
-Account grants authorize access to Center. They do not grant Juicebox permissions, move funds,
-or allow a bot to sign from its owner's wallet. The actual transaction signer is committed in each
-plan and recovered independently from submitted transaction bytes.
+The draft identifies sender, chains, destinations, exact calldata, native values, dependencies and block evidence. Signa validates the received calls and obtains its own authorization; a Center response or MCP review token is never a Signa approval. Center does not own Signa's execution journal.
 
-## Request authentication
+## Evidence
 
-An owner-signed operation registers a public bot key, its exact scopes, expiry, and account.
-Registration includes proof that the client possesses the bot key. Revocation is durable and
-checked on every request. Bot credentials cannot create or elevate other bot grants.
+Protocol reads are fixed to canonical block hashes. Bendystraw is an explicitly selected indexed source and may lag. Neither silently substitutes for the other. Catalog provenance distinguishes an observed official runtime from verified source/runtime equality. See [contract evidence](CONTRACTS.md), [indexer semantics](INDEXER.md) and [omnichain limits](OMNICHAIN.md).
 
-Request signatures bind the configured service audience, account, signer, HTTP method, exact
-request target including query, content type, exact transmitted body digest, issue/expiry times,
-nonce, and idempotency identifier. Signing is distinct from transaction signing. Replay prevention
-uses shared durable state and atomic authorization checks, including concurrent revocation.
+## Retained writes
 
-Retries use a fresh request signature and nonce with the same idempotency identifier. A conflicting
-body for an existing identifier is rejected. A lost response must not create another journey or
-broadcast a different transaction.
+Project-intent publication remains a separate signed envelope flow, and IPFS publication retains its approved-origin or MCP review requirements. The intent sponsor can execute only the reviewed signed deployment-intent flow under its own funding policy. Removing account execution does not remove that sponsor or broaden its authority. Its original queue, reservations and reconciliation remain owned by Center. See [project intents](PROJECT_INTENTS.md).
 
-## Reads and provenance
+PostgreSQL retains intents, deployment records, sponsor state and shared quotas. Center no longer creates new account tables. Previously applied account migrations need no compatibility runtime and no destructive migration is part of this change.
 
-Onchain reads are tied to a canonical block hash. Supported addresses come from pinned official
-deployment manifests or explicit proofs for project/factory instances; a caller-provided ABI or
-URL is not a provenance check. The catalog distinguishes address provenance from an exact
-compiler-to-runtime match and identifies missing runtime proof. ABI overloads use full signatures.
-Exact integers cross JSON boundaries as decimal strings, including nested tuples and arrays.
+## Storage after account removal
 
-Bendystraw is an indexed observation, not a canonical-block simulation source. V6, chain, project,
-and entity identity are checked in filters and returned data. Global aggregates that cannot be
-scoped to V6 are reported as unsupported. Historical accounting balances are not labeled as live
-spendable balances. No silent source substitution is permitted.
-
-## Transactions and journeys
-
-Plans commit to sender, chain, destination, calldata, value, dependencies, and expiry. Preparation
-and simulation precede signing. Signed submissions must match the reviewed call exactly; gas and
-nonce fields receive explicit validation. The server never signs or substitutes transaction bytes.
-
-A wallet transaction signature does not establish when the owner approved sending it. Dispatch
-therefore also requires a fresh owner-signed HTTP request or a separate owner approval bound to
-the submitting principal, plan, commitment, step, and exact signed transaction hash. The database
-rechecks the approval window after acquiring the admission locks. The same rule applies to the
-publication of usable signed forwarding requests. Observing an already admitted submission does
-not require another wallet approval and cannot silently trigger another dispatch.
-
-Journeys are durable ordered steps, not a promise of atomic execution. Each step has independent
-submission, confirmation, and outcome evidence. A reverted or unresolved dependency prevents its
-dependents from advancing. State changes require fresh simulation. Partial completion, reorgs,
-ambiguous upstream failures, and receipt polling remain explicit and resumable.
-
-Cross-chain receipt confirmation does not establish bridge delivery. Operations requiring a
-future project ID, bridge proof, or new wallet signature remain pending until that evidence or
-signature is supplied. No automatic rollback or invented placeholder transaction is permitted.
-
-## Sponsorship and delegated accounts
-
-The Relayr adapter prepares and publishes exact owner-signed ERC-2771 requests. Its provider
-response is bound to permanent plan-step and forwarding-nonce reservations before payment
-calldata is exposed. A separate wallet funds gas. Canonical outer and inner execution evidence
-feeds back into the original plan; provider status alone cannot unlock a dependency. An uncertain
-provider POST is not repeated. See [sponsorship](SPONSORSHIP.md) for execution deadlines and recovery.
-
-Broader delegation uses a distinct smart-account boundary: owner wallet, verified account on each
-chain, scoped bot session, and explicitly allocated spending limits. API access, wallet ownership,
-installed onchain authority, and paymaster eligibility are separate checks. The binding registry
-verifies the current Safe owner threshold and deployment state; a policy review commits to its
-generation, expiry, exact actions, and budget allocations. Neither operation installs a session.
-
-Seven/thirty-day sessions now have a pinned stack, policy compiler, installed-policy verifier,
-durable lifecycle store and UserOperation transport. Live recurring execution requires a verified
-deployed session guard matching the selected paymaster, configured hosted bundler/paymaster,
-provider billing, eligible sponsorship and owner activation. Both checked guard artifacts are
-undeployed; legacy profile defaults remain unchanged. Runtime capabilities expose configuration,
-and each operation verifies current account and chain evidence. Removing an API grant or
-unlinking an account cannot revoke signatures or permissions already accepted by an onchain
-module. Contract-enforced revocation is a separate owner action. See [sessions](SESSIONS.md).
-
-## Documentation and verification
-
-Ship a versioned OpenAPI document, searchable human documentation, machine-readable capability
-and coverage catalogs, exact signing test vectors, and small TypeScript/CLI examples. Document
-source semantics, pagination, limits, idempotency, error codes, timeouts, finality, and recovery.
-Unknown reads and unavailable deployments remain explicit errors or unavailable capabilities.
-
-Tests cover request tampering/replay/revocation, account isolation, concurrent idempotency,
-schema/deployment coverage, V6-only indexer boundaries, exact transaction matching, interrupted
-journeys, upstream ambiguity, and restart/reorg recovery. Changes affecting signing, authority,
-or financial outcomes receive an independent review before release.
-
-## Primary references
-
-- [OpenAPI specification](https://spec.openapis.org/oas/)
-- [HTTP message signature considerations](https://www.rfc-editor.org/rfc/rfc9421.html)
-- [HTTP problem details](https://www.rfc-editor.org/rfc/rfc9457.html)
+Fresh Center databases create only intents, deployment records, sponsorship reservations and shared quotas. Account migrations are no longer part of startup. Existing databases may retain historical account migration entries or inert account tables; this release does not drop them or import them into Signa. Center constructs no account stores or account execution workers. The protocol runtime only prunes expired rate-limit windows; the separately authorized intent sponsor retains its deployment recovery worker.

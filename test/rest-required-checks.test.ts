@@ -5,10 +5,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const {
-  validateRuntime, checkDatabase, summarizeVitest, requiredVitestSuites, verifyExecutionReport, redactOutput, runStep,
+  validateRuntime, checkDatabase, summarizeVitest, requiredVitestSuites, redactOutput, runStep,
   writeObservation, captureSourceSnapshot,
-  v6PaymentSourcePreflight,
-  prepareV6PaymentDependency,
 } = await import(new URL("../scripts/rest/check-required-tests.mjs", import.meta.url).href);
 
 const directories: string[] = [];
@@ -26,66 +24,14 @@ function report() {
 }
 
 describe("release check cannot silently omit required verification", () => {
-  it("pins every actual database-bearing file independently of the report fixture", async () => {
-    const expected = [
-      "postgres.integration.test.ts", "rest-auth-store.test.ts", "rest-sessions-postgres.integration.test.ts",
-      "rest-sessions-service.test.ts", "rest-smart-account-checkpoints.test.ts", "rest-smart-account-onboarding-store.integration.test.ts",
-      "rest-smart-accounts-postgres.integration.test.ts", "rest-sponsorship-postgres.integration.test.ts",
-      "rest-transactions-postgres.integration.test.ts", "rest-user-operations-postgres.integration.test.ts",
-      "rest-wallet-ceremonies-postgres.integration.test.ts",
-      "rest-wallet-enrollment-postgres.integration.test.ts", "rest-wallet-enrollment-browser.test.ts",
-      "rest-wallet-enrollment-pressure.test.ts",
-      "rest-wallet-signup-postgres.integration.test.ts", "rest-wallet-signup-evm-postgres.integration.test.ts",
-      "rest-wallet-passkey-recovery-postgres.integration.test.ts",
-      "rest-wallet-recovery-flow-postgres.integration.test.ts", "rest-wallet-recovery-dispatch-postgres.integration.test.ts",
-      "rest-wallet-deployment-postgres.integration.test.ts", "rest-wallet-policy-postgres.integration.test.ts",
-      "rest-wallet-app-grants-postgres.integration.test.ts", "rest-wallet-app-auth-postgres.integration.test.ts",
-      "rest-wallet-authority-postgres.integration.test.ts",
-      "rest-wallet-authority-refresh-postgres.integration.test.ts",
-      "rest-wallet-login-postgres.integration.test.ts", "rest-wallet-handoff-postgres.integration.test.ts",
-      "rest-wallet-networks-postgres.integration.test.ts",
-      "rest-wallet-deployment-execution-postgres.integration.test.ts",
-      "rest-wallet-deployment-dispatch-evm-postgres.integration.test.ts",
-      "rest-wallet-site-postgres.integration.test.ts",
-      "rest-wallet-connect-browser-postgres.integration.test.ts",
-      "rest-wallet-app-refresh-postgres.integration.test.ts",
-      "rest-wallet-payment-reviews-postgres.integration.test.ts",
-      "rest-wallet-payment-http-postgres.integration.test.ts",
-      "rest-wallet-pressure-postgres.integration.test.ts",
-      "rest-wallet-deployment-settlement-postgres.integration.test.ts",
-      "rest-wallet-deployment-settlement-evm-postgres.integration.test.ts",
-      "rest-wallet-deployment-base-postgres.integration.test.ts", "rest-wallet-signup-base-postgres.integration.test.ts",
-      "rest-wallet-base-host-postgres.integration.test.ts", "rest-wallet-recovery-base-postgres.integration.test.ts",
-    ].sort();
-    const testDirectory = new URL(".", import.meta.url);
-    const files = await readdir(testDirectory);
+  it("pins every retained database-bearing file and intent sponsorship suite", async () => {
+    const files = await readdir(new URL(".", import.meta.url));
     const inventory = (await Promise.all(files.filter(file => file.endsWith(".test.ts") && file !== "rest-required-checks.test.ts")
-      .map(async file => /process\.env\.TEST_DATABASE_URL/.test(await readFile(new URL(file, testDirectory), "utf8")) ? file : null)))
+      .map(async file => /process\.env\.TEST_DATABASE_URL/.test(await readFile(new URL(file, import.meta.url), "utf8")) ? file : null)))
       .filter((file): file is string => file !== null).sort();
-    expect(inventory).toEqual(expected);
-    for (const file of [...inventory, "rest-wallet-webauthn.test.ts", "rest-passkey-signatures.test.ts", "rest-wallet-passkey-evm.test.ts",
-      "rest-passkey-profile-evm.test.ts", "rest-passkey-onboarding.test.ts", "rest-passkey-user-operations.test.ts",
-      "rest-passkey-creation.test.ts", "rest-passkey-creation-evm.test.ts", "rest-wallet-registration.test.ts", "rest-wallet-browser.test.ts",
-      "rest-wallet-deployment.test.ts", "rest-wallet-deployment-chain.test.ts", "rest-wallet-deployment-chain-evm.test.ts",
-      "rest-wallet-deployment-observation.test.ts", "rest-wallet-deployment-observation-evm.test.ts",
-      "rest-wallet-deployment-fees.test.ts", "rest-wallet-deployment-fees-anvil.test.ts",
-      "rest-wallet-app-grants.test.ts", "rest-wallet-app-authority.test.ts",
-      "rest-wallet-app-dispatch.test.ts", "rest-wallet-app-sessions.test.ts",
-      "rest-wallet-authority.test.ts", "rest-wallet-authority-chain.test.ts", "rest-wallet-authority-evm.test.ts",
-      "rest-wallet-authority-service.test.ts", "rest-wallet-device-probe.test.ts", "rest-wallet-device-probe-browser.test.ts",
-      "rest-wallet-authority-refresh.test.ts", "rest-wallet-login.test.ts", "rest-wallet-handoff.test.ts",
-      "rest-wallet-deployment-execution.test.ts", "rest-wallet-deployment-local-anvil.test.ts", "rest-wallet-deployment-scalar-evm.test.ts",
-      "rest-wallet-site.test.ts", "rest-wallet-http.test.ts", "rest-wallet-runtime.test.ts", "rest-wallet-client.test.ts", "rest-wallet-payment-reviews.test.ts", "rest-wallet-deployment-settlement.test.ts", "rest-wallet-deployment-settlement-local-anvil.test.ts",
-      "rest-wallet-deployment-base-boundaries.test.ts", "rest-wallet-deployment-base-anvil.test.ts",
-      "rest-wallet-payment-public.test.ts", "rest-wallet-payment-client.test.ts", "rest-user-operations-v6-payment-semantics.test.ts",
-      "rest-wallet-payment-browser.test.ts",
-      "rest-wallet-pressure-schedule.test.ts",
-      "rest-wallet-v6-payment-evm.test.ts",
-      "rest-v6-payment-fixture.test.ts",
-      "rest-wallet-policy.test.ts", "rest-signed-transaction.test.ts",
-      "rest-wallet-device-addition.test.ts", "rest-wallet-device-site.test.ts", "rest-web-qr.test.ts", "rest-wallet-device-browser.test.ts"]) {
-      expect(requiredVitestSuites).toContain(`test/${file}`);
-    }
+    expect(inventory).toEqual(["postgres.integration.test.ts"]);
+    for (const file of inventory) expect(requiredVitestSuites).toContain(`test/${file}`);
+    for (const file of ["chain", "policy", "relayr", "worker"]) expect(requiredVitestSuites).toContain(`test/sponsor/${file}.test.ts`);
   });
 
   it("fails before starting tools when Node or the explicit test database is missing", () => {
@@ -95,36 +41,6 @@ describe("release check cannot silently omit required verification", () => {
     expect(() => validateRuntime("22.23.1", "postgresql://user:password@localhost/test")).not.toThrow();
     expect(() => validateRuntime("22.0.0", "postgresql://user:password@localhost/test")).toThrow("22.16");
   });
-
-  it("fails the shared V6 source preflight when its explicit checkout dependency is absent", () => {
-    try {
-      execFileSync(process.execPath, v6PaymentSourcePreflight, { cwd: new URL("..", import.meta.url),
-        env: { ...process.env, CENTER_V6_SOURCE_ROOT: "" }, encoding: "utf8", timeout: 10_000, stdio: "pipe" });
-      throw new Error("Missing V6 sources unexpectedly passed");
-    } catch (error) {
-      expect(error).toMatchObject({ status: 1 });
-      expect(String((error as { stderr?: string }).stderr)).toBe(
-        "V6 payment source preflight failed. Configure CENTER_V6_SOURCE_ROOT with the pinned source and artifacts documented in test/fixtures/v6-payment/README.md.\n");
-    }
-  });
-
-  it("prepares and verifies a fresh bundled V6 dependency when no explicit checkout is supplied", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "center-v6-gate-")); directories.push(directory);
-    const env: NodeJS.ProcessEnv = { ...process.env, CENTER_V6_SOURCE_ROOT: "" };
-    const observation = { steps: [] };
-    const options = { directory, observation, cwd: new URL("..", import.meta.url).pathname, env, save: async () => {} };
-    const prepared = await prepareV6PaymentDependency(env, options);
-    expect(typeof prepared).toBe("string"); directories.push(prepared);
-    expect(env.CENTER_V6_SOURCE_ROOT).toBe(join(prepared, "source"));
-    await runStep("verify-v6", process.execPath, v6PaymentSourcePreflight, { ...options, timeoutMs: 30_000 });
-    expect(observation.steps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "v6-payment-extract", status: "passed" }),
-      expect.objectContaining({ name: "verify-v6", status: "passed" }),
-    ]));
-    const preserved = env.CENTER_V6_SOURCE_ROOT;
-    expect(await prepareV6PaymentDependency(env, options)).toBeNull();
-    expect(env.CENTER_V6_SOURCE_ROOT).toBe(preserved);
-  }, 30_000);
 
   it("checks PostgreSQL 16 and transactional schema permissions, without leaving a schema", async () => {
     const client = { connect: vi.fn(), end: vi.fn(), query: vi.fn(async (sql: string) =>
@@ -172,16 +88,6 @@ describe("release check cannot silently omit required verification", () => {
     expect(suites).toHaveLength(requiredVitestSuites.length);
     expect(suites[0]).toEqual({ name: requiredVitestSuites[0], total: 1, passed: 1, failed: 0, skipped: 0 });
     expect(JSON.stringify(suites)).not.toMatch(/private key|assertion|secret/);
-  });
-
-  it("also rejects missing, empty and skipped machine execution evidence", () => {
-    expect(() => verifyExecutionReport(null)).toThrow();
-    expect(() => verifyExecutionReport({ suites: [] })).toThrow();
-    for (const counts of [{ total: 0, passed: 0, skipped: 0 }, { total: 1, passed: 0, skipped: 1 }]) {
-      expect(() => verifyExecutionReport({ suites: [{ name: "execution", failed: 0, ...counts }] })).toThrow();
-    }
-    expect(verifyExecutionReport({ suites: [{ name: "execution", total: 1, passed: 1, failed: 0, skipped: 0, payload: "secret" }] }))
-      .toEqual([{ name: "execution", total: 1, passed: 1, failed: 0, skipped: 0 }]);
   });
 
   it("redacts URLs and known secret environment values, including URL-decoded passwords", () => {
@@ -310,11 +216,11 @@ describe("release check cannot silently omit required verification", () => {
     const directory = await mkdtemp(join(tmpdir(), "center-check-deadline-"));
     directories.push(directory);
     const observation = { steps: [] };
-    const script = `const {spawn}=require('node:child_process');const fs=require('node:fs');
-      const child=spawn(process.execPath,['-e', 'process.on("SIGTERM",()=>{});setInterval(()=>{},1000);setTimeout(()=>process.exit(0),2500)'],{stdio:'inherit'});
-      fs.writeFileSync('descendant.pid',String(child.pid));setTimeout(()=>process.exit(0),2500);`;
+    // Spawn the fixture with the system shell so a loaded Node runtime cannot spend
+    // the entire deadline starting up before there is a descendant to terminate.
+    const script = `(trap '' TERM; sleep 3) & echo $! > descendant.pid; wait`;
     const started = Date.now();
-    await expect(runStep("hung", process.execPath, ["-e", script], { directory, observation, cwd: directory,
+    await expect(runStep("hung", "/bin/sh", ["-c", script], { directory, observation, cwd: directory,
       env: process.env, save: async () => {}, timeoutMs: 500 })).rejects.toThrow("timed out");
     expect(Date.now() - started).toBeLessThan(2_000);
     expect(observation.steps).toMatchObject([{ name: "hung", status: "failed", timedOut: true }]);

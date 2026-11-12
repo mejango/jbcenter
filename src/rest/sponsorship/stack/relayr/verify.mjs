@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { keccak256 } from 'viem';
-import { findCachedSolc } from '../../../smartAccounts/stack/passkey/solc-cache.mjs';
+import { findCachedSolc } from './solc-cache.mjs';
 
 /** Offline equivalence evidence. Original upstream source provenance is unknown. */
 export async function verifyRelayrPaymentReference() {

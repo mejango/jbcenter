@@ -4,11 +4,9 @@ import { assetHref, type AssetNames } from "../web/assets.js";
 
 const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 const navigation = [
-  ["quickstart", "Get started"], ["client", "Client workflows"], ["authentication", "Authentication"],
-  ["transactions", "Transactions"], ["project-intents", "Project intents"],
-  ["sponsorship", "Prepaid execution"], ["smart-accounts", "Smart wallets"],
-  ["client#run-payments-without-another-owner-prompt", "Unattended payments"],
-  ["contracts", "Contract calls"], ["indexer", "Indexed data"], ["api", "Full reference"],
+  ["quickstart", "Get started"], ["transactions", "Prepare a transaction"],
+  ["project-intents", "Project intents"], ["contracts", "Contract calls"],
+  ["indexer", "Indexed data"], ["omnichain", "Omnichain projects"], ["api", "Full reference"],
 ];
 function destination(href: string): string | undefined {
   if (/^(?:#|\/(?!\/))/.test(href)) return href;
@@ -47,5 +45,5 @@ export function guidePage(name: string, markdown: string, assets?: AssetNames): 
   const content = parser.parse(markdown) as string;
   const title = headings.find(item => item.depth === 1)?.title ?? "API guide";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(title)} | Juicebox Center</title>${FAVICON_LINK}<link rel="stylesheet" href="${assetHref("", "api.css", assets)}"><script type="module" src="${assetHref("", "docs.js", assets)}"></script></head>
-<body><a class="skip" href="#guide-content">Skip to content</a><div class="guide-shell"><aside class="guide-nav"><a href="/api"><strong>${BRAND_ICON} JUICEBOX CENTER</strong><br>Developer docs</a><nav aria-label="Documentation">${navigation.map(([slug, label]) => `<a href="/api/docs/${slug}"${slug === name ? ' aria-current="page"' : ""}>${label}</a>`).join("")}<a href="/api#reference">Endpoints</a><a href="/accounts">Create API connection →</a></nav></aside><main id="guide-content"><nav aria-label="Page resources"><a href="/api">API home</a><a href="/api/docs/${escape(name)}.md">Markdown</a><a href="/api/v1/openapi.json">OpenAPI</a></nav>${headings.filter(item => item.depth === 2).length ? `<details class="guide-toc"><summary>On this page</summary><nav aria-label="On this page">${headings.filter(item => item.depth === 2).map(item => `<a href="#${escape(item.id)}">${escape(item.title)}</a>`).join("")}</nav></details>` : ""}<article>${content}</article><footer><a href="/api/docs/client">Client workflows</a> / <a href="/api#reference">Endpoint reference</a></footer></main></div><p id="copy-status" role="status" aria-live="polite" class="sr-only"></p></body></html>`;
+<body><a class="skip" href="#guide-content">Skip to content</a><div class="guide-shell"><aside class="guide-nav"><a href="/api"><strong>${BRAND_ICON} JUICEBOX CENTER</strong><br>Developer docs</a><nav aria-label="Documentation">${navigation.map(([slug, label]) => `<a href="/api/docs/${slug}"${slug === name ? ' aria-current="page"' : ""}>${label}</a>`).join("")}<a href="/api#reference">Endpoints</a><a href="https://signa.center">Signa accounts →</a></nav></aside><main id="guide-content"><nav aria-label="Page resources"><a href="/api">API home</a><a href="/api/docs/${escape(name)}.md">Markdown</a><a href="/api/v1/openapi.json">OpenAPI</a></nav>${headings.filter(item => item.depth === 2).length ? `<details class="guide-toc"><summary>On this page</summary><nav aria-label="On this page">${headings.filter(item => item.depth === 2).map(item => `<a href="#${escape(item.id)}">${escape(item.title)}</a>`).join("")}</nav></details>` : ""}<article>${content}</article><footer><a href="/api/docs/quickstart">Quickstart</a> / <a href="/api#reference">Endpoint reference</a></footer></main></div><p id="copy-status" role="status" aria-live="polite" class="sr-only"></p></body></html>`;
 }

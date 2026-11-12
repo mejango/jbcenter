@@ -1,6 +1,6 @@
 import type { Address, Hex } from "viem";
 
-/** REST reads and the signed-transaction relay use configured, bounded upstreams. */
+/** Protocol reads and intent sponsorship use configured, bounded upstreams. */
 export interface RestRpc {
   request(
     chainId: number,
@@ -37,12 +37,6 @@ export interface RestPlanDraft {
   evidence: RestBlockEvidence[];
   summary: unknown;
   warnings: string[];
-}
-
-export interface RestActor {
-  accountId: string;
-  /** Bot grant ID, or an owner principal distinguished from every bot. */
-  principalId: string;
 }
 
 export class RestError extends Error {

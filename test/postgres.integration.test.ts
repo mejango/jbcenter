@@ -71,6 +71,15 @@ suite("PostgreSQL store", () => {
     await adminPool!.end();
   });
 
+  it("creates only protocol storage and tolerates historical account migration records", async () => {
+    const tables = (await pool!.query<{ tablename: string }>("SELECT tablename FROM pg_tables WHERE schemaname = current_schema() ORDER BY tablename")).rows.map(row => row.tablename);
+    expect(tables).toEqual(["deployments", "intent_deploys", "intents", "rate_limits", "schema_migrations"]);
+    // Existing installations can retain inert account tables/history. Migration never drops them.
+    await pool!.query("INSERT INTO schema_migrations(filename) VALUES ('004_rest_accounts.sql')");
+    await migrate(pool!);
+    expect((await pool!.query("SELECT filename FROM schema_migrations WHERE filename='004_rest_accounts.sql'")).rowCount).toBe(1);
+  });
+
   it("persists, searches, and retires an intent", async () => {
     const created = await store!.createIntent({
       contentHash: `0x${"11".repeat(32)}`,

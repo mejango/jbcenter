@@ -15,6 +15,7 @@ import {
   buildDeployRevnetTx,
   buildUserPayMetadata,
   buildRulesetMetadata,
+  uniswapV4PoolId,
   v6Address,
 } from '@bananapus/nana-sdk-core/v6';
 import {
@@ -58,6 +59,13 @@ const rotatedOperator = '0x7777777777777777777777777777777777777777' as const;
 const hook = '0x3333333333333333333333333333333333333333' as const;
 const project = { chainId: 8453, projectId: '12', version: 6 } as const;
 const hash = `0x${'ab'.repeat(32)}` as Hex;
+const buybackPoolKey = {
+  currency0: zeroAddress,
+  currency1: hook,
+  fee: 10_000,
+  tickSpacing: 200,
+  hooks: zeroAddress,
+};
 const tierFlags = {
   allowOwnerMint: false,
   useReserveBeneficiaryAsDefault: false,
@@ -299,6 +307,9 @@ function fixture(
               : []),
           ],
         ];
+      case 'poolKeyOf':
+        if (!options.buyback) throw new Error('No buyback pool');
+        return buybackPoolKey;
       case 'accountingContextForTokenOf':
         return {
           token: options.sourceToken ?? request.args?.[1],
@@ -394,7 +405,12 @@ function fixture(
         : `0x3d3d3d3d363d3d37363d73${implementation.slice(2)}5af43d3d93803e602a57fd5bf3`
       : '0x6000';
   });
-  const client = { readContract, simulateContract, getBytecode } as unknown as PublicClient;
+  // A readable V4 pool quote below the mint entitlement keeps the original minimum scenarios.
+  const call = vi.fn(async () => {
+    if (!options.buyback) throw new Error('No buyback pool');
+    return { data: encodeAbiParameters(parseAbiParameters('uint256,uint256'), [100n, 0n]) };
+  });
+  const client = { readContract, simulateContract, getBytecode, call } as unknown as PublicClient;
   const evidence: BlockEvidence = {
     chainId,
     blockNumber: '123',
@@ -687,7 +703,7 @@ describe('721 payment preparation', () => {
         88n,
         0,
         1n,
-        hash,
+        uniswapV4PoolId(buybackPoolKey),
         250n,
         50n,
         999n,
@@ -753,7 +769,7 @@ describe('721 payment preparation', () => {
           88n,
           0,
           1n,
-          hash,
+          uniswapV4PoolId(buybackPoolKey),
           250n,
           50n,
           999n,
