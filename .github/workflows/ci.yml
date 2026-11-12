@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -55,4 +55,7 @@ jobs:
         run: npm run check
       - run: npm audit --omit=dev --audit-level=high
       - run: npm --prefix mcp audit --omit=dev --audit-level=high
-      - run: docker build -t jbcenter:${{ github.sha }} .
+      - name: Build Center and standalone MCP images
+        run: |
+          docker build -t jbcenter:${{ github.sha }} .
+          docker build -t juicebox-mcp:${{ github.sha }} mcp

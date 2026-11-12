@@ -25,7 +25,8 @@ In the integrated server, `/mcp/healthz` reports MCP liveness and `/mcp/readyz` 
 
 ## Run the package separately
 
-Node **22.16 or newer** is required; CI and the container use Node 22.23.4.
+Node **26.13.1 or newer** is required; CI and both container builds use Node 26.13.1
+with bundled npm 11.20.0. From this repository, `nvm use` selects the parent pin.
 
 ```sh
 npm ci --ignore-scripts

@@ -35,11 +35,14 @@ describe("release check cannot silently omit required verification", () => {
   });
 
   it("fails before starting tools when Node or the explicit test database is missing", () => {
-    expect(() => validateRuntime("21.7.0", "postgresql://user:password@localhost/test")).toThrow("Node.js 22");
-    expect(() => validateRuntime("22.23.1", undefined)).toThrow("TEST_DATABASE_URL");
-    expect(() => validateRuntime("22.23.1", " ")).toThrow("TEST_DATABASE_URL");
-    expect(() => validateRuntime("22.23.1", "postgresql://user:password@localhost/test")).not.toThrow();
-    expect(() => validateRuntime("22.0.0", "postgresql://user:password@localhost/test")).toThrow("22.16");
+    for (const version of ["22.23.4", "26.12.1", "26.13.0", "26.13"]) {
+      expect(() => validateRuntime(version, "postgresql://user:password@localhost/test")).toThrow("Node.js 26.13.1");
+    }
+    expect(() => validateRuntime("26.13.1", undefined)).toThrow("TEST_DATABASE_URL");
+    expect(() => validateRuntime("26.13.1", " ")).toThrow("TEST_DATABASE_URL");
+    for (const version of ["26.13.1", "26.14.0", "27.0.0"]) {
+      expect(() => validateRuntime(version, "postgresql://user:password@localhost/test")).not.toThrow();
+    }
   });
 
   it("checks PostgreSQL 16 and transactional schema permissions, without leaving a schema", async () => {

@@ -5,7 +5,7 @@ repository commits used to generate it. Experimental extension repositories are
 outside this allowlist. The separately included OpenZeppelin forwarder is an
 official deployment dependency.
 
-Run from the Center repository with Node 22 or newer:
+Run from the Center repository with the pinned Node 26.13.1 runtime:
 
 ```sh
 node scripts/rest/generate-contracts.mjs --check

@@ -79,12 +79,14 @@ from successful publisher or pin-provider records, not an unverified local build
 
 ## Run it
 
-Requires Node 22.16.0 or newer and PostgreSQL 14 or newer. The complete release
-checks require a disposable PostgreSQL 16 database.
+Use the pinned Node 26.13.1 runtime (`nvm use`) with bundled npm 11.20.0.
+PostgreSQL 14 or newer is supported; the complete release checks require a
+disposable PostgreSQL 16 database.
 
 ```sh
+nvm use
 cp .env.example .env
-npm install
+npm ci --ignore-scripts
 npm --prefix mcp ci --ignore-scripts
 npm run dev
 ```
