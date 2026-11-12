@@ -1,4 +1,6 @@
-FROM node:22.23.4-bookworm-slim AS dependencies
+FROM node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS base
+
+FROM base AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY mcp/package.json mcp/package-lock.json ./mcp/
@@ -13,7 +15,7 @@ COPY mcp/tsconfig.json mcp/tsconfig.build.json ./mcp/
 COPY mcp/src ./mcp/src
 RUN npm run build
 
-FROM node:22.23.4-bookworm-slim AS production-dependencies
+FROM base AS production-dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY mcp/package.json mcp/package-lock.json ./mcp/

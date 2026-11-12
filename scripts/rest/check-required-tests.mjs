@@ -27,9 +27,10 @@ export const requiredVitestSuites = [
 ];
 
 export function validateRuntime(version, databaseUrl) {
-  const [major, minor] = version.split(".").map(Number);
-  if (!Number.isInteger(major) || !Number.isInteger(minor) || major < 22 || (major === 22 && minor < 16)) {
-    throw new Error("Release checks require Node.js 22.16.0 or newer, matching the MCP package.");
+  const [major, minor, patch] = version.split(".").map(Number);
+  if (![major, minor, patch].every(Number.isInteger) || major < 26 ||
+    (major === 26 && (minor < 13 || (minor === 13 && patch < 1)))) {
+    throw new Error("Release checks require Node.js 26.13.1 or newer, matching the MCP package.");
   }
   if (!databaseUrl?.trim()) throw new Error("Release checks require TEST_DATABASE_URL pointing to a disposable PostgreSQL 16 database; focused npm test remains available without it.");
 }

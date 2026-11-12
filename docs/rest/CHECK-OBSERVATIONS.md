@@ -1,6 +1,6 @@
 # Check observations
 
-Run `npm run check:preflight` with Node.js 22.16.0 or newer and `TEST_DATABASE_URL` set to a disposable PostgreSQL 16 database. Preflight verifies connectivity, server version and schema permissions without printing the connection string. Focused `npm test -- test/<file>.test.ts` remains usable without PostgreSQL; skipped integration suites do not establish release readiness.
+Run `npm run check:preflight` with the pinned Node.js 26.13.1 runtime and `TEST_DATABASE_URL` set to a disposable PostgreSQL 16 database. Preflight verifies connectivity, server version and schema permissions without printing the connection string. Focused `npm test -- test/<file>.test.ts` remains usable without PostgreSQL; skipped integration suites do not establish release readiness.
 
 `npm run check` verifies the retained Center protocol service, MCP, publication, sponsor and database behavior, then builds the application. Account, passkey and generic wallet execution suites belong to Signa and are no longer Center release requirements.
 
