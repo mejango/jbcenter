@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { auditLinks, directorySections, repositoryGroupId, repositoryGroups, workInProgress } from "../src/directory.js";
+import { auditLinks, directorySections, GROUP_TITLES, repositoryGroupId, repositoryGroups, workInProgress } from "../src/directory.js";
 import { HOMEPAGE_CSS, HOMEPAGE_HTML } from "../src/homepage.js";
 import { llmsIndex } from "../src/llms.js";
 
@@ -20,6 +20,10 @@ describe("directory", () => {
     for (const id of ["apps", "projects", "developers", "api", "agents", "auditors", "wip", "repositories"]) expect(ids).toContain(id);
     expect(new Set(directorySections.map((section) => section.id)).size).toBe(directorySections.length);
     for (const group of repositoryGroups) expect(ids).toContain(repositoryGroupId(group.title));
+  });
+
+  it("gives every column the same three groups", () => {
+    for (const section of directorySections) expect(section.groups.map((group) => group.title), section.title).toEqual([...GROUP_TITLES]);
   });
 
   it("keeps rows short enough to scan", () => {

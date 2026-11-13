@@ -42,7 +42,9 @@ retained. Removing that code does not itself delete production database contents
 
 `https://juicebox.center/` is a public V6 directory: one flat page that routes users, developers,
 agents and auditors to apps, guides, APIs, MCP setup, audit material and source. Every destination
-is one visible row, "what you need" on the left and where it leads on the right. The page keeps
+is one visible row: the destination's name on the left, a few words on what it is for on the right.
+Three columns, one per audience (Use, Build, Automate), each hold the same three groups: Start,
+Tools, Reference. Audit material, source repositories and unfinished tools sit in a band below. The page keeps
 almost no content of its own; manuals live at the destinations.
 
 The page is server-rendered, uses no script, and does not query storage or upstream services.
