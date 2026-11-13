@@ -116,7 +116,7 @@ origin response that the CDN retained.
 Pinning and intent API requests require an origin hardcoded for the active Railway environment.
 Production accepts `https://juicebox.money`, `https://revnet.money`, `https://eth.shop`,
 `https://succulent.money`, `https://homerun.money`, `https://sticky.center`, `https://beep.biz`,
-`https://market.chancedb.com`, `https://metalog.money`, and `https://api.signa.center`.
+`https://market.chancedb.com`, `https://metalog.money`, `https://fairlun.ch`, and `https://api.signa.center`.
 `dev` accepts the first four sites' `dev.` subdomains, `http://localhost:3001` through
 `http://localhost:3004`, Homerun's `http://localhost:3010` and `http://localhost:3014`, Signa's `http://127.0.0.1:8787`, and
 Sticky's `http://127.0.0.1:8788`, `https://sticky-dev.up.railway.app` and

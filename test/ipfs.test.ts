@@ -101,7 +101,7 @@ describe("IPFS pinning", () => {
   });
 
   it("pins JSON directly from trusted browser origins", async () => {
-    for (const origin of ["https://juicebox.money", "https://revnet.money", "https://homerun.money", "https://market.chancedb.com", "https://metalog.money"]) {
+    for (const origin of ["https://juicebox.money", "https://revnet.money", "https://homerun.money", "https://market.chancedb.com", "https://metalog.money", "https://fairlun.ch"]) {
       const pinning = pinningMock();
       const response = await app(pinning).request(
         "/v1/pins/json",
@@ -122,6 +122,7 @@ describe("IPFS pinning", () => {
   it.each([
     "https://market.chancedb.com",
     "https://metalog.money",
+    "https://fairlun.ch",
   ])("allows the JSON-upload preflight for %s without spending the pin budget", async (origin) => {
     const pinning = pinningMock();
     const store = new PinStore();
