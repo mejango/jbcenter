@@ -244,6 +244,7 @@ describe("JB Center API", () => {
       "https://beep.biz",
       "https://market.chancedb.com",
       "https://metalog.money",
+      "https://fairlun.ch",
       "https://api.signa.center",
     ]);
     const devOrigins = originsForEnvironment("dev");
