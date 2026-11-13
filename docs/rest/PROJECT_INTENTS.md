@@ -7,10 +7,6 @@ published: it has an id, a page, and a row in search. It becomes an onchain proj
 someone deploys it, either at Center's expense on the sponsored rollups or by paying for
 the transaction themselves.
 
-This guide is the canonical description of the flow. It covers who may call, the exact
-envelope, publishing, reading, sponsored deploys, self-paid deploys, and the mistakes that
-cost people a working omnichain project.
-
 Say "project" in user-facing copy, with a "Deploys on first use" label. The word "intent"
 belongs in API documentation, not in product copy: it suggests something still negotiable,
 and a published intent cannot be edited, replaced or withdrawn.
@@ -42,13 +38,10 @@ public caller under its own budget.
 
 Two ways in for a new integrator:
 
-1. **Ask for an origin.** Center's first-party list lives in `src/firstParty.ts` in the
-   `mejango/jbcenter` repository: one production entry per app, and several localhost and dev
-   entries per app in the development list. Open a pull request adding your origin, or ask the
-   maintainers. Production entries are `https://juicebox.money`, `https://revnet.money`,
-   `https://eth.shop`, `https://succulent.money`, `https://homerun.money`, `https://sticky.center`,
-   `https://beep.biz`, `https://market.chancedb.com`, `https://metalog.money` and
-   `https://api.signa.center`.
+1. **Ask for an origin.** The first-party list lives in
+   [`src/firstParty.ts`](https://github.com/mejango/jbcenter/blob/main/src/firstParty.ts), with
+   production, dev and localhost entries per app. Open a pull request adding yours, or ask the
+   maintainers.
 2. **Use the MCP tools.** Connect any Streamable HTTP MCP client to
    `https://juicebox.center/mcp`. `jb_prepare_intent`, `jb_publish_intent`, `jb_get_intent`
    and `jb_deploy_intent` run server-side inside Center, so they need no origin, no REST
@@ -101,8 +94,7 @@ Center does not invent a call or a target.
 ## Setup calls
 
 A chain may carry more than one call. **The last call for a chain is the launch call;
-every call before it is a setup call.** One call per chain is a launch call, so every
-intent published before this rule existed is unchanged.
+every call before it is a setup call.**
 
 A setup call creates a Safe. Center pays for it, so it is the only thing a setup call may
 do:
@@ -130,15 +122,9 @@ exists at the predicted address costs nothing: Center drops that call from the b
 Safe creation that reverts does not fail the chain; the project is owned by the predicted
 address either way and anyone can create the Safe later.
 
-The sponsored deploy sends one bundle for all chains. Center numbers a chain's entries in
-that bundle, so the execution service sends the chain's Safe creations before its launch.
-Nothing depends on that order; the numbering is what the service requires to send them.
-The service answers with one identifier per call, in an order of its own, so Center reads the
-bundle back and binds each identifier to the one submitted call whose chain, contract, calldata,
-value and number all match it. Each chain's row is `sent` on its
-launch transaction hash and `confirmed` when that transaction succeeds and carries the
-`JBProjects.Create` event. `transactionHash` on the row and on the recorded deployment is
-always the launch transaction.
+Each chain's row is `sent` on its launch transaction hash and `confirmed` when that transaction
+succeeds and carries the `JBProjects.Create` event. `transactionHash` on the row and on the
+recorded deployment is always the launch transaction.
 
 ### `jb.safes`
 
@@ -248,42 +234,36 @@ Version: 1
 Content hash: 0x<64 hex characters>
 ```
 
-Never build that string yourself. Ask `POST /v1/intents/message` for it, so a change in Center's
-normalization can never leave you signing something Center will not store.
+Take it from `POST /v1/intents/message`. Build it yourself only to compare, in
+[step 2](#step-2-apply-the-guard-then-sign).
 
 ## One sender per intent
 
-Sucker, ERC-20 and 721-hook salts hash `_msgSender()` on every chain. Every chain of one intent
-must be deployed by the same sender, or the deployments do not link into one omnichain project:
-they land as unrelated same-named projects on separate chains, and nothing can repair that.
+Sucker, ERC-20 and 721-hook salts hash `_msgSender()` on every chain, so every chain of one intent
+must be deployed by the same sender. Chains deployed by different senders land as unrelated
+same-named projects on separate chains, and nothing can repair that.
 
-There are exactly two valid senders for a whole intent, never mixed:
+An intent has exactly two valid senders, never mixed:
 
-- Center's sponsor key deploys every chain. It signs each chain's launch as an ERC-2771 forward
-  request, so `_msgSender()` on the destination is the sponsor whether Center pays
-  (`POST /v1/intents/:id/deploy`) or the visitor pays (`POST /v1/intents/:id/relay`).
-- One wallet deploys every chain itself, paying each one and recording it.
+- **Center's sponsor.** It signs each chain's launch as an ERC-2771 forward request, so
+  `_msgSender()` is the sponsor whether Center pays ([sponsored deploy](#sponsored-deploy)) or the
+  visitor pays ([relay](#relay-a-chain-the-payer-sends)).
+- **One wallet.** It sends every chain itself and
+  [records each one](#self-paid-deploy-and-recording-it).
 
-Center enforces the boundary one chain at a time, and remembers which sender made each chain. A
-recorded deployment carries `forwarded`: true when the committed call came from the canonical
-`ERC2771Forwarder` with Center's sponsor as the appended sender, false when any other sender made
-it, including a wallet that sent the committed call itself. A chain that already has
-a deployment is refused by both routes, and one deployment that is not forwarded closes both
-routes for the whole intent with `409` `mixed_sender`. Recording it also retires, in the same
-database transaction, every queued sponsored row of the intent on every chain that has no bundle
-yet (`failed`, `mixed sender`), so a sponsor that becomes funded later can never launch a second
-project; the worker's claim refuses such rows too, and a lane already running on one cannot
-attach its bundle. A row that already has a bundle is left alone, because its prepayment may
-have left the sponsor key: the worker resumes it. So deploy a chain Center does not sponsor with
-a relay request, never from your own wallet: sent from any other address it produces different
-token and sucker salts.
+Center records which sender made each chain as `forwarded` on the deployment: true when the
+committed call came through the canonical `ERC2771Forwarder` with Center's sponsor as the appended
+sender, false otherwise. Once one deployment is not forwarded, the deploy and relay routes refuse
+the whole intent with `409` `mixed_sender`, and every sponsored row still queued without a bundle
+fails with `mixed sender`. A row whose bundle was already paid is left to finish. Both routes also
+refuse a chain that already has a deployment.
 
-On the sponsored path Center's sponsor key signs an ERC-2771 forward request per chain against
-the canonical `ERC2771Forwarder` from the V6 manifest, after checking that the call's target
-trusts that forwarder. The deployment calls themselves carry no value: the project creation fee
-is read live from `JBProjects.creationFee()` at deploy time and attached to the forwarded
-request, funded by the Relayr prepayment. A fee above Center's ceiling of `100000000000000` wei
-(0.0001 ETH) fails the lane instead of spending more than the reservation.
+So when Center deploys any chain of an intent, deploy a chain it does not sponsor, such as
+Ethereum, with a relay request, never from your own wallet.
+
+The deployment calls carry no value. The project creation fee is read from
+`JBProjects.creationFee()` at deploy time and attached to the forwarded request. A fee above
+`100000000000000` wei (0.0001 ETH) fails that chain's sponsored deploy.
 
 ## Publish end to end
 
@@ -316,26 +296,16 @@ curl -X POST https://juicebox.center/v1/intents/message \
 
 ### Step 2: apply the guard, then sign
 
-Before you sign, check two things. Every publisher applies this guard; it is the only thing
-standing between a compromised or confused response and a signature over calldata the user
-never saw.
+Before signing, check two things. This is what stops a wrong response from getting a signature
+over calldata the user never saw.
 
-1. The returned `envelope` equals the envelope you built. Compare canonically: sort object keys,
-   lowercase every hex string, and compare the serialized result. Do not compare with `===` on
-   objects and do not trust field order.
-2. The returned `message` equals, character for character, the message for the envelope you built:
+1. The returned `envelope` equals the one you built. Compare canonically: sort object keys,
+   lowercase every hex string, and compare the serialized result.
+2. The returned `message` equals, character for character, the
+   [signing message](#content-hash-and-signing-message) for your envelope's content hash.
 
-   ```
-   Juice Central project intent
-   Version: 1
-   Content hash: <hash>
-   ```
-
-   where `<hash>` is the keccak256 of the canonical JSON of that envelope. Never build this string
-   yourself to sign; build it only to compare, and sign the `message` Center returned once the two
-   match.
-
-If either check fails, refuse to sign and surface the mismatch. Do not retry silently.
+If either fails, do not sign, and show the mismatch. Sign the `message` Center returned, never one
+you built.
 
 Sign with `personal_sign` from an externally owned account. Center recovers the signer from the
 signature and compares it to `publisher`: contract signatures are not verified today, so an
@@ -428,15 +398,9 @@ and `publisher` search filters need `@bananapus/nana-sdk-core` 2.8.0 or newer.
 | `429` | `publish_limit` | `PUBLISH_PER_PUBLISHER_PER_DAY` publishes per publisher per day (default 20), or `PUBLISH_PER_IP_PER_HOUR` per IP per hour (default 60). `Retry-After` is `86400` or `3600` |
 | `429` | `storage_limit` | The calling client exceeded its stored intent count or byte budget |
 
-As of 2026-09-21, production runs `PUBLISH_PER_PUBLISHER_PER_DAY` at 500 and
-`PUBLISH_PER_IP_PER_HOUR` at 500.
-
-An MCP caller spends the hourly limit twice: once under its own publisher key, and once in a
-bucket every MCP publisher shares. A publisher key is free to mint, so the shared bucket is what
-bounds the assistant as a whole. Its stored intents and bytes count against the assistant's own
-lifetime caps (`MCP_MAX_INTENTS`, default 100000, and `MCP_MAX_STORAGE_BYTES`, default 10 GiB)
-rather than against a browser client's, and its sponsored deploys draw on the assistant's own
-daily slice of the sponsorship budget, below.
+Production can set these limits higher than the defaults. All MCP publishers also share one hourly
+bucket, and their intents count against the MCP's own storage caps (`MCP_MAX_INTENTS`, default
+100000, and `MCP_MAX_STORAGE_BYTES`, default 10 GiB).
 
 ## Read and list
 
@@ -567,17 +531,18 @@ Content-Type: application/json
 { "chainIds": [8453] }
 ```
 
-Center executes the intent's own signed calls at its own expense. The body is optional. With no
-body, or with no `chainIds`, Center queues every chain of the intent that it sponsors and that
-has no deployment yet. With `chainIds`, every id must be in the intent, must be one Center
-sponsors, and must have no deployment; an id whose row failed with no paid bundle is queued again as a fresh
-attempt, reserved and rated like a first request; a failed row that still carries a bundle, which
-Relayr may yet execute, and an id with any other row come back as they are. A
-request that names no chain leaves a failed row as it is. The chains queued by one request must
-all be from one family.
+Center sends the intent's own signed calls and pays for them. The body is optional.
 
-An intent whose `chainIds` also name a chain Center does not sponsor, such as Ethereum, is queued
-for its sponsored chains. The rest is deployed with a relay request.
+- Without `chainIds`, Center queues every chain of the intent that it sponsors and that has no
+  deployment. A failed row stays as it is.
+- With `chainIds`, each id must be in the intent, sponsored and not yet deployed. A chain whose row
+  failed with no paid bundle is queued again as a fresh attempt, reserved and rated like a first
+  request. A failed row that still carries a bundle, and any other existing row, comes back
+  unchanged.
+- The chains queued by one request must be from one [family](#sponsored-chains).
+
+A chain Center does not sponsor, such as Ethereum, is left out. Deploy it with a
+[relay request](#relay-a-chain-the-payer-sends).
 
 | Status | Body | Meaning |
 |---|---|---|
@@ -602,9 +567,7 @@ for a refusal it does not recognize, such as `bad_request` or `not_found`.
 | Mainnet | `10` Optimism, `8453` Base, `42161` Arbitrum |
 | Testnet | `11155111` Sepolia, `11155420` Optimism Sepolia, `84532` Base Sepolia, `421614` Arbitrum Sepolia |
 
-The chains queued by one request must come from one family. Ethereum mainnet (`1`) is never
-sponsored: an intent that includes it is queued for its sponsored chains, and Ethereum is
-deployed with a relay request or from the wallet that deploys every chain.
+Ethereum mainnet (`1`) is never sponsored.
 
 ### Cost and quotas
 
@@ -616,44 +579,46 @@ deployed with a relay request or from the wallet that deploys every chain.
 | Reservation per chain | `maxGas * maxFeePerGas + creationFeeCeiling` = 8000000 * 1000000000 + 100000000000000 = 8100000000000000 wei (0.0081 ETH) |
 | Confirmations before a chain counts as confirmed | 2 |
 
-As of 2026-09-21, production raises `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` to 100 deploys per
-requester per day; the shared daily budget runs at its default.
+A request reserves the full amount for every chain up front. The reservation is released when the
+chain confirms, or when it fails before a bundle was paid. A failed row that did pay a bundle
+keeps its reservation for the rest of the 24-hour window. The budget is charged what the sponsor
+spent once the Relayr prepayment settles.
 
-A request reserves the full amount for every chain up front. A reservation is released when the
-chain confirms, and when a chain fails without a bundle having been paid for it; a failed row that
-did pay a bundle keeps its reservation for the rest of the 24-hour window, because that money may
-have left. The budget is charged what the sponsor actually spent once the Relayr prepayment
-settles.
-
-For browser callers the requester is the calling origin and IP; for the MCP tools it is one shared
-Center-side bucket, so the MCP's daily sponsored deploys draw down one shared
-`SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` allowance across every MCP caller. Those deploys are also
-checked against `SPONSOR_MCP_DAILY_BUDGET_WEI` before the shared budget, so a busy assistant
-refuses at its own slice rather than spending the day out from under first-party apps.
+For browser callers the requester is the calling origin and IP. All MCP callers share one
+requester, and their deploys are checked against the MCP's slice before the shared budget.
 
 ### Polling
 
-Poll `GET /v1/intents/:id` and read `deploys`. This is a `/v1` route like any other, subject to
-the same 600-requests-per-minute per-caller limit (`429` `rate_limit`, `Retry-After: 60`), so
-poll on an interval, not in a tight loop. A row moves `queued` to `sent` to `confirmed`, or to
-`failed`. A confirmed chain also writes its `deployments` entry, so `deployments` and `deploys`
-converge. A `queued` or `sent` row may carry an `error` while Center keeps retrying it:
-`SPONSOR_UNFUNDED` (the sponsor key cannot cover that chain's creation fee yet),
-`SPONSORSHIP_RPC_UNAVAILABLE` (a chain could not be read or simulated),
-`RELAYR_INVALID_STATUS` (the execution service answered with a status Center would not bind)
-and `RELAYR_TIMEOUT` (the execution service has not executed the bundle yet) are all waiting
-states, not outcomes. Keep polling while `status` is not `failed`.
+Poll `GET /v1/intents/:id` on an interval and read `deploys`. The route shares the
+600-requests-per-minute per-caller limit (`429` `rate_limit`, `Retry-After: 60`).
 
-`failed` is set only on a definitive outcome: a reverted or unverifiable deployment, a refused
-quote, an exhausted set of attempts, a wallet deployment recorded for the intent before the row
-had a bundle (`mixed sender`), or after 24 hours of waiting: `bundle unresolved` for a row
-whose bundle the execution service never resolved, `retries exhausted` for one that never got that
-far. An operator reconciles an unresolved bundle by recording its deployment through
-`POST /v1/intents/:id/deployments` once the execution service shows the hash. Center does not retry a
-`failed` row on its own. A later `POST /v1/intents/:id/deploy` that names the chain queues it again
-only when the row has no `bundleUuid`; a row that carries one may yet execute, so it and any row the
-request does not name come back as they are. Otherwise recovery is a new intent, or the self-paid
-path for a fresh intent, never a partial self-paid patch over the same one.
+| `status` | Meaning | Do |
+|---|---|---|
+| `queued` | Waiting to be sent | Keep polling |
+| `sent` | The launch transaction has a hash | Keep polling |
+| `confirmed` | The launch succeeded and its `deployments` entry is written | Done |
+| `failed` | A definitive outcome | Recover as below |
+
+A `queued` or `sent` row can carry an `error` while Center keeps retrying it. These are waiting
+states, not outcomes:
+
+| `error` | Meaning |
+|---|---|
+| `SPONSOR_UNFUNDED` | The sponsor key cannot cover that chain's creation fee yet |
+| `SPONSORSHIP_RPC_UNAVAILABLE` | A chain could not be read or simulated |
+| `RELAYR_INVALID_STATUS` | The execution service answered with a status Center would not bind |
+| `RELAYR_TIMEOUT` | The execution service has not executed the bundle yet |
+
+`failed` is set on a reverted or unverifiable deployment, a refused quote, exhausted attempts, a
+wallet deployment recorded before the row had a bundle (`mixed sender`), or 24 hours of waiting:
+`bundle unresolved` when the execution service never resolved the bundle, `retries exhausted` when
+the row never got that far.
+
+Center does not retry a `failed` row by itself. `POST /v1/intents/:id/deploy` naming the chain
+queues it again only when the row has no `bundleUuid`. A row that carries one may yet execute, so
+it comes back as it is; an operator reconciles it by recording its deployment through
+`POST /v1/intents/:id/deployments` once the execution service shows the hash. Otherwise publish a
+new intent. Never patch a partly sponsored intent from your own wallet.
 
 The SDK wraps this as `ensureDeployed({ client, intent, onStep, pollMs, timeoutMs, signal })`,
 which requests the sponsored deploy, polls on a 4-second default interval until every chain is
@@ -695,10 +660,9 @@ itself.
 | `deadline` | Unix seconds. The signature is valid for 30 minutes |
 | `setup` | The chain's Safe creations as `{to, data, value}`, in order, minus any Safe that already exists. Send these first, from any address |
 
-A Safe 1.4.1 address depends on the factory, the initializer and the salt, never on the sender, so
-the payer creates the Safes and Center's signed launch still finds them at the same addresses. The
-launch itself must stay a forwarded request; sent from any other address it produces different
-token and sucker salts.
+Send the `setup` calls from any address: a Safe's address does not depend on its sender (see
+[setup calls](#setup-calls)). The launch must stay the forwarded request, per
+[one sender per intent](#one-sender-per-intent).
 
 | Status | Code | Meaning |
 |---|---|---|
@@ -754,12 +718,8 @@ address to a forwarded call). Nested matching covers Safe and Relayr execution.
 | `422` | `deployment_unverified` | The trace or the event did not match the signed commitment |
 | `503` | `unavailable` | Deployment verification is not configured |
 
-Never mix senders. Recording a chain your own wallet sent closes the deploy and relay routes for
-the whole intent with `409` `mixed_sender`, and every chain still queued without a bundle is
-retired at once with `mixed sender`, on every chain of the intent, so the sponsor can never
-launch it later. A chain whose sponsored bundle was already paid is left to finish. Deploy the
-rest from the same wallet. A chain Center does not sponsor is relayed, not sent from your wallet,
-whenever Center deploys any other chain of the intent.
+Recording a chain your own wallet sent closes the deploy and relay routes for the whole intent.
+Deploy the rest from the same wallet. See [one sender per intent](#one-sender-per-intent).
 
 ## Worked examples
 
@@ -790,34 +750,9 @@ suckers link.
 - Chains: sponsored rollups only. A FUND that includes Ethereum mainnet is self-paid
 - Deploy: one Deploy action on the project page, sponsored, no self-paid fallback
 
-## Common mistakes
+## Start times
 
-- **Stage 1 with `mustStartAtOrAfter: 0`.** Zero means "start now", and "now" is deploy time, not
-  the time the signer saw. Every later stage boundary shifts with it. Set an absolute timestamp:
-  the moment the intent is made, or an explicitly chosen future time. Stage timestamps are
-  honored exactly as signed; a late deploy does not move them.
-- **Deploying some chains yourself and asking Center to sponsor the rest.** The salts stop
-  matching and the chains never link into one omnichain project. There is no repair. Ethereum is
-  not an exception: relay it, so its sender is the sponsor like every other chain.
-- **Hand-building the signing message.** Always take it from `POST /v1/intents/message`, and
-  always run the two guard checks before signing.
-- **Signing without comparing the prepared envelope to the local one.** The signature is over
-  whatever Center normalized, not over what you meant.
-- **Showing intents in Trending or Top.** Those are volume-based; an intent has none.
-- **Calling them "intents" in user-facing copy.** It invites edit and withdraw requests that do
-  not exist. Say "project", with a "Deploys on first use" label.
-- **Treating the publish signature as transaction approval.** It authorizes storage and
-  publication of frozen calldata. Deployment is a separate funded transaction.
-- **Publishing from a smart account.** Center recovers the signer from the signature; a contract
-  signature is refused. Publish from an externally owned account.
-- **Expecting a failed sponsored row to retry by itself.** Center retries it only when a request
-  names its chain and the row has no `bundleUuid`. A row that is still `queued` or `sent` with an
-  `error` is the opposite case: Center is retrying it.
-- **An HTTPS `logoUri`.** The first-party webclients render `ipfs://` only.
-
-## Related
-
-- [Agent integration guide](./AI_GUIDE.md): protocol preparation and execution handoff to Signa.
-- [Journey map](./USER_JOURNEYS.md): the directory, REST, sponsored intent deployment and shared services.
-- [MCP connection guide](https://github.com/mejango/jbcenter/blob/main/mcp/README.md): connect a
-  client to `https://juicebox.center/mcp`.
+Set `mustStartAtOrAfter` to an absolute timestamp: the moment the intent is made, or a chosen
+future time. Zero means "start now", and "now" is deploy time, not the time the signer saw, so
+every later stage boundary shifts with it. Stage timestamps are honored exactly as signed; a late
+deploy does not move them.

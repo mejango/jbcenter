@@ -140,4 +140,15 @@ Shared resources: /Users/jango/Documents/jb/v6/evm/AGENTS.md, /Users/jango/Docum
 - **Resource budget:** One PR, one CI run. Merge only on jango's word.
 - [x] README rewritten around a "where to go" table
 - [x] Configuration and internals moved to the operations guide
+
+## Documentation copy rewrite, part C: intents guide (2026-11-12)
+## Plan refinement
+- **Objective:** Accepted audit decision 3: the intents guide states each rule once. The one-sender rule, the signing guard, the Ethereum relay rule and the failed-row rule each have one home that other sections link.
+- **System fit:** Copy only. Routes, limits and status codes are unchanged, and the anchors other docs link (`#sponsored-deploy`, `#setup-calls`, `#relay-a-chain-the-payer-sends`) stay.
+- **Reuse and simplicity:** Sponsor worker internals move verbatim to the operations guide. Deploy row states become one table. "Common mistakes" goes except the start-time note, which nothing else states.
+- **Evidence and unknowns:** Dated production limits (2026-09-21) are removed because they cannot be confirmed today; the guide says production can set limits above the defaults.
+- **Verification:** Full vitest run, in-page anchor check, seam read of every edited section.
+- **Resource budget:** One PR, one CI run. Merge only on jango's word.
+- [x] Rules deduplicated to one home each
+- [x] Sponsor internals moved to operations
 - [x] Tests and anchors checked
