@@ -178,7 +178,14 @@ describe("JB Center API", () => {
     expect(index.status).toBe(200);
     expect(index.headers.get("content-type")).toContain("text/plain");
     expect(await index.text()).toContain("https://juicebox.center/api/v1/capabilities");
+    const skill = await app.request("/skill.md");
+    expect(skill.headers.get("content-type")).toContain("text/markdown");
+    const skillText = await skill.text();
+    expect(skillText).toMatch(/^---\nname: juicebox-center\ndescription: .+\n---\n/);
+    expect(skillText).toContain("https://juicebox.center/mcp");
+    expect(skillText).toContain("A bot API grant does not authorize spending wallet funds.");
     const discovery = await (await app.request("/llms.txt")).text();
+    expect(discovery).toContain("https://juicebox.center/skill.md");
     expect(discovery).toContain("https://juicebox.center/api/docs/project-intents");
     expect(discovery).toContain("Create a project without a transaction");
     expect(discovery).toContain("create its Safes and then launch");

@@ -177,6 +177,7 @@ export const directorySections: readonly DirectorySection[] = [
         agentNote: "Streamable HTTP. No REST enrollment needed.",
       },
       { need: "Read this page as text", name: "llms.txt", url: "/llms.txt" },
+      { need: "Load a skill", name: "skill.md", url: "/skill.md" },
       {
         need: "Add V6 instructions",
         name: "Skills",

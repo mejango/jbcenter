@@ -58,7 +58,7 @@ import {
 } from "./sponsor/policy.js";
 import type { Intent, JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
-import { llmsIndex } from "./llms.js";
+import { llmsIndex, skillFile } from "./llms.js";
 import { JUICESCAN_URL } from "./directory.js";
 import { originsForEnvironment } from "./firstParty.js";
 export { originsForEnvironment } from "./firstParty.js";
@@ -455,6 +455,11 @@ export function createApp(
     "X-Content-Type-Options": "nosniff",
   }));
   app.get("/llms.txt", (c) => c.text(llmsIndex(options.rest?.audience), 200, {
+    "Cache-Control": "public, max-age=300",
+    "X-Content-Type-Options": "nosniff",
+  }));
+  app.get("/skill.md", (c) => c.text(skillFile(options.rest?.audience), 200, {
+    "Content-Type": "text/markdown; charset=utf-8",
     "Cache-Control": "public, max-age=300",
     "X-Content-Type-Options": "nosniff",
   }));

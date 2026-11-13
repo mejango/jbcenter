@@ -51,6 +51,8 @@ Sections use three columns on desktop and stack on phones. Each section has a st
 
 `/llms.txt` is the same directory as text, generated from the same list, followed by the evidence
 and authority rules. `/` returns that text for a request that accepts `text/markdown`.
+`/skill.md` is a short loadable agent skill: the tools, which skill or guide owns each job, and the
+same rules.
 
 Maintain every destination in [`src/directory.ts`](src/directory.ts). Keep a row to a few words:
 tests cap the lengths, require a secure or same-site destination, keep unfinished tools in their
