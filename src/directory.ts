@@ -43,7 +43,7 @@ export interface RepositoryGroup {
 // The host must serve the site with no content policy that blocks RPC, and Center gives this
 // origin the explorer's RPC allowance. inbrowser.link verifies the CID in the browser.
 export const JUICESCAN_URL =
-  "https://bafybeietgpz6mzxyh7vfvisxwohdce3xsvkxsrn2obffp7mqcfwusnvqya.ipfs.inbrowser.link/";
+  "https://bafybeia7d4jr3v5w7x2o2oysryisohbhvxpk47zewsyeyvzdma5azyqahq.ipfs.inbrowser.link/";
 
 const V6 = "https://github.com/Bananapus/version-6";
 const CENTER = "https://github.com/mejango/jbcenter";
