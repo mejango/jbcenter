@@ -40,41 +40,31 @@ retained. Removing that code does not itself delete production database contents
 
 ## Ecosystem directory
 
-`https://juicebox.center/` is a public V6 directory. Eight connected question maps lead to apps,
-owner workflows, development tools, APIs, agent setup, audits, repositories, and WIP extensions.
-Routes share destinations and include labeled return paths: revisit launch settings, revise an
-integration after transaction review, or publish replacement metadata after retrieving a CID.
-Crossovers connect related tasks. The maps use three columns on desktop and stack on phones.
-A small browser script draws decorative connectors, highlights the chosen route, and supports
-direct links (`#api/rpc`, for example), keyboard navigation, and browser history. It renders a
-finite set of nodes and edges; cycles never recursively expand the page.
-All content is server-rendered. The complete directory stays available as a collapsible reference
-and opens by default without JavaScript. Directory navigation
-does not query storage or upstream services. The API branch includes public RPC and IPFS reads,
-supported networks, and upload examples with their approved-origin requirements.
-The WIP branch holds extensions with unfinished production functionality, with a specific status
-note for each. A deployed frontend alone does not imply its contracts or payment flow are ready.
+`https://juicebox.center/` is a public V6 directory: one flat page that routes users, developers,
+agents and auditors to apps, guides, APIs, MCP setup, audit material and source. Every destination
+is one visible row, "what you need" on the left and where it leads on the right. The page keeps
+almost no content of its own; manuals live at the destinations.
 
-Edit shared questions, transitions, and map placements in [`src/journeyGraph.ts`](src/journeyGraph.ts).
-Each node's title is also the label of every option pointing to it. Keep that title concise;
-use its separate prompt for the question inside the card. Edges only identify destinations,
-so option labels and destination headings stay in sync.
-Maintain the complete directory and repository links in [`src/directory.ts`](src/directory.ts).
-Every sequence of questions must reach a resource with an external link or a usable reference.
-Graph validation rejects question-only cycles (even with an escape route), dead ends, empty
-resources, and broken destinations or placements. Optional returns remain available after a
-resource has been reached, under “Optional next steps.” Shared nodes have an explicit home view
-for crossovers, so a destination does not change sections when map declarations are reordered.
-Tests verify these rules, reachable routes, and shared destinations.
-Layout and styling live in [`src/homepage.ts`](src/homepage.ts), with browser behavior in
-[`src/directoryClient.ts`](src/directoryClient.ts). Keep monospace type, square corners, and minimal
-copy. Do not use middot separators. Verify public destinations, protocol versions, and feature
-availability before adding or changing a link. Distinguish source repositories from live apps.
+The page is server-rendered, uses no script, and does not query storage or upstream services.
+Sections use three columns on desktop and stack on phones. Each section has a stable fragment
+(`#apps`, `#projects`, `#developers`, `#api`, `#agents`, `#auditors`, `#wip`, `#repositories`).
+
+`/llms.txt` is the same directory as text, generated from the same list, followed by the evidence
+and authority rules. `/` returns that text for a request that accepts `text/markdown`.
+
+Maintain every destination in [`src/directory.ts`](src/directory.ts). Keep a row to a few words:
+tests cap the lengths, require a secure or same-site destination, keep unfinished tools in their
+own section with a status note, and require the page and `/llms.txt` to list the same links.
+Layout and styling live in [`src/homepage.ts`](src/homepage.ts). Keep monospace type, square
+corners, and minimal copy. Do not use middot separators. Verify public destinations, protocol
+versions, and feature availability before adding or changing a link. Distinguish source
+repositories from live apps. A deployed frontend alone does not imply its contracts or payment
+flow are ready.
 `/`, `/api` and its guides are public and cached for five minutes. Pages link scripts, stylesheets and icons
 by content hash (`name.<hash>.ext`, see [`src/rest/web/assets.ts`](src/rest/web/assets.ts)); the current hash is
 cached for a year, and any other name for the file gets the current bytes uncached, so pages from either side
 of a deploy still load. These routes do not change the API, IPFS, or MCP access rules.
-Juicescan links to its published CID on `eth.sucks`, with a separate source link. Update the CID
+Juicescan links to its published CID on `eth.sucks`. Update the CID
 from successful publisher or pin-provider records, not an unverified local build hash.
 
 ## Run it

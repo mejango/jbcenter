@@ -4,7 +4,7 @@ import { createProtocolOperations, createServices, loadConfig } from "@juicebox/
 import { build } from "esbuild";
 import { expect, it } from "vitest";
 // @ts-expect-error The build script is plain ESM without declarations.
-import { minifyScript, webBuildOptions } from "../scripts/rest/build-web.mjs";
+import { webBuildOptions } from "../scripts/rest/build-web.mjs";
 import { FAVICON_SVG } from "../src/branding.js";
 import { HOMEPAGE_HTML, homepageAssets } from "../src/homepage.js";
 import { getContractCatalog } from "../src/rest/contracts/catalog.js";
@@ -18,10 +18,10 @@ import { hashedAssetName, type AssetNames } from "../src/rest/web/assets.js";
 // Ceilings sit at the measured size rounded up to the next 0.5 KiB. Raise one only for bytes the
 // page needs on first view; anything else loads on demand and gets its own ceiling below.
 const pageCeilings: Record<string, number> = {
-  "/": 14_848, "/api": 25_600, "/api/docs/* (largest)": 19_968,
+  "/": 5_120, "/api": 25_600, "/api/docs/* (largest)": 19_968,
 };
 const onDemandCeilings: Record<string, number> = {
-  "journey map (largest)": 4_608, "/api/reference/* (largest)": 7_168, "/api/terms.json": 23_040,
+  "/api/reference/* (largest)": 7_168, "/api/terms.json": 23_040,
 };
 const bundleCeilings: Record<string, number> = { docs: 1_024 };
 
@@ -45,12 +45,11 @@ it("keeps every served page, bundle and on-demand piece within its ceiling", asy
   const operations = createProtocolOperations(createServices(loadConfig({ NODE_ENV: "test", PUBLIC_ORIGIN: origin,
     PLAN_SECRET: "openapi-offline-tests-only-32-byte-secret" })));
   const spec = buildRestOpenApi({ contracts: await getContractCatalog(), indexer: createIndexerReadService({}), operations, publicOrigin: origin });
-  // Production serves directory.js minified (scripts/rest/copy-assets.mjs); the HTML is the same size either way.
-  const source = homepageAssets(), home = { ...source, "directory.js": minifyScript(source["directory.js"]!) as string };
+  const home = homepageAssets();
   const docs = { "docs.js": bundles.docs!, "api.css": apiDocsCss, "favicon.svg": FAVICON_SVG };
   const guides = await Promise.all(REST_DOCUMENTS.map(async name => guidePage(name.toLowerCase(), await readFile(new URL(`../docs/rest/${name}.md`, import.meta.url), "utf8"), names(docs))));
   const pages: Record<string, [string, Record<string, string>]> = {
-    "/": [HOMEPAGE_HTML.replace(hashedAssetName("directory.js", source["directory.js"]!), hashedAssetName("directory.js", home["directory.js"])), home],
+    "/": [HOMEPAGE_HTML, home],
     "/api": [apiDocsPage(spec, names(docs)), docs],
     "/api/docs/* (largest)": [guides.reduce((a, b) => gz(a) >= gz(b) ? a : b), docs],
   };
@@ -64,7 +63,6 @@ it("keeps every served page, bundle and on-demand piece within its ceiling", asy
   }
 
   const onDemand: Record<string, number> = {
-    "journey map (largest)": Math.max(...Object.entries(home).filter(([file]) => file.startsWith("journey-")).map(([, body]) => gz(body))),
     "/api/reference/* (largest)": Math.max(...Array.from(apiReferencePages(spec, names(docs)).values(), gz)),
     "/api/terms.json": gz(JSON.stringify(apiSearchTerms(spec))),
   };

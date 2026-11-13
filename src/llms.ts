@@ -1,39 +1,32 @@
-import { journeyNodes } from "./journeyGraph.js";
+import {
+  directorySections,
+  repositoryGroups,
+  V6_REPOSITORY,
+  workInProgress,
+  type DirectoryLink,
+} from "./directory.js";
 
-/** Index the existing resources; capabilities remain a live, separate document. */
+/** The home page's directory as text; capabilities remain a live, separate document. */
 export function llmsIndex(audience = "https://juicebox.center"): string {
   const origin = new URL(audience).origin;
-  const explorer = journeyNodes.find((node) => node.id === "juicescan")!.links![0]!.url;
+  const absolute = (url: string) => new URL(url, `${origin}/`).href;
+  const row = ({ need, name, url, code, note, agentNote }: DirectoryLink) =>
+    `- [${need}: ${name}](${absolute(url)})${[code && `\`${code}\``, note, agentNote].filter(Boolean).map((part, index) => `${index ? " " : ": "}${part}`).join("")}`;
   return `# Juicebox Center
 
-> Find Juicebox V6 apps, learn how projects work, build an integration, and check
-> transactions. Protocol reads and unsigned preparation are public; Signa owns wallet approval.
+> The directory for Juicebox V6: apps, guides, APIs, agent tools, audits, and source.
+> Protocol reads and unsigned preparation are public; Signa owns wallet approval.
 
-## Learn, build, inspect
+${directorySections.map((section) => `## ${section.title}\n\n${section.links.map(row).join("\n")}`).join("\n\n")}
 
-- [Understand a payment](https://juicebox.money/learn#learn-before-you-pay): project rules and the tokens a payment may return.
-- [Read a project and try a test payment](https://juicebox.money/build/first-payment): read a project, try a payment with test funds, and check the result.
-- [Learn revnets](https://revnet.money/learn): rules set at launch, three kinds of price, and what operators can change.
-- [Build with revnets](https://revnet.money/build): choose rules, draft a revnet, and connect it to an app.
-- [Inspect in Juicescan](${explorer}): current project values, contracts, and transaction tools.
-- [Inspect the tutorial project](${origin}/inspect/basesep/1): a stable link to Base Sepolia project 1 in the directory's current explorer deployment.
-- [Create a project without a transaction](${origin}/api/docs/project-intents): publish a signed project launch and let Center's sponsor deploy it.
-- [Directory](${origin}/): choose an app, integration, or source repository.
+## Repositories
 
-## APIs and agents
+- [All of V6](${V6_REPOSITORY}): the top-level repository.
+${repositoryGroups.flatMap((group) => group.links.map((link) => `- [${link.title}](${link.url}): ${link.description}`)).join("\n")}
 
-- [Choose a journey](${origin}/api/docs/user-journeys): what to prepare, what to approve, and how to check the result.
-- [Quickstart](${origin}/api/docs/quickstart): find tools, connect an assistant, and prepare unsigned calls.
-- [API explorer](${origin}/api): read protocol state and prepare unsigned transactions.
-- [Glossary](${origin}/api#glossary): plain definitions of API and blockchain terms.
-- [OpenAPI](${origin}/api/v1/openapi.json): current HTTP schemas.
-- [Live capabilities](${origin}/api/v1/capabilities): check availability on the chosen chain before planning.
-- [Agent guide](${origin}/api/docs/ai-guide): exact transaction review and recovery.
-- [Project intents](${origin}/api/docs/project-intents): \`POST ${origin}/v1/intents\` publishes a signed, frozen project deployment; \`POST ${origin}/v1/intents/:id/deploy\` requests a sponsored execution of its own calls, which may create its Safes and then launch, and \`POST ${origin}/v1/intents/:id/relay\` signs any chain the payer sends itself.
-- [Transaction lifecycle](${origin}/api/docs/transactions): pending, failed, and partially completed operations.
-- [Signa accounts](https://api.signa.center/accounts): account access, bot grants and wallet execution.
-- [Juicebox V6 skills](https://github.com/mejango/juicebox-skills): portable protocol and integration guidance.
-- [MCP connection guide](https://github.com/mejango/jbcenter/blob/main/mcp/README.md): connect a compatible client to ${origin}/mcp without REST enrollment.
+## Unfinished
+
+${workInProgress.map(row).join("\n")}
 
 ## Evidence and authority
 
