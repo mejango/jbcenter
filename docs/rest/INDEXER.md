@@ -79,7 +79,7 @@ Single reads accept the primary keys declared in the catalog. `chainId` and `pro
 
 ## Bounds, filtering and pagination
 
-List pages accept 1–50 rows, defaulting to 20. `fields` accepts at most 48 unique paths; the final selection, including mandatory identities, has at most 96 nodes. Defaults select up to 32 ordinary scalar columns plus required identities. Each string response value is limited to 32 KiB, scalar arrays to 256 elements, and a whole response to 2 MiB. Oversized source content fails explicitly rather than being silently truncated.
+List pages accept 1 to 50 rows, defaulting to 20. `fields` accepts at most 48 unique paths; the final selection, including mandatory identities, has at most 96 nodes. Defaults select up to 32 ordinary scalar columns plus required identities. Each string response value is limited to 32 KiB, scalar arrays to 256 elements, and a whole response to 2 MiB. Oversized source content fails explicitly rather than being silently truncated.
 
 Filters use only names and scalar types generated from the pinned entity filter schema. Logical `AND`/`OR` arrays have at most 20 children, depth at most three, and at most 40 filter nodes overall. User filters are placed inside an outer immutable conjunction that enforces V6, the selected network's chains and any requested chain/project. Version filter overrides are rejected. Ordering is limited to known non-JSON scalar columns and `asc`/`desc`.
 

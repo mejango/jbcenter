@@ -499,7 +499,7 @@ export class PaymentService {
     if (prepared.route.expectedReturn === 0n || prepared.route.minimumReturn === 0n) {
       throw new DomainError(
         'NOTHING_TO_RECLAIM',
-        'The verified cash-out quote returns zero; no token-burning transaction was prepared.',
+        'The verified cash out quote returns zero; no token-burning transaction was prepared.',
       );
     }
     const tx = prepared.transaction;
@@ -655,8 +655,8 @@ export class PaymentService {
         ]);
         const hasTiered = !same(tiered, zeroAddress) && (operation === 'pay' || usesTieredCashOut);
         if (hasTiered) await verifyTiered(tiered);
-        // The canonical wrapper deliberately skips extra cash-out hooks when
-        // the NFT hook supplies the cash-out weight. Mirror that composition;
+        // The canonical wrapper deliberately skips extra cash out hooks when
+        // the NFT hook supplies the cash out weight. Mirror that composition;
         // do not treat an inactive custom extra hook as part of this route.
         const usesExtra =
           operation === 'pay'
@@ -768,7 +768,7 @@ export class PaymentService {
     const terminal = requested ?? canonical;
     if (!same(terminal, canonical))
       unsupported(
-        'Cash-out and payout preparation currently require the canonical V6 multi-terminal.',
+        'Cash out and payout preparation currently require the canonical V6 multi-terminal.',
       );
     const registered = await client.readContract({
       address: v6Address('JBDirectory', project.chainId),
@@ -779,7 +779,7 @@ export class PaymentService {
     if (!registered)
       throw new DomainError(
         'TERMINAL_NOT_REGISTERED',
-        'The requested treasury terminal is not registered for this project at the quoted block.',
+        'The requested terminal is not registered for this project at the quoted block.',
       );
     const accounting = await client.readContract({
       address: terminal,
@@ -790,7 +790,7 @@ export class PaymentService {
     if (!same(accounting.token, token) || same(accounting.token, zeroAddress)) {
       throw new DomainError(
         'TOKEN_NOT_ACCEPTED',
-        'The selected treasury terminal has no accounting context for this token.',
+        'The selected terminal has no accounting context for this token.',
       );
     }
     return { terminal, accounting };
@@ -952,7 +952,7 @@ export class PaymentService {
     let hookBehavior = '';
     const warnings = [
       'This quote follows the project terminal route. Direct market acquisition has not been compared, so this is not a best-price claim.',
-      'A terminal payment can route funds into a buyback pool or hooks. The full payment is not necessarily retained in the treasury.',
+      'A terminal payment can route funds into a buyback pool or hooks. The full payment is not necessarily kept in the project balance.',
     ];
     if (terminal.gateway)
       warnings.push(
@@ -1326,7 +1326,7 @@ export class PaymentService {
       if (preview.rulesetId !== BigInt(context.ruleset.id))
         throw new DomainError(
           'INVALID_PREVIEW',
-          'The cash-out preview ruleset does not match the verified current ruleset.',
+          'The cash out preview ruleset does not match the verified current ruleset.',
         );
       for (const spec of preview.hookSpecifications) {
         if (spec.noop) continue;
@@ -1335,7 +1335,7 @@ export class PaymentService {
         const revFee = context.revOwner !== undefined && same(spec.hook, context.revOwner);
         if (!buyback && !revFee)
           unsupported(
-            'The cash-out preview includes an unrecognized active hook; its return cannot safely be inferred.',
+            'The cash out preview includes an unrecognized active hook; its return cannot safely be inferred.',
           );
       }
     }
@@ -1345,18 +1345,18 @@ export class PaymentService {
     // SDK resolution may choose its zero treasury fallback when applying user
     // slippage to an active pool preview no longer beats the direct route.
     // That pool preview does not contain a fresh treasury quote. Never emit its
-    // zero terminal minimum with empty metadata as if it protected a cash-out.
+    // zero terminal minimum with empty metadata as if it protected a cash out.
     if (activeBuyback && prepared.route.route !== 'amm') {
       throw new DomainError(
         'CASH_OUT_ROUTE_REQUIRES_REQUOTE',
-        'The protected buyback quote no longer selects the pool. A new explicit treasury-route quote is required; no floorless cash-out was prepared.',
+        'The protected buyback quote no longer selects the pool. A new explicit terminal-route quote is required; no floorless cash out was prepared.',
         { retryable: true },
       );
     }
     const route = prepared.route;
     const warnings = [
-      'The quote uses the terminal cash-out path and recognized hooks. Direct market sales have not been compared.',
-      'Cash-out preview does not prove the caller has burn permission or the holder has sufficient tokens. The exact transaction must be simulated as the stated account.',
+      'The quote uses the terminal cash out path and recognized hooks. Direct market sales have not been compared.',
+      'Cash out preview does not prove the caller has burn permission or the holder has sufficient tokens. The exact transaction must be simulated as the stated account.',
     ];
     if (context.revOwner)
       warnings.push(
@@ -1364,11 +1364,11 @@ export class PaymentService {
       );
     if (route.route === 'amm')
       warnings.push(
-        'The protected minimum is enforced by buyback cash-out metadata; the terminal minimum is zero for this route. Re-quote if the route changes.',
+        'The protected minimum is enforced by buyback cash out metadata; the terminal minimum is zero for this route. Re-quote if the route changes.',
       );
     if (!isNative(input.tokenToReclaim))
       warnings.push(
-        'ERC-20 transfer taxes and rebases are not modeled. The treasury minimum protects the terminal net transfer amount, which can differ from the recipient balance increase for such tokens.',
+        'ERC-20 transfer taxes and rebases are not modeled. The terminal minimum protects the terminal net transfer amount, which can differ from the recipient balance increase for such tokens.',
       );
     const quote = {
       operation: 'cash_out' as const,

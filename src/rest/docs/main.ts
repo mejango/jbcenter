@@ -59,5 +59,5 @@ function applyFilter() {
     if (term && !group.hidden) group.open = true;
   }
   const result = document.getElementById("endpoint-count");
-  if (result) result.textContent = `${count} endpoints`;
+  if (result) result.textContent = count === 1 ? "1 endpoint" : `${count} endpoints`;
 }

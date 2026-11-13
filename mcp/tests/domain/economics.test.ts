@@ -55,7 +55,7 @@ function config() {
 const scenario = { label: 'one', contributionInBaseCurrency18: oneEth };
 
 describe('revnet economics', () => {
-  it('models a ruleset whose data hook is REVOwner, with the revnet cash-out fee', () => {
+  it('models a ruleset whose data hook is REVOwner, with the revnet cash out fee', () => {
     const result = modelEconomics({
       rulesetConfiguration: {
         mustStartAtOrAfter: '0',

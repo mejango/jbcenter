@@ -387,7 +387,7 @@ describe('transport-independent protocol operations', () => {
     expect(account.mock.calls[0]?.[0].network).toBeUndefined();
   });
 
-  it('reads only on-chain project state when explicitly selected and never falls back to the indexer', async () => {
+  it('reads only onchain project state when explicitly selected and never falls back to the indexer', async () => {
     const state = onchainProject();
     const onchain = vi.spyOn(services.projects, 'getProject').mockResolvedValue(state);
     const indexed = vi.spyOn(services.bendystraw, 'getProject');

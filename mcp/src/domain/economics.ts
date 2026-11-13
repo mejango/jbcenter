@@ -68,12 +68,12 @@ export const modelEconomicsSchema = z
                   ctx.addIssue({
                     code: 'custom',
                     path: ['cashOutCount'],
-                    message: 'Cash-out count must not exceed the hypothetical total supply.',
+                    message: 'Cash out count must not exceed the hypothetical total supply.',
                   });
               })
               .optional()
               .describe(
-                'Independent hypothetical pre-fee cash-out inputs; supply must include pending reserved tokens and is not automatically changed by contribution.',
+                'Independent hypothetical pre-fee cash out inputs; supply must include pending reserved tokens and is not automatically changed by contribution.',
               ),
           })
           .strict(),
@@ -314,7 +314,7 @@ function resolve(value: ModelInput, live?: LiveRevnet) {
     if (hooked && !isRevOwner(config.metadata.dataHook)) {
       throw new DomainError(
         'CUSTOM_HOOK_MODEL_UNSUPPORTED',
-        'Enabled data hooks can override issuance or cash-outs; the core-only scenario model cannot represent their economics.',
+        'Enabled data hooks can override issuance or cash outs; the core-only scenario model cannot represent their economics.',
       );
     }
     const weight =
@@ -476,10 +476,10 @@ export function modelEconomics(raw: z.input<typeof modelEconomicsSchema>, live?:
     limitations: [
       'This is a deterministic hypothetical calculation, not an RPC simulation, contribution quote, market forecast, or claim of spendable funds.',
       'Contribution inputs are already denominated in base currency at 18 decimals. No token exchange rate, terminal routing, market purchase, fee, or hook result is assumed.',
-      'Cash-out inputs are independent of contribution inputs. Supply must include pending reserved tokens and relevant cross-chain supply; surplus is supplied explicitly and is not treasury balance.',
+      'Cash out inputs are independent of contribution inputs. Supply must include pending reserved tokens and relevant cross-chain supply; surplus is supplied explicitly and is not treasury balance.',
       'Payout limits and surplus allowances are independent per chain, terminal, token, currency, and reset window. Empty fund-access groups mean zero payout limits and zero surplus allowances.',
       'Split routing, fee exemptions, recipient hooks, liquidity availability, transaction gas, ruleset approvals, and timestamp selection require live transaction simulation.',
-      'Repeated decay matches core integer math; long-lived on-chain rulesets may require weight-cache maintenance before execution.',
+      'Repeated decay matches core integer math; long-lived onchain rulesets may require weight-cache maintenance before execution.',
       ...(terms.revnet ? REVNET_LIMITS : []),
     ],
     sources: [
@@ -493,7 +493,7 @@ export function modelEconomics(raw: z.input<typeof modelEconomicsSchema>, live?:
 }
 
 const REVNET_LIMITS = [
-  'Revnet: issuance is the mint path. The buyback hook swaps instead when its pool gives the payer more tokens, so pay and cash-out results are indicative.',
+  'Revnet: issuance is the mint path. The buyback hook swaps instead when its pool gives the payer more tokens, so pay and cash out results are indicative.',
   'Revnet: 721 tier splits reduce the weight for the part of a payment they take. Not modeled.',
   'Revnet: supply must include loan collateral and, unless cash outs are scoped to local balances, other chains. Surplus must include outstanding loans and other chains. Local liquidity is assumed to cover the reclaim.',
   'Revnet: REVLoans holds an unlimited surplus allowance per accepted token; revnets have no payout limits.',

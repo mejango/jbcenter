@@ -249,7 +249,7 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     defineOperation(
       'get_project',
-      'Explain a V6 project using pinned on-chain ownership, rulesets, supply, terminals, balances, payout limits, and surplus. Indexed metadata remains separate from executable accounting.',
+      'Explain a V6 project using pinned onchain ownership, rulesets, supply, terminals, balances, payout limits, and surplus. Indexed metadata remains separate from executable accounting.',
       { project: projectSchema },
       async ({ project }) => {
         const [onchain, indexed] = await Promise.all([
@@ -320,7 +320,7 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     defineOperation(
       'get_activity',
-      'Read a page of V6 project activity, retaining payment, cash-out, payout, split, and bridge event evidence. Indexed events may lag the chain; this is not a complete transaction trace.',
+      'Read a page of V6 project activity, retaining payment, cash out, payout, split, and bridge event evidence. Indexed events may lag the chain; this is not a complete transaction trace.',
       { project: projectSchema, ...pageSchema },
       async ({ project, ...page }) => ({
         indexed: await s.bendystraw.getProjectActivity({ ...project, ...page }),
@@ -361,7 +361,7 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     defineOperation(
       'get_omnichain_group',
-      'Read the indexer’s V6 sucker group and a bounded project page, by group ID or by one project in the group. This is discovery evidence; validate peers on-chain before preparing bridge actions.',
+      'Read the indexer’s V6 sucker group and a bounded project page, by group ID or by one project in the group. This is discovery evidence; validate peers onchain before preparing bridge actions.',
       {
         id: z
           .string()
@@ -392,7 +392,7 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     defineOperation(
       'quote_pay',
-      'Quote a terminal payment as the actual payer, including issuance/reserved outputs and supported buyback behavior. The quote explains treasury versus market flow and never claims an unqueried route is optimal.',
+      'Quote a terminal payment as the actual payer, including issuance/reserved outputs and supported buyback behavior. The quote explains what goes to the project balance and what buys from the market and never claims an unqueried route is optimal.',
       payShape,
       (input) => s.payments.quotePay(input),
     ),
@@ -406,14 +406,14 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     defineOperation(
       'quote_cash_out',
-      'Quote a hook-aware V6 cash-out using net proceeds, correct accounting currency, and route-specific protected metadata. Unsupported custom behavior fails explicitly.',
+      'Quote a hook-aware V6 cash out using net proceeds, correct accounting currency, and route-specific protected metadata. Unsupported custom behavior fails explicitly.',
       cashOutShape,
       (input) => s.payments.quoteCashOut(input),
     ),
     defineTransaction(
       s,
       'prepare_cash_out',
-      'Prepare an authenticated unsigned cash-out plan, preserving the quoted terminal minimum and hook metadata as one execution commitment.',
+      'Prepare an authenticated unsigned cash out plan, preserving the quoted terminal minimum and hook metadata as one execution commitment.',
       { ...cashOutShape, account: addressSchema },
       async (input) => s.payments.prepareCashOut(input),
     ),
@@ -432,7 +432,7 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     operationWithSchema(
       'model_economics',
-      'Compute an explicit hypothetical issuance/cash-out scenario with integer arithmetic. Give a core ruleset, or a revnet (a live project, or a stage config before launch). Revnets include the revnet cash-out fee; buyback effects are indicative. Neither a forecast nor an executable live quote.',
+      'Compute an explicit hypothetical issuance/cash out scenario with integer arithmetic. Give a core ruleset, or a revnet (a live project, or a stage config before launch). Revnets include the revnet cash out fee; buyback effects are indicative. Neither a forecast nor an executable live quote.',
       modelEconomicsSchema,
       async (input) =>
         s.configuration.modelEconomics(input, (project) => s.products.getRevnet({ project })),
@@ -587,7 +587,7 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     operationWithSchema(
       'get_revnet',
-      'Read verified revnet stage rules, immutable deployment configuration commitment, cash-out delay, NFT hook and current operator. The operator comes from indexed candidates checked on chain; pass operator to check one address. A project is not assumed to be a revnet from metadata.',
+      'Read verified revnet stage rules, immutable deployment configuration commitment, cash out delay, NFT hook and current operator. The operator comes from indexed candidates checked on chain; pass operator to check one address. A project is not assumed to be a revnet from metadata.',
       getRevnetSchema,
       (input) =>
         s.products.getRevnet(input, (owner) =>
@@ -753,7 +753,7 @@ function definitions(s: Services): ProtocolOperation[] {
     ),
     defineOperation(
       'get_contract',
-      'Retrieve a V6 ABI and SDK deployment address; optionally filter a function/event to keep context small. Runtime project configuration must still be resolved on-chain.',
+      'Retrieve a V6 ABI and SDK deployment address; optionally filter a function/event to keep context small. Runtime project configuration must still be resolved onchain.',
       {
         name: z.string().min(1).max(100),
         chainId: chainIdSchema.optional(),
@@ -811,7 +811,7 @@ function definitions(s: Services): ProtocolOperation[] {
 }
 
 /** Semantic application operations shared by MCP and authenticated REST transports.
- * No operation registry method authenticates a user or authorizes on-chain execution.
+ * No operation registry method authenticates a user or authorizes onchain execution.
  * Execute preserves reviewed plan responses; prepare returns unsigned drafts for a
  * transport-owned durable journey, without treating a plan token as authorization.
  */
@@ -859,7 +859,7 @@ export function createProtocolOperations(services: Services) {
         if (options.source !== undefined && options.source !== 'onchain')
           throw new DomainError(
             'SOURCE_NOT_SUPPORTED',
-            'Transaction preparation requires live on-chain state.',
+            'Transaction preparation requires live onchain state.',
           );
         return operation.prepareDraft(input, options.at ? { at: options.at } : {});
       }, options),

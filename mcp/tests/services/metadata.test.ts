@@ -76,7 +76,7 @@ describe('V6 metadata review and public publication', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('publishes exactly reviewed bytes and reports queued redundancy without claiming on-chain changes', async () => {
+  it('publishes exactly reviewed bytes and reports queued redundancy without claiming onchain changes', async () => {
     const pinJson = successfulPin();
     const metadataService = service({ pinJson });
     const prepared = metadataService.prepare(input);

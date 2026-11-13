@@ -147,7 +147,7 @@ export async function resolveRoutingHooks(
       );
     result.nft = same(nft, zeroAddress) ? null : nft;
     if (pay && result.nft) result.payHooks.push(result.nft);
-    // Revnet NFTs never price cash-outs. REVOwner applies its separate fee/loan rules.
+    // Revnet NFTs never price cash outs. REVOwner applies its separate fee/loan rules.
     hook = registry;
   } else if (same(hook, v6Address('JBOmnichainDeployer', project.chainId))) {
     result.kind = 'omnichain';
@@ -574,7 +574,7 @@ export class RoutingService {
             quality: 'unseeded',
             matchesConfiguredOracle: same(key.hooks, configuredOracle),
             interpretation:
-              'No retained observations. Buyback pay may use guarded bootstrap logic; cash-out cannot rely on that spot fallback.',
+              'No retained observations. Buyback pay may use guarded bootstrap logic; cash out cannot rely on that spot fallback.',
           };
         const observations = await observe(async () => {
           const [ticks, liquidity] = await client.readContract({
@@ -1019,7 +1019,7 @@ export class RoutingService {
       },
       [
         'A registry-allowed custom hook can have different economic and oracle behavior. Its pool configuration is separate from the previous hook.',
-        'The project data-hook wrapper and ruleset flags still determine which payment and cash-out calls reach this implementation.',
+        'The project data-hook wrapper and ruleset flags still determine which payment and cash out calls reach this implementation.',
         'Migrating to buyback 1.4 requires three-word pay metadata and a separately configured pool/TWAP window. A retired hook can keep serving existing projects while being disallowed for a new selection.',
       ],
     );
@@ -1103,7 +1103,7 @@ export class RoutingService {
       },
       [
         'The contract simulation must validate nested forwarding and reject circular routes.',
-        'This changes forwarding for this project on this chain; it does not migrate treasury balances or alter directory terminal registrations.',
+        'This changes forwarding for this project on this chain; it does not migrate balances or alter directory terminal registrations.',
         'A gateway is the registry-selectable forwarding terminal; its immutable router is a separate contract. Retained gateway fees remain in custody until a verified retry or accounted refund.',
       ],
     );

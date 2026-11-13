@@ -519,7 +519,7 @@
             "description": "Juicebox protocol version; this discriminator is not included in the metadata JSON."
           },
           "metadata": {
-            "description": "Complete NFT metadata JSON object, at most 64 KiB of canonical UTF-8 JSON. Preserves image, attributes, properties, animation_url and custom fields. Linked content is not fetched, rendered or verified. This is not standard project metadata and does not update a tier on-chain.",
+            "description": "Complete NFT metadata JSON object, at most 64 KiB of canonical UTF-8 JSON. Preserves image, attributes, properties, animation_url and custom fields. Linked content is not fetched, rendered or verified. This is not standard project metadata and does not update a tier onchain.",
             "type": "object",
             "propertyNames": {
               "type": "string"
@@ -701,7 +701,7 @@
     },
     {
       "name": "jb_pin_nft_metadata",
-      "description": "Publish the exact NFT metadata reviewed through jb_prepare_nft_metadata to public IPFS using the integrated Center pinning backend and shared upload quota. Requires explicit user authorization for this exact potentially permanent public upload before confirmPublicUpload:true and an unexpired authentic NFT review token. Returns metadataUri and CID, plus encodedIpfsUri only when the CID supports V6 static-tier encoding. Does not fetch or upload linked images, use wallet keys, or add or update tiers on-chain. Repeated calls may consume publication quota again.",
+      "description": "Publish the exact NFT metadata reviewed through jb_prepare_nft_metadata to public IPFS using the integrated Center pinning backend and shared upload quota. Requires explicit user authorization for this exact potentially permanent public upload before confirmPublicUpload:true and an unexpired authentic NFT review token. Returns metadataUri and CID, plus encodedIpfsUri only when the CID supports V6 static-tier encoding. Does not fetch or upload linked images, use wallet keys, or add or update tiers onchain. Repeated calls may consume publication quota again.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1215,7 +1215,7 @@
     },
     {
       "name": "jb_get_project",
-      "description": "Explain a V6 project using pinned on-chain ownership, rulesets, supply, terminals, balances, payout limits, and surplus. Indexed metadata remains separate from executable accounting.",
+      "description": "Explain a V6 project using pinned onchain ownership, rulesets, supply, terminals, balances, payout limits, and surplus. Indexed metadata remains separate from executable accounting.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2236,7 +2236,7 @@
     },
     {
       "name": "jb_get_activity",
-      "description": "Read a page of V6 project activity, retaining payment, cash-out, payout, split, and bridge event evidence. Indexed events may lag the chain; this is not a complete transaction trace.",
+      "description": "Read a page of V6 project activity, retaining payment, cash out, payout, split, and bridge event evidence. Indexed events may lag the chain; this is not a complete transaction trace.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3024,7 +3024,7 @@
     },
     {
       "name": "jb_get_omnichain_group",
-      "description": "Read the indexer’s V6 sucker group and a bounded project page, by group ID or by one project in the group. This is discovery evidence; validate peers on-chain before preparing bridge actions.",
+      "description": "Read the indexer’s V6 sucker group and a bounded project page, by group ID or by one project in the group. This is discovery evidence; validate peers onchain before preparing bridge actions.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3235,7 +3235,7 @@
     },
     {
       "name": "jb_quote_pay",
-      "description": "Quote a terminal payment as the actual payer, including issuance/reserved outputs and supported buyback behavior. The quote explains treasury versus market flow and never claims an unqueried route is optimal.",
+      "description": "Quote a terminal payment as the actual payer, including issuance/reserved outputs and supported buyback behavior. The quote explains what goes to the project balance and what buys from the market and never claims an unqueried route is optimal.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3723,7 +3723,7 @@
     },
     {
       "name": "jb_quote_cash_out",
-      "description": "Quote a hook-aware V6 cash-out using net proceeds, correct accounting currency, and route-specific protected metadata. Unsupported custom behavior fails explicitly.",
+      "description": "Quote a hook-aware V6 cash out using net proceeds, correct accounting currency, and route-specific protected metadata. Unsupported custom behavior fails explicitly.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3804,7 +3804,7 @@
           },
           "slippageBps": {
             "default": 100,
-            "description": "Slippage in basis points, 0–1000. Default 100 (1%).",
+            "description": "Slippage in basis points, 0 to 1000. Default 100 (1%).",
             "type": "integer",
             "minimum": 0,
             "maximum": 1000
@@ -3955,7 +3955,7 @@
     },
     {
       "name": "jb_prepare_cash_out",
-      "description": "Prepare an authenticated unsigned cash-out plan, preserving the quoted terminal minimum and hook metadata as one execution commitment.",
+      "description": "Prepare an authenticated unsigned cash out plan, preserving the quoted terminal minimum and hook metadata as one execution commitment.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4036,7 +4036,7 @@
           },
           "slippageBps": {
             "default": 100,
-            "description": "Slippage in basis points, 0–1000. Default 100 (1%).",
+            "description": "Slippage in basis points, 0 to 1000. Default 100 (1%).",
             "type": "integer",
             "minimum": 0,
             "maximum": 1000
@@ -4269,7 +4269,7 @@
           },
           "slippageBps": {
             "default": 100,
-            "description": "Slippage in basis points, 0–1000. Default 100 (1%).",
+            "description": "Slippage in basis points, 0 to 1000. Default 100 (1%).",
             "type": "integer",
             "minimum": 0,
             "maximum": 1000
@@ -4501,7 +4501,7 @@
           },
           "slippageBps": {
             "default": 100,
-            "description": "Slippage in basis points, 0–1000. Default 100 (1%).",
+            "description": "Slippage in basis points, 0 to 1000. Default 100 (1%).",
             "type": "integer",
             "minimum": 0,
             "maximum": 1000
@@ -4652,7 +4652,7 @@
     },
     {
       "name": "jb_model_economics",
-      "description": "Compute an explicit hypothetical issuance/cash-out scenario with integer arithmetic. Give a core ruleset, or a revnet (a live project, or a stage config before launch). Revnets include the revnet cash-out fee; buyback effects are indicative. Neither a forecast nor an executable live quote.",
+      "description": "Compute an explicit hypothetical issuance/cash out scenario with integer arithmetic. Give a core ruleset, or a revnet (a live project, or a stage config before launch). Revnets include the revnet cash out fee; buyback effects are indicative. Neither a forecast nor an executable live quote.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4726,7 +4726,7 @@
                     ]
                   },
                   "cashOutTaxRate": {
-                    "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
+                    "description": "Cash out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
                     "anyOf": [
                       {
                         "type": "number"
@@ -5306,7 +5306,7 @@
                               ]
                             },
                             "cashOutTaxRate": {
-                              "description": "Cash-out tax out of 10,000, at most 9,999. 0 = no tax.",
+                              "description": "Cash out tax out of 10,000, at most 9,999. 0 = no tax.",
                               "anyOf": [
                                 {
                                   "type": "number"
@@ -5398,7 +5398,7 @@
                   "description": "Hypothetical contribution denominated in the ruleset base currency, with 18 decimals; no price-feed conversion is assumed."
                 },
                 "cashOut": {
-                  "description": "Independent hypothetical pre-fee cash-out inputs; supply must include pending reserved tokens and is not automatically changed by contribution.",
+                  "description": "Independent hypothetical pre-fee cash out inputs; supply must include pending reserved tokens and is not automatically changed by contribution.",
                   "type": "object",
                   "properties": {
                     "surplusAtomic": {
@@ -5708,7 +5708,7 @@
                       ]
                     },
                     "cashOutTaxRate": {
-                      "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
+                      "description": "Cash out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
                       "anyOf": [
                         {
                           "type": "number"
@@ -6270,7 +6270,7 @@
                       ]
                     },
                     "cashOutTaxRate": {
-                      "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
+                      "description": "Cash out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
                       "anyOf": [
                         {
                           "type": "number"
@@ -6829,7 +6829,7 @@
                       ]
                     },
                     "cashOutTaxRate": {
-                      "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
+                      "description": "Cash out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
                       "anyOf": [
                         {
                           "type": "number"
@@ -7456,7 +7456,7 @@
                       ]
                     },
                     "cashOutTaxRate": {
-                      "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
+                      "description": "Cash out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
                       "anyOf": [
                         {
                           "type": "number"
@@ -9024,7 +9024,7 @@
           },
           "slippageBps": {
             "default": 100,
-            "description": "Slippage in basis points, 0–1000. Default 100 (1%).",
+            "description": "Slippage in basis points, 0 to 1000. Default 100 (1%).",
             "type": "integer",
             "minimum": 0,
             "maximum": 1000
@@ -12867,7 +12867,7 @@
                       ]
                     },
                     "cashOutTaxRate": {
-                      "description": "Cash-out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
+                      "description": "Cash out tax out of 10,000. 0 = no tax; 10,000 = cash outs return nothing.",
                       "anyOf": [
                         {
                           "type": "number"
@@ -13361,7 +13361,7 @@
     },
     {
       "name": "jb_get_revnet",
-      "description": "Read verified revnet stage rules, immutable deployment configuration commitment, cash-out delay, NFT hook and current operator. The operator comes from indexed candidates checked on chain; pass operator to check one address. A project is not assumed to be a revnet from metadata.",
+      "description": "Read verified revnet stage rules, immutable deployment configuration commitment, cash out delay, NFT hook and current operator. The operator comes from indexed candidates checked on chain; pass operator to check one address. A project is not assumed to be a revnet from metadata.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -14013,7 +14013,7 @@
                       ]
                     },
                     "cashOutTaxRate": {
-                      "description": "Cash-out tax out of 10,000, at most 9,999. 0 = no tax.",
+                      "description": "Cash out tax out of 10,000, at most 9,999. 0 = no tax.",
                       "anyOf": [
                         {
                           "type": "number"
@@ -17309,7 +17309,7 @@
     },
     {
       "name": "jb_get_contract",
-      "description": "Retrieve a V6 ABI and SDK deployment address; optionally filter a function/event to keep context small. Runtime project configuration must still be resolved on-chain.",
+      "description": "Retrieve a V6 ABI and SDK deployment address; optionally filter a function/event to keep context small. Runtime project configuration must still be resolved onchain.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -17982,7 +17982,7 @@
           },
           {
             "name": "jb_pin_nft_metadata",
-            "description": "Publish the exact NFT metadata reviewed through jb_prepare_nft_metadata to public IPFS using the integrated Center pinning backend and shared upload quota. Requires explicit user authorization for this exact potentially permanent public upload before confirmPublicUpload:true and an unexpired authentic NFT review token. Returns metadataUri and CID, plus encodedIpfsUri only when the CID supports V6 static-tier encoding. Does not fetch or upload linked images, use wallet keys, or add or update tiers on-chain. Repeated calls may consume publication quota again."
+            "description": "Publish the exact NFT metadata reviewed through jb_prepare_nft_metadata to public IPFS using the integrated Center pinning backend and shared upload quota. Requires explicit user authorization for this exact potentially permanent public upload before confirmPublicUpload:true and an unexpired authentic NFT review token. Returns metadataUri and CID, plus encodedIpfsUri only when the CID supports V6 static-tier encoding. Does not fetch or upload linked images, use wallet keys, or add or update tiers onchain. Repeated calls may consume publication quota again."
           }
         ],
         "references": [
@@ -18013,7 +18013,7 @@
           },
           {
             "name": "jb_get_project",
-            "description": "Explain a V6 project using pinned on-chain ownership, rulesets, supply, terminals, balances, payout limits, and surplus. Indexed metadata remains separate from executable accounting."
+            "description": "Explain a V6 project using pinned onchain ownership, rulesets, supply, terminals, balances, payout limits, and surplus. Indexed metadata remains separate from executable accounting."
           },
           {
             "name": "jb_get_rulesets",
@@ -18033,7 +18033,7 @@
           },
           {
             "name": "jb_get_activity",
-            "description": "Read a page of V6 project activity, retaining payment, cash-out, payout, split, and bridge event evidence. Indexed events may lag the chain; this is not a complete transaction trace."
+            "description": "Read a page of V6 project activity, retaining payment, cash out, payout, split, and bridge event evidence. Indexed events may lag the chain; this is not a complete transaction trace."
           },
           {
             "name": "jb_get_indexer_status",
@@ -18052,16 +18052,16 @@
         ],
         "limits": [
           "V6 only. Every identity includes chain and project ID.",
-          "Indexed positions and event pages have explicit coverage; current balances are read on-chain."
+          "Indexed positions and event pages have explicit coverage; current balances are read onchain."
         ]
       },
       {
         "id": "payments",
-        "title": "Payments, cash-outs and payouts",
+        "title": "Payments, cash outs and payouts",
         "tools": [
           {
             "name": "jb_quote_pay",
-            "description": "Quote a terminal payment as the actual payer, including issuance/reserved outputs and supported buyback behavior. The quote explains treasury versus market flow and never claims an unqueried route is optimal."
+            "description": "Quote a terminal payment as the actual payer, including issuance/reserved outputs and supported buyback behavior. The quote explains what goes to the project balance and what buys from the market and never claims an unqueried route is optimal."
           },
           {
             "name": "jb_prepare_pay",
@@ -18069,11 +18069,11 @@
           },
           {
             "name": "jb_quote_cash_out",
-            "description": "Quote a hook-aware V6 cash-out using net proceeds, correct accounting currency, and route-specific protected metadata. Unsupported custom behavior fails explicitly."
+            "description": "Quote a hook-aware V6 cash out using net proceeds, correct accounting currency, and route-specific protected metadata. Unsupported custom behavior fails explicitly."
           },
           {
             "name": "jb_prepare_cash_out",
-            "description": "Prepare an authenticated unsigned cash-out plan, preserving the quoted terminal minimum and hook metadata as one execution commitment."
+            "description": "Prepare an authenticated unsigned cash out plan, preserving the quoted terminal minimum and hook metadata as one execution commitment."
           },
           {
             "name": "jb_quote_payout",
@@ -18099,7 +18099,7 @@
           "Custom hooks, partial swaps and nested forwarding require their own supported adapters.",
           "A recorded gateway forwards into ROUTER. Failed protocol-fee or protocol-payer calls can remain in gateway custody; transaction confirmation does not prove payment settlement or forgiveness.",
           "The current buyback hook (1.4) takes three-word pay metadata: amountToSwapWith, minimumSwapAmountOut and skipSplits. Two-word pay entries revert on it; a derived TWAP-floor miss falls back to minting while explicit settlement minima still apply. Some projects still use the retired 1.1.1 hook; jb_quote_pay names the version in buybackHook. On 1.4, jb_quote_pay and jb_prepare_pay take skipSplits to send pool-bought tokens to the beneficiary without the reserved split.",
-          "USDC/native and USDC/ETH prices use the live project/default JBPrices feed selection. A ratio-feed deployment record does not establish registration, current price or mixed-balance cash-out output."
+          "USDC/native and USDC/ETH prices use the live project/default JBPrices feed selection. A ratio-feed deployment record does not establish registration, current price or mixed-balance cash out output."
         ]
       },
       {
@@ -18108,7 +18108,7 @@
         "tools": [
           {
             "name": "jb_model_economics",
-            "description": "Compute an explicit hypothetical issuance/cash-out scenario with integer arithmetic. Give a core ruleset, or a revnet (a live project, or a stage config before launch). Revnets include the revnet cash-out fee; buyback effects are indicative. Neither a forecast nor an executable live quote."
+            "description": "Compute an explicit hypothetical issuance/cash out scenario with integer arithmetic. Give a core ruleset, or a revnet (a live project, or a stage config before launch). Revnets include the revnet cash out fee; buyback effects are indicative. Neither a forecast nor an executable live quote."
           },
           {
             "name": "jb_preview_ruleset_change",
@@ -18139,7 +18139,7 @@
         ],
         "limits": [
           "Core launch is an explicit composition. NFT and revnet launch semantics are separate.",
-          "After a launch, jb_prepare_deploy_erc20 adds the ERC-20 and jb_prepare_set_project_uri sets the name. Each acts on one chain.",
+          "After a launch, jb_prepare_deploy_erc20 adds the ERC-20 and jb_prepare_set_project_uri sets the metadata URI. Each acts on one chain.",
           "Scenarios report assumptions; future approval-hook outcomes are not predicted."
         ]
       },
@@ -18226,7 +18226,7 @@
         "tools": [
           {
             "name": "jb_get_revnet",
-            "description": "Read verified revnet stage rules, immutable deployment configuration commitment, cash-out delay, NFT hook and current operator. The operator comes from indexed candidates checked on chain; pass operator to check one address. A project is not assumed to be a revnet from metadata."
+            "description": "Read verified revnet stage rules, immutable deployment configuration commitment, cash out delay, NFT hook and current operator. The operator comes from indexed candidates checked on chain; pass operator to check one address. A project is not assumed to be a revnet from metadata."
           },
           {
             "name": "jb_suggest_revnet_start",
@@ -18279,7 +18279,7 @@
           },
           {
             "name": "jb_get_omnichain_group",
-            "description": "Read the indexer’s V6 sucker group and a bounded project page, by group ID or by one project in the group. This is discovery evidence; validate peers on-chain before preparing bridge actions."
+            "description": "Read the indexer’s V6 sucker group and a bounded project page, by group ID or by one project in the group. This is discovery evidence; validate peers onchain before preparing bridge actions."
           },
           {
             "name": "jb_prepare_omnichain_launch",
@@ -18381,7 +18381,7 @@
           },
           {
             "name": "jb_get_contract",
-            "description": "Retrieve a V6 ABI and SDK deployment address; optionally filter a function/event to keep context small. Runtime project configuration must still be resolved on-chain."
+            "description": "Retrieve a V6 ABI and SDK deployment address; optionally filter a function/event to keep context small. Runtime project configuration must still be resolved onchain."
           },
           {
             "name": "jb_decode_calldata",

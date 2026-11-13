@@ -557,7 +557,7 @@ export class ExtensionService {
     if (BigInt(quote.availableGrossDebt) === 0n)
       throw new DomainError(
         'NOTHING_BORROWABLE',
-        'The live borrow quote is zero; available surplus or the cash-out delay prevents a loan.',
+        'The live borrow quote is zero; available surplus or the cash out delay prevents a loan.',
       );
     await this.requirePermission(
       snapshot,
@@ -758,7 +758,7 @@ export class ExtensionService {
       if (delay > BigInt(snapshot.evidence.timestamp)) {
         throw new DomainError(
           'PARTIAL_REPAY_QUOTE_UNAVAILABLE',
-          'During a cash-out delay the public capacity view returns zero, while partial repayment uses uncensored capacity. A full repayment can be prepared.',
+          'During a cash out delay the public capacity view returns zero, while partial repayment uses uncensored capacity. A full repayment can be prepared.',
         );
       }
       if (!sameAddress(context.token, live.loan.sourceToken))
@@ -979,7 +979,7 @@ export class ExtensionService {
       operation: 'bridge_claim',
       account: input.account,
       project: input.project,
-      calls: [preparedCall(tx, 'Claim bridged project tokens and settle treasury backing')],
+      calls: [preparedCall(tx, 'Claim bridged project tokens and settle their backing')],
       evidence: [snapshot.evidence],
       summary: {
         claim: input.claim,

@@ -45,7 +45,7 @@ The response includes ABI-named outputs, the exact signature and arguments, sele
 }
 ```
 
-`prepare` accepts 1–32 calls and returns a `RestPlanDraft`: the intended sender, exact chain/destination/calldata/value, decoded arguments from those same bytes, earlier-call dependencies and per-chain block evidence. An optional `label` is limited to 160 characters. Dependencies must be unique earlier indices; cycles and future references fail. Each chain has one snapshot for the entire plan. Value is native wei and defaults to zero; nonzero value on a nonpayable method fails.
+`contract_calls` accepts 1 to 32 calls and returns a `RestPlanDraft`: the intended sender, exact chain/destination/calldata/value, decoded arguments from those same bytes, earlier-call dependencies and per-chain block evidence. An optional `label` is limited to 160 characters. Dependencies must be unique earlier indices; cycles and future references fail. Each chain has one snapshot for the entire plan. Value is native wei and defaults to zero; nonzero value on a nonpayable method fails.
 
 The service does not infer permissions, currency conversions, token decimal scaling, slippage, fees, or successful outcomes from valid calldata. Permission and execution checks belong to simulation of the exact plan. Every destination must already exist and verify at preparation time: a preceding deployment call cannot establish a future destination inside the same preparation request.
 

@@ -14,7 +14,7 @@
 
 ## First protocol request
 
-Use the [quickstart](QUICKSTART.md). Center protocol REST reads and preparation need no account or API connection. Choose a source explicitly wherever required and preserve returned evidence.
+Use the [quickstart](QUICKSTART.md). Center protocol REST reads and preparation need no account or API key. Choose a source explicitly wherever required and preserve returned evidence.
 
 ## From intent to project
 

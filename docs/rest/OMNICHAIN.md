@@ -22,7 +22,7 @@ Breadth-first traversal processes each identity once. Cycles are ordinary member
 
 Unknown peers remain visible as unverified links and are not expanded. Unavailable member reads retain an unknown status. An explicit member cap stops expansion and marks coverage incomplete; it does not imply that the omitted peers are absent. There is no indexer fallback.
 
-Each member retains its own owner/controller observations, token/supply state, terminal accounting contexts and read evidence. Token addresses, decimals, accounting currencies, balances and unknown values remain attached to their chain and terminal. The view does not construct a combined token supply, combined spendable balance or cross-chain asset valuation. Bridge accounting gossip remains last-received remote accounting and is never added to local treasury balances.
+Each member retains its own owner/controller observations, token/supply state, terminal accounting contexts and read evidence. Token addresses, decimals, accounting currencies, balances and unknown values remain attached to their chain and terminal. The view does not construct a combined token supply, combined spendable balance or cross-chain asset valuation. Bridge accounting gossip remains last-received remote accounting and is never added to local balances.
 
 Project reads and bridge reads may use different blocks. Remote chains have their own evidence. The response preserves those distinctions and never claims a simultaneous snapshot across chains.
 
@@ -32,7 +32,7 @@ The service reads the scoped V6 project and its `suckerGroup` relation, verifies
 
 This is indexed group discovery, with `linkageVerified: false`; it does not establish reciprocal contract linkage. A missing root/group or unavailable discovery source fails explicitly. Movement-page outages can remain unknown within an otherwise known group. Page truncation marks membership coverage incomplete and preserves the indexer's continuation cursor.
 
-Each chain's indexed project balance, USD estimate, decimals and currency are preserved separately. The issued project token is displayed separately from treasury accounting: its address is not presumed to identify the asset counted by the indexed aggregate. Missing decimals or currency remain unknown. Cost basis and historical or aggregate indexed values are not spendable balances.
+Each chain's indexed project balance, USD estimate, decimals and currency are preserved separately. The issued project token is displayed separately from balance accounting: its address is not presumed to identify the asset counted by the indexed aggregate. Missing decimals or currency remain unknown. Cost basis and historical or aggregate indexed values are not spendable balances.
 
 ## Bridge movement lifecycle
 

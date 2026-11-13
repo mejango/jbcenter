@@ -473,7 +473,7 @@ export function cashOutCurve(surplus: bigint, count: bigint, supply: bigint, tax
     tax < 0n ||
     tax > 10_000n
   )
-    throw new DomainError('INVALID_SCENARIO', 'Invalid cash-out curve inputs.');
+    throw new DomainError('INVALID_SCENARIO', 'Invalid cash out curve inputs.');
   if (count === 0n || tax === 10_000n) return 0n;
   if (count === supply) return surplus;
   const base = (surplus * count) / supply;

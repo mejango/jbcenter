@@ -24,8 +24,8 @@ const currencyId = `JB currency ID: ${currencyIds}.`;
 /** Units for scaled inputs, from the V6 contract constants the SDK mirrors. One home for tool descriptions. */
 export const UNITS = {
   reservedPercent: `Share of new tokens reserved for splits, out of ${n(MAX_RESERVED_PERCENT)}. 2500 = 25%.`,
-  cashOutTaxRate: `Cash-out tax out of ${n(MAX_CASH_OUT_TAX_RATE)}. 0 = no tax; ${n(MAX_CASH_OUT_TAX_RATE)} = cash outs return nothing.`,
-  revnetCashOutTaxRate: `Cash-out tax out of ${n(MAX_CASH_OUT_TAX_RATE)}, at most 9,999. 0 = no tax.`,
+  cashOutTaxRate: `Cash out tax out of ${n(MAX_CASH_OUT_TAX_RATE)}. 0 = no tax; ${n(MAX_CASH_OUT_TAX_RATE)} = cash outs return nothing.`,
+  revnetCashOutTaxRate: `Cash out tax out of ${n(MAX_CASH_OUT_TAX_RATE)}, at most 9,999. 0 = no tax.`,
   revnetSplitPercent: `Share of new tokens sent to this stage's splits, out of ${n(MAX_RESERVED_PERCENT)}. 2000 = 20%.`,
   splitPercent: `Share of the split group, out of ${n(SPLITS_TOTAL_PERCENT)}. 500,000,000 = 50%.`,
   tierSplitPercent: `Share of the tier price sent to the tier's splits, out of ${n(SPLITS_TOTAL_PERCENT)}.`,

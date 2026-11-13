@@ -34,4 +34,4 @@ Center REST does not provide saved-plan polling or generic transaction submissio
 
 Transaction inclusion, semantic outcome and cross-chain settlement are separate observations. A successful outer receipt does not prove all expected project effects or remote delivery. SDK/MCP evidence checks and Signa's canonical receipt checks must retain the intended project, event emitter and exact call identity.
 
-The existing [project-intent sponsor](PROJECT_INTENTS.md#request-a-sponsored-deploy) remains a separate bounded deployment flow owned by Center. Its stored deployment queue and sponsored transactions are not general account execution.
+The existing [project-intent sponsor](PROJECT_INTENTS.md#sponsored-deploy) remains a separate bounded deployment flow owned by Center. Its stored deployment queue and sponsored transactions are not general account execution.

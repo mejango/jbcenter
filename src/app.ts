@@ -512,8 +512,8 @@ export function createApp(
     // Only the currently published explorer gets the browser RPC budget, not write or wallet trust.
     const publishedExplorerRpc = rpcPath(c.req.path) && origin === JUICESCAN_RPC_ORIGIN;
     if (!trustedOrigin && !publishedExplorerRpc) {
-      // The read-only RPC gateway is open to any origin — sites served from IPFS have no stable
-      // origin to allowlist — under its own tighter budgets, keyed by IP.
+      // The read-only RPC gateway is open to any origin (sites served from IPFS have no stable
+      // origin to allowlist) under its own tighter budgets, keyed by IP.
       if (rpcPath(c.req.path)) {
         c.set("client", `public:${callerIp(c)}`);
         await next();

@@ -154,7 +154,7 @@ function prepared(
   };
 }
 
-/** Product adapters retain core route semantics and derive product identity from canonical on-chain records. */
+/** Product adapters retain core route semantics and derive product identity from canonical onchain records. */
 export class ProductService {
   constructor(
     private readonly rpc: RpcProvider,
@@ -1034,7 +1034,7 @@ export class ProductService {
         if (Number(context.decimals) !== decimals)
           fail(
             'TOKEN_DECIMALS_MISMATCH',
-            'An accounting context does not match the token’s on-chain decimals.',
+            'An accounting context does not match the token’s onchain decimals.',
           );
       }
       const rows = await Promise.all(
@@ -1550,7 +1550,7 @@ export class ProductService {
       },
       warnings: [
         'NFT supply and economics are specific to this chain. Project and collection addresses become authoritative only after canonical deployment events and state verification.',
-        'The project deployer always enables its new hook for payments; useDataHookForCashOut controls NFT-based cash-out behavior independently.',
+        'The project deployer always enables its new hook for payments; useDataHookForCashOut controls NFT-based cash out behavior independently.',
         'Project owner powers are exactly the reviewed ruleset flags. Future ruleset changes may replace the active NFT hook.',
         'Creation fee and default price feeds are block-specific observations; reprepare if they change.',
         ...launchFollowUps(input.projectUri),

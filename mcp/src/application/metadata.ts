@@ -38,7 +38,7 @@ export function createMetadataOperations(service: ProjectMetadataService): Proto
     ),
     operationWithSchema(
       'pin_nft_metadata',
-      'Publish the exact NFT metadata reviewed through jb_prepare_nft_metadata to public IPFS using the integrated Center pinning backend and shared upload quota. Requires explicit user authorization for this exact potentially permanent public upload before confirmPublicUpload:true and an unexpired authentic NFT review token. Returns metadataUri and CID, plus encodedIpfsUri only when the CID supports V6 static-tier encoding. Does not fetch or upload linked images, use wallet keys, or add or update tiers on-chain. Repeated calls may consume publication quota again.',
+      'Publish the exact NFT metadata reviewed through jb_prepare_nft_metadata to public IPFS using the integrated Center pinning backend and shared upload quota. Requires explicit user authorization for this exact potentially permanent public upload before confirmPublicUpload:true and an unexpired authentic NFT review token. Returns metadataUri and CID, plus encodedIpfsUri only when the CID supports V6 static-tier encoding. Does not fetch or upload linked images, use wallet keys, or add or update tiers onchain. Repeated calls may consume publication quota again.',
       pinNftMetadataSchema,
       async (input) => service.pinNft(input),
       { externalMutation: true, idempotent: false },

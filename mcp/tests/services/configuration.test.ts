@@ -349,7 +349,7 @@ describe('configuration planning', () => {
       },
     ]);
     expect(preview.warnings.join(' ')).toContain('Fallback split tables exist');
-    expect(preview.warnings.join(' ')).toContain('A new ruleset table can permit this on-chain');
+    expect(preview.warnings.join(' ')).toContain('A new ruleset table can permit this onchain');
   });
 });
 

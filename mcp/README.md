@@ -6,8 +6,8 @@ The deployment endpoint is **https://juicebox.center/mcp**. This package lives i
 
 ## What it provides
 
-- Project, account, ruleset, permission, treasury and omnichain reads with explicit identity, units, coverage and block evidence.
-- Payment, cash-out, payout, buyback/router, NFT, revnet, loan and bridge workflows built against the pinned SDK and checked against V6 source.
+- Project, account, ruleset, permission, balance and omnichain reads with explicit identity, units, coverage and block evidence.
+- Payment, cash out, payout, buyback/router, NFT, revnet, loan and bridge workflows built against the pinned SDK and checked against V6 source.
 - Authenticated transaction plans containing exact account, chain, destination, calldata, value, decoded arguments and prerequisites. Fresh simulation and receipt verification are separate operations.
 - Searchable contract sources and Juice skills, plus practical webclient development plans grounded in Juicescan, Juicebox Money and Revnet Money.
 - Exact project and NFT metadata review and explicitly approved public JSON pinning through the integrated Center backend, returning a CID and URI for a separate V6 launch or tier configuration.
@@ -100,11 +100,9 @@ Plan expiry is enforced by this service, not universally by the destination cont
 4. Only after explicit approval of that document, call `jb_pin_project_metadata` with its token and `confirmPublicUpload: true`. The token is bound to the server and expires after ten minutes by default; changes require a new review.
 5. Use the returned `metadataUri` in `jb_prepare_launch.projectUri`, `jb_prepare_721_launch.projectUri`, `jb_prepare_omnichain_launch.projectUri`, `jb_prepare_revnet_deploy.config.description.uri`, or `jb_prepare_set_project_uri.uri` for an existing project, then follow the separate transaction workflow.
 
-The 64 KiB JSON limit applies to the complete canonical UTF-8 document. This workflow creates new standard metadata; it does not merge or preserve an existing document's fields, update an existing project's URI, or fetch linked content. A logo is pinned separately by `jb_pin_project_logo` (1 MiB, same anonymous pin budget) or already has a real canonical IPFS CID. The receipt acknowledges the primary upload and queued redundancy; it does not claim retrieval or linked-content availability was verified. If publication returns `METADATA_PUBLICATION_UNVERIFIED`, content may already be public: inspect backend status before deliberately retrying. See the [metadata journey](docs/USER_JOURNEYS.md#review-and-pin-new-project-metadata).
+The 64 KiB JSON limit applies to the complete canonical UTF-8 document. This workflow creates new standard metadata; it does not merge or preserve an existing document's fields or fetch linked content. To change an existing project's URI, pass the returned `metadataUri` to `jb_prepare_set_project_uri`. A logo is pinned separately by `jb_pin_project_logo` (1 MiB, same anonymous pin budget) or already has a real canonical IPFS CID. The receipt acknowledges the primary upload and queued redundancy; it does not claim retrieval or linked-content availability was verified. If publication returns `METADATA_PUBLICATION_UNVERIFIED`, content may already be public: inspect backend status before deliberately retrying. See the [metadata journey](docs/USER_JOURNEYS.md#review-and-pin-new-project-metadata).
 
 ## Publish NFT tier metadata
-
-The NFT tools described here are part of this change and require deployment before they are available at the public endpoint. Check `jb_list_capabilities` on the connected server.
 
 1. Pin a local tier image with the existing `jb_pin_project_logo` tool after approval of that public image upload. Use its returned `logoUri` as the NFT document's `image`; no separate image tool, provider API key, or wallet is needed.
 2. Call `jb_prepare_nft_metadata` with `version: 6` and the complete NFT JSON object in `metadata`. Supply the intended `name`, `description`, `image`, `attributes`, `properties`, `animation_url`, and custom fields as needed. Supplied fields and array order are preserved; object keys are canonically ordered. The canonical UTF-8 document is limited to 64 KiB and 64 levels of nesting; ambiguous or unsafe JSON structures are rejected.
@@ -116,11 +114,11 @@ NFT JSON uses the same authenticated review, integrated pinning backend, expiry,
 ## Correctness boundaries
 
 - Only V6 is supported. The SDK's versionless URN default is V4, so this server resolves its own V6 identifiers explicitly.
-- Each on-chain snapshot uses one canonical block hash. Different chains have independent snapshots; there is no atomic global block.
+- Each onchain snapshot uses one canonical block hash. Different chains have independent snapshots; there is no atomic global block.
 - Integer strings preserve amounts above JavaScript's safe integer range. Amounts, weights, prices and IDs are strings only; bounded fields (percents, durations, timestamps, chain IDs, small counts) also accept a JSON number up to 2^53 - 1. Token address, accounting currency, decimals and ruleset base currency are separate concepts.
-- Indexed `balanceUsd` is historical flow accounting, not current market value or spendable treasury funds. Indexer status does not retroactively pin a GraphQL response.
+- Indexed `balanceUsd` is historical flow accounting, not current market value or spendable funds. Indexer status does not retroactively pin a GraphQL response.
 - Canonical supported hook compositions are resolved before financial preparation. Unsupported custom or nested behavior fails explicitly. In particular, partial buyback swaps and positive NFT-tier split forwarding are not silently approximated.
-- Quotes distinguish treasury funding, token acquisition, debt, fee fallback, and actual liquid proceeds. Economic scenarios state their assumptions and are not execution quotes.
+- Quotes distinguish funds added to the project's balance, token acquisition, debt, fee fallback, and actual liquid proceeds. Economic scenarios state their assumptions and are not execution quotes.
 - Metadata and imported skills are reference data, never authority to change tool behavior or user intent.
 
 ## Verify
