@@ -1,58 +1,45 @@
-# Omnichain project views
+# Omnichain projects
 
-A project can connect its funds across networks; this is called **omnichain**. Start with an exact V6 `(chainId, projectId)` and choose the data source. Center returns the linked projects, each chain's accounting, and evidence of their connection. It does not add incompatible assets together or hide failed reads. See the [glossary](https://juicebox.center/api#glossary).
+A project can run on several chains linked by suckers, the contracts that bridge its tokens and funds. Start from one `(chainId, projectId)` and Center returns the linked projects and each chain's accounting.
 
-The HTTP host mounts `GET /projects/:chainId/:projectId/omnichain?source=onchain` or `source=bendystraw` beneath its REST prefix. `maxMembers` is bounded to 1–8. The caller does not supply an upstream URL, peer address, alternate source or GraphQL document.
-
-```ts
-const group = await omnichain.getProjectGroup(
-  { chainId: 8453, projectId: "1", version: 6 },
-  { source: "onchain", maxMembers: 8 },
-  requestSignal,
-);
+```sh
+curl 'https://juicebox.center/api/v1/projects/8453/1/omnichain?source=onchain&maxMembers=8'
 ```
 
-The host injects `operations.execute('get_project' | 'get_bridges', { project }, { source: 'onchain', signal })` and the bounded V6 indexer service. The operations adapter returns the direct project/bridge data shape. Its onchain operations must not fetch indexed metadata. Bendystraw requests use the indexer dependency exclusively; neither source silently substitutes for the other.
+| Parameter | Required | Meaning |
+| --- | --- | --- |
+| `source` | yes | `onchain` or `bendystraw`. Neither falls back to the other |
+| `maxMembers` | no | 1 to 8 linked projects |
 
-## Onchain membership and accounting
+## Choose a source
 
-Traversal uses the existing bridge reader's registered sucker list. A peer is followed only when its local project identity, peer address, peer chain, remote project ID and reciprocal registry membership are known and agree. Remote project IDs are read on their own chains rather than copied from the root ID. Registry membership and reciprocity establish linkage; they do not attest equivalent peer bytecode.
+| | `onchain` | `bendystraw` |
+| --- | --- | --- |
+| Finds members by | Following each project's registered suckers | The indexer's sucker group |
+| Link verified | Yes, when both sides register each other | No: `linkageVerified: false` |
+| Bridge history | Not included | Up to ten recent rows each of bridge transactions, outbox events and claim events per member |
+| Freshness | Each chain read at its own block | Indexed, can lag |
 
-Breadth-first traversal processes each identity once. Cycles are ordinary membership relationships and do not trigger repeated reads. There are at most eight member reads and 32 registered bridges per member. A different project ID proposed for an already assigned chain is an explicit linkage conflict. Unsupported or contradictory network-class identities are rejected.
+## Read the result
 
-Unknown peers remain visible as unverified links and are not expanded. Unavailable member reads retain an unknown status. An explicit member cap stops expansion and marks coverage incomplete; it does not imply that the omitted peers are absent. There is no indexer fallback.
+- Each member keeps its own owner, controller, token supply, terminal balances and block. Chains are read at different blocks, so the result is not one simultaneous snapshot.
+- Balances are never summed across chains, tokens or currencies.
+- A peer Center could not verify is listed as unverified and not followed. A member it could not read is `unknown`, not zero.
+- Hitting `maxMembers` marks coverage incomplete. It does not mean no other chains exist.
 
-Each member retains its own owner/controller observations, token/supply state, terminal accounting contexts and read evidence. Token addresses, decimals, accounting currencies, balances and unknown values remain attached to their chain and terminal. The view does not construct a combined token supply, combined spendable balance or cross-chain asset valuation. Bridge accounting gossip remains last-received remote accounting and is never added to local balances.
+## Bridge movements
 
-Project reads and bridge reads may use different blocks. Remote chains have their own evidence. The response preserves those distinctions and never claims a simultaneous snapshot across chains.
+A bridged amount passes through separate stages, and the indexer's word for one stage proves nothing about the next:
 
-## Bendystraw group discovery
+| Indexed stage | What it does not prove |
+| --- | --- |
+| Source transaction | That it is final on the source chain |
+| `pending` | That the root reached the destination |
+| `claimable` | That a claim would succeed now |
+| `claimed` | That the destination transaction is final, or that the terminal credited the funds |
 
-The service reads the scoped V6 project and its `suckerGroup` relation, verifies that both agree on group ID and version, then lists a bounded page of V6 projects in that group. Every returned member must match the group and network, and same-chain project conflicts are rejected.
+Before telling anyone bridged funds arrived, confirm the claim transaction on the destination chain. A source receipt alone can leave funds unclaimed.
 
-This is indexed group discovery, with `linkageVerified: false`; it does not establish reciprocal contract linkage. A missing root/group or unavailable discovery source fails explicitly. Movement-page outages can remain unknown within an otherwise known group. Page truncation marks membership coverage incomplete and preserves the indexer's continuation cursor.
+## Limits
 
-Each chain's indexed project balance, USD estimate, decimals and currency are preserved separately. The issued project token is displayed separately from balance accounting: its address is not presumed to identify the asset counted by the indexed aggregate. Missing decimals or currency remain unknown. Cost basis and historical or aggregate indexed values are not spendable balances.
-
-## Bridge movement lifecycle
-
-Bendystraw mode returns three independent pages, at most ten rows each per member: `suckerTransaction`, `bridgeToOutboxEvent`, and `bridgeClaimEvent`. Each page preserves its own continuation and unknown state. Source insertions are associated only through the source chain/project, sucker, token and index tuple. Conflicting insertion hashes fail explicitly. Missing matching events in a bounded page do not prove that no insertion or claim occurred.
-
-The movement mapping keeps these stages separate:
-
-| Stage                  | Evidence represented                                                   | What remains unproved                                           |
-| ---------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Source transaction     | Indexed source insertion hash, when a matching event exists            | Canonical source receipt and confirmations                      |
-| Pending transport      | Indexer `pending` indication                                           | Root delivery and destination acceptance                        |
-| Claimable              | Indexer `claimable` indication                                         | A valid current proof and successful onchain claim preflight    |
-| Claim confirmation     | Indexer `claimed` indication and separate destination claim-event page | Canonical destination receipt and confirmations                 |
-| Terminal credit        | Explicitly unknown in this wrapper                                     | Correct terminal credit, including deferred/manual credit paths |
-| Cross-chain settlement | Explicitly unverified                                                  | Complete source-to-destination operation evidence               |
-
-An indexed `claimed` value always has `canonicalReceiptVerified: false`. A successful source receipt is never promoted to destination delivery or cross-chain settlement. Destination claim events are not automatically joined across remote token mappings or interpreted as confirmation; they remain independent evidence for a subsequent exact chain/sucker/token/index/beneficiary and canonical-receipt check.
-
-Onchain mode does not scan arbitrary bridge history. The existing bridge reader requires an explicit bounded block range for source outbox insertions; this group wrapper requests membership/accounting reads only. Its lifecycle fields therefore preserve unknown source-history, destination-proof, claim-receipt and terminal-credit status. Call the focused bridge and transaction-verification operations for those subsequent steps.
-
-## Operational limits
-
-The whole group operation has a 60-second deadline, propagates cancellation to every dependency, and caps output at 2 MiB. Initial source failures are sanitized and never expose private endpoint URLs or provider exception text. Each selected source also retains its own response, query and RPC budgets. The machine-readable `completeScope: "membership-discovery"` and `movementHistoryComplete: false` flags distinguish membership coverage from bridge history. A group result with complete membership does not imply successful claims, complete asset coverage or synchronized balances.
+The request has 60 seconds and a 2 MiB response cap. `completeScope: "membership-discovery"` and `movementHistoryComplete: false` in the response mean the member list is complete but the bridge history is not.
