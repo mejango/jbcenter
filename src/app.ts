@@ -20,14 +20,10 @@ import {
 } from "./intent.js";
 import { extractMetadata } from "./metadata.js";
 import {
-  HOMEPAGE_CSS,
-  HOMEPAGE_CSS_PATH,
   HOMEPAGE_HEADERS,
   HOMEPAGE_HTML,
-  HOMEPAGE_JS_PATH,
   homepageAssets,
 } from "./homepage.js";
-import { HOMEPAGE_JS } from "./directoryClient.js";
 import { mountAssets } from "./rest/web/assets.js";
 import { Metrics } from "./observability.js";
 import { createIpfsGateway } from "./ipfsGateway.js";
@@ -62,8 +58,7 @@ import {
 } from "./sponsor/policy.js";
 import type { Intent, JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
-import { llmsIndex } from "./llms.js";
-import { JUICESCAN } from "./journeyGraph.js";
+import { llmsIndex, skillFile } from "./llms.js";
 import { JUICESCAN_URL } from "./directory.js";
 import { originsForEnvironment } from "./firstParty.js";
 export { originsForEnvironment } from "./firstParty.js";
@@ -450,13 +445,21 @@ export function createApp(
 
   if (options.rest) mountRestSite(app, options.rest);
 
-  app.get("/", (c) => c.html(HOMEPAGE_HTML, 200, HOMEPAGE_HEADERS));
+  // Agents that ask for markdown get the same directory as text.
+  app.get("/", (c) => c.req.header("Accept")?.includes("text/markdown")
+    ? c.text(llmsIndex(options.rest?.audience), 200, { ...HOMEPAGE_HEADERS, "Content-Type": "text/markdown; charset=utf-8" })
+    : c.html(HOMEPAGE_HTML, 200, HOMEPAGE_HEADERS));
   app.get("/favicon.svg", (c) => c.body(FAVICON_SVG, 200, {
     "Content-Type": "image/svg+xml; charset=utf-8",
     "Cache-Control": "public, max-age=300",
     "X-Content-Type-Options": "nosniff",
   }));
   app.get("/llms.txt", (c) => c.text(llmsIndex(options.rest?.audience), 200, {
+    "Cache-Control": "public, max-age=300",
+    "X-Content-Type-Options": "nosniff",
+  }));
+  app.get("/skill.md", (c) => c.text(skillFile(options.rest?.audience), 200, {
+    "Content-Type": "text/markdown; charset=utf-8",
     "Cache-Control": "public, max-age=300",
     "X-Content-Type-Options": "nosniff",
   }));
@@ -470,12 +473,9 @@ export function createApp(
       return c.text("Use a supported chain slug and a positive safe-integer project ID.", 400);
     }
     c.header("Cache-Control", "public, max-age=300");
-    return c.redirect(`${JUICESCAN}#${chain}:${project}`, 302);
+    return c.redirect(`${JUICESCAN_URL}#${chain}:${project}`, 302);
   });
   mountAssets(app, "", homepageAssets());
-  // A homepage cached before a deploy still links these for up to five minutes.
-  app.get(HOMEPAGE_CSS_PATH, (c) => c.body(HOMEPAGE_CSS, 200, { "Content-Type": "text/css; charset=UTF-8", "X-Content-Type-Options": "nosniff" }));
-  app.get(HOMEPAGE_JS_PATH, (c) => c.body(HOMEPAGE_JS, 200, { "Content-Type": "application/javascript; charset=UTF-8", "X-Content-Type-Options": "nosniff" }));
 
   app.get("/healthz", (c) => c.json({ ok: true }));
 

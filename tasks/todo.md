@@ -96,3 +96,23 @@ Shared resources: /Users/jango/Documents/jb/v6/evm/AGENTS.md, /Users/jango/Docum
 - Observation .generated/checks/2026-11-12T12-18-08.691Z-e93154fa/summary.json records 168.2 seconds and identical clean source fingerprints: 2937d4489e08bd54bf0cb07e9605d5ff055c87f30a7ebb45d55b12084ad8f9c1. Log: /private/tmp/center-node26131-full-check.log. The host had high unrelated load, but the complete run passed; no timing failure or partial run is being counted as success.
 - Draft runtime PR: https://github.com/mejango/jbcenter/pull/98. This final journal commit changes no executable source. Its required GitHub CI verifies clean Linux installs, the full gate, both production audits and both changed Docker build contexts. Record terminal CI evidence in the PR description without another journal-only push.
 - The local heavy-check slot is released. The owned PostgreSQL fixture remains available for the coordinator's subsequent checks. No main merge, hosting change or deployment occurred in this task.
+
+## Make the home page a flat router (2026-11-12)
+## Plan refinement
+- **Objective:** jango wants juicebox.center to be the first link for any user, developer or agent question: few words, little content of its own, fast routing. Success: every destination is visible as one "need, destination" row without clicking through question cards, at phone and desktop widths, and agents get the same index as text.
+- **System fit:** `src/directory.ts` stays the one owner of destinations. `src/homepage.ts` renders it as HTML, `src/llms.ts` renders the same sections as `/llms.txt`, and `/` answers `Accept: text/markdown` with that index. The question maps (`journeyGraph.ts`, `directoryClient.ts`, on-demand map files, their tests and build minification) are removed. API, MCP, IPFS, RPC and `/inspect` behavior are unaffected.
+- **Reuse and simplicity:** Reuse the existing verified URLs, palette, hashed asset serving and CSP. Native anchors, CSS columns and `<details>`; no script. Inline RPC, IPFS and pinning manuals leave the page because the README sections they link already hold them. Net deletion.
+- **Evidence and unknowns:** Live page screenshots (2,399px desktop, 4,124px phone, three clicks through question cards to reach an app, directory collapsed at the bottom). Old `#view/node` fragments will land at the top of the page; two references exist elsewhere in the workspace. Whether jango wants the maps kept is a preference, so this stays a PR until approved.
+- **Verification:** New directory test (unique ids, valid URLs, no middots, unfinished tools only in their section, llms lists every destination), updated app, page-weight, asset-cache and build tests, `npm run check`, a one-time HTTP check of every destination, and screenshots at 1280 and 390.
+- **Resource budget:** One worktree, one PR, one full check run. Replan if the release gate needs services that are unavailable locally.
+- [x] Reshape `directory.ts` into sections and render the flat page
+- [x] Generate `/llms.txt` from the same sections; markdown on `/` by Accept
+- [x] Remove the journey maps, client script and their build and test hooks
+- [x] Tests, link check, screenshots, README section
+
+### Review
+- `/` is one script-free page: six sections of "need, destination" rows, unfinished tools, then repositories. Desktop height 2,399px to 1,994px with every link visible; first-view weight 14.5 KiB to 4.6 KiB gzip (ceiling lowered to 5 KiB).
+- `/llms.txt` and `Accept: text/markdown` on `/` come from the same list. Net deletion of the question maps, their client script, on-demand files and tests.
+- Checked locally: typecheck, directory, app, page-weight and asset-cache tests (Node 26.13.0, so the full release gate is left to CI on the PR). All 77 destinations requested once: 75 answer 200.
+- Found, not caused by this change: the Juicescan address on eth.sucks returns a Cloudflare worker exception, so /inspect redirects land on an error, and eth.shop closes the TLS connection. Both are live today.
+- Old view/node fragments now land at the top of the page. juicebox.money and revnet.money each link /#apps/juicescan from their llms.txt.

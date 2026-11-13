@@ -54,13 +54,10 @@ it("rebuilds only current runtime files and all assets needed by a fresh dev sta
       assert(assets.documents.size > 0);
       assert(!('accountsScript' in assets));
       assert(!('clientPackage' in assets));
-      // The homepage ships its directory script minified, and links the minified bytes' hash.
-      const { HOMEPAGE_JS } = await import('./dist/src/directoryClient.js');
-      const { HOMEPAGE_HTML } = await import('./dist/src/homepage.js');
+      // The homepage links its stylesheet by the hash of the emitted bytes.
+      const { HOMEPAGE_HTML, HOMEPAGE_CSS } = await import('./dist/src/homepage.js');
       const { hashedAssetName } = await import('./dist/src/rest/web/assets.js');
-      assert(!HOMEPAGE_JS.includes('\\n  '), 'directory.js is minified');
-      new Function(HOMEPAGE_JS);
-      assert(HOMEPAGE_HTML.includes('/assets/' + hashedAssetName('directory.js', HOMEPAGE_JS)));
+      assert(HOMEPAGE_HTML.includes('/assets/' + hashedAssetName('directory.css', HOMEPAGE_CSS)));
       console.log('assets and client ready');
     `], { cwd: directory, timeout: 15_000, maxBuffer: 1024 * 1024 });
     expect(smoke.stdout.trim()).toBe("assets and client ready");

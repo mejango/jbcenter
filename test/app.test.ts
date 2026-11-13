@@ -3,7 +3,6 @@ import { encodeFunctionData, zeroAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { createApp, originsForEnvironment } from "../src/app.js";
-import { JUICESCAN } from "../src/journeyGraph.js";
 import { JUICESCAN_URL } from "../src/directory.js";
 import { firstPartyForEnvironment } from "../src/firstParty.js";
 import { DeploymentVerificationError } from "../src/deploymentVerifier.js";
@@ -153,12 +152,12 @@ describe("JB Center API", () => {
     expect(css.status).toBe(200);
     expect(css.headers.get("content-type")).toContain("text/css");
     expect((await css.text()).length).toBeGreaterThan(0);
-    const script = html.match(/<script defer src="([^"]+)"/);
-    expect(script).not.toBeNull();
-    const js = await app.request(script![1]!);
-    expect(js.status).toBe(200);
-    expect(js.headers.get("content-type")).toContain("application/javascript");
-    expect((await js.text()).length).toBeGreaterThan(0);
+    expect(html).not.toContain("<script");
+    const markdown = await app.request("/", { headers: { accept: "text/markdown, text/html" } });
+    expect(markdown.headers.get("content-type")).toContain("text/markdown");
+    expect(markdown.headers.get("vary")).toBe("Accept");
+    expect(response.headers.get("vary")).toBe("Accept");
+    expect(await markdown.text()).toBe(await (await app.request("/llms.txt")).text());
     const head = await app.request("/", { method: "HEAD" });
     expect(head.status).toBe(200);
     expect(head.headers.get("content-type")).toContain("text/html");
@@ -179,7 +178,14 @@ describe("JB Center API", () => {
     expect(index.status).toBe(200);
     expect(index.headers.get("content-type")).toContain("text/plain");
     expect(await index.text()).toContain("https://juicebox.center/api/v1/capabilities");
+    const skill = await app.request("/skill.md");
+    expect(skill.headers.get("content-type")).toContain("text/markdown");
+    const skillText = await skill.text();
+    expect(skillText).toMatch(/^---\nname: juicebox-center\ndescription: .+\n---\n/);
+    expect(skillText).toContain("https://juicebox.center/mcp");
+    expect(skillText).toContain("A bot API grant does not authorize spending wallet funds.");
     const discovery = await (await app.request("/llms.txt")).text();
+    expect(discovery).toContain("https://juicebox.center/skill.md");
     expect(discovery).toContain("https://juicebox.center/api/docs/project-intents");
     expect(discovery).toContain("Create a project without a transaction");
     expect(discovery).toContain("create its Safes and then launch");
@@ -187,7 +193,7 @@ describe("JB Center API", () => {
     for (const chain of ["eth", "op", "base", "arb", "sep", "opsep", "basesep", "arbsep"]) {
       const result = await app.request(`/inspect/${chain}/42`);
       expect(result.status).toBe(302);
-      expect(result.headers.get("location")).toBe(`${JUICESCAN}#${chain}:42`);
+      expect(result.headers.get("location")).toBe(`${JUICESCAN_URL}#${chain}:42`);
     }
     for (const path of ["/inspect/wrong/1", "/inspect/base/0", "/inspect/base/01", "/inspect/base/9007199254740992", "/inspect/base/1%23other", "/inspect/base/1e3"]) {
       const result = await app.request(path);
