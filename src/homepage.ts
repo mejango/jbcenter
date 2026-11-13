@@ -140,7 +140,7 @@ export const HOMEPAGE_HTML = `<!doctype html>
     </header>
     <main id="main" tabindex="-1">
       <h1>Everything Juicebox in one place</h1>
-      <p class="introduction">Projects raise and share money under rules anyone can check. New here? <a href="https://juicebox.money/learn">Start with the basics</a>.</p>
+      <p class="introduction">The 'pay' and 'cash out' functions of the open internet. New here? <a href="https://juicebox.money/learn">Start with the basics</a>.</p>
       <nav class="jumps" aria-label="Sections">${jumps.map(([id, title]) => `<a href="#${id}">${escapeHtml(title!)}</a>`).join("")}</nav>
       <div class="columns">${directorySections.map(({ id, title, links }) => section(id, title, links)).join("")}${section("wip", "Unfinished", workInProgress)}</div>
       <section class="wide" id="repositories" aria-labelledby="title-repositories">
