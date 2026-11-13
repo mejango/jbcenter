@@ -4,9 +4,9 @@ import { assetHref, type AssetNames } from "../web/assets.js";
 
 const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 const navigation = [
-  ["quickstart", "Get started"], ["transactions", "Prepare a transaction"],
+  ["quickstart", "Quickstart"], ["transactions", "Prepare a transaction"],
   ["project-intents", "Project intents"], ["contracts", "Contract calls"],
-  ["indexer", "Indexed data"], ["omnichain", "Omnichain projects"], ["api", "Full reference"],
+  ["indexer", "Indexed data"], ["omnichain", "Omnichain projects"], ["api", "API guide"], ["ai-guide", "Agent guide"],
 ];
 function destination(href: string): string | undefined {
   if (/^(?:#|\/(?!\/))/.test(href)) return href;
