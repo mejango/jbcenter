@@ -34,10 +34,8 @@ function escapeHtml(value: string): string {
   );
 }
 
-const external = (url: string) => /^https?:/.test(url);
-
 function renderLink({ need, name, url, note, code }: DirectoryLink): string {
-  return `<li><a href="${escapeHtml(url)}"><span class="need">${escapeHtml(need)}</span><span class="name">${escapeHtml(name)}${external(url) ? ' <span aria-hidden="true">↗</span>' : ""}</span></a>${
+  return `<li><a href="${escapeHtml(url)}"><span class="name">${escapeHtml(name)}</span><span class="need">${escapeHtml(need)}</span></a>${
     code || note ? `<p class="note">${code ? `<code>${escapeHtml(code)}</code>` : ""}${code && note ? " " : ""}${note ? escapeHtml(note) : ""}</p>` : ""
   }</li>`;
 }
@@ -94,9 +92,9 @@ h3 { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: 
 .group { break-inside: avoid; }
 .rows li { border-top: 1px solid var(--line); }
 .rows a { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 9px 0; }
-.name { color: var(--accent); text-align: right; flex-shrink: 0; }
-.rows a:hover .need { color: var(--accent); }
-.rows a:hover .name { text-decoration: underline; text-underline-offset: 4px; }
+.name { flex-shrink: 0; }
+.need { color: var(--muted); font-size: 12px; text-align: right; }
+.rows a:hover .name { color: var(--accent); text-decoration: underline; text-underline-offset: 4px; }
 .note { color: var(--muted); font-size: 11px; margin: -6px 0 9px; }
 .note code { color: var(--ink); }
 .more { margin-top: 56px; padding-top: 12px; border-top: 1px solid var(--ink); }
@@ -154,7 +152,7 @@ export const HOMEPAGE_HTML = `<!doctype html>
         <p class="audience"><a class="all" href="${V6_REPOSITORY}">All of V6 in one repository <span aria-hidden="true">↗</span></a></p>
         <div class="groups">
           ${group("Audit", auditLinks, "auditors")}
-          ${repositoryGroups.map((item) => `<div class="group"><h3 id="${repositoryGroupId(item.title)}">${escapeHtml(item.title)}</h3><ul class="rows">${item.links.map((link) => `<li><a href="${escapeHtml(link.url)}"><span class="need">${escapeHtml(link.title)}</span><span class="name" aria-hidden="true">↗</span></a></li>`).join("")}</ul></div>`).join("")}
+          ${repositoryGroups.map((item) => `<div class="group"><h3 id="${repositoryGroupId(item.title)}">${escapeHtml(item.title)}</h3><ul class="rows">${item.links.map((link) => `<li><a href="${escapeHtml(link.url)}"><span class="name">${escapeHtml(link.title)}</span></a></li>`).join("")}</ul></div>`).join("")}
           ${group("Unfinished", workInProgress, "wip")}
         </div>
       </section>

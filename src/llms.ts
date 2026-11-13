@@ -25,7 +25,7 @@ export function llmsIndex(audience = "https://juicebox.center"): string {
   const origin = new URL(audience).origin;
   const absolute = (url: string) => new URL(url, `${origin}/`).href;
   const row = ({ need, name, url, code, note, agentNote }: DirectoryLink) =>
-    `- [${need}: ${name}](${absolute(url)})${[code && `\`${code}\``, note, agentNote].filter(Boolean).map((part, index) => `${index ? " " : ": "}${part}`).join("")}`;
+    `- [${name}](${absolute(url)}): ${need}${[code && `\`${code}\``, note, agentNote].filter(Boolean).map((part) => `. ${part}`).join("")}`;
   return `# Juicebox Center
 
 > The directory for Juicebox V6: apps, guides, APIs, agent tools, audits, and source.
