@@ -1,4 +1,5 @@
 import {
+  auditLinks,
   directorySections,
   repositoryGroups,
   V6_REPOSITORY,
@@ -30,7 +31,11 @@ export function llmsIndex(audience = "https://juicebox.center"): string {
 > The directory for Juicebox V6: apps, guides, APIs, agent tools, audits, and source.
 > Protocol reads and unsigned preparation are public; Signa owns wallet approval.
 
-${directorySections.map((section) => `## ${section.title}\n\n${section.links.map(row).join("\n")}`).join("\n\n")}
+${directorySections.map((section) => `## ${section.title}: ${section.audience.toLowerCase()}\n\n${section.groups.map((group) => `### ${group.title}\n\n${group.links.map(row).join("\n")}`).join("\n\n")}`).join("\n\n")}
+
+## Audit
+
+${auditLinks.map(row).join("\n")}
 
 ## Repositories
 

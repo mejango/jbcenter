@@ -1,6 +1,7 @@
 import { assetHref, hashedAssetName } from "./rest/web/assets.js";
 import { BRAND_CSS, BRAND_ICON, FAVICON_LINK, FAVICON_SVG } from "./branding.js";
 import {
+  auditLinks,
   directorySections,
   repositoryGroupId,
   repositoryGroups,
@@ -41,13 +42,13 @@ function renderLink({ need, name, url, note, code }: DirectoryLink): string {
   }</li>`;
 }
 
-const section = (id: string, title: string, links: readonly DirectoryLink[]) =>
-  `<section id="${id}" aria-labelledby="title-${id}"><h2 id="title-${id}">${escapeHtml(title)}</h2><ul class="rows">${links.map(renderLink).join("")}</ul></section>`;
+const group = (title: string, links: readonly DirectoryLink[], id?: string) =>
+  `<div class="group"><h3${id ? ` id="${id}"` : ""}>${escapeHtml(title)}</h3><ul class="rows">${links.map(renderLink).join("")}</ul></div>`;
 
 const jumps = [
   ...directorySections.map(({ id, title }) => [id, title]),
-  ["wip", "Unfinished"],
-  ["repositories", "Repositories"],
+  ["auditors", "Audit"],
+  ["repositories", "Source"],
 ];
 
 export const HOMEPAGE_CSS = `
@@ -84,26 +85,31 @@ h1 { font-size: clamp(24px, 4vw, 34px); line-height: 1.2; letter-spacing: -0.045
 .jumps { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 8px; }
 .jumps a { padding: 6px 12px; border: 1px solid var(--line); font-size: 12px; }
 .jumps a:hover { border-color: var(--accent); color: var(--accent); }
-.columns { columns: 3 300px; column-gap: 48px; }
-section { break-inside: avoid; padding-top: 28px; scroll-margin-top: 8px; }
-section:target h2 { color: var(--accent); }
-h2 { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding-bottom: 8px; border-bottom: 1px solid var(--ink); }
-h3 { font-size: 12px; color: var(--muted); padding: 20px 0 8px; scroll-margin-top: 8px; }
-.rows li { border-bottom: 1px solid var(--line); break-inside: avoid; }
-.rows a { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 10px 0; }
+.audiences { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 48px; margin-top: 20px; }
+section { scroll-margin-top: 8px; padding-top: 12px; }
+section:target > h2, h3:target { color: var(--accent); }
+h2 { font-size: 22px; letter-spacing: -0.03em; }
+.audience { color: var(--muted); font-size: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--ink); }
+h3 { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 24px 0 6px; scroll-margin-top: 8px; }
+.group { break-inside: avoid; }
+.rows li { border-top: 1px solid var(--line); }
+.rows a { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 9px 0; }
 .name { color: var(--accent); text-align: right; flex-shrink: 0; }
 .rows a:hover .need { color: var(--accent); }
 .rows a:hover .name { text-decoration: underline; text-underline-offset: 4px; }
-.note { color: var(--muted); font-size: 11px; margin: -6px 0 10px; }
+.note { color: var(--muted); font-size: 11px; margin: -6px 0 9px; }
 .note code { color: var(--ink); }
-.wide { padding-top: 28px; }
-.wide .groups { columns: 3 300px; column-gap: 48px; }
-.wide .groups > div { break-inside: avoid; }
-.all { display: inline-block; margin-top: 12px; color: var(--accent); }
+.more { margin-top: 56px; padding-top: 12px; border-top: 1px solid var(--ink); }
+.more .groups { columns: 3 280px; column-gap: 48px; }
+.all { color: var(--accent); font-size: 12px; }
 .all:hover { text-decoration: underline; text-underline-offset: 4px; }
 footer { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-top: 40px; padding: 20px 0 32px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 .skip-link { position: absolute; left: 20px; top: -100px; padding: 10px; background: var(--paper); }
 .skip-link:focus { top: 8px; }
+@media (max-width: 900px) {
+  .audiences { grid-template-columns: 1fr; }
+  section + section { margin-top: 32px; }
+}
 @media (max-width: 760px) {
   .page { padding: 0 16px; }
   .wordmark { font-size: 16px; }
@@ -140,13 +146,17 @@ export const HOMEPAGE_HTML = `<!doctype html>
     </header>
     <main id="main" tabindex="-1">
       <h1>Everything Juicebox in one place</h1>
-      <p class="introduction">Projects raise and share money under rules anyone can check. New here? <a href="https://juicebox.money/learn">Start with the basics</a>.</p>
+      <p class="introduction">The 'pay' and 'cash out' functions of the open internet. New here? <a href="https://juicebox.money/learn">Start with the basics</a>.</p>
       <nav class="jumps" aria-label="Sections">${jumps.map(([id, title]) => `<a href="#${id}">${escapeHtml(title!)}</a>`).join("")}</nav>
-      <div class="columns">${directorySections.map(({ id, title, links }) => section(id, title, links)).join("")}${section("wip", "Unfinished", workInProgress)}</div>
-      <section class="wide" id="repositories" aria-labelledby="title-repositories">
-        <h2 id="title-repositories">Repositories</h2>
-        <a class="all" href="${V6_REPOSITORY}">All of V6 in one repository <span aria-hidden="true">↗</span></a>
-        <div class="groups">${repositoryGroups.map((group) => `<div><h3 id="${repositoryGroupId(group.title)}">${escapeHtml(group.title)}</h3><ul class="rows">${group.links.map((link) => `<li><a href="${escapeHtml(link.url)}"><span class="need">${escapeHtml(link.title)}</span><span class="name" aria-hidden="true">↗</span></a></li>`).join("")}</ul></div>`).join("")}</div>
+      <div class="audiences">${directorySections.map(({ id, title, audience, groups }) => `<section id="${id}" aria-labelledby="title-${id}"><h2 id="title-${id}">${escapeHtml(title)}</h2><p class="audience">${escapeHtml(audience)}</p>${groups.map((item) => group(item.title, item.links, item.id)).join("")}</section>`).join("")}</div>
+      <section class="more" id="repositories" aria-labelledby="title-repositories">
+        <h2 id="title-repositories">Source and audit</h2>
+        <p class="audience"><a class="all" href="${V6_REPOSITORY}">All of V6 in one repository <span aria-hidden="true">↗</span></a></p>
+        <div class="groups">
+          ${group("Audit", auditLinks, "auditors")}
+          ${repositoryGroups.map((item) => `<div class="group"><h3 id="${repositoryGroupId(item.title)}">${escapeHtml(item.title)}</h3><ul class="rows">${item.links.map((link) => `<li><a href="${escapeHtml(link.url)}"><span class="need">${escapeHtml(link.title)}</span><span class="name" aria-hidden="true">↗</span></a></li>`).join("")}</ul></div>`).join("")}
+          ${group("Unfinished", workInProgress, "wip")}
+        </div>
       </section>
     </main>
     <footer>

@@ -17,10 +17,20 @@ export interface DirectoryLink {
   agentNote?: string;
 }
 
+export interface DirectoryGroup {
+  title: string;
+  /** Stable fragment, when other pages link this group. */
+  id?: string;
+  links: readonly DirectoryLink[];
+}
+
+/** One audience: a column on the page. */
 export interface DirectorySection {
   id: string;
   title: string;
-  links: readonly DirectoryLink[];
+  /** Who the column is for. */
+  audience: string;
+  groups: readonly DirectoryGroup[];
 }
 
 export interface RepositoryGroup {
@@ -42,184 +52,208 @@ export const directorySections: readonly DirectorySection[] = [
   {
     id: "apps",
     title: "Use",
-    links: [
-      { need: "Fund or cash out a project", name: "Juicebox Money", url: "https://juicebox.money" },
-      { need: "Fund or cash out a revnet", name: "Revnet Money", url: "https://revnet.money" },
-      { need: "Follow activity", name: "Succulent", url: "https://succulent.money" },
+    audience: "Fund, launch and run projects",
+    groups: [
       {
-        need: "Inspect any project",
-        name: "Juicescan",
-        url: JUICESCAN_URL,
-        agentNote: "Current project values, contracts, and transaction tools. /inspect/:chain/:projectId redirects to one project, for example /inspect/basesep/1.",
+        title: "Apps",
+        links: [
+          { need: "Fund or cash out a project", name: "Juicebox Money", url: "https://juicebox.money" },
+          { need: "Fund or cash out a revnet", name: "Revnet Money", url: "https://revnet.money" },
+          {
+            need: "Inspect or manage a project",
+            name: "Juicescan",
+            url: JUICESCAN_URL,
+            agentNote: "Current project values, contracts, and transaction tools. /inspect/:chain/:projectId redirects to one project, for example /inspect/basesep/1.",
+          },
+          { need: "Follow activity", name: "Succulent", url: "https://succulent.money" },
+        ],
       },
       {
-        need: "Learn the basics",
-        name: "Juicebox guide",
-        url: "https://juicebox.money/learn",
-        agentNote: "Project rules and the tokens a payment may return.",
+        title: "Launch",
+        id: "projects",
+        links: [
+          { need: "Launch a project", name: "Juicebox Money", url: "https://juicebox.money/create" },
+          { need: "Launch a revnet", name: "Revnet Money", url: "https://revnet.money/create" },
+          { need: "Follow owner workflows", name: "User journeys", url: `${V6}/blob/main/USER_JOURNEYS.md` },
+        ],
       },
       {
-        need: "Learn revnets",
-        name: "Revnet guide",
-        url: "https://revnet.money/learn",
-        agentNote: "Rules set at launch, three kinds of price, and what operators can change.",
+        title: "Learn",
+        links: [
+          {
+            need: "Learn the basics",
+            name: "Juicebox guide",
+            url: "https://juicebox.money/learn",
+            agentNote: "Project rules and the tokens a payment may return.",
+          },
+          {
+            need: "Learn revnets",
+            name: "Revnet guide",
+            url: "https://revnet.money/learn",
+            agentNote: "Rules set at launch, three kinds of price, and what operators can change.",
+          },
+          { need: "Look up a word", name: "Glossary", url: "/api#glossary" },
+        ],
       },
-      { need: "Look up a word", name: "Glossary", url: "/api#glossary" },
-    ],
-  },
-  {
-    id: "projects",
-    title: "Launch and run",
-    links: [
-      { need: "Launch a project", name: "Juicebox Money", url: "https://juicebox.money/create" },
-      { need: "Launch a revnet", name: "Revnet Money", url: "https://revnet.money/create" },
-      { need: "Manage a project", name: "Juicescan", url: JUICESCAN_URL },
-      { need: "Follow owner workflows", name: "User journeys", url: `${V6}/blob/main/USER_JOURNEYS.md` },
-      { need: "Check who controls what", name: "Administration", url: `${V6}/blob/main/ADMINISTRATION.md` },
     ],
   },
   {
     id: "developers",
     title: "Build",
-    links: [
-      { need: "Start here", name: "Build guide", url: "https://juicebox.money/build" },
+    audience: "Make an app or integration",
+    groups: [
       {
-        need: "Make a test payment",
-        name: "Tutorial",
-        url: "https://juicebox.money/build/first-payment",
-        agentNote: "Read a project, pay it with test funds, and check the result.",
+        title: "Start",
+        links: [
+          { need: "Start here", name: "Build guide", url: "https://juicebox.money/build" },
+          {
+            need: "Make a test payment",
+            name: "Tutorial",
+            url: "https://juicebox.money/build/first-payment",
+            agentNote: "Read a project, pay it with test funds, and check the result.",
+          },
+          {
+            need: "Build with revnets",
+            name: "Revnet build guide",
+            url: "https://revnet.money/build",
+            agentNote: "Choose rules, draft a revnet, and connect it to an app.",
+          },
+          { need: "See how the parts fit", name: "Architecture", url: `${V6}/blob/main/ARCHITECTURE.md` },
+        ],
       },
       {
-        need: "Build with revnets",
-        name: "Revnet build guide",
-        url: "https://revnet.money/build",
-        agentNote: "Choose rules, draft a revnet, and connect it to an app.",
+        title: "Code and data",
+        links: [
+          {
+            need: "Read and write from TypeScript",
+            name: "Juice SDK",
+            url: "https://github.com/Bananapus/juice-sdk-v4#v6-actions-bananapusnana-sdk-corev6",
+          },
+          {
+            need: "Query projects and activity",
+            name: "Bendystraw",
+            url: "https://bendystraw.xyz/schema",
+            agentNote: "GraphQL. Needs a key. Filter to V6.",
+          },
+          { need: "Find contract addresses", name: "Contracts", url: "/api/docs/contracts" },
+          { need: "Fork an app", name: "App source", url: "#repositories-webclients" },
+        ],
       },
       {
-        need: "Read and write from TypeScript",
-        name: "Juice SDK",
-        url: "https://github.com/Bananapus/juice-sdk-v4#v6-actions-bananapusnana-sdk-corev6",
-      },
-      {
-        need: "Query projects and activity",
-        name: "Bendystraw",
-        url: "https://bendystraw.xyz/schema",
-        note: "GraphQL. Needs a key. Filter to V6.",
-      },
-      { need: "See how the parts fit", name: "Architecture", url: `${V6}/blob/main/ARCHITECTURE.md` },
-      { need: "Find contract addresses", name: "Contracts", url: "/api/docs/contracts" },
-      { need: "Fork an app", name: "App source", url: "#repositories-webclients" },
-    ],
-  },
-  {
-    id: "api",
-    title: "APIs",
-    links: [
-      {
-        need: "Read state, prepare transactions",
-        name: "REST API",
-        url: "/api",
-        agentNote: "Public reads and unsigned transaction preparation.",
-      },
-      { need: "Get started", name: "Quickstart", url: "/api/docs/quickstart" },
-      { need: "Generate a client", name: "OpenAPI", url: "/api/v1/openapi.json" },
-      {
-        need: "Read a chain",
-        name: "RPC",
-        url: `${CENTER}#read-ethereum-rpc`,
-        code: "POST /v1/rpc/:chainId",
-        agentNote: "Public, no key. One JSON-RPC object per request.",
-      },
-      {
-        need: "Fetch a file",
-        name: "IPFS gateway",
-        url: `${CENTER}#pin-and-read-ipfs-content`,
-        code: "GET /ipfs/:cid",
-        agentNote: "Public, no key.",
-      },
-      {
-        need: "Publish a file",
-        name: "IPFS pinning",
-        url: `${CENTER}#pin-and-read-ipfs-content`,
-        code: "POST /v1/pins/json",
-        note: "From approved apps, or through MCP.",
-      },
-      {
-        need: "Launch without a transaction",
-        name: "Project intents",
-        url: "/api/docs/project-intents",
-        agentNote:
-          "Create a project without a transaction: `POST /v1/intents` publishes a signed, frozen project deployment; `POST /v1/intents/:id/deploy` requests a sponsored execution of its own calls, which may create its Safes and then launch, and `POST /v1/intents/:id/relay` signs any chain the payer sends itself.",
-      },
-      {
-        need: "Track a transaction",
-        name: "Lifecycle",
-        url: "/api/docs/transactions",
-        agentNote: "Pending, failed, and partially completed operations.",
-      },
-      {
-        need: "Manage accounts and bots",
-        name: "Signa",
-        url: "https://api.signa.center/accounts",
-        agentNote: "Account access, bot grants and wallet execution.",
+        title: "Center APIs",
+        id: "api",
+        links: [
+          {
+            need: "Read state, prepare transactions",
+            name: "REST API",
+            url: "/api",
+            agentNote: "Public reads and unsigned transaction preparation.",
+          },
+          { need: "Generate a client", name: "OpenAPI", url: "/api/v1/openapi.json" },
+          {
+            need: "Read a chain",
+            name: "RPC",
+            url: `${CENTER}#read-ethereum-rpc`,
+            agentNote: "`POST /v1/rpc/:chainId`. Public, no key. One JSON-RPC object per request.",
+          },
+          {
+            need: "Fetch or publish a file",
+            name: "IPFS",
+            url: `${CENTER}#pin-and-read-ipfs-content`,
+            agentNote: "`GET /ipfs/:cid` is public. `POST /v1/pins/json`, `/v1/pins/file` and `/v1/pins/media` accept approved apps; agents pin through MCP.",
+          },
+          {
+            need: "Launch without a transaction",
+            name: "Project intents",
+            url: "/api/docs/project-intents",
+            agentNote:
+              "Create a project without a transaction: `POST /v1/intents` publishes a signed, frozen project deployment; `POST /v1/intents/:id/deploy` requests a sponsored execution of its own calls, which may create its Safes and then launch, and `POST /v1/intents/:id/relay` signs any chain the payer sends itself.",
+          },
+        ],
       },
     ],
   },
   {
     id: "agents",
-    title: "Agents",
-    links: [
+    title: "Automate",
+    audience: "Connect an AI agent",
+    groups: [
       {
-        need: "Connect over MCP",
-        name: "Setup",
-        url: `${SKILLS}#connect-the-hosted-mcp`,
-        code: "https://juicebox.center/mcp",
-        agentNote: "Streamable HTTP. No REST enrollment needed.",
-      },
-      { need: "Read this page as text", name: "llms.txt", url: "/llms.txt" },
-      { need: "Load a skill", name: "skill.md", url: "/skill.md" },
-      {
-        need: "Add V6 instructions",
-        name: "Skills",
-        url: SKILLS,
-        agentNote: "Portable protocol and integration guidance.",
-      },
-      { need: "Find a tool", name: "MCP reference", url: `${CENTER}/tree/main/mcp` },
-      {
-        need: "Choose a workflow",
-        name: "Journeys",
-        url: "/api/docs/user-journeys",
-        agentNote: "What to prepare, what to approve, and how to check the result.",
-      },
-      {
-        need: "Review and recover safely",
-        name: "Agent guide",
-        url: "/api/docs/ai-guide",
-        agentNote: "Exact transaction review and recovery.",
+        title: "Connect",
+        links: [
+          {
+            need: "Connect over MCP",
+            name: "Setup",
+            url: `${SKILLS}#connect-the-hosted-mcp`,
+            code: "https://juicebox.center/mcp",
+            agentNote: "Streamable HTTP. No REST enrollment needed.",
+          },
+          { need: "Find a tool", name: "MCP reference", url: `${CENTER}/tree/main/mcp` },
+          {
+            need: "Check what is live",
+            name: "Capabilities",
+            url: "/api/v1/capabilities",
+            agentNote: "Check availability on the chosen chain before planning.",
+          },
+          { need: "Get started", name: "Quickstart", url: "/api/docs/quickstart" },
+        ],
       },
       {
-        need: "Check what is live",
-        name: "Capabilities",
-        url: "/api/v1/capabilities",
-        agentNote: "Check availability on the chosen chain before planning.",
+        title: "Instructions",
+        links: [
+          { need: "Load a skill", name: "skill.md", url: "/skill.md" },
+          { need: "Read this page as text", name: "llms.txt", url: "/llms.txt" },
+          {
+            need: "Add V6 instructions",
+            name: "Skills",
+            url: SKILLS,
+            agentNote: "Portable protocol and integration guidance.",
+          },
+        ],
+      },
+      {
+        title: "Act safely",
+        links: [
+          {
+            need: "Choose a workflow",
+            name: "Journeys",
+            url: "/api/docs/user-journeys",
+            agentNote: "What to prepare, what to approve, and how to check the result.",
+          },
+          {
+            need: "Review before signing",
+            name: "Agent guide",
+            url: "/api/docs/ai-guide",
+            agentNote: "Exact transaction review and recovery.",
+          },
+          {
+            need: "Track a transaction",
+            name: "Lifecycle",
+            url: "/api/docs/transactions",
+            agentNote: "Pending, failed, and partially completed operations.",
+          },
+          {
+            need: "Manage accounts and bots",
+            name: "Signa",
+            url: "https://api.signa.center/accounts",
+            agentNote: "Account access, bot grants and wallet execution.",
+          },
+        ],
       },
     ],
   },
+];
+
+export const auditLinks: readonly DirectoryLink[] = [
+  { need: "Review a transaction", name: "Audit guide", url: "https://juicebox.money/audit" },
+  { need: "Plan a protocol review", name: "Audit instructions", url: `${V6}/blob/main/AUDIT_INSTRUCTIONS.md` },
+  { need: "Check assumptions", name: "Risks", url: `${V6}/blob/main/RISKS.md` },
+  { need: "Check guarantees", name: "Invariants", url: `${V6}/blob/main/INVARIANTS.md` },
+  { need: "Check who controls what", name: "Administration", url: `${V6}/blob/main/ADMINISTRATION.md` },
   {
-    id: "auditors",
-    title: "Audit",
-    links: [
-      { need: "Review a transaction", name: "Audit guide", url: "https://juicebox.money/audit" },
-      { need: "Plan a protocol review", name: "Audit instructions", url: `${V6}/blob/main/AUDIT_INSTRUCTIONS.md` },
-      { need: "Check assumptions", name: "Risks", url: `${V6}/blob/main/RISKS.md` },
-      { need: "Check guarantees", name: "Invariants", url: `${V6}/blob/main/INVARIANTS.md` },
-      {
-        need: "Find deployed contracts",
-        name: "Deployments",
-        url: "https://github.com/Bananapus/deploy-all-v6/tree/main/deployments",
-      },
-      { need: "Check who controls what", name: "Administration", url: `${V6}/blob/main/ADMINISTRATION.md` },
-    ],
+    need: "Find deployed contracts",
+    name: "Deployments",
+    url: "https://github.com/Bananapus/deploy-all-v6/tree/main/deployments",
   },
 ];
 
