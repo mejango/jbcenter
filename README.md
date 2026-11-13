@@ -68,7 +68,8 @@ flow are ready.
 by content hash (`name.<hash>.ext`, see [`src/rest/web/assets.ts`](src/rest/web/assets.ts)); the current hash is
 cached for a year, and any other name for the file gets the current bytes uncached, so pages from either side
 of a deploy still load. These routes do not change the API, IPFS, or MCP access rules.
-Juicescan links to its published CID on `eth.sucks`. Update the CID
+Juicescan links to its published CID on `inbrowser.link`, which verifies the content in the browser.
+Center gives that origin the explorer's RPC allowance. Update the CID
 from successful publisher or pin-provider records, not an unverified local build hash.
 
 ## Run it
