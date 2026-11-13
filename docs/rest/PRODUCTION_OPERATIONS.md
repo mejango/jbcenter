@@ -16,6 +16,18 @@ The intent sponsor retains its deployment rows, bundle identities, nonces and fu
 
 Center runs one replica while intent sponsorship is enabled. Stop the HTTP listener and sponsor worker cleanly before closing PostgreSQL. See [the intent guide](PROJECT_INTENTS.md) for limits and retry semantics.
 
+### Sponsor internals
+
+On the sponsored path Center's sponsor key signs an ERC-2771 forward request per chain against the canonical `ERC2771Forwarder` from the V6 manifest, after checking that the call's target trusts that forwarder. The deployment calls themselves carry no value: the project creation fee is read live from `JBProjects.creationFee()` at deploy time and attached to the forwarded request, funded by the Relayr prepayment. A fee above Center's ceiling of `100000000000000` wei (0.0001 ETH) fails the lane instead of spending more than the reservation.
+
+Recording a deployment that is not forwarded also retires, in the same database transaction, every queued sponsored row of the intent on every chain that has no bundle yet (`failed`, `mixed sender`), so a sponsor that becomes funded later can never launch a second project; the worker's claim refuses such rows too, and a lane already running on one cannot attach its bundle. A row that already has a bundle is left alone, because its prepayment may have left the sponsor key: the worker resumes it.
+
+The sponsored deploy sends one bundle for all chains. Center numbers a chain's entries in that bundle, so the execution service sends the chain's Safe creations before its launch. Nothing depends on that order; the numbering is what the service requires to send them. The service answers with one identifier per call, in an order of its own, so Center reads the bundle back and binds each identifier to the one submitted call whose chain, contract, calldata, value and number all match it.
+
+An MCP caller spends the hourly limit twice: once under its own publisher key, and once in a bucket every MCP publisher shares. A publisher key is free to mint, so the shared bucket is what bounds the assistant as a whole. Its stored intents and bytes count against the assistant's own lifetime caps (`MCP_MAX_INTENTS`, default 100000, and `MCP_MAX_STORAGE_BYTES`, default 10 GiB) rather than against a browser client's, and its sponsored deploys draw on the assistant's own daily slice of the sponsorship budget, below.
+
+For browser callers the requester is the calling origin and IP; for the MCP tools it is one shared Center-side bucket, so the MCP's daily sponsored deploys draw down one shared `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` allowance across every MCP caller. Those deploys are also checked against `SPONSOR_MCP_DAILY_BUDGET_WEI` before the shared budget, so a busy assistant refuses at its own slice rather than spending the day out from under first-party apps.
+
 ## Database and storage
 
 Keep backups for intents, signed envelopes, deployment associations, sponsor queues and quota state. Removing account runtime code does not authorize dropping production tables. New installs use only the retained Center schema; existing historical account rows may remain inert until an independently reviewed storage cleanup.
