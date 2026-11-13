@@ -1,6 +1,6 @@
-# V6 protocol REST API
+# API guide
 
-Base URL: `https://juicebox.center/api/v1`. [OpenAPI](/api/v1/openapi.json) is the generated route and schema reference. Protocol routes are public and bounded; they do not require account enrollment, bot grants, request signatures or an idempotency key.
+Base URL: `https://juicebox.center/api/v1`. [OpenAPI](/api/v1/openapi.json) is the endpoint reference, generated from the routes. No account, key or request signature is needed.
 
 ## Routes
 
@@ -59,8 +59,8 @@ Only `prepare_pay` accepts the optional `at` field, which binds preparation to s
 
 Project views require `source=onchain` or `source=bendystraw`. Input objects in GET requests are serialized once into JSON query values, then URL-encoded. Unsupported, repeated or malformed query fields fail. GET bodies are not supported.
 
-The service enforces request body and target bounds, response bounds, shared quotas, deadlines and concurrency limits. `/capabilities` advertises the current limits. Reads accept only configured chains, supported catalog entries and bounded indexer queries. User-supplied upstream endpoints and arbitrary GraphQL are unavailable.
+Requests are limited in size, rate, duration and concurrency. `/capabilities` lists the current limits. Reads accept only configured chains, cataloged contracts and bounded indexer queries, not caller-supplied endpoints or arbitrary GraphQL.
 
-Failure responses use machine-readable problem codes. Preserve `X-Request-Id` for diagnosis, respect retry guidance and treat unavailable evidence as unknown. See the OpenAPI response schemas for exact fields.
+Errors carry a machine-readable code. Keep `X-Request-Id` for diagnosis, honor `Retry-After`, and treat an unavailable read as unknown.
 
-Project intent writes, pinning and the read-only RPC gateway keep their separate `/v1` boundaries. Public protocol preparation does not grant permission to publish content or spend sponsor funds. See [project intents](PROJECT_INTENTS.md) and the [service README](../../README.md).
+Project intents, IPFS pinning and the read-only RPC gateway live under `/v1`, with their own access rules. See [project intents](PROJECT_INTENTS.md).

@@ -116,3 +116,16 @@ Shared resources: /Users/jango/Documents/jb/v6/evm/AGENTS.md, /Users/jango/Docum
 - Checked locally: typecheck, directory, app, page-weight and asset-cache tests (Node 26.13.0, so the full release gate is left to CI on the PR). All 77 destinations requested once: 75 answer 200.
 - Found, not caused by this change: the Juicescan address on eth.sucks returns a Cloudflare worker exception, so /inspect redirects land on an error, and eth.shop closes the TLS connection. Both are live today.
 - Old view/node fragments now land at the top of the page. juicebox.money and revnet.money each link /#apps/juicescan from their llms.txt.
+
+## Documentation copy rewrite, part A: REST guides and /api page (2026-11-12)
+## Plan refinement
+- **Objective:** Apply the audit decisions jango accepted ("all recommended") to the REST surface: one safety statement per document, agent guide and journeys cut to unique content, account-era glossary rows removed, one name per document (Quickstart, API guide, Endpoint reference). Success: each guide says each fact once and a reader can act from the first screen.
+- **System fit:** Copy only. `docs/rest/*.md` stay the source the guide pages render, `src/rest/docs/page.ts` stays the `/api` template. Routes, schemas and responses are unchanged. README, intents, contracts/indexer/omnichain and MCP copy follow in their own PRs.
+- **Reuse and simplicity:** No new files or structure. Rules come from the existing copy canon and the three audit reports. Net deletion.
+- **Evidence and unknowns:** Audit reports counted the safety statement about twenty times across REST docs and found session, guard, relay, bundler and paymaster rows describing removed Center accounts. Each rewritten claim is checked against the route or the original sentence; nothing new is asserted.
+- **Verification:** Typecheck, full vitest run (page-weight ceilings, docs browser test), anchor grep for renamed headings and removed glossary ids, rendered `/api` and guide screenshots.
+- **Resource budget:** One PR, one CI run. Merge only on jango's word.
+- [x] Agent guide and journeys rewritten
+- [x] `/api` page hero, cards, glossary and nav
+- [x] Quickstart, API guide and transactions tightened
+- [x] Render check, PR

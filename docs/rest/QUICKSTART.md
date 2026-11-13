@@ -1,6 +1,6 @@
-# Your first request
+# Quickstart
 
-Center's protocol API is public and bounded. You do not need a Center account, API key or signed HTTP request.
+Juicebox Center's REST API needs no account, API key or signed request.
 
 ## Discover the API
 
@@ -36,12 +36,12 @@ if (!response.ok) throw new Error(result.code ?? 'Preparation failed');
 const draft = result.data;
 ```
 
-`operation` and `input` above are your selected catalog operation and its validated input. The result is an unsigned `RestPlanDraft`, not a saved plan or a wallet approval. Preparation submits no transaction.
+`operation` and `input` are the catalog operation and its input. The result is an unsigned `RestPlanDraft`. Center does not save it and submits nothing.
 
-Review sender, chain, destination, calldata, value, dependencies and evidence. Use [Signa](https://signa.center) or your wallet for approval and execution. Signa owns its own reviewed plan and recovery state; there is no Center plan ID to import as authorization.
+Review the sender, chain, destination, calldata, value and dependencies, then approve and send with [Signa](https://signa.center) or your wallet.
 
 ## Failure handling
 
-Rate limits and unavailable upstreams are explicit failures. Respect `Retry-After` when present. Repeating a preparation can return new block evidence or a different quote; review the new draft. After execution begins, recover through the service that submitted it rather than preparing and sending a replacement automatically.
+Rate limits and unavailable upstreams fail explicitly. Honor `Retry-After`. Preparing again can return new blocks or a different quote, so review the new draft. Once a transaction is sent, recover through the service that sent it. Do not prepare and send a replacement.
 
-Continue with [transaction preparation](TRANSACTIONS.md), [contract reads](CONTRACTS.md), [indexed reads](INDEXER.md) or [agent integration](AI_GUIDE.md). Signed project publication is a separate [intent flow](PROJECT_INTENTS.md).
+Next: [transactions](TRANSACTIONS.md), [contract reads](CONTRACTS.md), [indexed reads](INDEXER.md), [project intents](PROJECT_INTENTS.md) or the [agent guide](AI_GUIDE.md).
