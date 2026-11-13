@@ -39,10 +39,11 @@ export interface RepositoryGroup {
 }
 
 // Published from merged Juicescan 3d9dd7b, pinned by Filebase and Pinata.
-// HTML, app.js, CSS and manifest verified byte-for-byte through Center and eth.sucks on October 12, 2026.
-// Update only after confirming a newer published CID, not a local build hash.
+// Update the CID only after confirming a newer published one, not a local build hash.
+// The host must serve the site with no content policy that blocks RPC, and Center gives this
+// origin the explorer's RPC allowance. inbrowser.link verifies the CID in the browser.
 export const JUICESCAN_URL =
-  "https://bafybeietgpz6mzxyh7vfvisxwohdce3xsvkxsrn2obffp7mqcfwusnvqya.eth.sucks/";
+  "https://bafybeietgpz6mzxyh7vfvisxwohdce3xsvkxsrn2obffp7mqcfwusnvqya.ipfs.inbrowser.link/";
 
 const V6 = "https://github.com/Bananapus/version-6";
 const CENTER = "https://github.com/mejango/jbcenter";
