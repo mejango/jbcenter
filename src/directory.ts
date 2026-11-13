@@ -95,7 +95,7 @@ export const directorySections: readonly DirectorySection[] = [
             name: "Juicescan",
             need: "inspect any project",
             url: JUICESCAN_URL,
-            agentNote: "Current project values, contracts, and transaction tools. /inspect/:chain/:projectId redirects to one project, for example /inspect/basesep/1.",
+            agentNote: "Current project values, contracts, and transaction tools. https://juicebox.center/inspect/:chain/:projectId redirects to one project, for example /inspect/basesep/1.",
           },
           { name: "Succulent", need: "follow activity", url: "https://succulent.money" },
         ],
@@ -205,7 +205,7 @@ export const directorySections: readonly DirectorySection[] = [
             need: "connect an agent",
             url: `${SKILLS}#connect-the-hosted-mcp`,
             code: "https://juicebox.center/mcp",
-            agentNote: "Streamable HTTP. No REST enrollment needed.",
+            agentNote: "Streamable HTTP. No key.",
           },
           {
             name: "Skills",

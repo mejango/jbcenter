@@ -178,7 +178,7 @@ describe("lane outcomes", () => {
     expect(laneOutcome(error, { paid: false })).toBe("terminal");
   });
 
-  test("a paid bundle is still retired by a definitive on-chain answer", () => {
+  test("a paid bundle is still retired by a definitive onchain answer", () => {
     for (const error of [
       new DeploymentVerificationError("the Create event is missing"),
       new ConflictError("A different deployment"),

@@ -227,7 +227,7 @@ describe('routing hook resolution', () => {
     expect(reads.some((read) => read.functionName === 'hookOf')).toBe(false);
   });
 
-  it('resolves Revnet NFTs on pay and buyback plus REVOwner on cash-out', async () => {
+  it('resolves Revnet NFTs on pay and buyback plus REVOwner on cash out', async () => {
     const { snapshot } = fixture();
     const revOwner = v6Address('REVOwner', 1);
     const result = await resolveRoutingHooks(snapshot, project, {
@@ -245,7 +245,7 @@ describe('routing hook resolution', () => {
     expect(result.cashOutHooks).not.toContain(nft);
   });
 
-  it('respects omnichain NFT cash-out precedence over an extra buyback hook', async () => {
+  it('respects omnichain NFT cash out precedence over an extra buyback hook', async () => {
     const { snapshot } = fixture();
     const result = await resolveRoutingHooks(snapshot, project, {
       ...current,

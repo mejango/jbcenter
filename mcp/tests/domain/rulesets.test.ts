@@ -315,7 +315,7 @@ describe('exact hypothetical economics', () => {
     ).toThrow(/automatic cycles/);
   });
 
-  it('matches cash-out curve endpoints and staged floor rounding', () => {
+  it('matches cash out curve endpoints and staged floor rounding', () => {
     expect(cashOutCurve(1000n, 10n, 100n, 0n)).toBe(100n);
     expect(cashOutCurve(1000n, 10n, 100n, 5000n)).toBe(55n);
     expect(cashOutCurve(1000n, 100n, 100n, 9999n)).toBe(1000n);

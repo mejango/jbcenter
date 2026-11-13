@@ -103,7 +103,7 @@ export function configurationWarnings(
       )
     ) {
       warnings.push(
-        `Configuration ${i}: all payout limits are zero. This does not mean unlimited payouts; surplus allowances, cash-outs, and enabled migrations have separate rules.`,
+        `Configuration ${i}: all payout limits are zero. This does not mean unlimited payouts; surplus allowances, cash outs, and enabled migrations have separate rules.`,
       );
     }
     if (config.weight === '0')
@@ -472,7 +472,7 @@ export class ConfigurationService {
       )
     )
       warnings.push(
-        'At least one proposed configuration removes or weakens a currently locked split. A new ruleset table can permit this on-chain; review the explicit lockChanges before signing.',
+        'At least one proposed configuration removes or weakens a currently locked split. A new ruleset table can permit this onchain; review the explicit lockChanges before signing.',
       );
     if (splitGroups.some((group) => group.fallbackSplits.length > 0))
       warnings.push(
@@ -533,7 +533,7 @@ export class ConfigurationService {
             tiered721HookSource: deployer.tiered721HookSource,
             useTiered721HookForCashOut: deployer.useTiered721HookForCashOut,
             currentExtraDataHook: deployer.extraDataHook,
-            rule: 'The deployer stores the carried NFT hook and each extra data hook per new ruleset, then queues on JBController with itself as the data hook (pay and cash-out). A dataHook in the input is the extra hook; one equal to the deployer keeps currentExtraDataHook. The controller trusts the deployer as its OMNICHAIN_RULESET_OPERATOR.',
+            rule: 'The deployer stores the carried NFT hook and each extra data hook per new ruleset, then queues on JBController with itself as the data hook (pay and cash out). A dataHook in the input is the extra hook; one equal to the deployer keeps currentExtraDataHook. The controller trusts the deployer as its OMNICHAIN_RULESET_OPERATOR.',
           }
         : { via: 'JBController' as const, address: controller },
       permission: {

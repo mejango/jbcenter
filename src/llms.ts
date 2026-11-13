@@ -12,7 +12,7 @@ Resolve current contracts and re-read transaction dependencies before signing.
 Amounts use exact integers in their token's units. Searchable history can lag and is not a snapshot
 of one verified block. Unknown reads are not zero or permission.
 
-A bot API grant does not authorize spending wallet funds. Plans are unsigned;
+A Signa bot grant does not authorize spending wallet funds. Plans are unsigned;
 wallet execution requires its own approval. Configured, simulated, submitted, and
 verified onchain are different states. A Safe proposal is not execution, and a
 receipt on the sending chain does not prove funds arrived on the receiving chain.

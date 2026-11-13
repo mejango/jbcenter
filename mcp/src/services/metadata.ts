@@ -223,7 +223,7 @@ export const prepareNftMetadataSchema = z
   .object({
     version: prepareProjectMetadataSchema.shape.version,
     metadata: nftMetadataSchema.describe(
-      'Complete NFT metadata JSON object, at most 64 KiB of canonical UTF-8 JSON. Preserves image, attributes, properties, animation_url and custom fields. Linked content is not fetched, rendered or verified. This is not standard project metadata and does not update a tier on-chain.',
+      'Complete NFT metadata JSON object, at most 64 KiB of canonical UTF-8 JSON. Preserves image, attributes, properties, animation_url and custom fields. Linked content is not fetched, rendered or verified. This is not standard project metadata and does not update a tier onchain.',
     ),
   })
   .strict();
@@ -360,7 +360,7 @@ export class ProjectMetadataService {
       warnings: [
         'This creates a new document containing only the displayed fields. It does not merge or preserve fields from an existing project metadata document.',
         'A logoUri references an already pinned image as ipfs://<cid>. Preparation does not fetch or pin it; pin a local image with jb_pin_project_logo first, or omit logoUri.',
-        'Pinning does not launch or edit a project on-chain. Use the returned metadataUri in a reviewed V6 launch, or in jb_prepare_set_project_uri for an existing project.',
+        'Pinning does not launch or edit a project onchain. Use the returned metadataUri in a reviewed V6 launch, or in jb_prepare_set_project_uri for an existing project.',
       ],
     };
   }
@@ -393,7 +393,7 @@ export class ProjectMetadataService {
     return {
       ...this.prepareReview(parsed.metadata, NFT_PURPOSE, 'jb_pin_nft_metadata'),
       warnings: [
-        'This creates a new NFT metadata document with all displayed fields. It does not merge with existing metadata or update an NFT tier on-chain.',
+        'This creates a new NFT metadata document with all displayed fields. It does not merge with existing metadata or update an NFT tier onchain.',
         'Images, animation URLs and other linked content are preserved as supplied, not fetched, rendered, pinned or checked for availability or renderer compatibility. To publish a local image first, use jb_pin_project_logo and copy its logoUri into metadata.image.',
         'Pinning does not create a tier or submit a transaction. Use a compatible returned encodedIpfsUri only in a separately reviewed tier configuration with the intended base URI and resolver.',
       ],

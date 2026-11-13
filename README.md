@@ -89,9 +89,9 @@ npm run dev
 Pinning and intent API requests require an origin hardcoded for the active Railway environment.
 Production accepts `https://juicebox.money`, `https://revnet.money`, `https://eth.shop`,
 `https://succulent.money`, `https://homerun.money`, `https://sticky.center`, `https://beep.biz`,
-`https://market.chancedb.com`, and `https://metalog.money`.
+`https://market.chancedb.com`, `https://metalog.money`, and `https://api.signa.center`.
 `dev` accepts the first four sites' `dev.` subdomains, `http://localhost:3001` through
-`http://localhost:3004`, Homerun's `http://localhost:3010` and `http://localhost:3014`, and
+`http://localhost:3004`, Homerun's `http://localhost:3010` and `http://localhost:3014`, Signa's `http://127.0.0.1:8787`, and
 Sticky's `http://127.0.0.1:8788`, `https://sticky-dev.up.railway.app` and
 `https://dev.sticky.center`. The homepage, `/ipfs/*` read gateway, and `/v1/rpc/:chainId`
 RPC are public; RPC accepts any or no Origin. `GET /healthz` is public for infrastructure checks.
@@ -99,7 +99,7 @@ RPC are public; RPC accepts any or no Origin. `GET /healthz` is public for infra
 ## Connect an assistant through MCP
 
 The `mcp/` package provides **66 V6-only tools across ten capability families**: project and
-account intelligence, payments and cash-outs, launches and ruleset changes, buyback hooks, router
+account intelligence, payments and cash outs, launches and ruleset changes, buyback hooks, router
 terminals, 721 shops, revnets and loans, omnichain operations, source and webclient development,
 and reviewed project and NFT metadata publication. Read the [27 user journeys](mcp/docs/USER_JOURNEYS.md)
 and [tool catalog](mcp/docs/TOOLS.md) for exact coverage and limitations.
@@ -145,8 +145,7 @@ project schema, NFT publication preserves supplied `image`, `attributes`, `prope
 The existing image tool's returned `logoUri` can be used as `metadata.image`. No provider API key
 or wallet is needed. Publication returns a real CID and `metadataUri`; configuring an NFT tier
 requires a separate transaction. See the [NFT metadata journey](mcp/docs/USER_JOURNEYS.md#review-and-pin-nft-tier-metadata)
-for static 721 encoding constraints. These new tools require deployment before use at the public
-endpoint; their presence in this source checkout does not establish live availability.
+for static 721 encoding constraints.
 
 `/mcp/healthz` reports MCP liveness and `/mcp/readyz` reports local MCP readiness with upstream
 health explicitly unchecked. Center's `/readyz` continues checking PostgreSQL. The integrated
@@ -231,8 +230,7 @@ poll, or a concrete range of at most 50,000 blocks. Requests are capped at 256 K
 5 MiB, and each upstream attempt at four seconds. Production tries Dwellir then PublicNode
 without returning credential-bearing URLs to clients.
 
-Trusted origins get the site's per-caller and shared budgets. Every other caller — sites served
-from IPFS such as juicescan have no stable origin to allowlist — is served keyless with `*` CORS
+Trusted origins get the site's per-caller and shared budgets. Every other caller is served keyless with `*` CORS
 under a tighter per-IP budget and a separate shared public budget, so public traffic can never
 starve the trusted sites. An `Origin` header is not identity, so upstream provider quotas remain
 the final spend boundary.
@@ -456,51 +454,51 @@ The remaining controls are environment variables:
 
 Signa hosts passkey accounts and wallets at `signa.center`; Center keeps the project and protocol APIs.
 
-- `RATE_LIMIT_PER_MINUTE` — shared PostgreSQL-backed limit per named API client; default `600`.
-- `RPC_REQUEST_LIMIT_PER_MINUTE` — per browser/IP or named-client RPC requests; default `600`.
-- `RPC_SITE_LIMIT_PER_MINUTE` — shared RPC requests across all clients; default `20000`.
-- `RPC_PUBLIC_REQUEST_LIMIT_PER_MINUTE` — keyless RPC requests per IP from untrusted origins; default `120`.
-- `RPC_PUBLIC_SITE_LIMIT_PER_MINUTE` — shared keyless RPC budget across untrusted origins; default `5000`.
-- `MAX_INTENTS_PER_CLIENT` — lifetime intent count per client; default `10000`.
-- `MAX_STORAGE_BYTES_PER_CLIENT` — lifetime stored envelope bytes per client; default 1 GiB.
-- `MCP_MAX_INTENTS` — lifetime intent count for the co-hosted MCP's single storage identity; default `100000`.
-- `MCP_MAX_STORAGE_BYTES` — lifetime stored envelope bytes for that identity; default 10 GiB. Both
+- `RATE_LIMIT_PER_MINUTE`: shared PostgreSQL-backed limit per named API client; default `600`.
+- `RPC_REQUEST_LIMIT_PER_MINUTE`: per browser/IP or named-client RPC requests; default `600`.
+- `RPC_SITE_LIMIT_PER_MINUTE`: shared RPC requests across all clients; default `20000`.
+- `RPC_PUBLIC_REQUEST_LIMIT_PER_MINUTE`: keyless RPC requests per IP from untrusted origins; default `120`.
+- `RPC_PUBLIC_SITE_LIMIT_PER_MINUTE`: shared keyless RPC budget across untrusted origins; default `5000`.
+- `MAX_INTENTS_PER_CLIENT`: lifetime intent count per client; default `10000`.
+- `MAX_STORAGE_BYTES_PER_CLIENT`: lifetime stored envelope bytes per client; default 1 GiB.
+- `MCP_MAX_INTENTS`: lifetime intent count for the co-hosted MCP's single storage identity; default `100000`.
+- `MCP_MAX_STORAGE_BYTES`: lifetime stored envelope bytes for that identity; default 10 GiB. Both
   replace the per-client pair for an in-process publish, and Center logs `storage_near_limit` once
   either identity passes four fifths of its cap.
-- `SPONSOR_SIGNER_KEY` — optional private key that turns on `POST /v1/intents/:id/deploy`. It only
+- `SPONSOR_SIGNER_KEY`: optional private key that turns on `POST /v1/intents/:id/deploy`. It only
   needs ETH on the one rollup it pays the Relayr prepayment from; that prepayment carries the
   destination chains' creation fees and Relayr's executor supplies them there. Keep it a dedicated
   key, distinct from every other configured signer.
-- `SPONSOR_PAUSED` — set to `1` to pause sponsored deploys without unsetting the signer key.
-- `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` — deploy requests one requester may queue per day; default `5`.
-- `PUBLISH_PER_PUBLISHER_PER_DAY` — publish requests one publisher key may sign per rolling day; default `20`.
-- `PUBLISH_PER_IP_PER_HOUR` — publish requests one IP may make per rolling hour; default `60`. A
-  platform whose server publishes on behalf of its users — one signing key, one outbound IP — needs
+- `SPONSOR_PAUSED`: set to `1` to pause sponsored deploys without unsetting the signer key.
+- `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY`: deploy requests one requester may queue per day; default `5`.
+- `PUBLISH_PER_PUBLISHER_PER_DAY`: publish requests one publisher key may sign per rolling day; default `20`.
+- `PUBLISH_PER_IP_PER_HOUR`: publish requests one IP may make per rolling hour; default `60`. A
+  platform whose server publishes on behalf of its users (one signing key, one outbound IP) needs
   both of these and `SPONSOR_DEPLOYS_PER_REQUESTER_PER_DAY` raised past their per-caller defaults.
-- `SPONSOR_DAILY_BUDGET_WEI` — total wei reserved for sponsored deploys per rolling day, across every requester; default `50000000000000000`.
-- `SPONSOR_MCP_DAILY_BUDGET_WEI` — the slice of that day the co-hosted MCP may spend, checked
+- `SPONSOR_DAILY_BUDGET_WEI`: total wei reserved for sponsored deploys per rolling day, across every requester; default `50000000000000000`.
+- `SPONSOR_MCP_DAILY_BUDGET_WEI`: the slice of that day the co-hosted MCP may spend, checked
   before the shared budget; default a fifth of `SPONSOR_DAILY_BUDGET_WEI`.
-- `SPONSOR_MAX_GAS` — gas ceiling per forwarded deployment call; default `8000000`.
-- `SPONSOR_MAX_FEE_PER_GAS` — max fee per gas the sponsor signs when paying for the Relayr bundle; default `1000000000`.
-- `SPONSOR_CONFIRMATIONS` — confirmations awaited on each destination chain before a sponsored deploy is recorded; default `2`, and a lower value is raised to `2`, which the deployment verifier requires.
-- `METRICS_TOKEN` — required 32-character bearer token for `GET /metrics`.
-- `FILEBASE_RPC_TOKEN` — bucket-scoped bearer token for Filebase's IPFS RPC API; never expose it to
+- `SPONSOR_MAX_GAS`: gas ceiling per forwarded deployment call; default `8000000`.
+- `SPONSOR_MAX_FEE_PER_GAS`: max fee per gas the sponsor signs when paying for the Relayr bundle; default `1000000000`.
+- `SPONSOR_CONFIRMATIONS`: confirmations awaited on each destination chain before a sponsored deploy is recorded; default `2`, and a lower value is raised to `2`, which the deployment verifier requires.
+- `METRICS_TOKEN`: required 32-character bearer token for `GET /metrics`.
+- `FILEBASE_RPC_TOKEN`: bucket-scoped bearer token for Filebase's IPFS RPC API; never expose it to
   a browser.
-- `PINATA_JWT` — scoped Pinata token with `org:files:write`; never expose it to a browser.
-- `IPFS_CACHE_DIR` — optional dedicated persistent directory for public IPFS reads; unset disables disk caching.
-- `IPFS_CACHE_MAX_BYTES` — retained and in-progress content-byte budget, default `4294967296` (4 GiB). Allow extra volume capacity for filesystem metadata.
-- `DATABASE_URL` — PostgreSQL connection string; require TLS in the production provider settings.
-- `MCP_PLAN_SECRET` — required in production; a cryptographically random secret with at least
+- `PINATA_JWT`: scoped Pinata token with `org:files:write`; never expose it to a browser.
+- `IPFS_CACHE_DIR`: optional dedicated persistent directory for public IPFS reads; unset disables disk caching.
+- `IPFS_CACHE_MAX_BYTES`: retained and in-progress content-byte budget, default `4294967296` (4 GiB). Allow extra volume capacity for filesystem metadata.
+- `DATABASE_URL`: PostgreSQL connection string; require TLS in the production provider settings.
+- `MCP_PLAN_SECRET`: required in production; a cryptographically random secret with at least
   32 bytes, stable across replicas. It authenticates unsigned transaction plans and separately
   scoped metadata review tokens; it is never a wallet key.
-- `MCP_PUBLIC_ORIGIN` — default `https://juicebox.center`, without `/mcp` or another path.
-- `MCP_BENDYSTRAW_MAINNET_URL`, `MCP_BENDYSTRAW_TESTNET_URL` — independently configured complete
+- `MCP_PUBLIC_ORIGIN`: default `https://juicebox.center`, without `/mcp` or another path.
+- `MCP_BENDYSTRAW_MAINNET_URL`, `MCP_BENDYSTRAW_TESTNET_URL`: independently configured complete
   GraphQL endpoints. An absent network reports `NOT_CONFIGURED` and cannot fall back to another.
-- `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS` — optional comma-separated additions to the MCP
+- `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS`: optional comma-separated additions to the MCP
   transport allowlists. Center's active environment browser origins are included automatically.
-- `MCP_PLAN_TTL_SECONDS` — transaction-plan lifetime; default `300`, range `30`–`1800` seconds.
-- `MCP_MAX_CONCURRENT_REQUESTS` — MCP HTTP operations per process; default `16`, range `1`–`128`.
-- `MCP_KNOWLEDGE_PATH` — optional reviewed source-bundle override; packaged references are the default.
+- `MCP_PLAN_TTL_SECONDS`: transaction-plan lifetime; default `300`, range `30` to `1800` seconds.
+- `MCP_MAX_CONCURRENT_REQUESTS`: MCP HTTP operations per process; default `16`, range `1` to `128`.
+- `MCP_KNOWLEDGE_PATH`: optional reviewed source-bundle override; packaged references are the default.
 
 `GET /healthz` is process liveness. `GET /readyz` checks PostgreSQL. `GET /metrics` returns protected
 Prometheus metrics. Requests are logged as one-line JSON with request ID, caller,

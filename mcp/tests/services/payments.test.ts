@@ -1812,7 +1812,7 @@ describe('payment quotes and approval plans', () => {
   });
 });
 
-describe('cash-out quotes', () => {
+describe('cash out quotes', () => {
   it('floors final net using the preview tax, with caller-aware fee evidence', async () => {
     const { service, readContract } = fixture({ cashGross: 101n, cashTax: 1n });
     const plan = await service.prepareCashOut(cashInput);
@@ -1898,7 +1898,7 @@ describe('cash-out quotes', () => {
     );
   });
 
-  it('rejects SDK zero-floor fallback when a slippage-protected pool quote no longer beats direct cash-out', async () => {
+  it('rejects SDK zero-floor fallback when a slippage-protected pool quote no longer beats direct cash out', async () => {
     const { service } = fixture({
       dataHook: registry,
       cashPreview: () => [

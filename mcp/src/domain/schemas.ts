@@ -79,7 +79,7 @@ export const slippageSchema = z
   .min(0)
   .max(1000)
   .default(100)
-  .describe('Slippage in basis points, 0–1000. Default 100 (1%).');
+  .describe('Slippage in basis points, 0 to 1000. Default 100 (1%).');
 /** A payment's tolerance: up to the SDK's retry cap, so a payRetrySlippageBps candidate is accepted. */
 export const paySlippageSchema = z
   .number()

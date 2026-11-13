@@ -111,7 +111,7 @@ describe("/api endpoint reference", () => {
       expect(index[operationId]!.toLowerCase()).toContain(term!.toLowerCase());
     // Names nested deeper than the tables render are in the index (listContracts returns retired deployments).
     expect(index.listContracts).toMatch(/\bretired\b/);
-    expect(await page.locator("#endpoint-count").textContent()).toBe(`${await shown.count()} endpoints`);
+    expect(await page.locator("#endpoint-count").textContent()).toBe((await shown.count()) === 1 ? "1 endpoint" : `${await shown.count()} endpoints`);
     // Loaded tables do not widen the match: descriptions inside them stay out of the filter.
     await page.fill("#endpoint-filter", "no endpoint has this text");
     await expect.poll(() => shown.count()).toBe(0);

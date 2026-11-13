@@ -58,8 +58,8 @@ function onchain(graph: Map<string, OmnichainProject[]>, mutate?: OnchainMutatio
     const result = mutate?.(operation, project, fixture);
     return result === undefined ? fixture : result;
   });
-  const read = vi.fn(async () => { throw new Error("On-chain mode must never query the indexer."); });
-  const list = vi.fn(async () => { throw new Error("On-chain mode must never query the indexer."); });
+  const read = vi.fn(async () => { throw new Error("Onchain mode must never query the indexer."); });
+  const list = vi.fn(async () => { throw new Error("Onchain mode must never query the indexer."); });
   const service = createOmnichainService({ operations: { execute }, indexer: { read, list } as unknown as OmnichainDependencies["indexer"] });
   return { execute, read, list, service };
 }
@@ -108,7 +108,7 @@ function bendystraw(members: OmnichainProject[] = [ROOT, OPTIMISM], mutate?: Ind
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("bounded traversal of verified on-chain peers", () => {
+describe("bounded traversal of verified onchain peers", () => {
   it("discovers distinct project IDs across chains and deduplicates cyclic peers", async () => {
     const peers = [ROOT, OPTIMISM, ARBITRUM, ETHEREUM];
     const graph = new Map(peers.map((project) => [key(project), peers.filter((peer) => key(peer) !== key(project))]));
@@ -398,7 +398,7 @@ describe("explicit source selection, V6 inputs, and cancellation", () => {
     expect(list).not.toHaveBeenCalled();
   });
 
-  it("cancels an on-chain operation even when the injected dependency ignores its signal", async () => {
+  it("cancels an onchain operation even when the injected dependency ignores its signal", async () => {
     const { service, execute, read, list } = onchain(new Map(), () => new Promise(() => {}));
     const controller = new AbortController();
     const pending = service.getProjectGroup(ROOT, { source: "onchain" }, controller.signal);

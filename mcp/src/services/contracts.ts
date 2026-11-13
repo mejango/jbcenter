@@ -111,7 +111,7 @@ export class ContractService {
                 : 'sdk-deployment-registry',
       })),
       warning:
-        'Deployment records describe executed deployments per chain. Mainnet proposals are not active deployments. Retired implementations remain available for history and projects that have not migrated. Resolve registry -> gateway -> ROUTER and hookOf on-chain; an address is provenance, not a bytecode safety audit.',
+        'Deployment records describe executed deployments per chain. Mainnet proposals are not active deployments. Retired implementations remain available for history and projects that have not migrated. Resolve registry -> gateway -> ROUTER and hookOf onchain; an address is provenance, not a bytecode safety audit.',
     };
   }
 

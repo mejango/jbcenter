@@ -42,12 +42,12 @@ const areas = [
     references: ['JBController', 'JBTerminalStore', 'Bendystraw', 'JB Center'],
     limits: [
       'V6 only. Every identity includes chain and project ID.',
-      'Indexed positions and event pages have explicit coverage; current balances are read on-chain.',
+      'Indexed positions and event pages have explicit coverage; current balances are read onchain.',
     ],
   },
   {
     id: 'payments',
-    title: 'Payments, cash-outs and payouts',
+    title: 'Payments, cash outs and payouts',
     tools: [
       'quote_pay',
       'prepare_pay',
@@ -71,7 +71,7 @@ const areas = [
       'Custom hooks, partial swaps and nested forwarding require their own supported adapters.',
       'A recorded gateway forwards into ROUTER. Failed protocol-fee or protocol-payer calls can remain in gateway custody; transaction confirmation does not prove payment settlement or forgiveness.',
       'The current buyback hook (1.4) takes three-word pay metadata: amountToSwapWith, minimumSwapAmountOut and skipSplits. Two-word pay entries revert on it; a derived TWAP-floor miss falls back to minting while explicit settlement minima still apply. Some projects still use the retired 1.1.1 hook; jb_quote_pay names the version in buybackHook. On 1.4, jb_quote_pay and jb_prepare_pay take skipSplits to send pool-bought tokens to the beneficiary without the reserved split.',
-      'USDC/native and USDC/ETH prices use the live project/default JBPrices feed selection. A ratio-feed deployment record does not establish registration, current price or mixed-balance cash-out output.',
+      'USDC/native and USDC/ETH prices use the live project/default JBPrices feed selection. A ratio-feed deployment record does not establish registration, current price or mixed-balance cash out output.',
     ],
   },
   {
@@ -88,7 +88,7 @@ const areas = [
     references: ['JBRulesets', 'JBFundAccessLimits', 'JBSplits', 'JBController'],
     limits: [
       'Core launch is an explicit composition. NFT and revnet launch semantics are separate.',
-      'After a launch, jb_prepare_deploy_erc20 adds the ERC-20 and jb_prepare_set_project_uri sets the name. Each acts on one chain.',
+      'After a launch, jb_prepare_deploy_erc20 adds the ERC-20 and jb_prepare_set_project_uri sets the metadata URI. Each acts on one chain.',
       'Scenarios report assumptions; future approval-hook outcomes are not predicted.',
     ],
   },

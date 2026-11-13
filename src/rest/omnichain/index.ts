@@ -247,7 +247,7 @@ function indexedState(data: Row) {
       reservedSupply: exactAmount(data.reservedTokenSupply),
     },
     units:
-      "Decimals and currency are copied from the indexed project. The issued project token is not assumed to be its treasury accounting asset.",
+      "Decimals and currency are copied from the indexed project. The issued project token is not assumed to be its accounting asset.",
     snapshotPinned: false,
   };
 }
@@ -274,7 +274,7 @@ const SEMANTICS = {
   settlement:
     "A successful source transaction is not destination delivery or settlement. Indexed claimed is not canonical claim confirmation. Claims and terminal credit remain separate evidence requirements.",
   gossip:
-    "Bridge accounting gossip is last-received remote accounting; it is not a simultaneously read remote balance and is never added to local treasury balances.",
+    "Bridge accounting gossip is last-received remote accounting; it is not a simultaneously read remote balance and is never added to local balances.",
 } as const;
 
 function sourceEventKey(item: Row, sourceChain: number): string | undefined {

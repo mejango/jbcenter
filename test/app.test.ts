@@ -183,7 +183,7 @@ describe("JB Center API", () => {
     const skillText = await skill.text();
     expect(skillText).toMatch(/^---\nname: juicebox-center\ndescription: .+\n---\n/);
     expect(skillText).toContain("https://juicebox.center/mcp");
-    expect(skillText).toContain("A bot API grant does not authorize spending wallet funds.");
+    expect(skillText).toContain("A Signa bot grant does not authorize spending wallet funds.");
     const discovery = await (await app.request("/llms.txt")).text();
     expect(discovery).toContain("https://juicebox.center/skill.md");
     expect(discovery).toContain("https://juicebox.center/api/docs/project-intents");

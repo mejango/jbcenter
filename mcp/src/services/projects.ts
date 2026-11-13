@@ -602,7 +602,7 @@ export class ProjectService {
         'Use indexed Revnet loan discovery, then verify each loan on chain. No zero debt or borrowing eligibility is inferred.',
       ),
       coverage:
-        'Local chain token balance includes internal credits and claimed ERC-20 tokens. No global position, cash-out entitlement, NFT inventory or loan inventory is inferred.',
+        'Local chain token balance includes internal credits and claimed ERC-20 tokens. No global position, cash out entitlement, NFT inventory or loan inventory is inferred.',
     });
   }
 

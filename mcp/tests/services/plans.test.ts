@@ -934,7 +934,7 @@ describe('re-simulation and dependency verification', () => {
 });
 
 describe('canonical launch and payout operation evidence', () => {
-  it('verifies exact cash-out holder, project, beneficiary, burned amount and reclaimed minimum', async () => {
+  it('verifies exact cash out holder, project, beneficiary, burned amount and reclaimed minimum', async () => {
     const call: PreparedCall = {
       ...payCall(),
       data: encodeFunctionData({

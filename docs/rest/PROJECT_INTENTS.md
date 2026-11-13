@@ -3,7 +3,7 @@
 A project intent is a signed, frozen Juicebox V6 project launch: the contract calls for
 each chain plus the publishing client's own form document, stored by Center. Publishing
 costs one wallet signature and no transaction. The project exists from the moment it is
-published: it has an id, a page, and a row in search. It becomes an on-chain project when
+published: it has an id, a page, and a row in search. It becomes an onchain project when
 someone deploys it, either at Center's expense on the sponsored rollups or by paying for
 the transaction themselves.
 
@@ -45,9 +45,10 @@ Two ways in for a new integrator:
 1. **Ask for an origin.** Center's first-party list lives in `src/firstParty.ts` in the
    `mejango/jbcenter` repository: one production entry per app, and several localhost and dev
    entries per app in the development list. Open a pull request adding your origin, or ask the
-   maintainers. Production entries today are `https://juicebox.money`, `https://revnet.money`,
-   `https://eth.shop`, `https://succulent.money`, `https://homerun.money`, `https://sticky.center`
-   and `https://beep.biz`.
+   maintainers. Production entries are `https://juicebox.money`, `https://revnet.money`,
+   `https://eth.shop`, `https://succulent.money`, `https://homerun.money`, `https://sticky.center`,
+   `https://beep.biz`, `https://market.chancedb.com`, `https://metalog.money` and
+   `https://api.signa.center`.
 2. **Use the MCP tools.** Connect any Streamable HTTP MCP client to
    `https://juicebox.center/mcp`. `jb_prepare_intent`, `jb_publish_intent`, `jb_get_intent`
    and `jb_deploy_intent` run server-side inside Center, so they need no origin, no REST
@@ -74,7 +75,7 @@ send it as a real `Origin` header.
 
 | Field | Type | Rules |
 |---|---|---|
-| `format` | string | `<host>/<label>`: exactly one slash. Host part matches `[a-z0-9.-]{1,80}`, label matches `[a-zA-Z0-9._-]{1,32}` — the label may not contain a slash. Identifies the publishing client |
+| `format` | string | `<host>/<label>`: exactly one slash. Host part matches `[a-z0-9.-]{1,80}`, label matches `[a-zA-Z0-9._-]{1,32}`. Identifies the publishing client |
 | `deploymentVersion` | string | `"6"`. 1 to 64 characters |
 | `chainIds` | number[] | 1 to 16 unique positive integers. Center sorts them ascending before hashing |
 | `deploymentCalls` | array | 1 to 4 calls, each `{chainId, to, data}`, for each member of `chainIds`, between 4 bytes and 4 MiB each. The last call for a chain is its launch call; see "Setup calls". `to` is checksummed; `data` is stored lowercased and matched case-insensitively when a self-paid deployment is verified. Center sorts by `chainId` before hashing and keeps each chain's calls in the order they were signed |
@@ -433,7 +434,7 @@ As of 2026-09-21, production runs `PUBLISH_PER_PUBLISHER_PER_DAY` at 500 and
 An MCP caller spends the hourly limit twice: once under its own publisher key, and once in a
 bucket every MCP publisher shares. A publisher key is free to mint, so the shared bucket is what
 bounds the assistant as a whole. Its stored intents and bytes count against the assistant's own
-lifetime caps — `MCP_MAX_INTENTS`, default 100000, and `MCP_MAX_STORAGE_BYTES`, default 10 GiB —
+lifetime caps (`MCP_MAX_INTENTS`, default 100000, and `MCP_MAX_STORAGE_BYTES`, default 10 GiB)
 rather than against a browser client's, and its sponsored deploys draw on the assistant's own
 daily slice of the sponsorship budget, below.
 
@@ -467,7 +468,7 @@ GET /v1/intents/:id
 }
 ```
 
-`deployments` holds recorded on-chain results, write-once per chain:
+`deployments` holds recorded onchain results, write-once per chain:
 
 | Field | Meaning |
 |---|---|
@@ -540,8 +541,8 @@ signed, whoever owns the resulting projects.
 The SDK's `mergeSearch(bendystrawRows, intentItems)` merges both sources newest first, building
 each intent row with `intentRow(item)` and flagging it `undeployed: true`. `intentPath(id)` is
 `/intent/<id>`. Render that page from `decodeDeploymentCall(call)` on any one of the intent's
-deployment calls — the launch is the same logical configuration on every chain — plus the pinned
-metadata. No chain reads are needed or possible: there is nothing on chain yet.
+deployment calls (the launch is the same logical configuration on every chain) plus the pinned
+metadata. No chain reads are needed or possible: nothing is onchain yet.
 
 `decodeDeploymentCall` returns a typed shell per launch flavor:
 
@@ -552,7 +553,7 @@ metadata. No chain reads are needed or possible: there is nothing on chain yet.
 | `omnichain` | `owner`, `projectUri`, `rulesetConfigurations`, `terminalConfigurations`, `memo`, `has721` |
 | `revnet` | `operator`, `projectUri`, `stages`, `description`, `accountingContexts` |
 | `homerun-fund` | `owner`, `projectUri`, `tokenName`, `ticker`, `mustStartAtOrAfter`, `salt`, `peerSuckerDeployers` |
-| `unknown` | none — render generically, never guess a shape |
+| `unknown` | none. Render generically, never guess a shape |
 
 Keep intents out of Trending and Top: those rankings are volume-based and an intent has no
 volume.
@@ -643,16 +644,16 @@ converge. A `queued` or `sent` row may carry an `error` while Center keeps retry
 and `RELAYR_TIMEOUT` (the execution service has not executed the bundle yet) are all waiting
 states, not outcomes. Keep polling while `status` is not `failed`.
 
-`failed` is set only on a definitive outcome — a reverted or unverifiable deployment, a refused
+`failed` is set only on a definitive outcome: a reverted or unverifiable deployment, a refused
 quote, an exhausted set of attempts, a wallet deployment recorded for the intent before the row
-had a bundle (`mixed sender`) — or after 24 hours of waiting: `bundle unresolved` for a row
+had a bundle (`mixed sender`), or after 24 hours of waiting: `bundle unresolved` for a row
 whose bundle the execution service never resolved, `retries exhausted` for one that never got that
 far. An operator reconciles an unresolved bundle by recording its deployment through
 `POST /v1/intents/:id/deployments` once the execution service shows the hash. Center does not retry a
 `failed` row on its own. A later `POST /v1/intents/:id/deploy` that names the chain queues it again
 only when the row has no `bundleUuid`; a row that carries one may yet execute, so it and any row the
 request does not name come back as they are. Otherwise recovery is a new intent, or the self-paid
-path for a fresh intent — never a partial self-paid patch over the same one.
+path for a fresh intent, never a partial self-paid patch over the same one.
 
 The SDK wraps this as `ensureDeployed({ client, intent, onStep, pollMs, timeoutMs, signal })`,
 which requests the sponsored deploy, polls on a 4-second default interval until every chain is
@@ -701,7 +702,7 @@ token and sucker salts.
 
 | Status | Code | Meaning |
 |---|---|---|
-| `200` | — | The signed request |
+| `200` | none | The signed request |
 | `400` | `bad_request` | The id is not a UUID, `chainId` is missing or not in the intent, or that chain already has a deployment |
 | `400` | `sponsored_chain` | Center deploys that chain itself. Use `POST /v1/intents/:id/deploy` |
 | `404` | `not_found` | No such intent |
@@ -746,7 +747,7 @@ address to a forwarded call). Nested matching covers Safe and Relayr execution.
 
 | Status | Code | Meaning |
 |---|---|---|
-| `201` | — | Recorded. The body carries `forwarded`: true for a call the canonical forwarder made with Center's sponsor as the appended sender, false for one any other sender made |
+| `201` | none | Recorded. The body carries `forwarded`: true for a call the canonical forwarder made with Center's sponsor as the appended sender, false for one any other sender made |
 | `400` | `bad_request` | Bad id, bad hash, bad `projectId`, or a `chainId` outside the intent |
 | `404` | `not_found` | No such intent |
 | `409` | `conflict` | A different deployment is already recorded for that chain |

@@ -216,12 +216,12 @@ export function createMcpServer(services: Services): McpServer {
     {
       name: 'inspect-project',
       description: 'Explain a project’s economics, control, payout access, hooks, and uncertainty.',
-      task: 'Resolve this project, inspect its on-chain state, rulesets and routing, and explain where funds go, contributor rights, who can change terms, and when. Cite evidence and retain unknown fields.',
+      task: 'Resolve this project, inspect its onchain state, rulesets and routing, and explain where funds go, contributor rights, who can change terms, and when. Cite evidence and retain unknown fields.',
     },
     {
       name: 'review-contribution',
       description: 'Quote a contribution and explain its money flow before preparing any plan.',
-      task: 'Inspect this project before quoting a contribution. Establish payer, beneficiary, chain, asset and exact amount with the user. Explain treasury versus market flow and protected outputs, then prepare a reviewed unsigned plan only when the intended action is clear.',
+      task: 'Inspect this project before quoting a contribution. Establish payer, beneficiary, chain, asset and exact amount with the user. Explain what goes to the project balance and what buys from the market and protected outputs, then prepare a reviewed unsigned plan only when the intended action is clear.',
     },
     {
       name: 'design-project',

@@ -67,7 +67,7 @@ const SOURCES = {
       ['money.relayr-test', 'test/transactions/relayr-orchestration.test.ts'],
       ['money.safe-test', 'test/transactions/safe-orchestration.test.ts'],
       ['money.builders-test', 'test/contracts/transaction-builders.test.ts'],
-      ['money.cashout-test', 'test/contracts/cash-out.test.ts'],
+      ['money.cashout-test', 'test/contracts/cash out.test.ts'],
       ['money.launch-test', 'test/contracts/launch.test.ts'],
       ['money.claims-test', 'test/contracts/sucker-claim-status.test.ts'],
     ],
@@ -99,7 +99,7 @@ const SOURCES = {
       ['revnet.relayr-hook', 'src/hooks/useReviewedRelayr.ts'],
       ['revnet.pay-test', 'test/pay-route.test.ts'],
       ['revnet.router-test', 'test/buyback-router-dialog.test.tsx'],
-      ['revnet.cashout-test', 'test/cash-out-quote.test.ts'],
+      ['revnet.cashout-test', 'test/cash out-quote.test.ts'],
       ['revnet.loans-test', 'test/loan-transactions.test.ts'],
       ['revnet.account-test', 'test/account-holdings.test.ts'],
       ['revnet.query-test', 'test/bendystraw-operations.test.ts'],
@@ -343,7 +343,7 @@ const FEATURES: DevelopmentFeature[] = [
   ),
   feature(
     'cashouts',
-    'Cash-out quote selection, hook settlement and net proceeds',
+    'Cash out quote selection, hook settlement and net proceeds',
     ['indexed-queries', 'review-pipeline'],
     [
       action(
@@ -354,7 +354,7 @@ const FEATURES: DevelopmentFeature[] = [
       ),
       action(
         'build',
-        'Prepare protected cash-out or direct-sale calldata using fresh state; preserve hook specifications and output floor.',
+        'Prepare protected cash out or direct-sale calldata using fresh state; preserve hook specifications and output floor.',
         sdk('sdk.cashout', 'prepareBestCashOut'),
         sdk('sdk.cashout', 'buildCashOutTx'),
       ),
@@ -366,7 +366,7 @@ const FEATURES: DevelopmentFeature[] = [
       ),
     ],
     [
-      'Cash-out surplus differs from treasury balance and payout availability.',
+      'Cash out surplus differs from treasury balance and payout availability.',
       'A failed quote is unavailable, not zero; do not substitute a different currency for an accounting-context token.',
       'The app examples have application-specific route and display behavior; use the live hook-aware SDK result for execution.',
     ],
@@ -422,13 +422,13 @@ const FEATURES: DevelopmentFeature[] = [
     [
       action(
         'read',
-        'Read actual hook-aware payment and cash-out quotes and compare protected outputs before selecting issuance or AMM settlement.',
+        'Read actual hook-aware payment and cash out quotes and compare protected outputs before selecting issuance or AMM settlement.',
         sdk('sdk.pay', 'previewPay'),
         sdk('sdk.cashout', 'getHookAwareCashOutQuote'),
       ),
       action(
         'build',
-        'Model buyback pool, TWAP and hook settings with exact authority calls; use verified quote metadata for cash-outs.',
+        'Model buyback pool, TWAP and hook settings with exact authority calls; use verified quote metadata for cash outs.',
         binding('money.builders', 'buildBuybackHookAuthorityCall'),
         binding('money.builders', 'buildSetBuybackTwapAuthorityCall'),
         sdk('sdk.cashout', 'buildBuybackCashOutMetadata'),
