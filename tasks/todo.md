@@ -129,3 +129,15 @@ Shared resources: /Users/jango/Documents/jb/v6/evm/AGENTS.md, /Users/jango/Docum
 - [x] `/api` page hero, cards, glossary and nav
 - [x] Quickstart, API guide and transactions tightened
 - [x] Render check, PR
+
+## Documentation copy rewrite, part B: README as the front page (2026-11-12)
+## Plan refinement
+- **Objective:** Accepted audit decision 2: the README answers "what is this and where do I go" on its first screen, keeps RPC and IPFS usage, and leaves configuration to the operations guide.
+- **System fit:** Copy only. The home page links `#read-ethereum-rpc` and `#pin-and-read-ipfs-content`, and the MCP README links `#run-it`, so those headings stay. The intent sections go because the intents guide already documents every one of those routes.
+- **Reuse and simplicity:** Configuration, origin lists, MCP hosting, IPFS cache and RPC internals move verbatim into `docs/rest/PRODUCTION_OPERATIONS.md`; nothing is rewritten in the move.
+- **Evidence and unknowns:** Each intent route in the old README appears in the intents guide (checked by grep, 2 to 16 mentions each). The bundled MCP knowledge file still holds an older README and is refreshed separately.
+- **Verification:** Full vitest run, anchor check for the three linked headings, link check on moved text.
+- **Resource budget:** One PR, one CI run. Merge only on jango's word.
+- [x] README rewritten around a "where to go" table
+- [x] Configuration and internals moved to the operations guide
+- [x] Tests and anchors checked
