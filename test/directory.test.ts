@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { directorySections, repositoryGroupId, repositoryGroups, workInProgress } from "../src/directory.js";
+import { auditLinks, directorySections, repositoryGroupId, repositoryGroups, workInProgress } from "../src/directory.js";
 import { HOMEPAGE_CSS, HOMEPAGE_HTML } from "../src/homepage.js";
 import { llmsIndex } from "../src/llms.js";
 
 const origin = "https://juicebox.center";
-const links = [...directorySections.flatMap((section) => section.links), ...workInProgress];
+const finishedLinks = [...directorySections.flatMap((section) => section.groups.flatMap((group) => group.links)), ...auditLinks];
+const links = [...finishedLinks, ...workInProgress];
 const urls = [...links.map((link) => link.url), ...repositoryGroups.flatMap((group) => group.links.map((link) => link.url))];
 
 describe("directory", () => {
@@ -15,6 +16,8 @@ describe("directory", () => {
       else if (!url.startsWith("/")) expect(new URL(url).protocol, url).toBe("https:");
     }
     for (const section of directorySections) expect(ids).toContain(section.id);
+    // Fragments other pages may already link.
+    for (const id of ["apps", "projects", "developers", "api", "agents", "auditors", "wip", "repositories"]) expect(ids).toContain(id);
     expect(new Set(directorySections.map((section) => section.id)).size).toBe(directorySections.length);
     for (const group of repositoryGroups) expect(ids).toContain(repositoryGroupId(group.title));
   });
@@ -28,7 +31,7 @@ describe("directory", () => {
   });
 
   it("keeps unfinished tools out of the finished sections, each with its status", () => {
-    const finished = new Set(directorySections.flatMap((section) => section.links.map((link) => link.url)));
+    const finished = new Set(finishedLinks.map((link) => link.url));
     for (const tool of workInProgress) {
       expect(finished.has(tool.url), tool.name).toBe(false);
       expect(tool.note).not.toBe("");
