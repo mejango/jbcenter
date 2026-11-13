@@ -151,4 +151,15 @@ Shared resources: /Users/jango/Documents/jb/v6/evm/AGENTS.md, /Users/jango/Docum
 - **Resource budget:** One PR, one CI run. Merge only on jango's word.
 - [x] Rules deduplicated to one home each
 - [x] Sponsor internals moved to operations
+
+## Documentation copy rewrite, part D: contract, indexer and omnichain guides (2026-11-12)
+## Plan refinement
+- **Objective:** Accepted audit decision 4: the three read guides show the routes an API user calls, with curl, parameters and what the result does and does not prove. Service internals leave the published guides.
+- **System fit:** Copy only. The guides keep their file names and published slugs. Internals move verbatim to `docs/rest/MAINTAINERS.md`, which the site does not publish.
+- **Reuse and simplicity:** Parameters come from the route handlers in `src/rest/app.ts`; the contract read example is a real production response. No new structure beyond the one maintainer file.
+- **Evidence and unknowns:** `/protocol/read` was run live. The indexer and bendystraw omnichain routes accepted the documented parameters but production returned `INDEXER_UPSTREAM_HTTP_ERROR` for every indexer read, so those examples are checked against the handlers, not a live response.
+- **Verification:** Full vitest run, inbound anchor grep (none), parameter lists compared with the handlers.
+- **Resource budget:** One PR, one CI run. Merge only on jango's word.
+- [x] Three guides rewritten around routes
+- [x] Internals moved to the maintainer file
 - [x] Tests and anchors checked
