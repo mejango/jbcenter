@@ -1,3 +1,4 @@
+import { createSafeGateway } from "./safeService.js";
 import { createHttpHandler, createMcpServer } from "@juicebox/mcp/host";
 import type { Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -66,6 +67,7 @@ const deploymentVerifier = new RpcDeploymentVerifier(
 );
 const store = new PostgresStore(pool);
 const rpc = createRpcGateway(rpcUpstreams);
+const safe = process.env.SAFE_API_KEY ? createSafeGateway(process.env.SAFE_API_KEY) : undefined;
 const pinning = filebaseRpcToken && pinataJwt
   ? new RedundantIpfsPinning(new FilebaseRpcStorage(filebaseRpcToken), pinataJwt)
   : undefined;
@@ -121,6 +123,9 @@ const app = createApp(store, {
     maxStorageBytesPerClient: positiveInteger("MAX_STORAGE_BYTES_PER_CLIENT", 1_073_741_824),
     mcpMaxIntents: positiveInteger("MCP_MAX_INTENTS", 100_000),
     mcpMaxStorageBytes: positiveInteger("MCP_MAX_STORAGE_BYTES", 10_737_418_240),
+    ...(safe ? { safe } : {}),
+    safeRequestLimitPerMinute: positiveInteger("SAFE_REQUEST_LIMIT_PER_MINUTE", 120),
+    safeSiteLimitPerSecond: positiveInteger("SAFE_SITE_LIMIT_PER_SECOND", 5),
     rpcRequestLimitPerMinute: positiveInteger("RPC_REQUEST_LIMIT_PER_MINUTE", 600),
     rpcSiteLimitPerMinute,
     rpcPublicRequestLimitPerMinute: positiveInteger("RPC_PUBLIC_REQUEST_LIMIT_PER_MINUTE", 120),

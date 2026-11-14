@@ -48,6 +48,17 @@ upstreams for fail-closed deployment verification.
 
 - `RATE_LIMIT_PER_MINUTE`: shared PostgreSQL-backed limit per named API client; default `600`.
 - `RPC_REQUEST_LIMIT_PER_MINUTE`: per browser/IP or named-client RPC requests; default `600`.
+- `SAFE_API_KEY`: optional server-only Safe Transaction Service bearer token. When absent,
+  `/v1/safe/...` returns 503. Configure it in the Center hosting environment, never client build
+  variables or source. The server connects directly to `api.safe.global`; browser-origin restrictions
+  on the provider key are not a substitute for Center's own site policy.
+- `SAFE_REQUEST_LIMIT_PER_MINUTE`: Safe requests per trusted browser caller; default `120`.
+- `SAFE_SITE_LIMIT_PER_SECOND`: Safe requests shared across callers and replicas; default `5`.
+  Match this to the Safe account's allowance. All keys on one Safe account share its provider quota.
+  The proxy passes through upstream `429`, `Retry-After`, and `X-RateLimit-Reset` without retrying;
+  reset values are durations in seconds. Monthly quota exhaustion requires account quota recovery.
+  Center's origin allowlist is browser policy, not cryptographic authentication of arbitrary HTTP clients;
+  the shared budget also bounds callers that spoof an Origin header.
 - `RPC_SITE_LIMIT_PER_MINUTE`: shared RPC requests across all clients; default `20000`.
 - `RPC_PUBLIC_REQUEST_LIMIT_PER_MINUTE`: keyless RPC requests per IP from untrusted origins; default `120`.
 - `RPC_PUBLIC_SITE_LIMIT_PER_MINUTE`: shared keyless RPC budget across untrusted origins; default `5000`.

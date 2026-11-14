@@ -1,3 +1,4 @@
+import { SAFE_BODY_LIMIT, SAFE_RESPONSE_HEADERS, SafeBadRequest, SafeUnavailable, type SafeGateway } from "./safeService.js";
 import { bodyLimit } from "hono/body-limit";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
@@ -100,6 +101,9 @@ export type AppOptions = {
   ipfsCache?: IpfsDiskCache;
   maxMediaBytes?: number;
   rpc?: RpcGateway;
+  safe?: SafeGateway;
+  safeRequestLimitPerMinute?: number;
+  safeSiteLimitPerSecond?: number;
   rpcRequestLimitPerMinute?: number;
   rpcSiteLimitPerMinute?: number;
   /** Keyless RPC from any origin (IPFS-hosted sites like juicescan): per-IP and shared budgets. */
@@ -234,6 +238,7 @@ function internalCall(c: Context<JbcenterEnv>): boolean {
 }
 
 const pinPath = (path: string) => path.startsWith("/v1/pins/");
+const safePath = (path: string) => path.startsWith("/v1/safe/");
 const rpcPath = (path: string) => path.startsWith("/v1/rpc/");
 function callerIp(c: Context): string {
   return (
@@ -417,6 +422,12 @@ export function createApp(
     if (error instanceof PinFailed) {
       return c.json({ error: { code: "pin_failed", message: error.message } }, 502);
     }
+    if (error instanceof SafeBadRequest) {
+      return c.json({ error_msg: error.message }, 400);
+    }
+    if (error instanceof SafeUnavailable) {
+      return c.json({ error_msg: error.message }, 502);
+    }
     if (error instanceof RpcBadRequest) {
       return c.json({ error: { code: "rpc_bad_request", message: error.message } }, 400);
     }
@@ -538,6 +549,7 @@ export function createApp(
             : null,
       allowHeaders: ["Authorization", "Content-Type"],
       allowMethods: ["GET", "POST", "OPTIONS"],
+      exposeHeaders: [...SAFE_RESPONSE_HEADERS],
       maxAge: 86_400,
     }),
   );
@@ -572,11 +584,18 @@ export function createApp(
         c.json({ error: { code: "body_too_large", message: "Request body is too large" } }, 413),
     }),
   );
+  app.use("/v1/safe/*", bodyLimit({
+    maxSize: SAFE_BODY_LIMIT,
+    onError: (c) => c.json({ error_msg: "Safe service request body is too large" }, 413),
+  }));
   app.use("/v1/*", async (c, next) => {
+    const safe = safePath(c.req.path);
     const pin = pinPath(c.req.path);
     const rpc = rpcPath(c.req.path);
     const publicRpc = rpc && c.get("client").startsWith("public:");
-    const limit = pin
+    const limit = safe
+      ? (options.safeRequestLimitPerMinute ?? 120)
+      : pin
       ? PIN_PER_CALLER
       : publicRpc
         ? (options.rpcPublicRequestLimitPerMinute ?? 120)
@@ -585,7 +604,7 @@ export function createApp(
           : (options.requestLimitPerMinute ?? 600);
     const client = c.get("client");
     const windowSeconds = pin ? PIN_WINDOW_SECONDS : 60;
-    const result = await store.consumeRequest(pin ? `pin:${client}` : rpc ? `rpc:${client}` : client, limit, windowSeconds);
+    const result = await store.consumeRequest(safe ? `safe:${client}` : pin ? `pin:${client}` : rpc ? `rpc:${client}` : client, limit, windowSeconds);
     c.header("X-RateLimit-Limit", String(limit));
     c.header("X-RateLimit-Remaining", String(result.remaining));
     if (!result.allowed) {
@@ -594,6 +613,13 @@ export function createApp(
         { error: { code: "rate_limit", message: "Request limit exceeded" } },
         429,
       );
+    }
+    if (safe) {
+      const site = await store.consumeRequest("safe:site", options.safeSiteLimitPerSecond ?? 5, 1);
+      if (!site.allowed) {
+        c.header("Retry-After", "1");
+        return c.json({ error_msg: "The shared Safe request budget is spent" }, 429);
+      }
     }
     if (pin) {
       const site = await store.consumeRequest("pin:site", PIN_PER_SITE, PIN_WINDOW_SECONDS);
@@ -623,6 +649,11 @@ export function createApp(
       }
     }
     await next();
+  });
+
+  app.on(["GET", "POST"], "/v1/safe/*", async (c) => {
+    if (!options.safe) return c.json({ error_msg: "Safe transaction service is not configured" }, 503);
+    return options.safe.request(c.req.raw);
   });
 
   app.post("/v1/rpc/:chainId", async (c) => {

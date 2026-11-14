@@ -95,6 +95,7 @@ JSON-RPC endpoint:
 ```http
 POST /v1/rpc/:chainId
 Content-Type: application/json
+```
 
 One request at a time, read methods only. Sending, signing, wallet, debug, trace, admin and txpool
 methods are rejected. Log queries need a block hash, a `latest` poll or a range of at most 50,000
@@ -102,6 +103,17 @@ blocks. Requests are capped at 256 KiB and responses at 5 MiB.
 
 First-party origins get 600 requests per minute. Every other caller is served without a key at 120
 per minute per IP.
+
+## Use Safe's transaction service
+
+Trusted browser sites use `/v1/safe/:prefix/api/v1/...` for Safe queue reads, signed proposals,
+confirmations, owner discovery and Safe creation records. Prefixes are `eth`, `oeth`, `base`,
+`arb1`, `sep` and `basesep`. The server adds its `SAFE_API_KEY`; clients never receive it and
+continue to sign and verify their own transactions. Other Safe API operations are not proxied.
+
+This route uses the existing trusted-origin list, with separate per-caller and shared budgets.
+It is unavailable until the server key is configured. Upstream quota errors and reset headers
+are returned without retrying. See [configuration](docs/rest/PRODUCTION_OPERATIONS.md#configuration).
 
 ## Edit the directory
 

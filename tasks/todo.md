@@ -163,3 +163,26 @@ Shared resources: /Users/jango/Documents/jb/v6/evm/AGENTS.md, /Users/jango/Docum
 - [x] Three guides rewritten around routes
 - [x] Internals moved to the maintainer file
 - [x] Tests and anchors checked
+
+
+## 2026-11-13: Trusted-site Safe API through Center
+
+## Plan refinement
+- **Objective:** Center keeps SAFE_API_KEY server-side and proxies Safe Transaction Service requests from its existing trusted sites; revnet and juicebox.money use the proxy, eliminating browser-key setup. Success includes authenticated upstream calls, exact response/status propagation and no key exposure.
+- **System fit:** Existing Center /v1 origin policy and Store budgets govern the new narrow proxy; SDK owns Safe endpoint selection and retry behavior; both client roots opt into their existing Center environment. Signing, Safe hash verification and execution stay in existing owners. Deployment/key configuration are separate from tested local code; user supplies key via server environment.
+- **Reuse and simplicity:** Reuse fixed Safe chain prefixes and existing origin/rate-limit/body/fetch patterns. Add a narrow SDK configuration point rather than app-local Safe transports or persisted localStorage mutations. No arbitrary target URLs, no new dependency, no server-side transaction signing.
+- **Evidence and unknowns:** Current origin/main Center f6b033b and SDK641e385 are newer than dirty local checkouts; use isolated worktrees. Installed SDK requests directly and retries monthly429. Safe API docs confirm bearer auth and account quotas. Center trusts exact configured origins; origin checks are browser policy, not cryptographic caller authentication, so shared/per-client limits remain necessary.
+- **Verification:** Proxy tests cover allowed/denied origins, endpoint/method/path validation, credential forwarding and non-disclosure, redirects, upstream errors, size/time limits and budgets. SDK tests cover opt-in routing, preserved default/custom routes and monthly-quota no-retry. Run relevant checks and both full client suites before any proposed push; no publishing or main pushes without approval.
+- **Resource budget:** Delegate Center implementation and SDK implementation separately after this plan gate; parent integrates paired clients and reviews boundaries. Reuse dependencies only with matching lockfiles; serialize heavy gates. Replan on missing auth/hosting capability rather than broadening proxy access or exposing the key.
+
+- [x] Implement and test bounded Center Safe proxy.
+- [ ] Implement SDK opt-in routing and quota retry handling.
+- [ ] Integrate revnet and juicebox.money together, verify with candidate SDK.
+- [ ] Review changes and document exact deployment/key activation steps and outstanding authorization.
+
+### Center implementation review, 2026-11-14
+- Implemented /v1/safe/:prefix/api/v1/... for the six SDK endpoint forms, with existing trusted-origin rules, separate per-caller and shared SQL budgets, optional server-only SAFE_API_KEY, fixed upstream, redirect refusal, cancellation/timeouts and bounded request/response bodies. Exact signed request text and JSON/status responses are retained; only allowlisted quota headers pass back, with credential redaction on upstream echoes.
+- Extracted boundedText from the existing RPC reader before adding Safe use; all37 RPC regressions passed before implementation. Focused proxy/RPC/app checks then passed96 tests, including chunked POST bodyLimit integration.
+- Full required npm run check passed on Node26.13.1 and a dedicated PostgreSQL16 database: MCP559 tests across28 files, service903 tests across44 files, MCP formatting/types/build/catalog, Center types and production build. Evidence: .generated/checks/2026-11-14T03-03-57.155Z-268fdfb0/summary.json; full log /tmp/center-safe-api-check.log.
+- First full attempt found the copied dependency tree missing the MCP-local SDK fixture path. Restored MCP dependencies using npm ci --prefix mcp --ignore-scripts --offline from its exact lock, then reran the entire gate successfully. No manifest or lock changes.
+- After the full gate, closed a pre-existing missing README code fence so the added Safe section renders as a heading, and validated rendering; remaining changes afterward are this task journal. No pushes, commits or deployment performed by this agent.
