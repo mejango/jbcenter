@@ -164,6 +164,18 @@ Shared resources: /Users/jango/Documents/jb/v6/evm/AGENTS.md, /Users/jango/Docum
 - [x] Internals moved to the maintainer file
 - [x] Tests and anchors checked
 
+## Plan refinement
+- **Objective:** Let a site with no fixed origin (Juicescan on IPFS gateways) pin project metadata JSON and images through Center, as jango ruled on 2026-11-13: accept with an IP budget.
+- **System fit:** The RPC gateway already admits any origin as client public:<ip> under its own budgets. Small pins join that lane. Media, intents and search stay first-party.
+- **Reuse and simplicity:** Same gate branch, same CORS branch and the same fixed-window limiter. One new constant: a shared pin:public bucket of 50 per 10 minutes, so public pins cannot spend the trusted sites' bucket.
+- **Evidence and unknowns:** The client IP comes from x-real-ip or x-forwarded-for; whether Railway's edge overwrites both was not verified here, same as for public RPC.
+- **Verification:** test/ipfs.test.ts covers the public preflight, per-IP limit, the shared public bucket, untouched pin:site, an originless image pin and media refusal. Full vitest and typecheck pass.
+- **Resource budget:** One small diff in src/app.ts plus tests and the README line.
+
+- [x] Admit /v1/pins/json and /v1/pins/file from any origin as public:<ip>.
+- [x] Separate shared bucket and CORS for those two routes.
+- [x] Tests and README.
+
 
 ## 2026-11-13: Trusted-site Safe API through Center
 
@@ -197,5 +209,10 @@ Shared resources: /Users/jango/Documents/jb/v6/evm/AGENTS.md, /Users/jango/Docum
 - **Verification:** Focused app/Safe/RPC tests plus full required Center check on Node26.13.1 and dedicated PostgreSQL16, because common middleware changes.
 - **Resource budget:** One merge resolution and serialized full gate; no deployment or production-state changes from this agent.
 
-- [ ] Merge main and resolve middleware while preserving both policies.
-- [ ] Verify and push merge resolution to PR branch.
+- [x] Merge main and resolve middleware while preserving both policies.
+- [x] Verify merge resolution; authorized branch push follows the merge commit.
+
+### Public-pin merge review
+- Merged origin/main f059c0e without rebasing. app.ts combined cleanly and was reviewed: only read RPC and exact JSON/image pin routes admit public origins; Safe remains trusted-only with independent budgets. Resolved the task-journal conflict by preserving both records. Added an explicit IPFS-origin Safe refusal assertion.
+- Focused app/IPFS/Safe/RPC tests passed132; server tests required local-listener escalation. Full required gate then passed on Node26.13.1/PG16: MCP559 tests and service905 tests, all types/build/catalog checks. Evidence .generated/checks/2026-11-14T03-22-46.040Z-b20c92d3/summary.json; log /tmp/center-safe-api-merge-check.log.
+- Parent requested a separate combined SDK307+308 candidate compatibility run before release. This merge gate uses the currently locked core6.4.0; candidate evidence will be reported separately. Parent retains responsibility for PR merge after CI.

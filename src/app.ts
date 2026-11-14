@@ -71,6 +71,7 @@ export const ALLOWED_ORIGINS = originsForEnvironment();
 const PIN_WINDOW_SECONDS = 10 * 60;
 const PIN_PER_CALLER = 10;
 const PIN_PER_SITE = 200;
+const PIN_PER_PUBLIC = 50;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const TX_HASH = /^0x[0-9a-f]{64}$/iu;
 /** Both sponsored-deploy refusals reset on a rolling day. */
@@ -240,6 +241,8 @@ function internalCall(c: Context<JbcenterEnv>): boolean {
 const pinPath = (path: string) => path.startsWith("/v1/pins/");
 const safePath = (path: string) => path.startsWith("/v1/safe/");
 const rpcPath = (path: string) => path.startsWith("/v1/rpc/");
+/** Metadata and image pins are open to any origin under IP budgets; large media stays first-party. */
+const publicPinPath = (path: string) => path === "/v1/pins/json" || path === "/v1/pins/file";
 function callerIp(c: Context): string {
   return (
     c.req.header("x-real-ip") ??
@@ -523,9 +526,9 @@ export function createApp(
     // Only the currently published explorer gets the browser RPC budget, not write or wallet trust.
     const publishedExplorerRpc = rpcPath(c.req.path) && origin === JUICESCAN_RPC_ORIGIN;
     if (!trustedOrigin && !publishedExplorerRpc) {
-      // The read-only RPC gateway is open to any origin (sites served from IPFS have no stable
-      // origin to allowlist) under its own tighter budgets, keyed by IP.
-      if (rpcPath(c.req.path)) {
+      // The read-only RPC gateway and small pins are open to any origin (sites served from IPFS
+      // have no stable origin to allowlist) under their own tighter budgets, keyed by IP.
+      if (rpcPath(c.req.path) || publicPinPath(c.req.path)) {
         c.set("client", `public:${callerIp(c)}`);
         await next();
         return;
@@ -544,7 +547,7 @@ export function createApp(
       origin: (origin, c) =>
         allowedOrigins.some((allowed) => allowed === origin)
           ? origin
-          : rpcPath(c.req.path)
+          : rpcPath(c.req.path) || publicPinPath(c.req.path)
             ? "*"
             : null,
       allowHeaders: ["Authorization", "Content-Type"],
@@ -622,7 +625,13 @@ export function createApp(
       }
     }
     if (pin) {
-      const site = await store.consumeRequest("pin:site", PIN_PER_SITE, PIN_WINDOW_SECONDS);
+      // Public pins spend their own shared budget so they can never starve the trusted sites.
+      const publicPin = client.startsWith("public:");
+      const site = await store.consumeRequest(
+        publicPin ? "pin:public" : "pin:site",
+        publicPin ? PIN_PER_PUBLIC : PIN_PER_SITE,
+        PIN_WINDOW_SECONDS,
+      );
       if (!site.allowed) {
         c.header("Retry-After", String(PIN_WINDOW_SECONDS));
         return c.json(

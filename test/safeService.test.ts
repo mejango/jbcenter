@@ -33,7 +33,7 @@ describe("trusted Safe service proxy", () => {
 
   it("denies absent, untrusted and development origins before spending the upstream key", async () => {
     const { app, fetcher } = setup();
-    for (const origin of [undefined, "https://evil.example", "https://dev.revnet.money", "https://revnet.money.evil.example"]) {
+    for (const origin of [undefined, "https://evil.example", "https://dev.revnet.money", "https://revnet.money.evil.example", "https://bafy.ipfs.inbrowser.link"]) {
       const response = await app.request(BASE + TRANSACTION, { headers: origin ? { origin } : {} });
       expect(response.status).toBe(403);
     }
