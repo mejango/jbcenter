@@ -163,3 +163,15 @@ Shared resources: /Users/jango/Documents/jb/v6/evm/AGENTS.md, /Users/jango/Docum
 - [x] Three guides rewritten around routes
 - [x] Internals moved to the maintainer file
 - [x] Tests and anchors checked
+
+## Plan refinement
+- **Objective:** Let a site with no fixed origin (Juicescan on IPFS gateways) pin project metadata JSON and images through Center, as jango ruled on 2026-11-13: accept with an IP budget.
+- **System fit:** The RPC gateway already admits any origin as client public:<ip> under its own budgets. Small pins join that lane. Media, intents and search stay first-party.
+- **Reuse and simplicity:** Same gate branch, same CORS branch and the same fixed-window limiter. One new constant: a shared pin:public bucket of 50 per 10 minutes, so public pins cannot spend the trusted sites' bucket.
+- **Evidence and unknowns:** The client IP comes from x-real-ip or x-forwarded-for; whether Railway's edge overwrites both was not verified here, same as for public RPC.
+- **Verification:** test/ipfs.test.ts covers the public preflight, per-IP limit, the shared public bucket, untouched pin:site, an originless image pin and media refusal. Full vitest and typecheck pass.
+- **Resource budget:** One small diff in src/app.ts plus tests and the README line.
+
+- [x] Admit /v1/pins/json and /v1/pins/file from any origin as public:<ip>.
+- [x] Separate shared bucket and CORS for those two routes.
+- [x] Tests and README.

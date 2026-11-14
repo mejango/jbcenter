@@ -642,7 +642,7 @@ describe("JB Center API", () => {
     // Public callers still share their per-IP lane; the explorer did not spend it.
     for (let index = 3; index < 120; index++) expect((await request("https://unknown.example")).status).toBe(200);
     expect((await request("https://unknown.example")).status).toBe(429);
-    for (const path of ["/v1/search", "/v1/intents", "/v1/pins/json"]) {
+    for (const path of ["/v1/search", "/v1/intents", "/v1/pins/media"]) {
       const response = await app.request(path, {
         method: path === "/v1/search" ? "GET" : "POST",
         headers: { "content-type": "application/json", origin },

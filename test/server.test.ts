@@ -267,7 +267,7 @@ describe("Center and MCP share one HTTP listener", () => {
     expect(received?.equals(Buffer.from(body))).toBe(true);
     expect(pinning.pin).toHaveBeenCalledOnce();
     expect((await post(url, JSON.parse(body))).status).toBe(413);
-    const denied = await post(`${base}/v1/pins/json`, { name: "not authorized" });
+    const denied = await post(`${base}/v1/pins/media`, { name: "not authorized" });
     expect(denied.status).toBe(403);
     expect(pinning.pin).toHaveBeenCalledOnce();
   });
