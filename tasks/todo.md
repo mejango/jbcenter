@@ -186,3 +186,16 @@ Shared resources: /Users/jango/Documents/jb/v6/evm/AGENTS.md, /Users/jango/Docum
 - Full required npm run check passed on Node26.13.1 and a dedicated PostgreSQL16 database: MCP559 tests across28 files, service903 tests across44 files, MCP formatting/types/build/catalog, Center types and production build. Evidence: .generated/checks/2026-11-14T03-03-57.155Z-268fdfb0/summary.json; full log /tmp/center-safe-api-check.log.
 - First full attempt found the copied dependency tree missing the MCP-local SDK fixture path. Restored MCP dependencies using npm ci --prefix mcp --ignore-scripts --offline from its exact lock, then reran the entire gate successfully. No manifest or lock changes.
 - After the full gate, closed a pre-existing missing README code fence so the added Safe section renders as a heading, and validated rendering; remaining changes afterward are this task journal. No pushes, commits or deployment performed by this agent.
+
+## 2026-11-14: Integrate public pins main into Safe proxy PR111
+
+## Plan refinement
+- **Objective:** Resolve PR111 merge conflict with origin/main f059c0e while retaining public JSON/image pins and trusted-only Safe access.
+- **System fit:** Both changes share Center origin/CORS/budget middleware; preserve their independent path predicates and quota buckets, with no broader Safe authority.
+- **Reuse and simplicity:** Merge main without rebasing, combine existing clauses, and reuse both suites rather than duplicate policy helpers.
+- **Evidence and unknowns:** Reviewed main's publicPinPath additions and independent pin:public budget. User authorized merge/release; this delegated task only commits/pushes the branch, parent handles PR merge after CI.
+- **Verification:** Focused app/Safe/RPC tests plus full required Center check on Node26.13.1 and dedicated PostgreSQL16, because common middleware changes.
+- **Resource budget:** One merge resolution and serialized full gate; no deployment or production-state changes from this agent.
+
+- [ ] Merge main and resolve middleware while preserving both policies.
+- [ ] Verify and push merge resolution to PR branch.
