@@ -54,7 +54,9 @@ and the [tool catalog](mcp/docs/TOOLS.md).
 
 ## Pin and read IPFS content
 
-Approved browser origins pin through these routes. Agents and scripts pin through MCP.
+Approved browser origins pin through these routes. Any other caller, such as a site served from
+IPFS, can pin JSON and images under a public budget of 10 pins per 10 minutes per IP. Media stays
+with approved origins. Agents pin through MCP.
 
 ```http
 POST /v1/pins/json   Content-Type: application/json       # 2 MiB

@@ -146,28 +146,70 @@ describe("IPFS pinning", () => {
     "https://metalog-production.up.railway.app",
     "https://www.metalog.money",
     "https://metalog.money.example.com",
-  ])("does not admit unconfigured Metalog-related origin %s", async (origin) => {
+  ])("gives unconfigured Metalog-related origin %s the public budget, not first-party trust", async (origin) => {
     const pinning = pinningMock();
-    const response = await app(pinning).request("/v1/pins/json", jsonRequest("{}", origin));
-    expect(response.status).toBe(403);
-    expect(response.headers.get("access-control-allow-origin")).toBeNull();
-    expect(pinning.pin).not.toHaveBeenCalled();
+    const store = new PinStore();
+    const response = await app(pinning, store).request("/v1/pins/json", jsonRequest("{}", origin));
+    expect(response.status).toBe(201);
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expect([...store.requests.keys()]).toEqual(["pin:public:203.0.113.1", "pin:public"]);
   });
 
-  it("rejects foreign and originless callers", async () => {
+  it("pins JSON and images for any origin under the public budgets, keyed by IP", async () => {
     const pinning = pinningMock();
-    const foreign = await app(pinning).request(
+    const store = new PinStore();
+    const service = app(pinning, store);
+    const preflight = await service.request("/v1/pins/json", {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://bafyexample.ipfs.inbrowser.link",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type",
+      },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe("*");
+    expect(store.requests.size).toBe(0);
+
+    const responses = [];
+    for (let index = 0; index < 11; index += 1) {
+      responses.push(
+        await service.request("/v1/pins/json", jsonRequest("{}", "https://bafyexample.ipfs.inbrowser.link")),
+      );
+    }
+    expect(responses.slice(0, 10).every(({ status }) => status === 201)).toBe(true);
+    expect(responses[10]?.status).toBe(429);
+    // The trusted sites' shared bucket is untouched.
+    expect(store.requests.has("pin:site")).toBe(false);
+
+    const body = new FormData();
+    body.set("file", new File([new Uint8Array([1])], "logo.png", { type: "image/png" }));
+    const image = await app(pinning).request("/v1/pins/file", {
+      method: "POST",
+      headers: { "x-real-ip": "203.0.113.9" },
+      body,
+    });
+    expect(image.status).toBe(201);
+  });
+
+  it("stops public pins when their shared budget is spent", async () => {
+    const store = new PinStore();
+    store.requests.set("pin:public", 50);
+    const response = await app(pinningMock(), store).request(
       "/v1/pins/json",
       jsonRequest("{}", "https://example.com"),
     );
-    expect(foreign.status).toBe(403);
+    expect(response.status).toBe(429);
+    expect((await response.json()).error.code).toBe("pin_budget");
+  });
 
-    const originless = await app(pinning).request("/v1/pins/json", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}",
-    });
-    expect(originless.status).toBe(403);
+  it("keeps large media first-party", async () => {
+    const pinning = pinningMock();
+    for (const headers of [{ origin: "https://example.com" }, {}]) {
+      const response = await app(pinning).request("/v1/pins/media", { method: "POST", headers, body: "x" });
+      expect(response.status).toBe(403);
+    }
+    expect(pinning.pinStream).not.toHaveBeenCalled();
   });
 
   it("rejects missing providers, malformed JSON, and oversized JSON", async () => {
