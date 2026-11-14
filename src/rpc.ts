@@ -1,3 +1,4 @@
+import { boundedText } from "./boundedText.js";
 const RPC_METHODS: ReadonlySet<string> = new Set([
   "eth_blobBaseFee",
   "eth_blockNumber",
@@ -180,54 +181,11 @@ export function parseRpcRequest(value: unknown): RpcRequest {
   return request;
 }
 
-async function boundedJson(
-  response: Response,
-  signal: AbortSignal,
-  responseLimit: number,
-): Promise<unknown> {
-  const reader = response.body?.getReader();
-  const cancel = (reason: unknown) => {
-    // Cancellation must not wait for an upstream's cancellation hook to settle.
-    void reader?.cancel(reason).catch(() => undefined);
-  };
-  const onAbort = () => cancel(signal.reason);
-  signal.addEventListener("abort", onAbort, { once: true });
-  try {
-    signal.throwIfAborted();
-    const declared = Number(response.headers.get("content-length") ?? 0);
-    if (!Number.isFinite(declared) || declared < 0 || declared > responseLimit) {
-      throw new RpcUnavailable("RPC upstream response is too large");
-    }
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    while (reader) {
-      const { done, value } = await reader.read();
-      signal.throwIfAborted();
-      if (done) break;
-      size += value.byteLength;
-      if (size > responseLimit) {
-        throw new RpcUnavailable("RPC upstream response is too large");
-      }
-      chunks.push(value);
-    }
-    const bytes = new Uint8Array(size);
-    let offset = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    try {
-      return JSON.parse(new TextDecoder().decode(bytes));
-    } catch {
-      throw new RpcUnavailable("RPC upstream returned invalid JSON");
-    }
-  } catch (error) {
-    cancel(error);
-    throw error;
-  } finally {
-    signal.removeEventListener("abort", onAbort);
-    reader?.releaseLock();
-  }
+
+async function boundedJson(response: Response, signal: AbortSignal, limit: number): Promise<unknown> {
+  const text = await boundedText(response, signal, limit, (message) => new RpcUnavailable(`RPC ${message}`));
+  try { return JSON.parse(text); }
+  catch { throw new RpcUnavailable("RPC upstream returned invalid JSON"); }
 }
 
 function normalizeResponse(value: unknown, id: RpcId): Record<string, unknown> | null {
