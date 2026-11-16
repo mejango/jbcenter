@@ -181,6 +181,15 @@ describe("V6 isolation and identity verification", () => {
     await expect(service.list("project", { network: "mainnet", chainId: 8453 })).rejects.toMatchObject({ code: "INDEXER_SCOPE_MISMATCH" });
   });
 
+  it("checks a router call's source project against its source project ID, not the destination", async () => {
+    const input: IndexerReadInput = { network: "mainnet", projectId: "1", fields: ["sourceProject.name"] };
+    const crossing = fixtureService(({ row }) => { row.sourceProjectId = 7; (row.sourceProject as Row).projectId = 7; });
+    const [call] = (await crossing.service.list("routerPendingCall", input)).items;
+    expect(call).toMatchObject({ projectId: "1", sourceProjectId: 7, sourceProject: { projectId: "7" } });
+    const foreign = fixtureService(({ row }) => { row.sourceProjectId = 7; (row.sourceProject as Row).projectId = 9; });
+    await expect(foreign.service.list("routerPendingCall", input)).rejects.toMatchObject({ code: "INDEXER_SCOPE_MISMATCH" });
+  });
+
   it("validates relation chain and project identity even without explicit caller scope", async () => {
     for (const changed of [{ chainId: 1 }, { projectId: 2 }]) {
       const { service } = fixtureService(({ row }) => { Object.assign(row.project as Row, changed); });

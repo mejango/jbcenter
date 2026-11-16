@@ -92,7 +92,65 @@ describe("homepage chat", () => {
     await page.getByRole("button", { name: "New chat" }).click();
     expect(await page.locator("#log").textContent()).toBe("");
     expect(await page.evaluate((key) => localStorage.getItem(key), STORAGE_KEY)).toBeNull();
+    await expect.poll(() => page.locator(".jumps button").first().isVisible()).toBe(true);
+  });
+
+  it("opens the chat view when a chat starts, and leaves it on Back or New chat", async () => {
+    await open([...cited, plain("Second answer.")]);
+    const directory = page.locator("#main"), resume = page.getByRole("link", { name: "Continue chat" });
+    await expect.poll(() => page.locator("#chat").isVisible()).toBe(true);
+    expect(await resume.isVisible()).toBe(false);
+    await page.getByRole("button", { name: "How do cash outs work?" }).click();
+    await idle();
+    // The chat has the page: the directory and the page's title are gone, the question box stays.
+    expect(new URL(page.url()).hash).toBe("#chat");
+    expect(await directory.isVisible()).toBe(false);
+    expect(await page.locator("#chat h1").isVisible()).toBe(false);
+    expect(await page.locator("#chat textarea").isVisible()).toBe(true);
+    // The question box sits at the bottom of the window.
+    const box = (await page.locator("#chat form").boundingBox())!;
+    expect(box.y + box.height).toBeGreaterThan(page.viewportSize()!.height - 80);
+
+    await page.reload();
+    await expect.poll(() => page.locator("#log .you").isVisible()).toBe(true);
+    expect(await directory.isVisible()).toBe(false);
+
+    // Back is the directory, with the conversation one link away.
+    await page.goBack();
+    await expect.poll(() => directory.isVisible()).toBe(true);
+    expect(await page.locator("#log").isVisible()).toBe(false);
     expect(await page.locator(".jumps button").first().isVisible()).toBe(true);
+    await resume.click();
+    await expect.poll(() => page.locator("#log .you").isVisible()).toBe(true);
+    expect(await directory.isVisible()).toBe(false);
+
+    await page.getByRole("button", { name: "New chat" }).click();
+    await expect.poll(() => directory.isVisible()).toBe(true);
+    expect(new URL(page.url()).hash).toBe("");
+    expect(await resume.isVisible()).toBe(false);
+  });
+
+  it("keeps the sources of a grouped citation across a reload", async () => {
+    const other = "https://github.com/Bananapus/nana-core-v6/blob/" + "b".repeat(40) + "/src/JBFees.sol";
+    const stored = { messages: [{ role: "user", text: "q" }, { role: "assistant", text: `Both [${sourceId(upstream)}, ${sourceId(other)}].` }],
+      sources: [{ id: sourceId(upstream), title: "One", url: upstream }, { id: sourceId(other), title: "Two", url: other }] };
+    await open([plain("Next.")], JSON.stringify(stored));
+    await page.getByRole("link", { name: "Continue chat" }).click();
+    await page.locator("#chat textarea").fill("again");
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
+    await idle();
+    await page.reload();
+    await expect.poll(() => page.locator("#log .cited a").allTextContents()).toEqual(["One", "Two"]);
+  });
+
+  it("starts a new conversation when asked from the first page", async () => {
+    await open([plain("Fresh answer.")], JSON.stringify({ messages: [{ role: "user", text: "Old question" }, { role: "assistant", text: "Old answer." }], sources: [] }));
+    await expect.poll(() => page.getByRole("link", { name: "Continue chat" }).isVisible()).toBe(true);
+    await page.locator("#chat textarea").fill("New question");
+    await page.getByRole("button", { name: "Ask" }).click();
+    await idle();
+    expect(JSON.parse(bodies[0]!)).toEqual({ messages: [{ role: "user", text: "New question" }] });
+    expect(await page.locator("#log .you").allTextContents()).toEqual(["New question"]);
   });
 
   it("keeps what arrived when the model fails, and tries again on request", async () => {
@@ -121,7 +179,8 @@ describe("homepage chat", () => {
   it("drops the oldest messages when the conversation is too long, and says so", async () => {
     const messages = [{ role: "user", text: "first" }, { role: "assistant", text: "one" }];
     await open([plain("Answer two.")], JSON.stringify({ messages, sources: [] }));
-    await expect.poll(() => page.locator("#log .you").count()).toBe(1);
+    await page.getByRole("link", { name: "Continue chat" }).click();
+    await expect.poll(() => page.locator("#log .you").isVisible()).toBe(true);
     tooLong = 1;
     await page.locator("#chat textarea").fill("second");
     await page.getByRole("button", { name: "Ask", exact: true }).click();
