@@ -131,6 +131,24 @@ describe("homepage chat", () => {
     expect(await page.locator("#log .you").allTextContents()).toEqual(["second"]);
   });
 
+  it("sends what was in the box when Ask was pressed, even if the chat was still loading", async () => {
+    await open([plain("Answered.")]);
+    let release: (() => void) | undefined;
+    await page.route(/\/assets\/chat\.[0-9a-f]{12}\.js$/, async (route) => { await new Promise<void>((resolve) => { release = resolve; }); await route.fallback(); });
+    // No focus first: the script starts loading only on the submit itself.
+    await page.evaluate(() => {
+      const box = document.querySelector<HTMLTextAreaElement>("#chat textarea")!;
+      box.value = "submitted question";
+      box.form!.requestSubmit();
+      box.value = "unsent edited draft";
+    });
+    await expect.poll(() => release).toBeDefined();
+    release!();
+    await expect.poll(() => page.locator("#log .answer").textContent()).toBe("Answered.");
+    expect(await page.locator("#log .you").textContent()).toBe("submitted question");
+    expect(await page.locator("#chat textarea").inputValue()).toBe("unsent edited draft");
+  });
+
   it("says the chat is resting when the budget is spent", async () => {
     await open([]);
     await page.route(`${origin}/chat`, (route) => route.fulfill({ status: 429, contentType: "application/json", body: '{"error":"resting"}' }));

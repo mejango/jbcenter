@@ -1,12 +1,12 @@
 /** What the form needs on first view. Appended to the directory stylesheet when chat is on. */
 export const CHAT_FIRST_VIEW_CSS = `textarea, button { border: 1px solid var(--line); background: none; font: inherit; color: inherit; }
 textarea { width: 100%; margin: 12px 0 8px; padding: 12px; }
-button { padding: 6px 12px; font-size: 12px; cursor: pointer; }
+button { padding: 6px 12px; font-size: 12px; }
 `;
 
 /** The conversation, loaded with the chat bundle. */
 export const CHAT_CSS = `textarea { resize: vertical; border-radius: 0; }
-button { border-radius: 0; }
+button { border-radius: 0; cursor: pointer; }
 #chat [hidden] { display: none; }
 #chat button:hover { border-color: var(--accent); color: var(--accent); }
 #chat button:disabled { color: var(--muted); border-color: var(--line); cursor: default; }

@@ -7,7 +7,7 @@ export class Metrics {
   private durationMs = 0;
   private inFlight = 0;
   private sponsor = { bundles: 0, paymentsWei: 0n, failures: 0 };
-  private chat = { requests: 0, denials: 0, toolCalls: 0, inputTokens: 0, outputTokens: 0, refusals: 0, errors: 0 };
+  private chat = { requests: 0, denials: 0, toolCalls: 0, inputTokens: 0, outputTokens: 0, refusals: 0, errors: 0, left: 0 };
 
   /** The homepage chat spends model money; counts only, never what was asked or answered. */
   observeChat(event: { denied: true } | { reason: string; toolCalls: number; inputTokens: number; outputTokens: number }): void {
@@ -20,6 +20,7 @@ export class Metrics {
     this.chat.inputTokens += event.inputTokens;
     this.chat.outputTokens += event.outputTokens;
     if (event.reason === "refusal") this.chat.refusals += 1;
+    if (event.reason === "gone") this.chat.left += 1;
     if (event.reason === "error") this.chat.errors += 1;
   }
 
@@ -85,7 +86,7 @@ export class Metrics {
       "# TYPE jbcenter_sponsor_failures_total counter",
       `jbcenter_sponsor_failures_total ${this.sponsor.failures}`,
       ...Object.entries({ requests: this.chat.requests, budget_denials: this.chat.denials, tool_calls: this.chat.toolCalls,
-        input_tokens: this.chat.inputTokens, output_tokens: this.chat.outputTokens, refusals: this.chat.refusals, provider_errors: this.chat.errors,
+        input_tokens: this.chat.inputTokens, output_tokens: this.chat.outputTokens, refusals: this.chat.refusals, provider_errors: this.chat.errors, visitor_left: this.chat.left,
       }).flatMap(([name, count]) => [`# TYPE jbcenter_chat_${name}_total counter`, `jbcenter_chat_${name}_total ${count}`]),
 
     ];

@@ -168,6 +168,9 @@ buckets (`center:chat:reads`, `rpc:chat`), so chat load does not starve `/mcp`.
 - `CHAT_PER_IP_PER_DAY`: default `60`.
 - `CHAT_SITE_PER_DAY`: all visitors together; default `3000`. This is the spending cap.
 
+One question runs at most 12 tool calls. One server process answers at most 16 questions at once;
+the next gets the same resting message with a 10 second retry.
+
 When any of the three budgets is spent, `/chat` returns 429 and the page says
 `Chat is resting. The directory is below.` The directory keeps working.
 
@@ -175,7 +178,8 @@ When any of the three budgets is spent, `/chat` returns 429 and the page says
 so a local or staging server must set that to its own origin. It is the page's endpoint, not an API.
 
 `/metrics` counts `jbcenter_chat_requests_total`, `_budget_denials_total`, `_tool_calls_total`,
-`_input_tokens_total`, `_output_tokens_total`, `_refusals_total` and `_provider_errors_total`.
+`_input_tokens_total`, `_output_tokens_total`, `_refusals_total`, `_provider_errors_total` and
+`_visitor_left_total`. A visitor who leaves mid-answer still counts, with the tokens spent so far.
 Questions and answers are never logged or stored on the server. A provider's error text is not
 logged either, because it can quote the request. Conversations live in the visitor's browser.
 

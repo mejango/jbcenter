@@ -10,7 +10,7 @@ export type ChatEvent =
   | { type: "tool"; name: string; label: string }
   | { type: "source"; source: Source }
   | { type: "error"; message: string }
-  | { type: "done"; reason: "end" | "max_tokens" | "refusal" | "rounds" | "error"; inputTokens: number; outputTokens: number; toolCalls: number };
+  | { type: "done"; reason: "end" | "max_tokens" | "refusal" | "rounds" | "error" | "gone"; inputTokens: number; outputTokens: number; toolCalls: number };
 
 const TRUNCATED = "…[truncated, ask for a smaller page]";
 const CITED = /\[(S-[0-9a-f]{6})\]/g;
@@ -27,14 +27,15 @@ function label({ name, input }: ToolCall): string {
   return `Checking ${name.replace(/^jb_/, "").replaceAll("_", " ")}`;
 }
 
-function refused(name: string): ToolResult {
-  return { schemaVersion: 1, observedAt: new Date().toISOString(), ok: false,
-    error: { code: "TOOL_NOT_AVAILABLE", message: `The tool ${name} is not available here.`, retryable: false } };
-}
+// ponytail: one cap for the whole question, run together. Split per round or queue them if answers need more.
+const MAX_TOOL_CALLS = 12;
+
+const failed = (code: string, message: string): ToolResult =>
+  ({ schemaVersion: 1, observedAt: new Date().toISOString(), ok: false, error: { code, message, retryable: false } });
 
 /**
  * One chat request: the model reads Center's tools until it can answer. Yields what the page shows.
- * A caller that goes away ends the stream without a `done`; every other path ends with one.
+ * Every path ends with one `done`, which carries what was spent; `gone` means the caller left first.
  */
 export async function* runChat(deps: {
   config: ChatConfig; provider: Provider; tools: ToolDefinition[]; origin: string;
@@ -67,7 +68,7 @@ export async function* runChat(deps: {
         } else if (event.type === "tool_calls") calls = event.calls;
         else stop = event.reason;
       }
-      if (deps.signal.aborted) return;
+      if (deps.signal.aborted) break;
       if (signal.aborted || !stop) throw new Error("The model stopped without finishing.");
       if (stop !== "tool" || calls.length === 0) {
         // The directory is in the prompt, not in a tool result: send the rows this answer cited.
@@ -80,14 +81,17 @@ export async function* runChat(deps: {
         yield { type: "done", reason: "rounds", ...totals };
         return;
       }
-      for (const call of calls) yield { type: "tool", name: call.name, label: label(call) };
+      const allowed = new Set(calls.slice(0, MAX_TOOL_CALLS - totals.toolCalls));
+      totals.toolCalls += allowed.size;
+      for (const call of allowed) yield { type: "tool", name: call.name, label: label(call) };
       const results = await Promise.all(calls.map(async (call) => {
         const tool = byName.get(call.name);
-        const result = tool ? await withBackendBucket("chat", () => runTool(tool, call.input, { signal })) : refused(call.name);
+        const result = !allowed.has(call) ? failed("TOOL_LIMIT", "This question has used all its tool calls. Answer from what you have.")
+          : tool ? await withBackendBucket("chat", () => runTool(tool, call.input, { signal }))
+          : failed("TOOL_NOT_AVAILABLE", `The tool ${call.name} is not available here.`);
         return { call, result, sources: sourcesFor(call.name, call.input, result, origin) };
       }));
-      if (deps.signal.aborted) return;
-      totals.toolCalls += calls.length;
+      if (deps.signal.aborted) break;
       outcomes = [];
       for (const { call, result, sources } of results) {
         for (const source of sources) {
@@ -102,9 +106,12 @@ export async function* runChat(deps: {
       }
     }
   } catch {
-    if (deps.signal.aborted) return;
-    // The provider's own words can quote the request or a key, so they never reach the page.
-    yield { type: "error", message: "The model could not answer. Try again." };
-    yield { type: "done", reason: "error", ...totals };
+    if (!deps.signal.aborted) {
+      // The provider's own words can quote the request or a key, so they never reach the page.
+      yield { type: "error", message: "The model could not answer. Try again." };
+      yield { type: "done", reason: "error", ...totals };
+      return;
+    }
   }
+  yield { type: "done", reason: "gone", ...totals };
 }

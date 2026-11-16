@@ -133,11 +133,7 @@ export function homepageHtml(chat?: ChatPage): string {
   const href = (file: string) => assetHref("", file, names);
   // Hidden until its script runs, so a browser without scripts shows the directory alone.
   const section = chat ? `
-    <section id="chat" data-src="${href("chat.js")}" data-css="${href("chat.css")}" hidden>
-      <h1>Ask about Juicebox</h1>
-      <form><textarea rows="2" maxlength="8000" aria-label="Question"></textarea><button>Ask</button></form>
-      <p class="jumps">${["How do cash outs work?", "What is project 1 on Base?", "Where do fees go?"].map((question) => `<button>${question}</button>`).join("")}</p>
-    </section>` : "";
+    <section id="chat" data-src="${href("chat.js")}" data-css="${href("chat.css")}" hidden><h1>Ask about Juicebox</h1><form><textarea rows="2" aria-label="Question"></textarea><button>Ask</button></form><p class="jumps">${["How do cash outs work?", "What is project 1 on Base?", "Where do fees go?"].map((question) => `<button>${question}</button>`).join("")}</p></section>` : "";
   return `<!doctype html>
 <html lang="en">
 <head>

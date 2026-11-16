@@ -10,7 +10,9 @@ import type { Provider, ProviderRequest, ToolOutcome, TurnEvent } from "../provi
 // Models with server-side refusal fallback. Others reject the parameter.
 const FALLBACK_MODELS = new Set(["claude-fable-5-2", "claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"]);
 const STOP: Record<string, Extract<TurnEvent, { type: "stop" }>["reason"]> = {
-  tool_use: "tool", max_tokens: "max_tokens", refusal: "refusal",
+  end_turn: "end", stop_sequence: "end", tool_use: "tool", refusal: "refusal",
+  // A full context window cuts the answer the same way the output limit does.
+  max_tokens: "max_tokens", model_context_window_exceeded: "max_tokens",
 };
 
 export function anthropicProvider(config: ChatConfig, fetchImpl: typeof fetch): Provider {
@@ -43,7 +45,8 @@ export function anthropicProvider(config: ChatConfig, fetchImpl: typeof fetch): 
             messages.push({ role: "assistant", content: message.content });
             yield { type: "usage", inputTokens: message.usage.input_tokens + (message.usage.cache_read_input_tokens ?? 0)
               + (message.usage.cache_creation_input_tokens ?? 0), outputTokens: message.usage.output_tokens };
-            const reason = STOP[message.stop_reason ?? ""] ?? "end";
+            const reason = STOP[message.stop_reason ?? ""];
+            if (!reason) throw new Error("The model stopped for a reason this server does not know.");
             // A refusal or a cut-off can leave a tool call half written: never run that round's tools.
             if (reason === "tool") yield { type: "tool_calls", calls: message.content.flatMap((block) =>
               block.type === "tool_use" ? [{ id: block.id, name: block.name, input: block.input }] : []) };

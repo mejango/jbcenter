@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createApp } from "../src/app.js";
 import { loadChatConfig } from "../src/chat/config.js";
-import type { TurnEvent } from "../src/chat/provider.js";
+import type { Provider, TurnEvent } from "../src/chat/provider.js";
 import { sourceId } from "../src/chat/sources.js";
 import { Metrics } from "../src/observability.js";
 import { fakeProvider } from "./support/fakeProvider.js";
@@ -109,6 +109,39 @@ describe("POST /chat", () => {
     expect(await denied.json()).toEqual({ error: "resting" });
     expect((await post(ask(), { origin, "x-real-ip": "203.0.113.8" })).status).toBe(200);
     expect(metrics.render()).toContain("jbcenter_chat_budget_denials_total 1");
+  });
+
+  describe("with answers in flight", () => {
+    // A model that reports its usage, then says nothing until the caller leaves.
+    const stalled: Provider = { start: ({ signal }) => ({ async *next() {
+      yield { type: "usage", inputTokens: 100, outputTokens: 20 };
+      await new Promise((resolve) => signal.addEventListener("abort", resolve));
+    } }) };
+    const open = (metrics: Metrics) => {
+      const app = createApp(new MemoryStore(), { metrics, chat: { config: { ...config, perIpPerHour: 1000, perIpPerDay: 1000 }, provider: stalled, tools: [], origin, page: { boot: "", main: "" } } });
+      return () => app.request(`${origin}/chat`, { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify(ask()) });
+    };
+
+    it("counts what a visitor who left had already spent", async () => {
+      const metrics = new Metrics();
+      const response = await open(metrics)();
+      await response.body!.cancel();
+      await expect.poll(() => metrics.render()).toContain("jbcenter_chat_input_tokens_total 100");
+      expect(metrics.render()).toContain("jbcenter_chat_output_tokens_total 20");
+      expect(metrics.render()).toContain("jbcenter_chat_requests_total 1");
+    });
+
+    it("answers at most 16 questions at once", async () => {
+      const metrics = new Metrics();
+      const post = open(metrics);
+      const held = await Promise.all(Array.from({ length: 16 }, post));
+      expect(held.every(({ status }) => status === 200)).toBe(true);
+      const over = await post();
+      expect(over.status).toBe(429);
+      expect(over.headers.get("retry-after")).toBe("10");
+      await held[0]!.body!.cancel();
+      await expect.poll(async () => { const next = await post(); await next.body?.cancel(); return next.status; }).toBe(200);
+    });
   });
 
   it("never logs what was asked", async () => {

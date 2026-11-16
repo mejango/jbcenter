@@ -130,7 +130,8 @@ function ask(text: string): void {
   // A question that got no answer is replaced by the next one.
   if (messages.at(-1)?.role === "user") messages.pop();
   messages.push({ role: "user", text: text.trim() });
-  input.value = "";
+  // Typed since asking: leave it.
+  if (input.value === text) input.value = "";
   save();
   show();
   void send();
@@ -147,6 +148,7 @@ function start(): void {
   fresh.textContent = "New chat";
   fresh.dataset.new = "";
   fresh.type = "button";
+  input.maxLength = 8000;
   form.before(log);
   form.append(fresh);
   form.after(element("p", "hint", "Answers come from an AI model. Check the sources."));
@@ -162,10 +164,10 @@ function start(): void {
 }
 
 /** Every event in the chat section arrives here, from the boot script. */
-export function on(event?: Event): void {
+export function on(event?: Event, asked = ""): void {
   if (!started) start();
   const button = event?.type === "click" ? (event.target as Element).closest("button") : null;
-  if (event?.type === "submit") ask(input.value);
+  if (event?.type === "submit") ask(asked);
   else if (button?.parentElement?.className === "jumps") ask(button.textContent!);
   else if (button && "retry" in button.dataset && chat.ariaBusy !== "true") {
     show();

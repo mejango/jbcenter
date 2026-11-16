@@ -13,6 +13,8 @@ export type ChatRuntime = { config: ChatConfig; provider: Provider; tools: ToolD
 
 const BODY_LIMIT = 64 * 1024;
 const MESSAGE_LIMIT = 8_000;
+// ponytail: per process. Share the count in the store if replicas multiply it past what the provider allows.
+const MAX_ACTIVE = 16;
 const HOUR = 3_600;
 const DAY = 86_400;
 
@@ -42,6 +44,7 @@ function parse(raw: string, config: ChatConfig): ChatMessage[] | "bad" | "long" 
 /** `POST /chat`: the homepage's own endpoint, not a public API. Agents have `/mcp`. */
 export function mountChat(app: Hono<any>, deps: { chat?: ChatRuntime; store: Store; metrics: Metrics; callerIp: (c: Context) => string }): void {
   // The limit stops reading an oversized body; it is not buffered first.
+  let active = 0;
   app.post("/chat", bodyLimit({ maxSize: BODY_LIMIT, onError: (c) => c.json({ error: "too_long" }, 413) }), async (c) => {
     const { chat, store, metrics } = deps;
     if (!chat) return c.json({ error: "chat_off" }, 503);
@@ -52,21 +55,31 @@ export function mountChat(app: Hono<any>, deps: { chat?: ChatRuntime; store: Sto
     if (messages === "bad") return c.json({ error: "bad_request" }, 400);
     if (messages === "long") return c.json({ error: "too_long" }, 413);
 
+    const resting = (seconds: number) => {
+      metrics.observeChat({ denied: true });
+      return c.json({ error: "resting" }, 429, { "Retry-After": String(seconds) });
+    };
+    // Checked before the budgets, so a busy moment costs the visitor nothing.
+    if (active >= MAX_ACTIVE) return resting(10);
     const ip = deps.callerIp(c);
     for (const [key, limit, windowSeconds] of [
       [`chat:h:${ip}`, chat.config.perIpPerHour, HOUR], [`chat:d:${ip}`, chat.config.perIpPerDay, DAY], ["chat:site", chat.config.sitePerDay, DAY],
     ] as const) {
-      if ((await store.consumeRequest(key, limit, windowSeconds)).allowed) continue;
-      metrics.observeChat({ denied: true });
-      return c.json({ error: "resting" }, 429, { "Retry-After": String(windowSeconds) });
+      if (!(await store.consumeRequest(key, limit, windowSeconds)).allowed) return resting(windowSeconds);
     }
 
+    active++;
     const response = streamSSE(c, async (stream) => {
       const gone = new AbortController();
       stream.onAbort(() => gone.abort());
-      for await (const { type, ...data } of runChat({ config: chat.config, provider: chat.provider, tools: chat.tools, origin: chat.origin, messages, signal: gone.signal })) {
-        if (type === "done") metrics.observeChat(data as never);
-        await stream.writeSSE({ event: type, data: JSON.stringify(data) });
+      try {
+        for await (const { type, ...data } of runChat({ config: chat.config, provider: chat.provider, tools: chat.tools, origin: chat.origin, messages, signal: gone.signal })) {
+          if (type === "done") metrics.observeChat(data as never);
+          // `gone` is the server's own accounting: nobody is left to read it.
+          if (!("reason" in data && data.reason === "gone")) await stream.writeSSE({ event: type, data: JSON.stringify(data) });
+        }
+      } finally {
+        active--;
       }
     });
     response.headers.set("Cache-Control", "no-store");

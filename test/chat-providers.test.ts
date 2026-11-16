@@ -100,3 +100,21 @@ describe("a provider stream cut before its end", () => {
     expect(seen.some((event) => event.type === "stop" || event.type === "tool_calls")).toBe(false);
   });
 });
+
+describe("anthropic stop reasons", () => {
+  const config = loadChatConfig({ CHAT_PROVIDER: "anthropic", CHAT_API_KEY: "test-key" })!;
+  const ending = (reason: string) => rounds("anthropic-tool-then-text")[1]!.replace('"stop_reason": "end_turn"', `"stop_reason": "${reason}"`);
+  const stop = async (reason: string) => {
+    const { fetchImpl } = recordingFetch([ending(reason)]);
+    const session = createProvider(config, fetchImpl).start({ system: "S", tools, messages: [{ role: "user", text: "q" }], signal: new AbortController().signal });
+    return (await collect(session.next())).at(-1);
+  };
+  it("reports a full context window as a cut-off answer", async () => {
+    expect(await stop("model_context_window_exceeded")).toEqual({ type: "stop", reason: "max_tokens" });
+    expect(await stop("stop_sequence")).toEqual({ type: "stop", reason: "end" });
+  });
+  it("fails on a reason it does not know", async () => {
+    await expect(stop("some_future_reason")).rejects.toThrow();
+  });
+});
+

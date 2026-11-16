@@ -127,7 +127,22 @@ describe("chat loop", () => {
     const slow = tool("jb_search_reference", async () => { runs++; controller.abort(); return {}; });
     const { events } = await run([call("jb_search_reference"), call("jb_search_reference"), answer("never")], [slow], controller.signal);
     expect(runs).toBe(1);
-    expect(events.some((event) => event.type === "done")).toBe(false);
+    // The page is gone, so nothing follows but the accounting of what was spent.
+    expect(events.at(-1)).toEqual({ type: "done", reason: "gone", inputTokens: 100, outputTokens: 10, toolCalls: 1 });
+    expect(events.some((event) => event.type === "text" || event.type === "error")).toBe(false);
+  });
+
+  it("runs at most 12 tools for one question", async () => {
+    let runs = 0;
+    const counted = tool("jb_search_reference", async () => { runs++; return {}; });
+    const many: TurnEvent[] = [{ type: "tool_calls", calls: Array.from({ length: 20 }, (_, index) => ({ id: `c${index}`, name: "jb_search_reference", input: { query: "x" } })) }, { type: "stop", reason: "tool" }];
+    const { events, provider } = await run([many, call("jb_search_reference"), answer("done")], [counted]);
+    expect(runs).toBe(12);
+    expect(provider.outcomes[0]!.filter(({ isError }) => isError)).toHaveLength(8);
+    expect(provider.outcomes[0]![12]!.content).toContain("TOOL_LIMIT");
+    expect(provider.outcomes[1]![0]!.content).toContain("TOOL_LIMIT");
+    expect(events.filter((event) => event.type === "tool")).toHaveLength(12);
+    expect(events.at(-1)).toMatchObject({ type: "done", reason: "end", toolCalls: 12 });
   });
 
   it("reports a provider failure without its text", async () => {
