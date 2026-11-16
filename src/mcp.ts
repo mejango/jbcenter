@@ -11,6 +11,7 @@ import {
   type Services,
   upstreamErrorCode,
 } from "@juicebox/mcp/host";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { getAddress } from "viem";
 import { originsForEnvironment } from "./app.js";
 import { isIpfsCid, type PinningService } from "./ipfs.js";
@@ -40,6 +41,14 @@ export const MCP_BACKEND_LIMITS = {
   pinWindowSeconds: 600,
   writesPerMinute: 60,
 } as const;
+
+const backendBucket = new AsyncLocalStorage<"mcp" | "chat">();
+/** Names the backend buckets the work spends. The homepage chat runs the same tools as `/mcp`
+ * and must not starve outside agents, so it spends its own, under the same limits. */
+export function withBackendBucket<T>(name: "mcp" | "chat", work: () => Promise<T>): Promise<T> {
+  return backendBucket.run(name, work);
+}
+const bucket = () => backendBucket.getStore() ?? "mcp";
 
 function invalidRequest(): never {
   throw new DomainError(
@@ -246,7 +255,7 @@ export function createCenterReadFetcher(store: Store, centerUrl: string) {
     try {
       await quota(
         store,
-        "center:mcp:reads",
+        `center:${bucket()}:reads`,
         MCP_BACKEND_LIMITS.readsPerMinute,
         60,
         signal,
@@ -416,7 +425,7 @@ export function createCenterRpcFetcher(
     try {
       await quota(
         store,
-        "rpc:mcp",
+        `rpc:${bucket()}`,
         MCP_BACKEND_LIMITS.rpcPerMinute,
         60,
         signal,
