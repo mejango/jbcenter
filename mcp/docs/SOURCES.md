@@ -71,6 +71,12 @@ npm run knowledge:sync -- --workspace /path/to/evm --skills /path/to/juicebox-sk
 npm run knowledge:sync -- --workspace /path/to/evm --skills /path/to/juicebox-skills --output /tmp/review-knowledge.json
 ```
 
+To refresh one repository and keep every other document exactly as the committed bundle has it, name it with `--only`. The other repositories are not read and need not be checked out:
+
+```sh
+npm run knowledge:sync -- --skills /path/to/juicebox-skills --only juicebox-skills
+```
+
 For an environment that blocks the `tsx` CLI's IPC socket, its Node import loader performs the same operation without that socket:
 
 ```sh
