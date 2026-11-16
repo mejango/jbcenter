@@ -9,6 +9,10 @@ const form = chat.querySelector("form")!;
 const input = form.querySelector("textarea")!;
 const log = document.createElement("div");
 const fresh = document.createElement("button");
+const resume = document.createElement("a");
+const jumps = chat.querySelector<HTMLElement>(".jumps")!;
+/** The address of the chat view. Back leaves it, a reload keeps it. */
+const viewing = () => location.hash === "#chat";
 
 let messages: ChatMessage[] = [];
 let sources: Source[] = [];
@@ -46,16 +50,25 @@ function show(): void {
     if (role === "assistant") answer(node, text);
     return node;
   }));
+  place();
+}
+
+/** Which page this is: the first page, or the conversation. Leaves the conversation's own nodes alone. */
+function place(): void {
   const talking = messages.length > 0;
-  fresh.hidden = !talking;
-  chat.querySelector<HTMLElement>(".jumps")!.hidden = talking;
+  // A conversation in view has the page. Anywhere else it is one link away.
+  const view = document.body.classList.toggle("talking", talking && viewing());
+  fresh.hidden = !view;
+  resume.hidden = !talking;
+  jumps.hidden = view;
+  if (view) scrollTo(0, document.body.scrollHeight);
 }
 
 function save(): void {
   try {
     if (messages.length === 0) return localStorage.removeItem(STORAGE_KEY);
     // Only the sources a kept answer cites.
-    const kept = sources.filter(({ id }) => messages.some(({ text }) => text.includes(`[${id}]`)));
+    const kept = sources.filter(({ id }) => messages.some(({ text }) => text.includes(id)));
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ messages, sources: kept }));
   } catch {}
 }
@@ -107,8 +120,11 @@ async function send(dropped = 0): Promise<void> {
       else if (event.type === "source") sources = [...sources.filter(({ id }) => id !== event.source.id), event.source];
       else if (event.type === "done") reason = event.reason;
       else if (event.type === "text") {
+        // Follows the answer down, unless the reader scrolled up.
+        const following = innerHeight + scrollY >= document.body.scrollHeight - 120;
         if (!text) status.replaceWith(node);
         answer(node, text += event.text);
+        if (following) scrollTo(0, document.body.scrollHeight);
       }
     }
   } catch {}
@@ -127,6 +143,12 @@ async function send(dropped = 0): Promise<void> {
 
 function ask(text: string): void {
   if (!text.trim() || chat.ariaBusy === "true") return;
+  // Asked from the first page: a new conversation, in the chat view.
+  if (!viewing()) {
+    messages = [];
+    sources = [];
+    location.hash = "chat";
+  }
   // A question that got no answer is replaced by the next one.
   if (messages.at(-1)?.role === "user") messages.pop();
   messages.push({ role: "user", text: text.trim() });
@@ -149,9 +171,12 @@ function start(): void {
   fresh.dataset.new = "";
   fresh.type = "button";
   input.maxLength = 8000;
+  resume.textContent = "Continue chat";
+  resume.href = "#chat";
   form.before(log);
-  form.append(fresh);
-  form.after(element("p", "hint", "Answers come from an AI model. Check the sources."));
+  form.append(fresh, element("p", "hint", "Answers come from an AI model. Check the sources."));
+  jumps.prepend(resume);
+  addEventListener("hashchange", place);
   input.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
     event.preventDefault();
@@ -179,6 +204,8 @@ export function on(event?: Event, asked = ""): void {
     sources = [];
     busy(false);
     save();
+    // Back to the first page, at its plain address.
+    if (viewing()) history.replaceState(null, "", location.pathname);
     show();
     input.focus();
   }

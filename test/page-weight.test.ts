@@ -21,10 +21,10 @@ const pageCeilings: Record<string, number> = {
   "/": 5_120, "/ (chat on)": 5_120, "/api": 25_600, "/api/docs/* (largest)": 19_968,
 };
 const onDemandCeilings: Record<string, number> = {
-  "/api/reference/* (largest)": 7_168, "/api/terms.json": 23_040, "chat.css": 512,
+  "/api/reference/* (largest)": 7_168, "/api/terms.json": 23_040, "chat.css": 704,
 };
 // The chat bundle and its stylesheet load on first use of the chat, never on first view.
-const bundleCeilings: Record<string, number> = { docs: 1_024, "chat-boot": 512, chat: 2_560 };
+const bundleCeilings: Record<string, number> = { docs: 1_024, "chat-boot": 512, chat: 2_720 };
 
 const gz = (body: string) => gzipSync(body).length;
 // Each link is /<base>/assets/<name>.<hash>.<ext>; the hash must name these exact bytes.

@@ -463,6 +463,7 @@ function selectionFor(entity: IndexerEntity, requested: unknown): Selection {
       for (const name of ["address", "version", "chainId", "projectId"])
         add(target, typeName, ["hook", name], depth);
     }
+    if (target.sourceProject) add(target, typeName, ["sourceProjectId"], depth);
     for (const node of Object.values(target))
       if (node.children)
         identities(node.children, node.field.namedType, depth + 1);
@@ -709,13 +710,29 @@ function validateRow(
           );
         result[name] = null;
       } else
-        result[name] = validateRow(
-          value,
-          node.field.namedType,
-          node.children,
-          scope,
-          row,
-        );
+        // A router call's source project is another project: it answers to the call's
+        // source project ID, not to the destination the caller scoped to.
+        result[name] =
+          name === "sourceProject"
+            ? validateRow(
+                value,
+                node.field.namedType,
+                node.children,
+                {
+                  network: scope.network,
+                  ...(scope.chainId === undefined
+                    ? {}
+                    : { chainId: scope.chainId }),
+                },
+                { ...row, projectId: row.sourceProjectId },
+              )
+            : validateRow(
+                value,
+                node.field.namedType,
+                node.children,
+                scope,
+                row,
+              );
     } else result[name] = scalar(value, node.field.type, true);
   }
   if (row.version !== 6)

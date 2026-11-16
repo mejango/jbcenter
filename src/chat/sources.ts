@@ -80,7 +80,7 @@ export function sourcesFor(tool: string, input: unknown, result: ToolResult, ori
 export function withSourceIds(result: ToolResult, sources: Source[]): unknown {
   const ids = new Set(sources.map((source) => source.id));
   const strip = (value: unknown, key = ""): unknown => {
-    if (TIME_KEY.test(key) && /^[1-4]\d{9}$/.test(String(value)))
+    if ((typeof value === "number" || typeof value === "string") && TIME_KEY.test(key) && /^[1-4]\d{9}$/.test(String(value)))
       return `${value} (${new Date(Number(value) * 1000).toISOString().replace(".000Z", "Z")})`;
     if (typeof value === "string") return value.replace(URL_IN_TEXT, "[link removed]");
     if (Array.isArray(value)) return value.map((item) => strip(item));

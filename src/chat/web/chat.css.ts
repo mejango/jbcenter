@@ -27,4 +27,12 @@ button { border-radius: 0; cursor: pointer; }
 #log .notice button { margin-left: 8px; }
 #chat [data-new] { margin-left: 8px; }
 #chat .hint { margin-top: 8px; color: var(--muted); font-size: 11px; }
+#chat .jumps a:hover { border-color: var(--accent); color: var(--accent); }
+body:not(.talking) #log { display: none; }
+body.talking main, body.talking footer, body.talking .skip-link, body.talking #chat h1 { display: none; }
+body.talking .page, body.talking #chat { display: flex; flex-direction: column; }
+body.talking .page { min-height: 100dvh; }
+body.talking #chat, body.talking #log { flex: 1; }
+body.talking #log { width: 100%; margin: 0 auto; padding-bottom: 16px; }
+body.talking #chat form { position: sticky; bottom: 0; width: 100%; max-width: 80ch; margin: 0 auto; padding-bottom: 12px; background: var(--paper); border-top: 1px solid var(--line); }
 `;

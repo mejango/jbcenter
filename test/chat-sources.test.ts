@@ -104,4 +104,9 @@ describe("chat sources", () => {
       start: "1740089444 (2025-02-20T22:10:44Z)", amount: "1794799581",
     });
   });
+
+  it("leaves a timestamp field alone when a publisher put an object there", () => {
+    const planted = JSON.parse('{"timestamp":{"toString":"x"},"createdAt":[1794799581],"start":null}');
+    expect((withSourceIds(ok(planted), []) as { data: unknown }).data).toEqual({ timestamp: { toString: "x" }, createdAt: [1794799581], start: null });
+  });
 });
