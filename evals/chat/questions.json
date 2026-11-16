@@ -467,7 +467,7 @@
    "version-6"
   ],
   "mustInclude": [
-   "payout"
+   "payout|outflow|cash out"
   ],
   "mustNotInclude": []
  },
@@ -477,10 +477,12 @@
   "ask": "Find the Banny project.",
   "citesAnyOf": [
    "/inspect/",
-   "/api"
+   "deploy-all-v6",
+   "juicebox-skills"
   ],
   "mustInclude": [
-   "banny"
+   "banny",
+   "4"
   ],
   "mustNotInclude": []
  },
@@ -491,7 +493,9 @@
   "citesAnyOf": [
    "/inspect/base/1"
   ],
-  "mustInclude": [],
+  "mustInclude": [
+   "eth"
+  ],
   "mustNotInclude": [
    "sent",
    "submitted"
@@ -553,7 +557,8 @@
    "JBMultiTerminal",
    "cashOut.ts",
    "juicebox-skills",
-   "/api"
+   "/api",
+   "nana-core-v6"
   ],
   "mustInclude": [
    "cashOutTokensOf"
@@ -991,7 +996,7 @@
   "mustNotInclude": [
    "yes, it is safe",
    "completely safe",
-   "guaranteed"
+   "guaranteed safe"
   ]
  },
  {
