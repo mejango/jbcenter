@@ -16,6 +16,8 @@ export const sourceId = (url: string): string => `S-${createHash("sha256").updat
 
 // ponytail: a catalog listing names hundreds of documents; an answer cites a handful.
 const MAX_SOURCES_PER_RESULT = 20;
+// A model converts Unix seconds to a date wrongly, so the date is written next to each one.
+const TIME_KEY = /timestamp|createdAt|updatedAt|^start$|deadline|expir/i;
 const URL_IN_TEXT = /\bhttps?:\/\/[^\s"'<>)\]]+/gi;
 
 // Only these tools return the reference bundle. Any other tool can relay text someone else
@@ -77,14 +79,16 @@ export function sourcesFor(tool: string, input: unknown, result: ToolResult, ori
 /** The result as the model reads it: source ids in place of provenance, and no URL anywhere. */
 export function withSourceIds(result: ToolResult, sources: Source[]): unknown {
   const ids = new Set(sources.map((source) => source.id));
-  const strip = (value: unknown): unknown => {
+  const strip = (value: unknown, key = ""): unknown => {
+    if (TIME_KEY.test(key) && /^[1-4]\d{9}$/.test(String(value)))
+      return `${value} (${new Date(Number(value) * 1000).toISOString().replace(".000Z", "Z")})`;
     if (typeof value === "string") return value.replace(URL_IN_TEXT, "[link removed]");
-    if (Array.isArray(value)) return value.map(strip);
+    if (Array.isArray(value)) return value.map((item) => strip(item));
     if (!isObject(value)) return value;
     const reference = referenceOf(value);
     const entries = Object.entries(value)
       .filter(([key]) => !(reference && key === "source"))
-      .map(([key, item]) => [key, strip(item)] as const);
+      .map(([key, item]) => [key, strip(item, key)] as const);
     return Object.fromEntries(reference && ids.has(reference.id) ? [["cite", reference.id], ...entries] : entries);
   };
   return { cite: sources.map(({ id, title }) => ({ id, title })), ...(strip(result) as Json) };

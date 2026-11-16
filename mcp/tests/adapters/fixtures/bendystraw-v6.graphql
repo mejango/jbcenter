@@ -58,8 +58,22 @@ type Query {
   cashOutTaxSnapshots(where: cashOutTaxSnapshotFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): cashOutTaxSnapshotPage!
   cashOutTokensEvent(id: String!): cashOutTokensEvent
   cashOutTokensEvents(where: cashOutTokensEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): cashOutTokensEventPage!
+  configurePostingCriteriaEvent(id: String!): configurePostingCriteriaEvent
+  configurePostingCriteriaEvents(where: configurePostingCriteriaEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): configurePostingCriteriaEventPage!
   decorateBannyEvent(id: String!): decorateBannyEvent
   decorateBannyEvents(where: decorateBannyEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): decorateBannyEventPage!
+  defifaAttestation(chainId: Float!, projectId: Float!, scorecardId: BigInt!, account: String!): defifaAttestation
+  defifaAttestations(where: defifaAttestationFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): defifaAttestationPage!
+  defifaEvent(id: String!): defifaEvent
+  defifaEvents(where: defifaEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): defifaEventPage!
+  defifaGame(chainId: Float!, projectId: Float!): defifaGame
+  defifaGames(where: defifaGameFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): defifaGamePage!
+  defifaHolding(chainId: Float!, hook: String!, owner: String!, tierId: Float!): defifaHolding
+  defifaHoldings(where: defifaHoldingFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): defifaHoldingPage!
+  defifaScorecard(chainId: Float!, projectId: Float!, scorecardId: BigInt!): defifaScorecard
+  defifaScorecards(where: defifaScorecardFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): defifaScorecardPage!
+  defifaTierDelegate(chainId: Float!, hook: String!, tierId: Float!, delegate: String!): defifaTierDelegate
+  defifaTierDelegates(where: defifaTierDelegateFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): defifaTierDelegatePage!
   deployErc20Event(id: String!): deployErc20Event
   deployErc20Events(where: deployErc20EventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): deployErc20EventPage!
   inboxRootReceivedEvent(id: String!): inboxRootReceivedEvent
@@ -90,8 +104,14 @@ type Query {
   participantSnapshots(where: participantSnapshotFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): participantSnapshotPage!
   payEvent(id: String!): payEvent
   payEvents(where: payEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): payEventPage!
+  pendingBuybackMint(chainId: Float!, txHash: String!, terminal: String!, projectId: Float!): pendingBuybackMint
+  pendingBuybackMints(where: pendingBuybackMintFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): pendingBuybackMintPage!
   permissionHolder(version: Float!, chainId: Float!, account: String!, projectId: Float!, operator: String!): permissionHolder
   permissionHolders(where: permissionHolderFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): permissionHolderPage!
+  postingAllowance(chainId: Float!, publisher: String!, hook: String!, category: Float!, version: Float!): postingAllowance
+  postingAllowances(where: postingAllowanceFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): postingAllowancePage!
+  processFeeEvent(id: String!): processFeeEvent
+  processFeeEvents(where: processFeeEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): processFeeEventPage!
   project(chainId: Float!, projectId: Float!, version: Float!): project
   projects(where: projectFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): projectPage!
   projectCreateEvent(id: String!): projectCreateEvent
@@ -100,6 +120,10 @@ type Query {
   projectMoments(where: projectMomentFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): projectMomentPage!
   projectPayer(version: Float!, chainId: Float!, projectId: Float!, address: String!): projectPayer
   projectPayers(where: projectPayerFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): projectPayerPage!
+  projectTokenBalance(chainId: Float!, projectId: Float!, version: Float!, token: String!): projectTokenBalance
+  projectTokenBalances(where: projectTokenBalanceFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): projectTokenBalancePage!
+  projectTokenBalanceMoment(chainId: Float!, projectId: Float!, version: Float!, token: String!, block: Float!): projectTokenBalanceMoment
+  projectTokenBalanceMoments(where: projectTokenBalanceMomentFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): projectTokenBalanceMomentPage!
   projectTransferEvent(id: String!): projectTransferEvent
   projectTransferEvents(where: projectTransferEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): projectTransferEventPage!
   reallocateLoanEvent(id: String!): reallocateLoanEvent
@@ -108,6 +132,14 @@ type Query {
   removeNftTierEvents(where: removeNftTierEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): removeNftTierEventPage!
   repayLoanEvent(id: String!): repayLoanEvent
   repayLoanEvents(where: repayLoanEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): repayLoanEventPage!
+  routerPendingCall(chainId: Float!, gateway: String!, pendingCallId: String!): routerPendingCall
+  routerPendingCalls(where: routerPendingCallFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): routerPendingCallPage!
+  routerPendingCallEvent(id: String!): routerPendingCallEvent
+  routerPendingCallEvents(where: routerPendingCallEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): routerPendingCallEventPage!
+  routerPermitFailureEvent(id: String!): routerPermitFailureEvent
+  routerPermitFailureEvents(where: routerPermitFailureEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): routerPermitFailureEventPage!
+  routerRetainedBalance(chainId: Float!, gateway: String!, sourceProjectId: Float!, token: String!): routerRetainedBalance
+  routerRetainedBalances(where: routerRetainedBalanceFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): routerRetainedBalancePage!
   rulesetQueuedEvent(id: String!): rulesetQueuedEvent
   rulesetQueuedEvents(where: rulesetQueuedEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): rulesetQueuedEventPage!
   sendPayoutToSplitEvent(id: String!): sendPayoutToSplitEvent
@@ -120,6 +152,16 @@ type Query {
   sendReservedTokensToSplitsEvents(where: sendReservedTokensToSplitsEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): sendReservedTokensToSplitsEventPage!
   setUriEvent(id: String!): setUriEvent
   setUriEvents(where: setUriEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): setUriEventPage!
+  stickyEvent(id: String!): stickyEvent
+  stickyEvents(where: stickyEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): stickyEventPage!
+  stickyFundEvent(id: String!): stickyFundEvent
+  stickyFundEvents(where: stickyFundEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): stickyFundEventPage!
+  stickyPosition(version: Float!, chainId: Float!, projectId: Float!, holder: String!): stickyPosition
+  stickyPositions(where: stickyPositionFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): stickyPositionPage!
+  stickySettingEvent(id: String!): stickySettingEvent
+  stickySettingEvents(where: stickySettingEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): stickySettingEventPage!
+  stickyToken(version: Float!, chainId: Float!, token: String!): stickyToken
+  stickyTokens(where: stickyTokenFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): stickyTokenPage!
   storeAutoIssuanceAmountEvent(id: String!): storeAutoIssuanceAmountEvent
   storeAutoIssuanceAmountEvents(where: storeAutoIssuanceAmountEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): storeAutoIssuanceAmountEventPage!
   suckerGroup(id: String!): suckerGroup
@@ -153,6 +195,8 @@ type project {
   suckerGroupId: String!
   version: Int!
   isRevnet: Boolean
+  isHomerun: Boolean
+  isSticky: Boolean
   handle: String
   metadataUri: String
   metadata: JSON
@@ -180,6 +224,7 @@ type project {
   tokenSymbol: String
   decimals: Int
   currency: BigInt
+  accountingTokenCount: Int!
   coverImageUri: String
   description: String
   discord: String
@@ -198,8 +243,12 @@ type project {
   participants(where: participantFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): participantPage
   nfts(where: nftFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): nftPage
   nftHooks(where: nftHookFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): nftHookPage
+  postingAllowances(where: postingAllowanceFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): postingAllowancePage
+  postingAllowanceEvents(where: configurePostingCriteriaEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): configurePostingCriteriaEventPage
   projectMoments(where: projectMomentFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): projectMomentPage
   projectPayers(where: projectPayerFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): projectPayerPage
+  projectTokenBalances(where: projectTokenBalanceFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): projectTokenBalancePage
+  projectTokenBalanceMoments(where: projectTokenBalanceMomentFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): projectTokenBalanceMomentPage
   permissionHolders(where: permissionHolderFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): permissionHolderPage
   activityEvents(where: activityEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): activityEventPage
   addNftTierEvents(where: addNftTierEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): addNftTierEventPage
@@ -336,6 +385,14 @@ input projectFilter {
   isRevnet_not: Boolean
   isRevnet_in: [Boolean]
   isRevnet_not_in: [Boolean]
+  isHomerun: Boolean
+  isHomerun_not: Boolean
+  isHomerun_in: [Boolean]
+  isHomerun_not_in: [Boolean]
+  isSticky: Boolean
+  isSticky_not: Boolean
+  isSticky_in: [Boolean]
+  isSticky_not_in: [Boolean]
   handle: String
   handle_not: String
   handle_in: [String]
@@ -572,6 +629,14 @@ input projectFilter {
   currency_lt: BigInt
   currency_gte: BigInt
   currency_lte: BigInt
+  accountingTokenCount: Int
+  accountingTokenCount_not: Int
+  accountingTokenCount_in: [Int]
+  accountingTokenCount_not_in: [Int]
+  accountingTokenCount_gt: Int
+  accountingTokenCount_lt: Int
+  accountingTokenCount_gte: Int
+  accountingTokenCount_lte: Int
   coverImageUri: String
   coverImageUri_not: String
   coverImageUri_in: [String]
@@ -957,6 +1022,8 @@ type participant {
   createdAt: Int!
   version: Int!
   isRevnet: Boolean
+  isHomerun: Boolean
+  isSticky: Boolean
   address: String!
   volume: BigInt!
   volumeUsd: BigInt!
@@ -1036,6 +1103,14 @@ input participantFilter {
   isRevnet_not: Boolean
   isRevnet_in: [Boolean]
   isRevnet_not_in: [Boolean]
+  isHomerun: Boolean
+  isHomerun_not: Boolean
+  isHomerun_in: [Boolean]
+  isHomerun_not_in: [Boolean]
+  isSticky: Boolean
+  isSticky_not: Boolean
+  isSticky_in: [Boolean]
+  isSticky_not_in: [Boolean]
   address: String
   address_not: String
   address_in: [String]
@@ -1141,6 +1216,8 @@ type nftHook {
   symbol: String
   nfts(where: nftFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): nftPage
   nftTiers(where: nftTierFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): nftTierPage
+  postingAllowances(where: postingAllowanceFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): postingAllowancePage
+  postingAllowanceEvents(where: configurePostingCriteriaEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): configurePostingCriteriaEventPage
   project: project
 }
 
@@ -1459,6 +1536,362 @@ input nftTierFilter {
   svg_ends_with_nocase: String
   svg_not_starts_with_nocase: String
   svg_not_ends_with_nocase: String
+}
+
+type postingAllowancePage {
+  items: [postingAllowance!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type postingAllowance {
+  chainId: Int!
+  projectId: Int!
+  version: Int!
+  publisher: String!
+  hook: String!
+  category: Int!
+  minimumPrice: BigInt!
+  minimumTotalSupply: BigInt!
+  maximumTotalSupply: BigInt!
+  maximumSplitPercent: BigInt!
+  allowedAddresses: [String!]!
+  updatedAtBlock: BigInt!
+  updatedAt: Int!
+  logIndex: Int!
+  txHash: String!
+  caller: String!
+  collection: nftHook
+  project: project
+}
+
+input postingAllowanceFilter {
+  AND: [postingAllowanceFilter]
+  OR: [postingAllowanceFilter]
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  publisher: String
+  publisher_not: String
+  publisher_in: [String]
+  publisher_not_in: [String]
+  publisher_contains: String
+  publisher_not_contains: String
+  publisher_starts_with: String
+  publisher_ends_with: String
+  publisher_not_starts_with: String
+  publisher_not_ends_with: String
+  hook: String
+  hook_not: String
+  hook_in: [String]
+  hook_not_in: [String]
+  hook_contains: String
+  hook_not_contains: String
+  hook_starts_with: String
+  hook_ends_with: String
+  hook_not_starts_with: String
+  hook_not_ends_with: String
+  category: Int
+  category_not: Int
+  category_in: [Int]
+  category_not_in: [Int]
+  category_gt: Int
+  category_lt: Int
+  category_gte: Int
+  category_lte: Int
+  minimumPrice: BigInt
+  minimumPrice_not: BigInt
+  minimumPrice_in: [BigInt]
+  minimumPrice_not_in: [BigInt]
+  minimumPrice_gt: BigInt
+  minimumPrice_lt: BigInt
+  minimumPrice_gte: BigInt
+  minimumPrice_lte: BigInt
+  minimumTotalSupply: BigInt
+  minimumTotalSupply_not: BigInt
+  minimumTotalSupply_in: [BigInt]
+  minimumTotalSupply_not_in: [BigInt]
+  minimumTotalSupply_gt: BigInt
+  minimumTotalSupply_lt: BigInt
+  minimumTotalSupply_gte: BigInt
+  minimumTotalSupply_lte: BigInt
+  maximumTotalSupply: BigInt
+  maximumTotalSupply_not: BigInt
+  maximumTotalSupply_in: [BigInt]
+  maximumTotalSupply_not_in: [BigInt]
+  maximumTotalSupply_gt: BigInt
+  maximumTotalSupply_lt: BigInt
+  maximumTotalSupply_gte: BigInt
+  maximumTotalSupply_lte: BigInt
+  maximumSplitPercent: BigInt
+  maximumSplitPercent_not: BigInt
+  maximumSplitPercent_in: [BigInt]
+  maximumSplitPercent_not_in: [BigInt]
+  maximumSplitPercent_gt: BigInt
+  maximumSplitPercent_lt: BigInt
+  maximumSplitPercent_gte: BigInt
+  maximumSplitPercent_lte: BigInt
+  allowedAddresses: [String]
+  allowedAddresses_not: [String]
+  allowedAddresses_has: String
+  allowedAddresses_not_has: String
+  updatedAtBlock: BigInt
+  updatedAtBlock_not: BigInt
+  updatedAtBlock_in: [BigInt]
+  updatedAtBlock_not_in: [BigInt]
+  updatedAtBlock_gt: BigInt
+  updatedAtBlock_lt: BigInt
+  updatedAtBlock_gte: BigInt
+  updatedAtBlock_lte: BigInt
+  updatedAt: Int
+  updatedAt_not: Int
+  updatedAt_in: [Int]
+  updatedAt_not_in: [Int]
+  updatedAt_gt: Int
+  updatedAt_lt: Int
+  updatedAt_gte: Int
+  updatedAt_lte: Int
+  logIndex: Int
+  logIndex_not: Int
+  logIndex_in: [Int]
+  logIndex_not_in: [Int]
+  logIndex_gt: Int
+  logIndex_lt: Int
+  logIndex_gte: Int
+  logIndex_lte: Int
+  txHash: String
+  txHash_not: String
+  txHash_in: [String]
+  txHash_not_in: [String]
+  txHash_contains: String
+  txHash_not_contains: String
+  txHash_starts_with: String
+  txHash_ends_with: String
+  txHash_not_starts_with: String
+  txHash_not_ends_with: String
+  caller: String
+  caller_not: String
+  caller_in: [String]
+  caller_not_in: [String]
+  caller_contains: String
+  caller_not_contains: String
+  caller_starts_with: String
+  caller_ends_with: String
+  caller_not_starts_with: String
+  caller_not_ends_with: String
+}
+
+type configurePostingCriteriaEventPage {
+  items: [configurePostingCriteriaEvent!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type configurePostingCriteriaEvent {
+  chainId: Int!
+  projectId: Int!
+  version: Int!
+  publisher: String!
+  hook: String!
+  category: Int!
+  minimumPrice: BigInt!
+  minimumTotalSupply: BigInt!
+  maximumTotalSupply: BigInt!
+  maximumSplitPercent: BigInt!
+  allowedAddresses: [String!]!
+  id: String!
+  txHash: String!
+  timestamp: Int!
+  caller: String!
+  from: String!
+  logIndex: Int!
+  blockNumber: BigInt!
+  collection: nftHook
+  project: project
+}
+
+input configurePostingCriteriaEventFilter {
+  AND: [configurePostingCriteriaEventFilter]
+  OR: [configurePostingCriteriaEventFilter]
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  publisher: String
+  publisher_not: String
+  publisher_in: [String]
+  publisher_not_in: [String]
+  publisher_contains: String
+  publisher_not_contains: String
+  publisher_starts_with: String
+  publisher_ends_with: String
+  publisher_not_starts_with: String
+  publisher_not_ends_with: String
+  hook: String
+  hook_not: String
+  hook_in: [String]
+  hook_not_in: [String]
+  hook_contains: String
+  hook_not_contains: String
+  hook_starts_with: String
+  hook_ends_with: String
+  hook_not_starts_with: String
+  hook_not_ends_with: String
+  category: Int
+  category_not: Int
+  category_in: [Int]
+  category_not_in: [Int]
+  category_gt: Int
+  category_lt: Int
+  category_gte: Int
+  category_lte: Int
+  minimumPrice: BigInt
+  minimumPrice_not: BigInt
+  minimumPrice_in: [BigInt]
+  minimumPrice_not_in: [BigInt]
+  minimumPrice_gt: BigInt
+  minimumPrice_lt: BigInt
+  minimumPrice_gte: BigInt
+  minimumPrice_lte: BigInt
+  minimumTotalSupply: BigInt
+  minimumTotalSupply_not: BigInt
+  minimumTotalSupply_in: [BigInt]
+  minimumTotalSupply_not_in: [BigInt]
+  minimumTotalSupply_gt: BigInt
+  minimumTotalSupply_lt: BigInt
+  minimumTotalSupply_gte: BigInt
+  minimumTotalSupply_lte: BigInt
+  maximumTotalSupply: BigInt
+  maximumTotalSupply_not: BigInt
+  maximumTotalSupply_in: [BigInt]
+  maximumTotalSupply_not_in: [BigInt]
+  maximumTotalSupply_gt: BigInt
+  maximumTotalSupply_lt: BigInt
+  maximumTotalSupply_gte: BigInt
+  maximumTotalSupply_lte: BigInt
+  maximumSplitPercent: BigInt
+  maximumSplitPercent_not: BigInt
+  maximumSplitPercent_in: [BigInt]
+  maximumSplitPercent_not_in: [BigInt]
+  maximumSplitPercent_gt: BigInt
+  maximumSplitPercent_lt: BigInt
+  maximumSplitPercent_gte: BigInt
+  maximumSplitPercent_lte: BigInt
+  allowedAddresses: [String]
+  allowedAddresses_not: [String]
+  allowedAddresses_has: String
+  allowedAddresses_not_has: String
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
+  txHash: String
+  txHash_not: String
+  txHash_in: [String]
+  txHash_not_in: [String]
+  txHash_contains: String
+  txHash_not_contains: String
+  txHash_starts_with: String
+  txHash_ends_with: String
+  txHash_not_starts_with: String
+  txHash_not_ends_with: String
+  timestamp: Int
+  timestamp_not: Int
+  timestamp_in: [Int]
+  timestamp_not_in: [Int]
+  timestamp_gt: Int
+  timestamp_lt: Int
+  timestamp_gte: Int
+  timestamp_lte: Int
+  caller: String
+  caller_not: String
+  caller_in: [String]
+  caller_not_in: [String]
+  caller_contains: String
+  caller_not_contains: String
+  caller_starts_with: String
+  caller_ends_with: String
+  caller_not_starts_with: String
+  caller_not_ends_with: String
+  from: String
+  from_not: String
+  from_in: [String]
+  from_not_in: [String]
+  from_contains: String
+  from_not_contains: String
+  from_starts_with: String
+  from_ends_with: String
+  from_not_starts_with: String
+  from_not_ends_with: String
+  logIndex: Int
+  logIndex_not: Int
+  logIndex_in: [Int]
+  logIndex_not_in: [Int]
+  logIndex_gt: Int
+  logIndex_lt: Int
+  logIndex_gte: Int
+  logIndex_lte: Int
+  blockNumber: BigInt
+  blockNumber_not: BigInt
+  blockNumber_in: [BigInt]
+  blockNumber_not_in: [BigInt]
+  blockNumber_gt: BigInt
+  blockNumber_lt: BigInt
+  blockNumber_gte: BigInt
+  blockNumber_lte: BigInt
 }
 
 type loanPage {
@@ -2036,6 +2469,228 @@ input projectPayerFilter {
   lastUsedAt_lte: Int
 }
 
+type projectTokenBalancePage {
+  items: [projectTokenBalance!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type projectTokenBalance {
+  chainId: Int!
+  projectId: Int!
+  version: Int!
+  token: String!
+  decimals: Int!
+  tokenSymbol: String
+  balance: BigInt!
+  balanceUsd: BigInt!
+  usdRate: BigInt
+  volume: BigInt!
+  project: project
+}
+
+input projectTokenBalanceFilter {
+  AND: [projectTokenBalanceFilter]
+  OR: [projectTokenBalanceFilter]
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  token: String
+  token_not: String
+  token_in: [String]
+  token_not_in: [String]
+  token_contains: String
+  token_not_contains: String
+  token_starts_with: String
+  token_ends_with: String
+  token_not_starts_with: String
+  token_not_ends_with: String
+  decimals: Int
+  decimals_not: Int
+  decimals_in: [Int]
+  decimals_not_in: [Int]
+  decimals_gt: Int
+  decimals_lt: Int
+  decimals_gte: Int
+  decimals_lte: Int
+  tokenSymbol: String
+  tokenSymbol_not: String
+  tokenSymbol_in: [String]
+  tokenSymbol_not_in: [String]
+  tokenSymbol_contains: String
+  tokenSymbol_not_contains: String
+  tokenSymbol_starts_with: String
+  tokenSymbol_ends_with: String
+  tokenSymbol_not_starts_with: String
+  tokenSymbol_not_ends_with: String
+  tokenSymbol_contains_nocase: String
+  tokenSymbol_not_contains_nocase: String
+  tokenSymbol_starts_with_nocase: String
+  tokenSymbol_ends_with_nocase: String
+  tokenSymbol_not_starts_with_nocase: String
+  tokenSymbol_not_ends_with_nocase: String
+  balance: BigInt
+  balance_not: BigInt
+  balance_in: [BigInt]
+  balance_not_in: [BigInt]
+  balance_gt: BigInt
+  balance_lt: BigInt
+  balance_gte: BigInt
+  balance_lte: BigInt
+  balanceUsd: BigInt
+  balanceUsd_not: BigInt
+  balanceUsd_in: [BigInt]
+  balanceUsd_not_in: [BigInt]
+  balanceUsd_gt: BigInt
+  balanceUsd_lt: BigInt
+  balanceUsd_gte: BigInt
+  balanceUsd_lte: BigInt
+  usdRate: BigInt
+  usdRate_not: BigInt
+  usdRate_in: [BigInt]
+  usdRate_not_in: [BigInt]
+  usdRate_gt: BigInt
+  usdRate_lt: BigInt
+  usdRate_gte: BigInt
+  usdRate_lte: BigInt
+  volume: BigInt
+  volume_not: BigInt
+  volume_in: [BigInt]
+  volume_not_in: [BigInt]
+  volume_gt: BigInt
+  volume_lt: BigInt
+  volume_gte: BigInt
+  volume_lte: BigInt
+}
+
+type projectTokenBalanceMomentPage {
+  items: [projectTokenBalanceMoment!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type projectTokenBalanceMoment {
+  chainId: Int!
+  projectId: Int!
+  version: Int!
+  token: String!
+  decimals: Int!
+  block: Int!
+  timestamp: Int!
+  balance: BigInt!
+  volume: BigInt!
+  tokenUsdRate: BigInt
+  project: project
+}
+
+input projectTokenBalanceMomentFilter {
+  AND: [projectTokenBalanceMomentFilter]
+  OR: [projectTokenBalanceMomentFilter]
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  token: String
+  token_not: String
+  token_in: [String]
+  token_not_in: [String]
+  token_contains: String
+  token_not_contains: String
+  token_starts_with: String
+  token_ends_with: String
+  token_not_starts_with: String
+  token_not_ends_with: String
+  decimals: Int
+  decimals_not: Int
+  decimals_in: [Int]
+  decimals_not_in: [Int]
+  decimals_gt: Int
+  decimals_lt: Int
+  decimals_gte: Int
+  decimals_lte: Int
+  block: Int
+  block_not: Int
+  block_in: [Int]
+  block_not_in: [Int]
+  block_gt: Int
+  block_lt: Int
+  block_gte: Int
+  block_lte: Int
+  timestamp: Int
+  timestamp_not: Int
+  timestamp_in: [Int]
+  timestamp_not_in: [Int]
+  timestamp_gt: Int
+  timestamp_lt: Int
+  timestamp_gte: Int
+  timestamp_lte: Int
+  balance: BigInt
+  balance_not: BigInt
+  balance_in: [BigInt]
+  balance_not_in: [BigInt]
+  balance_gt: BigInt
+  balance_lt: BigInt
+  balance_gte: BigInt
+  balance_lte: BigInt
+  volume: BigInt
+  volume_not: BigInt
+  volume_in: [BigInt]
+  volume_not_in: [BigInt]
+  volume_gt: BigInt
+  volume_lt: BigInt
+  volume_gte: BigInt
+  volume_lte: BigInt
+  tokenUsdRate: BigInt
+  tokenUsdRate_not: BigInt
+  tokenUsdRate_in: [BigInt]
+  tokenUsdRate_not_in: [BigInt]
+  tokenUsdRate_gt: BigInt
+  tokenUsdRate_lt: BigInt
+  tokenUsdRate_gte: BigInt
+  tokenUsdRate_lte: BigInt
+}
+
 type permissionHolderPage {
   items: [permissionHolder!]!
   pageInfo: PageInfo!
@@ -2252,6 +2907,9 @@ type addToBalanceEvent {
   caller: String!
   from: String!
   logIndex: Int!
+  token: String
+  decimals: Int
+  tokenSymbol: String
   projectId: Int!
   suckerGroupId: String!
   amount: BigInt!
@@ -2412,6 +3070,9 @@ type cashOutTokensEvent {
   caller: String!
   from: String!
   logIndex: Int!
+  token: String
+  decimals: Int
+  tokenSymbol: String
   projectId: Int!
   suckerGroupId: String!
   cashOutCount: BigInt!
@@ -2597,6 +3258,9 @@ type payEvent {
   caller: String!
   from: String!
   logIndex: Int!
+  token: String
+  decimals: Int
+  tokenSymbol: String
   projectId: Int!
   suckerGroupId: String!
   distributionFromProjectId: Int
@@ -2729,6 +3393,9 @@ type sendPayoutsEvent {
   caller: String!
   from: String!
   logIndex: Int!
+  token: String
+  decimals: Int
+  tokenSymbol: String
   projectId: Int!
   suckerGroupId: String!
   amount: BigInt!
@@ -2752,6 +3419,9 @@ type sendPayoutToSplitEvent {
   caller: String!
   from: String!
   logIndex: Int!
+  token: String
+  decimals: Int
+  tokenSymbol: String
   projectId: Int!
   suckerGroupId: String!
   amount: BigInt!
@@ -2856,6 +3526,9 @@ type useAllowanceEvent {
   caller: String!
   from: String!
   logIndex: Int!
+  token: String
+  decimals: Int
+  tokenSymbol: String
   projectId: Int!
   suckerGroupId: String!
   amount: BigInt!
@@ -3782,6 +4455,40 @@ input addToBalanceEventFilter {
   logIndex_lt: Int
   logIndex_gte: Int
   logIndex_lte: Int
+  token: String
+  token_not: String
+  token_in: [String]
+  token_not_in: [String]
+  token_contains: String
+  token_not_contains: String
+  token_starts_with: String
+  token_ends_with: String
+  token_not_starts_with: String
+  token_not_ends_with: String
+  decimals: Int
+  decimals_not: Int
+  decimals_in: [Int]
+  decimals_not_in: [Int]
+  decimals_gt: Int
+  decimals_lt: Int
+  decimals_gte: Int
+  decimals_lte: Int
+  tokenSymbol: String
+  tokenSymbol_not: String
+  tokenSymbol_in: [String]
+  tokenSymbol_not_in: [String]
+  tokenSymbol_contains: String
+  tokenSymbol_not_contains: String
+  tokenSymbol_starts_with: String
+  tokenSymbol_ends_with: String
+  tokenSymbol_not_starts_with: String
+  tokenSymbol_not_ends_with: String
+  tokenSymbol_contains_nocase: String
+  tokenSymbol_not_contains_nocase: String
+  tokenSymbol_starts_with_nocase: String
+  tokenSymbol_ends_with_nocase: String
+  tokenSymbol_not_starts_with_nocase: String
+  tokenSymbol_not_ends_with_nocase: String
   projectId: Int
   projectId_not: Int
   projectId_in: [Int]
@@ -4654,6 +5361,7 @@ type buybackPool {
   currency1: String!
   projectTokenIsCurrency0: Boolean!
   initialSqrtPriceX96: BigInt
+  terminalTokenCurrency: BigInt
   project: project
 }
 
@@ -4744,6 +5452,14 @@ input buybackPoolFilter {
   initialSqrtPriceX96_lt: BigInt
   initialSqrtPriceX96_gte: BigInt
   initialSqrtPriceX96_lte: BigInt
+  terminalTokenCurrency: BigInt
+  terminalTokenCurrency_not: BigInt
+  terminalTokenCurrency_in: [BigInt]
+  terminalTokenCurrency_not_in: [BigInt]
+  terminalTokenCurrency_gt: BigInt
+  terminalTokenCurrency_lt: BigInt
+  terminalTokenCurrency_gte: BigInt
+  terminalTokenCurrency_lte: BigInt
 }
 
 type cashOutTokensEventPage {
@@ -4833,6 +5549,40 @@ input cashOutTokensEventFilter {
   logIndex_lt: Int
   logIndex_gte: Int
   logIndex_lte: Int
+  token: String
+  token_not: String
+  token_in: [String]
+  token_not_in: [String]
+  token_contains: String
+  token_not_contains: String
+  token_starts_with: String
+  token_ends_with: String
+  token_not_starts_with: String
+  token_not_ends_with: String
+  decimals: Int
+  decimals_not: Int
+  decimals_in: [Int]
+  decimals_not_in: [Int]
+  decimals_gt: Int
+  decimals_lt: Int
+  decimals_gte: Int
+  decimals_lte: Int
+  tokenSymbol: String
+  tokenSymbol_not: String
+  tokenSymbol_in: [String]
+  tokenSymbol_not_in: [String]
+  tokenSymbol_contains: String
+  tokenSymbol_not_contains: String
+  tokenSymbol_starts_with: String
+  tokenSymbol_ends_with: String
+  tokenSymbol_not_starts_with: String
+  tokenSymbol_not_ends_with: String
+  tokenSymbol_contains_nocase: String
+  tokenSymbol_not_contains_nocase: String
+  tokenSymbol_starts_with_nocase: String
+  tokenSymbol_ends_with_nocase: String
+  tokenSymbol_not_starts_with_nocase: String
+  tokenSymbol_not_ends_with_nocase: String
   projectId: Int
   projectId_not: Int
   projectId_in: [Int]
@@ -6059,6 +6809,40 @@ input payEventFilter {
   logIndex_lt: Int
   logIndex_gte: Int
   logIndex_lte: Int
+  token: String
+  token_not: String
+  token_in: [String]
+  token_not_in: [String]
+  token_contains: String
+  token_not_contains: String
+  token_starts_with: String
+  token_ends_with: String
+  token_not_starts_with: String
+  token_not_ends_with: String
+  decimals: Int
+  decimals_not: Int
+  decimals_in: [Int]
+  decimals_not_in: [Int]
+  decimals_gt: Int
+  decimals_lt: Int
+  decimals_gte: Int
+  decimals_lte: Int
+  tokenSymbol: String
+  tokenSymbol_not: String
+  tokenSymbol_in: [String]
+  tokenSymbol_not_in: [String]
+  tokenSymbol_contains: String
+  tokenSymbol_not_contains: String
+  tokenSymbol_starts_with: String
+  tokenSymbol_ends_with: String
+  tokenSymbol_not_starts_with: String
+  tokenSymbol_not_ends_with: String
+  tokenSymbol_contains_nocase: String
+  tokenSymbol_not_contains_nocase: String
+  tokenSymbol_starts_with_nocase: String
+  tokenSymbol_ends_with_nocase: String
+  tokenSymbol_not_starts_with_nocase: String
+  tokenSymbol_not_ends_with_nocase: String
   projectId: Int
   projectId_not: Int
   projectId_in: [Int]
@@ -7140,6 +7924,40 @@ input sendPayoutsEventFilter {
   logIndex_lt: Int
   logIndex_gte: Int
   logIndex_lte: Int
+  token: String
+  token_not: String
+  token_in: [String]
+  token_not_in: [String]
+  token_contains: String
+  token_not_contains: String
+  token_starts_with: String
+  token_ends_with: String
+  token_not_starts_with: String
+  token_not_ends_with: String
+  decimals: Int
+  decimals_not: Int
+  decimals_in: [Int]
+  decimals_not_in: [Int]
+  decimals_gt: Int
+  decimals_lt: Int
+  decimals_gte: Int
+  decimals_lte: Int
+  tokenSymbol: String
+  tokenSymbol_not: String
+  tokenSymbol_in: [String]
+  tokenSymbol_not_in: [String]
+  tokenSymbol_contains: String
+  tokenSymbol_not_contains: String
+  tokenSymbol_starts_with: String
+  tokenSymbol_ends_with: String
+  tokenSymbol_not_starts_with: String
+  tokenSymbol_not_ends_with: String
+  tokenSymbol_contains_nocase: String
+  tokenSymbol_not_contains_nocase: String
+  tokenSymbol_starts_with_nocase: String
+  tokenSymbol_ends_with_nocase: String
+  tokenSymbol_not_starts_with_nocase: String
+  tokenSymbol_not_ends_with_nocase: String
   projectId: Int
   projectId_not: Int
   projectId_in: [Int]
@@ -7325,6 +8143,40 @@ input sendPayoutToSplitEventFilter {
   logIndex_lt: Int
   logIndex_gte: Int
   logIndex_lte: Int
+  token: String
+  token_not: String
+  token_in: [String]
+  token_not_in: [String]
+  token_contains: String
+  token_not_contains: String
+  token_starts_with: String
+  token_ends_with: String
+  token_not_starts_with: String
+  token_not_ends_with: String
+  decimals: Int
+  decimals_not: Int
+  decimals_in: [Int]
+  decimals_not_in: [Int]
+  decimals_gt: Int
+  decimals_lt: Int
+  decimals_gte: Int
+  decimals_lte: Int
+  tokenSymbol: String
+  tokenSymbol_not: String
+  tokenSymbol_in: [String]
+  tokenSymbol_not_in: [String]
+  tokenSymbol_contains: String
+  tokenSymbol_not_contains: String
+  tokenSymbol_starts_with: String
+  tokenSymbol_ends_with: String
+  tokenSymbol_not_starts_with: String
+  tokenSymbol_not_ends_with: String
+  tokenSymbol_contains_nocase: String
+  tokenSymbol_not_contains_nocase: String
+  tokenSymbol_starts_with_nocase: String
+  tokenSymbol_ends_with_nocase: String
+  tokenSymbol_not_starts_with_nocase: String
+  tokenSymbol_not_ends_with_nocase: String
   projectId: Int
   projectId_not: Int
   projectId_in: [Int]
@@ -8309,6 +9161,40 @@ input useAllowanceEventFilter {
   logIndex_lt: Int
   logIndex_gte: Int
   logIndex_lte: Int
+  token: String
+  token_not: String
+  token_in: [String]
+  token_not_in: [String]
+  token_contains: String
+  token_not_contains: String
+  token_starts_with: String
+  token_ends_with: String
+  token_not_starts_with: String
+  token_not_ends_with: String
+  decimals: Int
+  decimals_not: Int
+  decimals_in: [Int]
+  decimals_not_in: [Int]
+  decimals_gt: Int
+  decimals_lt: Int
+  decimals_gte: Int
+  decimals_lte: Int
+  tokenSymbol: String
+  tokenSymbol_not: String
+  tokenSymbol_in: [String]
+  tokenSymbol_not_in: [String]
+  tokenSymbol_contains: String
+  tokenSymbol_not_contains: String
+  tokenSymbol_starts_with: String
+  tokenSymbol_ends_with: String
+  tokenSymbol_not_starts_with: String
+  tokenSymbol_not_ends_with: String
+  tokenSymbol_contains_nocase: String
+  tokenSymbol_not_contains_nocase: String
+  tokenSymbol_starts_with_nocase: String
+  tokenSymbol_ends_with_nocase: String
+  tokenSymbol_not_starts_with_nocase: String
+  tokenSymbol_not_ends_with_nocase: String
   projectId: Int
   projectId_not: Int
   projectId_in: [Int]
@@ -9604,6 +10490,1000 @@ input decorateBannyEventFilter {
   tokenUri_not_ends_with_nocase: String
 }
 
+type defifaAttestation {
+  chainId: Int!
+  projectId: Int!
+  scorecardId: BigInt!
+  account: String!
+  weight: BigInt!
+  attestedAt: Int!
+  revokedAt: Int
+  scorecard: defifaScorecard
+}
+
+type defifaScorecard {
+  chainId: Int!
+  projectId: Int!
+  scorecardId: BigInt!
+  tierWeights: JSON!
+  proposer: String!
+  proposedAt: Int!
+  proposalTxHash: String!
+  quorum: BigInt
+  attestationsBegin: BigInt
+  gracePeriodEnds: BigInt
+  attestationWeight: BigInt!
+  attestationsCount: Int!
+  forwardedAt: Int
+  submittedAt: Int
+  ratifiedAt: Int
+  game: defifaGame
+  attestations(where: defifaAttestationFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): defifaAttestationPage
+}
+
+type defifaGame {
+  chainId: Int!
+  projectId: Int!
+  version: Int!
+  gameType: defifaGameType!
+  deployer: String!
+  hook: String!
+  governor: String!
+  referee: String!
+  tokenUriResolver: String!
+  name: String!
+  symbol: String!
+  tiersCount: Int!
+  mintStartsAt: BigInt!
+  refundStartsAt: BigInt
+  scoringStartsAt: BigInt!
+  mintPeriodDuration: Int!
+  refundPeriodDuration: Int!
+  minParticipation: BigInt!
+  scorecardTimeout: BigInt!
+  timelockDuration: BigInt!
+  attestationStartTime: BigInt
+  attestationGracePeriod: BigInt
+  totalMintCost: BigInt!
+  scorecardsCount: Int!
+  pendingScorecardId: BigInt
+  pendingSubmittedAt: Int
+  ratifiedScorecardId: BigInt
+  ratifiedAt: Int
+  cashOutWeights: JSON
+  cashOutWeightsSetAt: Int
+  pot: BigInt
+  commitmentsFulfilledAt: Int
+  noContestQueuedAt: Int
+  launchedBy: String!
+  launchTxHash: String!
+  createdAt: Int!
+  project: project
+  nftHook: nftHook
+  scorecards(where: defifaScorecardFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): defifaScorecardPage
+  holdings(where: defifaHoldingFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): defifaHoldingPage
+  tierDelegates(where: defifaTierDelegateFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): defifaTierDelegatePage
+  events(where: defifaEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): defifaEventPage
+}
+
+enum defifaGameType {
+  erc721
+  erc1155
+}
+
+type defifaScorecardPage {
+  items: [defifaScorecard!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input defifaScorecardFilter {
+  AND: [defifaScorecardFilter]
+  OR: [defifaScorecardFilter]
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  scorecardId: BigInt
+  scorecardId_not: BigInt
+  scorecardId_in: [BigInt]
+  scorecardId_not_in: [BigInt]
+  scorecardId_gt: BigInt
+  scorecardId_lt: BigInt
+  scorecardId_gte: BigInt
+  scorecardId_lte: BigInt
+  proposer: String
+  proposer_not: String
+  proposer_in: [String]
+  proposer_not_in: [String]
+  proposer_contains: String
+  proposer_not_contains: String
+  proposer_starts_with: String
+  proposer_ends_with: String
+  proposer_not_starts_with: String
+  proposer_not_ends_with: String
+  proposedAt: Int
+  proposedAt_not: Int
+  proposedAt_in: [Int]
+  proposedAt_not_in: [Int]
+  proposedAt_gt: Int
+  proposedAt_lt: Int
+  proposedAt_gte: Int
+  proposedAt_lte: Int
+  proposalTxHash: String
+  proposalTxHash_not: String
+  proposalTxHash_in: [String]
+  proposalTxHash_not_in: [String]
+  proposalTxHash_contains: String
+  proposalTxHash_not_contains: String
+  proposalTxHash_starts_with: String
+  proposalTxHash_ends_with: String
+  proposalTxHash_not_starts_with: String
+  proposalTxHash_not_ends_with: String
+  quorum: BigInt
+  quorum_not: BigInt
+  quorum_in: [BigInt]
+  quorum_not_in: [BigInt]
+  quorum_gt: BigInt
+  quorum_lt: BigInt
+  quorum_gte: BigInt
+  quorum_lte: BigInt
+  attestationsBegin: BigInt
+  attestationsBegin_not: BigInt
+  attestationsBegin_in: [BigInt]
+  attestationsBegin_not_in: [BigInt]
+  attestationsBegin_gt: BigInt
+  attestationsBegin_lt: BigInt
+  attestationsBegin_gte: BigInt
+  attestationsBegin_lte: BigInt
+  gracePeriodEnds: BigInt
+  gracePeriodEnds_not: BigInt
+  gracePeriodEnds_in: [BigInt]
+  gracePeriodEnds_not_in: [BigInt]
+  gracePeriodEnds_gt: BigInt
+  gracePeriodEnds_lt: BigInt
+  gracePeriodEnds_gte: BigInt
+  gracePeriodEnds_lte: BigInt
+  attestationWeight: BigInt
+  attestationWeight_not: BigInt
+  attestationWeight_in: [BigInt]
+  attestationWeight_not_in: [BigInt]
+  attestationWeight_gt: BigInt
+  attestationWeight_lt: BigInt
+  attestationWeight_gte: BigInt
+  attestationWeight_lte: BigInt
+  attestationsCount: Int
+  attestationsCount_not: Int
+  attestationsCount_in: [Int]
+  attestationsCount_not_in: [Int]
+  attestationsCount_gt: Int
+  attestationsCount_lt: Int
+  attestationsCount_gte: Int
+  attestationsCount_lte: Int
+  forwardedAt: Int
+  forwardedAt_not: Int
+  forwardedAt_in: [Int]
+  forwardedAt_not_in: [Int]
+  forwardedAt_gt: Int
+  forwardedAt_lt: Int
+  forwardedAt_gte: Int
+  forwardedAt_lte: Int
+  submittedAt: Int
+  submittedAt_not: Int
+  submittedAt_in: [Int]
+  submittedAt_not_in: [Int]
+  submittedAt_gt: Int
+  submittedAt_lt: Int
+  submittedAt_gte: Int
+  submittedAt_lte: Int
+  ratifiedAt: Int
+  ratifiedAt_not: Int
+  ratifiedAt_in: [Int]
+  ratifiedAt_not_in: [Int]
+  ratifiedAt_gt: Int
+  ratifiedAt_lt: Int
+  ratifiedAt_gte: Int
+  ratifiedAt_lte: Int
+}
+
+type defifaHoldingPage {
+  items: [defifaHolding!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type defifaHolding {
+  chainId: Int!
+  projectId: Int!
+  version: Int!
+  hook: String!
+  owner: String!
+  tierId: Int!
+  count: Int!
+  reserveCount: Int
+  updatedAt: Int!
+  game: defifaGame
+  tier: nftTier
+}
+
+input defifaHoldingFilter {
+  AND: [defifaHoldingFilter]
+  OR: [defifaHoldingFilter]
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  hook: String
+  hook_not: String
+  hook_in: [String]
+  hook_not_in: [String]
+  hook_contains: String
+  hook_not_contains: String
+  hook_starts_with: String
+  hook_ends_with: String
+  hook_not_starts_with: String
+  hook_not_ends_with: String
+  owner: String
+  owner_not: String
+  owner_in: [String]
+  owner_not_in: [String]
+  owner_contains: String
+  owner_not_contains: String
+  owner_starts_with: String
+  owner_ends_with: String
+  owner_not_starts_with: String
+  owner_not_ends_with: String
+  tierId: Int
+  tierId_not: Int
+  tierId_in: [Int]
+  tierId_not_in: [Int]
+  tierId_gt: Int
+  tierId_lt: Int
+  tierId_gte: Int
+  tierId_lte: Int
+  count: Int
+  count_not: Int
+  count_in: [Int]
+  count_not_in: [Int]
+  count_gt: Int
+  count_lt: Int
+  count_gte: Int
+  count_lte: Int
+  reserveCount: Int
+  reserveCount_not: Int
+  reserveCount_in: [Int]
+  reserveCount_not_in: [Int]
+  reserveCount_gt: Int
+  reserveCount_lt: Int
+  reserveCount_gte: Int
+  reserveCount_lte: Int
+  updatedAt: Int
+  updatedAt_not: Int
+  updatedAt_in: [Int]
+  updatedAt_not_in: [Int]
+  updatedAt_gt: Int
+  updatedAt_lt: Int
+  updatedAt_gte: Int
+  updatedAt_lte: Int
+}
+
+type defifaTierDelegatePage {
+  items: [defifaTierDelegate!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type defifaTierDelegate {
+  chainId: Int!
+  projectId: Int!
+  hook: String!
+  tierId: Int!
+  delegate: String!
+  attestationUnits: BigInt!
+  updatedAt: Int!
+  game: defifaGame
+}
+
+input defifaTierDelegateFilter {
+  AND: [defifaTierDelegateFilter]
+  OR: [defifaTierDelegateFilter]
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  hook: String
+  hook_not: String
+  hook_in: [String]
+  hook_not_in: [String]
+  hook_contains: String
+  hook_not_contains: String
+  hook_starts_with: String
+  hook_ends_with: String
+  hook_not_starts_with: String
+  hook_not_ends_with: String
+  tierId: Int
+  tierId_not: Int
+  tierId_in: [Int]
+  tierId_not_in: [Int]
+  tierId_gt: Int
+  tierId_lt: Int
+  tierId_gte: Int
+  tierId_lte: Int
+  delegate: String
+  delegate_not: String
+  delegate_in: [String]
+  delegate_not_in: [String]
+  delegate_contains: String
+  delegate_not_contains: String
+  delegate_starts_with: String
+  delegate_ends_with: String
+  delegate_not_starts_with: String
+  delegate_not_ends_with: String
+  attestationUnits: BigInt
+  attestationUnits_not: BigInt
+  attestationUnits_in: [BigInt]
+  attestationUnits_not_in: [BigInt]
+  attestationUnits_gt: BigInt
+  attestationUnits_lt: BigInt
+  attestationUnits_gte: BigInt
+  attestationUnits_lte: BigInt
+  updatedAt: Int
+  updatedAt_not: Int
+  updatedAt_in: [Int]
+  updatedAt_not_in: [Int]
+  updatedAt_gt: Int
+  updatedAt_lt: Int
+  updatedAt_gte: Int
+  updatedAt_lte: Int
+}
+
+type defifaEventPage {
+  items: [defifaEvent!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type defifaEvent {
+  id: String!
+  chainId: Int!
+  version: Int!
+  txHash: String!
+  timestamp: Int!
+  caller: String!
+  from: String!
+  logIndex: Int!
+  projectId: Int!
+  type: defifaEventType!
+  account: String
+  tierId: Int
+  count: Int
+  amount: BigInt
+  scorecardId: BigInt
+  weight: BigInt
+  defifaTokenAmount: BigInt
+  baseProtocolTokenAmount: BigInt
+  delegate: String
+  game: defifaGame
+}
+
+enum defifaEventType {
+  launched
+  minted
+  reserveMinted
+  scorecardProposed
+  scorecardAttested
+  attestationRevoked
+  scorecardForwarded
+  scorecardSubmitted
+  scorecardRatified
+  cashOutWeightsSet
+  commitmentsFulfilled
+  noContestQueued
+  feeTokensClaimed
+  delegateChanged
+}
+
+input defifaEventFilter {
+  AND: [defifaEventFilter]
+  OR: [defifaEventFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  txHash: String
+  txHash_not: String
+  txHash_in: [String]
+  txHash_not_in: [String]
+  txHash_contains: String
+  txHash_not_contains: String
+  txHash_starts_with: String
+  txHash_ends_with: String
+  txHash_not_starts_with: String
+  txHash_not_ends_with: String
+  timestamp: Int
+  timestamp_not: Int
+  timestamp_in: [Int]
+  timestamp_not_in: [Int]
+  timestamp_gt: Int
+  timestamp_lt: Int
+  timestamp_gte: Int
+  timestamp_lte: Int
+  caller: String
+  caller_not: String
+  caller_in: [String]
+  caller_not_in: [String]
+  caller_contains: String
+  caller_not_contains: String
+  caller_starts_with: String
+  caller_ends_with: String
+  caller_not_starts_with: String
+  caller_not_ends_with: String
+  from: String
+  from_not: String
+  from_in: [String]
+  from_not_in: [String]
+  from_contains: String
+  from_not_contains: String
+  from_starts_with: String
+  from_ends_with: String
+  from_not_starts_with: String
+  from_not_ends_with: String
+  logIndex: Int
+  logIndex_not: Int
+  logIndex_in: [Int]
+  logIndex_not_in: [Int]
+  logIndex_gt: Int
+  logIndex_lt: Int
+  logIndex_gte: Int
+  logIndex_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  type: defifaEventType
+  type_not: defifaEventType
+  type_in: [defifaEventType]
+  type_not_in: [defifaEventType]
+  account: String
+  account_not: String
+  account_in: [String]
+  account_not_in: [String]
+  account_contains: String
+  account_not_contains: String
+  account_starts_with: String
+  account_ends_with: String
+  account_not_starts_with: String
+  account_not_ends_with: String
+  tierId: Int
+  tierId_not: Int
+  tierId_in: [Int]
+  tierId_not_in: [Int]
+  tierId_gt: Int
+  tierId_lt: Int
+  tierId_gte: Int
+  tierId_lte: Int
+  count: Int
+  count_not: Int
+  count_in: [Int]
+  count_not_in: [Int]
+  count_gt: Int
+  count_lt: Int
+  count_gte: Int
+  count_lte: Int
+  amount: BigInt
+  amount_not: BigInt
+  amount_in: [BigInt]
+  amount_not_in: [BigInt]
+  amount_gt: BigInt
+  amount_lt: BigInt
+  amount_gte: BigInt
+  amount_lte: BigInt
+  scorecardId: BigInt
+  scorecardId_not: BigInt
+  scorecardId_in: [BigInt]
+  scorecardId_not_in: [BigInt]
+  scorecardId_gt: BigInt
+  scorecardId_lt: BigInt
+  scorecardId_gte: BigInt
+  scorecardId_lte: BigInt
+  weight: BigInt
+  weight_not: BigInt
+  weight_in: [BigInt]
+  weight_not_in: [BigInt]
+  weight_gt: BigInt
+  weight_lt: BigInt
+  weight_gte: BigInt
+  weight_lte: BigInt
+  defifaTokenAmount: BigInt
+  defifaTokenAmount_not: BigInt
+  defifaTokenAmount_in: [BigInt]
+  defifaTokenAmount_not_in: [BigInt]
+  defifaTokenAmount_gt: BigInt
+  defifaTokenAmount_lt: BigInt
+  defifaTokenAmount_gte: BigInt
+  defifaTokenAmount_lte: BigInt
+  baseProtocolTokenAmount: BigInt
+  baseProtocolTokenAmount_not: BigInt
+  baseProtocolTokenAmount_in: [BigInt]
+  baseProtocolTokenAmount_not_in: [BigInt]
+  baseProtocolTokenAmount_gt: BigInt
+  baseProtocolTokenAmount_lt: BigInt
+  baseProtocolTokenAmount_gte: BigInt
+  baseProtocolTokenAmount_lte: BigInt
+  delegate: String
+  delegate_not: String
+  delegate_in: [String]
+  delegate_not_in: [String]
+  delegate_contains: String
+  delegate_not_contains: String
+  delegate_starts_with: String
+  delegate_ends_with: String
+  delegate_not_starts_with: String
+  delegate_not_ends_with: String
+}
+
+type defifaAttestationPage {
+  items: [defifaAttestation!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input defifaAttestationFilter {
+  AND: [defifaAttestationFilter]
+  OR: [defifaAttestationFilter]
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  scorecardId: BigInt
+  scorecardId_not: BigInt
+  scorecardId_in: [BigInt]
+  scorecardId_not_in: [BigInt]
+  scorecardId_gt: BigInt
+  scorecardId_lt: BigInt
+  scorecardId_gte: BigInt
+  scorecardId_lte: BigInt
+  account: String
+  account_not: String
+  account_in: [String]
+  account_not_in: [String]
+  account_contains: String
+  account_not_contains: String
+  account_starts_with: String
+  account_ends_with: String
+  account_not_starts_with: String
+  account_not_ends_with: String
+  weight: BigInt
+  weight_not: BigInt
+  weight_in: [BigInt]
+  weight_not_in: [BigInt]
+  weight_gt: BigInt
+  weight_lt: BigInt
+  weight_gte: BigInt
+  weight_lte: BigInt
+  attestedAt: Int
+  attestedAt_not: Int
+  attestedAt_in: [Int]
+  attestedAt_not_in: [Int]
+  attestedAt_gt: Int
+  attestedAt_lt: Int
+  attestedAt_gte: Int
+  attestedAt_lte: Int
+  revokedAt: Int
+  revokedAt_not: Int
+  revokedAt_in: [Int]
+  revokedAt_not_in: [Int]
+  revokedAt_gt: Int
+  revokedAt_lt: Int
+  revokedAt_gte: Int
+  revokedAt_lte: Int
+}
+
+type defifaGamePage {
+  items: [defifaGame!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input defifaGameFilter {
+  AND: [defifaGameFilter]
+  OR: [defifaGameFilter]
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  gameType: defifaGameType
+  gameType_not: defifaGameType
+  gameType_in: [defifaGameType]
+  gameType_not_in: [defifaGameType]
+  deployer: String
+  deployer_not: String
+  deployer_in: [String]
+  deployer_not_in: [String]
+  deployer_contains: String
+  deployer_not_contains: String
+  deployer_starts_with: String
+  deployer_ends_with: String
+  deployer_not_starts_with: String
+  deployer_not_ends_with: String
+  hook: String
+  hook_not: String
+  hook_in: [String]
+  hook_not_in: [String]
+  hook_contains: String
+  hook_not_contains: String
+  hook_starts_with: String
+  hook_ends_with: String
+  hook_not_starts_with: String
+  hook_not_ends_with: String
+  governor: String
+  governor_not: String
+  governor_in: [String]
+  governor_not_in: [String]
+  governor_contains: String
+  governor_not_contains: String
+  governor_starts_with: String
+  governor_ends_with: String
+  governor_not_starts_with: String
+  governor_not_ends_with: String
+  referee: String
+  referee_not: String
+  referee_in: [String]
+  referee_not_in: [String]
+  referee_contains: String
+  referee_not_contains: String
+  referee_starts_with: String
+  referee_ends_with: String
+  referee_not_starts_with: String
+  referee_not_ends_with: String
+  tokenUriResolver: String
+  tokenUriResolver_not: String
+  tokenUriResolver_in: [String]
+  tokenUriResolver_not_in: [String]
+  tokenUriResolver_contains: String
+  tokenUriResolver_not_contains: String
+  tokenUriResolver_starts_with: String
+  tokenUriResolver_ends_with: String
+  tokenUriResolver_not_starts_with: String
+  tokenUriResolver_not_ends_with: String
+  name: String
+  name_not: String
+  name_in: [String]
+  name_not_in: [String]
+  name_contains: String
+  name_not_contains: String
+  name_starts_with: String
+  name_ends_with: String
+  name_not_starts_with: String
+  name_not_ends_with: String
+  name_contains_nocase: String
+  name_not_contains_nocase: String
+  name_starts_with_nocase: String
+  name_ends_with_nocase: String
+  name_not_starts_with_nocase: String
+  name_not_ends_with_nocase: String
+  symbol: String
+  symbol_not: String
+  symbol_in: [String]
+  symbol_not_in: [String]
+  symbol_contains: String
+  symbol_not_contains: String
+  symbol_starts_with: String
+  symbol_ends_with: String
+  symbol_not_starts_with: String
+  symbol_not_ends_with: String
+  symbol_contains_nocase: String
+  symbol_not_contains_nocase: String
+  symbol_starts_with_nocase: String
+  symbol_ends_with_nocase: String
+  symbol_not_starts_with_nocase: String
+  symbol_not_ends_with_nocase: String
+  tiersCount: Int
+  tiersCount_not: Int
+  tiersCount_in: [Int]
+  tiersCount_not_in: [Int]
+  tiersCount_gt: Int
+  tiersCount_lt: Int
+  tiersCount_gte: Int
+  tiersCount_lte: Int
+  mintStartsAt: BigInt
+  mintStartsAt_not: BigInt
+  mintStartsAt_in: [BigInt]
+  mintStartsAt_not_in: [BigInt]
+  mintStartsAt_gt: BigInt
+  mintStartsAt_lt: BigInt
+  mintStartsAt_gte: BigInt
+  mintStartsAt_lte: BigInt
+  refundStartsAt: BigInt
+  refundStartsAt_not: BigInt
+  refundStartsAt_in: [BigInt]
+  refundStartsAt_not_in: [BigInt]
+  refundStartsAt_gt: BigInt
+  refundStartsAt_lt: BigInt
+  refundStartsAt_gte: BigInt
+  refundStartsAt_lte: BigInt
+  scoringStartsAt: BigInt
+  scoringStartsAt_not: BigInt
+  scoringStartsAt_in: [BigInt]
+  scoringStartsAt_not_in: [BigInt]
+  scoringStartsAt_gt: BigInt
+  scoringStartsAt_lt: BigInt
+  scoringStartsAt_gte: BigInt
+  scoringStartsAt_lte: BigInt
+  mintPeriodDuration: Int
+  mintPeriodDuration_not: Int
+  mintPeriodDuration_in: [Int]
+  mintPeriodDuration_not_in: [Int]
+  mintPeriodDuration_gt: Int
+  mintPeriodDuration_lt: Int
+  mintPeriodDuration_gte: Int
+  mintPeriodDuration_lte: Int
+  refundPeriodDuration: Int
+  refundPeriodDuration_not: Int
+  refundPeriodDuration_in: [Int]
+  refundPeriodDuration_not_in: [Int]
+  refundPeriodDuration_gt: Int
+  refundPeriodDuration_lt: Int
+  refundPeriodDuration_gte: Int
+  refundPeriodDuration_lte: Int
+  minParticipation: BigInt
+  minParticipation_not: BigInt
+  minParticipation_in: [BigInt]
+  minParticipation_not_in: [BigInt]
+  minParticipation_gt: BigInt
+  minParticipation_lt: BigInt
+  minParticipation_gte: BigInt
+  minParticipation_lte: BigInt
+  scorecardTimeout: BigInt
+  scorecardTimeout_not: BigInt
+  scorecardTimeout_in: [BigInt]
+  scorecardTimeout_not_in: [BigInt]
+  scorecardTimeout_gt: BigInt
+  scorecardTimeout_lt: BigInt
+  scorecardTimeout_gte: BigInt
+  scorecardTimeout_lte: BigInt
+  timelockDuration: BigInt
+  timelockDuration_not: BigInt
+  timelockDuration_in: [BigInt]
+  timelockDuration_not_in: [BigInt]
+  timelockDuration_gt: BigInt
+  timelockDuration_lt: BigInt
+  timelockDuration_gte: BigInt
+  timelockDuration_lte: BigInt
+  attestationStartTime: BigInt
+  attestationStartTime_not: BigInt
+  attestationStartTime_in: [BigInt]
+  attestationStartTime_not_in: [BigInt]
+  attestationStartTime_gt: BigInt
+  attestationStartTime_lt: BigInt
+  attestationStartTime_gte: BigInt
+  attestationStartTime_lte: BigInt
+  attestationGracePeriod: BigInt
+  attestationGracePeriod_not: BigInt
+  attestationGracePeriod_in: [BigInt]
+  attestationGracePeriod_not_in: [BigInt]
+  attestationGracePeriod_gt: BigInt
+  attestationGracePeriod_lt: BigInt
+  attestationGracePeriod_gte: BigInt
+  attestationGracePeriod_lte: BigInt
+  totalMintCost: BigInt
+  totalMintCost_not: BigInt
+  totalMintCost_in: [BigInt]
+  totalMintCost_not_in: [BigInt]
+  totalMintCost_gt: BigInt
+  totalMintCost_lt: BigInt
+  totalMintCost_gte: BigInt
+  totalMintCost_lte: BigInt
+  scorecardsCount: Int
+  scorecardsCount_not: Int
+  scorecardsCount_in: [Int]
+  scorecardsCount_not_in: [Int]
+  scorecardsCount_gt: Int
+  scorecardsCount_lt: Int
+  scorecardsCount_gte: Int
+  scorecardsCount_lte: Int
+  pendingScorecardId: BigInt
+  pendingScorecardId_not: BigInt
+  pendingScorecardId_in: [BigInt]
+  pendingScorecardId_not_in: [BigInt]
+  pendingScorecardId_gt: BigInt
+  pendingScorecardId_lt: BigInt
+  pendingScorecardId_gte: BigInt
+  pendingScorecardId_lte: BigInt
+  pendingSubmittedAt: Int
+  pendingSubmittedAt_not: Int
+  pendingSubmittedAt_in: [Int]
+  pendingSubmittedAt_not_in: [Int]
+  pendingSubmittedAt_gt: Int
+  pendingSubmittedAt_lt: Int
+  pendingSubmittedAt_gte: Int
+  pendingSubmittedAt_lte: Int
+  ratifiedScorecardId: BigInt
+  ratifiedScorecardId_not: BigInt
+  ratifiedScorecardId_in: [BigInt]
+  ratifiedScorecardId_not_in: [BigInt]
+  ratifiedScorecardId_gt: BigInt
+  ratifiedScorecardId_lt: BigInt
+  ratifiedScorecardId_gte: BigInt
+  ratifiedScorecardId_lte: BigInt
+  ratifiedAt: Int
+  ratifiedAt_not: Int
+  ratifiedAt_in: [Int]
+  ratifiedAt_not_in: [Int]
+  ratifiedAt_gt: Int
+  ratifiedAt_lt: Int
+  ratifiedAt_gte: Int
+  ratifiedAt_lte: Int
+  cashOutWeightsSetAt: Int
+  cashOutWeightsSetAt_not: Int
+  cashOutWeightsSetAt_in: [Int]
+  cashOutWeightsSetAt_not_in: [Int]
+  cashOutWeightsSetAt_gt: Int
+  cashOutWeightsSetAt_lt: Int
+  cashOutWeightsSetAt_gte: Int
+  cashOutWeightsSetAt_lte: Int
+  pot: BigInt
+  pot_not: BigInt
+  pot_in: [BigInt]
+  pot_not_in: [BigInt]
+  pot_gt: BigInt
+  pot_lt: BigInt
+  pot_gte: BigInt
+  pot_lte: BigInt
+  commitmentsFulfilledAt: Int
+  commitmentsFulfilledAt_not: Int
+  commitmentsFulfilledAt_in: [Int]
+  commitmentsFulfilledAt_not_in: [Int]
+  commitmentsFulfilledAt_gt: Int
+  commitmentsFulfilledAt_lt: Int
+  commitmentsFulfilledAt_gte: Int
+  commitmentsFulfilledAt_lte: Int
+  noContestQueuedAt: Int
+  noContestQueuedAt_not: Int
+  noContestQueuedAt_in: [Int]
+  noContestQueuedAt_not_in: [Int]
+  noContestQueuedAt_gt: Int
+  noContestQueuedAt_lt: Int
+  noContestQueuedAt_gte: Int
+  noContestQueuedAt_lte: Int
+  launchedBy: String
+  launchedBy_not: String
+  launchedBy_in: [String]
+  launchedBy_not_in: [String]
+  launchedBy_contains: String
+  launchedBy_not_contains: String
+  launchedBy_starts_with: String
+  launchedBy_ends_with: String
+  launchedBy_not_starts_with: String
+  launchedBy_not_ends_with: String
+  launchTxHash: String
+  launchTxHash_not: String
+  launchTxHash_in: [String]
+  launchTxHash_not_in: [String]
+  launchTxHash_contains: String
+  launchTxHash_not_contains: String
+  launchTxHash_starts_with: String
+  launchTxHash_ends_with: String
+  launchTxHash_not_starts_with: String
+  launchTxHash_not_ends_with: String
+  createdAt: Int
+  createdAt_not: Int
+  createdAt_in: [Int]
+  createdAt_not_in: [Int]
+  createdAt_gt: Int
+  createdAt_lt: Int
+  createdAt_gte: Int
+  createdAt_lte: Int
+}
+
 type inboxRootReceivedEventPage {
   items: [inboxRootReceivedEvent!]!
   pageInfo: PageInfo!
@@ -9893,6 +11773,1783 @@ input participantSnapshotFilter {
   erc20Balance_lt: BigInt
   erc20Balance_gte: BigInt
   erc20Balance_lte: BigInt
+}
+
+type pendingBuybackMint {
+  chainId: Int!
+  txHash: String!
+  terminal: String!
+  projectId: Int!
+  hook: String!
+  swapEventId: String!
+}
+
+type pendingBuybackMintPage {
+  items: [pendingBuybackMint!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input pendingBuybackMintFilter {
+  AND: [pendingBuybackMintFilter]
+  OR: [pendingBuybackMintFilter]
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  txHash: String
+  txHash_not: String
+  txHash_in: [String]
+  txHash_not_in: [String]
+  txHash_contains: String
+  txHash_not_contains: String
+  txHash_starts_with: String
+  txHash_ends_with: String
+  txHash_not_starts_with: String
+  txHash_not_ends_with: String
+  terminal: String
+  terminal_not: String
+  terminal_in: [String]
+  terminal_not_in: [String]
+  terminal_contains: String
+  terminal_not_contains: String
+  terminal_starts_with: String
+  terminal_ends_with: String
+  terminal_not_starts_with: String
+  terminal_not_ends_with: String
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  hook: String
+  hook_not: String
+  hook_in: [String]
+  hook_not_in: [String]
+  hook_contains: String
+  hook_not_contains: String
+  hook_starts_with: String
+  hook_ends_with: String
+  hook_not_starts_with: String
+  hook_not_ends_with: String
+  swapEventId: String
+  swapEventId_not: String
+  swapEventId_in: [String]
+  swapEventId_not_in: [String]
+  swapEventId_contains: String
+  swapEventId_not_contains: String
+  swapEventId_starts_with: String
+  swapEventId_ends_with: String
+  swapEventId_not_starts_with: String
+  swapEventId_not_ends_with: String
+  swapEventId_contains_nocase: String
+  swapEventId_not_contains_nocase: String
+  swapEventId_starts_with_nocase: String
+  swapEventId_ends_with_nocase: String
+  swapEventId_not_starts_with_nocase: String
+  swapEventId_not_ends_with_nocase: String
+}
+
+type processFeeEvent {
+  id: String!
+  chainId: Int!
+  version: Int!
+  txHash: String!
+  timestamp: Int!
+  caller: String!
+  from: String!
+  logIndex: Int!
+  projectId: Int!
+  suckerGroupId: String!
+  token: String!
+  amount: BigInt!
+  wasHeld: Boolean!
+  beneficiary: String!
+  project: project
+}
+
+type processFeeEventPage {
+  items: [processFeeEvent!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input processFeeEventFilter {
+  AND: [processFeeEventFilter]
+  OR: [processFeeEventFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  txHash: String
+  txHash_not: String
+  txHash_in: [String]
+  txHash_not_in: [String]
+  txHash_contains: String
+  txHash_not_contains: String
+  txHash_starts_with: String
+  txHash_ends_with: String
+  txHash_not_starts_with: String
+  txHash_not_ends_with: String
+  timestamp: Int
+  timestamp_not: Int
+  timestamp_in: [Int]
+  timestamp_not_in: [Int]
+  timestamp_gt: Int
+  timestamp_lt: Int
+  timestamp_gte: Int
+  timestamp_lte: Int
+  caller: String
+  caller_not: String
+  caller_in: [String]
+  caller_not_in: [String]
+  caller_contains: String
+  caller_not_contains: String
+  caller_starts_with: String
+  caller_ends_with: String
+  caller_not_starts_with: String
+  caller_not_ends_with: String
+  from: String
+  from_not: String
+  from_in: [String]
+  from_not_in: [String]
+  from_contains: String
+  from_not_contains: String
+  from_starts_with: String
+  from_ends_with: String
+  from_not_starts_with: String
+  from_not_ends_with: String
+  logIndex: Int
+  logIndex_not: Int
+  logIndex_in: [Int]
+  logIndex_not_in: [Int]
+  logIndex_gt: Int
+  logIndex_lt: Int
+  logIndex_gte: Int
+  logIndex_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  suckerGroupId: String
+  suckerGroupId_not: String
+  suckerGroupId_in: [String]
+  suckerGroupId_not_in: [String]
+  suckerGroupId_contains: String
+  suckerGroupId_not_contains: String
+  suckerGroupId_starts_with: String
+  suckerGroupId_ends_with: String
+  suckerGroupId_not_starts_with: String
+  suckerGroupId_not_ends_with: String
+  suckerGroupId_contains_nocase: String
+  suckerGroupId_not_contains_nocase: String
+  suckerGroupId_starts_with_nocase: String
+  suckerGroupId_ends_with_nocase: String
+  suckerGroupId_not_starts_with_nocase: String
+  suckerGroupId_not_ends_with_nocase: String
+  token: String
+  token_not: String
+  token_in: [String]
+  token_not_in: [String]
+  token_contains: String
+  token_not_contains: String
+  token_starts_with: String
+  token_ends_with: String
+  token_not_starts_with: String
+  token_not_ends_with: String
+  amount: BigInt
+  amount_not: BigInt
+  amount_in: [BigInt]
+  amount_not_in: [BigInt]
+  amount_gt: BigInt
+  amount_lt: BigInt
+  amount_gte: BigInt
+  amount_lte: BigInt
+  wasHeld: Boolean
+  wasHeld_not: Boolean
+  wasHeld_in: [Boolean]
+  wasHeld_not_in: [Boolean]
+  beneficiary: String
+  beneficiary_not: String
+  beneficiary_in: [String]
+  beneficiary_not_in: [String]
+  beneficiary_contains: String
+  beneficiary_not_contains: String
+  beneficiary_starts_with: String
+  beneficiary_ends_with: String
+  beneficiary_not_starts_with: String
+  beneficiary_not_ends_with: String
+}
+
+type routerPendingCall {
+  chainId: Int!
+  version: Int!
+  gateway: String!
+  pendingCallId: String!
+  projectId: Int!
+  sourceProjectId: Int!
+  token: String!
+  amount: BigInt!
+  retainedAmount: BigInt!
+  preferAddToBalance: Boolean!
+  shouldReturnHeldFees: Boolean!
+  beneficiary: String!
+  refundTo: String!
+  memo: String!
+  metadata: String!
+  callCommitment: String!
+  status: routerPendingCallStatus!
+  initialErrorHash: String!
+  latestErrorHash: String!
+  failureCount: Int!
+  attemptCount: Int!
+  nextAttemptAt: BigInt
+  beneficiaryTokenCount: BigInt
+  createdAt: Int!
+  updatedAt: Int!
+  resolvedAt: Int
+  queueTxHash: String!
+  latestTxHash: String!
+  sourceProject: project
+  destinationProject: project
+  events(where: routerPendingCallEventFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): routerPendingCallEventPage
+}
+
+enum routerPendingCallStatus {
+  queued
+  retried
+  settled
+  refunded
+}
+
+type routerPendingCallEventPage {
+  items: [routerPendingCallEvent!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type routerPendingCallEvent {
+  id: String!
+  chainId: Int!
+  version: Int!
+  txHash: String!
+  timestamp: Int!
+  caller: String!
+  from: String!
+  logIndex: Int!
+  gateway: String!
+  pendingCallId: String!
+  projectId: Int!
+  sourceProjectId: Int!
+  token: String!
+  amount: BigInt!
+  retainedAmountDelta: BigInt!
+  type: routerPendingCallStatus!
+  errorHash: String
+  failureCount: Int
+  nextAttemptAt: BigInt
+  beneficiaryTokenCount: BigInt
+  blockNumber: BigInt!
+  pendingCall: routerPendingCall
+}
+
+input routerPendingCallEventFilter {
+  AND: [routerPendingCallEventFilter]
+  OR: [routerPendingCallEventFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  txHash: String
+  txHash_not: String
+  txHash_in: [String]
+  txHash_not_in: [String]
+  txHash_contains: String
+  txHash_not_contains: String
+  txHash_starts_with: String
+  txHash_ends_with: String
+  txHash_not_starts_with: String
+  txHash_not_ends_with: String
+  timestamp: Int
+  timestamp_not: Int
+  timestamp_in: [Int]
+  timestamp_not_in: [Int]
+  timestamp_gt: Int
+  timestamp_lt: Int
+  timestamp_gte: Int
+  timestamp_lte: Int
+  caller: String
+  caller_not: String
+  caller_in: [String]
+  caller_not_in: [String]
+  caller_contains: String
+  caller_not_contains: String
+  caller_starts_with: String
+  caller_ends_with: String
+  caller_not_starts_with: String
+  caller_not_ends_with: String
+  from: String
+  from_not: String
+  from_in: [String]
+  from_not_in: [String]
+  from_contains: String
+  from_not_contains: String
+  from_starts_with: String
+  from_ends_with: String
+  from_not_starts_with: String
+  from_not_ends_with: String
+  logIndex: Int
+  logIndex_not: Int
+  logIndex_in: [Int]
+  logIndex_not_in: [Int]
+  logIndex_gt: Int
+  logIndex_lt: Int
+  logIndex_gte: Int
+  logIndex_lte: Int
+  gateway: String
+  gateway_not: String
+  gateway_in: [String]
+  gateway_not_in: [String]
+  gateway_contains: String
+  gateway_not_contains: String
+  gateway_starts_with: String
+  gateway_ends_with: String
+  gateway_not_starts_with: String
+  gateway_not_ends_with: String
+  pendingCallId: String
+  pendingCallId_not: String
+  pendingCallId_in: [String]
+  pendingCallId_not_in: [String]
+  pendingCallId_contains: String
+  pendingCallId_not_contains: String
+  pendingCallId_starts_with: String
+  pendingCallId_ends_with: String
+  pendingCallId_not_starts_with: String
+  pendingCallId_not_ends_with: String
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  sourceProjectId: Int
+  sourceProjectId_not: Int
+  sourceProjectId_in: [Int]
+  sourceProjectId_not_in: [Int]
+  sourceProjectId_gt: Int
+  sourceProjectId_lt: Int
+  sourceProjectId_gte: Int
+  sourceProjectId_lte: Int
+  token: String
+  token_not: String
+  token_in: [String]
+  token_not_in: [String]
+  token_contains: String
+  token_not_contains: String
+  token_starts_with: String
+  token_ends_with: String
+  token_not_starts_with: String
+  token_not_ends_with: String
+  amount: BigInt
+  amount_not: BigInt
+  amount_in: [BigInt]
+  amount_not_in: [BigInt]
+  amount_gt: BigInt
+  amount_lt: BigInt
+  amount_gte: BigInt
+  amount_lte: BigInt
+  retainedAmountDelta: BigInt
+  retainedAmountDelta_not: BigInt
+  retainedAmountDelta_in: [BigInt]
+  retainedAmountDelta_not_in: [BigInt]
+  retainedAmountDelta_gt: BigInt
+  retainedAmountDelta_lt: BigInt
+  retainedAmountDelta_gte: BigInt
+  retainedAmountDelta_lte: BigInt
+  type: routerPendingCallStatus
+  type_not: routerPendingCallStatus
+  type_in: [routerPendingCallStatus]
+  type_not_in: [routerPendingCallStatus]
+  errorHash: String
+  errorHash_not: String
+  errorHash_in: [String]
+  errorHash_not_in: [String]
+  errorHash_contains: String
+  errorHash_not_contains: String
+  errorHash_starts_with: String
+  errorHash_ends_with: String
+  errorHash_not_starts_with: String
+  errorHash_not_ends_with: String
+  failureCount: Int
+  failureCount_not: Int
+  failureCount_in: [Int]
+  failureCount_not_in: [Int]
+  failureCount_gt: Int
+  failureCount_lt: Int
+  failureCount_gte: Int
+  failureCount_lte: Int
+  nextAttemptAt: BigInt
+  nextAttemptAt_not: BigInt
+  nextAttemptAt_in: [BigInt]
+  nextAttemptAt_not_in: [BigInt]
+  nextAttemptAt_gt: BigInt
+  nextAttemptAt_lt: BigInt
+  nextAttemptAt_gte: BigInt
+  nextAttemptAt_lte: BigInt
+  beneficiaryTokenCount: BigInt
+  beneficiaryTokenCount_not: BigInt
+  beneficiaryTokenCount_in: [BigInt]
+  beneficiaryTokenCount_not_in: [BigInt]
+  beneficiaryTokenCount_gt: BigInt
+  beneficiaryTokenCount_lt: BigInt
+  beneficiaryTokenCount_gte: BigInt
+  beneficiaryTokenCount_lte: BigInt
+  blockNumber: BigInt
+  blockNumber_not: BigInt
+  blockNumber_in: [BigInt]
+  blockNumber_not_in: [BigInt]
+  blockNumber_gt: BigInt
+  blockNumber_lt: BigInt
+  blockNumber_gte: BigInt
+  blockNumber_lte: BigInt
+}
+
+type routerPendingCallPage {
+  items: [routerPendingCall!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input routerPendingCallFilter {
+  AND: [routerPendingCallFilter]
+  OR: [routerPendingCallFilter]
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  gateway: String
+  gateway_not: String
+  gateway_in: [String]
+  gateway_not_in: [String]
+  gateway_contains: String
+  gateway_not_contains: String
+  gateway_starts_with: String
+  gateway_ends_with: String
+  gateway_not_starts_with: String
+  gateway_not_ends_with: String
+  pendingCallId: String
+  pendingCallId_not: String
+  pendingCallId_in: [String]
+  pendingCallId_not_in: [String]
+  pendingCallId_contains: String
+  pendingCallId_not_contains: String
+  pendingCallId_starts_with: String
+  pendingCallId_ends_with: String
+  pendingCallId_not_starts_with: String
+  pendingCallId_not_ends_with: String
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  sourceProjectId: Int
+  sourceProjectId_not: Int
+  sourceProjectId_in: [Int]
+  sourceProjectId_not_in: [Int]
+  sourceProjectId_gt: Int
+  sourceProjectId_lt: Int
+  sourceProjectId_gte: Int
+  sourceProjectId_lte: Int
+  token: String
+  token_not: String
+  token_in: [String]
+  token_not_in: [String]
+  token_contains: String
+  token_not_contains: String
+  token_starts_with: String
+  token_ends_with: String
+  token_not_starts_with: String
+  token_not_ends_with: String
+  amount: BigInt
+  amount_not: BigInt
+  amount_in: [BigInt]
+  amount_not_in: [BigInt]
+  amount_gt: BigInt
+  amount_lt: BigInt
+  amount_gte: BigInt
+  amount_lte: BigInt
+  retainedAmount: BigInt
+  retainedAmount_not: BigInt
+  retainedAmount_in: [BigInt]
+  retainedAmount_not_in: [BigInt]
+  retainedAmount_gt: BigInt
+  retainedAmount_lt: BigInt
+  retainedAmount_gte: BigInt
+  retainedAmount_lte: BigInt
+  preferAddToBalance: Boolean
+  preferAddToBalance_not: Boolean
+  preferAddToBalance_in: [Boolean]
+  preferAddToBalance_not_in: [Boolean]
+  shouldReturnHeldFees: Boolean
+  shouldReturnHeldFees_not: Boolean
+  shouldReturnHeldFees_in: [Boolean]
+  shouldReturnHeldFees_not_in: [Boolean]
+  beneficiary: String
+  beneficiary_not: String
+  beneficiary_in: [String]
+  beneficiary_not_in: [String]
+  beneficiary_contains: String
+  beneficiary_not_contains: String
+  beneficiary_starts_with: String
+  beneficiary_ends_with: String
+  beneficiary_not_starts_with: String
+  beneficiary_not_ends_with: String
+  refundTo: String
+  refundTo_not: String
+  refundTo_in: [String]
+  refundTo_not_in: [String]
+  refundTo_contains: String
+  refundTo_not_contains: String
+  refundTo_starts_with: String
+  refundTo_ends_with: String
+  refundTo_not_starts_with: String
+  refundTo_not_ends_with: String
+  memo: String
+  memo_not: String
+  memo_in: [String]
+  memo_not_in: [String]
+  memo_contains: String
+  memo_not_contains: String
+  memo_starts_with: String
+  memo_ends_with: String
+  memo_not_starts_with: String
+  memo_not_ends_with: String
+  memo_contains_nocase: String
+  memo_not_contains_nocase: String
+  memo_starts_with_nocase: String
+  memo_ends_with_nocase: String
+  memo_not_starts_with_nocase: String
+  memo_not_ends_with_nocase: String
+  metadata: String
+  metadata_not: String
+  metadata_in: [String]
+  metadata_not_in: [String]
+  metadata_contains: String
+  metadata_not_contains: String
+  metadata_starts_with: String
+  metadata_ends_with: String
+  metadata_not_starts_with: String
+  metadata_not_ends_with: String
+  callCommitment: String
+  callCommitment_not: String
+  callCommitment_in: [String]
+  callCommitment_not_in: [String]
+  callCommitment_contains: String
+  callCommitment_not_contains: String
+  callCommitment_starts_with: String
+  callCommitment_ends_with: String
+  callCommitment_not_starts_with: String
+  callCommitment_not_ends_with: String
+  status: routerPendingCallStatus
+  status_not: routerPendingCallStatus
+  status_in: [routerPendingCallStatus]
+  status_not_in: [routerPendingCallStatus]
+  initialErrorHash: String
+  initialErrorHash_not: String
+  initialErrorHash_in: [String]
+  initialErrorHash_not_in: [String]
+  initialErrorHash_contains: String
+  initialErrorHash_not_contains: String
+  initialErrorHash_starts_with: String
+  initialErrorHash_ends_with: String
+  initialErrorHash_not_starts_with: String
+  initialErrorHash_not_ends_with: String
+  latestErrorHash: String
+  latestErrorHash_not: String
+  latestErrorHash_in: [String]
+  latestErrorHash_not_in: [String]
+  latestErrorHash_contains: String
+  latestErrorHash_not_contains: String
+  latestErrorHash_starts_with: String
+  latestErrorHash_ends_with: String
+  latestErrorHash_not_starts_with: String
+  latestErrorHash_not_ends_with: String
+  failureCount: Int
+  failureCount_not: Int
+  failureCount_in: [Int]
+  failureCount_not_in: [Int]
+  failureCount_gt: Int
+  failureCount_lt: Int
+  failureCount_gte: Int
+  failureCount_lte: Int
+  attemptCount: Int
+  attemptCount_not: Int
+  attemptCount_in: [Int]
+  attemptCount_not_in: [Int]
+  attemptCount_gt: Int
+  attemptCount_lt: Int
+  attemptCount_gte: Int
+  attemptCount_lte: Int
+  nextAttemptAt: BigInt
+  nextAttemptAt_not: BigInt
+  nextAttemptAt_in: [BigInt]
+  nextAttemptAt_not_in: [BigInt]
+  nextAttemptAt_gt: BigInt
+  nextAttemptAt_lt: BigInt
+  nextAttemptAt_gte: BigInt
+  nextAttemptAt_lte: BigInt
+  beneficiaryTokenCount: BigInt
+  beneficiaryTokenCount_not: BigInt
+  beneficiaryTokenCount_in: [BigInt]
+  beneficiaryTokenCount_not_in: [BigInt]
+  beneficiaryTokenCount_gt: BigInt
+  beneficiaryTokenCount_lt: BigInt
+  beneficiaryTokenCount_gte: BigInt
+  beneficiaryTokenCount_lte: BigInt
+  createdAt: Int
+  createdAt_not: Int
+  createdAt_in: [Int]
+  createdAt_not_in: [Int]
+  createdAt_gt: Int
+  createdAt_lt: Int
+  createdAt_gte: Int
+  createdAt_lte: Int
+  updatedAt: Int
+  updatedAt_not: Int
+  updatedAt_in: [Int]
+  updatedAt_not_in: [Int]
+  updatedAt_gt: Int
+  updatedAt_lt: Int
+  updatedAt_gte: Int
+  updatedAt_lte: Int
+  resolvedAt: Int
+  resolvedAt_not: Int
+  resolvedAt_in: [Int]
+  resolvedAt_not_in: [Int]
+  resolvedAt_gt: Int
+  resolvedAt_lt: Int
+  resolvedAt_gte: Int
+  resolvedAt_lte: Int
+  queueTxHash: String
+  queueTxHash_not: String
+  queueTxHash_in: [String]
+  queueTxHash_not_in: [String]
+  queueTxHash_contains: String
+  queueTxHash_not_contains: String
+  queueTxHash_starts_with: String
+  queueTxHash_ends_with: String
+  queueTxHash_not_starts_with: String
+  queueTxHash_not_ends_with: String
+  latestTxHash: String
+  latestTxHash_not: String
+  latestTxHash_in: [String]
+  latestTxHash_not_in: [String]
+  latestTxHash_contains: String
+  latestTxHash_not_contains: String
+  latestTxHash_starts_with: String
+  latestTxHash_ends_with: String
+  latestTxHash_not_starts_with: String
+  latestTxHash_not_ends_with: String
+}
+
+type routerPermitFailureEvent {
+  id: String!
+  chainId: Int!
+  version: Int!
+  txHash: String!
+  timestamp: Int!
+  caller: String!
+  from: String!
+  logIndex: Int!
+  terminal: String!
+  token: String!
+  owner: String!
+  reason: String!
+  callerFromEvent: Boolean!
+  blockNumber: BigInt!
+}
+
+type routerPermitFailureEventPage {
+  items: [routerPermitFailureEvent!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input routerPermitFailureEventFilter {
+  AND: [routerPermitFailureEventFilter]
+  OR: [routerPermitFailureEventFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  txHash: String
+  txHash_not: String
+  txHash_in: [String]
+  txHash_not_in: [String]
+  txHash_contains: String
+  txHash_not_contains: String
+  txHash_starts_with: String
+  txHash_ends_with: String
+  txHash_not_starts_with: String
+  txHash_not_ends_with: String
+  timestamp: Int
+  timestamp_not: Int
+  timestamp_in: [Int]
+  timestamp_not_in: [Int]
+  timestamp_gt: Int
+  timestamp_lt: Int
+  timestamp_gte: Int
+  timestamp_lte: Int
+  caller: String
+  caller_not: String
+  caller_in: [String]
+  caller_not_in: [String]
+  caller_contains: String
+  caller_not_contains: String
+  caller_starts_with: String
+  caller_ends_with: String
+  caller_not_starts_with: String
+  caller_not_ends_with: String
+  from: String
+  from_not: String
+  from_in: [String]
+  from_not_in: [String]
+  from_contains: String
+  from_not_contains: String
+  from_starts_with: String
+  from_ends_with: String
+  from_not_starts_with: String
+  from_not_ends_with: String
+  logIndex: Int
+  logIndex_not: Int
+  logIndex_in: [Int]
+  logIndex_not_in: [Int]
+  logIndex_gt: Int
+  logIndex_lt: Int
+  logIndex_gte: Int
+  logIndex_lte: Int
+  terminal: String
+  terminal_not: String
+  terminal_in: [String]
+  terminal_not_in: [String]
+  terminal_contains: String
+  terminal_not_contains: String
+  terminal_starts_with: String
+  terminal_ends_with: String
+  terminal_not_starts_with: String
+  terminal_not_ends_with: String
+  token: String
+  token_not: String
+  token_in: [String]
+  token_not_in: [String]
+  token_contains: String
+  token_not_contains: String
+  token_starts_with: String
+  token_ends_with: String
+  token_not_starts_with: String
+  token_not_ends_with: String
+  owner: String
+  owner_not: String
+  owner_in: [String]
+  owner_not_in: [String]
+  owner_contains: String
+  owner_not_contains: String
+  owner_starts_with: String
+  owner_ends_with: String
+  owner_not_starts_with: String
+  owner_not_ends_with: String
+  reason: String
+  reason_not: String
+  reason_in: [String]
+  reason_not_in: [String]
+  reason_contains: String
+  reason_not_contains: String
+  reason_starts_with: String
+  reason_ends_with: String
+  reason_not_starts_with: String
+  reason_not_ends_with: String
+  callerFromEvent: Boolean
+  callerFromEvent_not: Boolean
+  callerFromEvent_in: [Boolean]
+  callerFromEvent_not_in: [Boolean]
+  blockNumber: BigInt
+  blockNumber_not: BigInt
+  blockNumber_in: [BigInt]
+  blockNumber_not_in: [BigInt]
+  blockNumber_gt: BigInt
+  blockNumber_lt: BigInt
+  blockNumber_gte: BigInt
+  blockNumber_lte: BigInt
+}
+
+type routerRetainedBalance {
+  chainId: Int!
+  version: Int!
+  gateway: String!
+  sourceProjectId: Int!
+  token: String!
+  retainedAmount: BigInt!
+  pendingCallCount: Int!
+  queuedAmount: BigInt!
+  settledAmount: BigInt!
+  refundedAmount: BigInt!
+  updatedAt: Int!
+}
+
+type routerRetainedBalancePage {
+  items: [routerRetainedBalance!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input routerRetainedBalanceFilter {
+  AND: [routerRetainedBalanceFilter]
+  OR: [routerRetainedBalanceFilter]
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  gateway: String
+  gateway_not: String
+  gateway_in: [String]
+  gateway_not_in: [String]
+  gateway_contains: String
+  gateway_not_contains: String
+  gateway_starts_with: String
+  gateway_ends_with: String
+  gateway_not_starts_with: String
+  gateway_not_ends_with: String
+  sourceProjectId: Int
+  sourceProjectId_not: Int
+  sourceProjectId_in: [Int]
+  sourceProjectId_not_in: [Int]
+  sourceProjectId_gt: Int
+  sourceProjectId_lt: Int
+  sourceProjectId_gte: Int
+  sourceProjectId_lte: Int
+  token: String
+  token_not: String
+  token_in: [String]
+  token_not_in: [String]
+  token_contains: String
+  token_not_contains: String
+  token_starts_with: String
+  token_ends_with: String
+  token_not_starts_with: String
+  token_not_ends_with: String
+  retainedAmount: BigInt
+  retainedAmount_not: BigInt
+  retainedAmount_in: [BigInt]
+  retainedAmount_not_in: [BigInt]
+  retainedAmount_gt: BigInt
+  retainedAmount_lt: BigInt
+  retainedAmount_gte: BigInt
+  retainedAmount_lte: BigInt
+  pendingCallCount: Int
+  pendingCallCount_not: Int
+  pendingCallCount_in: [Int]
+  pendingCallCount_not_in: [Int]
+  pendingCallCount_gt: Int
+  pendingCallCount_lt: Int
+  pendingCallCount_gte: Int
+  pendingCallCount_lte: Int
+  queuedAmount: BigInt
+  queuedAmount_not: BigInt
+  queuedAmount_in: [BigInt]
+  queuedAmount_not_in: [BigInt]
+  queuedAmount_gt: BigInt
+  queuedAmount_lt: BigInt
+  queuedAmount_gte: BigInt
+  queuedAmount_lte: BigInt
+  settledAmount: BigInt
+  settledAmount_not: BigInt
+  settledAmount_in: [BigInt]
+  settledAmount_not_in: [BigInt]
+  settledAmount_gt: BigInt
+  settledAmount_lt: BigInt
+  settledAmount_gte: BigInt
+  settledAmount_lte: BigInt
+  refundedAmount: BigInt
+  refundedAmount_not: BigInt
+  refundedAmount_in: [BigInt]
+  refundedAmount_not_in: [BigInt]
+  refundedAmount_gt: BigInt
+  refundedAmount_lt: BigInt
+  refundedAmount_gte: BigInt
+  refundedAmount_lte: BigInt
+  updatedAt: Int
+  updatedAt_not: Int
+  updatedAt_in: [Int]
+  updatedAt_not_in: [Int]
+  updatedAt_gt: Int
+  updatedAt_lt: Int
+  updatedAt_gte: Int
+  updatedAt_lte: Int
+}
+
+type stickyEvent {
+  id: String!
+  chainId: Int!
+  version: Int!
+  txHash: String!
+  timestamp: Int!
+  caller: String!
+  from: String!
+  logIndex: Int!
+  projectId: Int!
+  suckerGroupId: String!
+  holder: String!
+  type: stickyEventType!
+  count: BigInt
+  stakedBalance: BigInt
+  payer: String
+  duration: Int
+  project: project
+}
+
+enum stickyEventType {
+  staked
+  unstaked
+  streakStarted
+  streakEnded
+}
+
+type stickyEventPage {
+  items: [stickyEvent!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input stickyEventFilter {
+  AND: [stickyEventFilter]
+  OR: [stickyEventFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  txHash: String
+  txHash_not: String
+  txHash_in: [String]
+  txHash_not_in: [String]
+  txHash_contains: String
+  txHash_not_contains: String
+  txHash_starts_with: String
+  txHash_ends_with: String
+  txHash_not_starts_with: String
+  txHash_not_ends_with: String
+  timestamp: Int
+  timestamp_not: Int
+  timestamp_in: [Int]
+  timestamp_not_in: [Int]
+  timestamp_gt: Int
+  timestamp_lt: Int
+  timestamp_gte: Int
+  timestamp_lte: Int
+  caller: String
+  caller_not: String
+  caller_in: [String]
+  caller_not_in: [String]
+  caller_contains: String
+  caller_not_contains: String
+  caller_starts_with: String
+  caller_ends_with: String
+  caller_not_starts_with: String
+  caller_not_ends_with: String
+  from: String
+  from_not: String
+  from_in: [String]
+  from_not_in: [String]
+  from_contains: String
+  from_not_contains: String
+  from_starts_with: String
+  from_ends_with: String
+  from_not_starts_with: String
+  from_not_ends_with: String
+  logIndex: Int
+  logIndex_not: Int
+  logIndex_in: [Int]
+  logIndex_not_in: [Int]
+  logIndex_gt: Int
+  logIndex_lt: Int
+  logIndex_gte: Int
+  logIndex_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  suckerGroupId: String
+  suckerGroupId_not: String
+  suckerGroupId_in: [String]
+  suckerGroupId_not_in: [String]
+  suckerGroupId_contains: String
+  suckerGroupId_not_contains: String
+  suckerGroupId_starts_with: String
+  suckerGroupId_ends_with: String
+  suckerGroupId_not_starts_with: String
+  suckerGroupId_not_ends_with: String
+  suckerGroupId_contains_nocase: String
+  suckerGroupId_not_contains_nocase: String
+  suckerGroupId_starts_with_nocase: String
+  suckerGroupId_ends_with_nocase: String
+  suckerGroupId_not_starts_with_nocase: String
+  suckerGroupId_not_ends_with_nocase: String
+  holder: String
+  holder_not: String
+  holder_in: [String]
+  holder_not_in: [String]
+  holder_contains: String
+  holder_not_contains: String
+  holder_starts_with: String
+  holder_ends_with: String
+  holder_not_starts_with: String
+  holder_not_ends_with: String
+  type: stickyEventType
+  type_not: stickyEventType
+  type_in: [stickyEventType]
+  type_not_in: [stickyEventType]
+  count: BigInt
+  count_not: BigInt
+  count_in: [BigInt]
+  count_not_in: [BigInt]
+  count_gt: BigInt
+  count_lt: BigInt
+  count_gte: BigInt
+  count_lte: BigInt
+  stakedBalance: BigInt
+  stakedBalance_not: BigInt
+  stakedBalance_in: [BigInt]
+  stakedBalance_not_in: [BigInt]
+  stakedBalance_gt: BigInt
+  stakedBalance_lt: BigInt
+  stakedBalance_gte: BigInt
+  stakedBalance_lte: BigInt
+  payer: String
+  payer_not: String
+  payer_in: [String]
+  payer_not_in: [String]
+  payer_contains: String
+  payer_not_contains: String
+  payer_starts_with: String
+  payer_ends_with: String
+  payer_not_starts_with: String
+  payer_not_ends_with: String
+  duration: Int
+  duration_not: Int
+  duration_in: [Int]
+  duration_not_in: [Int]
+  duration_gt: Int
+  duration_lt: Int
+  duration_gte: Int
+  duration_lte: Int
+}
+
+type stickyFundEvent {
+  id: String!
+  chainId: Int!
+  version: Int!
+  txHash: String!
+  timestamp: Int!
+  caller: String!
+  from: String!
+  logIndex: Int!
+  projectId: Int!
+  suckerGroupId: String!
+  hook: String!
+  groupId: BigInt!
+  token: String!
+  round: BigInt!
+  amount: BigInt!
+  blockNumber: BigInt!
+  project: project
+}
+
+type stickyFundEventPage {
+  items: [stickyFundEvent!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input stickyFundEventFilter {
+  AND: [stickyFundEventFilter]
+  OR: [stickyFundEventFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  txHash: String
+  txHash_not: String
+  txHash_in: [String]
+  txHash_not_in: [String]
+  txHash_contains: String
+  txHash_not_contains: String
+  txHash_starts_with: String
+  txHash_ends_with: String
+  txHash_not_starts_with: String
+  txHash_not_ends_with: String
+  timestamp: Int
+  timestamp_not: Int
+  timestamp_in: [Int]
+  timestamp_not_in: [Int]
+  timestamp_gt: Int
+  timestamp_lt: Int
+  timestamp_gte: Int
+  timestamp_lte: Int
+  caller: String
+  caller_not: String
+  caller_in: [String]
+  caller_not_in: [String]
+  caller_contains: String
+  caller_not_contains: String
+  caller_starts_with: String
+  caller_ends_with: String
+  caller_not_starts_with: String
+  caller_not_ends_with: String
+  from: String
+  from_not: String
+  from_in: [String]
+  from_not_in: [String]
+  from_contains: String
+  from_not_contains: String
+  from_starts_with: String
+  from_ends_with: String
+  from_not_starts_with: String
+  from_not_ends_with: String
+  logIndex: Int
+  logIndex_not: Int
+  logIndex_in: [Int]
+  logIndex_not_in: [Int]
+  logIndex_gt: Int
+  logIndex_lt: Int
+  logIndex_gte: Int
+  logIndex_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  suckerGroupId: String
+  suckerGroupId_not: String
+  suckerGroupId_in: [String]
+  suckerGroupId_not_in: [String]
+  suckerGroupId_contains: String
+  suckerGroupId_not_contains: String
+  suckerGroupId_starts_with: String
+  suckerGroupId_ends_with: String
+  suckerGroupId_not_starts_with: String
+  suckerGroupId_not_ends_with: String
+  suckerGroupId_contains_nocase: String
+  suckerGroupId_not_contains_nocase: String
+  suckerGroupId_starts_with_nocase: String
+  suckerGroupId_ends_with_nocase: String
+  suckerGroupId_not_starts_with_nocase: String
+  suckerGroupId_not_ends_with_nocase: String
+  hook: String
+  hook_not: String
+  hook_in: [String]
+  hook_not_in: [String]
+  hook_contains: String
+  hook_not_contains: String
+  hook_starts_with: String
+  hook_ends_with: String
+  hook_not_starts_with: String
+  hook_not_ends_with: String
+  groupId: BigInt
+  groupId_not: BigInt
+  groupId_in: [BigInt]
+  groupId_not_in: [BigInt]
+  groupId_gt: BigInt
+  groupId_lt: BigInt
+  groupId_gte: BigInt
+  groupId_lte: BigInt
+  token: String
+  token_not: String
+  token_in: [String]
+  token_not_in: [String]
+  token_contains: String
+  token_not_contains: String
+  token_starts_with: String
+  token_ends_with: String
+  token_not_starts_with: String
+  token_not_ends_with: String
+  round: BigInt
+  round_not: BigInt
+  round_in: [BigInt]
+  round_not_in: [BigInt]
+  round_gt: BigInt
+  round_lt: BigInt
+  round_gte: BigInt
+  round_lte: BigInt
+  amount: BigInt
+  amount_not: BigInt
+  amount_in: [BigInt]
+  amount_not_in: [BigInt]
+  amount_gt: BigInt
+  amount_lt: BigInt
+  amount_gte: BigInt
+  amount_lte: BigInt
+  blockNumber: BigInt
+  blockNumber_not: BigInt
+  blockNumber_in: [BigInt]
+  blockNumber_not_in: [BigInt]
+  blockNumber_gt: BigInt
+  blockNumber_lt: BigInt
+  blockNumber_gte: BigInt
+  blockNumber_lte: BigInt
+}
+
+type stickyPosition {
+  chainId: Int!
+  projectId: Int!
+  suckerGroupId: String!
+  version: Int!
+  holder: String!
+  stakedBalance: BigInt!
+  streakStartedAt: Int
+  longestCompletedStreak: Int!
+  createdAt: Int!
+  updatedAt: Int!
+  project: project
+}
+
+type stickyPositionPage {
+  items: [stickyPosition!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input stickyPositionFilter {
+  AND: [stickyPositionFilter]
+  OR: [stickyPositionFilter]
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  suckerGroupId: String
+  suckerGroupId_not: String
+  suckerGroupId_in: [String]
+  suckerGroupId_not_in: [String]
+  suckerGroupId_contains: String
+  suckerGroupId_not_contains: String
+  suckerGroupId_starts_with: String
+  suckerGroupId_ends_with: String
+  suckerGroupId_not_starts_with: String
+  suckerGroupId_not_ends_with: String
+  suckerGroupId_contains_nocase: String
+  suckerGroupId_not_contains_nocase: String
+  suckerGroupId_starts_with_nocase: String
+  suckerGroupId_ends_with_nocase: String
+  suckerGroupId_not_starts_with_nocase: String
+  suckerGroupId_not_ends_with_nocase: String
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  holder: String
+  holder_not: String
+  holder_in: [String]
+  holder_not_in: [String]
+  holder_contains: String
+  holder_not_contains: String
+  holder_starts_with: String
+  holder_ends_with: String
+  holder_not_starts_with: String
+  holder_not_ends_with: String
+  stakedBalance: BigInt
+  stakedBalance_not: BigInt
+  stakedBalance_in: [BigInt]
+  stakedBalance_not_in: [BigInt]
+  stakedBalance_gt: BigInt
+  stakedBalance_lt: BigInt
+  stakedBalance_gte: BigInt
+  stakedBalance_lte: BigInt
+  streakStartedAt: Int
+  streakStartedAt_not: Int
+  streakStartedAt_in: [Int]
+  streakStartedAt_not_in: [Int]
+  streakStartedAt_gt: Int
+  streakStartedAt_lt: Int
+  streakStartedAt_gte: Int
+  streakStartedAt_lte: Int
+  longestCompletedStreak: Int
+  longestCompletedStreak_not: Int
+  longestCompletedStreak_in: [Int]
+  longestCompletedStreak_not_in: [Int]
+  longestCompletedStreak_gt: Int
+  longestCompletedStreak_lt: Int
+  longestCompletedStreak_gte: Int
+  longestCompletedStreak_lte: Int
+  createdAt: Int
+  createdAt_not: Int
+  createdAt_in: [Int]
+  createdAt_not_in: [Int]
+  createdAt_gt: Int
+  createdAt_lt: Int
+  createdAt_gte: Int
+  createdAt_lte: Int
+  updatedAt: Int
+  updatedAt_not: Int
+  updatedAt_in: [Int]
+  updatedAt_not_in: [Int]
+  updatedAt_gt: Int
+  updatedAt_lt: Int
+  updatedAt_gte: Int
+  updatedAt_lte: Int
+}
+
+type stickySettingEvent {
+  id: String!
+  chainId: Int!
+  version: Int!
+  txHash: String!
+  timestamp: Int!
+  from: String!
+  logIndex: Int!
+  projectId: Int!
+  suckerGroupId: String!
+  type: stickySettingType!
+  account: String
+  holder: String
+  trusted: Boolean
+  amount: BigInt
+  caller: String
+  project: project
+}
+
+enum stickySettingType {
+  granterSet
+  trustedSenderSet
+  orphanedBalanceExcluded
+}
+
+type stickySettingEventPage {
+  items: [stickySettingEvent!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input stickySettingEventFilter {
+  AND: [stickySettingEventFilter]
+  OR: [stickySettingEventFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  txHash: String
+  txHash_not: String
+  txHash_in: [String]
+  txHash_not_in: [String]
+  txHash_contains: String
+  txHash_not_contains: String
+  txHash_starts_with: String
+  txHash_ends_with: String
+  txHash_not_starts_with: String
+  txHash_not_ends_with: String
+  timestamp: Int
+  timestamp_not: Int
+  timestamp_in: [Int]
+  timestamp_not_in: [Int]
+  timestamp_gt: Int
+  timestamp_lt: Int
+  timestamp_gte: Int
+  timestamp_lte: Int
+  from: String
+  from_not: String
+  from_in: [String]
+  from_not_in: [String]
+  from_contains: String
+  from_not_contains: String
+  from_starts_with: String
+  from_ends_with: String
+  from_not_starts_with: String
+  from_not_ends_with: String
+  logIndex: Int
+  logIndex_not: Int
+  logIndex_in: [Int]
+  logIndex_not_in: [Int]
+  logIndex_gt: Int
+  logIndex_lt: Int
+  logIndex_gte: Int
+  logIndex_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  suckerGroupId: String
+  suckerGroupId_not: String
+  suckerGroupId_in: [String]
+  suckerGroupId_not_in: [String]
+  suckerGroupId_contains: String
+  suckerGroupId_not_contains: String
+  suckerGroupId_starts_with: String
+  suckerGroupId_ends_with: String
+  suckerGroupId_not_starts_with: String
+  suckerGroupId_not_ends_with: String
+  suckerGroupId_contains_nocase: String
+  suckerGroupId_not_contains_nocase: String
+  suckerGroupId_starts_with_nocase: String
+  suckerGroupId_ends_with_nocase: String
+  suckerGroupId_not_starts_with_nocase: String
+  suckerGroupId_not_ends_with_nocase: String
+  type: stickySettingType
+  type_not: stickySettingType
+  type_in: [stickySettingType]
+  type_not_in: [stickySettingType]
+  account: String
+  account_not: String
+  account_in: [String]
+  account_not_in: [String]
+  account_contains: String
+  account_not_contains: String
+  account_starts_with: String
+  account_ends_with: String
+  account_not_starts_with: String
+  account_not_ends_with: String
+  holder: String
+  holder_not: String
+  holder_in: [String]
+  holder_not_in: [String]
+  holder_contains: String
+  holder_not_contains: String
+  holder_starts_with: String
+  holder_ends_with: String
+  holder_not_starts_with: String
+  holder_not_ends_with: String
+  trusted: Boolean
+  trusted_not: Boolean
+  trusted_in: [Boolean]
+  trusted_not_in: [Boolean]
+  amount: BigInt
+  amount_not: BigInt
+  amount_in: [BigInt]
+  amount_not_in: [BigInt]
+  amount_gt: BigInt
+  amount_lt: BigInt
+  amount_gte: BigInt
+  amount_lte: BigInt
+  caller: String
+  caller_not: String
+  caller_in: [String]
+  caller_not_in: [String]
+  caller_contains: String
+  caller_not_contains: String
+  caller_starts_with: String
+  caller_ends_with: String
+  caller_not_starts_with: String
+  caller_not_ends_with: String
+}
+
+type stickyToken {
+  chainId: Int!
+  projectId: Int!
+  suckerGroupId: String!
+  version: Int!
+  token: String!
+  createdAt: Int!
+  project: project
+}
+
+type stickyTokenPage {
+  items: [stickyToken!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input stickyTokenFilter {
+  AND: [stickyTokenFilter]
+  OR: [stickyTokenFilter]
+  chainId: Int
+  chainId_not: Int
+  chainId_in: [Int]
+  chainId_not_in: [Int]
+  chainId_gt: Int
+  chainId_lt: Int
+  chainId_gte: Int
+  chainId_lte: Int
+  projectId: Int
+  projectId_not: Int
+  projectId_in: [Int]
+  projectId_not_in: [Int]
+  projectId_gt: Int
+  projectId_lt: Int
+  projectId_gte: Int
+  projectId_lte: Int
+  suckerGroupId: String
+  suckerGroupId_not: String
+  suckerGroupId_in: [String]
+  suckerGroupId_not_in: [String]
+  suckerGroupId_contains: String
+  suckerGroupId_not_contains: String
+  suckerGroupId_starts_with: String
+  suckerGroupId_ends_with: String
+  suckerGroupId_not_starts_with: String
+  suckerGroupId_not_ends_with: String
+  suckerGroupId_contains_nocase: String
+  suckerGroupId_not_contains_nocase: String
+  suckerGroupId_starts_with_nocase: String
+  suckerGroupId_ends_with_nocase: String
+  suckerGroupId_not_starts_with_nocase: String
+  suckerGroupId_not_ends_with_nocase: String
+  version: Int
+  version_not: Int
+  version_in: [Int]
+  version_not_in: [Int]
+  version_gt: Int
+  version_lt: Int
+  version_gte: Int
+  version_lte: Int
+  token: String
+  token_not: String
+  token_in: [String]
+  token_not_in: [String]
+  token_contains: String
+  token_not_contains: String
+  token_starts_with: String
+  token_ends_with: String
+  token_not_starts_with: String
+  token_not_ends_with: String
+  createdAt: Int
+  createdAt_not: Int
+  createdAt_in: [Int]
+  createdAt_not_in: [Int]
+  createdAt_gt: Int
+  createdAt_lt: Int
+  createdAt_gte: Int
+  createdAt_lte: Int
 }
 
 type suckerGroupPage {

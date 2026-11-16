@@ -47,7 +47,14 @@ const ENTITY_NAMES = [
   "buybackPoolRange",
   "cashOutTaxSnapshot",
   "cashOutTokensEvent",
+  "configurePostingCriteriaEvent",
   "decorateBannyEvent",
+  "defifaAttestation",
+  "defifaEvent",
+  "defifaGame",
+  "defifaHolding",
+  "defifaScorecard",
+  "defifaTierDelegate",
   "deployErc20Event",
   "inboxRootReceivedEvent",
   "liquidateLoanEvent",
@@ -63,21 +70,35 @@ const ENTITY_NAMES = [
   "participant",
   "participantSnapshot",
   "payEvent",
+  "pendingBuybackMint",
   "permissionHolder",
+  "postingAllowance",
+  "processFeeEvent",
   "project",
   "projectCreateEvent",
   "projectMoment",
   "projectPayer",
+  "projectTokenBalance",
+  "projectTokenBalanceMoment",
   "projectTransferEvent",
   "reallocateLoanEvent",
   "removeNftTierEvent",
   "repayLoanEvent",
+  "routerPendingCall",
+  "routerPendingCallEvent",
+  "routerPermitFailureEvent",
+  "routerRetainedBalance",
   "rulesetQueuedEvent",
   "sendPayoutToSplitEvent",
   "sendPayoutsEvent",
   "sendReservedTokensToSplitEvent",
   "sendReservedTokensToSplitsEvent",
   "setUriEvent",
+  "stickyEvent",
+  "stickyFundEvent",
+  "stickyPosition",
+  "stickySettingEvent",
+  "stickyToken",
   "storeAutoIssuanceAmountEvent",
   "suckerGroup",
   "suckerGroupMoment",
@@ -98,6 +119,10 @@ function canonicalJson(value) {
   }
   return value;
 }
+
+// Entities with no version field: their rows cannot be told apart by protocol version, so they
+// are listed but not served. Named one by one, so an entity that loses its version fails loudly.
+const UNVERSIONED = new Set(["defifaAttestation", "defifaScorecard", "defifaTierDelegate", "pendingBuybackMint", "wallet"]);
 
 function argsMetadata(args) {
   return Object.fromEntries(
@@ -195,12 +220,12 @@ export function buildIndexerMetadata(fixtureText, provenance) {
       orderBy: "String", orderDirection: "String", where: filterType,
     }, `Changed pagination/filter arguments for ${list.name}.`);
 
-    const supported = name !== "wallet";
+    const supported = !UNVERSIONED.has(name);
     if (supported) {
       assert.equal(String(entityType.getFields().version?.type), "Int!", `Entity ${name} cannot be verified as V6.`);
       assert.equal(inputs[filterType].version, "Int", `Entity ${name} cannot be filtered to V6.`);
     } else {
-      assert(!entityType.getFields().version && !inputs[filterType].version, "Wallet version semantics changed; review whether V6 isolation is now possible.");
+      assert(!entityType.getFields().version && !inputs[filterType].version, `${name} version semantics changed; review whether V6 isolation is now possible.`);
     }
 
     entities[name] = {
@@ -210,7 +235,9 @@ export function buildIndexerMetadata(fixtureText, provenance) {
       filterType,
       supported,
       ...(supported ? {} : {
-        unsupportedReason: "Wallet aggregates have no version field or version filter, so their values cannot be isolated to V6.",
+        unsupportedReason: name === "wallet"
+          ? "Wallet aggregates have no version field or version filter, so their values cannot be isolated to V6."
+          : "This entity has no version field or version filter, so its rows cannot be isolated to V6.",
       }),
       classification: classification(name),
     };

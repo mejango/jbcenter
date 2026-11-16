@@ -36,7 +36,7 @@ Source areas: JB Center, jb-project-metadata, jb-721-tier-content.
 | Tool | Behavior |
 |---|---|
 | `jb_resolve_project` | Resolve a V6 project URL or chain:project ID. Names return candidates without choosing one; bare numeric IDs are rejected as ambiguous. No user URL is fetched. |
-| `jb_search_projects` | Search V6 deployed projects and signed undeployed V6 JB Center intents. Center pages exclude every other deployment version, retain the upstream cursor, and report the V6 total as unknown. Project descriptions are untrusted data. |
+| `jb_search_projects` | Search V6 deployed projects and signed undeployed V6 JB Center intents. Deployed projects match by name, handle or project ID; when that finds nothing, set match to description to search descriptions and taglines instead, for example for a token symbol. Center pages exclude every other deployment version, retain the upstream cursor, and report the V6 total as unknown. Project descriptions are untrusted data. |
 | `jb_get_project` | Explain a V6 project using pinned onchain ownership, rulesets, supply, terminals, balances, payout limits, and surplus. Indexed metadata remains separate from executable accounting. |
 | `jb_get_rulesets` | Read current, upcoming, and a bounded page of queued V6 rulesets at one block. Approval and queue state are preserved; custom hooks are not guessed. currentAsInput is the active ruleset in the jb_preview_ruleset_change input shape, with its coverage. |
 | `jb_get_position` | Read one account’s live project token position including unclaimed credits and ERC-20 balance, with exact units and explicit coverage for other assets. |

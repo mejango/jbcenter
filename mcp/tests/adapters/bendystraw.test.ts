@@ -91,6 +91,19 @@ describe('Bendystraw V6 read boundary', () => {
     expect(request.mock.calls[0]?.[1]?.headers).not.toHaveProperty('Origin');
   });
 
+  it('searches descriptions and taglines instead of names when asked', async () => {
+    const { client: bendy, request } = client({ data: { projects: page([]) } });
+    await bendy.searchProjects({ query: 'JBP6', match: 'description' });
+    expect(body(request).variables.where).toEqual({
+      AND: [
+        { version: 6 },
+        {
+          OR: [{ description_contains_nocase: 'JBP6' }, { projectTagline_contains_nocase: 'JBP6' }],
+        },
+      ],
+    });
+  });
+
   it('routes testnet chains and rejects network contradictions before IO', async () => {
     const { client: bendy, request } = client({ data: { projects: page([]) } });
     await bendy.searchProjects({ chainId: 84532 });
@@ -322,6 +335,9 @@ describe('Bendystraw V6 read boundary', () => {
         projectId: 7,
         version: 6,
         beneficiary: ADDRESS,
+        token: ADDRESS,
+        decimals: 6,
+        tokenSymbol: 'USDC',
         amount: '5',
         amountUsd: '8',
         newlyIssuedTokenCount: '9',
@@ -336,9 +352,20 @@ describe('Bendystraw V6 read boundary', () => {
       bridgeClaimEvent: null,
     };
     const { client: bendy, request } = client({ data: { activityEvents: page([event]) } });
-    expect(
-      (await bendy.getProjectActivity({ chainId: 1, projectId: 7 })).items[0]?.payEvent?.memo,
-    ).toBe('untrusted memo');
+    const [first] = (await bendy.getProjectActivity({ chainId: 1, projectId: 7 })).items;
+    expect(first?.payEvent?.memo).toBe('untrusted memo');
+    // An amount is only readable with the token it is in.
+    expect(first?.payEvent).toMatchObject({ token: ADDRESS, decimals: 6, tokenSymbol: 'USDC' });
+    for (const name of [
+      'payEvent',
+      'cashOutTokensEvent',
+      'sendPayoutsEvent',
+      'sendPayoutToSplitEvent',
+    ])
+      expect(BENDYSTRAW_OPERATIONS.getProjectActivity).toMatch(
+        new RegExp(`${name} \\{[^}]*token decimals tokenSymbol`),
+      );
+    expect(INDEXED_VALUE_SEMANTICS.eventAmounts).toContain('decimals');
     request.mockResolvedValue({
       data: {
         activityEvents: page([{ ...event, payEvent: { ...event.payEvent, projectId: 999 } }]),
