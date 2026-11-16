@@ -84,6 +84,11 @@ function classification(
   return { kind: id.startsWith('prepare_') ? 'prepare' : 'read', sources: ['onchain'] };
 }
 
+/** What a schema accepts, as JSON Schema: the one conversion REST, MCP and the chat all show. */
+export function inputJsonSchemaOf(schema: z.ZodObject): Record<string, unknown> {
+  return z.toJSONSchema(schema, { target: 'draft-7', io: 'input' });
+}
+
 export function operationWithSchema<S extends z.ZodObject>(
   id: string,
   description: string,
@@ -102,7 +107,7 @@ export function operationWithSchema<S extends z.ZodObject>(
     transaction: false,
     schema,
     get inputJsonSchema() {
-      return (inputJsonSchema ??= z.toJSONSchema(schema, { target: 'draft-7', io: 'input' }));
+      return (inputJsonSchema ??= inputJsonSchemaOf(schema));
     },
     effects: Object.freeze({ ...effects }),
     handler: async (input: unknown) => handler(schema.parse(input)),
