@@ -2,6 +2,10 @@
 export { createServices, type Services, type ServiceDependencies } from './app.js';
 export { loadConfig, CHAIN_IDS, type Config } from './config.js';
 export { createMcpServer } from './mcp/server.js';
+export { createTools } from './mcp/tools.js';
+export { type ToolDefinition } from './mcp/tool.js';
+export { runTool, toolJsonSchema, type ToolResult } from './mcp/run.js';
+export { GENERAL_INSTRUCTIONS, TRANSACTION_INSTRUCTIONS } from './mcp/instructions.js';
 export { createHttpHandler, type HttpHandler, type HttpOptions } from './transport/http.js';
 export {
   CenterClient,
