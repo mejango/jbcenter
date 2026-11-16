@@ -104,7 +104,10 @@ export function refreshOneRepository(
   repository: string,
 ): KnowledgeDocument[] {
   if (refreshed.length === 0) throw new Error(`The sync selects no source from ${repository}`);
-  return [...existing.filter((document) => document.source.repository !== repository), ...refreshed];
+  return [
+    ...existing.filter((document) => document.source.repository !== repository),
+    ...refreshed,
+  ];
 }
 
 /** A source path must describe the Git blob itself, never bytes reached through a symlink. */
@@ -394,7 +397,8 @@ function sync(values: {
   const bundle = createKnowledgeBundle(
     values.only
       ? refreshOneRepository(
-          (JSON.parse(readFileSync(output, 'utf8')) as { documents: KnowledgeDocument[] }).documents,
+          (JSON.parse(readFileSync(output, 'utf8')) as { documents: KnowledgeDocument[] })
+            .documents,
           documents,
           values.only,
         )
