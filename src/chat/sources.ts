@@ -18,6 +18,12 @@ export const sourceId = (url: string): string => `S-${createHash("sha256").updat
 const MAX_SOURCES_PER_RESULT = 20;
 const URL_IN_TEXT = /\bhttps?:\/\/[^\s"'<>)\]]+/gi;
 
+// Only these tools return the reference bundle. Any other tool can relay text someone else
+// published (an intent, project metadata), so a link-shaped object there is never a source.
+const REFERENCE_TOOLS = new Set(["jb_search_reference", "jb_get_reference", "jb_list_references",
+  "jb_get_webclient_reference", "jb_list_webclient_references", "jb_plan_integration"]);
+const REFERENCE_HOST = "https://github.com/";
+
 type Json = Record<string, unknown>;
 const isObject = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -25,6 +31,7 @@ const isObject = (value: unknown): value is Json => typeof value === "object" &&
 function referenceOf(value: Json): Source | undefined {
   const { source, title } = value;
   if (!isObject(source) || typeof source.upstreamUrl !== "string" || typeof title !== "string") return undefined;
+  if (!source.upstreamUrl.startsWith(REFERENCE_HOST)) return undefined;
   const { pageStartLine: start, pageEndLine: end } = value;
   // A dirty file can differ from its commit link, so its lines are not citable.
   const lines = Number.isInteger(start) && Number.isInteger(end) && source.fileDirty === false;
@@ -53,7 +60,7 @@ function projectOf(input: unknown): { chainId: number; projectId: number } | und
 export function sourcesFor(tool: string, input: unknown, result: ToolResult, origin: string): Source[] {
   if (!result.ok) return [];
   const references = new Map<string, Source>();
-  walk(result.data, (object) => {
+  if (REFERENCE_TOOLS.has(tool)) walk(result.data, (object) => {
     const source = referenceOf(object);
     if (source && references.size < MAX_SOURCES_PER_RESULT) references.set(source.id, source);
   });

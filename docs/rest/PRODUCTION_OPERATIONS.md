@@ -171,7 +171,8 @@ buckets (`center:chat:reads`, `rpc:chat`), so chat load does not starve `/mcp`.
 When any of the three budgets is spent, `/chat` returns 429 and the page says
 `Chat is resting. The directory is below.` The directory keeps working.
 
-`/chat` accepts only requests whose `Origin` is Center itself. It is the page's endpoint, not an API.
+`/chat` accepts only requests whose `Origin` equals `MCP_PUBLIC_ORIGIN` (default `https://juicebox.center`),
+so a local or staging server must set that to its own origin. It is the page's endpoint, not an API.
 
 `/metrics` counts `jbcenter_chat_requests_total`, `_budget_denials_total`, `_tool_calls_total`,
 `_input_tokens_total`, `_output_tokens_total`, `_refusals_total` and `_provider_errors_total`.

@@ -69,6 +69,8 @@ export function compatibleProvider(config: ChatConfig, fetchImpl: typeof fetch):
               }
               if (choice.finish_reason) finish = choice.finish_reason;
             }
+            // A stream that ends without saying why was cut: no answer to keep, no tools to run.
+            if (!finish) throw new Error("The model's answer was cut off.");
             const made = calls.filter(Boolean).map((call, index) => ({ ...call, id: call.id || `call_${index}` }));
             const reason = STOP[finish] ?? (made.length > 0 && finish !== "stop" ? "tool" : "end");
             messages.push({ role: "assistant", content: text || null, ...(made.length > 0 ? { tool_calls: made.map(({ id, name, arguments: json }) => ({

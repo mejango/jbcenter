@@ -48,6 +48,8 @@ describe("POST /chat", () => {
     expect((await post(ask(), { origin: "https://evil.example" })).status).toBe(403);
     expect((await post(ask(), {})).status).toBe(403);
     expect((await post(ask(), { origin: "null" })).status).toBe(403);
+    // Same host over plain HTTP is another origin.
+    expect((await post(ask(), { origin: "http://juicebox.center", host: "juicebox.center" })).status).toBe(403);
   });
 
   it("rejects a malformed conversation", async () => {
@@ -65,6 +67,16 @@ describe("POST /chat", () => {
     const many = Array.from({ length: 5 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", text: "x" }));
     expect((await post({ messages: many })).status).toBe(413);
     expect((await post(`{"messages":[{"role":"user","text":"${"x".repeat(70_000)}"}]}`)).status).toBe(413);
+  });
+
+  it("stops reading a body that is too large", async () => {
+    const { app } = setup();
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({ pull(controller) { if (++pulled > 64) return controller.close(); controller.enqueue(new Uint8Array(16 * 1024).fill(120)); } });
+    const response = await app.request(`${origin}/chat`, { method: "POST", headers: { origin, "content-type": "application/json" }, body, duplex: "half" } as RequestInit);
+    expect(response.status).toBe(413);
+    // 64 KiB is allowed; a megabyte was offered.
+    expect(pulled).toBeLessThan(16);
   });
 
   it("streams sources, text and a final event", async () => {

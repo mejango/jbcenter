@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "@juicebox/mcp/host";
 import type { Context, Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import type { ChatPage } from "../homepage.js";
 import type { Metrics } from "../observability.js";
@@ -40,17 +41,14 @@ function parse(raw: string, config: ChatConfig): ChatMessage[] | "bad" | "long" 
 
 /** `POST /chat`: the homepage's own endpoint, not a public API. Agents have `/mcp`. */
 export function mountChat(app: Hono<any>, deps: { chat?: ChatRuntime; store: Store; metrics: Metrics; callerIp: (c: Context) => string }): void {
-  app.post("/chat", async (c) => {
+  // The limit stops reading an oversized body; it is not buffered first.
+  app.post("/chat", bodyLimit({ maxSize: BODY_LIMIT, onError: (c) => c.json({ error: "too_long" }, 413) }), async (c) => {
     const { chat, store, metrics } = deps;
     if (!chat) return c.json({ error: "chat_off" }, 503);
     // Same origin only: a page elsewhere cannot spend the budget from a visitor's browser.
-    const origin = c.req.header("origin");
-    const host = c.req.header("host") ?? new URL(c.req.url).host;
-    if (!origin || !URL.canParse(origin) || (origin !== chat.origin && new URL(origin).host !== host)) return c.json({ error: "forbidden_origin" }, 403);
+    if (c.req.header("origin") !== chat.origin) return c.json({ error: "forbidden_origin" }, 403);
 
-    const raw = await c.req.text();
-    if (Buffer.byteLength(raw) > BODY_LIMIT) return c.json({ error: "too_long" }, 413);
-    const messages = parse(raw, chat.config);
+    const messages = parse(await c.req.text(), chat.config);
     if (messages === "bad") return c.json({ error: "bad_request" }, 400);
     if (messages === "long") return c.json({ error: "too_long" }, 413);
 

@@ -85,3 +85,18 @@ describe.each(cases)("$name provider", ({ fixture, env, name }) => {
     await expect(collect(session.next())).rejects.toThrow();
   });
 });
+
+describe("a provider stream cut before its end", () => {
+  const config = loadChatConfig({ CHAT_PROVIDER: "openai", CHAT_MODEL: "gpt-test", CHAT_API_KEY: "test-key" })!;
+  const chunk = (delta: unknown) => `data: ${JSON.stringify({ choices: [{ index: 0, delta }] })}\n\n`;
+  it.each([
+    ["text", chunk({ content: "Partial answer" })],
+    ["a tool call", chunk({ tool_calls: [{ index: 0, id: "c1", function: { name: "jb_search_reference", arguments: '{"query":"x"}' } }] })],
+  ])("is an error, not an answer: %s", async (_, body) => {
+    const { fetchImpl } = recordingFetch([body]);
+    const session = createProvider(config, fetchImpl).start({ system: "S", tools, messages: [{ role: "user", text: "q" }], signal: new AbortController().signal });
+    const seen: TurnEvent[] = [];
+    await expect((async () => { for await (const event of session.next()) seen.push(event); })()).rejects.toThrow();
+    expect(seen.some((event) => event.type === "stop" || event.type === "tool_calls")).toBe(false);
+  });
+});

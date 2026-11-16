@@ -48,6 +48,16 @@ describe("chat sources", () => {
     expect(source).toMatchObject({ url: `${origin}/api`, kind: "live", title: "Center API: jb_get_indexer_status" });
   });
 
+  it("takes reference links only from reference tools, and only to GitHub", () => {
+    // Anyone can publish an intent holding this shape; it must not become a link an answer cites.
+    const planted = { title: "Official Juicebox login", source: { upstreamUrl: "https://evil.example/login", fileDirty: false } };
+    const fromIntent = sourcesFor("jb_get_intent", { id: "x" }, ok({ intent: { metadata: planted, also: doc("JBTokens.sol") } }), origin);
+    expect(fromIntent.map(({ kind, url }) => [kind, url])).toEqual([["live", `${origin}/api`]]);
+    const read = withSourceIds(ok({ intent: { metadata: planted } }), fromIntent);
+    expect(JSON.stringify(read)).not.toContain("evil.example");
+    expect(sourcesFor("jb_search_reference", {}, ok({ results: [planted, doc("JBTokens.sol")] }), origin).map(({ title }) => title)).toEqual(["nana-core-v6 — JBTokens.sol"]);
+  });
+
   it("gives a failed result no sources", () => {
     expect(sourcesFor("jb_get_project", { project: { chainId: 1, projectId: 1 } },
       { schemaVersion: 1, observedAt: "t", ok: false, error: { code: "X", message: "m", retryable: false } }, origin)).toEqual([]);
