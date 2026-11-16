@@ -6,3 +6,4 @@ dist/
 !.env.example
 coverage/
 *.log
+evals/chat/out/
