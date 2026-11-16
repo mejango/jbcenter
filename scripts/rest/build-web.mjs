@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 /** The browser bundles Center serves. */
 export const webBuildOptions = {
   absWorkingDir: fileURLToPath(new URL("../../", import.meta.url)),
-  entryPoints: { docs: "src/rest/docs/main.ts" },
+  entryPoints: { docs: "src/rest/docs/main.ts", "chat-boot": "src/chat/web/boot.ts", chat: "src/chat/web/main.ts" },
   outdir: ".generated/rest",
   bundle: true,
   platform: "browser",

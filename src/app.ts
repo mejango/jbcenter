@@ -21,9 +21,9 @@ import {
 } from "./intent.js";
 import { extractMetadata } from "./metadata.js";
 import {
-  HOMEPAGE_HEADERS,
-  HOMEPAGE_HTML,
   homepageAssets,
+  homepageHeaders,
+  homepageHtml,
 } from "./homepage.js";
 import { mountAssets } from "./rest/web/assets.js";
 import { Metrics } from "./observability.js";
@@ -463,9 +463,10 @@ export function createApp(
   if (options.rest) mountRestSite(app, options.rest);
 
   // Agents that ask for markdown get the same directory as text.
+  const home = { html: homepageHtml(options.chat?.page), headers: homepageHeaders(options.chat?.page) };
   app.get("/", (c) => c.req.header("Accept")?.includes("text/markdown")
-    ? c.text(llmsIndex(options.rest?.audience), 200, { ...HOMEPAGE_HEADERS, "Content-Type": "text/markdown; charset=utf-8" })
-    : c.html(HOMEPAGE_HTML, 200, HOMEPAGE_HEADERS));
+    ? c.text(llmsIndex(options.rest?.audience), 200, { ...home.headers, "Content-Type": "text/markdown; charset=utf-8" })
+    : c.html(home.html, 200, home.headers));
   mountChat(app, { ...(options.chat ? { chat: options.chat } : {}), store, metrics, callerIp });
   app.get("/favicon.svg", (c) => c.body(FAVICON_SVG, 200, {
     "Content-Type": "image/svg+xml; charset=utf-8",
@@ -493,7 +494,7 @@ export function createApp(
     c.header("Cache-Control", "public, max-age=300");
     return c.redirect(`${JUICESCAN_URL}#${chain}:${project}`, 302);
   });
-  mountAssets(app, "", homepageAssets());
+  mountAssets(app, "", homepageAssets(options.chat?.page));
 
   app.get("/healthz", (c) => c.json({ ok: true }));
 

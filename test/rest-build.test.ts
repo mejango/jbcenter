@@ -61,7 +61,7 @@ it("rebuilds only current runtime files and all assets needed by a fresh dev sta
       console.log('assets and client ready');
     `], { cwd: directory, timeout: 15_000, maxBuffer: 1024 * 1024 });
     expect(smoke.stdout.trim()).toBe("assets and client ready");
-    expect(await readdir(join(directory, ".generated/rest"))).toEqual(["docs.js"]);
+    expect(await readdir(join(directory, ".generated/rest"))).toEqual(["chat-boot.js", "chat.js", "docs.js"]);
     for (const name of ["dist/src/rest/auth", "dist/src/rest/wallet", "dist/src/rest/sessions", "dist/client"])
       await expect(stat(join(directory, name)), name).rejects.toMatchObject({ code: "ENOENT" });
   } finally { await rm(directory, { recursive: true, force: true }); }

@@ -23,7 +23,7 @@ const QUESTION = "How do cash outs work, privately asked?";
 
 function setup(metrics = new Metrics()) {
   const store = new MemoryStore();
-  const app = createApp(store, { metrics, chat: { config, provider: fakeProvider(script()), tools: [search], origin } });
+  const app = createApp(store, { metrics, chat: { config, provider: fakeProvider(script()), tools: [search], origin, page: { boot: "", main: "" } } });
   const post = (body: unknown, headers: Record<string, string> = { origin, "x-real-ip": "203.0.113.7" }) =>
     app.request(`${origin}/chat`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) });
   return { app, post, metrics };

@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { createSafeGateway } from "./safeService.js";
 import { createHttpHandler, createMcpServer, createTools } from "@juicebox/mcp/host";
 import { loadChatConfig } from "./chat/config.js";
@@ -120,7 +121,11 @@ const handler = createHttpHandler(mcp.config, () => createMcpServer(mcp.services
 });
 // The homepage chat is on only when a model provider is chosen.
 const chatConfig = loadChatConfig(process.env);
-const chat = chatConfig && { config: chatConfig, provider: createProvider(chatConfig), tools: chatTools(createTools(mcp.services)), origin: mcp.config.publicOrigin };
+const chatBundle = (name: string) => readFile(new URL(`../.generated/rest/${name}.js`, import.meta.url), "utf8");
+const chat = chatConfig && {
+  config: chatConfig, provider: createProvider(chatConfig), tools: chatTools(createTools(mcp.services)), origin: mcp.config.publicOrigin,
+  page: { boot: await chatBundle("chat-boot"), main: await chatBundle("chat") },
+};
 const app = createApp(store, {
     ...(chat ? { chat } : {}),
     rest: rest.site,

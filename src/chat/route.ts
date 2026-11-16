@@ -1,13 +1,14 @@
 import type { ToolDefinition } from "@juicebox/mcp/host";
 import type { Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import type { ChatPage } from "../homepage.js";
 import type { Metrics } from "../observability.js";
 import type { Store } from "../store.js";
 import type { ChatConfig } from "./config.js";
 import { runChat } from "./loop.js";
 import type { ChatMessage, Provider } from "./provider.js";
 
-export type ChatRuntime = { config: ChatConfig; provider: Provider; tools: ToolDefinition[]; origin: string };
+export type ChatRuntime = { config: ChatConfig; provider: Provider; tools: ToolDefinition[]; origin: string; page: ChatPage };
 
 const BODY_LIMIT = 64 * 1024;
 const MESSAGE_LIMIT = 8_000;
@@ -65,7 +66,7 @@ export function mountChat(app: Hono<any>, deps: { chat?: ChatRuntime; store: Sto
     const response = streamSSE(c, async (stream) => {
       const gone = new AbortController();
       stream.onAbort(() => gone.abort());
-      for await (const { type, ...data } of runChat({ ...chat, messages, signal: gone.signal })) {
+      for await (const { type, ...data } of runChat({ config: chat.config, provider: chat.provider, tools: chat.tools, origin: chat.origin, messages, signal: gone.signal })) {
         if (type === "done") metrics.observeChat(data as never);
         await stream.writeSSE({ event: type, data: JSON.stringify(data) });
       }
