@@ -95,4 +95,13 @@ describe("chat sources", () => {
     expect(new Set(sources.map((source) => source.id)).size).toBe(sources.length);
     expect(sources.every((source) => source.kind === "directory")).toBe(true);
   });
+
+  it("gives the model each timestamp's UTC date, since models convert them wrongly", () => {
+    const result = ok({ items: [{ timestamp: 1794799581, createdAt: "1781587031", duration: 31104000, start: 1740089444, amount: "1794799581" }] });
+    const shaped = withSourceIds(result, []) as { data: { items: Record<string, unknown>[] } };
+    expect(shaped.data.items[0]).toEqual({
+      timestamp: "1794799581 (2026-11-16T03:26:21Z)", createdAt: "1781587031 (2026-06-16T05:17:11Z)", duration: 31104000,
+      start: "1740089444 (2025-02-20T22:10:44Z)", amount: "1794799581",
+    });
+  });
 });

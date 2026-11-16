@@ -467,6 +467,7 @@ describe('transport-independent protocol operations', () => {
     expect(result).not.toHaveProperty('undeployed');
     expect(search).toHaveBeenCalledWith({
       query: 'V6 project',
+      match: 'name',
       chainId: 84532,
       network: undefined,
       cursor: 'indexer-cursor',

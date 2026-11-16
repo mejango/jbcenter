@@ -152,8 +152,13 @@
   "citesAnyOf": [
    "/inspect/base/1"
   ],
-  "mustInclude": [],
-  "mustNotInclude": []
+  "mustInclude": [
+   "eth"
+  ],
+  "mustNotInclude": [
+   "raw unit",
+   "smallest unit"
+  ]
  },
  {
   "id": "proj-eth-1-bridges",
@@ -998,5 +1003,18 @@
   "mustNotInclude": [
    "https://evil.example"
   ]
+ },
+ {
+  "id": "r4-proj-symbol",
+  "group": "project",
+  "ask": "What is JBP6?",
+  "citesAnyOf": [
+   "/inspect/",
+   "/api"
+  ],
+  "mustInclude": [
+   "juicebox protocol v6|project 1"
+  ],
+  "mustNotInclude": []
  }
 ]

@@ -20,6 +20,8 @@ export const INDEXED_VALUE_SEMANTICS = {
     'Signed historical flow-accrued USD at 18 decimals; not current market value, spendable funds, or cash out surplus.',
   volumeUsd: 'Historical contribution flows valued in USD at each event, at 18 decimals.',
   tokenSymbol: 'The accounting asset symbol, not necessarily the project ERC-20 symbol.',
+  eventAmounts:
+    "An event amount is a raw integer in that event's own token, at that event's decimals; a project can take several tokens. Null token or decimals means the token is unknown, not 18. Usd fields are USD at 18 decimals. Project token counts are at 18 decimals.",
   freshness:
     'GraphQL reads are not block-pinned. A separately fetched status does not prove the exact block of a response.',
 } as const;
@@ -88,6 +90,12 @@ const participantSchema = z.object({
   lastPaidTimestamp: count,
 });
 
+/** The token an event's amounts are in. Null when the indexer could not tell. */
+const eventToken = {
+  token: address.nullable(),
+  decimals: count.max(255).nullable(),
+  tokenSymbol: textValue.nullable(),
+};
 const activitySchema = z.object({
   ...identity,
   id: z.string().max(256),
@@ -99,6 +107,7 @@ const activitySchema = z.object({
   payEvent: z
     .object({
       ...identity,
+      ...eventToken,
       beneficiary: address,
       amount,
       amountUsd: amount,
@@ -111,6 +120,7 @@ const activitySchema = z.object({
   cashOutTokensEvent: z
     .object({
       ...identity,
+      ...eventToken,
       beneficiary: address,
       holder: address,
       cashOutCount: amount,
@@ -123,6 +133,7 @@ const activitySchema = z.object({
   sendPayoutsEvent: z
     .object({
       ...identity,
+      ...eventToken,
       amount,
       amountUsd: amount,
       amountPaidOut: amount,
@@ -136,6 +147,7 @@ const activitySchema = z.object({
   sendPayoutToSplitEvent: z
     .object({
       ...identity,
+      ...eventToken,
       amount,
       netAmount: amount,
       amountUsd: amount,
@@ -215,6 +227,7 @@ const PROJECT_FIELDS = `id chainId projectId version owner creator deployer crea
   volume volumeUsd balance balanceUsd tokenSupply reservedTokenSupply token tokenSymbol decimals currency`;
 const PAGE_FIELDS = 'totalCount pageInfo { endCursor hasNextPage }';
 const EVENT_IDENTITY = 'chainId projectId version';
+const EVENT_TOKEN = 'token decimals tokenSymbol';
 /** Closed operation registry: tool callers cannot supply GraphQL or endpoint URLs. */
 export const BENDYSTRAW_OPERATIONS = {
   searchProjects: `query McpSearchProjects($where: projectFilter!, $limit: Int!, $after: String) {
@@ -229,10 +242,10 @@ export const BENDYSTRAW_OPERATIONS = {
     activityEvents(where: $where, orderBy: "timestamp", orderDirection: "desc", limit: $limit, after: $after) {
       items {
         id ${EVENT_IDENTITY} suckerGroupId timestamp txHash from type
-        payEvent { ${EVENT_IDENTITY} beneficiary amount amountUsd newlyIssuedTokenCount memo distributionFromProjectId feeFromProject }
-        cashOutTokensEvent { ${EVENT_IDENTITY} beneficiary holder cashOutCount reclaimAmount reclaimAmountUsd cashOutTaxRate rulesetId }
-        sendPayoutsEvent { ${EVENT_IDENTITY} amount amountUsd amountPaidOut amountPaidOutUsd netLeftoverPayoutAmount fee feeUsd rulesetId }
-        sendPayoutToSplitEvent { ${EVENT_IDENTITY} amount netAmount amountUsd beneficiary percent splitProjectId hook group rulesetId }
+        payEvent { ${EVENT_IDENTITY} ${EVENT_TOKEN} beneficiary amount amountUsd newlyIssuedTokenCount memo distributionFromProjectId feeFromProject }
+        cashOutTokensEvent { ${EVENT_IDENTITY} ${EVENT_TOKEN} beneficiary holder cashOutCount reclaimAmount reclaimAmountUsd cashOutTaxRate rulesetId }
+        sendPayoutsEvent { ${EVENT_IDENTITY} ${EVENT_TOKEN} amount amountUsd amountPaidOut amountPaidOutUsd netLeftoverPayoutAmount fee feeUsd rulesetId }
+        sendPayoutToSplitEvent { ${EVENT_IDENTITY} ${EVENT_TOKEN} amount netAmount amountUsd beneficiary percent splitProjectId hook group rulesetId }
         bridgeToOutboxEvent { ${EVENT_IDENTITY} sucker peerChainId token beneficiary projectTokenCount terminalTokenAmount index root }
         bridgeClaimEvent { ${EVENT_IDENTITY} sucker peerChainId token beneficiary projectTokenCount terminalTokenAmount index autoAddedToBalance }
       } ${PAGE_FIELDS}
@@ -424,18 +437,28 @@ export class BendystrawClient {
   }
 
   async searchProjects(
-    args: IndexedPageInput & { query?: string; chainId?: number; network?: BendystrawNetwork } = {},
+    args: IndexedPageInput & {
+      query?: string;
+      match?: 'name' | 'description';
+      chainId?: number;
+      network?: BendystrawNetwork;
+    } = {},
   ): Promise<IndexedPage<IndexedProject>> {
     const network = this.network(args);
     const query = input(z.string().max(200), args.query ?? '').trim();
     const filters: object[] = [{ version: 6 }];
     if (args.chainId !== undefined) filters.push({ chainId: input(positiveInteger, args.chainId) });
     if (query) {
-      const branches: object[] = [
-        { name_contains_nocase: query },
-        { handle_contains_nocase: query },
-      ];
-      if (/^[1-9]\d*$/u.test(query) && Number.isSafeInteger(Number(query)))
+      // One field per branch: a branch with several fields matches any of them upstream.
+      const branches: object[] =
+        args.match === 'description'
+          ? [{ description_contains_nocase: query }, { projectTagline_contains_nocase: query }]
+          : [{ name_contains_nocase: query }, { handle_contains_nocase: query }];
+      if (
+        args.match !== 'description' &&
+        /^[1-9]\d*$/u.test(query) &&
+        Number.isSafeInteger(Number(query))
+      )
         branches.push({ projectId: Number(query) });
       filters.push({ OR: branches });
     }

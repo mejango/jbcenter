@@ -29,13 +29,16 @@ function changedFixture(text: string) {
 }
 
 describe("generated indexer source contract", () => {
-  it("accounts for all 56 entity pairs and the separate status root", () => {
+  it("accounts for all 77 entity pairs and the separate status root", () => {
     const entities = Object.values(INDEXER_SCHEMA.entities);
-    expect(entities).toHaveLength(56);
-    expect(entities.filter((entity) => entity.supported)).toHaveLength(55);
+    expect(entities).toHaveLength(77);
+    expect(entities.filter((entity) => entity.supported)).toHaveLength(72);
+    // No version column means no way to tell V6 rows apart, so these are listed but not served.
+    expect(entities.filter((entity) => !entity.supported).map((entity) => entity.name).sort())
+      .toEqual(["defifaAttestation", "defifaScorecard", "defifaTierDelegate", "pendingBuybackMint", "wallet"]);
     const roots = entities.flatMap((entity) => [entity.name, entity.listField]);
     expect([...roots, "_meta"].sort()).toEqual(Object.keys(source.getQueryType()!.getFields()).sort());
-    expect(new Set(roots).size).toBe(112);
+    expect(new Set(roots).size).toBe(154);
     expect(INDEXER_SCHEMA.entities._meta).toBeUndefined();
     expect(INDEXER_SCHEMA.objects.Query?._meta).toMatchObject({ type: "Meta", kind: "object", args: {} });
   });
@@ -98,7 +101,7 @@ describe("generated indexer source contract", () => {
 
   it("retains honest source provenance and emits deterministic bytes", () => {
     expect(INDEXER_SCHEMA.provenance).toEqual(provenance);
-    expect(INDEXER_SCHEMA.provenance.note).toMatch(/working-tree changes/u);
+    expect(INDEXER_SCHEMA.provenance.note).toMatch(/clean checkout of the source commit/u);
     const metadata = buildIndexerMetadata(fixture, provenance);
     expect(metadata).toEqual(INDEXER_SCHEMA);
     const reversedProvenance = Object.fromEntries(Object.entries(provenance).reverse());
@@ -131,7 +134,7 @@ describe("generated indexer source contract", () => {
     const result = spawnSync(process.execPath, [generatorPath, "--check"], { cwd: tmpdir(), encoding: "utf8", timeout: 10_000, maxBuffer: 16_384 });
     expect(result.error).toBeUndefined();
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toMatch(/56 entities, 116 object types/u);
+    expect(result.stdout).toMatch(/77 entities, 158 object types/u);
     expect(statSync(outputUrl).mtimeMs).toBe(before.mtimeMs);
   });
 

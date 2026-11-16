@@ -767,7 +767,11 @@ function validateRow(
         502,
       );
     if (parent.hook && row.hook) {
-      const parentHook = object(parent.hook, "INDEXER_INVALID_RESPONSE", 502);
+      // A parent names its hook by relation (an NFT) or by address column (a Defifa holding).
+      const parentHook =
+        typeof parent.hook === "string"
+          ? { address: parent.hook }
+          : object(parent.hook, "INDEXER_INVALID_RESPONSE", 502);
       const tierHook = object(row.hook, "INDEXER_INVALID_RESPONSE", 502);
       if (
         String(parentHook.address).toLowerCase() !==

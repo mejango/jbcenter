@@ -1,12 +1,12 @@
 {
   "sourceRepository": "https://github.com/peripheralist/bendystraw",
   "sourceWorkspace": "bendystraw-v6",
-  "sourceCommit": "07ebe0c6739dd6249c51e15e95d02218a96b7c60",
+  "sourceCommit": "a32f3f006b5da280b986a33e1f048f6b48f4bdc2",
   "sourceFile": "ponder.schema.ts",
-  "sourceSha256": "42a64bbd34facc626665d9062b847c00bb1d4bd60d026cdcf20cf868e559eb53",
-  "fixtureSha256": "4307c755a634907f8084c3e212141beb321dc10b49fcb1abc42fb3a2c1853d5d",
-  "ponderVersion": "0.17.6",
+  "sourceSha256": "fb4ceef644f809279ebb9d636585443c226618a76c8023d46ce92ac11c7d4b60",
+  "fixtureSha256": "1359572289dbc9f695b274977ccce86fe585feacc7b446142c3aa76dc9bb1b65",
+  "ponderVersion": "0.18.2",
   "graphqlVersion": "16.8.2",
   "generation": "printSchema(buildGraphQLSchema({schema: imported ponder.schema.ts}))",
-  "note": "Full generated source schema, not hand-written stubs. Source digest includes working-tree changes. Regenerate deliberately when updating the indexer contract."
+  "note": "Full generated source schema, not hand-written stubs. Generated from a clean checkout of the source commit. Regenerate deliberately when updating the indexer contract."
 }
