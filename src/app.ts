@@ -61,6 +61,7 @@ import type { Intent, JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
 import { llmsIndex, skillFile } from "./llms.js";
 import { JUICESCAN_URL } from "./directory.js";
+import { mountChat, type ChatRuntime } from "./chat/route.js";
 import { originsForEnvironment } from "./firstParty.js";
 export { originsForEnvironment } from "./firstParty.js";
 
@@ -113,6 +114,8 @@ export type AppOptions = {
   publishPerPublisherPerDay?: number;
   publishPerIpPerHour?: number;
   sponsor?: SponsorRuntime;
+  /** The homepage chat. Absent: chat is off, and `/` is the directory alone. */
+  chat?: ChatRuntime;
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -463,6 +466,7 @@ export function createApp(
   app.get("/", (c) => c.req.header("Accept")?.includes("text/markdown")
     ? c.text(llmsIndex(options.rest?.audience), 200, { ...HOMEPAGE_HEADERS, "Content-Type": "text/markdown; charset=utf-8" })
     : c.html(HOMEPAGE_HTML, 200, HOMEPAGE_HEADERS));
+  mountChat(app, { ...(options.chat ? { chat: options.chat } : {}), store, metrics, callerIp });
   app.get("/favicon.svg", (c) => c.body(FAVICON_SVG, 200, {
     "Content-Type": "image/svg+xml; charset=utf-8",
     "Cache-Control": "public, max-age=300",

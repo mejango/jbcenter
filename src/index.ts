@@ -1,5 +1,8 @@
 import { createSafeGateway } from "./safeService.js";
-import { createHttpHandler, createMcpServer } from "@juicebox/mcp/host";
+import { createHttpHandler, createMcpServer, createTools } from "@juicebox/mcp/host";
+import { loadChatConfig } from "./chat/config.js";
+import { createProvider } from "./chat/provider.js";
+import { chatTools } from "./chat/tools.js";
 import type { Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { keepUpstreamConnections } from "./keepAlive.js";
@@ -115,7 +118,11 @@ const handler = createHttpHandler(mcp.config, () => createMcpServer(mcp.services
   indexPath: false,
   logger: (message) => console.error(JSON.stringify({ level: "error", service: "mcp", message })),
 });
+// The homepage chat is on only when a model provider is chosen.
+const chatConfig = loadChatConfig(process.env);
+const chat = chatConfig && { config: chatConfig, provider: createProvider(chatConfig), tools: chatTools(createTools(mcp.services)), origin: mcp.config.publicOrigin };
 const app = createApp(store, {
+    ...(chat ? { chat } : {}),
     rest: rest.site,
     deploymentVerifier,
     requestLimitPerMinute: positiveInteger("RATE_LIMIT_PER_MINUTE", 600),
