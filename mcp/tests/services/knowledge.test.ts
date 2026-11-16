@@ -21,6 +21,7 @@ import {
 } from '../../src/services/knowledge.js';
 import {
   assertSourcePath,
+  refreshOneRepository,
   sourceDiffersFromCommit,
   writeBundleAtomically,
 } from '../../scripts/sync-knowledge.js';
@@ -311,5 +312,30 @@ describe('reference sync provenance', () => {
     expect(readFileSync(unrelated, 'utf8')).toBe('owned by somebody else');
     expect(readFileSync(join(output, 'keep'), 'utf8')).toBe('existing output directory');
     expect(readdirSync(directory).some((name) => name.startsWith('.knowledge-sync-'))).toBe(false);
+  });
+});
+
+describe('refreshing one repository', () => {
+  const from = (repository: string, id: string, text = id): KnowledgeDocument => {
+    const base = document(id, text);
+    return { ...base, source: { ...base.source, repository } };
+  };
+
+  it("replaces that repository's documents and keeps every other one as it was", () => {
+    const kept = from('nana-core-v6', 'core');
+    const merged = refreshOneRepository(
+      [kept, from('juicebox-skills', 'old-skill'), from('juicebox-skills', 'removed-skill')],
+      [from('juicebox-skills', 'old-skill', 'new text'), from('juicebox-skills', 'added-skill')],
+      'juicebox-skills',
+    );
+    expect(merged.map(({ id }) => id).sort()).toEqual(['added-skill', 'core', 'old-skill']);
+    expect(merged.find(({ id }) => id === 'core')).toBe(kept);
+    expect(merged.find(({ id }) => id === 'old-skill')!.text).toBe('new text');
+  });
+
+  it('refuses a repository the sync does not select', () => {
+    expect(() => refreshOneRepository([from('nana-core-v6', 'core')], [], 'not-a-source')).toThrow(
+      'not-a-source',
+    );
   });
 });

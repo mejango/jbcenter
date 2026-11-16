@@ -81,6 +81,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       workspace: { type: 'string' },
       skills: { type: 'string' },
       output: { type: 'string' },
+      only: { type: 'string' },
       check: { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
@@ -89,11 +90,21 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   });
   if (values.help) {
     process.stdout.write(
-      'Usage: npm run knowledge:sync -- [--workspace /path/to/evm] [--skills /path/to/juicebox-skills] [--output /path/to/knowledge.json] [--check]\nAllowlisted source directories and documentation; --check verifies reproducibility without writing. Missing selected sources fail the sync.\n',
+      'Usage: npm run knowledge:sync -- [--workspace /path/to/evm] [--skills /path/to/juicebox-skills] [--output /path/to/knowledge.json] [--only repository] [--check]\nAllowlisted source directories and documentation; --check verifies reproducibility without writing. Missing selected sources fail the sync. --only refreshes one repository and keeps every other document as the output file has it.\n',
     );
   } else {
     sync(values);
   }
+}
+
+/** One repository's fresh documents in place of its old ones; every other document is kept as it was. */
+export function refreshOneRepository(
+  existing: KnowledgeDocument[],
+  refreshed: KnowledgeDocument[],
+  repository: string,
+): KnowledgeDocument[] {
+  if (refreshed.length === 0) throw new Error(`The sync selects no source from ${repository}`);
+  return [...existing.filter((document) => document.source.repository !== repository), ...refreshed];
 }
 
 /** A source path must describe the Git blob itself, never bytes reached through a symlink. */
@@ -152,7 +163,15 @@ export function writeBundleAtomically(output: string, serialized: string): void 
   }
 }
 
-function sync(values: { workspace?: string; skills?: string; output?: string; check?: boolean }) {
+function sync(values: {
+  workspace?: string;
+  skills?: string;
+  output?: string;
+  only?: string;
+  check?: boolean;
+}) {
+  // With --only, the other repositories are neither read nor required to be checked out.
+  const wanted = (repository: string) => !values.only || repository === values.only;
   const workspace = resolve(
     values.workspace ?? fileURLToPath(new URL('../../../../', import.meta.url)),
   );
@@ -198,27 +217,30 @@ function sync(values: { workspace?: string; skills?: string; output?: string; ch
     }
     return files;
   }
-  for (const repository of contractRepositories) {
+  for (const repository of contractRepositories.filter(wanted)) {
     add(
       repository,
       'contracts',
       discover(resolve(workspace, repository), 'src', (path) => path.endsWith('.sol')),
     );
   }
-  add(
-    'juicebox-skills',
-    'skills',
-    discover(skills, 'plugins/juicebox-v6/skills', (path) => path.endsWith('/SKILL.md')),
-  );
-  add(
-    'juice-sdk-v4',
-    'sdk',
-    discover(
-      resolve(workspace, 'juice-sdk-v4'),
-      'packages/core/src/v6',
-      (path) => path.endsWith('.ts') && !path.endsWith('.test.ts') && !path.endsWith('.spec.ts'),
-    ),
-  );
+  if (wanted('juicebox-skills'))
+    add(
+      'juicebox-skills',
+      'skills',
+      discover(skills, 'plugins/juicebox-v6/skills', (path) => path.endsWith('/SKILL.md')),
+    );
+  if (wanted('juice-sdk-v4'))
+    add(
+      'juice-sdk-v4',
+      'sdk',
+      discover(
+        resolve(workspace, 'juice-sdk-v4'),
+        'packages/core/src/v6',
+        (path) => path.endsWith('.ts') && !path.endsWith('.test.ts') && !path.endsWith('.spec.ts'),
+      ),
+    );
+  const selected = sources.filter((source) => wanted(source.repository));
   const git = (root: string, args: string[]) =>
     execFileSync('git', ['-C', root, ...args], {
       encoding: 'utf8',
@@ -236,7 +258,7 @@ function sync(values: { workspace?: string; skills?: string; output?: string; ch
     }
   >();
 
-  for (const repository of new Set(sources.map((source) => source.repository))) {
+  for (const repository of new Set(selected.map((source) => source.repository))) {
     const root = realpathSync(
       repository === 'juicebox-skills'
         ? skills
@@ -279,7 +301,7 @@ function sync(values: { workspace?: string; skills?: string; output?: string; ch
     repositories.set(repository, { root, commit, repositoryDirty, upstream, version });
   }
 
-  const documents: KnowledgeDocument[] = sources.map((source) => {
+  const documents: KnowledgeDocument[] = selected.map((source) => {
     const repository = repositories.get(source.repository)!;
     const path = assertSourcePath(repository.root, source.path);
     if (!statSync(path).isFile() || statSync(path).size > MAX_DOCUMENT_CHARACTERS * 4) {
@@ -369,7 +391,15 @@ function sync(values: { workspace?: string; skills?: string; output?: string; ch
       );
     }
   }
-  const bundle = createKnowledgeBundle(documents);
+  const bundle = createKnowledgeBundle(
+    values.only
+      ? refreshOneRepository(
+          (JSON.parse(readFileSync(output, 'utf8')) as { documents: KnowledgeDocument[] }).documents,
+          documents,
+          values.only,
+        )
+      : documents,
+  );
   const serialized = `${JSON.stringify(bundle, null, 2)}\n`;
   if (Buffer.byteLength(serialized, 'utf8') > MAX_BUNDLE_BYTES)
     throw new Error('Selected references exceed bundle byte bound');
@@ -383,6 +413,6 @@ function sync(values: { workspace?: string; skills?: string; output?: string; ch
     writeBundleAtomically(output, serialized);
   }
   process.stdout.write(
-    `${values.check ? 'Verified' : 'Vendored'} ${documents.length} references from ${repositories.size} repositories; bundle ${bundle.bundleId}.\n`,
+    `${values.check ? 'Verified' : 'Vendored'} ${documents.length} references from ${repositories.size} repositories; bundle ${bundle.bundleId} holds ${bundle.documents.length}.\n`,
   );
 }
