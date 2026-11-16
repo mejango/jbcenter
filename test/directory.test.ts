@@ -44,6 +44,7 @@ describe("directory", () => {
 
   it("shows the page and the text index the same destinations, without scripts or middots", () => {
     const text = llmsIndex(origin);
+    expect(text).toContain("The homepage chat uses these same tools with a model in front. Agents should call /mcp directly.");
     const escaped = (value: string) => value.replace(/&/g, "&amp;");
     for (const url of urls) {
       expect(HOMEPAGE_HTML, url).toContain(`href="${escaped(url)}"`);
