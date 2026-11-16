@@ -38,6 +38,14 @@ export interface RepositoryGroup {
   links: readonly { title: string; url: string; description: string }[];
 }
 
+/** The chains /inspect/:chain/:project has a page for, by chain ID. */
+export const INSPECT_CHAINS: Record<number, { slug: string; name: string }> = {
+  1: { slug: "eth", name: "Ethereum" }, 8453: { slug: "base", name: "Base" },
+  42161: { slug: "arb", name: "Arbitrum" }, 10: { slug: "op", name: "Optimism" },
+  11155111: { slug: "sep", name: "Sepolia" }, 84532: { slug: "basesep", name: "Base Sepolia" },
+  421614: { slug: "arbsep", name: "Arbitrum Sepolia" }, 11155420: { slug: "opsep", name: "Optimism Sepolia" },
+};
+
 // Published from merged Juicescan 3d9dd7b, pinned by Filebase and Pinata.
 // Update the CID only after confirming a newer published one, not a local build hash.
 // The host must serve the site with no content policy that blocks RPC, and Center gives this

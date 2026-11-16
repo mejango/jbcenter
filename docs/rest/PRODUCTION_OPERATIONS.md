@@ -157,8 +157,8 @@ buckets (`center:chat:reads`, `rpc:chat`), so chat load does not starve `/mcp`.
 - `CHAT_MODEL`: required with a provider.
 - `CHAT_API_KEY`: required for `anthropic` and `openai`. Server-only.
 - `CHAT_BASE_URL`: for `openai` and `ollama` only; defaults `https://api.openai.com/v1` and `http://127.0.0.1:11434/v1`.
-- `CHAT_EFFORT`: `low`, `medium` or `high`, where the provider has it; default `medium`.
-- `CHAT_MAX_ROUNDS`: model rounds per question; default `6`.
+- `CHAT_EFFORT`: `low`, `medium` or `high`, sent to Anthropic and Ollama; default `medium`. On Ollama's `glm-5.3`, `low` is about three times faster but often answers without reading any source, so keep `medium`.
+- `CHAT_MAX_ROUNDS`: model rounds per question; default `6`. The last round offers no tools, so the model answers from what it has read.
 - `CHAT_MAX_OUTPUT_TOKENS`: per round; default `8000`.
 - `CHAT_MAX_MESSAGES`: turns accepted per request; default `24`.
 - `CHAT_MAX_INPUT_CHARS`: characters accepted per request; default `24000`.

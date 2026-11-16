@@ -65,7 +65,22 @@ describe.each(cases)("$name provider", ({ fixture, env, name }) => {
     } else {
       expect(requests[0]!.url).toBe(`${config.baseUrl}/chat/completions`);
       expect(requests[0]!.headers.get("authorization")).toBe(name === "openai" ? "Bearer test-key" : null);
+      // An Ollama model can spend its whole output on hidden reasoning unless told how hard to think.
+      expect(requests[0]!.body.reasoning_effort).toBe(name === "ollama" ? "medium" : undefined);
     }
+  });
+
+  it("offers no tool call on the last round", async () => {
+    const { fetchImpl, requests } = recordingFetch(rounds(fixture));
+    const session = createProvider(config, fetchImpl).start({ system: "S", tools, messages: [{ role: "user", text: "q" }], signal: new AbortController().signal });
+    const first = await collect(session.next());
+    const id = (first.find((event) => event.type === "tool_calls") as Extract<TurnEvent, { type: "tool_calls" }>).calls[0]!.id;
+    await collect(session.next([{ id, content: "{}", isError: false }], true));
+    expect(requests[0]!.body.tool_choice).toBeUndefined();
+    expect(requests[0]!.body.tools).toHaveLength(1);
+    // Ollama models ignore tool_choice, so a compatible provider gets no tools at all.
+    if (name === "anthropic") expect(requests[1]!.body.tool_choice).toEqual({ type: "none" });
+    else expect(requests[1]!.body.tools).toBeUndefined();
   });
 
   it("ends quietly when the caller aborts", async () => {

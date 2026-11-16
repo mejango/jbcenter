@@ -29,7 +29,7 @@ export function compatibleProvider(config: ChatConfig, fetchImpl: typeof fetch):
     start({ system, tools, messages: history, signal }: ProviderRequest) {
       const messages: WireMessage[] = [{ role: "system", content: system }, ...history.map(({ role, text }) => ({ role, content: text }))];
       return {
-        async *next(outcomes?: ToolOutcome[]): AsyncIterable<TurnEvent> {
+        async *next(outcomes?: ToolOutcome[], last = false): AsyncIterable<TurnEvent> {
           for (const { id, content } of outcomes ?? []) messages.push({ role: "tool", tool_call_id: id, content });
           try {
             const response = await fetchImpl(`${config.baseUrl}/chat/completions`, {
@@ -39,7 +39,10 @@ export function compatibleProvider(config: ChatConfig, fetchImpl: typeof fetch):
               body: JSON.stringify({
                 model: config.model,
                 messages,
-                tools: tools.map(({ name, description, inputSchema }) => ({ type: "function", function: { name, description, parameters: inputSchema } })),
+                // Ollama models ignore tool_choice, so the last round is sent with no tools at all.
+                ...(last ? {} : { tools: tools.map(({ name, description, inputSchema }) => ({ type: "function", function: { name, description, parameters: inputSchema } })) }),
+                // An Ollama model can spend its whole output on hidden reasoning unless told how hard to think.
+                ...(config.provider === "ollama" ? { reasoning_effort: config.effort } : {}),
                 stream: true,
                 stream_options: { include_usage: true },
                 // OpenAI's current models take max_completion_tokens; Ollama takes max_tokens.

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ToolResult } from "@juicebox/mcp/host";
-import { auditLinks, directorySections, repositoryGroups } from "../directory.js";
+import { auditLinks, directorySections, INSPECT_CHAINS, repositoryGroups } from "../directory.js";
 
 /** Something an answer can cite. The model sees the id and title, never the URL. */
 export type Source = {
@@ -47,11 +47,12 @@ function walk(value: unknown, visit: (object: Json) => void): void {
   }
 }
 
-function projectOf(input: unknown): { chainId: number; projectId: number } | undefined {
+/** The project a tool call names. A project ID arrives as a base-10 string, or a number from a loose model. */
+export function projectOf(input: unknown): { chainId: number; projectId: string } | undefined {
   if (!isObject(input)) return undefined;
   for (const candidate of [input, input.project]) {
-    if (isObject(candidate) && Number.isInteger(candidate.chainId) && Number.isInteger(candidate.projectId))
-      return { chainId: candidate.chainId as number, projectId: candidate.projectId as number };
+    if (isObject(candidate) && Number.isInteger(candidate.chainId) && /^[1-9]\d{0,15}$/.test(String(candidate.projectId)))
+      return { chainId: candidate.chainId as number, projectId: String(candidate.projectId) };
   }
   return undefined;
 }
@@ -66,8 +67,9 @@ export function sourcesFor(tool: string, input: unknown, result: ToolResult, ori
   });
   if (references.size > 0) return [...references.values()];
   const project = projectOf(input);
-  const live = project
-    ? { url: `${origin}/inspect/${project.chainId}/${project.projectId}`, title: `Project ${project.projectId} on chain ${project.chainId}` }
+  const chain = project && INSPECT_CHAINS[project.chainId];
+  const live = chain
+    ? { url: `${origin}/inspect/${chain.slug}/${project.projectId}`, title: `Project ${project.projectId} on ${chain.name}` }
     : { url: `${origin}/api`, title: `Center API: ${tool}` };
   return [{ id: sourceId(live.url), ...live, kind: "live", observedAt: result.observedAt }];
 }

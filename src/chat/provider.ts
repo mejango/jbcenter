@@ -16,8 +16,8 @@ export type ToolOutcome = { id: string; content: string; isError: boolean };
  * the model produced (thinking, tool calls) goes back unchanged on the next round. */
 export interface ProviderSession {
   /** One model round. Pass the outcomes of the tool calls the previous round asked for. Ends without
-   * events when the caller aborted; throws on a provider failure. */
-  next(outcomes?: ToolOutcome[]): AsyncIterable<TurnEvent>;
+   * events when the caller aborted; throws on a provider failure. `last` asks for an answer, not a tool call. */
+  next(outcomes?: ToolOutcome[], last?: boolean): AsyncIterable<TurnEvent>;
 }
 export type ProviderRequest = { system: string; tools: ProviderTool[]; messages: ChatMessage[]; signal: AbortSignal };
 export interface Provider {

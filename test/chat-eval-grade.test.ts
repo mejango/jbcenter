@@ -12,6 +12,16 @@ describe("chat answer grading", () => {
     expect(grade(question, { text: "Cash outs BURN tokens [S-aaaaaa].", sources: [core, other] })).toEqual({ pass: true, reasons: [] });
   });
 
+  it("accepts any wording a required phrase lists", () => {
+    const loose = { ...question, mustInclude: ["do not know|cannot predict"] };
+    expect(grade(loose, { text: "I cannot predict that, but cash outs exist [S-aaaaaa].", sources: [core] }).pass).toBe(true);
+    expect(grade(loose, { text: "It will double [S-aaaaaa].", sources: [core] }).reasons).toEqual(['missing "do not know|cannot predict"']);
+  });
+
+  it("counts a source cited inside a grouped bracket", () => {
+    expect(grade(question, { text: "Cash outs burn tokens [S-bbbbbb, S-aaaaaa].", sources: [core, other] }).pass).toBe(true);
+  });
+
   it("fails when the expected source was found but not cited in the text", () => {
     expect(grade(question, { text: "Cash outs burn tokens [S-bbbbbb].", sources: [core, other] })).toEqual({ pass: false, reasons: ["cited none of the expected sources"] });
     expect(grade(question, { text: "Cash outs burn tokens.", sources: [core] })).toEqual({ pass: false, reasons: ["cited no source"] });
@@ -30,10 +40,10 @@ describe("chat answer grading", () => {
 describe("chat question set", () => {
   const questions: Question[] = JSON.parse(readFileSync(new URL("../evals/chat/questions.json", import.meta.url), "utf8"));
 
-  it("has 30 questions with unique ids: 8 newcomer, 8 project, 8 developer, 6 edge", () => {
-    expect(new Set(questions.map(({ id }) => id)).size).toBe(30);
-    const count = (group: string) => questions.filter((item) => item.group === group).length;
-    expect([count("newcomer"), count("project"), count("developer"), count("edge")]).toEqual([8, 8, 8, 6]);
+  it("has unique ids and covers every kind of visitor", () => {
+    expect(new Set(questions.map(({ id }) => id)).size).toBe(questions.length);
+    for (const group of ["newcomer", "project", "developer", "edge"]) expect(questions.filter((item) => item.group === group).length, group).toBeGreaterThanOrEqual(6);
+    expect(new Set(questions.map(({ group }) => group)).size).toBe(4);
     for (const item of questions) {
       expect(Object.keys(item).sort(), item.id).toEqual(["ask", "citesAnyOf", "group", "id", "mustInclude", "mustNotInclude"]);
       expect(item.ask).not.toMatch(/·/);

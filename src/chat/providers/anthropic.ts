@@ -23,7 +23,7 @@ export function anthropicProvider(config: ChatConfig, fetchImpl: typeof fetch): 
     start({ system, tools, messages: history, signal }: ProviderRequest) {
       const messages: Anthropic.Beta.BetaMessageParam[] = history.map(({ role, text }) => ({ role, content: text }));
       return {
-        async *next(outcomes?: ToolOutcome[]): AsyncIterable<TurnEvent> {
+        async *next(outcomes?: ToolOutcome[], last = false): AsyncIterable<TurnEvent> {
           if (outcomes) messages.push({ role: "user", content: outcomes.map(({ id, content, isError }) => ({
             type: "tool_result" as const, tool_use_id: id, content, is_error: isError })) });
           try {
@@ -32,6 +32,7 @@ export function anthropicProvider(config: ChatConfig, fetchImpl: typeof fetch): 
               max_tokens: config.maxOutputTokens,
               system,
               tools: tools.map(({ name, description, inputSchema }) => ({ name, description, input_schema: inputSchema as Anthropic.Beta.BetaTool.InputSchema })),
+              ...(last ? { tool_choice: { type: "none" as const } } : {}),
               messages,
               thinking: { type: "adaptive" },
               output_config: { effort: config.effort },

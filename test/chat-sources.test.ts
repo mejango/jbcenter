@@ -38,9 +38,17 @@ describe("chat sources", () => {
   });
 
   it("cites a project read as live data on the explorer", () => {
-    const [source] = sourcesFor("jb_get_project", { project: { chainId: 8453, projectId: 1 } }, ok({ name: "x" }), origin);
-    expect(source).toEqual({ id: sourceId(`${origin}/inspect/8453/1`), title: "Project 1 on chain 8453", url: `${origin}/inspect/8453/1`,
-      kind: "live", observedAt: "2026-11-16T00:00:00.000Z" });
+    // A project ID reaches a tool as a base-10 string; the explorer link takes the chain's slug.
+    for (const projectId of ["1", 1]) {
+      const [source] = sourcesFor("jb_get_project", { project: { chainId: 8453, projectId } }, ok({ name: "x" }), origin);
+      expect(source).toEqual({ id: sourceId(`${origin}/inspect/base/1`), title: "Project 1 on Base", url: `${origin}/inspect/base/1`,
+        kind: "live", observedAt: "2026-11-16T00:00:00.000Z" });
+    }
+  });
+
+  it("does not link a project on a chain the explorer has no page for", () => {
+    const [source] = sourcesFor("jb_get_project", { project: { chainId: 5, projectId: "1" } }, ok({ name: "x" }), origin);
+    expect(source).toMatchObject({ url: `${origin}/api` });
   });
 
   it("falls back to the Center API for any other tool", () => {

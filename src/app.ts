@@ -60,7 +60,7 @@ import {
 import type { Intent, JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
 import { llmsIndex, skillFile } from "./llms.js";
-import { JUICESCAN_URL } from "./directory.js";
+import { INSPECT_CHAINS, JUICESCAN_URL } from "./directory.js";
 import { mountChat, type ChatRuntime } from "./chat/route.js";
 import { originsForEnvironment } from "./firstParty.js";
 export { originsForEnvironment } from "./firstParty.js";
@@ -486,7 +486,7 @@ export function createApp(
   app.get("/inspect/:chain/:project", (c) => {
     const chain = c.req.param("chain");
     const project = c.req.param("project");
-    if (!["eth", "op", "base", "arb", "sep", "opsep", "basesep", "arbsep"].includes(chain)
+    if (!Object.values(INSPECT_CHAINS).some(({ slug }) => slug === chain)
       || !/^[1-9]\d{0,15}$/.test(project)
       || !Number.isSafeInteger(Number(project))) {
       return c.text("Use a supported chain slug and a positive safe-integer project ID.", 400);

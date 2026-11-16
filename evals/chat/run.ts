@@ -1,6 +1,6 @@
 // Asks the configured model every question once, in-process, against the real tools.
 // Spends model money: run it only with a provider and budget jango approved.
-//   npm run eval:chat [-- --only <id>]
+//   npm run eval:chat [-- --only <id or id prefix>]
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createTools } from "@juicebox/mcp/host";
 import { loadChatConfig } from "../../src/chat/config.js";
@@ -17,23 +17,24 @@ const config = loadChatConfig(process.env);
 if (!config) throw new Error("Set CHAT_PROVIDER, CHAT_MODEL and the provider's key first.");
 const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1] : undefined;
 const questions = (JSON.parse(await readFile(new URL("./questions.json", import.meta.url), "utf8")) as Question[])
-  .filter(({ id }) => !only || id === only);
+  .filter(({ id }) => !only || id.startsWith(only));
 
 // Reads only: an empty store, the real chains and the real indexer.
 const mcp = createCenterMcp(new MemoryStore(), { rpc: createRpcGateway(dwellirRpcUpstreams(process.env.DWELLIR_API_KEY)) });
 const deps = { config, provider: createProvider(config), tools: chatTools(createTools(mcp.services)), origin: mcp.config.publicOrigin };
 
-const rows: ({ id: string; group: string; pass: boolean; reasons: string[]; in: number; out: number; tools: number; text: string; sources: Source[] })[] = [];
+const rows: ({ id: string; group: string; pass: boolean; reasons: string[]; in: number; out: number; tools: number; calls: string[]; text: string; sources: Source[] })[] = [];
 for (const question of questions) {
   let text = "", done: { reason: string; inputTokens: number; outputTokens: number; toolCalls: number } | undefined;
-  const sources: Source[] = [];
+  const sources: Source[] = [], calls: string[] = [];
   for await (const event of runChat({ ...deps, messages: [{ role: "user", text: question.ask }], signal: new AbortController().signal })) {
     if (event.type === "text") text += event.text;
     else if (event.type === "source") sources.push(event.source);
+    else if (event.type === "tool") calls.push(event.name);
     else if (event.type === "done") done = event;
   }
   const result = done?.reason === "end" ? grade(question, { text, sources }) : { pass: false, reasons: [`ended: ${done?.reason ?? "cut"}`] };
-  rows.push({ id: question.id, group: question.group, ...result, in: done?.inputTokens ?? 0, out: done?.outputTokens ?? 0, tools: done?.toolCalls ?? 0, text, sources });
+  rows.push({ id: question.id, group: question.group, ...result, in: done?.inputTokens ?? 0, out: done?.outputTokens ?? 0, tools: done?.toolCalls ?? 0, calls, text, sources });
   console.log(`${result.pass ? "pass" : "FAIL"}  ${question.id.padEnd(28)} in ${String(done?.inputTokens ?? 0).padStart(7)}  out ${String(done?.outputTokens ?? 0).padStart(5)}  ${result.reasons.join("; ")}`);
 }
 

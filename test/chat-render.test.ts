@@ -18,6 +18,11 @@ function render(text: string) {
 }
 
 describe("answer rendering", () => {
+  it("links each id of a grouped citation", () => {
+    expect(render("Burns [S-aaaaaa, S-bbbbbb]. Unknown [S-aaaaaa; S-dddddd].")).toBe(
+      `<p>Burns ${A}<a href="https://juicebox.center/inspect/8453/1" title="Project 1 on chain 8453" rel="noopener">[2]</a>. Unknown ${A}[S-dddddd].</p>`);
+  });
+
   it("turns a known source id into a numbered link", () => {
     expect(render("Burns tokens [S-aaaaaa]. Live [S-bbbbbb], again [S-aaaaaa].")).toBe(
       `<p>Burns tokens ${A}. Live <a href="https://juicebox.center/inspect/8453/1" title="Project 1 on chain 8453" rel="noopener">[2]</a>, again ${A}.</p>`);

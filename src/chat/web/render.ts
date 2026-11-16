@@ -7,11 +7,12 @@ export type Cited = { n: number; url: string; title: string };
 function prose(text: string, lookup: (id: string) => Cited | undefined): string {
   return escapeHtml(text)
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\[(S-[0-9a-f]{6})\]/g, (whole, id: string) => {
+    // One id per bracket, or several: models write both.
+    .replace(/\[(S-[0-9a-f]{6}(?:[,;]? ?S-[0-9a-f]{6})*)\]/g, (_, ids: string) => ids.match(/S-[0-9a-f]{6}/g)!.map((id) => {
       const source = lookup(id);
       return source && /^https?:\/\//.test(source.url)
-        ? `<a href="${escapeHtml(source.url)}" title="${escapeHtml(source.title)}" rel="noopener">[${source.n}]</a>` : whole;
-    });
+        ? `<a href="${escapeHtml(source.url)}" title="${escapeHtml(source.title)}" rel="noopener">[${source.n}]</a>` : `[${id}]`;
+    }).join(""));
 }
 
 const inline = (text: string, lookup: (id: string) => Cited | undefined) =>
