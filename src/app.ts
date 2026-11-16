@@ -21,9 +21,9 @@ import {
 } from "./intent.js";
 import { extractMetadata } from "./metadata.js";
 import {
-  HOMEPAGE_HEADERS,
-  HOMEPAGE_HTML,
   homepageAssets,
+  homepageHeaders,
+  homepageHtml,
 } from "./homepage.js";
 import { mountAssets } from "./rest/web/assets.js";
 import { Metrics } from "./observability.js";
@@ -60,7 +60,8 @@ import {
 import type { Intent, JbcenterEnv } from "./types.js";
 import { mountRestSite, type RestSite } from "./rest/site.js";
 import { llmsIndex, skillFile } from "./llms.js";
-import { JUICESCAN_URL } from "./directory.js";
+import { INSPECT_CHAINS, JUICESCAN_URL } from "./directory.js";
+import { mountChat, type ChatRuntime } from "./chat/route.js";
 import { originsForEnvironment } from "./firstParty.js";
 export { originsForEnvironment } from "./firstParty.js";
 
@@ -113,6 +114,8 @@ export type AppOptions = {
   publishPerPublisherPerDay?: number;
   publishPerIpPerHour?: number;
   sponsor?: SponsorRuntime;
+  /** The homepage chat. Absent: chat is off, and `/` is the directory alone. */
+  chat?: ChatRuntime;
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -460,9 +463,11 @@ export function createApp(
   if (options.rest) mountRestSite(app, options.rest);
 
   // Agents that ask for markdown get the same directory as text.
+  const home = { html: homepageHtml(options.chat?.page), headers: homepageHeaders(options.chat?.page) };
   app.get("/", (c) => c.req.header("Accept")?.includes("text/markdown")
-    ? c.text(llmsIndex(options.rest?.audience), 200, { ...HOMEPAGE_HEADERS, "Content-Type": "text/markdown; charset=utf-8" })
-    : c.html(HOMEPAGE_HTML, 200, HOMEPAGE_HEADERS));
+    ? c.text(llmsIndex(options.rest?.audience), 200, { ...home.headers, "Content-Type": "text/markdown; charset=utf-8" })
+    : c.html(home.html, 200, home.headers));
+  mountChat(app, { ...(options.chat ? { chat: options.chat } : {}), store, metrics, callerIp });
   app.get("/favicon.svg", (c) => c.body(FAVICON_SVG, 200, {
     "Content-Type": "image/svg+xml; charset=utf-8",
     "Cache-Control": "public, max-age=300",
@@ -481,7 +486,7 @@ export function createApp(
   app.get("/inspect/:chain/:project", (c) => {
     const chain = c.req.param("chain");
     const project = c.req.param("project");
-    if (!["eth", "op", "base", "arb", "sep", "opsep", "basesep", "arbsep"].includes(chain)
+    if (!Object.values(INSPECT_CHAINS).some(({ slug }) => slug === chain)
       || !/^[1-9]\d{0,15}$/.test(project)
       || !Number.isSafeInteger(Number(project))) {
       return c.text("Use a supported chain slug and a positive safe-integer project ID.", 400);
@@ -489,7 +494,7 @@ export function createApp(
     c.header("Cache-Control", "public, max-age=300");
     return c.redirect(`${JUICESCAN_URL}#${chain}:${project}`, 302);
   });
-  mountAssets(app, "", homepageAssets());
+  mountAssets(app, "", homepageAssets(options.chat?.page));
 
   app.get("/healthz", (c) => c.json({ ok: true }));
 

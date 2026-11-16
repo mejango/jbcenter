@@ -6,7 +6,7 @@ import { expect, it } from "vitest";
 // @ts-expect-error The build script is plain ESM without declarations.
 import { webBuildOptions } from "../scripts/rest/build-web.mjs";
 import { FAVICON_SVG } from "../src/branding.js";
-import { HOMEPAGE_HTML, homepageAssets } from "../src/homepage.js";
+import { HOMEPAGE_HTML, homepageAssets, homepageHtml } from "../src/homepage.js";
 import { getContractCatalog } from "../src/rest/contracts/catalog.js";
 import { guidePage } from "../src/rest/docs/guide.js";
 import { apiDocsCss, apiDocsPage, apiReferencePages, apiSearchTerms, buildRestOpenApi } from "../src/rest/docs/index.js";
@@ -18,12 +18,13 @@ import { hashedAssetName, type AssetNames } from "../src/rest/web/assets.js";
 // Ceilings sit at the measured size rounded up to the next 0.5 KiB. Raise one only for bytes the
 // page needs on first view; anything else loads on demand and gets its own ceiling below.
 const pageCeilings: Record<string, number> = {
-  "/": 5_120, "/api": 25_600, "/api/docs/* (largest)": 19_968,
+  "/": 5_120, "/ (chat on)": 5_120, "/api": 25_600, "/api/docs/* (largest)": 19_968,
 };
 const onDemandCeilings: Record<string, number> = {
-  "/api/reference/* (largest)": 7_168, "/api/terms.json": 23_040,
+  "/api/reference/* (largest)": 7_168, "/api/terms.json": 23_040, "chat.css": 512,
 };
-const bundleCeilings: Record<string, number> = { docs: 1_024 };
+// The chat bundle and its stylesheet load on first use of the chat, never on first view.
+const bundleCeilings: Record<string, number> = { docs: 1_024, "chat-boot": 512, chat: 2_560 };
 
 const gz = (body: string) => gzipSync(body).length;
 // Each link is /<base>/assets/<name>.<hash>.<ext>; the hash must name these exact bytes.
@@ -46,10 +47,12 @@ it("keeps every served page, bundle and on-demand piece within its ceiling", asy
     PLAN_SECRET: "openapi-offline-tests-only-32-byte-secret" })));
   const spec = buildRestOpenApi({ contracts: await getContractCatalog(), indexer: createIndexerReadService({}), operations, publicOrigin: origin });
   const home = homepageAssets();
+  const chat = { boot: bundles["chat-boot"]!, main: bundles.chat! };
   const docs = { "docs.js": bundles.docs!, "api.css": apiDocsCss, "favicon.svg": FAVICON_SVG };
   const guides = await Promise.all(REST_DOCUMENTS.map(async name => guidePage(name.toLowerCase(), await readFile(new URL(`../docs/rest/${name}.md`, import.meta.url), "utf8"), names(docs))));
   const pages: Record<string, [string, Record<string, string>]> = {
     "/": [HOMEPAGE_HTML, home],
+    "/ (chat on)": [homepageHtml(chat), homepageAssets(chat)],
     "/api": [apiDocsPage(spec, names(docs)), docs],
     "/api/docs/* (largest)": [guides.reduce((a, b) => gz(a) >= gz(b) ? a : b), docs],
   };
@@ -65,6 +68,7 @@ it("keeps every served page, bundle and on-demand piece within its ceiling", asy
   const onDemand: Record<string, number> = {
     "/api/reference/* (largest)": Math.max(...Array.from(apiReferencePages(spec, names(docs)).values(), gz)),
     "/api/terms.json": gz(JSON.stringify(apiSearchTerms(spec))),
+    "chat.css": gz(homepageAssets(chat)["chat.css"]!),
   };
   for (const [piece, ceiling] of Object.entries(onDemandCeilings)) expect(onDemand[piece], piece).toBeLessThanOrEqual(ceiling);
   // PAGE_WEIGHT_REPORT=<file> writes the measured sizes, for the PR table and for lowering ceilings.

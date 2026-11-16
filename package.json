@@ -14,12 +14,14 @@
     "check": "node scripts/rest/check-required-tests.mjs",
     "check:preflight": "node scripts/rest/check-required-tests.mjs --preflight",
     "migrate": "node --env-file-if-exists=.env --import tsx src/db/migrate-cli.ts",
-    "build:web": "node scripts/rest/build-web.mjs"
+    "build:web": "node scripts/rest/build-web.mjs",
+    "eval:chat": "node --env-file-if-exists=.env --import tsx evals/chat/run.ts"
   },
   "engines": {
     "node": ">=26.13.1"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.8.0",
     "@hono/node-server": "^1.19.18",
     "@juicebox/mcp": "file:./mcp",
     "busboy": "^1.6.0",

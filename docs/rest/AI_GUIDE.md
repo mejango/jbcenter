@@ -8,6 +8,8 @@ Read `/api/v1/capabilities` and `/api/v1/catalog/operations`. Use only the addre
 
 MCP clients connect to `https://juicebox.center/mcp`. A review token from MCP is not valid over REST, and the reverse.
 
+The homepage chat uses these same tools with a model in front. Agents should call /mcp directly. `POST /chat` answers only Center's own page.
+
 ## Read
 
 Choose `onchain` for current contract state and `bendystraw` for search and history. State the source, chain, project and block for every value. An unavailable read is unknown, never zero. See [indexed reads](INDEXER.md) and [omnichain projects](OMNICHAIN.md).

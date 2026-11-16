@@ -144,6 +144,45 @@ exposed through the public browser RPC gateway.
 
 Juicescan links to its published CID on `inbrowser.link`, which verifies the content in the browser. Center gives that origin the explorer's RPC allowance. Update the CID from successful publisher or pin-provider records, not an unverified local build hash.
 
+## Homepage chat
+
+With `CHAT_PROVIDER` set, `/` leads with a prompt and `POST /chat` answers it. Unset `CHAT_PROVIDER`
+and redeploy to turn chat off: `/` is then the directory alone, byte for byte, and `/chat` returns 503.
+
+The model reads 30 of the MCP's tools in-process (`src/chat/tools.ts`): reference, reads and quotes.
+It cannot prepare, pin, publish, deploy, simulate or verify. Tool calls spend their own backend
+buckets (`center:chat:reads`, `rpc:chat`), so chat load does not starve `/mcp`.
+
+- `CHAT_PROVIDER`: `anthropic`, `openai` or `ollama`. Unset: chat is off.
+- `CHAT_MODEL`: required with a provider.
+- `CHAT_API_KEY`: required for `anthropic` and `openai`. Server-only.
+- `CHAT_BASE_URL`: for `openai` and `ollama` only; defaults `https://api.openai.com/v1` and `http://127.0.0.1:11434/v1`.
+- `CHAT_EFFORT`: `low`, `medium` or `high`, sent to Anthropic and Ollama; default `medium`. On Ollama's `glm-5.3`, `low` is about three times faster but often answers without reading any source, so keep `medium`.
+- `CHAT_MAX_ROUNDS`: model rounds per question; default `6`. The last round offers no tools, so the model answers from what it has read.
+- `CHAT_MAX_OUTPUT_TOKENS`: per round; default `8000`.
+- `CHAT_MAX_MESSAGES`: turns accepted per request; default `24`.
+- `CHAT_MAX_INPUT_CHARS`: characters accepted per request; default `24000`.
+- `CHAT_TIMEOUT_MS`: whole request; default `90000`.
+- `CHAT_TOOL_RESULT_BYTES`: bytes of one tool result the model reads; default `32768`.
+- `CHAT_PER_IP_PER_HOUR`: default `20`.
+- `CHAT_PER_IP_PER_DAY`: default `60`.
+- `CHAT_SITE_PER_DAY`: all visitors together; default `3000`. This is the spending cap.
+
+One question runs at most 12 tool calls. One server process answers at most 16 questions at once;
+the next gets the same resting message with a 10 second retry.
+
+When any of the three budgets is spent, `/chat` returns 429 and the page says
+`Chat is resting. The directory is below.` The directory keeps working.
+
+`/chat` accepts only requests whose `Origin` equals `MCP_PUBLIC_ORIGIN` (default `https://juicebox.center`),
+so a local or staging server must set that to its own origin. It is the page's endpoint, not an API.
+
+`/metrics` counts `jbcenter_chat_requests_total`, `_budget_denials_total`, `_tool_calls_total`,
+`_input_tokens_total`, `_output_tokens_total`, `_refusals_total`, `_provider_errors_total` and
+`_visitor_left_total`. A visitor who leaves mid-answer still counts, with the tokens spent so far.
+Questions and answers are never logged or stored on the server. A provider's error text is not
+logged either, because it can quote the request. Conversations live in the visitor's browser.
+
 ## MCP hosting
 
 The server routes `/mcp` directly to the MCP transport before Center's browser API middleware.

@@ -1,0 +1,23 @@
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant", "content": null, "tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "jb_search_reference", "arguments": ""}}]}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": "{\"query\":"}}]}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": "\"cash out\"}"}}]}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "choices": [], "usage": {"prompt_tokens": 100, "completion_tokens": 20}}
+
+data: [DONE]
+
+=== round ===
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "A cash out burns tokens "}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"content": "[S-aaaaaa]."}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+
+data: {"id": "chatcmpl-2", "object": "chat.completion.chunk", "choices": [], "usage": {"prompt_tokens": 130, "completion_tokens": 12}}
+
+data: [DONE]
+

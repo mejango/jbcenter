@@ -1,4 +1,5 @@
 import { assetHref, hashedAssetName } from "./rest/web/assets.js";
+import { CHAT_CSS, CHAT_FIRST_VIEW_CSS } from "./chat/web/chat.css.js";
 import { BRAND_CSS, BRAND_ICON, FAVICON_LINK, FAVICON_SVG } from "./branding.js";
 import {
   auditLinks,
@@ -10,15 +11,20 @@ import {
   type DirectoryLink,
 } from "./directory.js";
 
-export const HOMEPAGE_HEADERS = {
+/** The chat's two browser bundles. Given: `/` leads with the chat. Absent: `/` is the directory alone. */
+export type ChatPage = { boot: string; main: string };
+
+/** With chat on, the page may run its own script and call its own endpoint. Nothing else changes. */
+export const homepageHeaders = (chat?: ChatPage) => ({
   "Cache-Control": "public, max-age=300",
   "Content-Security-Policy":
-    "default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+    `default-src 'none'; style-src 'self'; img-src 'self';${chat ? " script-src 'self'; connect-src 'self';" : ""} base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "X-Content-Type-Options": "nosniff",
   // `/` answers `Accept: text/markdown` with the same directory as text.
   Vary: "Accept",
-};
+});
+export const HOMEPAGE_HEADERS = homepageHeaders();
 
 function escapeHtml(value: string): string {
   return value.replace(
@@ -116,13 +122,19 @@ footer { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-top: 40px; paddin
 @media (prefers-reduced-motion: reduce) { :root { scroll-behavior: auto; } }
 `;
 
-/** The files \`/\` links, served under hashed names: its stylesheet and icon. */
-export const homepageAssets = (): Record<string, string> => ({
-  "directory.css": HOMEPAGE_CSS, "favicon.svg": FAVICON_SVG,
+/** The files \`/\` links, served under hashed names: its stylesheet and icon, and the chat's files when it is on. */
+export const homepageAssets = (chat?: ChatPage): Record<string, string> => ({
+  "directory.css": chat ? HOMEPAGE_CSS + CHAT_FIRST_VIEW_CSS : HOMEPAGE_CSS, "favicon.svg": FAVICON_SVG,
+  ...(chat ? { "chat-boot.js": chat.boot, "chat.js": chat.main, "chat.css": CHAT_CSS } : {}),
 });
-const names = Object.fromEntries(Object.entries(homepageAssets()).map(([file, body]) => [file, hashedAssetName(file, body)]));
 
-export const HOMEPAGE_HTML = `<!doctype html>
+export function homepageHtml(chat?: ChatPage): string {
+  const names = Object.fromEntries(Object.entries(homepageAssets(chat)).map(([file, body]) => [file, hashedAssetName(file, body)]));
+  const href = (file: string) => assetHref("", file, names);
+  // Hidden until its script runs, so a browser without scripts shows the directory alone.
+  const section = chat ? `
+    <section id="chat" data-src="${href("chat.js")}" data-css="${href("chat.css")}" hidden><h1>Ask about Juicebox</h1><form><textarea rows="2" aria-label="Question"></textarea><button>Ask</button></form><p class="jumps">${["How do cash outs work?", "What is project 1 on Base?", "Where do fees go?"].map((question) => `<button>${question}</button>`).join("")}</p></section>` : "";
+  return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -133,7 +145,8 @@ export const HOMEPAGE_HTML = `<!doctype html>
   ${FAVICON_LINK}
   <link rel="canonical" href="https://juicebox.center/">
   <link rel="alternate" type="text/markdown" href="/llms.txt" title="This directory as text">
-  <link rel="stylesheet" href="${assetHref("", "directory.css", names)}">
+  <link rel="stylesheet" href="${href("directory.css")}">${chat ? `
+  <script type="module" src="${href("chat-boot.js")}"></script>` : ""}
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to directory</a>
@@ -141,9 +154,9 @@ export const HOMEPAGE_HTML = `<!doctype html>
     <header>
       <a class="wordmark" href="/">${BRAND_ICON} juicebox.center</a>
       <span class="edition">V6</span>
-    </header>
+    </header>${section}
     <main id="main" tabindex="-1">
-      <h1>Everything Juicebox in one place</h1>
+      ${chat ? '<h2 class="more">Directory</h2>' : "<h1>Everything Juicebox in one place</h1>"}
       <p class="introduction">The 'pay' and 'cash out' functions of the open internet. New here? <a href="https://juicebox.money/learn">Start with the basics</a>.</p>
       <nav class="jumps" aria-label="Sections">${jumps.map(([id, title]) => `<a href="#${id}">${escapeHtml(title!)}</a>`).join("")}</nav>
       <div class="audiences">${directorySections.map(({ id, title, audience, groups }) => `<section id="${id}" aria-labelledby="title-${id}"><h2 id="title-${id}">${escapeHtml(title)}</h2><p class="audience">${escapeHtml(audience)}</p>${groups.map((item) => group(item.title, item.links, item.id)).join("")}</section>`).join("")}</div>
@@ -165,3 +178,5 @@ export const HOMEPAGE_HTML = `<!doctype html>
   </div>
 </body>
 </html>`;
+}
+export const HOMEPAGE_HTML = homepageHtml();
