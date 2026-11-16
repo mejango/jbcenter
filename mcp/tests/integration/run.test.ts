@@ -127,17 +127,12 @@ describe('shared tool runner', () => {
     expect(result.error?.code).toBe('RESULT_TOO_LARGE');
   });
 
-  it('validates input on request and reports the failing path', async () => {
-    let ran = false;
+  it('reports the failing path when a tool rejects its input', async () => {
+    const tool = stub(async () => ({}));
     const result = await runTool(
-      stub(async () => {
-        ran = true;
-        return {};
-      }),
+      { ...tool, run: async (input) => tool.schema.parse(input) },
       { n: 'one' },
-      { validate: true },
     );
-    expect(ran).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.details).toEqual([{ path: ['n'], message: expect.any(String) }]);
   });
@@ -169,6 +164,8 @@ describe('shared tool runner', () => {
     const schema = toolJsonSchema(tools.find((tool) => tool.name === 'jb_get_project')!);
     expect(schema.type).toBe('object');
     expect(schema.properties).toBeDefined();
+    // Schemas with transforms convert too: a provider is shown what the tool accepts.
+    for (const tool of tools) expect(toolJsonSchema(tool).type, tool.name).toBe('object');
   });
 
   it('splits the instructions into general rules and the transaction workflow', () => {

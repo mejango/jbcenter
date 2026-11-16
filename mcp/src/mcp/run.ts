@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { inputJsonSchemaOf } from '../application/operation.js';
 import { withRequestBudget } from '../domain/context.js';
 import { DomainError, publicError } from '../domain/errors.js';
 import { assertUnambiguousJson, jsonSafe } from '../domain/json.js';
@@ -44,16 +45,16 @@ function toolError(error: unknown) {
 
 /**
  * Runs one tool under a request budget and returns the versioned envelope. Never throws.
- * `validate` parses the input first, for callers that have no protocol layer doing it.
+ * The tool's own handler checks its input.
  */
 export function runTool(
   tool: ToolDefinition,
   input: unknown,
-  options: { signal?: AbortSignal; validate?: boolean } = {},
+  options: { signal?: AbortSignal } = {},
 ): Promise<ToolResult> {
   return withRequestBudget(async () => {
     try {
-      const data = jsonSafe(await tool.run(options.validate ? tool.schema.parse(input) : input));
+      const data = jsonSafe(await tool.run(input));
       assertUnambiguousJson(data);
       if (Buffer.byteLength(JSON.stringify(data)) > MAX_RESULT_BYTES)
         throw new DomainError(
@@ -79,5 +80,5 @@ export function runTool(
 
 /** The JSON Schema a model provider receives for a tool's input. */
 export function toolJsonSchema(tool: ToolDefinition): Record<string, unknown> {
-  return z.toJSONSchema(tool.schema) as Record<string, unknown>;
+  return inputJsonSchemaOf(tool.schema);
 }
