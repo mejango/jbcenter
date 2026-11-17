@@ -51,7 +51,7 @@ export const INSPECT_CHAINS: Record<number, { slug: string; name: string }> = {
 // The host must serve the site with no content policy that blocks RPC, and Center gives this
 // origin the explorer's RPC allowance. inbrowser.link verifies the CID in the browser.
 export const JUICESCAN_URL =
-  "https://bafybeihy3ecnt4qqw4ezbxxpe43j27iizseezqpc5dnj74ty6nm56nairm.ipfs.inbrowser.link/";
+  "https://bafybeidrgdezma5ietryoqou3twpcd2fjngsgtldlppxihoikckclugevu.ipfs.inbrowser.link/";
 
 const V6 = "https://github.com/Bananapus/version-6";
 const CENTER = "https://github.com/mejango/jbcenter";
